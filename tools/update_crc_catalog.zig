@@ -53,7 +53,7 @@ fn @"i like cheese"(arena: std.mem.Allocator, io: Io, args: []const []const u8) 
         \\    _ = @import("crc/test.zig");
         \\}
         \\
-        \\pub const Crc32Iscsi = switch (builtin.cpu.hasAll(.x86, &.{ .@"64bit", .crc32 }) and builtin.zig_backend == .stage2_llvm) {
+        \\pub const Crc32Iscsi = switch (builtin.cpu.hasAll(.x86, &.{ .@"64bit", .crc32 })) {
         \\    true => @import("crc/Crc32c.zig"),
         \\    else => Crc(u32, .{
         \\        .polynomial = 0x1edc6f41,
