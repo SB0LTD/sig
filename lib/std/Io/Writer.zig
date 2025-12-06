@@ -2772,10 +2772,14 @@ pub const Allocating = struct {
         if (limit == .nothing) return 0;
         const a: *Allocating = @fieldParentPtr("writer", w);
         const pos = file_reader.logicalPos();
-        const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
+        const additional, const exact = if (file_reader.getSize()) |size|
+            .{ size - pos, true }
+        else |_|
+            .{ std.atomic.cache_line, false };
         if (additional == 0) return error.EndOfStream;
         a.ensureUnusedCapacity(limit.minInt64(additional)) catch return error.WriteFailed;
-        const dest = limit.slice(a.writer.buffer[a.writer.end..]);
+        const buffer = a.writer.buffer[a.writer.end..];
+        const dest = if (exact) buffer[0..limit.minInt64(additional)] else limit.slice(buffer);
         const n = try file_reader.interface.readSliceShort(dest);
         if (n == 0) return error.EndOfStream;
         a.writer.end += n;
