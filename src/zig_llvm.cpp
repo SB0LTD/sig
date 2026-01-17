@@ -30,13 +30,10 @@
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/OptBisect.h>
-#include <llvm/Support/IntegerInclusiveInterval.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
 #include <llvm/MC/TargetRegistry.h>
-#include <llvm/MC/MCSubtargetInfo.h>
-#include <set>
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/StandardInstrumentations.h>
@@ -153,48 +150,10 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
         opt.EmulatedTLS = true;
     }
 
-    // Filter out CPU features that LLVM doesn't recognize for this target.
-    // This prevents "not a recognized feature" warnings when the host CPU
-    // reports features newer than what this LLVM version supports (e.g. amx-transpose).
-    std::string FilteredFeatures;
-    if (Features && Features[0]) {
-        const Target *TheTarget = reinterpret_cast<Target*>(T);
-        std::unique_ptr<MCSubtargetInfo> STI(
-            TheTarget->createMCSubtargetInfo(llvm::Triple(Triple), CPU, ""));
-        if (STI) {
-            // Build a set of known feature names
-            auto AllFeatures = STI->getAllProcessorFeatures();
-            std::set<std::string> KnownFeatures;
-            for (const auto &F : AllFeatures)
-                KnownFeatures.insert(std::string(F.Key));
-
-            llvm::StringRef FeatStr(Features);
-            llvm::SmallVector<llvm::StringRef, 32> Feats;
-            FeatStr.split(Feats, ',', -1, false);
-            bool first = true;
-            for (auto &F : Feats) {
-                auto Trimmed = F.trim();
-                if (Trimmed.empty()) continue;
-                // Extract the feature name (skip +/- prefix)
-                auto Name = Trimmed;
-                if (Name.starts_with("+") || Name.starts_with("-"))
-                    Name = Name.drop_front(1);
-                if (KnownFeatures.count(Name.str()) || Name.empty()) {
-                    if (!first) FilteredFeatures += ',';
-                    FilteredFeatures += Trimmed.str();
-                    first = false;
-                }
-                // Silently drop unrecognized features
-            }
-        } else {
-            FilteredFeatures = Features;
-        }
-    }
-
     TargetMachine *TM = reinterpret_cast<Target*>(T)->createTargetMachine(
         llvm::Triple(Triple),
         CPU,
-        FilteredFeatures.c_str(),
+        Features,
         opt,
         RM,
         CM,
@@ -479,11 +438,9 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
 }
 
 void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit) {
-    auto *opt_bisect = new OptBisect();
-    IntegerInclusiveIntervalUtils::IntervalList intervals;
-    intervals.push_back({0, limit});
-    opt_bisect->setIntervals(std::move(intervals));
-    unwrap(context_ref)->setOptPassGate(*opt_bisect);
+    static OptBisect opt_bisect;
+    opt_bisect.setIntervals({0, limit});
+    unwrap(context_ref)->setOptPassGate(opt_bisect);
 }
 
 struct ZigDiagnosticHandler : public DiagnosticHandler {
