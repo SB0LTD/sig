@@ -162,6 +162,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
             .{ .v9_4a, "v9.4a" },
             .{ .v9_5a, "v9.5a" },
             .{ .v9_6a, "v9.6a" },
+            .{ .v9_7a, "v9.7a" },
         }),
         .powerpc => subArchName(target, .powerpc, .{
             .{ .spe, "spe" },

@@ -25,6 +25,7 @@ pub const Feature = enum {
     hvxv73,
     hvxv75,
     hvxv79,
+    hvxv81,
     long_calls,
     mem_noshuf,
     memops,
@@ -36,7 +37,6 @@ pub const Feature = enum {
     reserved_r19,
     small_data,
     tinycore,
-    unsafe_fp,
     v5,
     v55,
     v60,
@@ -50,6 +50,7 @@ pub const Feature = enum {
     v73,
     v75,
     v79,
+    v81,
     zreg,
 };
 
@@ -189,6 +190,13 @@ pub const all_features = blk: {
             .hvxv75,
         }),
     };
+    result[@intFromEnum(Feature.hvxv81)] = .{
+        .llvm_name = "hvxv81",
+        .description = "Hexagon HVX instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .hvxv79,
+        }),
+    };
     result[@intFromEnum(Feature.long_calls)] = .{
         .llvm_name = "long-calls",
         .description = "Use constant-extended calls",
@@ -246,11 +254,6 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.tinycore)] = .{
         .llvm_name = "tinycore",
         .description = "Hexagon Tiny Core",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.unsafe_fp)] = .{
-        .llvm_name = "unsafe-fp",
-        .description = "Use unsafe FP math",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.v5)] = .{
@@ -316,6 +319,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.v79)] = .{
         .llvm_name = "v79",
         .description = "Enable Hexagon V79 architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.v81)] = .{
+        .llvm_name = "v81",
+        .description = "Enable Hexagon V81 architecture",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.zreg)] = .{
@@ -660,6 +668,33 @@ pub const cpu = struct {
             .v73,
             .v75,
             .v79,
+        }),
+    };
+    pub const hexagonv81: CpuModel = .{
+        .name = "hexagonv81",
+        .llvm_name = "hexagonv81",
+        .features = featureSet(&[_]Feature{
+            .compound,
+            .duplex,
+            .mem_noshuf,
+            .memops,
+            .nvj,
+            .nvs,
+            .small_data,
+            .v5,
+            .v55,
+            .v60,
+            .v62,
+            .v65,
+            .v66,
+            .v67,
+            .v68,
+            .v69,
+            .v71,
+            .v73,
+            .v75,
+            .v79,
+            .v81,
         }),
     };
 };

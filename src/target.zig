@@ -388,6 +388,8 @@ pub fn hasDebugInfo(target: *const std.Target) bool {
             .ptx85,
             .ptx86,
             .ptx87,
+            .ptx88,
+            .ptx90,
         }),
         .bpfel, .bpfeb => false,
         else => true,

@@ -6630,11 +6630,11 @@ const ParamTypeIterator = struct {
                 } else if (isByRef(ty, zcu)) {
                     return .byref;
                 } else if (target.cpu.arch.isX86() and
-                    !target.cpu.has(.x86, .evex512) and
+                    !target.cpu.has(.x86, .avx512f) and
                     ty.totalVectorBits(zcu) >= 512)
                 {
                     // As of LLVM 18, passing a vector byval with fastcc that is 512 bits or more returns
-                    // "512-bit vector arguments require 'evex512' for AVX512"
+                    // "512-bit vector arguments require 'avx512f' for AVX512"
                     return .byref;
                 } else {
                     return .byval;
@@ -6903,11 +6903,11 @@ fn returnTypeByRef(zcu: *Zcu, target: *const std.Target, ty: Type) bool {
     if (isByRef(ty, zcu)) {
         return true;
     } else if (target.cpu.arch.isX86() and
-        !target.cpu.has(.x86, .evex512) and
+        !target.cpu.has(.x86, .avx512f) and
         ty.totalVectorBits(zcu) >= 512)
     {
         // As of LLVM 18, passing a vector byval with fastcc that is 512 bits or more returns
-        // "512-bit vector arguments require 'evex512' for AVX512"
+        // "512-bit vector arguments require 'avx512f' for AVX512"
         return true;
     } else {
         return false;

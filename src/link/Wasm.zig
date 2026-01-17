@@ -2829,6 +2829,7 @@ pub const Feature = packed struct(u8) {
         @"exception-handling",
         @"extended-const",
         fp16,
+        gc,
         memory64,
         multimemory,
         multivalue,
@@ -2852,6 +2853,7 @@ pub const Feature = packed struct(u8) {
                 .exception_handling => .@"exception-handling",
                 .extended_const => .@"extended-const",
                 .fp16 => .fp16,
+                .gc => .gc,
                 .multimemory => .multimemory,
                 .multivalue => .multivalue,
                 .mutable_globals => .@"mutable-globals",
@@ -2875,6 +2877,7 @@ pub const Feature = packed struct(u8) {
                 .@"exception-handling" => .exception_handling,
                 .@"extended-const" => .extended_const,
                 .fp16 => .fp16,
+                .gc => .gc,
                 .memory64 => null, // Linker-only feature.
                 .multimemory => .multimemory,
                 .multivalue => .multivalue,

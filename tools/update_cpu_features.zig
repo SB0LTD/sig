@@ -204,6 +204,10 @@ const targets = [_]ArchTarget{
                 .flatten = true,
             },
             .{
+                .llvm_name = "ampere1c",
+                .flatten = true,
+            },
+            .{
                 .llvm_name = "apple-a7",
                 .flatten = true,
             },
@@ -245,6 +249,26 @@ const targets = [_]ArchTarget{
             },
             .{
                 .llvm_name = "apple-m4",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "apple-m5",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "c1-nano",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "c1-premium",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "c1-pro",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "c1-ultra",
                 .flatten = true,
             },
             .{
@@ -863,6 +887,10 @@ const targets = [_]ArchTarget{
                 .zig_name = "v9_6a",
             },
             .{
+                .llvm_name = "armv9.7-a",
+                .zig_name = "v9_7a",
+            },
+            .{
                 .llvm_name = "armv9-a",
                 .zig_name = "v9a",
             },
@@ -981,6 +1009,10 @@ const targets = [_]ArchTarget{
             .{
                 .llvm_name = "v9.6a",
                 .zig_name = "has_v9_6a",
+            },
+            .{
+                .llvm_name = "v9.7a",
+                .zig_name = "has_v9_7a",
             },
         },
         .extra_cpus = &.{
@@ -1251,6 +1283,24 @@ const targets = [_]ArchTarget{
         .extra_cpus = &.{
             .{
                 .llvm_name = null,
+                .zig_name = "la32v1_0",
+                .features = &.{
+                    "32bit",
+                    "32s",
+                    "d",
+                    "ual",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "la32rv1_0",
+                .features = &.{
+                    "32bit",
+                    "ual",
+                },
+            },
+            .{
+                .llvm_name = null,
                 .zig_name = "la64v1_0",
                 .features = &.{
                     "64bit",
@@ -1276,6 +1326,7 @@ const targets = [_]ArchTarget{
         },
         .omit_cpus = &.{
             "generic",
+            "loongarch32",
             "loongarch64",
         },
     },
@@ -1557,26 +1608,17 @@ const targets = [_]ArchTarget{
                 .llvm_name = "64bit-mode",
                 .omit = true,
             },
-            // Remove these when LLVM removes AVX10.N-256 support.
-            .{
-                .llvm_name = "avx10.1-256",
-                .flatten = true,
-            },
-            .{
-                .llvm_name = "avx10.2-256",
-                .flatten = true,
-            },
             .{
                 .llvm_name = "avx10.1-512",
-                .zig_name = "avx10_1",
+                .omit = true,
             },
             .{
                 .llvm_name = "avx10.2-512",
-                .zig_name = "avx10_2",
+                .omit = true,
             },
             .{
-                .llvm_name = "avx512f",
-                .extra_deps = &.{"evex512"},
+                .llvm_name = "evex512",
+                .omit = true,
             },
             .{
                 .llvm_name = "alderlake",

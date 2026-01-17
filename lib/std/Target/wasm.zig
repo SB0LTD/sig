@@ -12,6 +12,7 @@ pub const Feature = enum {
     exception_handling,
     extended_const,
     fp16,
+    gc,
     multimemory,
     multivalue,
     mutable_globals,
@@ -69,6 +70,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.fp16)] = .{
         .llvm_name = "fp16",
         .description = "Enable FP16 instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.gc)] = .{
+        .llvm_name = "gc",
+        .description = "Enable wasm gc",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.multimemory)] = .{
@@ -148,6 +154,7 @@ pub const cpu = struct {
             .exception_handling,
             .extended_const,
             .fp16,
+            .gc,
             .multimemory,
             .multivalue,
             .mutable_globals,

@@ -88,6 +88,7 @@ pub const Feature = enum {
     has_v9_4a,
     has_v9_5a,
     has_v9_6a,
+    has_v9_7a,
     has_v9a,
     hwdiv,
     hwdiv_arm,
@@ -107,7 +108,6 @@ pub const Feature = enum {
     mve2beat,
     mve4beat,
     mve_fp,
-    nacl_trap,
     neon,
     neon_fpmovs,
     neonfp,
@@ -187,6 +187,7 @@ pub const Feature = enum {
     v9_4a,
     v9_5a,
     v9_6a,
+    v9_7a,
     v9a,
     vfp2,
     vfp2sp,
@@ -748,6 +749,13 @@ pub const all_features = blk: {
             .has_v9_5a,
         }),
     };
+    result[@intFromEnum(Feature.has_v9_7a)] = .{
+        .llvm_name = "v9.7a",
+        .description = "Support ARM v9.7a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .has_v9_6a,
+        }),
+    };
     result[@intFromEnum(Feature.has_v9a)] = .{
         .llvm_name = "v9a",
         .description = "Support ARM v9a instructions",
@@ -858,11 +866,6 @@ pub const all_features = blk: {
             .fullfp16,
             .mve,
         }),
-    };
-    result[@intFromEnum(Feature.nacl_trap)] = .{
-        .llvm_name = "nacl-trap",
-        .description = "NaCl trap",
-        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.neon)] = .{
         .llvm_name = "neon",
@@ -1573,6 +1576,22 @@ pub const all_features = blk: {
             .dsp,
             .fp_armv8,
             .has_v9_6a,
+            .mp,
+            .ras,
+            .trustzone,
+            .virtualization,
+        }),
+    };
+    result[@intFromEnum(Feature.v9_7a)] = .{
+        .llvm_name = "armv9.7-a",
+        .description = "ARMv97a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .db,
+            .dsp,
+            .fp_armv8,
+            .has_v9_7a,
             .mp,
             .ras,
             .trustzone,
@@ -2656,6 +2675,21 @@ pub const cpu = struct {
             .slowfpvmlx,
             .use_misched,
             .v8m_main,
+        }),
+    };
+    pub const star_mc3: CpuModel = .{
+        .name = "star_mc3",
+        .llvm_name = "star-mc3",
+        .features = featureSet(&[_]Feature{
+            .fp_armv8d16,
+            .loop_align,
+            .mve1beat,
+            .mve_fp,
+            .no_branch_predictor,
+            .pacbti,
+            .slowfpvmlx,
+            .use_misched,
+            .v8_1m_main,
         }),
     };
     pub const strongarm: CpuModel = .{

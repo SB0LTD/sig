@@ -56,6 +56,7 @@ pub const Feature = enum {
     soft_float,
     strict_align,
     sym32,
+    use_compact_branches,
     use_indirect_jump_hazard,
     use_tcc_in_div,
     vfpu,
@@ -389,6 +390,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.sym32)] = .{
         .llvm_name = "sym32",
         .description = "Symbols are 32 bit on Mips64",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.use_compact_branches)] = .{
+        .llvm_name = "use-compact-branches",
+        .description = "Use compact branch instructions for MIPS32R6/MIPS64R6",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.use_indirect_jump_hazard)] = .{

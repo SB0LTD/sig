@@ -484,7 +484,6 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         setFeature(cpu, .rtm, bit(leaf.ebx, 11));
         // AVX512 is only supported if the OS supports the context save for it.
         setFeature(cpu, .avx512f, bit(leaf.ebx, 16) and has_avx512_save);
-        setFeature(cpu, .evex512, bit(leaf.ebx, 16) and has_avx512_save);
         setFeature(cpu, .avx512dq, bit(leaf.ebx, 17) and has_avx512_save);
         setFeature(cpu, .rdseed, bit(leaf.ebx, 18));
         setFeature(cpu, .adx, bit(leaf.ebx, 19));
@@ -605,7 +604,6 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             .invpcid,
             .rtm,
             .avx512f,
-            .evex512,
             .avx512dq,
             .rdseed,
             .adx,
