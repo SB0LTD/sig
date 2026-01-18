@@ -13947,8 +13947,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                         const bit_count = extra.type.scalarBits(self);
                         const val: i64 = if (bit_count <= 64)
                             bigint.toInt(i64) catch unreachable
-                        else if (bigint.toInt(u64)) |val|
-                            @bitCast(val)
+                        else if (bigint.toInt(u63)) |val|
+                            @bitCast(@as(u64, val))
                         else |_| {
                             const limbs = try record.addManyAsSlice(
                                 self.gpa,
