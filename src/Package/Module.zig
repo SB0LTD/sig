@@ -347,6 +347,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
                 // See https://github.com/ziglang/zig/issues/23539
                 if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
 
+                if (target.cpu.arch.isPowerPC() and @as(std.Target.powerpc.Feature, @enumFromInt(feature.index)) == .@"64bit") continue;
                 if (target.cpu.arch.isX86() and @as(std.Target.x86.Feature, @enumFromInt(feature.index)) == .x32) continue;
 
                 var is_enabled = target.cpu.features.isEnabled(feature.index);
