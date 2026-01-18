@@ -384,16 +384,9 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
         .powerpc => "E-m:e-p:32:32-Fn32-i64:64-n32",
         .powerpcle => "e-m:e-p:32:32-Fn32-i64:64-n32",
         .powerpc64 => switch (target.os.tag) {
-            .linux => if (target.abi.isMusl())
-                "E-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512"
-            else
-                "E-m:e-Fi64-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512",
+            .linux => "E-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512",
             .ps3 => "E-m:e-p:32:32-Fi64-i64:64-i128:128-n32:64",
-            else => if (target.os.tag == .openbsd or
-                (target.os.tag == .freebsd and target.os.version_range.semver.isAtLeast(.{ .major = 13, .minor = 0, .patch = 0 }) orelse false))
-                "E-m:e-Fn32-i64:64-i128:128-n32:64"
-            else
-                "E-m:e-Fi64-i64:64-i128:128-n32:64",
+            else => "E-m:e-Fn32-i64:64-i128:128-n32:64",
         },
         .powerpc64le => if (target.os.tag == .linux)
             "e-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512"
@@ -401,7 +394,7 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
             "e-m:e-Fn32-i64:64-i128:128-n32:64",
         .nvptx => "e-p:32:32-p6:32:32-p7:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
         .nvptx64 => "e-p6:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
-        .amdgcn => "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128:128:48-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
+        .amdgcn => "e-m:e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128:128:48-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
         .riscv32 => if (target.cpu.has(.riscv, .e))
             "e-m:e-p:32:32-i64:64-n32-S32"
         else
