@@ -447,29 +447,8 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
 
 pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
-/// This seems to mostly correspond to `clang::TargetInfo::HasFloat16`.
 pub fn F16T(comptime OtherType: type) type {
     return switch (builtin.cpu.arch) {
-        .amdgcn,
-        .arm,
-        .armeb,
-        .thumb,
-        .thumbeb,
-        .aarch64,
-        .aarch64_be,
-        .hexagon,
-        .loongarch32,
-        .loongarch64,
-        .nvptx,
-        .nvptx64,
-        .riscv32,
-        .riscv32be,
-        .riscv64,
-        .riscv64be,
-        .s390x,
-        .spirv32,
-        .spirv64,
-        => f16,
         .x86, .x86_64 => if (builtin.target.os.tag.isDarwin()) switch (OtherType) {
             // Starting with LLVM 16, Darwin uses different abi for f16
             // depending on the type of the other return/argument..???
@@ -477,7 +456,7 @@ pub fn F16T(comptime OtherType: type) type {
             f80, f128 => f16,
             else => unreachable,
         } else f16,
-        else => u16,
+        else => f16,
     };
 }
 
