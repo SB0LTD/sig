@@ -1746,6 +1746,7 @@ pub const Object = struct {
                 if (name.eqlSlice("WinMainCRTStartup", ip)) flags.winmain_crt_startup = true;
                 if (name.eqlSlice("wWinMainCRTStartup", ip)) flags.wwinmain_crt_startup = true;
                 if (name.eqlSlice("DllMainCRTStartup", ip)) flags.dllmain_crt_startup = true;
+                if (name.eqlSlice("_DllMainCRTStartup", ip)) flags.dllmain_crt_startup = true;
             }
         }
 

@@ -20,8 +20,9 @@ comptime {
     _ = root;
 
     if (builtin.output_mode == .Lib and builtin.link_mode == .dynamic) {
-        if (native_os == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
-            @export(&_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
+        const dll_main_crt_startup = if (builtin.abi.isGnu()) "DllMainCRTStartup" else "_DllMainCRTStartup";
+        if (native_os == .windows and !builtin.link_libc and !@hasDecl(root, dll_main_crt_startup)) {
+            @export(&DllMainCRTStartup, .{ .name = dll_main_crt_startup });
         }
     } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
         if (builtin.link_libc and @hasDecl(root, "main")) {
@@ -71,7 +72,7 @@ comptime {
     }
 }
 
-fn _DllMainCRTStartup(
+fn DllMainCRTStartup(
     hinstDLL: std.os.windows.HINSTANCE,
     fdwReason: std.os.windows.DWORD,
     lpReserved: std.os.windows.LPVOID,

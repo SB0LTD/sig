@@ -637,17 +637,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
                             try argv.append("-ALTERNATENAME:__image_base__=__ImageBase");
                         }
 
-                        if (is_dyn_lib) {
-                            try argv.append(try comp.crtFileAsString(arena, "dllcrt2.obj"));
-                            if (target.cpu.arch == .x86) {
-                                try argv.append("-ALTERNATENAME:__DllMainCRTStartup@12=_DllMainCRTStartup@12");
-                            } else {
-                                try argv.append("-ALTERNATENAME:_DllMainCRTStartup=DllMainCRTStartup");
-                            }
-                        } else {
-                            try argv.append(try comp.crtFileAsString(arena, "crt2.obj"));
-                        }
-
+                        try argv.append(try comp.crtFileAsString(arena, if (is_dyn_lib) "dllcrt2.obj" else "crt2.obj"));
                         try argv.append(try comp.crtFileAsString(arena, "libmingw32.lib"));
                     } else {
                         try argv.append(switch (comp.config.link_mode) {
