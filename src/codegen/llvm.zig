@@ -4818,7 +4818,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
                 bindings.LLVMInitializeXtensaTarget();
                 bindings.LLVMInitializeXtensaTargetInfo();
                 bindings.LLVMInitializeXtensaTargetMC();
-                // There is no LLVMInitializeXtensaAsmPrinter function.
+                bindings.LLVMInitializeXtensaAsmPrinter();
                 bindings.LLVMInitializeXtensaAsmParser();
             }
         },

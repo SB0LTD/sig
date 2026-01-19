@@ -227,11 +227,11 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         .wasm32,
         .wasm64,
         .ve,
+        .xtensa,
         => true,
 
         // LLVM backend exists but can produce neither assembly nor object files.
         .csky,
-        .xtensa,
         => false,
 
         // Third-party LLVM backend exists.

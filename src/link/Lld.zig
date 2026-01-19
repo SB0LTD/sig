@@ -812,7 +812,8 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             target.cpu.arch == .m68k or
             target.cpu.arch.isSPARC() or
             target.cpu.arch == .ve or
-            target.cpu.arch == .xcore))
+            target.cpu.arch == .xcore or
+            target.cpu.arch == .xtensa))
     {
         // In this case we must do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
