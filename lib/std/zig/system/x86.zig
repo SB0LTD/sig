@@ -499,7 +499,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         }
     }
 
-    if (max_level >= 0x7) {
+    const has_avx10 = if (max_level >= 0x7) has_avx10: {
         leaf = cpuid(0x7, 0);
 
         setFeature(cpu, .fsgsbase, bit(leaf.ebx, 0));
@@ -596,6 +596,8 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             setFeature(cpu, .nf, bit(leaf.edx, 21) and has_apx_save);
             setFeature(cpu, .cf, bit(leaf.edx, 21) and has_apx_save);
             setFeature(cpu, .zu, bit(leaf.edx, 21) and has_apx_save);
+
+            break :has_avx10 bit(leaf.edx, 19);
         } else {
             for ([_]Target.x86.Feature{
                 .sha512,
@@ -627,7 +629,9 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
                 setFeature(cpu, feat, false);
             }
         }
-    } else {
+
+        break :has_avx10 false;
+    } else has_avx10: {
         for ([_]Target.x86.Feature{
             .fsgsbase,
             .sgx,
@@ -709,7 +713,9 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         }) |feat| {
             setFeature(cpu, feat, false);
         }
-    }
+
+        break :has_avx10 false;
+    };
 
     if (max_level >= 0xD and has_avx_save) {
         leaf = cpuid(0xD, 0x1);
@@ -755,10 +761,14 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
     if (max_level >= 0x24) {
         leaf = cpuid(0x24, 0);
 
-        setFeature(cpu, .avx10_1, bit(leaf.ebx, 18));
+        const avx_ver = leaf.ebx & 0xff;
+
+        setFeature(cpu, .avx10_1, has_avx10 and avx_ver >= 1);
+        setFeature(cpu, .avx10_2, has_avx10 and avx_ver >= 2);
     } else {
         for ([_]Target.x86.Feature{
             .avx10_1,
+            .avx10_2,
         }) |feat| {
             setFeature(cpu, feat, false);
         }
