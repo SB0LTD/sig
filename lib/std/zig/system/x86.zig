@@ -470,6 +470,19 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         }
     }
 
+    if (max_ext_level >= 0x80000021) {
+        leaf = cpuid(0x80000021, 0);
+
+        // AMD uses a different bit for prefetchi.
+        setFeature(cpu, .prefetchi, bit(leaf.eax, 20));
+    } else {
+        for ([_]Target.x86.Feature{
+            .prefetchi,
+        }) |feat| {
+            setFeature(cpu, feat, false);
+        }
+    }
+
     if (max_level >= 0x7) {
         leaf = cpuid(0x7, 0);
 
@@ -555,7 +568,8 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             setFeature(cpu, .avxneconvert, bit(leaf.edx, 5) and has_avx_save);
             setFeature(cpu, .amx_complex, bit(leaf.edx, 8) and has_amx_save);
             setFeature(cpu, .avxvnniint16, bit(leaf.edx, 10) and has_avx_save);
-            setFeature(cpu, .prefetchi, bit(leaf.edx, 14));
+            // This needs to account for prefetchi already being detected above on AMD.
+            setFeature(cpu, .prefetchi, cpu.has(.x86, .prefetchi) or bit(leaf.edx, 14));
             setFeature(cpu, .usermsr, bit(leaf.edx, 15));
             // APX
             setFeature(cpu, .egpr, bit(leaf.edx, 21));
@@ -581,7 +595,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
                 .avxneconvert,
                 .amx_complex,
                 .avxvnniint16,
-                .prefetchi,
+                // prefetchi already handled earlier.
                 .usermsr,
                 .egpr,
                 .push2pop2,
@@ -662,7 +676,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             .avxneconvert,
             .amx_complex,
             .avxvnniint16,
-            .prefetchi,
+            // prefetchi already handled earlier.
             .usermsr,
             .egpr,
             .push2pop2,
