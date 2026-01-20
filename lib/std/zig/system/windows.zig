@@ -215,10 +215,43 @@ fn genericCpuAndNativeFeatures(arch: Target.Cpu.Arch) Target.Cpu {
             // Override any features that are either present or absent
             setFeature(Feature, &cpu, .neon, IsProcessorFeaturePresent(PF.ARM_NEON_INSTRUCTIONS_AVAILABLE));
             setFeature(Feature, &cpu, .crc, IsProcessorFeaturePresent(PF.ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE));
-            setFeature(Feature, &cpu, .crypto, IsProcessorFeaturePresent(PF.ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .aes, IsProcessorFeaturePresent(PF.ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sha2, IsProcessorFeaturePresent(PF.ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE));
             setFeature(Feature, &cpu, .lse, IsProcessorFeaturePresent(PF.ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE));
             setFeature(Feature, &cpu, .dotprod, IsProcessorFeaturePresent(PF.ARM_V82_DP_INSTRUCTIONS_AVAILABLE));
             setFeature(Feature, &cpu, .jsconv, IsProcessorFeaturePresent(PF.ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .rcpc, IsProcessorFeaturePresent(PF.ARM_V83_LRCPC_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sve, IsProcessorFeaturePresent(PF.ARM_SVE_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sve2, IsProcessorFeaturePresent(PF.ARM_SVE2_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sve2p1, IsProcessorFeaturePresent(PF.ARM_SVE2_1_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sve_aes, IsProcessorFeaturePresent(PF.ARM_SVE_AES_INSTRUCTIONS_AVAILABLE) or IsProcessorFeaturePresent(PF.ARM_SVE_PMULL128_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sve_bitperm, IsProcessorFeaturePresent(PF.ARM_SVE_BITPERM_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .bf16, IsProcessorFeaturePresent(PF.ARM_V86_BF16_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sve_b16b16, IsProcessorFeaturePresent(PF.ARM_SVE_B16B16_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sve_sha3, IsProcessorFeaturePresent(PF.ARM_SVE_SHA3_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sve_sm4, IsProcessorFeaturePresent(PF.ARM_SVE_SM4_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .i8mm, IsProcessorFeaturePresent(PF.ARM_V82_I8MM_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .f32mm, IsProcessorFeaturePresent(PF.ARM_SVE_F32MM_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .f64mm, IsProcessorFeaturePresent(PF.ARM_SVE_F64MM_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sme, IsProcessorFeaturePresent(PF.ARM_SME_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sme2, IsProcessorFeaturePresent(PF.ARM_SME2_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .lse2, IsProcessorFeaturePresent(PF.ARM_LSE2_AVAILABLE));
+            setFeature(Feature, &cpu, .sha3, IsProcessorFeaturePresent(PF.ARM_SHA3_INSTRUCTIONS_AVAILABLE) and IsProcessorFeaturePresent(PF.ARM_SHA512_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .fullfp16, IsProcessorFeaturePresent(PF.ARM_V82_FP16_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sme2p1, IsProcessorFeaturePresent(PF.ARM_SME2_1_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sme2p2, IsProcessorFeaturePresent(PF.ARM_SME2_2_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .ssve_aes, IsProcessorFeaturePresent(PF.ARM_SME_AES_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .ssve_bitperm, IsProcessorFeaturePresent(PF.ARM_SME_SBITPERM_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .ssve_fp8dot2, IsProcessorFeaturePresent(PF.ARM_SME_SF8DP2_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .ssve_fp8dot4, IsProcessorFeaturePresent(PF.ARM_SME_SF8DP4_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .ssve_fp8fma, IsProcessorFeaturePresent(PF.ARM_SME_SF8FMA_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sme_f8f32, IsProcessorFeaturePresent(PF.ARM_SME_F8F32_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sme_f8f16, IsProcessorFeaturePresent(PF.ARM_SME_F8F16_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sme_b16b16, IsProcessorFeaturePresent(PF.ARM_SME_B16B16_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sme_f64f64, IsProcessorFeaturePresent(PF.ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sme_i16i64, IsProcessorFeaturePresent(PF.ARM_SME_I16I64_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sme_lutv2, IsProcessorFeaturePresent(PF.ARM_SME_LUTv2_INSTRUCTIONS_AVAILABLE));
+            setFeature(Feature, &cpu, .sme_fa64, IsProcessorFeaturePresent(PF.ARM_SME_FA64_INSTRUCTIONS_AVAILABLE));
         },
         else => {},
     }
