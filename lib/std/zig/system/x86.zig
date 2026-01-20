@@ -232,7 +232,7 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
                     cpu.model = &Target.x86.cpu.lunarlake;
                     return;
                 },
-                0xcc => {
+                0xcc, 0xd5 => {
                     cpu.model = &Target.x86.cpu.pantherlake;
                     return;
                 },
@@ -306,6 +306,20 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
             }
             cpu.model = &Target.x86.cpu.pentium4;
             return;
+        },
+        18 => switch (model) {
+            0x01, 0x03 => {
+                cpu.model = &Target.x86.cpu.novalake;
+                return;
+            },
+            else => return, // Unknown CPU Model
+        },
+        19 => switch (model) {
+            0x01 => {
+                cpu.model = &Target.x86.cpu.diamondrapids;
+                return;
+            },
+            else => return, // Unknown CPU Model
         },
         else => return, // Unknown CPU Model
     }
