@@ -256,11 +256,15 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .none,
         .windows,
         => {},
-        .semver => |ver| try llvm_triple.print("{d}.{d}.{d}", .{
-            ver.min.major,
-            ver.min.minor,
-            ver.min.patch,
-        }),
+        .semver => |ver| if (target.os.tag == .wasi and ver.min.major == 0) {
+            try llvm_triple.print("p{d}", .{ver.min.minor});
+        } else {
+            try llvm_triple.print("{d}.{d}.{d}", .{
+                ver.min.major,
+                ver.min.minor,
+                ver.min.patch,
+            });
+        },
         inline .linux, .hurd => |ver| try llvm_triple.print("{d}.{d}.{d}", .{
             ver.range.min.major,
             ver.range.min.minor,
