@@ -591,7 +591,9 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             setFeature(cpu, .ppx, bit(leaf.edx, 21));
             setFeature(cpu, .ndd, bit(leaf.edx, 21));
             setFeature(cpu, .ccmp, bit(leaf.edx, 21));
+            setFeature(cpu, .nf, bit(leaf.edx, 21));
             setFeature(cpu, .cf, bit(leaf.edx, 21));
+            setFeature(cpu, .zu, bit(leaf.edx, 21));
         } else {
             for ([_]Target.x86.Feature{
                 .sha512,
@@ -616,7 +618,9 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
                 .ppx,
                 .ndd,
                 .ccmp,
+                .nf,
                 .cf,
+                .zu,
             }) |feat| {
                 setFeature(cpu, feat, false);
             }
@@ -697,7 +701,9 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             .ppx,
             .ndd,
             .ccmp,
+            .nf,
             .cf,
+            .zu,
         }) |feat| {
             setFeature(cpu, feat, false);
         }
