@@ -426,6 +426,8 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
     // AMX requires additional context to be saved by the OS.
     const has_amx_save = xcr0.xtilecfg and xcr0.xtiledata;
 
+    const has_apx_save = xcr0.apx;
+
     setFeature(cpu, .avx, has_avx_save);
     setFeature(cpu, .fma, bit(leaf.ecx, 12) and has_avx_save);
     // Only enable XSAVE if OS has enabled support for saving YMM state.
@@ -586,14 +588,14 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             setFeature(cpu, .prefetchi, cpu.has(.x86, .prefetchi) or bit(leaf.edx, 14));
             setFeature(cpu, .usermsr, bit(leaf.edx, 15));
             // APX
-            setFeature(cpu, .egpr, bit(leaf.edx, 21));
-            setFeature(cpu, .push2pop2, bit(leaf.edx, 21));
-            setFeature(cpu, .ppx, bit(leaf.edx, 21));
-            setFeature(cpu, .ndd, bit(leaf.edx, 21));
-            setFeature(cpu, .ccmp, bit(leaf.edx, 21));
-            setFeature(cpu, .nf, bit(leaf.edx, 21));
-            setFeature(cpu, .cf, bit(leaf.edx, 21));
-            setFeature(cpu, .zu, bit(leaf.edx, 21));
+            setFeature(cpu, .egpr, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .push2pop2, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .ppx, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .ndd, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .ccmp, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .nf, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .cf, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .zu, bit(leaf.edx, 21) and has_apx_save);
         } else {
             for ([_]Target.x86.Feature{
                 .sha512,
