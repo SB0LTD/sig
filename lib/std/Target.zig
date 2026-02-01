@@ -845,6 +845,12 @@ pub const Abi = enum {
                 => .eabi,
                 else => .none,
             },
+            .fuchsia => switch (arch) {
+                .arm,
+                .thumb,
+                => .eabihf,
+                else => .none,
+            },
             .haiku => switch (arch) {
                 .arm,
                 .powerpc,
@@ -928,7 +934,6 @@ pub const Abi = enum {
             .wasi, .emscripten => .musl,
 
             .contiki,
-            .fuchsia,
             .hermit,
             .illumos,
             .managarm,
@@ -2443,8 +2448,10 @@ pub const DynamicLinker = struct {
     pub fn standard(cpu: Cpu, os: Os, abi: Abi) DynamicLinker {
         return switch (os.tag) {
             .fuchsia => switch (cpu.arch) {
+                .arm,
                 .aarch64,
                 .riscv64,
+                .thumb,
                 .x86_64,
                 => init("ld.so.1"), // Fuchsia is unusual in that `DT_INTERP` is just a basename.
                 else => none,
