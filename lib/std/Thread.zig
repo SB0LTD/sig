@@ -1217,8 +1217,8 @@ const LinuxThreadImpl = struct {
                     \\ ldi $16, 0
                     \\ callsys
                     :
-                    : [ptr] "{r16}" (@intFromPtr(self.mapped.ptr)),
-                      [len] "{r17}" (self.mapped.len),
+                    : [ptr] "{$16}" (@intFromPtr(self.mapped.ptr)),
+                      [len] "{$17}" (self.mapped.len),
                 ),
                 .hexagon => asm volatile (
                     \\  r6 = #215 // SYS_munmap

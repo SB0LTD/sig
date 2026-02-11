@@ -256,7 +256,7 @@ pub fn setThreadPointer(addr: usize) void {
         },
         .alpha => {
             asm volatile (
-                \\ lda a0, %[addr]
+                \\ lda $16, 0(%[addr])
                 \\ wruniq
                 :
                 : [addr] "r" (addr),

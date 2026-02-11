@@ -156,6 +156,7 @@ const architectures: []const Arch = &.{
     .{ .@"var" = "PowerPC64", .table = .{ .specific = "arch/powerpc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"64", .nospu } },
     .{ .@"var" = "S390x", .table = .{ .specific = "arch/s390/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"64" } },
     .{ .@"var" = "Xtensa", .table = .{ .specific = "arch/xtensa/kernel/syscalls/syscall.tbl" } },
+    .{ .@"var" = "Alpha", .table = .{ .specific = "arch/alpha/kernel/syscalls/syscall.tbl" } },
     .{ .@"var" = "Arm64", .table = .generic, .abi = &.{ .common, .@"64", .renameat, .rlimit, .memfd_secret } },
     .{ .@"var" = "RiscV32", .table = .generic, .abi = &.{ .common, .@"32", .riscv, .memfd_secret } },
     .{ .@"var" = "RiscV64", .table = .generic, .abi = &.{ .common, .@"64", .riscv, .rlimit, .memfd_secret } },

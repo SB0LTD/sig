@@ -5,6 +5,7 @@ pub const Native = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "CpuCont
     root.debug.CpuContext
 else switch (native_arch) {
     .aarch64, .aarch64_be => Aarch64,
+    .alpha => Alpha,
     .arc, .arceb => Arc,
     .arm, .armeb, .thumb, .thumbeb => Arm,
     .csky => Csky,
@@ -101,6 +102,10 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
         .aarch64, .aarch64_be => .{
             .x = uc.mcontext.x ++ [_]u64{uc.mcontext.lr},
             .sp = uc.mcontext.sp,
+            .pc = uc.mcontext.pc,
+        },
+        .alpha => .{
+            .r = uc.mcontext.r,
             .pc = uc.mcontext.pc,
         },
         .csky => .{
@@ -287,6 +292,75 @@ const Aarch64 = extern struct {
             48...63 => return error.UnsupportedRegister, // P0 - P15
             64...95 => return error.UnsupportedRegister, // V0 - V31
             96...127 => return error.UnsupportedRegister, // Z0 - Z31
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+const Alpha = extern struct {
+    /// The numbered general-purpose registers R0 - R31.
+    r: [32]u64,
+    pc: u64,
+
+    pub inline fn current() Alpha {
+        var ctx: Alpha = undefined;
+        asm volatile (
+            \\ stq $0 , 0x000($0)
+            \\ stq $1 , 0x008($0)
+            \\ stq $2 , 0x010($0)
+            \\ stq $3 , 0x018($0)
+            \\ stq $4 , 0x020($0)
+            \\ stq $5 , 0x028($0)
+            \\ stq $6 , 0x030($0)
+            \\ stq $7 , 0x038($0)
+            \\ stq $8 , 0x040($0)
+            \\ stq $9 , 0x048($0)
+            \\ stq $10, 0x050($0)
+            \\ stq $11, 0x058($0)
+            \\ stq $12, 0x060($0)
+            \\ stq $13, 0x068($0)
+            \\ stq $14, 0x070($0)
+            \\ stq $15, 0x078($0)
+            \\ stq $16, 0x080($0)
+            \\ stq $17, 0x088($0)
+            \\ stq $18, 0x090($0)
+            \\ stq $19, 0x098($0)
+            \\ stq $20, 0x0a0($0)
+            \\ stq $21, 0x0a8($0)
+            \\ stq $22, 0x0b0($0)
+            \\ stq $23, 0x0b8($0)
+            \\ stq $24, 0x0c0($0)
+            \\ stq $25, 0x0c8($0)
+            \\ stq $26, 0x0d0($0)
+            \\ stq $27, 0x0d8($0)
+            \\ stq $28, 0x0e0($0)
+            \\ stq $29, 0x0e8($0)
+            \\ stq $30, 0x0f0($0)
+            \\
+            \\ br $1, 1f
+            \\1:
+            \\ stq $1, 0x100($0)
+            :
+            : [ctx] "{r0}" (&ctx),
+            : .{ .r1 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn getFp(ctx: *const Alpha) u64 {
+        return ctx.r[15];
+    }
+    pub fn getPc(ctx: *const Alpha) u64 {
+        return ctx.pc;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Aarch64, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            64 => return @ptrCast(&ctx.pc),
+
+            32...63 => return error.UnsupportedRegister, // f0 - f31
+            66 => return error.UnsupportedRegister, // uniq
 
             else => return error.InvalidRegister,
         }

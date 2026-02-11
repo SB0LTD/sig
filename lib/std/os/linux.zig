@@ -31,6 +31,7 @@ test {
 
 const arch_bits = switch (native_arch) {
     .aarch64, .aarch64_be => @import("linux/aarch64.zig"),
+    .alpha => @import("linux/alpha.zig"),
     .arc, .arceb => @import("linux/arc.zig"),
     .arm, .armeb, .thumb, .thumbeb => @import("linux/arm.zig"),
     .hexagon => @import("linux/hexagon.zig"),
@@ -124,6 +125,7 @@ pub const syscalls = @import("linux/syscalls.zig");
 pub const SYS = switch (native_arch) {
     .arc, .arceb => syscalls.Arc,
     .aarch64, .aarch64_be => syscalls.Arm64,
+    .alpha => syscalls.Alpha,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
     .csky => syscalls.CSky,
     .hexagon => syscalls.Hexagon,
@@ -309,6 +311,30 @@ pub const MAP = switch (native_arch) {
         FIXED_NOREPLACE: bool = false,
         _19: u5 = 0,
         UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    .alpha => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        ANONYMOUS: bool = false,
+        _3: u1 = 0,
+        _4: u1 = 0,
+        _5: u1 = 0,
+        FIXED: bool = false,
+        _7: u1 = 0,
+        _8: u1 = 0,
+        _9: u1 = 0,
+        GROWSDOWN: bool = false,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        NORESERVE: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGHETLB: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _19: u4 = 0,
+        _20: u1 = 0,
         _: u5 = 0,
     },
     else => @compileError("missing std.os.linux.MAP constants for this architecture"),
@@ -519,6 +545,29 @@ pub const O = switch (native_arch) {
         _20: u1 = 0,
         PATH: bool = false,
         _22: u10 = 0,
+    },
+    .alpha => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        NONBLOCK: bool = false,
+        APPEND: bool = false,
+        _4: u5 = 0,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        _9: u1 = 0,
+        DSYNC: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        LARGEFILE: bool = false,
+        _14: u1 = 0,
+        DIRECT: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u7 = 0,
     },
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
@@ -2217,7 +2266,10 @@ pub fn getsid(pid: pid_t) usize {
 
 pub fn getpid() pid_t {
     // Casts result to a pid_t, safety-checking >= 0, because getpid() cannot fail
-    return @intCast(@as(u32, @truncate(syscall0(.getpid))));
+    return @intCast(@as(u32, @truncate(syscall0(comptime switch (native_arch) {
+        .alpha => .getxpid,
+        else => .getpid,
+    }))));
 }
 
 pub fn getppid() pid_t {
@@ -4058,6 +4110,51 @@ pub const SIG = if (is_mips) enum(u32) {
     PROF = 27,
     WINCH = 28,
     LOST = 29,
+    USR1 = 30,
+    USR2 = 31,
+    _,
+} else if (native_arch == .alpha) enum(u32) {
+    pub const BLOCK = 1;
+    pub const UNBLOCK = 2;
+    pub const SETMASK = 3;
+
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+
+    pub const POLL: SIG = .IO;
+    pub const PWR: SIG = .INFO;
+    pub const IOT: SIG = .ABRT;
+
+    HUP = 1,
+    INT = 2,
+    QUIT = 3,
+    ILL = 4,
+    TRAP = 5,
+    ABRT = 6,
+    EMT = 7,
+    FPE = 8,
+    KILL = 9,
+    BUS = 10,
+    SEGV = 11,
+    SYS = 12,
+    PIPE = 13,
+    ALRM = 14,
+    TERM = 15,
+    URG = 16,
+    STOP = 17,
+    TSTP = 18,
+    CONT = 19,
+    CHLD = 20,
+    TTIN = 21,
+    TTOU = 22,
+    IO = 23,
+    XCPU = 24,
+    XFSZ = 25,
+    VTALRM = 26,
+    PROF = 27,
+    WINCH = 28,
+    INFO = 29,
     USR1 = 30,
     USR2 = 31,
     _,
