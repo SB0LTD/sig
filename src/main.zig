@@ -3166,6 +3166,8 @@ fn buildOutputType(
         else => process.executablePathAlloc(io, arena) catch |err| fatal("unable to find zig self exe path: {t}", .{err}),
     };
 
+    const cwd_path = try introspect.getResolvedCwd(io, arena);
+
     // This `init` calls `fatal` on error.
     var dirs: Compilation.Directories = .init(
         arena,
@@ -3182,6 +3184,7 @@ fn buildOutputType(
         preopens,
         self_exe_path,
         environ_map,
+        cwd_path,
     );
     defer dirs.deinit(io);
 
@@ -4936,16 +4939,21 @@ test sanitizeExampleName {
     try std.testing.expectEqualStrings("test_project", try sanitizeExampleName(arena, "test project"));
 }
 
-fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, environ_map: *process.Environ.Map) !void {
-    dev.check(.build_command);
-
+fn cmdBuild(
+    gpa: Allocator,
+    arena: Allocator,
+    io: Io,
+    args: []const []const u8,
+    environ_map: *process.Environ.Map,
+) !void {
     var build_file: ?[]const u8 = null;
     var override_lib_dir: ?[]const u8 = EnvVar.ZIG_LIB_DIR.get(environ_map);
     var override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
     var override_local_cache_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_CACHE_DIR.get(environ_map);
     var override_pkg_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_PKG_DIR.get(environ_map);
-    var override_build_runner: ?[]const u8 = EnvVar.ZIG_BUILD_RUNNER.get(environ_map);
-    var child_argv: std.ArrayList([]const u8) = .empty;
+    var override_make_runner: ?[]const u8 = EnvVar.ZIG_BUILD_RUNNER.get(environ_map);
+    var configure_argv: std.ArrayList([]const u8) = .empty;
+    var make_argv: std.ArrayList([]const u8) = .empty;
     var forks: std.ArrayList(Fork) = .empty;
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
@@ -4965,46 +4973,32 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
     var debug_target: ?[]const u8 = null;
     var debug_libc_paths_file: ?[]const u8 = null;
 
-    const argv_index_exe = child_argv.items.len;
-    _ = try child_argv.addOne(arena);
+    const argv_index_exe = configure_argv.items.len;
+    _ = try configure_argv.addOne(arena);
 
     const self_exe_path = try process.executablePathAlloc(io, arena);
-    try child_argv.append(arena, self_exe_path);
+    try configure_argv.append(arena, self_exe_path);
 
-    const argv_index_zig_lib_dir = child_argv.items.len;
-    _ = try child_argv.addOne(arena);
+    const argv_index_zig_lib_dir = configure_argv.items.len;
+    _ = try configure_argv.addOne(arena);
 
-    const argv_index_build_file = child_argv.items.len;
-    _ = try child_argv.addOne(arena);
+    const argv_index_build_file = configure_argv.items.len;
+    _ = try configure_argv.addOne(arena);
 
-    const argv_index_cache_dir = child_argv.items.len;
-    _ = try child_argv.addOne(arena);
+    const argv_index_cache_dir = configure_argv.items.len;
+    _ = try configure_argv.addOne(arena);
 
-    const argv_index_global_cache_dir = child_argv.items.len;
-    _ = try child_argv.addOne(arena);
+    const argv_index_global_cache_dir = configure_argv.items.len;
+    _ = try configure_argv.addOne(arena);
 
-    try child_argv.appendSlice(arena, &.{
+    try configure_argv.appendSlice(arena, &.{
         "--seed",
         try std.fmt.allocPrint(arena, "0x{x}", .{randInt(io, u32)}),
     });
-    const argv_index_seed = child_argv.items.len - 1;
+    const argv_index_seed = configure_argv.items.len - 1;
 
-    // This parent process needs a way to obtain results from the configuration
-    // phase of the child process. In the future, the make phase will be
-    // executed in a separate process than the configure phase, and we can then
-    // use stdout from the configuration phase for this purpose.
-    //
-    // However, currently, both phases are in the same process, and Run Step
-    // provides API for making the runned subprocesses inherit stdout and stderr
-    // which means these streams are not available for passing metadata back
-    // to the parent.
-    //
-    // Until make and configure phases are separated into different processes,
-    // the strategy is to choose a temporary file name ahead of time, and then
-    // read this file in the parent to obtain the results, in the case the child
-    // exits with code 3.
-    const results_tmp_file_nonce = std.fmt.hex(randInt(io, u64));
-    try child_argv.append(arena, "-Z" ++ results_tmp_file_nonce);
+    const argv_index_configuration_file = make_argv.items.len;
+    _ = try make_argv.addOne(arena);
 
     var color: Color = .auto;
     var n_jobs: ?u32 = null;
@@ -5027,7 +5021,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                 } else if (mem.eql(u8, arg, "--build-runner")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
-                    override_build_runner = args[i];
+                    override_make_runner = args[i];
                     continue;
                 } else if (mem.eql(u8, arg, "--cache-dir")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
@@ -5071,7 +5065,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     system_pkg_dir_path = args[i];
-                    try child_argv.append(arena, "--system");
+                    try configure_argv.append(arena, "--system");
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "-freference-trace=")) |num| {
                     reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
@@ -5081,7 +5075,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     reference_trace = null;
                 } else if (mem.eql(u8, arg, "--debug-log")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
-                    try child_argv.appendSlice(arena, args[i .. i + 2]);
+                    try make_argv.appendSlice(arena, args[i .. i + 2]);
                     i += 1;
                     try addDebugLog(arena, args[i]);
                     continue;
@@ -5131,7 +5125,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     color = std.meta.stringToEnum(Color, args[i]) orelse {
                         fatal("expected [auto|on|off] after {s}, found '{s}'", .{ arg, args[i] });
                     };
-                    try child_argv.appendSlice(arena, &.{ arg, args[i] });
+                    try configure_argv.appendSlice(arena, &.{ arg, args[i] });
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "-j")) |str| {
                     const num = std.fmt.parseUnsigned(u32, str, 10) catch |err| {
@@ -5146,61 +5140,30 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                 } else if (mem.eql(u8, arg, "--seed")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
-                    child_argv.items[argv_index_seed] = args[i];
+                    configure_argv.items[argv_index_seed] = args[i];
                     continue;
                 } else if (mem.eql(u8, arg, "--")) {
                     // The rest of the args are supposed to get passed onto
                     // build runner's `build.args`
-                    try child_argv.appendSlice(arena, args[i..]);
+                    try configure_argv.appendSlice(arena, args[i..]);
                     break;
                 }
             }
-            try child_argv.append(arena, arg);
+            try make_argv.append(arena, arg);
         }
     }
 
     const root_prog_node = std.Progress.start(io, .{
         .disable_printing = (color == .off),
-        .root_name = "Compile Build Script",
+        .root_name = "",
     });
     defer root_prog_node.end();
 
-    // Normally the build runner is compiled for the host target but here is
-    // some code to help when debugging edits to the build runner so that you
-    // can make sure it compiles successfully on other targets.
-    const resolved_target: Package.Module.ResolvedTarget = t: {
-        if (build_options.enable_debug_extensions) {
-            if (debug_target) |triple| {
-                const target_query = try std.Target.Query.parse(.{
-                    .arch_os_abi = triple,
-                });
-                break :t .{
-                    .result = std.zig.resolveTargetQueryOrFatal(io, target_query),
-                    .is_native_os = false,
-                    .is_native_abi = false,
-                    .is_explicit_dynamic_linker = false,
-                };
-            }
-        }
-        break :t .{
-            .result = std.zig.resolveTargetQueryOrFatal(io, .{}),
-            .is_native_os = true,
-            .is_native_abi = true,
-            .is_explicit_dynamic_linker = false,
-        };
-    };
-    // Likewise, `--debug-libc` allows overriding the libc installation.
-    const libc_installation: ?*const LibCInstallation = lci: {
-        const paths_file = debug_libc_paths_file orelse break :lci null;
-        if (!build_options.enable_debug_extensions) unreachable;
-        const lci = try arena.create(LibCInstallation);
-        lci.* = try .parse(arena, io, paths_file, &resolved_target.result);
-        break :lci lci;
-    };
-
     process.raiseFileDescriptorLimit();
 
-    const cwd_path = try introspect.getResolvedCwd(io, arena);
+    const cwd_path = introspect.getResolvedCwd(io, arena) catch |err|
+        fatal("failed to get current directory path: {t}", .{err});
+
     const build_root = try findBuildRoot(arena, io, .{
         .cwd_path = cwd_path,
         .build_file = build_file,
@@ -5219,19 +5182,83 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
         .empty,
         self_exe_path,
         environ_map,
+        cwd_path,
     );
     defer dirs.deinit(io);
-
-    child_argv.items[argv_index_zig_lib_dir] = dirs.zig_lib.path orelse cwd_path;
-    child_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
-    child_argv.items[argv_index_global_cache_dir] = dirs.global_cache.path orelse cwd_path;
-    child_argv.items[argv_index_cache_dir] = dirs.local_cache.path orelse cwd_path;
 
     const thread_limit = @min(
         @max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1),
         std.math.maxInt(Zcu.PerThread.IdBacking),
     );
     try setThreadLimit(arena, thread_limit);
+
+    // Kick off an optimized compilation of the make runner.
+    var make_runner_task = io.async(compileMakeRunner, .{ io, .{
+        .dirs = &dirs,
+        .optimize = .ReleaseSafe,
+        .parent_prog_node = root_prog_node,
+    } });
+    defer if (make_runner_task.cancel(io)) |mr| mr.deinit(io) else |_| {};
+
+    // Cache lookup for configure options. If we get a match, we can skip
+    // execution of the configure script. If not, we get the file path to pass
+    // to the configure process.
+    var local_cache: Cache = .{
+        .gpa = gpa,
+        .io = io,
+        .manifest_dir = try dirs.local_cache.handle.createDirPathOpen(io, "h", .{}),
+        .cwd = cwd_path,
+    };
+    local_cache.addPrefix(.{ .path = null, .handle = Io.Dir.cwd() });
+    local_cache.addPrefix(dirs.zig_lib);
+    local_cache.addPrefix(dirs.local_cache);
+    local_cache.addPrefix(dirs.global_cache);
+    defer local_cache.manifest_dir.close(io);
+
+    var config_man = local_cache.obtain();
+    defer config_man.deinit();
+    config_man.hash.addBytes(build_options.version);
+
+    // Normally the build runner is compiled for the host target but here is
+    // some code to help when debugging edits to the build runner so that you
+    // can make sure it compiles successfully on other targets.
+    const resolved_target: Package.Module.ResolvedTarget = t: {
+        if (build_options.enable_debug_extensions) {
+            if (debug_target) |triple| {
+                const target_query = try std.Target.Query.parse(.{
+                    .arch_os_abi = triple,
+                });
+                config_man.hash.addBytes(triple);
+                break :t .{
+                    .result = std.zig.resolveTargetQueryOrFatal(io, target_query),
+                    .is_native_os = false,
+                    .is_native_abi = false,
+                    .is_explicit_dynamic_linker = false,
+                };
+            }
+        }
+        break :t .{
+            .result = std.zig.resolveTargetQueryOrFatal(io, .{}),
+            .is_native_os = true,
+            .is_native_abi = true,
+            .is_explicit_dynamic_linker = false,
+        };
+    };
+
+    // Likewise, `--debug-libc` allows overriding the libc installation.
+    const libc_installation: ?*const LibCInstallation = lci: {
+        const paths_file = debug_libc_paths_file orelse break :lci null;
+        if (!build_options.enable_debug_extensions) unreachable;
+        const lci = try arena.create(LibCInstallation);
+        lci.* = try .parse(arena, io, paths_file, &resolved_target.result);
+        LibCInstallation.addToHash(lci, &config_man.hash, resolved_target.result.abi);
+        break :lci lci;
+    };
+
+    configure_argv.items[argv_index_zig_lib_dir] = dirs.zig_lib.path orelse cwd_path;
+    configure_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
+    configure_argv.items[argv_index_global_cache_dir] = dirs.global_cache.path orelse cwd_path;
+    configure_argv.items[argv_index_cache_dir] = dirs.local_cache.path orelse cwd_path;
 
     // Dummy http client that is not actually used when fetch_command is unsupported.
     // Prevents bootstrap from depending on a bunch of unnecessary stuff.
@@ -5269,11 +5296,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
 
     // This loop is re-evaluated when the build script exits with an indication that it
     // could not continue due to missing lazy dependencies.
-    while (true) {
+    const configuration_path: Path = cp: while (true) {
         // We want to release all the locks before executing the child process, so we make a nice
         // big block here to ensure the cleanup gets run when we extract out our argv.
         {
-            const main_mod_paths: Package.Module.CreateOptions.Paths = if (override_build_runner) |runner| .{
+            const main_mod_paths: Package.Module.CreateOptions.Paths = if (override_make_runner) |runner| .{
                 .root = try .fromUnresolved(arena, dirs, &.{fs.path.dirname(runner) orelse "."}),
                 .root_src_path = fs.path.basename(runner),
             } else .{
@@ -5497,6 +5524,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                 config,
             );
 
+            const compile_prog_node = root_prog_node.start("Compile Configure Script", 0);
+            defer compile_prog_node.end();
+
             try root_mod.deps.put(arena, "@build", build_mod);
 
             var create_diag: Compilation.CreateDiagnostic = undefined;
@@ -5528,7 +5558,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
             };
             defer comp.destroy();
 
-            updateModule(comp, color, root_prog_node) catch |err| switch (err) {
+            updateModule(comp, color, compile_prog_node) catch |err| switch (err) {
                 error.CompileErrorsReported => process.exit(2),
                 else => |e| return e,
             };
@@ -5536,52 +5566,74 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
             // Since incremental compilation isn't done yet, we use cache_mode = whole
             // above, and thus the output file is already closed.
             //try comp.makeBinFileExecutable();
-            child_argv.items[argv_index_exe] = try dirs.local_cache.join(arena, &.{
-                "o",
-                &Cache.binToHex(comp.digest.?),
-                comp.emit_bin.?,
-            });
+            const hex_digest: []const u8 = &Cache.binToHex(comp.digest.?);
+            const exe_path: Path = .{
+                .root_dir = dirs.local_cache,
+                .sub_path = try std.fmt.allocPrint(arena, "o/{s}/{s}", .{ hex_digest, comp.emit_bin.? }),
+            };
+            _ = try config_man.addFilePath(exe_path, null);
+            configure_argv.items[argv_index_exe] = try exe_path.toString(arena);
+
+            if (try config_man.hit()) {
+                const digest = config_man.final();
+                break :cp .{
+                    .root_dir = dirs.local_cache,
+                    .sub_path = try std.fmt.allocPrint(arena, "o/{s}", .{&digest}),
+                };
+            }
         }
 
         if (!process.can_spawn) {
-            const cmd = try std.mem.join(arena, " ", child_argv.items);
+            const cmd = try std.mem.join(arena, " ", configure_argv.items);
             fatal("the following command cannot be executed ({t} does not support spawning a child process):\n{s}", .{ native_os, cmd });
         }
+
+        const rand_int = randInt(io, u64);
+        const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
+        const config_tmp_path: Path = .{
+            .root_dir = dirs.local_cache,
+            .sub_path = tmp_dir_sub_path,
+        };
+        const config_tmp_file: Io.File = try config_tmp_path.root_dir.handle.createFile(
+            io,
+            config_tmp_path.sub_path,
+            .{ .read = true, .exclusive = true },
+        );
+        defer config_tmp_file.close(io);
+
         switch (term: {
-            _ = try io.lockStderr(&.{}, .no_color);
-            defer io.unlockStderr();
+            const child_node = root_prog_node.start("Run Configure Script", 0);
+            defer child_node.end();
             var child = std.process.spawn(io, .{
-                .argv = child_argv.items,
-            }) catch |err| fatal("failed to spawn build runner {s}: {t}", .{ child_argv.items[0], err });
+                .argv = configure_argv.items,
+                .stdout = .{ .file = config_tmp_file },
+                .progress_node = child_node,
+            }) catch |err| fatal("failed to spawn configure script {s}: {t}", .{ configure_argv.items[0], err });
             defer child.kill(io);
             break :term child.wait(io) catch |err|
-                fatal("failed to wait build runner {s}: {t}", .{ child_argv.items[0], err });
+                fatal("failed to wait configure script {s}: {t}", .{ configure_argv.items[0], err });
         }) {
             .exited => |code| {
-                if (code == 0) return cleanExit(io);
-                // Indicates that the build runner has reported compile errors
-                // and this parent process does not need to report any further
-                // diagnostics.
-                if (code == 2) process.exit(2);
+                if (code != 0) {
+                    // Failure to produce the configuration file.
+                    const cmd = try std.mem.join(arena, " ", configure_argv.items);
+                    fatal("the following configure command failed with exit code {d}:\n{s}", .{ code, cmd });
+                }
+                // Even though the file is designed to be sent directly to make
+                // runner, we must load it now because:
+                // * If it contains additional file dependencies, we need to
+                //   add them to `config_man` before obtaining the final digest.
+                // * If it contains a set of lazy packages that need to be
+                //   fetched, we need to fetch those now and re-run configure.
+                var configuration = std.zig.Configuration.load(arena, io, config_tmp_file) catch |err|
+                    fatal("failed to load configuration file {f}: {t}", .{ config_tmp_path, err });
 
-                if (code == 3) {
-                    if (!dev.env.supports(.fetch_command)) process.exit(3);
-                    // Indicates the configure phase failed due to missing lazy
-                    // dependencies and stdout contains the hashes of the ones
-                    // that are missing.
-                    const s = fs.path.sep_str;
-                    const tmp_sub_path = "tmp" ++ s ++ results_tmp_file_nonce;
-                    const stdout = dirs.local_cache.handle.readFileAlloc(io, tmp_sub_path, arena, .limited(50 * 1024 * 1024)) catch |err| {
-                        fatal("unable to read results of configure phase from '{f}{s}': {t}", .{
-                            dirs.local_cache, tmp_sub_path, err,
-                        });
-                    };
-                    dirs.local_cache.handle.deleteFile(io, tmp_sub_path) catch {};
-
-                    var it = mem.splitScalar(u8, stdout, '\n');
+                if (configuration.unlazy_deps.len != 0) {
+                    if (!dev.env.supports(.fetch_command)) process.exit(1);
                     var any_errors = false;
-                    while (it.next()) |hash| {
-                        if (hash.len == 0) continue;
+                    for (configuration.unlazy_deps) |hash_string| {
+                        const hash = hash_string.slice(&configuration);
+                        assert(hash.len != 0);
                         if (hash.len > Package.Hash.max_len) {
                             std.log.err("invalid digest (length {d} exceeds maximum): '{s}'", .{
                                 hash.len, hash,
@@ -5591,10 +5643,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                         }
                         try unlazy_set.put(arena, .fromSlice(hash), {});
                     }
-                    if (any_errors) process.exit(3);
+                    if (any_errors) process.exit(1);
                     if (system_pkg_dir_path) |p| {
                         // In this mode, the system needs to provide these packages; they
                         // cannot be fetched by Zig.
+                        const s = fs.path.sep_str;
                         for (unlazy_set.keys()) |*hash| {
                             std.log.err("lazy dependency package not found: {s}" ++ s ++ "{s}", .{
                                 p, hash.toSlice(),
@@ -5602,28 +5655,115 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                         }
                         std.log.info("remote package fetching disabled due to --system mode", .{});
                         std.log.info("dependencies might be avoidable depending on build configuration", .{});
-                        process.exit(3);
+                        process.exit(1);
                     }
-                    continue;
+                    continue :cp;
                 }
 
-                const cmd = try std.mem.join(arena, " ", child_argv.items);
-                fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
+                for (configuration.path_deps_base, configuration.path_deps_sub) |base, sub| {
+                    const conf_path: std.zig.Configuration.Path = .{ .base = base, .sub = sub };
+                    try config_man.addPathPost(conf_path.toCachePath(&configuration, arena));
+                }
+
+                const digest = config_man.final();
+                const final_path: Path = .{
+                    .root_dir = dirs.local_cache,
+                    .sub_path = try std.fmt.allocPrint(arena, "o/{s}", .{&digest}),
+                };
+                Io.Dir.rename(
+                    config_tmp_path.root_dir.handle,
+                    config_tmp_path.sub_path,
+                    final_path.root_dir.handle,
+                    final_path.sub_path,
+                    io,
+                ) catch |err| {
+                    fatal("failed to rename configuration file from {f} into {f}: {t}", .{
+                        config_tmp_path, final_path, err,
+                    });
+                };
+                config_man.writeManifest() catch |err| warn("failed to write cache manifest: {t}", .{err});
+
+                break :cp final_path;
             },
             .signal => |sig| {
-                const cmd = try std.mem.join(arena, " ", child_argv.items);
-                fatal("the following build command terminated with signal {t}:\n{s}", .{ sig, cmd });
+                const cmd = try std.mem.join(arena, " ", configure_argv.items);
+                fatal("the following configure command terminated with signal {t}:\n{s}", .{ sig, cmd });
             },
             .stopped => |sig| {
-                const cmd = try std.mem.join(arena, " ", child_argv.items);
+                const cmd = try std.mem.join(arena, " ", configure_argv.items);
                 fatal("the following build command stopped with signal {t}:\n{s}", .{ sig, cmd });
             },
             .unknown => {
-                const cmd = try std.mem.join(arena, " ", child_argv.items);
+                const cmd = try std.mem.join(arena, " ", configure_argv.items);
                 fatal("the following build command crashed:\n{s}", .{cmd});
             },
         }
+    };
+
+    {
+        // Release all file system locks just before running the maker process.
+        var configuration_lock = config_man.toOwnedLock();
+        defer configuration_lock.release(io);
+
+        const make_runner = make_runner_task.await(io) catch |err|
+            fatal("failed to compile maker: {t}", .{err});
+        defer make_runner.deinit(io);
+
+        make_argv.items[0] = try make_runner.exe_path.toString(arena);
+        make_argv.items[argv_index_configuration_file] = try configuration_path.toString(arena);
     }
+
+    if (!process.can_spawn) {
+        const cmd = try std.mem.join(arena, " ", make_argv.items);
+        fatal("the following command cannot be executed ({t} does not support spawning a child process):\n{s}", .{ native_os, cmd });
+    }
+
+    switch (term: {
+        _ = try io.lockStderr(&.{}, .no_color);
+        defer io.unlockStderr();
+        var child = std.process.spawn(io, .{
+            .argv = make_argv.items,
+        }) catch |err| fatal("failed to spawn maker {s}: {t}", .{ make_argv.items[0], err });
+        defer child.kill(io);
+        break :term child.wait(io) catch |err|
+            fatal("failed to wait maker {s}: {t}", .{ make_argv.items[0], err });
+    }) {
+        .exited => |code| {
+            if (code == 0) return cleanExit(io);
+            const cmd = try std.mem.join(arena, " ", configure_argv.items);
+            fatal("the following maker command failed with exit code {d}:\n{s}", .{ code, cmd });
+        },
+        .signal => |sig| {
+            const cmd = try std.mem.join(arena, " ", configure_argv.items);
+            fatal("the following maker command terminated with signal {t}:\n{s}", .{ sig, cmd });
+        },
+        else => {
+            const cmd = try std.mem.join(arena, " ", configure_argv.items);
+            fatal("the following maker command crashed:\n{s}", .{cmd});
+        },
+    }
+}
+
+const MakeRunner = struct {
+    exe_path: Path,
+
+    const Options = struct {
+        dirs: *Compilation.Directories,
+        optimize: std.builtin.OptimizeMode,
+        parent_prog_node: std.Progress.Node,
+    };
+
+    fn deinit(mr: MakeRunner, io: Io) void {
+        _ = mr;
+        _ = io;
+        @panic("TODO");
+    }
+};
+
+fn compileMakeRunner(io: Io, options: MakeRunner.Options) !MakeRunner {
+    _ = io;
+    _ = options;
+    @panic("TODO");
 }
 
 const Fork = struct {
@@ -5749,6 +5889,8 @@ fn jitCmdInner(
     const override_lib_dir: ?[]const u8 = EnvVar.ZIG_LIB_DIR.get(environ_map);
     const override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
 
+    const cwd_path = try introspect.getResolvedCwd(io, arena);
+
     // This `init` calls `fatal` on error.
     var dirs: Compilation.Directories = .init(
         arena,
@@ -5759,6 +5901,7 @@ fn jitCmdInner(
         preopens,
         self_exe_path,
         environ_map,
+        cwd_path,
     );
     defer dirs.deinit(io);
 

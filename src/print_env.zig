@@ -8,6 +8,7 @@ const fatal = std.process.fatal;
 
 const build_options = @import("build_options");
 const Compilation = @import("Compilation.zig");
+const introspect = @import("introspect.zig");
 
 pub fn cmdEnv(
     arena: Allocator,
@@ -28,6 +29,8 @@ pub fn cmdEnv(
         },
     };
 
+    const cwd_path = try introspect.getResolvedCwd(io, arena);
+
     var dirs: Compilation.Directories = .init(
         arena,
         io,
@@ -37,6 +40,7 @@ pub fn cmdEnv(
         preopens,
         if (builtin.target.os.tag != .wasi) self_exe_path,
         environ_map,
+        cwd_path,
     );
     defer dirs.deinit(io);
 

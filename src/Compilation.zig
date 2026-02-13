@@ -752,12 +752,9 @@ pub const Directories = struct {
             else => []const u8,
         },
         environ_map: *const std.process.Environ.Map,
+        cwd: []const u8,
     ) Directories {
         const wasi = builtin.target.os.tag == .wasi;
-
-        const cwd = introspect.getResolvedCwd(io, arena) catch |err| {
-            fatal("unable to get cwd: {t}", .{err});
-        };
 
         const zig_lib: Cache.Directory = d: {
             if (override_zig_lib) |path| break :d openUnresolved(arena, io, cwd, path, .@"zig lib");
@@ -3528,14 +3525,7 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addListOfBytes(opts.rpath_list);
     man.hash.addListOfBytes(opts.symbol_wrap_set.keys());
     if (comp.config.link_libc) {
-        man.hash.add(comp.libc_installation != null);
-        if (comp.libc_installation) |libc_installation| {
-            man.hash.addOptionalBytes(libc_installation.crt_dir);
-            if (target.abi == .msvc or target.abi == .itanium) {
-                man.hash.addOptionalBytes(libc_installation.msvc_lib_dir);
-                man.hash.addOptionalBytes(libc_installation.kernel32_lib_dir);
-            }
-        }
+        LibCInstallation.addToHash(comp.libc_installation, &man.hash, target.abi);
         man.hash.addOptionalBytes(target.dynamic_linker.get());
     }
     man.hash.add(opts.repro);

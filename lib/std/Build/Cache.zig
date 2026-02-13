@@ -1024,6 +1024,12 @@ pub const Manifest = struct {
         try self.populateFileHash(gop.key_ptr);
     }
 
+    pub fn addPathPost(man: *Manifest, path: Path) !void {
+        _ = man;
+        _ = path;
+        @panic("TODO");
+    }
+
     /// Like `addFilePost` but when the file contents have already been loaded from disk.
     pub fn addFilePostContents(
         self: *Manifest,
