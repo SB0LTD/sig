@@ -1013,6 +1013,8 @@ fn buildOutputType(
     var linker_print_gc_sections: bool = false;
     var linker_print_icf_sections: bool = false;
     var linker_print_map: bool = false;
+    var linker_nmagic: bool = false;
+    var linker_fatal_warnings: bool = false;
     var llvm_opt_bisect_limit: c_int = -1;
     var linker_z_nocopyreloc = false;
     var linker_z_nodelete = false;
@@ -2698,6 +2700,15 @@ fn buildOutputType(
                     linker_print_icf_sections = true;
                 } else if (mem.eql(u8, arg, "--print-map")) {
                     linker_print_map = true;
+                } else if (mem.eql(u8, arg, "-n") or mem.eql(u8, arg, "--nmagic")) {
+                    linker_nmagic = true;
+                } else if (mem.eql(u8, arg, "--fatal-warnings")) {
+                    linker_fatal_warnings = true;
+                } else if (mem.eql(u8, arg, "--no-fatal-warnings")) {
+                    linker_fatal_warnings = false;
+                } else if (mem.eql(u8, arg, "-m")) {
+                    _ = linker_args_it.nextOrFatal();
+                    warn("-m option is ignored; emulation is derived from target", .{});
                 } else if (mem.eql(u8, arg, "--sort-section")) {
                     const arg1 = linker_args_it.nextOrFatal();
                     linker_sort_section = stringToEnum(link.File.Lld.Elf.SortSection, arg1) orelse {
@@ -2970,9 +2981,11 @@ fn buildOutputType(
                     hash_style = stringToEnum(link.File.Lld.Elf.HashStyle, next_arg) orelse {
                         fatal("expected [sysv|gnu|both] after --hash-style, found {q}", .{next_arg});
                     };
-                } else if (mem.eql(u8, arg, "-wrap")) {
+                } else if (mem.eql(u8, arg, "-wrap") or mem.eql(u8, arg, "--wrap")) {
                     const next_arg = linker_args_it.nextOrFatal();
                     try symbol_wrap_set.put(arena, next_arg, {});
+                } else if (mem.cutPrefix(u8, arg, "--wrap=")) |symbol| {
+                    try symbol_wrap_set.put(arena, symbol, {});
                 } else if (mem.startsWith(u8, arg, "/subsystem:")) {
                     var split_it = mem.splitBackwardsScalar(u8, arg, ':');
                     subsystem = try parseSubsystem(split_it.first());
@@ -3688,6 +3701,8 @@ fn buildOutputType(
         .linker_print_gc_sections = linker_print_gc_sections,
         .linker_print_icf_sections = linker_print_icf_sections,
         .linker_print_map = linker_print_map,
+        .linker_nmagic = linker_nmagic,
+        .linker_fatal_warnings = linker_fatal_warnings,
         .llvm_opt_bisect_limit = llvm_opt_bisect_limit,
         .linker_global_base = linker_global_base,
         .linker_export_symbol_names = linker_export_symbol_names.items,
