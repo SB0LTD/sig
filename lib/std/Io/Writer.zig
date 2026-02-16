@@ -1172,6 +1172,25 @@ pub fn printValue(
                 },
                 else => invalidFmtError(fmt, value),
             },
+            // TODO make this print double quotes and quote-escape the string
+            // according to zig string syntax rules
+            'q' => switch (@typeInfo(T)) {
+                .pointer => |info| switch (info.size) {
+                    .one, .slice => {
+                        const slice: []const u8 = value;
+                        return w.alignBufferOptions(slice, options);
+                    },
+                    .many, .c => {
+                        const slice: [:0]const u8 = std.mem.span(value);
+                        return w.alignBufferOptions(slice, options);
+                    },
+                },
+                .array => {
+                    const slice: []const u8 = &value;
+                    return w.alignBufferOptions(slice, options);
+                },
+                else => invalidFmtError(fmt, value),
+            },
             'B' => switch (@typeInfo(T)) {
                 .int, .comptime_int => return w.printByteSize(value, .decimal, options),
                 .@"struct" => return value.formatByteSize(w, .decimal),
