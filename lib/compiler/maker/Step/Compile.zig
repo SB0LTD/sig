@@ -98,8 +98,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     {
-        var symbol_it = compile.force_undefined_symbols.keyIterator();
-        while (symbol_it.next()) |symbol_name| {
+        for (compile.force_undefined_symbols.keys()) |symbol_name| {
             try zig_args.append("--force_undefined");
             try zig_args.append(symbol_name.*);
         }
@@ -1071,4 +1070,131 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
     };
 }
 
+fn checkCompileErrors(compile: *Compile) !void {
+    // Clear this field so that it does not get printed by the build runner.
+    const actual_eb = compile.step.result_error_bundle;
+    compile.step.result_error_bundle = .empty;
+
+    const arena = compile.step.owner.allocator;
+
+    const actual_errors = ae: {
+        var aw: std.Io.Writer.Allocating = .init(arena);
+        defer aw.deinit();
+        try actual_eb.renderToWriter(.{
+            .include_reference_trace = false,
+            .include_source_line = false,
+        }, &aw.writer);
+        break :ae try aw.toOwnedSlice();
+    };
+
+    // Render the expected lines into a string that we can compare verbatim.
+    var expected_generated: std.ArrayList(u8) = .empty;
+    const expect_errors = compile.expect_errors.?;
+
+    var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');
+
+    // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
+    switch (expect_errors) {
+        .starts_with => |expect_starts_with| {
+            if (std.mem.startsWith(u8, actual_errors, expect_starts_with)) return;
+            return compile.step.fail(
+                \\
+                \\========= should start with: ============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_starts_with, actual_errors });
+        },
+        .contains => |expect_line| {
+            while (actual_line_it.next()) |actual_line| {
+                if (!matchCompileError(actual_line, expect_line)) continue;
+                return;
+            }
+
+            return compile.step.fail(
+                \\
+                \\========= should contain: ===============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_line, actual_errors });
+        },
+        .stderr_contains => |expect_line| {
+            const actual_stderr: []const u8 = if (compile.step.result_error_msgs.items.len > 0)
+                compile.step.result_error_msgs.items[0]
+            else
+                &.{};
+            compile.step.result_error_msgs.clearRetainingCapacity();
+
+            var stderr_line_it = mem.splitScalar(u8, actual_stderr, '\n');
+
+            while (stderr_line_it.next()) |actual_line| {
+                if (!matchCompileError(actual_line, expect_line)) continue;
+                return;
+            }
+
+            return compile.step.fail(
+                \\
+                \\========= should contain: ===============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_line, actual_stderr });
+        },
+        .exact => |expect_lines| {
+            for (expect_lines) |expect_line| {
+                const actual_line = actual_line_it.next() orelse {
+                    try expected_generated.appendSlice(arena, expect_line);
+                    try expected_generated.append(arena, '\n');
+                    continue;
+                };
+                if (matchCompileError(actual_line, expect_line)) {
+                    try expected_generated.appendSlice(arena, actual_line);
+                    try expected_generated.append(arena, '\n');
+                    continue;
+                }
+                try expected_generated.appendSlice(arena, expect_line);
+                try expected_generated.append(arena, '\n');
+            }
+
+            if (mem.eql(u8, expected_generated.items, actual_errors)) return;
+
+            return compile.step.fail(
+                \\
+                \\========= expected: =====================
+                \\{s}
+                \\========= but found: ====================
+                \\{s}
+                \\=========================================
+            , .{ expected_generated.items, actual_errors });
+        },
+    }
+}
+
+fn matchCompileError(actual: []const u8, expected: []const u8) bool {
+    if (mem.endsWith(u8, actual, expected)) return true;
+    if (mem.startsWith(u8, expected, ":?:?: ")) {
+        if (mem.endsWith(u8, actual, expected[":?:?: ".len..])) return true;
+    }
+    // We scan for /?/ in expected line and if there is a match, we match everything
+    // up to and after /?/.
+    const expected_trim = mem.trim(u8, expected, " ");
+    if (mem.find(u8, expected_trim, "/?/")) |index| {
+        const actual_trim = mem.trim(u8, actual, " ");
+        const lhs = expected_trim[0..index];
+        const rhs = expected_trim[index + "/?/".len ..];
+        if (mem.startsWith(u8, actual_trim, lhs) and mem.endsWith(u8, actual_trim, rhs)) return true;
+    }
+    return false;
+}
+
+fn moduleNeedsCliArg(mod: *const Module) bool {
+    return for (mod.link_objects.items) |o| switch (o) {
+        .c_source_file, .c_source_files, .assembly_file, .win32_resource_file => break true,
+        else => continue,
+    } else false;
+}
 

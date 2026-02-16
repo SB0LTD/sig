@@ -374,9 +374,9 @@ pub const Subsystem = enum {
     pub const EfiRuntimeDriver: Subsystem = .efi_runtime_driver;
 };
 
-pub const CompressDebugSections = enum { none, zlib, zstd };
+pub const CompressDebugSections = enum(u2) { none, zlib, zstd };
 
-pub const RcIncludes = enum {
+pub const RcIncludes = enum(u2) {
     /// Use MSVC if available, fall back to MinGW.
     any,
     /// Use MSVC include paths (MSVC install + Windows SDK, must be present on the system).

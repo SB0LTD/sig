@@ -60,7 +60,7 @@ filters: []const []const u8,
 test_runner: ?TestRunner,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
-installed_headers: std.array_list.Managed(HeaderInstallation),
+installed_headers: std.ArrayList(HeaderInstallation),
 
 /// This step is used to create an include tree that dependent modules can add to their include
 /// search paths. Installed headers are copied to this step.
@@ -82,8 +82,6 @@ win32_manifest: ?LazyPath = null,
 /// (Windows) .def file to embed in the compilation (dll)
 /// Set via options; intended to be read-only after that.
 win32_module_definition: ?LazyPath = null,
-
-installed_path: ?[]const u8,
 
 /// Base address for an executable image.
 image_base: ?u64 = null,
@@ -189,7 +187,7 @@ entry: Entry = .default,
 /// List of symbols forced as undefined in the symbol table
 /// thus forcing their resolution by the linker.
 /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
-force_undefined_symbols: std.StringHashMap(void),
+force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
 
 /// Overrides the default stack size
 stack_size: ?u64 = null,
@@ -290,20 +288,7 @@ pub const Options = struct {
     win32_module_definition: ?LazyPath = null,
 };
 
-pub const Kind = enum {
-    exe,
-    lib,
-    obj,
-    @"test",
-    test_obj,
-
-    pub fn isTest(kind: Kind) bool {
-        return switch (kind) {
-            .exe, .lib, .obj => false,
-            .@"test", .test_obj => true,
-        };
-    }
-};
+pub const Kind = std.Build.Configuration.Step.Compile.Kind;
 
 pub const HeaderInstallation = union(enum) {
     file: File,
@@ -424,14 +409,13 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .out_lib_filename = undefined,
         .major_only_filename = null,
         .name_only_filename = null,
-        .installed_headers = std.array_list.Managed(HeaderInstallation).init(owner.allocator),
+        .installed_headers = .empty,
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
         .test_runner = null, // set below
         .rdynamic = false,
-        .installed_path = null,
-        .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
+        .force_undefined_symbols = .empty,
 
         .emit_directory = null,
         .generated_docs = null,
@@ -519,7 +503,7 @@ pub fn installHeader(cs: *Compile, source: LazyPath, dest_rel_path: []const u8) 
         .source = source.dupe(b),
         .dest_rel_path = b.dupePath(dest_rel_path),
     } };
-    cs.installed_headers.append(installation) catch @panic("OOM");
+    cs.installed_headers.append(b.allocator, installation) catch @panic("OOM");
     cs.addHeaderInstallationToIncludeTree(installation);
     installation.getSource().addStepDependencies(&cs.step);
 }
@@ -539,7 +523,7 @@ pub fn installHeadersDirectory(
         .dest_rel_path = b.dupePath(dest_rel_path),
         .options = options.dupe(b),
     } };
-    cs.installed_headers.append(installation) catch @panic("OOM");
+    cs.installed_headers.append(b.allocator, installation) catch @panic("OOM");
     cs.addHeaderInstallationToIncludeTree(installation);
     installation.getSource().addStepDependencies(&cs.step);
 }
@@ -556,9 +540,10 @@ pub fn installConfigHeader(cs: *Compile, config_header: *Step.ConfigHeader) void
 /// module's include search path.
 pub fn installLibraryHeaders(cs: *Compile, lib: *Compile) void {
     assert(lib.kind == .lib);
+    const arena = cs.owner.allocator;
     for (lib.installed_headers.items) |installation| {
         const installation_copy = installation.dupe(lib.step.owner);
-        cs.installed_headers.append(installation_copy) catch @panic("OOM");
+        cs.installed_headers.append(arena, installation_copy) catch @panic("OOM");
         cs.addHeaderInstallationToIncludeTree(installation_copy);
         installation_copy.getSource().addStepDependencies(&cs.step);
     }
@@ -618,7 +603,8 @@ pub fn setVersionScript(compile: *Compile, source: LazyPath) void {
 
 pub fn forceUndefinedSymbol(compile: *Compile, symbol_name: []const u8) void {
     const b = compile.step.owner;
-    compile.force_undefined_symbols.put(b.dupe(symbol_name), {}) catch @panic("OOM");
+    const arena = b.allocator;
+    compile.force_undefined_symbols.put(arena, b.dupe(symbol_name), {}) catch @panic("OOM");
 }
 
 /// Returns whether the library, executable, or object depends on a particular system library.
@@ -867,137 +853,9 @@ fn outputPath(c: *Compile, out_dir: std.Build.Cache.Path, ea: std.zig.EmitArtifa
     return out_dir.joinString(arena, name) catch @panic("OOM");
 }
 
-fn checkCompileErrors(compile: *Compile) !void {
-    // Clear this field so that it does not get printed by the build runner.
-    const actual_eb = compile.step.result_error_bundle;
-    compile.step.result_error_bundle = .empty;
-
-    const arena = compile.step.owner.allocator;
-
-    const actual_errors = ae: {
-        var aw: std.Io.Writer.Allocating = .init(arena);
-        defer aw.deinit();
-        try actual_eb.renderToWriter(.{
-            .include_reference_trace = false,
-            .include_source_line = false,
-        }, &aw.writer);
-        break :ae try aw.toOwnedSlice();
-    };
-
-    // Render the expected lines into a string that we can compare verbatim.
-    var expected_generated: std.ArrayList(u8) = .empty;
-    const expect_errors = compile.expect_errors.?;
-
-    var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');
-
-    // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
-    switch (expect_errors) {
-        .starts_with => |expect_starts_with| {
-            if (std.mem.startsWith(u8, actual_errors, expect_starts_with)) return;
-            return compile.step.fail(
-                \\
-                \\========= should start with: ============
-                \\{s}
-                \\========= but not found: ================
-                \\{s}
-                \\=========================================
-            , .{ expect_starts_with, actual_errors });
-        },
-        .contains => |expect_line| {
-            while (actual_line_it.next()) |actual_line| {
-                if (!matchCompileError(actual_line, expect_line)) continue;
-                return;
-            }
-
-            return compile.step.fail(
-                \\
-                \\========= should contain: ===============
-                \\{s}
-                \\========= but not found: ================
-                \\{s}
-                \\=========================================
-            , .{ expect_line, actual_errors });
-        },
-        .stderr_contains => |expect_line| {
-            const actual_stderr: []const u8 = if (compile.step.result_error_msgs.items.len > 0)
-                compile.step.result_error_msgs.items[0]
-            else
-                &.{};
-            compile.step.result_error_msgs.clearRetainingCapacity();
-
-            var stderr_line_it = mem.splitScalar(u8, actual_stderr, '\n');
-
-            while (stderr_line_it.next()) |actual_line| {
-                if (!matchCompileError(actual_line, expect_line)) continue;
-                return;
-            }
-
-            return compile.step.fail(
-                \\
-                \\========= should contain: ===============
-                \\{s}
-                \\========= but not found: ================
-                \\{s}
-                \\=========================================
-            , .{ expect_line, actual_stderr });
-        },
-        .exact => |expect_lines| {
-            for (expect_lines) |expect_line| {
-                const actual_line = actual_line_it.next() orelse {
-                    try expected_generated.appendSlice(arena, expect_line);
-                    try expected_generated.append(arena, '\n');
-                    continue;
-                };
-                if (matchCompileError(actual_line, expect_line)) {
-                    try expected_generated.appendSlice(arena, actual_line);
-                    try expected_generated.append(arena, '\n');
-                    continue;
-                }
-                try expected_generated.appendSlice(arena, expect_line);
-                try expected_generated.append(arena, '\n');
-            }
-
-            if (mem.eql(u8, expected_generated.items, actual_errors)) return;
-
-            return compile.step.fail(
-                \\
-                \\========= expected: =====================
-                \\{s}
-                \\========= but found: ====================
-                \\{s}
-                \\=========================================
-            , .{ expected_generated.items, actual_errors });
-        },
-    }
-}
-
-fn matchCompileError(actual: []const u8, expected: []const u8) bool {
-    if (mem.endsWith(u8, actual, expected)) return true;
-    if (mem.startsWith(u8, expected, ":?:?: ")) {
-        if (mem.endsWith(u8, actual, expected[":?:?: ".len..])) return true;
-    }
-    // We scan for /?/ in expected line and if there is a match, we match everything
-    // up to and after /?/.
-    const expected_trim = mem.trim(u8, expected, " ");
-    if (mem.find(u8, expected_trim, "/?/")) |index| {
-        const actual_trim = mem.trim(u8, actual, " ");
-        const lhs = expected_trim[0..index];
-        const rhs = expected_trim[index + "/?/".len ..];
-        if (mem.startsWith(u8, actual_trim, lhs) and mem.endsWith(u8, actual_trim, rhs)) return true;
-    }
-    return false;
-}
-
 pub fn rootModuleTarget(c: *Compile) std.Target {
     // The root module is always given a target, so we know this to be non-null.
     return c.root_module.resolved_target.?.result;
-}
-
-fn moduleNeedsCliArg(mod: *const Module) bool {
-    return for (mod.link_objects.items) |o| switch (o) {
-        .c_source_file, .c_source_files, .assembly_file, .win32_resource_file => break true,
-        else => continue,
-    } else false;
 }
 
 /// Return the full set of `Step.Compile` which `start` depends on, recursively. `start` itself is

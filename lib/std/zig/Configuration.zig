@@ -206,7 +206,7 @@ pub const Step = extern struct {
         _,
     };
 
-    pub const Tag = enum(u8) {
+    pub const Tag = enum(u5) {
         top_level,
         compile,
         install_artifact,
@@ -232,7 +232,7 @@ pub const Step = extern struct {
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .top_level,
-            _: u24 = 0,
+            _: u27 = 0,
         };
     };
 
@@ -258,7 +258,7 @@ pub const Step = extern struct {
         pub const Flags = packed struct(u32) {
             tag: Tag = .install_artifact,
             dylib_symlinks: bool,
-            _: u23 = 0,
+            _: u26 = 0,
         };
     };
 
@@ -342,7 +342,253 @@ pub const Step = extern struct {
             stderr_trim_whitespace: TrimWhitespace,
             stdio_limit: bool,
             producer: bool,
-            _: u5 = 0,
+            _: u8 = 0,
+        };
+    };
+
+    /// Trailing:
+    /// * filters_len: u32, // if flag is set
+    /// * exec_cmd_args_len: u32, // if flag is set
+    /// * installed_headers_len: u32, // if flag is set
+    /// * force_undefined_symbols_len: u32, // if flag is set
+    /// * exacts_len: u32 if expected_compile_errors is exact
+    /// * filter: String for each filters_len
+    /// * exec_cmd_arg: String for each exec_cmd_args_len
+    /// * InstalledHeader for each installed_headers_len
+    /// * force_undefined_symbol: String for each force_undefined_symbols_len
+    /// * String for each exacts_len
+    /// * linker_script: LazyPath if flag is set
+    /// * version_script: LazyPath if flag is set
+    /// * zig_lib_dir: LazyPath if flag is set
+    /// * libc_file: LazyPath if flag is set
+    /// * test_runner: LazyPath if test_runner_mode is not default
+    /// * win32_manifest: LazyPath if flag is set
+    /// * win32_module_definition: LazyPath if flag is set
+    /// * entitlements: LazyPath if flag is set
+    /// * version: String if flag is set (semantic version string)
+    /// * entry: String if entry is symbol
+    /// * install_name: String if flag is set
+    /// * String if expected_compile_errors is contains, starts_with, or stderr_contains
+    /// * initial_memory: u64 if flag is set
+    /// * max_memory: u64 if flag is set
+    /// * global_base: u64 if flag is set
+    /// * image_base: u64 if flag is set
+    /// * link_z_common_page_size if flag is set
+    /// * link_z_max_page_size if flag is set
+    /// * pagezero_size if flag is set
+    /// * stack_size if flag is set
+    /// * headerpad_size if flag is set
+    /// * error_limit if flag is set
+    /// * Hexstring if build_id is hexstring
+    pub const Compile = struct {
+        flags: Flags,
+        flags2: Flags2,
+        flags3: Flags3,
+        flags4: Flags4,
+
+        root_module: Module,
+        root_name: String,
+
+        pub const ExpectedCompileErrors = enum(u3) { contains, exact, starts_with, stderr_contains, none };
+        pub const TestRunnerMode = enum(u2) { default, simple, server };
+        pub const Entry = enum(u2) { default, disabled, enabled, symbol_name };
+
+        pub const Lto = enum(u2) {
+            none,
+            full,
+            thin,
+            default,
+
+            pub fn init(lto: ?std.zig.LtoMode) Lto {
+                return switch (lto orelse return .default) {
+                    .none => .none,
+                    .full => .full,
+                    .thin => .thin,
+                };
+            }
+        };
+
+        pub const BuildId = enum(u3) {
+            none,
+            fast,
+            uuid,
+            sha1,
+            md5,
+            hexstring,
+            default,
+
+            pub fn init(build_id: ?std.zig.BuildId) BuildId {
+                return switch (build_id orelse return .default) {
+                    .none => .none,
+                    .fast => .fast,
+                    .uuid => .uuid,
+                    .sha1 => .sha1,
+                    .md5 => .md5,
+                    .hexstring => .hexstring,
+                };
+            }
+        };
+        pub const WasiExecModel = enum(u2) {
+            default,
+            command,
+            reactor,
+
+            pub fn init(wasi_exec_model: ?std.builtin.WasiExecModel) WasiExecModel {
+                return switch (wasi_exec_model orelse return .default) {
+                    .command => .command,
+                    .reactor => .reactor,
+                };
+            }
+        };
+        pub const Linkage = enum(u2) {
+            static,
+            dynamic,
+            default,
+
+            pub fn init(link_mode: ?std.builtin.LinkMode) Linkage {
+                return switch (link_mode orelse return .default) {
+                    .static => .static,
+                    .dynamic => .dynamic,
+                };
+            }
+        };
+        pub const Kind = enum(u3) {
+            exe,
+            lib,
+            obj,
+            @"test",
+            test_obj,
+
+            pub fn isTest(kind: Kind) bool {
+                return switch (kind) {
+                    .exe, .lib, .obj => false,
+                    .@"test", .test_obj => true,
+                };
+            }
+        };
+        pub const DefaultingBool = enum(u2) {
+            false,
+            true,
+            default,
+
+            pub fn init(b: ?bool) DefaultingBool {
+                return switch (b orelse return .default) {
+                    false => .false,
+                    true => .true,
+                };
+            }
+        };
+
+        pub const Subsystem = enum(u4) {
+            console,
+            windows,
+            posix,
+            native,
+            efi_application,
+            efi_boot_service_driver,
+            efi_rom,
+            efi_runtime_driver,
+            default,
+
+            pub fn init(subsystem: ?std.zig.Subsystem) Subsystem {
+                return switch (subsystem orelse return .default) {
+                    .console => .console,
+                    .windows => .windows,
+                    .posix => .posix,
+                    .native => .native,
+                    .efi_application => .efi_application,
+                    .efi_boot_service_driver => .efi_boot_service_driver,
+                    .efi_rom => .efi_rom,
+                    .efi_runtime_driver => .efi_runtime_driver,
+                };
+            }
+        };
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .compile,
+
+            filters_len: bool,
+            exec_cmd_args_len: bool,
+            installed_headers_len: bool,
+            force_undefined_symbols_len: bool,
+
+            verbose_link: bool,
+            verbose_cc: bool,
+            rdynamic: bool,
+            import_memory: bool,
+            export_memory: bool,
+            import_symbols: bool,
+            import_table: bool,
+            export_table: bool,
+            shared_memory: bool,
+            link_eh_frame_hdr: bool,
+            link_emit_relocs: bool,
+            link_function_sections: bool,
+            link_data_sections: bool,
+            linker_dynamicbase: bool,
+            link_z_notext: bool,
+            link_z_relro: bool,
+            link_z_lazy: bool,
+            link_z_defs: bool,
+            headerpad_max_install_names: bool,
+            dead_strip_dylibs: bool,
+            force_load_objc: bool,
+            discard_local_symbols: bool,
+            mingw_unicode_entry_point: bool,
+        };
+
+        pub const Flags2 = packed struct(u32) {
+            pie: DefaultingBool,
+            formatted_panics: DefaultingBool,
+            bundle_compiler_rt: DefaultingBool,
+            bundle_ubsan_rt: DefaultingBool,
+            each_lib_rpath: DefaultingBool,
+            link_gc_sections: DefaultingBool,
+            linker_allow_shlib_undefined: DefaultingBool,
+            linker_allow_undefined_version: DefaultingBool,
+            linker_enable_new_dtags: DefaultingBool,
+            dll_export_fns: DefaultingBool,
+            use_llvm: DefaultingBool,
+            use_lld: DefaultingBool,
+            use_new_linker: DefaultingBool,
+            allow_so_scripts: DefaultingBool,
+            sanitize_coverage_trace_pc_guard: DefaultingBool,
+            linkage: Linkage,
+        };
+
+        pub const Flags3 = packed struct(u32) {
+            is_linking_libc: bool,
+            is_linking_libcpp: bool,
+            version: bool,
+            initial_memory: bool,
+            max_memory: bool,
+            kind: Kind,
+            compress_debug_sections: std.zig.CompressDebugSections,
+            global_base: bool,
+            test_runner_mode: TestRunnerMode,
+            wasi_exec_model: WasiExecModel,
+            win32_manifest: bool,
+            win32_module_definition: bool,
+            zig_lib_dir: bool,
+            rc_includes: std.zig.RcIncludes,
+            image_base: bool,
+            build_id: BuildId,
+            entry: Entry,
+            lto: Lto,
+            subsystem: Subsystem,
+        };
+
+        pub const Flags4 = packed struct(u32) {
+            libc_file: bool,
+            link_z_common_page_size: bool,
+            link_z_max_page_size: bool,
+            pagezero_size: bool,
+            stack_size: bool,
+            headerpad_size: bool,
+            error_limit: bool,
+            install_name: bool,
+            entitlements: bool,
+            _: u23 = 0,
         };
     };
 };
@@ -417,6 +663,10 @@ pub const LazyPath = enum(u32) {
 };
 
 pub const Package = enum(u32) {
+    _,
+};
+
+pub const Module = enum(u32) {
     _,
 };
 

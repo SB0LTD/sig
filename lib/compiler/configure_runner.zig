@@ -269,7 +269,105 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .description = try wc.addString(top_level.description),
                         }));
                     },
-                    .compile => @panic("TODO"),
+                    .compile => e: {
+                        const c: *Step.Compile = @fieldParentPtr("step", step);
+                        const extra_index = try wc.addExtra(@as(Configuration.Step.Compile, .{
+                            .flags = .{
+                                .filters_len = c.filters.len != 0,
+                                .exec_cmd_args_len = if (c.exec_cmd_args) |a| a.len != 0 else false,
+                                .installed_headers_len = c.installed_headers.items.len != 0,
+                                .force_undefined_symbols_len = c.force_undefined_symbols.entries.len != 0,
+
+                                .verbose_link = c.verbose_link,
+                                .verbose_cc = c.verbose_cc,
+                                .rdynamic = c.rdynamic,
+                                .import_memory = c.import_memory,
+                                .export_memory = c.export_memory,
+                                .import_symbols = c.import_symbols,
+                                .import_table = c.import_table,
+                                .export_table = c.export_table,
+                                .shared_memory = c.shared_memory,
+                                .link_eh_frame_hdr = c.link_eh_frame_hdr,
+                                .link_emit_relocs = c.link_emit_relocs,
+                                .link_function_sections = c.link_function_sections,
+                                .link_data_sections = c.link_data_sections,
+                                .linker_dynamicbase = c.linker_dynamicbase,
+                                .link_z_notext = c.link_z_notext,
+                                .link_z_relro = c.link_z_relro,
+                                .link_z_lazy = c.link_z_lazy,
+                                .link_z_defs = c.link_z_defs,
+                                .headerpad_max_install_names = c.headerpad_max_install_names,
+                                .dead_strip_dylibs = c.dead_strip_dylibs,
+                                .force_load_objc = c.force_load_objc,
+                                .discard_local_symbols = c.discard_local_symbols,
+                                .mingw_unicode_entry_point = c.mingw_unicode_entry_point,
+                            },
+                            .flags2 = .{
+                                .pie = .init(c.pie),
+                                .formatted_panics = .init(c.formatted_panics),
+                                .bundle_compiler_rt = .init(c.bundle_compiler_rt),
+                                .bundle_ubsan_rt = .init(c.bundle_ubsan_rt),
+                                .each_lib_rpath = .init(c.each_lib_rpath),
+                                .link_gc_sections = .init(c.link_gc_sections),
+                                .linker_allow_shlib_undefined = .init(c.linker_allow_shlib_undefined),
+                                .linker_allow_undefined_version = .init(c.linker_allow_undefined_version),
+                                .linker_enable_new_dtags = .init(c.linker_enable_new_dtags),
+                                .dll_export_fns = .init(c.dll_export_fns),
+                                .use_llvm = .init(c.use_llvm),
+                                .use_lld = .init(c.use_lld),
+                                .use_new_linker = .init(c.use_new_linker),
+                                .allow_so_scripts = .init(c.allow_so_scripts),
+                                .sanitize_coverage_trace_pc_guard = .init(c.sanitize_coverage_trace_pc_guard),
+                                .linkage = .init(c.linkage),
+                            },
+                            .flags3 = .{
+                                .is_linking_libc = c.is_linking_libc,
+                                .is_linking_libcpp = c.is_linking_libcpp,
+                                .version = c.version != null,
+                                .compress_debug_sections = c.compress_debug_sections,
+                                .initial_memory = c.initial_memory != null,
+                                .max_memory = c.max_memory != null,
+                                .kind = c.kind,
+                                .global_base = c.global_base != null,
+                                .test_runner_mode = if (c.test_runner) |tr| switch (tr.mode) {
+                                    .simple => .simple,
+                                    .server => .server,
+                                } else .default,
+                                .wasi_exec_model = .init(c.wasi_exec_model),
+                                .win32_manifest = c.win32_manifest != null,
+                                .win32_module_definition = c.win32_module_definition != null,
+                                .zig_lib_dir = c.zig_lib_dir != null,
+                                .rc_includes = c.rc_includes,
+                                .image_base = c.image_base != null,
+                                .build_id = .init(c.build_id),
+                                .entry = switch (c.entry) {
+                                    .default => .default,
+                                    .disabled => .disabled,
+                                    .enabled => .enabled,
+                                    .symbol_name => .symbol_name,
+                                },
+                                .lto = .init(c.lto),
+                                .subsystem = .init(c.subsystem),
+                            },
+                            .flags4 = .{
+                                .libc_file = c.libc_file != null,
+                                .link_z_common_page_size = c.link_z_common_page_size != null,
+                                .link_z_max_page_size = c.link_z_max_page_size != null,
+                                .pagezero_size = c.pagezero_size != null,
+                                .stack_size = c.stack_size != null,
+                                .headerpad_size = c.headerpad_size != null,
+                                .error_limit = c.error_limit != null,
+                                .install_name = c.install_name != null,
+                                .entitlements = c.entitlements != null,
+                            },
+                            .root_module = try addModule(wc, c.root_module),
+                            .root_name = try wc.addString(c.name),
+                        }));
+
+                        std.log.err("TODO serialize the trailing Compile step data", .{});
+
+                        break :e extra_index;
+                    },
                     .install_artifact => e: {
                         const ia: *Step.InstallArtifact = @fieldParentPtr("step", step);
                         break :e try wc.addExtra(@as(Configuration.Step.InstallArtifact, .{
@@ -362,6 +460,12 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
     try wc.write(writer, .{
         .default_step = stepIndex(&step_map, b.default_step),
     });
+}
+
+fn addModule(wc: *Configuration.Wip, module: *std.Build.Module) !Configuration.Module {
+    _ = wc;
+    _ = module;
+    @panic("TODO");
 }
 
 fn addOptionalLazyPath(wc: *Configuration.Wip, lp: ?std.Build.LazyPath) !Configuration.OptionalLazyPath {
