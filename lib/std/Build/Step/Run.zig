@@ -89,26 +89,10 @@ dep_output_file: ?*Output,
 has_side_effects: bool,
 test_runner_mode: bool = false,
 
-/// Populated during the fuzz phase if this run step corresponds to a unit test
-/// executable that contains fuzz tests.
-rebuilt_executable: ?Path,
-
 /// If this Run step was produced by a Compile step, it is tracked here.
 producer: ?*Step.Compile,
 
-pub const Color = enum {
-    /// `CLICOLOR_FORCE` is set, and `NO_COLOR` is unset.
-    enable,
-    /// `NO_COLOR` is set, and `CLICOLOR_FORCE` is unset.
-    disable,
-    /// If the build runner is using color, equivalent to `.enable`. Otherwise, equivalent to `.disable`.
-    inherit,
-    /// If stderr is captured or checked, equivalent to `.disable`. Otherwise, equivalent to `.inherit`.
-    auto,
-    /// The build runner does not modify the `CLICOLOR_FORCE` or `NO_COLOR` environment variables.
-    /// They are treated like normal variables, so can be controlled through `setEnvironmentVariable`.
-    manual,
-};
+pub const Color = std.Build.Configuration.Step.Run.Color;
 
 pub const StdIn = union(enum) {
     none,
@@ -192,12 +176,7 @@ pub const CapturedStdIo = struct {
         trim_whitespace: TrimWhitespace = .none,
     };
 
-    pub const TrimWhitespace = enum {
-        none,
-        all,
-        leading,
-        trailing,
-    };
+    pub const TrimWhitespace = std.Build.Configuration.Step.Run.TrimWhitespace;
 };
 
 pub fn create(owner: *std.Build, name: []const u8) *Run {
@@ -223,7 +202,6 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .captured_stderr = null,
         .dep_output_file = null,
         .has_side_effects = false,
-        .rebuilt_executable = null,
         .producer = null,
     };
     return run;

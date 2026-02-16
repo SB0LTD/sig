@@ -1,12 +1,12 @@
+const Watch = @This();
 const builtin = @import("builtin");
 
-const std = @import("../std.zig");
+const std = @import("std");
 const Io = std.Io;
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
-const Watch = @This();
 const FsEvents = @import("Watch/FsEvents.zig");
 
 os: Os,

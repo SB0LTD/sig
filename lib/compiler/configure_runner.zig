@@ -206,6 +206,7 @@ pub fn main(init: process.Init.Minimal) !void {
 
     var wc: Configuration.Wip = .init(gpa);
     defer wc.deinit();
+    assert(try wc.addString("") == .empty);
 
     var stdout_buffer: [1024]u8 = undefined;
     var file_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
@@ -259,7 +260,6 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
             try wc.steps.ensureTotalCapacity(gpa, step_map.entries.capacity);
             wc.steps.appendAssumeCapacity(.{
                 .name = try wc.addString(step.name),
-                .flags = .{ .tag = step.tag },
                 .deps = deps,
                 .max_rss = .fromBytes(step.max_rss),
                 .extra_index = switch (step.tag) {
@@ -273,6 +273,9 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                     .install_artifact => e: {
                         const ia: *Step.InstallArtifact = @fieldParentPtr("step", step);
                         break :e try wc.addExtra(@as(Configuration.Step.InstallArtifact, .{
+                            .flags = .{
+                                .dylib_symlinks = ia.dylib_symlinks != null,
+                            },
                             .dest_dir = try addInstallDir(wc, ia.dest_dir),
                             .dest_sub_path = try wc.addString(ia.dest_sub_path),
                             .emitted_bin = try addOptionalLazyPath(wc, ia.emitted_bin),
@@ -293,7 +296,54 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                     .translate_c => @panic("TODO"),
                     .write_file => @panic("TODO"),
                     .update_source_files => @panic("TODO"),
-                    .run => @panic("TODO"),
+                    .run => e: {
+                        const run: *Step.Run = @fieldParentPtr("step", step);
+
+                        const captured_stdout: Configuration.OptionalString = if (run.captured_stdout) |cs|
+                            .init(try wc.addString(cs.output.basename))
+                        else
+                            .none;
+
+                        const captured_stderr: Configuration.OptionalString = if (run.captured_stderr) |cs|
+                            .init(try wc.addString(cs.output.basename))
+                        else
+                            .none;
+
+                        const extra_index = try wc.addExtra(@as(Configuration.Step.Run, .{
+                            .flags = .{
+                                .disable_zig_progress = run.disable_zig_progress,
+                                .skip_foreign_checks = run.skip_foreign_checks,
+                                .failing_to_execute_foreign_is_an_error = run.failing_to_execute_foreign_is_an_error,
+                                .has_side_effects = run.has_side_effects,
+                                .test_runner_mode = run.test_runner_mode,
+                                .color = run.color,
+                                .stdio = switch (run.stdio) {
+                                    .infer_from_args => .infer_from_args,
+                                    .inherit => .inherit,
+                                    .check => .check,
+                                    .zig_test => .zig_test,
+                                },
+                                .stdin = switch (run.stdin) {
+                                    .none => .none,
+                                    .bytes => .bytes,
+                                    .lazy_path => .lazy_path,
+                                },
+                                .stdout_trim_whitespace = if (run.captured_stdout) |cs| cs.trim_whitespace else .none,
+                                .stderr_trim_whitespace = if (run.captured_stderr) |cs| cs.trim_whitespace else .none,
+                                .stdio_limit = run.stdio_limit != .unlimited,
+                                .producer = run.producer != null,
+                            },
+                            .file_inputs_len = @intCast(run.file_inputs.items.len),
+                            .args_len = @intCast(run.argv.items.len),
+                            .cwd = try addOptionalLazyPath(wc, run.cwd),
+                            .captured_stdout = captured_stdout,
+                            .captured_stderr = captured_stderr,
+                        }));
+
+                        std.log.err("TODO serialize the trailing Run step data", .{});
+
+                        break :e extra_index;
+                    },
                     .check_file => @panic("TODO"),
                     .check_object => @panic("TODO"),
                     .config_header => @panic("TODO"),
@@ -319,7 +369,7 @@ fn addOptionalLazyPath(wc: *Configuration.Wip, lp: ?std.Build.LazyPath) !Configu
         .src_path => |src_path| i: {
             const owner = builderToPackage(src_path.owner);
             const sub_path = try wc.addString(src_path.sub_path);
-            break :i try wc.addExtra(@as(Configuration.OptionalLazyPath.SourcePath, .{
+            break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
                 .flags = .{},
                 .owner = owner,
                 .sub_path = sub_path,
@@ -327,14 +377,14 @@ fn addOptionalLazyPath(wc: *Configuration.Wip, lp: ?std.Build.LazyPath) !Configu
         },
         .generated => |generated| i: {
             const sub_path = try wc.addString(generated.sub_path);
-            break :i try wc.addExtra(@as(Configuration.OptionalLazyPath.Generated, .{
+            break :i try wc.addExtra(@as(Configuration.LazyPath.Generated, .{
                 .flags = .{ .up = @intCast(generated.up) },
                 .sub_path = sub_path,
             }));
         },
         .cwd_relative => |cwd_relative_sub_path| i: {
             const sub_path = try wc.addString(cwd_relative_sub_path);
-            break :i try wc.addExtra(@as(Configuration.OptionalLazyPath.Relative, .{
+            break :i try wc.addExtra(@as(Configuration.LazyPath.Relative, .{
                 .flags = .{ .base = .cwd },
                 .sub_path = sub_path,
             }));
@@ -342,7 +392,7 @@ fn addOptionalLazyPath(wc: *Configuration.Wip, lp: ?std.Build.LazyPath) !Configu
         .dependency => |dependency| i: {
             const owner = builderToPackage(dependency.dependency.builder);
             const sub_path = try wc.addString(dependency.sub_path);
-            break :i try wc.addExtra(@as(Configuration.OptionalLazyPath.SourcePath, .{
+            break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
                 .flags = .{},
                 .owner = owner,
                 .sub_path = sub_path,

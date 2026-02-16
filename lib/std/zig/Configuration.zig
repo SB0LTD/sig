@@ -196,16 +196,11 @@ pub const Wip = struct {
 
 pub const Step = extern struct {
     name: String,
-    flags: Flags,
     deps: Deps,
     max_rss: MaxRss,
-    /// Points into `extra` for step-specific data.
+    /// Points into `extra` for step-specific data. First element has flags
+    /// with `Tag`.
     extra_index: u32,
-
-    pub const Flags = packed struct(u32) {
-        tag: Tag,
-        _: u24 = 0,
-    };
 
     pub const Index = enum(u32) {
         _,
@@ -232,10 +227,18 @@ pub const Step = extern struct {
     };
 
     pub const TopLevel = struct {
+        flags: Flags = .{},
         description: String,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .top_level,
+            _: u24 = 0,
+        };
     };
 
     pub const InstallArtifact = struct {
+        flags: Flags,
+
         dest_dir: InstallDir,
         dest_sub_path: String,
         emitted_bin: OptionalLazyPath,
@@ -252,10 +255,94 @@ pub const Step = extern struct {
         /// Always a compile step.
         artifact: Step.Index,
 
-        const Flags = packed struct(u32) {
+        pub const Flags = packed struct(u32) {
             tag: Tag = .install_artifact,
             dylib_symlinks: bool,
             _: u23 = 0,
+        };
+    };
+
+    /// Trailing:
+    /// * LazyPath for each file_inputs_len
+    /// * Arg for each args_len
+    /// * environ_map if corresponding flag is set
+    /// * stdin: Bytes, // if StdIn.bytes is chosen
+    /// * stdin: LazyPath, // if StdIn.lazy_path is chosen
+    /// * checks: Checks, // if StdIo.check is chosen
+    /// * stdio_limit: u64, // if stdio_limit is set
+    /// * producer: Step.Index, // if producer is set. always compile step
+    pub const Run = struct {
+        flags: Flags,
+        file_inputs_len: u32,
+        args_len: u32,
+        cwd: OptionalLazyPath,
+        captured_stdout: OptionalString, // basename
+        captured_stderr: OptionalString, // basename
+
+        /// Trailing:
+        /// * String if prefix set
+        /// * String if suffix set
+        /// * String if basename set
+        /// * Step.Index which is always a compile step if tag is artifact
+        /// * LazyPath if tag is path_file, path_directory, or file_content
+        pub const Arg = struct {
+            flags: Arg.Flags,
+
+            pub const Flags = packed struct(u32) {
+                tag: Arg.Tag,
+                prefix: bool,
+                suffix: bool,
+                basename: bool,
+                /// Implies Tag is output_file
+                dep_file: bool,
+                _: u20 = 0,
+            };
+
+            pub const Tag = enum(u8) {
+                artifact,
+                path_file,
+                path_directory,
+                file_content,
+                bytes,
+                output_file,
+                output_directory,
+            };
+        };
+
+        pub const Color = enum(u4) {
+            /// `CLICOLOR_FORCE` is set, and `NO_COLOR` is unset.
+            enable,
+            /// `NO_COLOR` is set, and `CLICOLOR_FORCE` is unset.
+            disable,
+            /// If the build runner is using color, equivalent to `.enable`. Otherwise, equivalent to `.disable`.
+            inherit,
+            /// If stderr is captured or checked, equivalent to `.disable`. Otherwise, equivalent to `.inherit`.
+            auto,
+            /// The build runner does not modify the `CLICOLOR_FORCE` or `NO_COLOR` environment variables.
+            /// They are treated like normal variables, so can be controlled through `setEnvironmentVariable`.
+            manual,
+        };
+
+        pub const StdIn = enum(u2) { none, bytes, lazy_path };
+        pub const TrimWhitespace = enum(u2) { none, all, leading, trailing };
+        pub const StdIo = enum(u2) { infer_from_args, inherit, check, zig_test };
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .run,
+
+            disable_zig_progress: bool,
+            skip_foreign_checks: bool,
+            failing_to_execute_foreign_is_an_error: bool,
+            has_side_effects: bool,
+            test_runner_mode: bool,
+            color: Color,
+            stdin: StdIn,
+            stdio: StdIo,
+            stdout_trim_whitespace: TrimWhitespace,
+            stderr_trim_whitespace: TrimWhitespace,
+            stdio_limit: bool,
+            producer: bool,
+            _: u5 = 0,
         };
     };
 };
@@ -274,9 +361,14 @@ pub const MaxRss = enum(u32) {
     }
 };
 
-/// An index into `extra`.
+/// An index into `extra`, or `null`.
 pub const OptionalLazyPath = enum(u32) {
     none = maxInt(u32),
+    _,
+};
+
+/// An index into `extra`.
+pub const LazyPath = enum(u32) {
     _,
 
     pub const Tag = enum(u8) {
@@ -369,7 +461,21 @@ pub const InstallDir = enum(u32) {
 };
 
 /// Points into `string_bytes`, null-terminated.
+pub const OptionalString = enum(u32) {
+    empty = 0,
+    none = maxInt(u32),
+    _,
+
+    pub fn init(s: String) OptionalString {
+        const result: OptionalString = @enumFromInt(@intFromEnum(s));
+        assert(result != .none);
+        return result;
+    }
+};
+
+/// Points into `string_bytes`, null-terminated.
 pub const String = enum(u32) {
+    empty = 0,
     _,
 
     pub fn slice(index: String, c: *const Configuration) [:0]const u8 {

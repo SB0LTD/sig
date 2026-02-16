@@ -20,6 +20,9 @@ const Step = @import("../Step.zig");
 fuzz_tests: std.ArrayList([]const u8),
 cached_test_metadata: ?CachedTestMetadata = null,
 
+/// Populated during the fuzz phase if this run step corresponds to a unit test
+/// executable that contains fuzz tests.
+rebuilt_executable: ?Path,
 
 fn make(step: *Step, options: Step.MakeOptions) !void {
     const b = step.owner;
