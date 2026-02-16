@@ -8,12 +8,11 @@ const mem = std.mem;
 const process = std.process;
 const File = std.Io.File;
 const Step = std.Build.Step;
-const Watch = std.Build.Watch;
-const WebServer = std.Build.WebServer;
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
 const Writer = std.Io.Writer;
 const Color = std.zig.Color;
+const Configuration = std.Build.Configuration;
 
 pub const root = @import("@build");
 pub const dependencies = @import("@dependencies");
@@ -26,7 +25,11 @@ pub const std_options: std.Options = .{
 pub fn main(init: process.Init.Minimal) !void {
     // The build runner is often short-lived, but thanks to `--watch` and `--webui`, that's not
     // always the case. So, we do need a true gpa for some things.
-    var debug_gpa_state: std.heap.DebugAllocator(.{}) = .init;
+    var debug_gpa_state: std.heap.DebugAllocator(.{
+        // We'd rather have `zig build` run faster than catch harmless leaks in
+        // the user's build.zig script.
+        .stack_trace_frames = 0,
+    }) = .init;
     defer _ = debug_gpa_state.deinit();
     const gpa = debug_gpa_state.allocator();
 
@@ -47,11 +50,11 @@ pub fn main(init: process.Init.Minimal) !void {
     // skip my own exe name
     var arg_idx: usize = 1;
 
-    const zig_exe = nextArg(args, &arg_idx) orelse fatal("missing zig compiler path", .{});
-    const zig_lib_dir = nextArg(args, &arg_idx) orelse fatal("missing zig lib directory path", .{});
-    const build_root = nextArg(args, &arg_idx) orelse fatal("missing build root directory path", .{});
-    const cache_root = nextArg(args, &arg_idx) orelse fatal("missing cache root directory path", .{});
-    const global_cache_root = nextArg(args, &arg_idx) orelse fatal("missing global cache root directory path", .{});
+    const zig_exe = expectArgOrFatal(args, &arg_idx, "--zig");
+    const zig_lib_dir = expectArgOrFatal(args, &arg_idx, "--zig-lib-dir");
+    const build_root = expectArgOrFatal(args, &arg_idx, "--build-root");
+    const local_cache_root = expectArgOrFatal(args, &arg_idx, "--local-cache");
+    const global_cache_root = expectArgOrFatal(args, &arg_idx, "--global-cache");
 
     const cwd: Io.Dir = .cwd();
 
@@ -66,8 +69,8 @@ pub fn main(init: process.Init.Minimal) !void {
     };
 
     const local_cache_directory: std.Build.Cache.Directory = .{
-        .path = cache_root,
-        .handle = try cwd.createDirPathOpen(io, cache_root, .{}),
+        .path = local_cache_root,
+        .handle = try cwd.createDirPathOpen(io, local_cache_root, .{}),
     };
 
     const global_cache_directory: std.Build.Cache.Directory = .{
@@ -137,8 +140,6 @@ pub fn main(init: process.Init.Minimal) !void {
                 if (try builder.addUserInputFlag(option_contents))
                     fatal("  access the help menu with 'zig build -h'", .{});
             }
-        } else if (mem.eql(u8, arg, "--verbose")) {
-            builder.verbose = true;
         } else if (mem.startsWith(u8, arg, "-fsys=")) {
             const name = arg["-fsys=".len..];
             graph.system_library_options.put(arena, name, .user_enabled) catch @panic("OOM");
@@ -146,19 +147,14 @@ pub fn main(init: process.Init.Minimal) !void {
             const name = arg["-fno-sys=".len..];
             graph.system_library_options.put(arena, name, .user_disabled) catch @panic("OOM");
         } else if (mem.eql(u8, arg, "--release")) {
-            builder.release_mode = .any;
+            graph.release_mode = .any;
         } else if (mem.startsWith(u8, arg, "--release=")) {
             const text = arg["--release=".len..];
-            builder.release_mode = std.meta.stringToEnum(std.Build.ReleaseMode, text) orelse {
+            graph.release_mode = std.meta.stringToEnum(std.Build.ReleaseMode, text) orelse {
                 fatalWithHint("expected [off|any|fast|safe|small] in '{s}', found '{s}'", .{
                     arg, text,
                 });
             };
-        } else if (mem.eql(u8, arg, "--search-prefix")) {
-            const search_prefix = nextArgOrFatal(args, &arg_idx);
-            builder.addSearchPrefix(search_prefix);
-        } else if (mem.eql(u8, arg, "--libc")) {
-            builder.libc_file = nextArgOrFatal(args, &arg_idx);
         } else if (mem.eql(u8, arg, "--color")) {
             const next_arg = nextArg(args, &arg_idx) orelse
                 fatalWithHint("expected [auto|on|off] after '{s}'", .{arg});
@@ -196,8 +192,6 @@ pub fn main(init: process.Init.Minimal) !void {
                     style, @errorName(err),
                 });
             };
-        } else if (mem.eql(u8, arg, "--debug-pkg-config")) {
-            builder.debug_pkg_config = true;
         } else if (mem.eql(u8, arg, "--debug-rt")) {
             graph.debug_compiler_runtime_libs = true;
         } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
@@ -209,71 +203,11 @@ pub fn main(init: process.Init.Minimal) !void {
             // but it is handled by the parent process. The build runner
             // only sees this flag.
             graph.system_package_mode = true;
-        } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
-            // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
-            builder.libc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
-        } else if (mem.eql(u8, arg, "--verbose-link")) {
-            builder.verbose_link = true;
-        } else if (mem.eql(u8, arg, "--verbose-air")) {
-            builder.verbose_air = true;
-        } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
-            builder.verbose_llvm_ir = "-";
-        } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
-            builder.verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
-        } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
-            builder.verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
-        } else if (mem.eql(u8, arg, "--verbose-cimport")) {
-            builder.verbose_cimport = true;
-        } else if (mem.eql(u8, arg, "--verbose-cc")) {
-            builder.verbose_cc = true;
-        } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
-            builder.verbose_llvm_cpu_features = true;
-        } else if (mem.eql(u8, arg, "-fincremental")) {
-            graph.incremental = true;
-        } else if (mem.eql(u8, arg, "-fno-incremental")) {
-            graph.incremental = false;
-        } else if (mem.eql(u8, arg, "-fwine")) {
-            builder.enable_wine = true;
-        } else if (mem.eql(u8, arg, "-fno-wine")) {
-            builder.enable_wine = false;
-        } else if (mem.eql(u8, arg, "-fqemu")) {
-            builder.enable_qemu = true;
-        } else if (mem.eql(u8, arg, "-fno-qemu")) {
-            builder.enable_qemu = false;
-        } else if (mem.eql(u8, arg, "-fwasmtime")) {
-            builder.enable_wasmtime = true;
-        } else if (mem.eql(u8, arg, "-fno-wasmtime")) {
-            builder.enable_wasmtime = false;
-        } else if (mem.eql(u8, arg, "-frosetta")) {
-            builder.enable_rosetta = true;
-        } else if (mem.eql(u8, arg, "-fno-rosetta")) {
-            builder.enable_rosetta = false;
-        } else if (mem.eql(u8, arg, "-fdarling")) {
-            builder.enable_darling = true;
-        } else if (mem.eql(u8, arg, "-fno-darling")) {
-            builder.enable_darling = false;
-        } else if (mem.eql(u8, arg, "-fallow-so-scripts")) {
-            graph.allow_so_scripts = true;
-        } else if (mem.eql(u8, arg, "-fno-allow-so-scripts")) {
-            graph.allow_so_scripts = false;
-        } else if (mem.eql(u8, arg, "-freference-trace")) {
-            builder.reference_trace = 256;
-        } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
-            const num = arg["-freference-trace=".len..];
-            builder.reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
-                std.debug.print("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
-                process.exit(1);
-            };
-        } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
-            builder.reference_trace = null;
         } else if (mem.cutPrefix(u8, arg, "-j")) |text| {
             const n = std.fmt.parseUnsigned(u32, text, 10) catch |err|
                 fatal("unable to parse jobs count '{s}': {t}", .{ text, err });
             if (n < 1) fatal("number of jobs must be at least 1", .{});
             threaded.setAsyncLimit(.limited(n));
-        } else if (mem.eql(u8, arg, "--")) {
-            builder.args = argsRest(args, arg_idx);
-            break;
         } else {
             fatalWithHint("unrecognized argument: '{s}'", .{arg});
         }
@@ -289,6 +223,150 @@ pub fn main(init: process.Init.Minimal) !void {
     };
 
     try builder.runBuild(root);
+
+    var wc: Configuration.Wip = .init(gpa);
+    defer wc.deinit();
+
+    var stdout_buffer: [1024]u8 = undefined;
+    var file_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
+    serialize(builder, &wc, &file_writer.interface) catch |err| switch (err) {
+        error.WriteFailed => fatal("failed to write configuration output: {t}", .{file_writer.err.?}),
+        error.OutOfMemory => |e| return e,
+    };
+
+    // This executable is short-lived and run in Debug mode, so we'd rather
+    // have `zig build` run faster than catch resource leaks in the user's
+    // build.zig script (or, frankly, this configure runner), therefore we call
+    // exit directly here rather than cleanExit.
+    process.exit(0);
+}
+
+fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
+    const graph = b.graph;
+    const arena = graph.arena;
+    const gpa = wc.gpa;
+
+    // Starting from all top-level steps in `b`, traverse the entire step graph
+    // and add all step dependencies implied by module graphs.
+    const top_level_steps = b.top_level_steps.values();
+    // Index corresponds to `Configuration.steps` index.
+    var step_map: std.AutoArrayHashMapUnmanaged(*Step, void) = .empty;
+    try step_map.ensureUnusedCapacity(arena, top_level_steps.len);
+    for (top_level_steps) |tls| {
+        step_map.putAssumeCapacityNoClobber(&tls.step, {});
+    }
+    {
+        while (wc.steps.items.len < step_map.count()) {
+            const step = step_map.keys()[wc.steps.items.len];
+
+            // Set up any implied dependencies for this step. It's important that we do this first, so
+            // that the loop below discovers steps implied by the module graph.
+            try createModuleDependenciesForStep(step);
+
+            try step_map.ensureUnusedCapacity(arena, step.dependencies.items.len);
+            for (step.dependencies.items) |other_step| {
+                step_map.putAssumeCapacity(other_step, {});
+            }
+
+            // Add and then de-duplicate dependencies.
+            const deps = d: {
+                const deps: Configuration.Deps = @enumFromInt(wc.extra.items.len);
+                for (try wc.prepareDeps(step.dependencies.items.len), step.dependencies.items) |*dep, dep_step|
+                    dep.* = @intCast(step_map.getIndex(dep_step).?);
+                break :d try wc.dedupeDeps(deps);
+            };
+
+            try wc.steps.ensureTotalCapacity(gpa, step_map.entries.capacity);
+            wc.steps.appendAssumeCapacity(.{
+                .name = try wc.addString(step.name),
+                .flags = .{ .tag = step.tag },
+                .deps = deps,
+                .extra_index = switch (step.tag) {
+                    .top_level => e: {
+                        const top_level: *Step.TopLevel = @fieldParentPtr("step", step);
+                        break :e try wc.addExtra(@as(Configuration.Step.TopLevel, .{
+                            .description = try wc.addString(top_level.description),
+                        }));
+                    },
+                    .compile => @panic("TODO"),
+                    .install_artifact => @panic("TODO"),
+                    .install_file => @panic("TODO"),
+                    .install_dir => @panic("TODO"),
+                    .remove_dir => @panic("TODO"),
+                    .fail => @panic("TODO"),
+                    .fmt => @panic("TODO"),
+                    .translate_c => @panic("TODO"),
+                    .write_file => @panic("TODO"),
+                    .update_source_files => @panic("TODO"),
+                    .run => @panic("TODO"),
+                    .check_file => @panic("TODO"),
+                    .check_object => @panic("TODO"),
+                    .config_header => @panic("TODO"),
+                    .objcopy => @panic("TODO"),
+                    .options => @panic("TODO"),
+                },
+            });
+        }
+    }
+
+    try wc.unlazy_deps.ensureUnusedCapacity(gpa, graph.needed_lazy_dependencies.keys().len);
+    for (graph.needed_lazy_dependencies.keys()) |k| {
+        wc.unlazy_deps.appendAssumeCapacity(try wc.addString(k));
+    }
+
+    try wc.write(writer, .{
+        .default_step = @intCast(step_map.getIndex(b.default_step).?),
+    });
+}
+
+/// If the given `Step` is a `Step.Compile`, adds any dependencies for that step which
+/// are implied by the module graph rooted at `step.cast(Step.Compile).?.root_module`.
+fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
+    const root_module = if (step.cast(Step.Compile)) |cs| root: {
+        break :root cs.root_module;
+    } else return; // not a compile step so no module dependencies
+
+    // Starting from `root_module`, discover all modules in this graph.
+    const modules = root_module.getGraph().modules;
+
+    // For each of those modules, set up the implied step dependencies.
+    for (modules) |mod| {
+        if (mod.root_source_file) |lp| lp.addStepDependencies(step);
+        for (mod.include_dirs.items) |include_dir| switch (include_dir) {
+            .path,
+            .path_system,
+            .path_after,
+            .framework_path,
+            .framework_path_system,
+            .embed_path,
+            => |lp| lp.addStepDependencies(step),
+
+            .other_step => |other| {
+                other.getEmittedIncludeTree().addStepDependencies(step);
+                step.dependOn(&other.step);
+            },
+
+            .config_header_step => |other| step.dependOn(&other.step),
+        };
+        for (mod.lib_paths.items) |lp| lp.addStepDependencies(step);
+        for (mod.rpaths.items) |rpath| switch (rpath) {
+            .lazy_path => |lp| lp.addStepDependencies(step),
+            .special => {},
+        };
+        for (mod.link_objects.items) |link_object| switch (link_object) {
+            .static_path,
+            .assembly_file,
+            => |lp| lp.addStepDependencies(step),
+            .other_step => |other| step.dependOn(&other.step),
+            .system_lib => {},
+            .c_source_file => |source| source.file.addStepDependencies(step),
+            .c_source_files => |source_files| source_files.root.addStepDependencies(step),
+            .win32_resource_file => |rc_source| {
+                rc_source.file.addStepDependencies(step);
+                for (rc_source.include_paths) |lp| lp.addStepDependencies(step);
+            },
+        };
+    }
 }
 
 fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
@@ -299,14 +377,17 @@ fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
 
 fn nextArgOrFatal(args: []const [:0]const u8, idx: *usize) [:0]const u8 {
     return nextArg(args, idx) orelse {
-        std.debug.print("expected argument after '{s}'\n  access the help menu with 'zig build -h'\n", .{args[idx.* - 1]});
-        process.exit(1);
+        fatal("expected argument after {q}\n  access the help menu with \"zig build -h\"", .{
+            args[idx.* - 1],
+        });
     };
 }
 
-fn argsRest(args: []const [:0]const u8, idx: usize) ?[]const [:0]const u8 {
-    if (idx >= args.len) return null;
-    return args[idx..];
+fn expectArgOrFatal(args: []const [:0]const u8, index_ptr: *usize, first: []const u8) []const u8 {
+    const next_arg = nextArg(args, index_ptr) orelse fatal("missing {q} argument", .{first});
+    if (!mem.eql(u8, first, next_arg)) fatal("expected {q} instead of {q}", .{ first, next_arg });
+    const arg = nextArg(args, index_ptr) orelse fatal("expected argument after {q}", .{first});
+    return arg;
 }
 
 const ErrorStyle = enum {
@@ -331,6 +412,5 @@ const MultilineErrors = enum { indent, newline, none };
 const Summary = enum { all, new, failures, line, none };
 
 fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
-    std.debug.print(f ++ "\n  access the help menu with 'zig build -h'\n", args);
-    process.exit(1);
+    fatal(f ++ "\n  access the help menu with \"zig build -h\"", args);
 }

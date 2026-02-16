@@ -10,7 +10,7 @@ paths: []const []const u8,
 exclude_paths: []const []const u8,
 check: bool,
 
-pub const base_id: Step.Id = .fmt;
+pub const base_tag: Step.Tag = .fmt;
 
 pub const Options = struct {
     paths: []const []const u8 = &.{},
@@ -24,7 +24,7 @@ pub fn create(owner: *std.Build, options: Options) *Fmt {
     const name = if (options.check) "zig fmt --check" else "zig fmt";
     fmt.* = .{
         .step = Step.init(.{
-            .id = base_id,
+            .tag = base_tag,
             .name = name,
             .owner = owner,
             .makeFn = make,

@@ -8,7 +8,7 @@ const Step = std.Build.Step;
 const GeneratedFile = std.Build.GeneratedFile;
 const LazyPath = std.Build.LazyPath;
 
-pub const base_id: Step.Id = .options;
+pub const base_tag: Step.Tag = .options;
 
 step: Step,
 generated_file: GeneratedFile,
@@ -21,7 +21,7 @@ pub fn create(owner: *std.Build) *Options {
     const options = owner.allocator.create(Options) catch @panic("OOM");
     options.* = .{
         .step = .init(.{
-            .id = base_id,
+            .tag = base_tag,
             .name = "options",
             .owner = owner,
             .makeFn = make,

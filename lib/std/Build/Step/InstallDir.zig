@@ -8,7 +8,7 @@ const InstallDir = @This();
 step: Step,
 options: Options,
 
-pub const base_id: Step.Id = .install_dir;
+pub const base_tag: Step.Tag = .install_dir;
 
 pub const Options = struct {
     source_dir: LazyPath,
@@ -44,7 +44,7 @@ pub fn create(owner: *std.Build, options: Options) *InstallDir {
     const install_dir = owner.allocator.create(InstallDir) catch @panic("OOM");
     install_dir.* = .{
         .step = Step.init(.{
-            .id = base_id,
+            .tag = base_tag,
             .name = owner.fmt("install {s}/", .{options.source_dir.getDisplayName()}),
             .owner = owner,
             .makeFn = make,

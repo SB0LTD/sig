@@ -298,7 +298,11 @@ fn mainArgs(
         return process.exit(try llvmArMain(arena, args));
     } else if (mem.eql(u8, cmd, "build")) {
         dev.check(.build_command);
-        return cmdBuild(gpa, arena, io, cmd_args, environ_map);
+        var thread_safe_arena: std.heap.ThreadSafeAllocator = .{
+            .child_allocator = arena,
+            .io = io,
+        };
+        return cmdBuild(gpa, thread_safe_arena.allocator(), io, cmd_args, environ_map);
     } else if (mem.eql(u8, cmd, "clang") or
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
@@ -4941,6 +4945,7 @@ test sanitizeExampleName {
 
 fn cmdBuild(
     gpa: Allocator,
+    /// Needs a thread-safe arena.
     arena: Allocator,
     io: Io,
     args: []const []const u8,
@@ -4973,28 +4978,34 @@ fn cmdBuild(
     var debug_target: ?[]const u8 = null;
     var debug_libc_paths_file: ?[]const u8 = null;
 
-    const argv_index_exe = configure_argv.items.len;
-    _ = try configure_argv.addOne(arena);
-
     const self_exe_path = try process.executablePathAlloc(io, arena);
-    try configure_argv.append(arena, self_exe_path);
+    const default_seed = try std.fmt.allocPrint(arena, "0x{x}", .{randInt(io, u32)});
 
+    try configure_argv.ensureUnusedCapacity(arena, 16);
+
+    const argv_index_exe = configure_argv.items.len;
+    _ = configure_argv.addOneAssumeCapacity();
+
+    configure_argv.appendAssumeCapacity("--zig");
+    configure_argv.appendAssumeCapacity(self_exe_path);
+
+    configure_argv.appendAssumeCapacity("--zig-lib-dir");
     const argv_index_zig_lib_dir = configure_argv.items.len;
-    _ = try configure_argv.addOne(arena);
+    _ = configure_argv.addOneAssumeCapacity();
 
+    configure_argv.appendAssumeCapacity("--build-root");
     const argv_index_build_file = configure_argv.items.len;
-    _ = try configure_argv.addOne(arena);
+    _ = configure_argv.addOneAssumeCapacity();
 
+    configure_argv.appendAssumeCapacity("--local-cache");
     const argv_index_cache_dir = configure_argv.items.len;
-    _ = try configure_argv.addOne(arena);
+    _ = configure_argv.addOneAssumeCapacity();
 
+    configure_argv.appendAssumeCapacity("--global-cache");
     const argv_index_global_cache_dir = configure_argv.items.len;
-    _ = try configure_argv.addOne(arena);
+    _ = configure_argv.addOneAssumeCapacity();
 
-    try configure_argv.appendSlice(arena, &.{
-        "--seed",
-        try std.fmt.allocPrint(arena, "0x{x}", .{randInt(io, u32)}),
-    });
+    configure_argv.appendSliceAssumeCapacity(&.{ "--seed", default_seed });
     const argv_index_seed = configure_argv.items.len - 1;
 
     const argv_index_configuration_file = make_argv.items.len;
@@ -5192,14 +5203,6 @@ fn cmdBuild(
     );
     try setThreadLimit(arena, thread_limit);
 
-    // Kick off an optimized compilation of the make runner.
-    var make_runner_task = io.async(compileMakeRunner, .{ io, .{
-        .dirs = &dirs,
-        .optimize = .ReleaseSafe,
-        .parent_prog_node = root_prog_node,
-    } });
-    defer if (make_runner_task.cancel(io)) |mr| mr.deinit(io) else |_| {};
-
     // Cache lookup for configure options. If we get a match, we can skip
     // execution of the configure script. If not, we get the file path to pass
     // to the configure process.
@@ -5255,6 +5258,19 @@ fn cmdBuild(
         break :lci lci;
     };
 
+    // Kick off an optimized compilation of the make runner.
+    var make_runner_task = io.async(compileMakeRunner, .{ gpa, arena, io, .{
+        .dirs = &dirs,
+        .environ_map = environ_map,
+        .parent_prog_node = root_prog_node,
+        .resolved_target = resolved_target,
+        .libc_installation = libc_installation,
+        .thread_limit = thread_limit,
+        .self_exe_path = self_exe_path,
+        .color = color,
+    } });
+    defer _ = make_runner_task.cancel(io) catch {};
+
     configure_argv.items[argv_index_zig_lib_dir] = dirs.zig_lib.path orelse cwd_path;
     configure_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
     configure_argv.items[argv_index_global_cache_dir] = dirs.global_cache.path orelse cwd_path;
@@ -5305,7 +5321,7 @@ fn cmdBuild(
                 .root_src_path = fs.path.basename(runner),
             } else .{
                 .root = try .fromRoot(arena, dirs, .zig_lib, "compiler"),
-                .root_src_path = "build_runner.zig",
+                .root_src_path = "configure_runner.zig",
             };
 
             const config = try Compilation.Config.resolve(.{
@@ -5533,7 +5549,7 @@ fn cmdBuild(
             const comp = Compilation.create(gpa, arena, io, &create_diag, .{
                 .libc_installation = libc_installation,
                 .dirs = dirs,
-                .root_name = "build",
+                .root_name = "configure",
                 .config = config,
                 .root_mod = root_mod,
                 .main_mod = build_mod,
@@ -5554,7 +5570,7 @@ fn cmdBuild(
                 .environ_map = environ_map,
             }) catch |err| switch (err) {
                 error.CreateFail => fatal("failed to create compilation: {f}", .{create_diag}),
-                else => fatal("failed to create compilation: {t}", .{err}),
+                else => |e| fatal("failed to create compilation: {t}", .{e}),
             };
             defer comp.destroy();
 
@@ -5625,7 +5641,7 @@ fn cmdBuild(
                 //   add them to `config_man` before obtaining the final digest.
                 // * If it contains a set of lazy packages that need to be
                 //   fetched, we need to fetch those now and re-run configure.
-                var configuration = std.zig.Configuration.load(arena, io, config_tmp_file) catch |err|
+                var configuration = std.Build.Configuration.loadFile(arena, io, config_tmp_file) catch |err|
                     fatal("failed to load configuration file {f}: {t}", .{ config_tmp_path, err });
 
                 if (configuration.unlazy_deps.len != 0) {
@@ -5661,7 +5677,7 @@ fn cmdBuild(
                 }
 
                 for (configuration.path_deps_base, configuration.path_deps_sub) |base, sub| {
-                    const conf_path: std.zig.Configuration.Path = .{ .base = base, .sub = sub };
+                    const conf_path: std.Build.Configuration.Path = .{ .base = base, .sub = sub };
                     try config_man.addPathPost(conf_path.toCachePath(&configuration, arena));
                 }
 
@@ -5707,7 +5723,6 @@ fn cmdBuild(
 
         const make_runner = make_runner_task.await(io) catch |err|
             fatal("failed to compile maker: {t}", .{err});
-        defer make_runner.deinit(io);
 
         make_argv.items[0] = try make_runner.exe_path.toString(arena);
         make_argv.items[argv_index_configuration_file] = try configuration_path.toString(arena);
@@ -5748,22 +5763,86 @@ const MakeRunner = struct {
     exe_path: Path,
 
     const Options = struct {
+        environ_map: *const process.Environ.Map,
         dirs: *Compilation.Directories,
-        optimize: std.builtin.OptimizeMode,
         parent_prog_node: std.Progress.Node,
+        resolved_target: Package.Module.ResolvedTarget,
+        libc_installation: ?*const LibCInstallation,
+        self_exe_path: []const u8,
+        thread_limit: usize,
+        color: Color,
     };
-
-    fn deinit(mr: MakeRunner, io: Io) void {
-        _ = mr;
-        _ = io;
-        @panic("TODO");
-    }
 };
 
-fn compileMakeRunner(io: Io, options: MakeRunner.Options) !MakeRunner {
-    _ = io;
-    _ = options;
-    @panic("TODO");
+fn compileMakeRunner(gpa: Allocator, arena: Allocator, io: Io, options: MakeRunner.Options) !MakeRunner {
+    const compile_prog_node = options.parent_prog_node.start("Compile Maker", 0);
+    defer compile_prog_node.end();
+
+    const optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet(options.environ_map))
+        .Debug
+    else
+        .ReleaseSafe;
+    const strip = optimize_mode != .Debug;
+
+    const main_mod_paths: Package.Module.CreateOptions.Paths = .{
+        .root = try .fromRoot(arena, options.dirs.*, .zig_lib, "compiler"),
+        .root_src_path = "maker.zig",
+    };
+
+    const config = try Compilation.Config.resolve(.{
+        .output_mode = .Exe,
+        .root_strip = strip,
+        .root_optimize_mode = optimize_mode,
+        .resolved_target = options.resolved_target,
+        .have_zcu = true,
+        .emit_bin = true,
+        .is_test = false,
+    });
+
+    const root_mod = try Package.Module.create(arena, .{
+        .paths = main_mod_paths,
+        .fully_qualified_name = "root",
+        .cc_argv = &.{},
+        .inherited = .{
+            .resolved_target = options.resolved_target,
+            .optimize_mode = optimize_mode,
+            .strip = strip,
+        },
+        .global = config,
+        .parent = null,
+    });
+
+    var create_diag: Compilation.CreateDiagnostic = undefined;
+    const comp = Compilation.create(gpa, arena, io, &create_diag, .{
+        .dirs = options.dirs.*,
+        .root_name = "maker",
+        .config = config,
+        .root_mod = root_mod,
+        .main_mod = root_mod,
+        .emit_bin = .yes_cache,
+        .self_exe_path = options.self_exe_path,
+        .thread_limit = options.thread_limit,
+        .cache_mode = .whole,
+        .environ_map = options.environ_map,
+    }) catch |err| switch (err) {
+        error.CreateFail => fatal("failed to create compilation: {f}", .{create_diag}),
+        error.Canceled => |e| return e,
+        else => |e| fatal("failed to create compilation: {t}", .{e}),
+    };
+    defer comp.destroy();
+
+    try updateModule(comp, options.color, compile_prog_node);
+
+    const exe_path: Path = .{
+        .root_dir = options.dirs.global_cache,
+        .sub_path = try std.fmt.allocPrint(arena, "o/{s}/{s}", .{
+            &Cache.binToHex(comp.digest.?), comp.emit_bin.?,
+        }),
+    };
+
+    return .{
+        .exe_path = exe_path,
+    };
 }
 
 const Fork = struct {
@@ -5972,7 +6051,7 @@ fn jitCmdInner(
             .environ_map = environ_map,
         }) catch |err| switch (err) {
             error.CreateFail => fatal("failed to create compilation: {f}", .{create_diag}),
-            else => fatal("failed to create compilation: {s}", .{@errorName(err)}),
+            else => fatal("failed to create compilation: {t}", .{err}),
         };
         defer comp.destroy();
 

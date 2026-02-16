@@ -6,7 +6,7 @@ const mem = std.mem;
 
 const TranslateC = @This();
 
-pub const base_id: Step.Id = .translate_c;
+pub const base_tag: Step.Tag = .translate_c;
 
 step: Step,
 source: std.Build.LazyPath,
@@ -31,7 +31,7 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
     const source = options.root_source_file.dupe(owner);
     translate_c.* = .{
         .step = Step.init(.{
-            .id = base_id,
+            .tag = base_tag,
             .name = "translate-c",
             .owner = owner,
             .makeFn = make,

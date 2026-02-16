@@ -19,15 +19,14 @@ const ArrayList = std.ArrayList;
 pub const Cache = @import("Build/Cache.zig");
 pub const Step = @import("Build/Step.zig");
 pub const Module = @import("Build/Module.zig");
-pub const Watch = @import("Build/Watch.zig");
-pub const Fuzz = @import("Build/Fuzz.zig");
-pub const WebServer = @import("Build/WebServer.zig");
 pub const abi = @import("Build/abi.zig");
+/// The serialized output of configure phase ingested by make phase.
+pub const Configuration = @import("zig/Configuration.zig");
 
 /// Shared state among all Build instances.
 graph: *Graph,
-install_tls: TopLevelStep,
-uninstall_tls: TopLevelStep,
+install_tls: Step.TopLevel,
+uninstall_tls: Step.TopLevel,
 allocator: Allocator,
 user_input_options: UserInputOptionsMap,
 available_options_map: AvailableOptionsMap,
@@ -39,28 +38,17 @@ verbose_air: bool,
 verbose_llvm_ir: ?[]const u8,
 verbose_llvm_bc: ?[]const u8,
 verbose_llvm_cpu_features: bool,
-reference_trace: ?u32 = null,
 invalid_user_input: bool,
 default_step: *Step,
-top_level_steps: std.StringArrayHashMapUnmanaged(*TopLevelStep),
+top_level_steps: std.StringArrayHashMapUnmanaged(*Step.TopLevel),
 install_prefix: []const u8,
-dest_dir: ?[]const u8,
-lib_dir: []const u8,
-exe_dir: []const u8,
-h_dir: []const u8,
-install_path: []const u8,
-sysroot: ?[]const u8 = null,
-search_prefixes: ArrayList([]const u8),
-libc_file: ?[]const u8 = null,
 /// Path to the directory containing build.zig.
 build_root: Cache.Directory,
 cache_root: Cache.Directory,
 pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
-args: ?[]const []const u8 = null,
 debug_log_scopes: []const []const u8 = &.{},
 debug_compile_errors: bool = false,
 debug_incremental: bool = false,
-debug_pkg_config: bool = false,
 /// Number of stack frames captured when a `StackTrace` is recorded for debug purposes,
 /// in particular at `Step` creation.
 /// Set to 0 to disable stack collection.
@@ -76,12 +64,6 @@ enable_rosetta: bool = false,
 enable_wasmtime: bool = false,
 /// Use system Wine installation to run cross compiled Windows build artifacts.
 enable_wine: bool = false,
-/// After following the steps in https://codeberg.org/ziglang/infra/src/branch/master/libc-update/glibc.md,
-/// this will be the directory $glibc-build-dir/install/glibcs
-/// Given the example of the aarch64 target, this is the directory
-/// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
-/// Also works for dynamic musl.
-libc_runtimes_dir: ?[]const u8 = null,
 
 dep_prefix: []const u8 = "",
 
@@ -93,8 +75,6 @@ named_lazy_paths: std.array_hash_map.String(LazyPath),
 pkg_hash: []const u8,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
-
-release_mode: ReleaseMode,
 
 build_id: ?std.zig.BuildId = null,
 
@@ -116,14 +96,13 @@ pub const Graph = struct {
     system_package_mode: bool = false,
     debug_compiler_runtime_libs: ?std.builtin.OptimizeMode = null,
     cache: Cache,
-    zig_exe: [:0]const u8,
+    zig_exe: []const u8,
     environ_map: process.Environ.Map,
     global_cache_root: Cache.Directory,
     zig_lib_directory: Cache.Directory,
     needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .empty,
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
-    incremental: ?bool = null,
     random_seed: u32 = 0,
     dependency_cache: InitializedDepMap = .empty,
     allow_so_scripts: ?bool = null,
@@ -134,11 +113,12 @@ pub const Graph = struct {
     /// Similar to the `Io.Terminal.Mode` returned by `Io.lockStderr`, but also
     /// respects the '--color' flag.
     stderr_mode: ?Io.Terminal.Mode = null,
+    release_mode: ReleaseMode = .off,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
 
-const SystemLibraryMode = enum {
+pub const SystemLibraryMode = enum {
     /// User asked for the library to be disabled.
     /// The build runner has not confirmed whether the setting is recognized yet.
     user_disabled,
@@ -245,19 +225,6 @@ const TypeId = enum {
     lazy_path_list,
 };
 
-const TopLevelStep = struct {
-    pub const base_id: Step.Id = .top_level;
-
-    step: Step,
-    description: []const u8,
-};
-
-pub const DirList = struct {
-    lib_dir: ?[]const u8 = null,
-    exe_dir: ?[]const u8 = null,
-    include_dir: ?[]const u8 = null,
-};
-
 pub fn create(
     graph: *Graph,
     build_root: Cache.Directory,
@@ -285,15 +252,10 @@ pub fn create(
         .available_options_list = std.array_list.Managed(AvailableOption).init(arena),
         .top_level_steps = .{},
         .default_step = undefined,
-        .search_prefixes = .empty,
         .install_prefix = undefined,
-        .lib_dir = undefined,
-        .exe_dir = undefined,
-        .h_dir = undefined,
-        .dest_dir = graph.environ_map.get("DESTDIR"),
         .install_tls = .{
             .step = .init(.{
-                .id = TopLevelStep.base_id,
+                .tag = .top_level,
                 .name = "install",
                 .owner = b,
             }),
@@ -301,21 +263,17 @@ pub fn create(
         },
         .uninstall_tls = .{
             .step = .init(.{
-                .id = TopLevelStep.base_id,
+                .tag = .top_level,
                 .name = "uninstall",
                 .owner = b,
-                .makeFn = makeUninstall,
             }),
             .description = "Remove build artifacts from prefix path",
         },
-        .install_path = undefined,
-        .args = null,
         .modules = .empty,
         .named_writefiles = .empty,
         .named_lazy_paths = .empty,
         .pkg_hash = "",
         .available_deps = available_deps,
-        .release_mode = .off,
     };
     try b.top_level_steps.put(arena, b.install_tls.step.name, &b.install_tls);
     try b.top_level_steps.put(arena, b.uninstall_tls.step.name, &b.uninstall_tls);
@@ -331,19 +289,6 @@ fn createChild(
     pkg_deps: AvailableDeps,
     user_input_options: UserInputOptionsMap,
 ) error{OutOfMemory}!*Build {
-    const child = try createChildOnly(parent, dep_name, build_root, pkg_hash, pkg_deps, user_input_options);
-    try determineAndApplyInstallPrefix(child);
-    return child;
-}
-
-fn createChildOnly(
-    parent: *Build,
-    dep_name: []const u8,
-    build_root: Cache.Directory,
-    pkg_hash: []const u8,
-    pkg_deps: AvailableDeps,
-    user_input_options: UserInputOptionsMap,
-) error{OutOfMemory}!*Build {
     const allocator = parent.allocator;
     const child = try allocator.create(Build);
     child.* = .{
@@ -351,7 +296,7 @@ fn createChildOnly(
         .allocator = allocator,
         .install_tls = .{
             .step = .init(.{
-                .id = TopLevelStep.base_id,
+                .tag = .top_level,
                 .name = "install",
                 .owner = child,
             }),
@@ -359,10 +304,9 @@ fn createChildOnly(
         },
         .uninstall_tls = .{
             .step = .init(.{
-                .id = TopLevelStep.base_id,
+                .tag = .top_level,
                 .name = "uninstall",
                 .owner = child,
-                .makeFn = makeUninstall,
             }),
             .description = "Remove build artifacts from prefix path",
         },
@@ -376,38 +320,31 @@ fn createChildOnly(
         .verbose_llvm_ir = parent.verbose_llvm_ir,
         .verbose_llvm_bc = parent.verbose_llvm_bc,
         .verbose_llvm_cpu_features = parent.verbose_llvm_cpu_features,
-        .reference_trace = parent.reference_trace,
         .invalid_user_input = false,
         .default_step = undefined,
         .top_level_steps = .{},
         .install_prefix = undefined,
-        .dest_dir = parent.dest_dir,
         .lib_dir = parent.lib_dir,
         .exe_dir = parent.exe_dir,
         .h_dir = parent.h_dir,
         .install_path = parent.install_path,
         .sysroot = parent.sysroot,
-        .search_prefixes = parent.search_prefixes,
-        .libc_file = parent.libc_file,
         .build_root = build_root,
         .cache_root = parent.cache_root,
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
         .debug_incremental = parent.debug_incremental,
-        .debug_pkg_config = parent.debug_pkg_config,
         .enable_darling = parent.enable_darling,
         .enable_qemu = parent.enable_qemu,
         .enable_rosetta = parent.enable_rosetta,
         .enable_wasmtime = parent.enable_wasmtime,
         .enable_wine = parent.enable_wine,
-        .libc_runtimes_dir = parent.libc_runtimes_dir,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = .empty,
         .named_writefiles = .empty,
         .named_lazy_paths = .empty,
         .pkg_hash = pkg_hash,
         .available_deps = pkg_deps,
-        .release_mode = parent.release_mode,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -700,59 +637,6 @@ fn hashUserInputOptionsMap(allocator: Allocator, user_input_options: UserInputOp
     // juice it
     for (ordered.items) |user_option|
         user_option.hash(hasher);
-}
-
-fn determineAndApplyInstallPrefix(b: *Build) error{OutOfMemory}!void {
-    // Create an installation directory local to this package. This will be used when
-    // dependant packages require a standard prefix, such as include directories for C headers.
-    var hash = b.graph.cache.hash;
-    // Random bytes to make unique. Refresh this with new random bytes when
-    // implementation is modified in a non-backwards-compatible way.
-    hash.add(@as(u32, 0xd8cb0055));
-    hash.addBytes(b.dep_prefix);
-
-    var wyhash = std.hash.Wyhash.init(0);
-    hashUserInputOptionsMap(b.allocator, b.user_input_options, &wyhash);
-    hash.add(wyhash.final());
-
-    const digest = hash.final();
-    const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &digest });
-    b.resolveInstallPrefix(install_prefix, .{});
-}
-
-/// This function is intended to be called by lib/build_runner.zig, not a build.zig file.
-pub fn resolveInstallPrefix(b: *Build, install_prefix: ?[]const u8, dir_list: DirList) void {
-    if (b.dest_dir) |dest_dir| {
-        b.install_prefix = install_prefix orelse "/usr";
-        b.install_path = b.pathJoin(&.{ dest_dir, b.install_prefix });
-    } else {
-        b.install_prefix = install_prefix orelse
-            (b.build_root.join(b.allocator, &.{"sig-out"}) catch @panic("unhandled error")); // [sig] Default output directory is sig-out instead of zig-out
-        b.install_path = b.install_prefix;
-    }
-
-    var lib_list = [_][]const u8{ b.install_path, "lib" };
-    var exe_list = [_][]const u8{ b.install_path, "bin" };
-    var h_list = [_][]const u8{ b.install_path, "include" };
-
-    if (dir_list.lib_dir) |dir| {
-        if (fs.path.isAbsolute(dir)) lib_list[0] = b.dest_dir orelse "";
-        lib_list[1] = dir;
-    }
-
-    if (dir_list.exe_dir) |dir| {
-        if (fs.path.isAbsolute(dir)) exe_list[0] = b.dest_dir orelse "";
-        exe_list[1] = dir;
-    }
-
-    if (dir_list.include_dir) |dir| {
-        if (fs.path.isAbsolute(dir)) h_list[0] = b.dest_dir orelse "";
-        h_list[1] = dir;
-    }
-
-    b.lib_dir = b.pathJoin(&lib_list);
-    b.exe_dir = b.pathJoin(&exe_list);
-    b.h_dir = b.pathJoin(&h_list);
 }
 
 /// Create a set of key-value pairs that can be converted into a Zig source
@@ -1121,15 +1005,6 @@ pub fn getUninstallStep(b: *Build) *Step {
     return &b.uninstall_tls.step;
 }
 
-fn makeUninstall(uninstall_step: *Step, options: Step.MakeOptions) anyerror!void {
-    _ = options;
-    const uninstall_tls: *TopLevelStep = @fieldParentPtr("step", uninstall_step);
-    const b: *Build = @fieldParentPtr("uninstall_tls", uninstall_tls);
-
-    _ = b;
-    @panic("TODO implement https://github.com/ziglang/zig/issues/14943");
-}
-
 /// Creates a configuration option to be passed to the build.zig script.
 /// When a user directly runs `zig build`, they can set these options with `-D` arguments.
 /// When a project depends on a Zig package as a dependency, it programmatically sets
@@ -1350,10 +1225,10 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
 }
 
 pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
-    const step_info = b.allocator.create(TopLevelStep) catch @panic("OOM");
+    const step_info = b.allocator.create(Step.TopLevel) catch @panic("OOM");
     step_info.* = .{
         .step = .init(.{
-            .id = TopLevelStep.base_id,
+            .tag = .top_level,
             .name = name,
             .owner = b,
         }),
@@ -1373,8 +1248,10 @@ pub const StandardOptimizeOptionOptions = struct {
 };
 
 pub fn standardOptimizeOption(b: *Build, options: StandardOptimizeOptionOptions) std.builtin.OptimizeMode {
+    const graph = b.graph;
+
     if (options.preferred_optimize_mode) |mode| {
-        if (b.option(bool, "release", "optimize for end users") orelse (b.release_mode != .off)) {
+        if (b.option(bool, "release", "optimize for end users") orelse (graph.release_mode != .off)) {
             return mode;
         } else {
             return .Debug;
@@ -1389,7 +1266,7 @@ pub fn standardOptimizeOption(b: *Build, options: StandardOptimizeOptionOptions)
         return mode;
     }
 
-    return switch (b.release_mode) {
+    return switch (graph.release_mode) {
         .off => .Debug,
         .any => {
             std.debug.print("the project does not declare a preferred optimization mode. choose: --release=fast, --release=safe, or --release=small\n", .{});
@@ -1824,36 +1701,11 @@ fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
     return null;
 }
 
-pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) error{FileNotFound}![]const u8 {
-    // TODO report error for ambiguous situations
-    for (b.search_prefixes.items) |search_prefix| {
-        for (names) |name| {
-            if (fs.path.isAbsolute(name)) {
-                return name;
-            }
-            return tryFindProgram(b, b.pathJoin(&.{ search_prefix, "bin", name })) orelse continue;
-        }
-    }
-    if (b.graph.environ_map.get("PATH")) |PATH| {
-        for (names) |name| {
-            if (fs.path.isAbsolute(name)) {
-                return name;
-            }
-            var it = mem.tokenizeScalar(u8, PATH, fs.path.delimiter);
-            while (it.next()) |p| {
-                return tryFindProgram(b, b.pathJoin(&.{ p, name })) orelse continue;
-            }
-        }
-    }
-    for (names) |name| {
-        if (fs.path.isAbsolute(name)) {
-            return name;
-        }
-        for (paths) |p| {
-            return tryFindProgram(b, b.pathJoin(&.{ p, name })) orelse continue;
-        }
-    }
-    return error.FileNotFound;
+pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) LazyPath {
+    _ = b;
+    _ = names;
+    _ = paths;
+    @panic("TODO rework findProgram to be based on LazyPath");
 }
 
 pub fn runAllowFail(
@@ -1916,10 +1768,6 @@ pub fn run(b: *Build, argv: []const []const u8) []u8 {
         "the following command failed with {t}:\n{s}",
         .{ err, Step.allocPrintCmd(b.allocator, .inherit, null, argv) catch @panic("OOM") },
     );
-}
-
-pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
-    b.search_prefixes.append(b.allocator, b.dupePath(search_prefix)) catch @panic("OOM");
 }
 
 pub fn getInstallPath(b: *Build, dir: InstallDir, dest_rel_path: []const u8) []const u8 {

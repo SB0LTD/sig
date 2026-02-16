@@ -47,7 +47,7 @@ max_bytes: usize,
 include_path: []const u8,
 include_guard_override: ?[]const u8,
 
-pub const base_id: Step.Id = .config_header;
+pub const base_tag: Step.Tag = .config_header;
 
 pub const Options = struct {
     style: Style = .blank,
@@ -88,7 +88,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 
     config_header.* = .{
         .step = .init(.{
-            .id = base_id,
+            .tag = base_tag,
             .name = name,
             .owner = owner,
             .makeFn = make,

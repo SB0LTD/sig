@@ -6,14 +6,14 @@ const Fail = @This();
 step: Step,
 error_msg: []const u8,
 
-pub const base_id: Step.Id = .fail;
+pub const base_tag: Step.Tag = .fail;
 
 pub fn create(owner: *std.Build, error_msg: []const u8) *Fail {
     const fail = owner.allocator.create(Fail) catch @panic("OOM");
 
     fail.* = .{
         .step = Step.init(.{
-            .id = base_id,
+            .tag = base_tag,
             .name = "fail",
             .owner = owner,
             .makeFn = make,

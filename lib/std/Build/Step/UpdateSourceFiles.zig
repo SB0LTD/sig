@@ -14,7 +14,7 @@ const ArrayList = std.ArrayList;
 step: Step,
 output_source_files: std.ArrayList(OutputSourceFile),
 
-pub const base_id: Step.Id = .update_source_files;
+pub const base_tag: Step.Tag = .update_source_files;
 
 pub const OutputSourceFile = struct {
     contents: Contents,
@@ -30,7 +30,7 @@ pub fn create(owner: *std.Build) *UpdateSourceFiles {
     const usf = owner.allocator.create(UpdateSourceFiles) catch @panic("OOM");
     usf.* = .{
         .step = Step.init(.{
-            .id = base_id,
+            .tag = base_tag,
             .name = "UpdateSourceFiles",
             .owner = owner,
             .makeFn = make,

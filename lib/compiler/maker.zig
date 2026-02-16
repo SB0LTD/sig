@@ -1,4 +1,3 @@
-const runner = @This();
 const builtin = @import("builtin");
 
 const std = @import("std");
@@ -8,15 +7,17 @@ const fmt = std.fmt;
 const mem = std.mem;
 const process = std.process;
 const File = std.Io.File;
-const Step = std.Build.Step;
-const Watch = std.Build.Watch;
-const WebServer = std.Build.WebServer;
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
 const Writer = std.Io.Writer;
+const Cache = std.Build.Cache;
+const Configuration = std.Build.Configuration;
 
-pub const root = @import("@build");
-pub const dependencies = @import("@dependencies");
+const Fuzz = @import("maker/Fuzz.zig");
+const Graph = @import("maker/Graph.zig");
+const Step = @import("maker/Step.zig");
+const Watch = @import("maker/Watch.zig");
+const WebServer = @import("maker/WebServer.zig");
 
 pub const std_options: std.Options = .{
     .side_channels_mitigations = .none,
@@ -47,35 +48,36 @@ pub fn main(init: process.Init.Minimal) !void {
     // skip my own exe name
     var arg_idx: usize = 1;
 
-    const zig_exe = nextArg(args, &arg_idx) orelse fatal("missing zig compiler path", .{});
-    const zig_lib_dir = nextArg(args, &arg_idx) orelse fatal("missing zig lib directory path", .{});
-    const build_root = nextArg(args, &arg_idx) orelse fatal("missing build root directory path", .{});
-    const cache_root = nextArg(args, &arg_idx) orelse fatal("missing cache root directory path", .{});
-    const global_cache_root = nextArg(args, &arg_idx) orelse fatal("missing global cache root directory path", .{});
+    const zig_exe = cutArgPrefixOrFatal(args, &arg_idx, "--zig=");
+    const zig_lib_dir = cutArgPrefixOrFatal(args, &arg_idx, "--lib=");
+    const build_root = cutArgPrefixOrFatal(args, &arg_idx, "--build-root=");
+    const local_cache_root = cutArgPrefixOrFatal(args, &arg_idx, "--local-cache=");
+    const global_cache_root = cutArgPrefixOrFatal(args, &arg_idx, "--global-cache=");
+    const configure_path = cutArgPrefixOrFatal(args, &arg_idx, "--configure=");
 
     const cwd: Io.Dir = .cwd();
 
-    const zig_lib_directory: std.Build.Cache.Directory = .{
+    const zig_lib_directory: Cache.Directory = .{
         .path = zig_lib_dir,
         .handle = try cwd.openDir(io, zig_lib_dir, .{}),
     };
 
-    const build_root_directory: std.Build.Cache.Directory = .{
+    const build_root_directory: Cache.Directory = .{
         .path = build_root,
         .handle = try cwd.openDir(io, build_root, .{}),
     };
 
-    const local_cache_directory: std.Build.Cache.Directory = .{
-        .path = cache_root,
-        .handle = try cwd.createDirPathOpen(io, cache_root, .{}),
+    const local_cache_directory: Cache.Directory = .{
+        .path = local_cache_root,
+        .handle = try cwd.createDirPathOpen(io, local_cache_root, .{}),
     };
 
-    const global_cache_directory: std.Build.Cache.Directory = .{
+    const global_cache_directory: Cache.Directory = .{
         .path = global_cache_root,
         .handle = try cwd.createDirPathOpen(io, global_cache_root, .{}),
     };
 
-    var graph: std.Build.Graph = .{
+    var graph: Graph = .{
         .io = io,
         .arena = arena,
         .cache = .{
@@ -101,18 +103,11 @@ pub fn main(init: process.Init.Minimal) !void {
     graph.cache.addPrefix(global_cache_directory);
     graph.cache.hash.addBytes(builtin.zig_version_string);
 
-    const builder = try std.Build.create(
-        &graph,
-        build_root_directory,
-        local_cache_directory,
-        dependencies.root_deps,
-    );
-
     var targets = std.array_list.Managed([]const u8).init(arena);
     var debug_log_scopes = std.array_list.Managed([]const u8).init(arena);
 
     var install_prefix: ?[]const u8 = null;
-    var dir_list = std.Build.DirList{};
+    var dir_list: std.Build.DirList = .{};
     var error_style: ErrorStyle = .verbose;
     var multiline_errors: MultilineErrors = .indent;
     var summary: ?Summary = null;
@@ -122,11 +117,28 @@ pub fn main(init: process.Init.Minimal) !void {
     var color: Color = .auto;
     var help_menu = false;
     var steps_menu = false;
-    var output_tmp_nonce: ?[16]u8 = null;
     var watch = false;
-    var fuzz: ?std.Build.Fuzz.Mode = null;
+    var fuzz: ?Fuzz.Mode = null;
     var debounce_interval_ms: u16 = 50;
     var webui_listen: ?Io.net.IpAddress = null;
+    var verbose = false;
+    var sysroot: ?[]const u8 = null;
+    var search_prefixes: std.ArrayList([]const u8) = .empty;
+    var libc_file: ?[]const u8 = null;
+    var debug_pkg_config: bool = false;
+    // After following the steps in https://codeberg.org/ziglang/infra/src/branch/master/libc-update/glibc.md,
+    // this will be the directory $glibc-build-dir/install/glibcs
+    // Given the example of the aarch64 target, this is the directory
+    // that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
+    // Also works for dynamic musl.
+    var libc_runtimes_dir: ?[]const u8 = null;
+    var enable_wine = false;
+    var enable_qemu = false;
+    var enable_wasmtime = false;
+    var enable_darling = false;
+    var enable_rosetta = false;
+    var reference_trace: ?u32 = null;
+    var run_args: ?[]const []const u8 = null;
 
     if (std.zig.EnvVar.ZIG_BUILD_ERROR_STYLE.get(&graph.environ_map)) |str| {
         if (std.meta.stringToEnum(ErrorStyle, str)) |style| {
@@ -140,26 +152,23 @@ pub fn main(init: process.Init.Minimal) !void {
         }
     }
 
+    var configuration: Configuration = undefined;
+    {
+        var file = cwd.openFile(io, configure_path, .{}) catch |err|
+            fatal("failed to open configuration file {f}: {t}", .{ configure_path, err });
+        defer file.close(io);
+        configuration = Configuration.load(arena, io, file) catch |err|
+            fatal("failed to load configuration file {f}: {t}", .{ configure_path, err });
+    }
+    graph.configuration = &configuration;
+    graph.scanConfiguration();
+
+    std.log.err("TODO handle user -D options", .{});
+
     while (nextArg(args, &arg_idx)) |arg| {
-        if (mem.startsWith(u8, arg, "-Z")) {
-            if (arg.len != 18) fatalWithHint("bad argument: '{s}'", .{arg});
-            output_tmp_nonce = arg[2..18].*;
-        } else if (mem.startsWith(u8, arg, "-D")) {
-            const option_contents = arg[2..];
-            if (option_contents.len == 0)
-                fatalWithHint("expected option name after '-D'", .{});
-            if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
-                const option_name = option_contents[0..name_end];
-                const option_value = option_contents[name_end + 1 ..];
-                if (try builder.addUserInputOption(option_name, option_value))
-                    fatal("  access the help menu with 'zig build -h'", .{});
-            } else {
-                if (try builder.addUserInputFlag(option_contents))
-                    fatal("  access the help menu with 'zig build -h'", .{});
-            }
-        } else if (mem.startsWith(u8, arg, "-")) {
+        if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "--verbose")) {
-                builder.verbose = true;
+                verbose = true;
             } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                 help_menu = true;
             } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--prefix")) {
@@ -172,15 +181,6 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.startsWith(u8, arg, "-fno-sys=")) {
                 const name = arg["-fno-sys=".len..];
                 graph.system_library_options.put(arena, name, .user_disabled) catch @panic("OOM");
-            } else if (mem.eql(u8, arg, "--release")) {
-                builder.release_mode = .any;
-            } else if (mem.startsWith(u8, arg, "--release=")) {
-                const text = arg["--release=".len..];
-                builder.release_mode = std.meta.stringToEnum(std.Build.ReleaseMode, text) orelse {
-                    fatalWithHint("expected [off|any|fast|safe|small] in '{s}', found '{s}'", .{
-                        arg, text,
-                    });
-                };
             } else if (mem.eql(u8, arg, "--prefix-lib-dir")) {
                 dir_list.lib_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-exe-dir")) {
@@ -188,7 +188,7 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.eql(u8, arg, "--prefix-include-dir")) {
                 dir_list.include_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--sysroot")) {
-                builder.sysroot = nextArgOrFatal(args, &arg_idx);
+                sysroot = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--maxrss")) {
                 const max_rss_text = nextArgOrFatal(args, &arg_idx);
                 max_rss = std.fmt.parseIntSizeSuffix(max_rss_text, 10) catch |err| {
@@ -235,10 +235,9 @@ pub fn main(init: process.Init.Minimal) !void {
                 );
                 test_timeout_ns = std.math.lossyCast(u64, unit_factor * num_parsed);
             } else if (mem.eql(u8, arg, "--search-prefix")) {
-                const search_prefix = nextArgOrFatal(args, &arg_idx);
-                builder.addSearchPrefix(search_prefix);
+                try search_prefixes.append(arena, nextArgOrFatal(args, &arg_idx));
             } else if (mem.eql(u8, arg, "--libc")) {
-                builder.libc_file = nextArgOrFatal(args, &arg_idx);
+                libc_file = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--color")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected [auto|on|off] after '{s}'", .{arg});
@@ -275,15 +274,6 @@ pub fn main(init: process.Init.Minimal) !void {
                         next_arg, @errorName(err),
                     });
                 };
-            } else if (mem.eql(u8, arg, "--build-id")) {
-                builder.build_id = .fast;
-            } else if (mem.startsWith(u8, arg, "--build-id=")) {
-                const style = arg["--build-id=".len..];
-                builder.build_id = std.zig.BuildId.parse(style) catch |err| {
-                    fatal("unable to parse --build-id style '{s}': {s}", .{
-                        style, @errorName(err),
-                    });
-                };
             } else if (mem.eql(u8, arg, "--debounce")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected u16 after '{s}'", .{arg});
@@ -304,17 +294,12 @@ pub fn main(init: process.Init.Minimal) !void {
                 const next_arg = nextArgOrFatal(args, &arg_idx);
                 try debug_log_scopes.append(next_arg);
             } else if (mem.eql(u8, arg, "--debug-pkg-config")) {
-                builder.debug_pkg_config = true;
+                debug_pkg_config = true;
             } else if (mem.eql(u8, arg, "--debug-rt")) {
                 graph.debug_compiler_runtime_libs = .Debug;
             } else if (mem.cutPrefix(u8, arg, "--debug-rt=")) |rest| {
-                graph.debug_compiler_runtime_libs =
-                    std.meta.stringToEnum(std.builtin.OptimizeMode, rest) orelse
-                    fatal("unrecognized optimization mode: '{s}'", .{rest});
-            } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
-                builder.debug_compile_errors = true;
-            } else if (mem.eql(u8, arg, "--debug-incremental")) {
-                builder.debug_incremental = true;
+                graph.debug_compiler_runtime_libs = std.meta.stringToEnum(std.builtin.OptimizeMode, rest) orelse
+                    fatal("unrecognized optimization mode: {s}", .{rest});
             } else if (mem.eql(u8, arg, "--system")) {
                 // The usage text shows another argument after this parameter
                 // but it is handled by the parent process. The build runner
@@ -322,21 +307,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 graph.system_package_mode = true;
             } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
                 // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
-                builder.libc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
-            } else if (mem.eql(u8, arg, "--verbose-link")) {
-                builder.verbose_link = true;
-            } else if (mem.eql(u8, arg, "--verbose-air")) {
-                builder.verbose_air = true;
-            } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
-                builder.verbose_llvm_ir = "-";
-            } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
-                builder.verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
-            } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
-                builder.verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
-            } else if (mem.eql(u8, arg, "--verbose-cc")) {
-                builder.verbose_cc = true;
-            } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
-                builder.verbose_llvm_cpu_features = true;
+                libc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--watch")) {
                 watch = true;
             } else if (mem.eql(u8, arg, "--time-report")) {
@@ -384,39 +355,39 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.eql(u8, arg, "-fno-incremental")) {
                 graph.incremental = false;
             } else if (mem.eql(u8, arg, "-fwine")) {
-                builder.enable_wine = true;
+                enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
-                builder.enable_wine = false;
+                enable_wine = false;
             } else if (mem.eql(u8, arg, "-fqemu")) {
-                builder.enable_qemu = true;
+                enable_qemu = true;
             } else if (mem.eql(u8, arg, "-fno-qemu")) {
-                builder.enable_qemu = false;
+                enable_qemu = false;
             } else if (mem.eql(u8, arg, "-fwasmtime")) {
-                builder.enable_wasmtime = true;
+                enable_wasmtime = true;
             } else if (mem.eql(u8, arg, "-fno-wasmtime")) {
-                builder.enable_wasmtime = false;
+                enable_wasmtime = false;
             } else if (mem.eql(u8, arg, "-frosetta")) {
-                builder.enable_rosetta = true;
+                enable_rosetta = true;
             } else if (mem.eql(u8, arg, "-fno-rosetta")) {
-                builder.enable_rosetta = false;
+                enable_rosetta = false;
             } else if (mem.eql(u8, arg, "-fdarling")) {
-                builder.enable_darling = true;
+                enable_darling = true;
             } else if (mem.eql(u8, arg, "-fno-darling")) {
-                builder.enable_darling = false;
+                enable_darling = false;
             } else if (mem.eql(u8, arg, "-fallow-so-scripts")) {
                 graph.allow_so_scripts = true;
             } else if (mem.eql(u8, arg, "-fno-allow-so-scripts")) {
                 graph.allow_so_scripts = false;
             } else if (mem.eql(u8, arg, "-freference-trace")) {
-                builder.reference_trace = 256;
+                reference_trace = 256;
             } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
                 const num = arg["-freference-trace=".len..];
-                builder.reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
+                reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
                     std.debug.print("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
                     process.exit(1);
                 };
             } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
-                builder.reference_trace = null;
+                reference_trace = null;
             } else if (mem.cutPrefix(u8, arg, "-j")) |text| {
                 const n = std.fmt.parseUnsigned(u32, text, 10) catch |err|
                     fatal("unable to parse jobs count '{s}': {t}", .{ text, err });
@@ -424,7 +395,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 threaded.setAsyncLimit(.limited(n));
                 graph.max_jobs = n;
             } else if (mem.eql(u8, arg, "--")) {
-                builder.args = argsRest(args, arg_idx);
+                run_args = argsRest(args, arg_idx);
                 break;
             } else {
                 fatalWithHint("unrecognized argument: '{s}'", .{arg});
@@ -453,51 +424,24 @@ pub fn main(init: process.Init.Minimal) !void {
     });
     defer main_progress_node.end();
 
-    builder.debug_log_scopes = debug_log_scopes.items;
-    builder.resolveInstallPrefix(install_prefix, dir_list);
-    {
-        var prog_node = main_progress_node.start("Configure", 0);
-        defer prog_node.end();
-        try builder.runBuild(root);
-        createModuleDependencies(builder) catch @panic("OOM");
-    }
+    graph.resolveInstallPrefix(install_prefix, dir_list);
 
-    if (graph.needed_lazy_dependencies.entries.len != 0) {
-        var buffer: std.ArrayList(u8) = .empty;
-        for (graph.needed_lazy_dependencies.keys()) |k| {
-            try buffer.appendSlice(arena, k);
-            try buffer.append(arena, '\n');
-        }
-        const s = std.fs.path.sep_str;
-        const tmp_sub_path = "tmp" ++ s ++ (output_tmp_nonce orelse fatal("missing -Z arg", .{}));
-        local_cache_directory.handle.writeFile(io, .{
-            .sub_path = tmp_sub_path,
-            .data = buffer.items,
-            .flags = .{ .exclusive = true },
-        }) catch |err| {
-            fatal("unable to write configuration results to '{f}{s}': {s}", .{
-                local_cache_directory, tmp_sub_path, @errorName(err),
-            });
-        };
-        process.exit(3); // Indicate configure phase failed with meaningful stdout.
-    }
-
-    if (builder.validateUserInputDidItFail()) {
+    if (graph.validateUserInputDidItFail()) {
         fatal("  access the help menu with 'zig build -h'", .{});
     }
 
-    validateSystemLibraryOptions(builder);
+    validateSystemLibraryOptions(&graph);
 
     if (help_menu) {
         var w = initStdoutWriter(io);
-        printUsage(builder, w) catch return stdout_writer_allocation.err.?;
+        printUsage(&graph, w) catch return stdout_writer_allocation.err.?;
         w.flush() catch return stdout_writer_allocation.err.?;
         return;
     }
 
     if (steps_menu) {
         var w = initStdoutWriter(io);
-        printSteps(builder, w) catch return stdout_writer_allocation.err.?;
+        printSteps(&graph, w) catch return stdout_writer_allocation.err.?;
         w.flush() catch return stdout_writer_allocation.err.?;
         return;
     }
@@ -530,7 +474,7 @@ pub fn main(init: process.Init.Minimal) !void {
         run.max_rss_is_default = true;
     }
 
-    prepare(arena, builder, targets.items, &run, graph.random_seed) catch |err| switch (err) {
+    prepare(arena, &graph, targets.items, &run) catch |err| switch (err) {
         error.DependencyLoopDetected, error.InsufficientMemory => {
             // Perhaps in the future there could be an Advanced Options flag
             // such as --debug-build-runner-leaks which would make this code
@@ -573,13 +517,7 @@ pub fn main(init: process.Init.Minimal) !void {
     }) {
         if (run.web_server) |*ws| ws.startBuild();
 
-        try runStepNames(
-            builder,
-            targets.items,
-            main_progress_node,
-            &run,
-            fuzz,
-        );
+        try runStepNames(graph, targets.items, main_progress_node, &run, fuzz);
 
         if (run.web_server) |*web_server| {
             if (fuzz) |mode| if (mode != .forever) fatal(
@@ -678,23 +616,19 @@ const Run = struct {
     summary: Summary,
 };
 
-fn prepare(
-    arena: Allocator,
-    b: *std.Build,
-    step_names: []const []const u8,
-    run: *Run,
-    seed: u32,
-) !void {
+fn prepare(graph: *Graph, step_names: []const []const u8, run: *Run) !void {
+    const arena = graph.arena;
+    const seed: u32 = graph.random_seed;
     const gpa = run.gpa;
     const step_stack = &run.step_stack;
 
     if (step_names.len == 0) {
-        try step_stack.put(gpa, b.default_step, {});
+        try step_stack.put(gpa, graph.configuration.default_step, {});
     } else {
         try step_stack.ensureUnusedCapacity(gpa, step_names.len);
         for (0..step_names.len) |i| {
             const step_name = step_names[step_names.len - i - 1];
-            const s = b.top_level_steps.get(step_name) orelse {
+            const s = graph.top_level_steps.get(step_name) orelse {
                 std.log.info("access the help menu with \"zig build -h\"", .{});
                 fatal("no step named '{s}'", .{step_name});
             };
@@ -709,7 +643,7 @@ fn prepare(
     rand.shuffle(*Step, starting_steps);
 
     for (starting_steps) |s| {
-        try constructGraphAndCheckForDependencyLoop(gpa, b, s, &run.step_stack, rand);
+        try constructGraphAndCheckForDependencyLoop(gpa, s, &run.step_stack, rand);
     }
 
     {
@@ -745,14 +679,13 @@ fn prepare(
 }
 
 fn runStepNames(
-    b: *std.Build,
+    graph: *Graph,
     step_names: []const []const u8,
     parent_prog_node: std.Progress.Node,
     run: *Run,
-    fuzz: ?std.Build.Fuzz.Mode,
+    fuzz: ?Fuzz.Mode,
 ) !void {
     const gpa = run.gpa;
-    const graph = b.graph;
     const io = graph.io;
     const step_stack = &run.step_stack;
 
@@ -775,7 +708,7 @@ fn runStepNames(
         var group: Io.Group = .init;
         defer group.cancel(io);
         // Start working on all of the initial steps...
-        for (initial_set.items) |s| try stepReady(&group, b, s, step_prog, run);
+        for (initial_set.items) |s| try stepReady(&group, s, step_prog, run);
         // ...and `makeStep` will trigger every other step when their last dependency finishes.
         try group.await(io);
     }
@@ -848,7 +781,7 @@ fn runStepNames(
         }
 
         assert(mode == .limit);
-        var f = std.Build.Fuzz.init(
+        var f = Fuzz.init(
             gpa,
             io,
             step_stack.keys(),
@@ -938,13 +871,13 @@ fn runStepNames(
         var print_node: PrintNode = .{ .parent = null };
         if (step_names.len == 0) {
             print_node.last = true;
-            printTreeStep(b, b.default_step, run, t, &print_node, &step_stack_copy) catch {};
+            printTreeStep(graph, graph.default_step, run, t, &print_node, &step_stack_copy) catch {};
         } else {
-            const last_index = if (run.summary == .all) b.top_level_steps.count() else blk: {
+            const last_index = if (run.summary == .all) graph.top_level_steps.count() else blk: {
                 var i: usize = step_names.len;
                 while (i > 0) {
                     i -= 1;
-                    const step = b.top_level_steps.get(step_names[i]).?.step;
+                    const step = graph.top_level_steps.get(step_names[i]).?.step;
                     const found = switch (run.summary) {
                         .all, .line, .none => unreachable,
                         .failures => step.state != .success,
@@ -952,12 +885,12 @@ fn runStepNames(
                     };
                     if (found) break :blk i;
                 }
-                break :blk b.top_level_steps.count();
+                break :blk graph.top_level_steps.count();
             };
             for (step_names, 0..) |step_name, i| {
-                const tls = b.top_level_steps.get(step_name).?;
+                const tls = graph.top_level_steps.get(step_name).?;
                 print_node.last = i + 1 == last_index;
-                printTreeStep(b, &tls.step, run, t, &print_node, &step_stack_copy) catch {};
+                printTreeStep(graph, &tls.step, run, t, &print_node, &step_stack_copy) catch {};
             }
         }
         w.writeByte('\n') catch {};
@@ -1173,7 +1106,7 @@ fn printStepFailure(s: *Step, stderr: Io.Terminal, dim: bool) !void {
 }
 
 fn printTreeStep(
-    b: *std.Build,
+    graph: *Graph,
     s: *Step,
     run: *const Run,
     stderr: Io.Terminal,
@@ -1231,7 +1164,7 @@ fn printTreeStep(
                 .parent = parent_node,
                 .last = i == last_index,
             };
-            try printTreeStep(b, dep, run, stderr, &print_node, step_stack);
+            try printTreeStep(graph, dep, run, stderr, &print_node, step_stack);
         }
     } else {
         if (s.dependencies.items.len == 0) {
@@ -1258,7 +1191,6 @@ fn printTreeStep(
 ///   random order
 fn constructGraphAndCheckForDependencyLoop(
     gpa: Allocator,
-    b: *std.Build,
     s: *Step,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
     rand: std.Random,
@@ -1282,8 +1214,8 @@ fn constructGraphAndCheckForDependencyLoop(
 
             for (deps) |dep| {
                 try step_stack.put(gpa, dep, {});
-                try dep.dependants.append(b.allocator, s);
-                constructGraphAndCheckForDependencyLoop(gpa, b, dep, step_stack, rand) catch |err| {
+                try dep.dependants.append(gpa, s);
+                constructGraphAndCheckForDependencyLoop(gpa, dep, step_stack, rand) catch |err| {
                     if (err == error.DependencyLoopDetected) {
                         std.debug.print("  {s}\n", .{s.name});
                     }
@@ -1311,13 +1243,12 @@ fn constructGraphAndCheckForDependencyLoop(
 /// claim (i.e. add `s.max_rss` back into `run.available_rss`) and queue any viable memory-blocked
 /// steps after "make" completes for `s`.
 fn makeStep(
+    graph: *Graph,
     group: *Io.Group,
-    b: *std.Build,
     s: *Step,
     root_prog_node: std.Progress.Node,
     run: *Run,
 ) Io.Cancelable!void {
-    const graph = b.graph;
     const io = graph.io;
     const gpa = run.gpa;
 
@@ -1404,26 +1335,26 @@ fn makeStep(
             }
         }
         for (dispatch_set.items) |candidate| {
-            group.async(io, makeStep, .{ group, b, candidate, root_prog_node, run });
+            group.async(io, makeStep, .{ graph, group, candidate, root_prog_node, run });
         }
     }
 
     for (s.dependants.items) |dependant| {
         // `.acq_rel` synchronizes with itself to ensure all dependencies' final states are visible when this hits 0.
         if (@atomicRmw(u32, &dependant.pending_deps, .Sub, 1, .acq_rel) == 1) {
-            try stepReady(group, b, dependant, root_prog_node, run);
+            try stepReady(graph, group, dependant, root_prog_node, run);
         }
     }
 }
 
 fn stepReady(
+    graph: *Graph,
     group: *Io.Group,
-    b: *std.Build,
     s: *Step,
     root_prog_node: std.Progress.Node,
     run: *Run,
 ) !void {
-    const io = b.graph.io;
+    const io = graph.io;
     if (s.max_rss != 0) {
         try run.max_rss_mutex.lock(io);
         defer run.max_rss_mutex.unlock(io);
@@ -1434,7 +1365,7 @@ fn stepReady(
         }
         run.available_rss -= s.max_rss;
     }
-    group.async(io, makeStep, .{ group, b, s, root_prog_node, run });
+    group.async(io, makeStep, .{ graph, group, s, root_prog_node, run });
 }
 
 pub fn printErrorMessages(
@@ -1523,10 +1454,10 @@ pub fn printErrorMessages(
     try writer.writeByte('\n');
 }
 
-fn printSteps(builder: *std.Build, w: *Writer) !void {
-    const arena = builder.graph.arena;
-    for (builder.top_level_steps.values()) |top_level_step| {
-        const name = if (&top_level_step.step == builder.default_step)
+fn printSteps(graph: *Graph, w: *Writer) !void {
+    const arena = graph.arena;
+    for (graph.top_level_steps.values()) |top_level_step| {
+        const name = if (&top_level_step.step == graph.default_step)
             try fmt.allocPrint(arena, "{s} (default)", .{top_level_step.step.name})
         else
             top_level_step.step.name;
@@ -1534,26 +1465,26 @@ fn printSteps(builder: *std.Build, w: *Writer) !void {
     }
 }
 
-fn printUsage(b: *std.Build, w: *Writer) !void {
-    const arena = b.graph.arena;
+fn printUsage(graph: *Graph, w: *Writer) !void {
+    const arena = graph.arena;
 
     try w.print(
         \\Usage: {s} build [steps] [options]
         \\
         \\Steps:
         \\
-    , .{b.graph.zig_exe});
-    try printSteps(b, w);
+    , .{graph.zig_exe});
+    try printSteps(graph, w);
     try w.writeAll(
         \\
         \\Project-Specific Options:
         \\
     );
 
-    if (b.available_options_list.items.len == 0) {
+    if (graph.available_options_list.items.len == 0) {
         try w.print("  (none)\n", .{});
     } else {
-        for (b.available_options_list.items) |option| {
+        for (graph.available_options_list.items) |option| {
             const name = try fmt.allocPrint(arena, "  -D{s}=[{t}]", .{ option.name, option.type_id });
             try w.print("{s:<30} {s}\n", .{ name, option.description });
             if (option.enum_options) |enum_options| {
@@ -1597,10 +1528,10 @@ fn printUsage(b: *std.Build, w: *Writer) !void {
         \\  Available System Integrations:                Enabled:
         \\
     );
-    if (b.graph.system_library_options.entries.len == 0) {
+    if (graph.system_library_options.entries.len == 0) {
         try w.writeAll("  (none)                                        -\n");
     } else {
-        for (b.graph.system_library_options.keys(), b.graph.system_library_options.values()) |k, v| {
+        for (graph.system_library_options.keys(), graph.system_library_options.values()) |k, v| {
             const status = switch (v) {
                 .declared_enabled => "yes",
                 .declared_disabled => "no",
@@ -1702,10 +1633,17 @@ fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
 }
 
 fn nextArgOrFatal(args: []const [:0]const u8, idx: *usize) [:0]const u8 {
-    return nextArg(args, idx) orelse {
-        std.debug.print("expected argument after '{s}'\n  access the help menu with 'zig build -h'\n", .{args[idx.* - 1]});
-        process.exit(1);
-    };
+    return nextArg(args, idx) orelse
+        fatal("expected argument after {q}\n  access the help menu with \"zig build -h\"", .{args[idx.* - 1]});
+}
+
+fn cutArgPrefixOrFatal(args: []const [:0]const u8, idx: *usize, prefix: []const u8) []const u8 {
+    if (nextArg(args, idx)) |next_arg| {
+        if (mem.cutPrefix(u8, next_arg, prefix)) |arg| {
+            return arg;
+        }
+    }
+    fatal("expected argument after {q} to start with {q}", .{ args[idx.* - 1], prefix });
 }
 
 fn argsRest(args: []const [:0]const u8, idx: usize) ?[]const [:0]const u8 {
@@ -1740,9 +1678,9 @@ fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
     process.exit(1);
 }
 
-fn validateSystemLibraryOptions(b: *std.Build) void {
+fn validateSystemLibraryOptions(graph: *Graph) void {
     var bad = false;
-    for (b.graph.system_library_options.keys(), b.graph.system_library_options.values()) |k, v| {
+    for (graph.system_library_options.keys(), graph.system_library_options.values()) |k, v| {
         switch (v) {
             .user_disabled, .user_enabled => {
                 // The user tried to enable or disable a system library integration, but
@@ -1759,84 +1697,6 @@ fn validateSystemLibraryOptions(b: *std.Build) void {
     }
 }
 
-/// Starting from all top-level steps in `b`, traverses the entire step graph
-/// and adds all step dependencies implied by module graphs.
-fn createModuleDependencies(b: *std.Build) Allocator.Error!void {
-    const arena = b.graph.arena;
-
-    var all_steps: std.AutoArrayHashMapUnmanaged(*Step, void) = .empty;
-    var next_step_idx: usize = 0;
-
-    try all_steps.ensureUnusedCapacity(arena, b.top_level_steps.count());
-    for (b.top_level_steps.values()) |tls| {
-        all_steps.putAssumeCapacityNoClobber(&tls.step, {});
-    }
-
-    while (next_step_idx < all_steps.count()) {
-        const step = all_steps.keys()[next_step_idx];
-        next_step_idx += 1;
-
-        // Set up any implied dependencies for this step. It's important that we do this first, so
-        // that the loop below discovers steps implied by the module graph.
-        try createModuleDependenciesForStep(step);
-
-        try all_steps.ensureUnusedCapacity(arena, step.dependencies.items.len);
-        for (step.dependencies.items) |other_step| {
-            all_steps.putAssumeCapacity(other_step, {});
-        }
-    }
-}
-
-/// If the given `Step` is a `Step.Compile`, adds any dependencies for that step which
-/// are implied by the module graph rooted at `step.cast(Step.Compile).?.root_module`.
-fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
-    const root_module = if (step.cast(Step.Compile)) |cs| root: {
-        break :root cs.root_module;
-    } else return; // not a compile step so no module dependencies
-
-    // Starting from `root_module`, discover all modules in this graph.
-    const modules = root_module.getGraph().modules;
-
-    // For each of those modules, set up the implied step dependencies.
-    for (modules) |mod| {
-        if (mod.root_source_file) |lp| lp.addStepDependencies(step);
-        for (mod.include_dirs.items) |include_dir| switch (include_dir) {
-            .path,
-            .path_system,
-            .path_after,
-            .framework_path,
-            .framework_path_system,
-            .embed_path,
-            => |lp| lp.addStepDependencies(step),
-
-            .other_step => |other| {
-                other.getEmittedIncludeTree().addStepDependencies(step);
-                step.dependOn(&other.step);
-            },
-
-            .config_header_step => |other| step.dependOn(&other.step),
-        };
-        for (mod.lib_paths.items) |lp| lp.addStepDependencies(step);
-        for (mod.rpaths.items) |rpath| switch (rpath) {
-            .lazy_path => |lp| lp.addStepDependencies(step),
-            .special => {},
-        };
-        for (mod.link_objects.items) |link_object| switch (link_object) {
-            .static_path,
-            .assembly_file,
-            => |lp| lp.addStepDependencies(step),
-            .other_step => |other| step.dependOn(&other.step),
-            .system_lib => {},
-            .c_source_file => |source| source.file.addStepDependencies(step),
-            .c_source_files => |source_files| source_files.root.addStepDependencies(step),
-            .win32_resource_file => |rc_source| {
-                rc_source.file.addStepDependencies(step);
-                for (rc_source.include_paths) |lp| lp.addStepDependencies(step);
-            },
-        };
-    }
-}
-
 var stdio_buffer_allocation: [256]u8 = undefined;
 var stdout_writer_allocation: Io.File.Writer = undefined;
 
@@ -1847,7 +1707,7 @@ fn initStdoutWriter(io: Io) *Writer {
 
 fn cleanTmpFiles(io: Io, steps: []const *Step) void {
     for (steps) |step| {
-        const wf = step.cast(std.Build.Step.WriteFile) orelse continue;
+        const wf = step.cast(Step.WriteFile) orelse continue;
         if (wf.mode != .tmp) continue;
         const path = wf.generated_directory.path orelse continue;
         Io.Dir.cwd().deleteTree(io, path) catch |err| {

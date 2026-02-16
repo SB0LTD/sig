@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("Std");
 const Io = std.Io;
 const Build = std.Build;
 const Cache = Build.Cache;

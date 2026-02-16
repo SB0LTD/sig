@@ -5,7 +5,7 @@ const InstallDir = std.Build.InstallDir;
 const InstallFile = @This();
 const assert = std.debug.assert;
 
-pub const base_id: Step.Id = .install_file;
+pub const base_tag: Step.Tag = .install_file;
 
 step: Step,
 source: LazyPath,
@@ -22,7 +22,7 @@ pub fn create(
     const install_file = owner.allocator.create(InstallFile) catch @panic("OOM");
     install_file.* = .{
         .step = Step.init(.{
-            .id = base_id,
+            .tag = base_tag,
             .name = owner.fmt("install {s} to {s}", .{ source.getDisplayName(), dest_rel_path }),
             .owner = owner,
             .makeFn = make,

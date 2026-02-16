@@ -10,7 +10,7 @@ const elf = std.elf;
 const fs = std.fs;
 const sort = std.sort;
 
-pub const base_id: Step.Id = .objcopy;
+pub const base_tag: Step.Tag = .objcopy;
 
 pub const RawFormat = enum {
     bin,
@@ -111,7 +111,7 @@ pub fn create(
     const objcopy = owner.allocator.create(ObjCopy) catch @panic("OOM");
     objcopy.* = ObjCopy{
         .step = Step.init(.{
-            .id = base_id,
+            .tag = base_tag,
             .name = owner.fmt("objcopy {s}", .{input_file.getDisplayName()}),
             .owner = owner,
             .makeFn = make,

@@ -16,7 +16,7 @@ expected_exact: ?[]const u8,
 source: std.Build.LazyPath,
 max_bytes: usize = 20 * 1024 * 1024,
 
-pub const base_id: Step.Id = .check_file;
+pub const base_tag: Step.Tag = .check_file;
 
 pub const Options = struct {
     expected_matches: []const []const u8 = &.{},
@@ -31,7 +31,7 @@ pub fn create(
     const check_file = owner.allocator.create(CheckFile) catch @panic("OOM");
     check_file.* = .{
         .step = Step.init(.{
-            .id = base_id,
+            .tag = base_tag,
             .name = "CheckFile",
             .owner = owner,
             .makeFn = make,

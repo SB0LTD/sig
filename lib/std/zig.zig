@@ -11,8 +11,6 @@ const Writer = std.Io.Writer;
 
 const tokenizer = @import("zig/tokenizer.zig");
 
-/// The serialized output of configure phase ingested by make phase.
-pub const Configuration = @import("zig/Configuration.zig");
 pub const ErrorBundle = @import("zig/ErrorBundle.zig");
 pub const Server = @import("zig/Server.zig");
 pub const Client = @import("zig/Client.zig");
