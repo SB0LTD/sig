@@ -4,6 +4,7 @@ const std = @import("../std.zig");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 string_bytes: []u8,
 steps: []Step,
@@ -21,8 +22,7 @@ pub const Header = extern struct {
     unlazy_deps_len: u32,
     extra_len: u32,
 
-    /// Index into `steps`.
-    default_step: u32,
+    default_step: Step.Index,
 };
 
 pub const Wip = struct {
@@ -97,7 +97,7 @@ pub const Wip = struct {
     }
 
     pub const Static = struct {
-        default_step: u32,
+        default_step: Step.Index,
     };
 
     pub fn write(wip: *Wip, w: *Io.Writer, static: Static) Io.Writer.Error!void {
@@ -182,10 +182,12 @@ pub const Wip = struct {
         const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
         var i = index;
         inline for (fields) |field| {
-            wip.extra.items[i] = switch (field.type) {
-                u32 => @field(extra, field.name),
-                String, Deps => @intFromEnum(@field(extra, field.name)),
-                else => @compileError("bad field type"),
+            comptime assert(@sizeOf(field.type) == @sizeOf(u32));
+            wip.extra.items[i] = switch (@typeInfo(field.type)) {
+                .int => @field(extra, field.name),
+                .@"enum" => @intFromEnum(@field(extra, field.name)),
+                .@"struct" => @bitCast(@field(extra, field.name)),
+                else => @compileError("bad field type: " ++ @typeName(field.type)),
             };
             i += 1;
         }
@@ -196,6 +198,7 @@ pub const Step = extern struct {
     name: String,
     flags: Flags,
     deps: Deps,
+    max_rss: MaxRss,
     /// Points into `extra` for step-specific data.
     extra_index: u32,
 
@@ -231,6 +234,98 @@ pub const Step = extern struct {
     pub const TopLevel = struct {
         description: String,
     };
+
+    pub const InstallArtifact = struct {
+        dest_dir: InstallDir,
+        dest_sub_path: String,
+        emitted_bin: OptionalLazyPath,
+
+        implib_dir: InstallDir,
+        emitted_implib: OptionalLazyPath,
+
+        pdb_dir: InstallDir,
+        emitted_pdb: OptionalLazyPath,
+
+        h_dir: InstallDir,
+        emitted_h: OptionalLazyPath,
+
+        /// Always a compile step.
+        artifact: Step.Index,
+
+        const Flags = packed struct(u32) {
+            tag: Tag = .install_artifact,
+            dylib_symlinks: bool,
+            _: u23 = 0,
+        };
+    };
+};
+
+pub const MaxRss = enum(u32) {
+    none = 0,
+    _,
+
+    pub fn toBytes(mr: MaxRss) usize {
+        const x: usize = @intFromEnum(mr);
+        return x << 8;
+    }
+
+    pub fn fromBytes(bytes: usize) MaxRss {
+        return @enumFromInt(bytes >> 8);
+    }
+};
+
+/// An index into `extra`.
+pub const OptionalLazyPath = enum(u32) {
+    none = maxInt(u32),
+    _,
+
+    pub const Tag = enum(u8) {
+        /// A source file path relative to build root.
+        source_path,
+        generated,
+        relative,
+    };
+
+    pub const SourcePath = struct {
+        flags: Flags,
+        owner: Package,
+        sub_path: String,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .source_path,
+            _: u24 = 0,
+        };
+    };
+
+    pub const Generated = struct {
+        flags: Flags,
+        /// Applied after `up`.
+        sub_path: String,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .generated,
+            /// The number of parent directories to go up.
+            /// 0 means the generated file itself.
+            /// 1 means the directory of the generated file.
+            /// 2 means the parent of that directory, and so on.
+            up: u24,
+        };
+    };
+
+    pub const Relative = struct {
+        flags: Flags,
+        sub_path: String,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .relative,
+            base: Path.Base,
+            _: u16 = 0,
+        };
+    };
+};
+
+pub const Package = enum(u32) {
+    _,
 };
 
 /// Points into `extra`, where the first element is number of deps,
@@ -255,6 +350,21 @@ pub const Path = extern struct {
         _ = arena;
         _ = path;
         @panic("TODO");
+    }
+};
+
+pub const InstallDir = enum(u32) {
+    none = maxInt(u32) - 4,
+    prefix = maxInt(u32) - 3,
+    lib = maxInt(u32) - 2,
+    bin = maxInt(u32) - 1,
+    header = maxInt(u32),
+    /// A `String` path relative to the prefix.
+    _,
+
+    pub fn initCustom(sub_path: String) InstallDir {
+        assert(@intFromEnum(sub_path) < @intFromEnum(InstallDir.none));
+        return @enumFromInt(@intFromEnum(sub_path));
     }
 };
 

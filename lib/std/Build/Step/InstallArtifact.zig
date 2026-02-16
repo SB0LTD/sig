@@ -1,8 +1,8 @@
+const InstallArtifact = @This();
+
 const std = @import("std");
 const Step = std.Build.Step;
 const InstallDir = std.Build.InstallDir;
-const InstallArtifact = @This();
-const fs = std.fs;
 const LazyPath = std.Build.LazyPath;
 
 step: Step,

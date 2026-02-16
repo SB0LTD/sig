@@ -103,7 +103,6 @@ pub const Graph = struct {
     needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .empty,
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
-    random_seed: u32 = 0,
     dependency_cache: InitializedDepMap = .empty,
     allow_so_scripts: ?bool = null,
     /// Steps should use `io` to limit the number of jobs, however in the case of

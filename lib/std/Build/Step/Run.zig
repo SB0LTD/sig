@@ -87,6 +87,7 @@ captured_stderr: ?*CapturedStdIo,
 dep_output_file: ?*Output,
 
 has_side_effects: bool,
+test_runner_mode: bool = false,
 
 /// Populated during the fuzz phase if this run step corresponds to a unit test
 /// executable that contains fuzz tests.
@@ -234,13 +235,11 @@ pub fn setName(run: *Run, name: []const u8) void {
 }
 
 pub fn enableTestRunnerMode(run: *Run) void {
+    if (run.test_runner_mode) return;
     const b = run.step.owner;
     run.stdio = .zig_test;
     run.addPrefixedDirectoryArg("--cache-dir=", .{ .cwd_relative = b.cache_root.path orelse "." });
-    run.addArgs(&.{
-        b.fmt("--seed=0x{x}", .{b.graph.random_seed}),
-        "--listen=-",
-    });
+    run.test_runner_mode = true;
 }
 
 pub fn addArtifactArg(run: *Run, artifact: *Step.Compile) void {

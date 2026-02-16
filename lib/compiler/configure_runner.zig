@@ -140,16 +140,13 @@ pub fn main(init: process.Init.Minimal) !void {
                 if (try builder.addUserInputFlag(option_contents))
                     fatal("  access the help menu with 'zig build -h'", .{});
             }
-        } else if (mem.startsWith(u8, arg, "-fsys=")) {
-            const name = arg["-fsys=".len..];
+        } else if (mem.cutPrefix(u8, arg, "-fsys=")) |name| {
             graph.system_library_options.put(arena, name, .user_enabled) catch @panic("OOM");
-        } else if (mem.startsWith(u8, arg, "-fno-sys=")) {
-            const name = arg["-fno-sys=".len..];
+        } else if (mem.cutPrefix(u8, arg, "-fno-sys=")) |name| {
             graph.system_library_options.put(arena, name, .user_disabled) catch @panic("OOM");
         } else if (mem.eql(u8, arg, "--release")) {
             graph.release_mode = .any;
-        } else if (mem.startsWith(u8, arg, "--release=")) {
-            const text = arg["--release=".len..];
+        } else if (mem.cutPrefix(u8, arg, "--release=")) |text| {
             graph.release_mode = std.meta.stringToEnum(std.Build.ReleaseMode, text) orelse {
                 fatalWithHint("expected [off|any|fast|safe|small] in '{s}', found '{s}'", .{
                     arg, text,
@@ -175,23 +172,11 @@ pub fn main(init: process.Init.Minimal) !void {
             multiline_errors = std.meta.stringToEnum(MultilineErrors, next_arg) orelse {
                 fatalWithHint("expected style after '{s}', found '{s}'", .{ arg, next_arg });
             };
-        } else if (mem.eql(u8, arg, "--seed")) {
-            const next_arg = nextArg(args, &arg_idx) orelse
-                fatalWithHint("expected u32 after '{s}'", .{arg});
-            graph.random_seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
-                fatal("unable to parse seed '{s}' as unsigned 32-bit integer: {s}\n", .{
-                    next_arg, @errorName(err),
-                });
-            };
         } else if (mem.eql(u8, arg, "--build-id")) {
             builder.build_id = .fast;
-        } else if (mem.startsWith(u8, arg, "--build-id=")) {
-            const style = arg["--build-id=".len..];
-            builder.build_id = std.zig.BuildId.parse(style) catch |err| {
-                fatal("unable to parse --build-id style '{s}': {s}", .{
-                    style, @errorName(err),
-                });
-            };
+        } else if (mem.cutPrefix(u8, arg, "--build-id=")) |style| {
+            builder.build_id = std.zig.BuildId.parse(style) catch |err|
+                fatal("unable to parse --build-id style '{s}': {t}", .{ style, err });
         } else if (mem.eql(u8, arg, "--debug-rt")) {
             graph.debug_compiler_runtime_libs = true;
         } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
@@ -203,11 +188,6 @@ pub fn main(init: process.Init.Minimal) !void {
             // but it is handled by the parent process. The build runner
             // only sees this flag.
             graph.system_package_mode = true;
-        } else if (mem.cutPrefix(u8, arg, "-j")) |text| {
-            const n = std.fmt.parseUnsigned(u32, text, 10) catch |err|
-                fatal("unable to parse jobs count '{s}': {t}", .{ text, err });
-            if (n < 1) fatal("number of jobs must be at least 1", .{});
-            threaded.setAsyncLimit(.limited(n));
         } else {
             fatalWithHint("unrecognized argument: '{s}'", .{arg});
         }
@@ -281,6 +261,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                 .name = try wc.addString(step.name),
                 .flags = .{ .tag = step.tag },
                 .deps = deps,
+                .max_rss = .fromBytes(step.max_rss),
                 .extra_index = switch (step.tag) {
                     .top_level => e: {
                         const top_level: *Step.TopLevel = @fieldParentPtr("step", step);
@@ -289,7 +270,21 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                         }));
                     },
                     .compile => @panic("TODO"),
-                    .install_artifact => @panic("TODO"),
+                    .install_artifact => e: {
+                        const ia: *Step.InstallArtifact = @fieldParentPtr("step", step);
+                        break :e try wc.addExtra(@as(Configuration.Step.InstallArtifact, .{
+                            .dest_dir = try addInstallDir(wc, ia.dest_dir),
+                            .dest_sub_path = try wc.addString(ia.dest_sub_path),
+                            .emitted_bin = try addOptionalLazyPath(wc, ia.emitted_bin),
+                            .implib_dir = try addInstallDir(wc, ia.implib_dir),
+                            .emitted_implib = try addOptionalLazyPath(wc, ia.emitted_implib),
+                            .pdb_dir = try addInstallDir(wc, ia.pdb_dir),
+                            .emitted_pdb = try addOptionalLazyPath(wc, ia.emitted_pdb),
+                            .h_dir = try addInstallDir(wc, ia.h_dir),
+                            .emitted_h = try addOptionalLazyPath(wc, ia.emitted_h),
+                            .artifact = stepIndex(&step_map, &ia.artifact.step),
+                        }));
+                    },
                     .install_file => @panic("TODO"),
                     .install_dir => @panic("TODO"),
                     .remove_dir => @panic("TODO"),
@@ -315,8 +310,64 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
     }
 
     try wc.write(writer, .{
-        .default_step = @intCast(step_map.getIndex(b.default_step).?),
+        .default_step = stepIndex(&step_map, b.default_step),
     });
+}
+
+fn addOptionalLazyPath(wc: *Configuration.Wip, lp: ?std.Build.LazyPath) !Configuration.OptionalLazyPath {
+    return @enumFromInt(switch (lp orelse return .none) {
+        .src_path => |src_path| i: {
+            const owner = builderToPackage(src_path.owner);
+            const sub_path = try wc.addString(src_path.sub_path);
+            break :i try wc.addExtra(@as(Configuration.OptionalLazyPath.SourcePath, .{
+                .flags = .{},
+                .owner = owner,
+                .sub_path = sub_path,
+            }));
+        },
+        .generated => |generated| i: {
+            const sub_path = try wc.addString(generated.sub_path);
+            break :i try wc.addExtra(@as(Configuration.OptionalLazyPath.Generated, .{
+                .flags = .{ .up = @intCast(generated.up) },
+                .sub_path = sub_path,
+            }));
+        },
+        .cwd_relative => |cwd_relative_sub_path| i: {
+            const sub_path = try wc.addString(cwd_relative_sub_path);
+            break :i try wc.addExtra(@as(Configuration.OptionalLazyPath.Relative, .{
+                .flags = .{ .base = .cwd },
+                .sub_path = sub_path,
+            }));
+        },
+        .dependency => |dependency| i: {
+            const owner = builderToPackage(dependency.dependency.builder);
+            const sub_path = try wc.addString(dependency.sub_path);
+            break :i try wc.addExtra(@as(Configuration.OptionalLazyPath.SourcePath, .{
+                .flags = .{},
+                .owner = owner,
+                .sub_path = sub_path,
+            }));
+        },
+    });
+}
+
+fn builderToPackage(b: *std.Build) Configuration.Package {
+    _ = b;
+    @panic("TODO");
+}
+
+fn addInstallDir(wc: *Configuration.Wip, install_dir: ?std.Build.InstallDir) !Configuration.InstallDir {
+    switch (install_dir orelse return .none) {
+        .prefix => return .prefix,
+        .lib => return .lib,
+        .bin => return .bin,
+        .header => return .header,
+        .custom => |sub_path| return .initCustom(try wc.addString(sub_path)),
+    }
+}
+
+fn stepIndex(step_map: *const std.AutoArrayHashMapUnmanaged(*Step, void), step: *Step) Configuration.Step.Index {
+    return @enumFromInt(step_map.getIndex(step).?);
 }
 
 /// If the given `Step` is a `Step.Compile`, adds any dependencies for that step which

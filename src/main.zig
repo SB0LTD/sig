@@ -4982,34 +4982,47 @@ fn cmdBuild(
     const default_seed = try std.fmt.allocPrint(arena, "0x{x}", .{randInt(io, u32)});
 
     try configure_argv.ensureUnusedCapacity(arena, 16);
+    try make_argv.ensureUnusedCapacity(arena, 16);
 
     const argv_index_exe = configure_argv.items.len;
     _ = configure_argv.addOneAssumeCapacity();
+    _ = make_argv.addOneAssumeCapacity();
 
     configure_argv.appendAssumeCapacity("--zig");
     configure_argv.appendAssumeCapacity(self_exe_path);
 
+    make_argv.appendAssumeCapacity("--zig");
+    make_argv.appendAssumeCapacity(self_exe_path);
+
     configure_argv.appendAssumeCapacity("--zig-lib-dir");
+    make_argv.appendAssumeCapacity("--zig-lib-dir");
     const argv_index_zig_lib_dir = configure_argv.items.len;
     _ = configure_argv.addOneAssumeCapacity();
+    _ = make_argv.addOneAssumeCapacity();
 
     configure_argv.appendAssumeCapacity("--build-root");
+    make_argv.appendAssumeCapacity("--build-root");
     const argv_index_build_file = configure_argv.items.len;
     _ = configure_argv.addOneAssumeCapacity();
+    _ = make_argv.addOneAssumeCapacity();
 
     configure_argv.appendAssumeCapacity("--local-cache");
+    make_argv.appendAssumeCapacity("--local-cache");
     const argv_index_cache_dir = configure_argv.items.len;
     _ = configure_argv.addOneAssumeCapacity();
+    _ = make_argv.addOneAssumeCapacity();
 
     configure_argv.appendAssumeCapacity("--global-cache");
+    make_argv.appendAssumeCapacity("--global-cache");
     const argv_index_global_cache_dir = configure_argv.items.len;
     _ = configure_argv.addOneAssumeCapacity();
+    _ = make_argv.addOneAssumeCapacity();
 
-    configure_argv.appendSliceAssumeCapacity(&.{ "--seed", default_seed });
-    const argv_index_seed = configure_argv.items.len - 1;
+    make_argv.appendSliceAssumeCapacity(&.{ "--configuration", undefined });
+    const argv_index_configuration_file = make_argv.items.len - 1;
 
-    const argv_index_configuration_file = make_argv.items.len;
-    _ = try make_argv.addOne(arena);
+    make_argv.appendSliceAssumeCapacity(&.{ "--seed", default_seed });
+    const argv_index_seed = make_argv.items.len - 1;
 
     var color: Color = .auto;
     var n_jobs: ?u32 = null;
@@ -5151,7 +5164,7 @@ fn cmdBuild(
                 } else if (mem.eql(u8, arg, "--seed")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
-                    configure_argv.items[argv_index_seed] = args[i];
+                    make_argv.items[argv_index_seed] = args[i];
                     continue;
                 } else if (mem.eql(u8, arg, "--")) {
                     // The rest of the args are supposed to get passed onto
