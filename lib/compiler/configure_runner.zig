@@ -524,7 +524,7 @@ fn addModule(
             .link_libcpp = .init(m.strip),
             .no_builtin = .init(m.strip),
         },
-        .owner = builderToPackage(m.owner),
+        .owner = try builderToPackage(wc, m.owner),
         .root_source_file = try addOptionalLazyPath(wc, m.root_source_file),
         .import_table = import_table,
         .resolved_target = try addOptionalResolvedTarget(wc, m.resolved_target),
@@ -555,7 +555,7 @@ fn addOptionalLazyPath(wc: *Configuration.Wip, lp: ?std.Build.LazyPath) !Configu
             const sub_path = try wc.addString(src_path.sub_path);
             break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
                 .flags = .{},
-                .owner = builderToPackage(src_path.owner),
+                .owner = try builderToPackage(wc, src_path.owner),
                 .sub_path = sub_path,
             }));
         },
@@ -577,16 +577,16 @@ fn addOptionalLazyPath(wc: *Configuration.Wip, lp: ?std.Build.LazyPath) !Configu
             const sub_path = try wc.addString(dependency.sub_path);
             break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
                 .flags = .{},
-                .owner = builderToPackage(dependency.dependency.builder),
+                .owner = try builderToPackage(wc, dependency.dependency.builder),
                 .sub_path = sub_path,
             }));
         },
     });
 }
 
-fn builderToPackage(b: *std.Build) Configuration.Package.Index {
-    _ = b;
-    @panic("TODO");
+fn builderToPackage(wc: *Configuration.Wip, b: *std.Build) !Configuration.Package {
+    if (b.pkg_hash.len == 0) return .root;
+    return .fromHash(try wc.addString(b.pkg_hash));
 }
 
 fn addInstallDir(wc: *Configuration.Wip, install_dir: ?std.Build.InstallDir) !Configuration.InstallDir {

@@ -786,7 +786,7 @@ pub const LazyPath = enum(u32) {
 
     pub const SourcePath = struct {
         flags: Flags,
-        owner: Package.Index,
+        owner: Package,
         sub_path: String,
 
         pub const Flags = packed struct(u32) {
@@ -822,14 +822,16 @@ pub const LazyPath = enum(u32) {
     };
 };
 
-pub const Package = extern struct {
-    hash: String,
-    build_root: OptionalString,
+/// It's an OptionalString which points to the package hash.
+pub const Package = enum(u32) {
+    root = maxInt(u32),
+    _,
 
-    pub const Index = enum(u32) {
-        root = maxInt(u32),
-        _,
-    };
+    pub fn fromHash(hash: String) Package {
+        const result: Package = @enumFromInt(@intFromEnum(hash));
+        assert(result != .root);
+        return result;
+    }
 };
 
 /// Trailing:
@@ -843,7 +845,7 @@ pub const Package = extern struct {
 pub const Module = struct {
     flags: Flags,
     flags2: Flags2,
-    owner: Package.Index,
+    owner: Package,
     root_source_file: OptionalLazyPath,
     import_table: ImportTable,
     resolved_target: ResolvedTarget.OptionalIndex,
