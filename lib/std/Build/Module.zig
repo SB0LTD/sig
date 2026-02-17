@@ -1,3 +1,11 @@
+const Module = @This();
+
+const std = @import("std");
+const assert = std.debug.assert;
+const LazyPath = std.Build.LazyPath;
+const Step = std.Build.Step;
+const ArrayList = std.ArrayList;
+
 /// The one responsible for creating this module.
 owner: *std.Build,
 root_source_file: ?LazyPath,
@@ -703,10 +711,3 @@ pub fn getGraph(root: *Module) Graph {
     root.cached_graph = result;
     return result;
 }
-
-const Module = @This();
-const std = @import("std");
-const assert = std.debug.assert;
-const LazyPath = std.Build.LazyPath;
-const Step = std.Build.Step;
-const ArrayList = std.ArrayList;

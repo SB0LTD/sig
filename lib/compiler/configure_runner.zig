@@ -227,6 +227,9 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
     const arena = graph.arena;
     const gpa = wc.gpa;
 
+    var module_map: std.AutoArrayHashMapUnmanaged(*std.Build.Module, Configuration.Module.Index) = .empty;
+    defer module_map.deinit(gpa);
+
     // Starting from all top-level steps in `b`, traverse the entire step graph
     // and add all step dependencies implied by module graphs.
     const top_level_steps = b.top_level_steps.values();
@@ -360,7 +363,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .install_name = c.install_name != null,
                                 .entitlements = c.entitlements != null,
                             },
-                            .root_module = try addModule(wc, c.root_module),
+                            .root_module = try addModule(wc, &module_map, c.root_module),
                             .root_name = try wc.addString(c.name),
                         }));
 
@@ -462,20 +465,97 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
     });
 }
 
-fn addModule(wc: *Configuration.Wip, module: *std.Build.Module) !Configuration.Module {
-    _ = wc;
-    _ = module;
-    @panic("TODO");
+fn addModule(
+    wc: *Configuration.Wip,
+    module_map: *std.AutoArrayHashMapUnmanaged(*std.Build.Module, Configuration.Module.Index),
+    m: *std.Build.Module,
+) !Configuration.Module.Index {
+    if (module_map.get(m)) |index| return index;
+
+    const gpa = wc.gpa;
+    const import_table: Configuration.ImportTable = @enumFromInt(wc.extra.items.len);
+    const import_table_extra_len = 1 + 2 * m.import_table.entries.len;
+    try wc.extra.ensureUnusedCapacity(gpa, import_table_extra_len);
+    wc.extra.items.len += import_table_extra_len;
+    wc.extra.appendAssumeCapacity(@intCast(m.import_table.entries.len));
+    wc.extra.items[@intFromEnum(import_table)] = @intCast(m.import_table.entries.len);
+    for (
+        m.import_table.keys(),
+        @intFromEnum(import_table) + 1..,
+    ) |mod_name, extra_index| {
+        wc.extra.items[extra_index] = @intFromEnum(try wc.addString(mod_name));
+    }
+    for (
+        m.import_table.values(),
+        @intFromEnum(import_table) + 1 + m.import_table.entries.len..,
+    ) |dep, extra_index| {
+        // TODO module dependencies can be cyclic
+        wc.extra.items[extra_index] = @intFromEnum(try addModule(wc, module_map, dep));
+    }
+
+    const module_index: Configuration.Module.Index = @enumFromInt(try wc.addExtra(@as(Configuration.Module, .{
+        .flags = .{
+            .optimize = .init(m.optimize),
+            .strip = .init(m.strip),
+            .unwind_tables = .init(m.unwind_tables),
+            .dwarf_format = .init(m.dwarf_format),
+            .single_threaded = .init(m.strip),
+            .stack_protector = .init(m.strip),
+            .stack_check = .init(m.strip),
+            .sanitize_c = .init(m.sanitize_c),
+            .sanitize_thread = .init(m.strip),
+            .fuzz = .init(m.strip),
+            .code_model = m.code_model,
+            .c_macros = m.c_macros.items.len != 0,
+            .include_dirs = m.include_dirs.items.len != 0,
+            .lib_paths = m.lib_paths.items.len != 0,
+            .rpaths = m.rpaths.items.len != 0,
+            .frameworks = m.frameworks.entries.len != 0,
+            .link_objects = m.link_objects.items.len != 0,
+            .export_symbol_names = m.export_symbol_names.len != 0,
+        },
+        .flags2 = .{
+            .valgrind = .init(m.strip),
+            .pic = .init(m.strip),
+            .red_zone = .init(m.strip),
+            .omit_frame_pointer = .init(m.strip),
+            .error_tracing = .init(m.strip),
+            .link_libc = .init(m.strip),
+            .link_libcpp = .init(m.strip),
+            .no_builtin = .init(m.strip),
+        },
+        .owner = builderToPackage(m.owner),
+        .root_source_file = try addOptionalLazyPath(wc, m.root_source_file),
+        .import_table = import_table,
+        .resolved_target = try addOptionalResolvedTarget(wc, m.resolved_target),
+    })));
+
+    std.log.err("TODO serialize the trailing Module data", .{});
+
+    try module_map.putNoClobber(gpa, m, module_index);
+
+    return module_index;
+}
+
+fn addOptionalResolvedTarget(
+    wc: *Configuration.Wip,
+    optional_resolved_target: ?std.Build.ResolvedTarget,
+) !Configuration.ResolvedTarget.OptionalIndex {
+    const resolved_target = optional_resolved_target orelse return .none;
+    // TODO dedupe
+    return @enumFromInt(try wc.addExtra(@as(Configuration.ResolvedTarget, .{
+        .query = try wc.addTargetQuery(resolved_target.query),
+        .result = try wc.addTarget(resolved_target.result),
+    })));
 }
 
 fn addOptionalLazyPath(wc: *Configuration.Wip, lp: ?std.Build.LazyPath) !Configuration.OptionalLazyPath {
     return @enumFromInt(switch (lp orelse return .none) {
         .src_path => |src_path| i: {
-            const owner = builderToPackage(src_path.owner);
             const sub_path = try wc.addString(src_path.sub_path);
             break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
                 .flags = .{},
-                .owner = owner,
+                .owner = builderToPackage(src_path.owner),
                 .sub_path = sub_path,
             }));
         },
@@ -494,18 +574,17 @@ fn addOptionalLazyPath(wc: *Configuration.Wip, lp: ?std.Build.LazyPath) !Configu
             }));
         },
         .dependency => |dependency| i: {
-            const owner = builderToPackage(dependency.dependency.builder);
             const sub_path = try wc.addString(dependency.sub_path);
             break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
                 .flags = .{},
-                .owner = owner,
+                .owner = builderToPackage(dependency.dependency.builder),
                 .sub_path = sub_path,
             }));
         },
     });
 }
 
-fn builderToPackage(b: *std.Build) Configuration.Package {
+fn builderToPackage(b: *std.Build) Configuration.Package.Index {
     _ = b;
     @panic("TODO");
 }

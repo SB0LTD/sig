@@ -29,6 +29,7 @@ pub const Wip = struct {
     gpa: Allocator,
     string_table: StringTable = .empty,
     deps_table: DepsTable = .empty,
+    targets_table: TargetsTable = .empty,
 
     string_bytes: std.ArrayList(u8) = .empty,
     unlazy_deps: std.ArrayList(String) = .empty,
@@ -37,6 +38,7 @@ pub const Wip = struct {
     extra: std.ArrayList(u32) = .empty,
 
     const DepsTable = std.HashMapUnmanaged(Deps, void, DepsTableContext, std.hash_map.default_max_load_percentage);
+    const TargetsTable = std.HashMapUnmanaged(TargetQuery.Index, void, TargetsTableContext, std.hash_map.default_max_load_percentage);
 
     const DepsTableContext = struct {
         extra: []const u32,
@@ -52,6 +54,21 @@ pub const Wip = struct {
         pub fn hash(ctx: @This(), key: Deps) u64 {
             const len = ctx.extra[@intFromEnum(key)];
             const slice = ctx.extra[@intFromEnum(key) + 1 ..][0..len];
+            return std.hash_map.hashString(@ptrCast(slice));
+        }
+    };
+
+    const TargetsTableContext = struct {
+        extra: []const u32,
+
+        pub fn eql(ctx: @This(), a: TargetQuery.Index, b: TargetQuery.Index) bool {
+            const slice_a = a.extraSlice(ctx.extra);
+            const slice_b = b.extraSlice(ctx.extra);
+            return std.mem.eql(u32, slice_a, slice_b);
+        }
+
+        pub fn hash(ctx: @This(), key: TargetQuery.Index) u64 {
+            const slice = key.extraSlice(ctx.extra);
             return std.hash_map.hashString(@ptrCast(slice));
         }
     };
@@ -144,6 +161,157 @@ pub const Wip = struct {
         return new_off;
     }
 
+    pub fn addSemVer(wip: *Wip, sv: std.SemanticVersion) Allocator.Error!String {
+        var buffer: [256]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buffer);
+        sv.format(&writer) catch return error.OutOfMemory;
+        return addString(wip, writer.buffered());
+    }
+
+    pub fn addTargetQuery(wip: *Wip, q: std.Target.Query) !TargetQuery.OptionalIndex {
+        if (q.isNative()) return .none;
+        const gpa = wip.gpa;
+        const cpu_name: ?String = switch (q.cpu_model) {
+            .native, .baseline, .determined_by_arch_os => null,
+            .explicit => |model| try wip.addString(model.name),
+        };
+        const os_version_min: ?u32 = if (q.os_version_min) |ver| switch (ver) {
+            .none => null,
+            .semver => |sem_ver| @intFromEnum(try wip.addSemVer(sem_ver)),
+            .windows => |win_ver| @intFromEnum(win_ver),
+        } else null;
+        const os_version_max: ?u32 = if (q.os_version_max) |ver| switch (ver) {
+            .none => null,
+            .semver => |sem_ver| @intFromEnum(try wip.addSemVer(sem_ver)),
+            .windows => |win_ver| @intFromEnum(win_ver),
+        } else null;
+        const glibc_version: ?String = if (q.glibc_version) |sem_ver| try wip.addSemVer(sem_ver) else null;
+        const dynamic_linker: ?String = if (q.dynamic_linker) |*dl|
+            if (dl.get()) |s| try wip.addString(s) else .empty
+        else
+            null;
+        const cpu_features_add_empty = q.cpu_features_add.isEmpty();
+        const cpu_features_sub_empty = q.cpu_features_sub.isEmpty();
+        try wip.extra.ensureUnusedCapacity(gpa, @typeInfo(TargetQuery).@"struct".fields.len + 6 +
+            2 * ((@sizeOf(std.Target.Cpu.Feature.Set) + 3) / 4));
+        const result_index: TargetQuery.Index = @enumFromInt(wip.addExtraAssumeCapacity(@as(TargetQuery, .{
+            .flags = .{
+                .cpu_arch = .init(q.cpu_arch),
+                .cpu_model = .init(q.cpu_model),
+                .cpu_features_add = !cpu_features_add_empty,
+                .cpu_features_sub = !cpu_features_sub_empty,
+                .os_tag = .init(q.os_tag),
+                .abi = .init(q.abi),
+                .object_format = .init(q.ofmt),
+                .os_version_min = .init(q.os_version_min),
+                .os_version_max = .init(q.os_version_max),
+                .glibc_version = q.glibc_version != null,
+                .android_api_level = q.android_api_level != null,
+                .dynamic_linker = q.dynamic_linker != null,
+            },
+        })));
+        if (!cpu_features_add_empty) wip.extra.appendSliceAssumeCapacity(@ptrCast(&q.cpu_features_add.ints));
+        if (!cpu_features_sub_empty) wip.extra.appendSliceAssumeCapacity(@ptrCast(&q.cpu_features_sub.ints));
+        wip.addExtraOptionalStringAssumeCapacity(cpu_name);
+        if (os_version_min) |v| wip.extra.appendAssumeCapacity(v);
+        if (os_version_max) |v| wip.extra.appendAssumeCapacity(v);
+        wip.addExtraOptionalStringAssumeCapacity(glibc_version);
+        if (q.android_api_level) |x| wip.extra.appendAssumeCapacity(x);
+        wip.addExtraOptionalStringAssumeCapacity(dynamic_linker);
+
+        // Deduplicate.
+        const gop = try wip.targets_table.getOrPutContext(gpa, result_index, @as(TargetsTableContext, .{
+            .extra = wip.extra.items,
+        }));
+        if (gop.found_existing) {
+            wip.extra.items.len = @intFromEnum(result_index);
+            return .init(gop.key_ptr.*);
+        } else {
+            return .init(result_index);
+        }
+    }
+
+    pub fn addTarget(wip: *Wip, t: std.Target) !TargetQuery.Index {
+        const gpa = wip.gpa;
+        const cpu_name: String = try wip.addString(t.cpu.model.name);
+
+        const os_version_min: ?u32, const os_version_max: ?u32, const glibc_version: ?String, const android_api_level: ?u32 = switch (t.os.versionRange()) {
+            .none => .{
+                null,
+                null,
+                null,
+                null,
+            },
+            .semver => |range| .{
+                @intFromEnum(try wip.addSemVer(range.min)),
+                @intFromEnum(try wip.addSemVer(range.max)),
+                null,
+                null,
+            },
+            .hurd => |hurd| .{
+                @intFromEnum(try wip.addSemVer(hurd.range.min)),
+                @intFromEnum(try wip.addSemVer(hurd.range.max)),
+                try wip.addSemVer(hurd.glibc),
+                null,
+            },
+            .linux => |linux| .{
+                @intFromEnum(try wip.addSemVer(linux.range.min)),
+                @intFromEnum(try wip.addSemVer(linux.range.max)),
+                try wip.addSemVer(linux.glibc),
+                linux.android,
+            },
+            .windows => |range| .{
+                @intFromEnum(range.min),
+                @intFromEnum(range.max),
+                null,
+                null,
+            },
+        };
+        const dynamic_linker: ?String = if (t.dynamic_linker.get()) |dl| try wip.addString(dl) else null;
+        const cpu_features_add_empty = t.cpu.features.isEmpty();
+        const os_version: TargetQuery.OsVersion = switch (t.os.versionRange()) {
+            .none => .none,
+            .semver, .linux, .hurd => .semver,
+            .windows => .windows,
+        };
+        try wip.extra.ensureUnusedCapacity(gpa, @typeInfo(TargetQuery).@"struct".fields.len + 6 +
+            2 * ((@sizeOf(std.Target.Cpu.Feature.Set) + 3) / 4));
+        const result_index: TargetQuery.Index = @enumFromInt(wip.addExtraAssumeCapacity(@as(TargetQuery, .{
+            .flags = .{
+                .cpu_arch = .init(t.cpu.arch),
+                .cpu_model = .explicit,
+                .cpu_features_add = !cpu_features_add_empty,
+                .cpu_features_sub = false,
+                .os_tag = .init(t.os.tag),
+                .abi = .init(t.abi),
+                .object_format = .init(t.ofmt),
+                .os_version_min = os_version,
+                .os_version_max = os_version,
+                .glibc_version = glibc_version != null,
+                .android_api_level = android_api_level != null,
+                .dynamic_linker = dynamic_linker != null,
+            },
+        })));
+        if (!cpu_features_add_empty) wip.extra.appendSliceAssumeCapacity(@ptrCast(&t.cpu.features.ints));
+        wip.addExtraOptionalStringAssumeCapacity(cpu_name);
+        if (os_version_min) |v| wip.extra.appendAssumeCapacity(v);
+        if (os_version_max) |v| wip.extra.appendAssumeCapacity(v);
+        wip.addExtraOptionalStringAssumeCapacity(glibc_version);
+        if (android_api_level) |x| wip.extra.appendAssumeCapacity(x);
+        wip.addExtraOptionalStringAssumeCapacity(dynamic_linker);
+
+        // Deduplicate.
+        const gop = try wip.targets_table.getOrPutContext(gpa, result_index, @as(TargetsTableContext, .{
+            .extra = wip.extra.items,
+        }));
+        if (gop.found_existing) {
+            wip.extra.items.len = @intFromEnum(result_index);
+            return gop.key_ptr.*;
+        } else {
+            return result_index;
+        }
+    }
+
     pub fn prepareDeps(wip: *Wip, n: usize) Allocator.Error![]u32 {
         const slice = try wip.extra.addManyAsSlice(wip.gpa, n + 1);
         slice[0] = @intCast(n);
@@ -176,6 +344,11 @@ pub const Wip = struct {
         wip.extra.items.len += fields.len;
         setExtra(wip, result, extra);
         return result;
+    }
+
+    fn addExtraOptionalStringAssumeCapacity(wip: *Wip, optional_string: ?String) void {
+        const string = optional_string orelse return;
+        wip.extra.appendAssumeCapacity(@intFromEnum(string));
     }
 
     fn setExtra(wip: *Wip, index: usize, extra: anytype) void {
@@ -386,7 +559,7 @@ pub const Step = extern struct {
         flags3: Flags3,
         flags4: Flags4,
 
-        root_module: Module,
+        root_module: Module.Index,
         root_name: String,
 
         pub const ExpectedCompileErrors = enum(u3) { contains, exact, starts_with, stderr_contains, none };
@@ -466,19 +639,6 @@ pub const Step = extern struct {
                 };
             }
         };
-        pub const DefaultingBool = enum(u2) {
-            false,
-            true,
-            default,
-
-            pub fn init(b: ?bool) DefaultingBool {
-                return switch (b orelse return .default) {
-                    false => .false,
-                    true => .true,
-                };
-            }
-        };
-
         pub const Subsystem = enum(u4) {
             console,
             windows,
@@ -626,7 +786,7 @@ pub const LazyPath = enum(u32) {
 
     pub const SourcePath = struct {
         flags: Flags,
-        owner: Package,
+        owner: Package.Index,
         sub_path: String,
 
         pub const Flags = packed struct(u32) {
@@ -662,11 +822,168 @@ pub const LazyPath = enum(u32) {
     };
 };
 
-pub const Package = enum(u32) {
-    _,
+pub const Package = extern struct {
+    hash: String,
+    build_root: OptionalString,
+
+    pub const Index = enum(u32) {
+        root = maxInt(u32),
+        _,
+    };
 };
 
-pub const Module = enum(u32) {
+/// Trailing:
+/// * c_macros: LengthPrefixedList(String), // if flag is set
+/// * lib_paths: LengthPrefixedList(LazyPath), // if flag is set
+/// * export_symbol_names: LengthPrefixedList(String), // if flag is set
+/// * frameworks: FlagsPrefixedList(FrameworkFlags), // if flag is set
+/// * include_dirs: UnionList(IncludeDir), // if flag is set
+/// * rpaths: UnionList(RPath), // if flag is set
+/// * link_objects: UnionList(LinkObject), // if flag is set
+pub const Module = struct {
+    flags: Flags,
+    flags2: Flags2,
+    owner: Package.Index,
+    root_source_file: OptionalLazyPath,
+    import_table: ImportTable,
+    resolved_target: ResolvedTarget.OptionalIndex,
+
+    pub const Optimize = enum(u3) {
+        debug,
+        safe,
+        fast,
+        small,
+        default,
+
+        pub fn init(o: ?std.builtin.OptimizeMode) Optimize {
+            return switch (o orelse return .default) {
+                .Debug => .debug,
+                .ReleaseSafe => .safe,
+                .ReleaseFast => .fast,
+                .ReleaseSmall => .small,
+            };
+        }
+    };
+
+    pub const UnwindTables = enum(u2) {
+        none,
+        sync,
+        async,
+        default,
+
+        pub fn init(ut: ?std.builtin.UnwindTables) UnwindTables {
+            return switch (ut orelse return .default) {
+                .none => .none,
+                .sync => .sync,
+                .async => .async,
+            };
+        }
+    };
+
+    pub const SanitizeC = enum(u2) {
+        off,
+        trap,
+        full,
+        default,
+
+        pub fn init(sc: ?std.zig.SanitizeC) SanitizeC {
+            return switch (sc orelse return .default) {
+                .off => .off,
+                .trap => .trap,
+                .full => .full,
+            };
+        }
+    };
+
+    pub const DwarfFormat = enum(u2) {
+        @"32",
+        @"64",
+        default,
+
+        pub fn init(df: ?std.dwarf.Format) DwarfFormat {
+            return switch (df orelse return .default) {
+                .@"32" => .@"32",
+                .@"64" => .@"64",
+            };
+        }
+    };
+
+    pub const Index = enum(u32) {
+        _,
+    };
+
+    pub const Flags = packed struct(u32) {
+        optimize: Optimize,
+        strip: DefaultingBool,
+        unwind_tables: UnwindTables,
+        dwarf_format: DwarfFormat,
+        single_threaded: DefaultingBool,
+        stack_protector: DefaultingBool,
+        stack_check: DefaultingBool,
+        sanitize_c: SanitizeC,
+        sanitize_thread: DefaultingBool,
+        fuzz: DefaultingBool,
+        code_model: std.builtin.CodeModel,
+        c_macros: bool,
+        include_dirs: bool,
+        lib_paths: bool,
+        rpaths: bool,
+        frameworks: bool,
+        link_objects: bool,
+        export_symbol_names: bool,
+    };
+
+    pub const Flags2 = packed struct(u32) {
+        valgrind: DefaultingBool,
+        pic: DefaultingBool,
+        red_zone: DefaultingBool,
+        omit_frame_pointer: DefaultingBool,
+        error_tracing: DefaultingBool,
+        link_libc: DefaultingBool,
+        link_libcpp: DefaultingBool,
+        no_builtin: DefaultingBool,
+        _: u16 = 0,
+    };
+
+    pub const IncludeDir = union(enum(u3)) {
+        path: LazyPath,
+        path_system: LazyPath,
+        path_after: LazyPath,
+        framework_path: LazyPath,
+        framework_path_system: LazyPath,
+        /// Always `Step.Tag.compile`.
+        other_step: Step.Index,
+        /// Always `Step.Tag.config_header`.
+        config_header_step: Step.Index,
+        embed_path: LazyPath,
+    };
+
+    pub const RPath = union(enum(u1)) {
+        lazy_path: LazyPath,
+        special: String,
+    };
+
+    pub const LinkObject = union(enum(u3)) {
+        static_path: LazyPath,
+        /// Always `Step.Tag.compile`.
+        other_step: Step.Index,
+        system_lib: SystemLib,
+        assembly_file: LazyPath,
+        c_source_file: CSourceFile.Index,
+        c_source_files: CSourceFiles.Index,
+        win32_resource_file: RcSourceFile.Index,
+    };
+
+    pub const FrameworkFlags = packed struct(u2) {
+        needed: bool,
+        weak: bool,
+    };
+};
+
+/// Points into `extra`, first element is len, then:
+/// * import_name: String, // for each len
+/// * Module.Index, // for each len
+pub const ImportTable = enum(u32) {
     _,
 };
 
@@ -732,6 +1049,397 @@ pub const String = enum(u32) {
         const start_slice = c.string_bytes[@intFromEnum(index)..];
         return start_slice[0..std.mem.indexOfScalar(u8, start_slice, 0).? :0];
     }
+};
+
+pub const DefaultingBool = enum(u2) {
+    false,
+    true,
+    default,
+
+    pub fn init(b: ?bool) DefaultingBool {
+        return switch (b orelse return .default) {
+            false => .false,
+            true => .true,
+        };
+    }
+};
+
+pub const SystemLib = struct {
+    name: String,
+    flags: Flags,
+
+    pub const Index = enum(u32) {
+        _,
+    };
+
+    pub const UsePkgConfig = enum(u2) { no, yes, force };
+    pub const LinkMode = enum { static, dynamic };
+
+    pub const Flags = packed struct(u32) {
+        needed: bool,
+        weak: bool,
+        use_pkg_config: UsePkgConfig,
+        preferred_link_mode: LinkMode,
+        search_strategy: SearchStrategy,
+    };
+
+    pub const SearchStrategy = enum(u2) { paths_first, mode_first, no_fallback };
+};
+
+/// Trailing:
+/// * flag: String, // for each flags_len
+/// * sub_path: String, // for each files_len
+pub const CSourceFiles = struct {
+    root: LazyPath,
+    files_len: u32,
+    flags: Flags,
+
+    pub const Index = enum(u32) {
+        _,
+    };
+
+    pub const Flags = packed struct(u32) {
+        /// C compiler CLI flags.
+        flags_len: u29,
+        lang: OptionalCSourceLanguage,
+    };
+};
+
+/// Trailing:
+/// * flag: String, // for each flags_len
+pub const CSourceFile = struct {
+    file: LazyPath,
+    flags: Flags,
+
+    pub const Index = enum(u32) {
+        _,
+    };
+
+    pub const Flags = packed struct(u32) {
+        /// C compiler CLI flags.
+        flags_len: u29,
+        lang: OptionalCSourceLanguage,
+    };
+};
+
+pub const OptionalCSourceLanguage = enum(u3) {
+    c,
+    cpp,
+    objective_c,
+    objective_cpp,
+    assembly,
+    assembly_with_preprocessor,
+    default,
+};
+
+pub const RcSourceFile = struct {
+    file: LazyPath,
+    /// Any option that rc.exe accepts will work here, with the exception of:
+    /// - `/fo`: The output filename is set by the build system
+    /// - `/p`: Only running the preprocessor is not supported in this context
+    /// - `/:no-preprocess` (non-standard option): Not supported in this context
+    /// - Any MUI-related option
+    /// https://learn.microsoft.com/en-us/windows/win32/menurc/using-rc-the-rc-command-line-
+    ///
+    /// Implicitly defined options:
+    ///  /x (ignore the INCLUDE environment variable)
+    ///  /D_DEBUG or /DNDEBUG depending on the optimization mode
+    flags: []const []const u8 = &.{},
+    /// Include paths that may or may not exist yet and therefore need to be
+    /// specified as a LazyPath. Each path will be appended to the flags
+    /// as `/I <resolved path>`.
+    include_paths: []const LazyPath = &.{},
+
+    pub const Index = enum(u32) {
+        _,
+    };
+};
+
+pub const ResolvedTarget = struct {
+    /// none indicates host.
+    query: TargetQuery.OptionalIndex,
+    /// defaults will be resolved.
+    result: TargetQuery.Index,
+
+    pub const Index = enum(u32) {
+        _,
+    };
+
+    pub const OptionalIndex = enum(u32) {
+        none = maxInt(u32),
+        _,
+    };
+};
+
+/// Trailing:
+/// * cpu_features_add: std.Target.Feature.Set, // if flag set
+/// * cpu_features_sub: std.Target.Feature.Set, // if flag set
+/// * cpu_name: String, // if cpu_model is explicit
+/// * os_version_min: WindowsVersion // if os_version_min is windows
+/// * os_version_min: String // if os_version_min is semver
+/// * os_version_max: WindowsVersion // if os_version_max is windows
+/// * os_version_max: String // if os_version_max is semver
+/// * glibc_version: String, // if flag is set
+/// * android_api_level: u32, // if flag is set
+/// * dynamic_linker: String, // if flag is set
+pub const TargetQuery = struct {
+    flags: Flags,
+
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn extraSlice(i: Index, extra: []const u32) []const u32 {
+            return extra[@intFromEnum(i)..][0..length(i, extra)];
+        }
+
+        pub fn length(i: Index, extra: []const u32) usize {
+            //const flags = getExtra(extra, @intFromEnum(i), TargetQuery).flags;
+            const flags: Flags = @bitCast(extra[@intFromEnum(i)]);
+            const feature_set_size: usize = (@sizeOf(std.Target.Cpu.Feature.Set) + 3) / 4;
+            return @typeInfo(TargetQuery).@"struct".fields.len +
+                (if (flags.cpu_features_add) feature_set_size else 0) +
+                (if (flags.cpu_features_sub) feature_set_size else 0) +
+                @intFromBool(flags.cpu_model == .explicit) +
+                @as(usize, switch (flags.os_version_min) {
+                    .semver, .windows => 1,
+                    else => 0,
+                }) +
+                @as(usize, switch (flags.os_version_max) {
+                    .semver, .windows => 1,
+                    else => 0,
+                }) +
+                @intFromBool(flags.glibc_version) +
+                @intFromBool(flags.android_api_level) +
+                @intFromBool(flags.dynamic_linker);
+        }
+    };
+
+    pub const OptionalIndex = enum(u32) {
+        none = maxInt(u32),
+        _,
+
+        pub fn init(i: Index) OptionalIndex {
+            const result: OptionalIndex = @enumFromInt(@intFromEnum(i));
+            assert(result != .none);
+            return result;
+        }
+    };
+
+    pub const CpuModel = enum(u2) {
+        native,
+        baseline,
+        determined_by_arch_os,
+        explicit,
+
+        pub fn init(x: std.Target.Query.CpuModel) @This() {
+            return switch (x) {
+                .native => .native,
+                .baseline => .baseline,
+                .determined_by_arch_os => .determined_by_arch_os,
+                .explicit => .explicit,
+            };
+        }
+    };
+    pub const OsVersion = enum(u2) {
+        none,
+        semver,
+        windows,
+        default,
+
+        pub fn init(x: ?std.Target.Query.OsVersion) @This() {
+            return switch (x orelse return .default) {
+                .none => .none,
+                .semver => .semver,
+                .windows => .windows,
+            };
+        }
+    };
+    pub const Abi = enum(u5) {
+        none,
+        gnu,
+        gnuabin32,
+        gnuabi64,
+        gnueabi,
+        gnueabihf,
+        gnuf32,
+        gnusf,
+        gnux32,
+        eabi,
+        eabihf,
+        ilp32,
+        android,
+        androideabi,
+        musl,
+        muslabin32,
+        muslabi64,
+        musleabi,
+        musleabihf,
+        muslf32,
+        muslsf,
+        muslx32,
+        msvc,
+        itanium,
+        simulator,
+        ohos,
+        ohoseabi,
+
+        default,
+
+        pub fn init(x: ?std.Target.Abi) @This() {
+            // TODO comptime assert the enums match
+            return @enumFromInt(@intFromEnum(x orelse return .default));
+        }
+    };
+    pub const CpuArch = enum(u6) {
+        aarch64,
+        aarch64_be,
+        alpha,
+        amdgcn,
+        arc,
+        arceb,
+        arm,
+        armeb,
+        avr,
+        bpfeb,
+        bpfel,
+        csky,
+        hexagon,
+        hppa,
+        hppa64,
+        kalimba,
+        kvx,
+        lanai,
+        loongarch32,
+        loongarch64,
+        m68k,
+        microblaze,
+        microblazeel,
+        mips,
+        mipsel,
+        mips64,
+        mips64el,
+        msp430,
+        nvptx,
+        nvptx64,
+        or1k,
+        powerpc,
+        powerpcle,
+        powerpc64,
+        powerpc64le,
+        propeller,
+        riscv32,
+        riscv32be,
+        riscv64,
+        riscv64be,
+        s390x,
+        sh,
+        sheb,
+        sparc,
+        sparc64,
+        spirv32,
+        spirv64,
+        thumb,
+        thumbeb,
+        ve,
+        wasm32,
+        wasm64,
+        x86_16,
+        x86,
+        x86_64,
+        xcore,
+        xtensa,
+        xtensaeb,
+
+        default,
+
+        pub fn init(x: ?std.Target.Cpu.Arch) @This() {
+            // TODO comptime assert the enums match
+            return @enumFromInt(@intFromEnum(x orelse return .default));
+        }
+    };
+    pub const OsTag = enum(u6) {
+        freestanding,
+        other,
+        contiki,
+        fuchsia,
+        hermit,
+        managarm,
+        haiku,
+        hurd,
+        illumos,
+        linux,
+        plan9,
+        rtems,
+        serenity,
+        dragonfly,
+        freebsd,
+        netbsd,
+        openbsd,
+        driverkit,
+        ios,
+        maccatalyst,
+        macos,
+        tvos,
+        visionos,
+        watchos,
+        windows,
+        uefi,
+        @"3ds",
+        ps3,
+        ps4,
+        ps5,
+        vita,
+        emscripten,
+        wasi,
+        amdhsa,
+        amdpal,
+        cuda,
+        mesa3d,
+        nvcl,
+        opencl,
+        opengl,
+        vulkan,
+
+        default,
+
+        pub fn init(x: ?std.Target.Os.Tag) @This() {
+            // TODO comptime assert the enums match
+            return @enumFromInt(@intFromEnum(x orelse return .default));
+        }
+    };
+    pub const ObjectFormat = enum(u4) {
+        c,
+        coff,
+        elf,
+        hex,
+        macho,
+        plan9,
+        raw,
+        spirv,
+        wasm,
+
+        default,
+
+        pub fn init(x: ?std.Target.ObjectFormat) @This() {
+            // TODO comptime assert the enums match
+            return @enumFromInt(@intFromEnum(x orelse return .default));
+        }
+    };
+
+    pub const Flags = packed struct(u32) {
+        cpu_arch: CpuArch,
+        cpu_model: CpuModel,
+        cpu_features_add: bool,
+        cpu_features_sub: bool,
+        os_tag: OsTag,
+        abi: Abi,
+        object_format: ObjectFormat,
+        os_version_min: OsVersion,
+        os_version_max: OsVersion,
+        glibc_version: bool,
+        android_api_level: bool,
+        dynamic_linker: bool,
+    };
 };
 
 pub const LoadFileError = Io.File.Reader.Error || Allocator.Error || error{EndOfStream};
