@@ -1,16 +1,16 @@
 const Fuzz = @This();
 
 const std = @import("std");
-const Io = std.Io;
+const Allocator = std.mem.Allocator;
 const Build = std.Build;
 const Cache = std.Build.Cache;
-const Step = std.Build.Step;
+const Coverage = std.debug.Coverage;
+const Configuration = std.Build.Configuration;
+const Io = std.Io;
+const abi = std.Build.abi.fuzz;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
-const Allocator = std.mem.Allocator;
 const log = std.log;
-const Coverage = std.debug.Coverage;
-const abi = std.Build.abi.fuzz;
 
 const maker = @import("../maker.zig");
 const WebServer = @import("WebServer.zig");
@@ -20,7 +20,7 @@ io: Io,
 mode: Mode,
 
 /// Allocated into `gpa`.
-run_steps: []const *Step.Run,
+run_steps: []const Configuration.Step.Index,
 
 group: Io.Group,
 root_prog_node: std.Progress.Node,
@@ -51,7 +51,7 @@ const Msg = union(enum) {
             unique: u64,
             coverage: u64,
         },
-        run: *Step.Run,
+        run: Configuration.Step.Index,
     },
     entry_point: struct {
         coverage_id: u64,
@@ -78,12 +78,12 @@ const CoverageMap = struct {
 pub fn init(
     gpa: Allocator,
     io: Io,
-    all_steps: []const *Build.Step,
+    all_steps: []const Configuration.Step.Index,
     root_prog_node: std.Progress.Node,
     mode: Mode,
 ) error{ OutOfMemory, Canceled }!Fuzz {
-    const run_steps: []const *Step.Run = steps: {
-        var steps: std.ArrayList(*Step.Run) = .empty;
+    const run_steps: []const Configuration.Step.Index = steps: {
+        var steps: std.ArrayList(Configuration.Step.Index) = .empty;
         defer steps.deinit(gpa);
         const rebuild_node = root_prog_node.start("Rebuilding Unit Tests", 0);
         defer rebuild_node.end();
@@ -91,7 +91,8 @@ pub fn init(
         defer rebuild_group.cancel(io);
 
         for (all_steps) |step| {
-            const run = step.cast(Step.Run) orelse continue;
+            if (true) @panic("TODO");
+            const run = step.cast(std.Build.Step.Run) orelse continue;
             if (run.producer == null) continue;
             if (run.fuzz_tests.items.len == 0) continue;
             try steps.append(gpa, run);
@@ -100,15 +101,16 @@ pub fn init(
 
         if (steps.items.len == 0) fatal("no fuzz tests found", .{});
         rebuild_node.setEstimatedTotalItems(steps.items.len);
-        const run_steps = try gpa.dupe(*Step.Run, steps.items);
+        const run_steps = try gpa.dupe(Configuration.Step.Index, steps.items);
         try rebuild_group.await(io);
         break :steps run_steps;
     };
     errdefer gpa.free(run_steps);
 
-    for (run_steps) |run| {
-        assert(run.fuzz_tests.items.len > 0);
-        if (run.rebuilt_executable == null)
+    for (run_steps) |run_step_index| {
+        if (true) @panic("TODO");
+        assert(run_step_index.fuzz_tests.items.len > 0);
+        if (run_step_index.rebuilt_executable == null)
             fatal("one or more unit tests failed to be rebuilt in fuzz mode", .{});
     }
 
@@ -138,6 +140,8 @@ pub fn start(fuzz: *Fuzz) void {
             fatal("unable to spawn coverage task: {t}", .{err});
     }
 
+    if (true) @panic("TODO");
+
     for (fuzz.run_steps) |run| {
         assert(run.rebuilt_executable != null);
         fuzz.group.async(io, fuzzWorkerRun, .{ fuzz, run });
@@ -151,14 +155,14 @@ pub fn deinit(fuzz: *Fuzz) void {
     fuzz.gpa.free(fuzz.run_steps);
 }
 
-fn rebuildTestsWorkerRun(run: *Step.Run, gpa: Allocator, parent_prog_node: std.Progress.Node) void {
+fn rebuildTestsWorkerRun(run: Configuration.Step.Index, gpa: Allocator, parent_prog_node: std.Progress.Node) void {
     rebuildTestsWorkerRunFallible(run, gpa, parent_prog_node) catch |err| {
         const compile = run.producer.?;
         log.err("step '{s}': failed to rebuild in fuzz mode: {t}", .{ compile.step.name, err });
     };
 }
 
-fn rebuildTestsWorkerRunFallible(run: *Step.Run, gpa: Allocator, parent_prog_node: std.Progress.Node) !void {
+fn rebuildTestsWorkerRunFallible(run: Configuration.Step.Index, gpa: Allocator, parent_prog_node: std.Progress.Node) !void {
     const graph = run.step.owner.graph;
     const io = graph.io;
     const compile = run.producer.?;
@@ -185,7 +189,7 @@ fn rebuildTestsWorkerRunFallible(run: *Step.Run, gpa: Allocator, parent_prog_nod
     run.rebuilt_executable = try rebuilt_bin_path.join(gpa, compile.out_filename);
 }
 
-fn fuzzWorkerRun(fuzz: *Fuzz, run: *Step.Run) void {
+fn fuzzWorkerRun(fuzz: *Fuzz, run: Configuration.Step.Index) void {
     const owner = run.step.owner;
     const gpa = owner.allocator;
     const graph = owner.graph;
@@ -209,6 +213,7 @@ fn fuzzWorkerRun(fuzz: *Fuzz, run: *Step.Run) void {
 }
 
 pub fn serveSourcesTar(fuzz: *Fuzz, req: *std.http.Server.Request) !void {
+    if (true) @panic("TODO");
     assert(fuzz.mode == .forever);
 
     var arena_state: std.heap.ArenaAllocator = .init(fuzz.gpa);
@@ -354,7 +359,8 @@ fn coverageRunCancelable(fuzz: *Fuzz) Io.Cancelable!void {
         fuzz.msg_queue.clearRetainingCapacity();
     }
 }
-fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutOfMemory, AlreadyReported, Canceled }!void {
+fn prepareTables(fuzz: *Fuzz, run_step_index: Configuration.Step.Index, coverage_id: u64) error{ OutOfMemory, AlreadyReported, Canceled }!void {
+    if (true) @panic("TODO");
     assert(fuzz.mode == .forever);
     const ws = fuzz.mode.forever.ws;
     const gpa = fuzz.gpa;
@@ -384,8 +390,8 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
     };
     errdefer gop.value_ptr.coverage.deinit(gpa);
 
-    const rebuilt_exe_path = run_step.rebuilt_executable.?;
-    const target = run_step.producer.?.rootModuleTarget();
+    const rebuilt_exe_path = run_step_index.rebuilt_executable.?;
+    const target = run_step_index.producer.?.rootModuleTarget();
     var debug_info = std.debug.Info.load(
         gpa,
         io,
@@ -395,19 +401,19 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
         target.cpu.arch,
     ) catch |err| {
         log.err("step '{s}': failed to load debug information for '{f}': {t}", .{
-            run_step.step.name, rebuilt_exe_path, err,
+            run_step_index.step.name, rebuilt_exe_path, err,
         });
         return error.AlreadyReported;
     };
     defer debug_info.deinit(gpa);
 
     const coverage_file_path: Build.Cache.Path = .{
-        .root_dir = run_step.step.owner.cache_root,
+        .root_dir = run_step_index.step.owner.cache_root,
         .sub_path = "v/" ++ std.fmt.hex(coverage_id),
     };
     var coverage_file = coverage_file_path.root_dir.handle.openFile(io, coverage_file_path.sub_path, .{}) catch |err| {
         log.err("step '{s}': failed to load coverage file '{f}': {t}", .{
-            run_step.step.name, coverage_file_path, err,
+            run_step_index.step.name, coverage_file_path, err,
         });
         return error.AlreadyReported;
     };
@@ -514,6 +520,7 @@ fn addEntryPoint(fuzz: *Fuzz, coverage_id: u64, addr: u64) error{ AlreadyReporte
 }
 
 pub fn waitAndPrintReport(fuzz: *Fuzz) Io.Cancelable!void {
+    if (true) @panic("TODO");
     assert(fuzz.mode == .limit);
     const io = fuzz.io;
 

@@ -10,6 +10,7 @@ const Io = std.Io;
 const LazyPath = std.Build.Configuration.LazyPath;
 const Package = std.Build.Configuration.Package;
 const Path = std.Build.Cache.Path;
+const Configuration = std.Build.Configuration;
 const assert = std.debug.assert;
 
 const WebServer = @import("WebServer.zig");
@@ -21,7 +22,7 @@ pub const Run = void; // @import("Step/Run.zig");
 _: void align(std.atomic.cache_line) = {},
 
 state: State = .precheck_unstarted,
-dependants: std.ArrayList(*Step) = .empty,
+dependants: std.ArrayList(Configuration.Step.Index) = .empty,
 /// Collects the set of files that retrigger this step to run.
 ///
 /// This is used by the build system's implementation of `--watch` but it can
@@ -143,6 +144,7 @@ pub const MakeFn = *const fn (step: *Step, options: MakeOptions) anyerror!void;
 /// have already reported the error. Otherwise, we add a simple error report
 /// here.
 pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!void {
+    if (true) @panic("TODO Step.make");
     const arena = s.owner.allocator;
     const graph = s.owner.graph;
     const io = graph.io;
@@ -182,6 +184,7 @@ pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!voi
 /// Implementation detail of file watching. Prepares the step for being re-evaluated.
 /// Returns `true` if the step was newly invalidated, `false` if it was already invalidated.
 pub fn invalidateResult(step: *Step, gpa: Allocator) bool {
+    if (true) @panic("TODO Step.invalidateResult");
     if (step.state == .precheck_done) return false;
     assert(step.pending_deps == 0);
     step.state = .precheck_done;
@@ -544,6 +547,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool, web_server: ?*WebSer
 }
 
 pub fn getZigProcess(s: *Step) ?*ZigProcess {
+    if (true) @panic("TODO getZigProcess");
     return switch (s.id) {
         .compile => s.cast(Compile).?.zig_process,
         else => null,

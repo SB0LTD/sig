@@ -3,11 +3,13 @@ const builtin = @import("builtin");
 
 const std = @import("std");
 const Io = std.Io;
-const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
+const Configuration = std.Build.Configuration;
+
 const FsEvents = @import("Watch/FsEvents.zig");
+const Step = @import("Step.zig");
 
 os: Os,
 /// The number to show as the number of directories being watched.
@@ -16,6 +18,8 @@ dir_count: usize,
 // They are `undefined` on implementations which do not utilize then.
 dir_table: DirTable,
 generation: Generation,
+configuration: *const Configuration,
+make_steps: []Step,
 
 pub const have_impl = Os != void;
 
@@ -27,7 +31,7 @@ const DirTable = std.ArrayHashMapUnmanaged(Cache.Path, void, Cache.Path.TableAda
 
 /// Special key of "." means any changes in this directory trigger the steps.
 const ReactionSet = std.StringArrayHashMapUnmanaged(StepSet);
-const StepSet = std.AutoArrayHashMapUnmanaged(*Step, Generation);
+const StepSet = std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, Generation);
 
 const Generation = u8;
 
@@ -101,7 +105,7 @@ const Os = switch (builtin.os.tag) {
             };
         };
 
-        fn init(cwd_path: []const u8) !Watch {
+        fn init(cwd_path: []const u8, configuration: *const Configuration, make_steps: []Step) !Watch {
             _ = cwd_path;
             return .{
                 .dir_table = .{},
@@ -114,6 +118,8 @@ const Os = switch (builtin.os.tag) {
                     else => {},
                 },
                 .generation = 0,
+                .make_steps = make_steps,
+                .configuration = configuration,
             };
         }
 
@@ -161,20 +167,21 @@ const Os = switch (builtin.os.tag) {
                             const lfh: FileHandle = .{ .handle = file_handle };
                             if (w.os.handle_table.getPtr(lfh)) |value| {
                                 if (value.reaction_set.getPtr(".")) |glob_set|
-                                    any_dirty = markStepSetDirty(gpa, glob_set, any_dirty);
+                                    any_dirty = markStepSetDirty(gpa, w.make_steps, glob_set, any_dirty);
                                 if (value.reaction_set.getPtr(file_name)) |step_set|
-                                    any_dirty = markStepSetDirty(gpa, step_set, any_dirty);
+                                    any_dirty = markStepSetDirty(gpa, w.make_steps, step_set, any_dirty);
                             }
                         },
-                        else => |t| std.log.warn("unexpected fanotify event '{s}'", .{@tagName(t)}),
+                        else => |t| std.log.warn("unexpected fanotify event '{t}'", .{t}),
                     }
                 }
             }
         }
 
-        fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
+        fn update(w: *Watch, gpa: Allocator, steps: []const Configuration.Step.Index) !void {
             // Add missing marks and note persisted ones.
-            for (steps) |step| {
+            for (steps) |step_index| {
+                const step = &w.make_steps[@intFromEnum(step_index)];
                 for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
                     const reaction_set = rs: {
                         const gop = try w.dir_table.getOrPut(gpa, path);
@@ -236,7 +243,7 @@ const Os = switch (builtin.os.tag) {
                     for (files.items) |basename| {
                         const gop = try reaction_set.getOrPut(gpa, basename);
                         if (!gop.found_existing) gop.value_ptr.* = .{};
-                        try gop.value_ptr.put(gpa, step, w.generation);
+                        try gop.value_ptr.put(gpa, step_index, w.generation);
                     }
                 }
             }
@@ -537,7 +544,7 @@ const Os = switch (builtin.os.tag) {
             return any_dirty;
         }
 
-        fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
+        fn update(w: *Watch, gpa: Allocator, steps: []const Configuration.Step.Index) !void {
             // Add missing marks and note persisted ones.
             for (steps) |step| {
                 for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
@@ -678,7 +685,7 @@ const Os = switch (builtin.os.tag) {
             };
         }
 
-        fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
+        fn update(w: *Watch, gpa: Allocator, steps: []const Configuration.Step.Index) !void {
             const handles = &w.os.handles;
             for (steps) |step| {
                 for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
@@ -856,7 +863,7 @@ const Os = switch (builtin.os.tag) {
                 .generation = undefined,
             };
         }
-        fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
+        fn update(w: *Watch, gpa: Allocator, steps: []const Configuration.Step.Index) !void {
             try w.os.fse.setPaths(gpa, steps);
             w.dir_count = w.os.fse.watch_roots.len;
         }
@@ -871,8 +878,8 @@ const Os = switch (builtin.os.tag) {
     else => void,
 };
 
-pub fn init(cwd_path: []const u8) !Watch {
-    return Os.init(cwd_path);
+pub fn init(cwd_path: []const u8, configuration: *const Configuration, make_steps: []Step) !Watch {
+    return Os.init(cwd_path, configuration, make_steps);
 }
 
 pub const Match = struct {
@@ -880,20 +887,19 @@ pub const Match = struct {
     /// match.
     basename: []const u8,
     /// The step to re-run when file corresponding to `basename` is changed.
-    step: *Step,
+    step_index: Configuration.Step.Index,
 
     pub const Context = struct {
         pub fn hash(self: Context, a: Match) u32 {
             _ = self;
-            var hasher = Hash.init(0);
-            std.hash.autoHash(&hasher, a.step);
+            var hasher = Hash.init(@intFromEnum(a.step_index));
             hasher.update(a.basename);
             return @truncate(hasher.final());
         }
         pub fn eql(self: Context, a: Match, b: Match, b_index: usize) bool {
             _ = self;
             _ = b_index;
-            return a.step == b.step and std.mem.eql(u8, a.basename, b.basename);
+            return a.step_index == b.step_index and std.mem.eql(u8, a.basename, b.basename);
         }
     };
 };
@@ -908,22 +914,24 @@ fn markAllFilesDirty(w: *Watch, gpa: Allocator) void {
             else => item,
         };
         for (reaction_set.values()) |step_set| {
-            for (step_set.keys()) |step| {
+            for (step_set.keys()) |step_index| {
+                const step = &w.make_steps[@intFromEnum(step_index)];
                 _ = step.invalidateResult(gpa);
             }
         }
     }
 }
 
-fn markStepSetDirty(gpa: Allocator, step_set: *StepSet, any_dirty: bool) bool {
+fn markStepSetDirty(gpa: Allocator, make_steps: []Step, step_set: *StepSet, any_dirty: bool) bool {
     var this_any_dirty = false;
-    for (step_set.keys()) |step| {
+    for (step_set.keys()) |step_index| {
+        const step = &make_steps[@intFromEnum(step_index)];
         if (step.invalidateResult(gpa)) this_any_dirty = true;
     }
     return any_dirty or this_any_dirty;
 }
 
-pub fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
+pub fn update(w: *Watch, gpa: Allocator, steps: []const Configuration.Step.Index) !void {
     return Os.update(w, gpa, steps);
 }
 

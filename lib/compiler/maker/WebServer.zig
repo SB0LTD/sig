@@ -4,8 +4,8 @@ const builtin = @import("builtin");
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Build = std.Build;
 const Cache = std.Build.Cache;
+const Configuration = std.Build.Configuration;
 const Io = std.Io;
 const abi = std.Build.abi;
 const assert = std.debug.assert;
@@ -15,10 +15,12 @@ const mem = std.mem;
 const net = std.Io.net;
 
 const Fuzz = @import("Fuzz.zig");
+const Graph = @import("Graph.zig");
+const Step = @import("Step.zig");
 
 gpa: Allocator,
-graph: *const Build.Graph,
-all_steps: []const *Build.Step,
+graph: *const Graph,
+all_steps: []const Configuration.Step.Index,
 listen_address: net.IpAddress,
 root_prog_node: std.Progress.Node,
 watch: bool,
@@ -69,12 +71,13 @@ pub fn notifyUpdate(ws: *WebServer) void {
 
 pub const Options = struct {
     gpa: Allocator,
-    graph: *const std.Build.Graph,
-    all_steps: []const *Build.Step,
+    graph: *const Graph,
+    all_steps: []const Configuration.Step.Index,
     root_prog_node: std.Progress.Node,
     watch: bool,
     listen_address: net.IpAddress,
     base_timestamp: Io.Clock.Timestamp,
+    configuration: *const Configuration,
 };
 pub fn init(opts: Options) WebServer {
     // The upcoming `Io` interface should allow us to use `Io.async` and `Io.concurrent`
@@ -83,19 +86,21 @@ pub fn init(opts: Options) WebServer {
     assert(opts.base_timestamp.clock == base_clock);
 
     const all_steps = opts.all_steps;
+    const c = opts.configuration;
 
     const step_names_trailing = opts.gpa.alloc(u8, len: {
         var name_bytes: usize = 0;
-        for (all_steps) |step| name_bytes += step.name.len;
+        for (all_steps) |step_index| name_bytes += step_index.ptr(c).name.slice(c).len;
         break :len name_bytes + all_steps.len * 4;
     }) catch @panic("out of memory");
     {
         const step_name_lens: []align(1) u32 = @ptrCast(step_names_trailing[0 .. all_steps.len * 4]);
         var idx: usize = all_steps.len * 4;
-        for (all_steps, step_name_lens) |step, *name_len| {
-            name_len.* = @intCast(step.name.len);
-            @memcpy(step_names_trailing[idx..][0..step.name.len], step.name);
-            idx += step.name.len;
+        for (all_steps, step_name_lens) |step_index, *name_len| {
+            const step_name = step_index.ptr(c).name.slice(c);
+            name_len.* = @intCast(step_name.len);
+            @memcpy(step_names_trailing[idx..][0..step_name.len], step_name);
+            idx += step_name.len;
         }
         assert(idx == step_names_trailing.len);
     }
@@ -213,9 +218,14 @@ pub fn startBuild(ws: *WebServer) void {
     ws.notifyUpdate();
 }
 
-pub fn updateStepStatus(ws: *WebServer, step: *Build.Step, new_status: abi.StepUpdate.Status) void {
+pub fn updateStepStatus(
+    ws: *WebServer,
+    step_index: Configuration.Step.Index,
+    new_status: abi.StepUpdate.Status,
+) void {
+    // TODO don't do linear search, especially in a hot loop like this
     const step_idx: u32 = for (ws.all_steps, 0..) |s, i| {
-        if (s == step) break @intCast(i);
+        if (s == step_index) break @intCast(i);
     } else unreachable;
     const ptr = &ws.step_status_bits[step_idx / 4];
     const bit_offset: u3 = @intCast((step_idx % 4) * 2);
@@ -687,7 +697,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
             if (code != 0) {
                 log.err(
                     "the following command exited with error code {d}:\n{s}",
-                    .{ code, try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items) },
+                    .{ code, try Step.allocPrintCmd(arena, .inherit, null, argv.items) },
                 );
                 return error.WasmCompilationFailed;
             }
@@ -695,7 +705,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         .signal => |sig| {
             log.err(
                 "the following command terminated with signal {t}:\n{s}",
-                .{ sig, try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items) },
+                .{ sig, try Step.allocPrintCmd(arena, .inherit, null, argv.items) },
             );
             return error.WasmCompilationFailed;
         },
@@ -709,7 +719,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         .unknown => {
             log.err(
                 "the following command terminated unexpectedly:\n{s}",
-                .{try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items)},
+                .{try Step.allocPrintCmd(arena, .inherit, null, argv.items)},
             );
             return error.WasmCompilationFailed;
         },
@@ -719,14 +729,14 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         try result_error_bundle.renderToStderr(io, .{}, .auto);
         log.err("the following command failed with {d} compilation errors:\n{s}", .{
             result_error_bundle.errorMessageCount(),
-            try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items),
+            try Step.allocPrintCmd(arena, .inherit, null, argv.items),
         });
         return error.WasmCompilationFailed;
     }
 
     const base_path = result orelse {
         log.err("child process failed to report result\n{s}", .{
-            try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items),
+            try Step.allocPrintCmd(arena, .inherit, null, argv.items),
         });
         return error.WasmCompilationFailed;
     };
@@ -750,7 +760,7 @@ fn readStreamAlloc(gpa: Allocator, io: Io, file: Io.File, limit: Io.Limit) ![]u8
 }
 
 pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {
-    compile: *Build.Step.Compile,
+    compile_step: Configuration.Step.Index,
 
     use_llvm: bool,
     stats: abi.time_report.CompileResult.Stats,
@@ -766,8 +776,9 @@ pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {
     const gpa = ws.gpa;
     const io = ws.graph.io;
 
+    // TODO don't do linear search
     const step_idx: u32 = for (ws.all_steps, 0..) |s, i| {
-        if (s == &opts.compile.step) break @intCast(i);
+        if (s == opts.compile_step) break @intCast(i);
     } else unreachable;
 
     const old_buf = old: {
@@ -803,12 +814,13 @@ pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {
     ws.notifyUpdate();
 }
 
-pub fn updateTimeReportGeneric(ws: *WebServer, step: *Build.Step, duration: Io.Duration) void {
+pub fn updateTimeReportGeneric(ws: *WebServer, step_index: Configuration.Step.Index, duration: Io.Duration) void {
     const gpa = ws.gpa;
     const io = ws.graph.io;
 
+    // TODO don't do linear search
     const step_idx: u32 = for (ws.all_steps, 0..) |s, i| {
-        if (s == step) break @intCast(i);
+        if (s == step_index) break @intCast(i);
     } else unreachable;
 
     const old_buf = old: {
@@ -836,15 +848,16 @@ pub fn updateTimeReportGeneric(ws: *WebServer, step: *Build.Step, duration: Io.D
 
 pub fn updateTimeReportRunTest(
     ws: *WebServer,
-    run: *Build.Step.Run,
-    tests: *const Build.Step.Run.CachedTestMetadata,
+    run_step_index: Configuration.Step.Index,
+    tests: *const Step.Run.CachedTestMetadata,
     ns_per_test: []const u64,
 ) void {
     const gpa = ws.gpa;
     const io = ws.graph.io;
 
+    // TODO don't do linear search
     const step_idx: u32 = for (ws.all_steps, 0..) |s, i| {
-        if (s == &run.step) break @intCast(i);
+        if (s == run_step_index) break @intCast(i);
     } else unreachable;
 
     assert(tests.names.len == ns_per_test.len);
