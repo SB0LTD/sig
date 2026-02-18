@@ -175,17 +175,78 @@ fn partition(a: usize, b: usize, pivot: *usize, context: anytype) bool {
     i += 1;
     j -= 1;
 
-    while (true) {
-        while (i <= j and context.lessThan(i, a)) i += 1;
-        while (i <= j and !context.lessThan(j, a)) j -= 1;
-        if (i > j) break;
+    const block_size = 64;
+    var offsets_l: [block_size]u8 align(std.atomic.cache_line) = undefined;
+    var offsets_r: [block_size]u8 align(std.atomic.cache_line) = undefined;
 
-        context.swap(i, j);
-        i += 1;
-        j -= 1;
+    var offsets_l_base = i;
+    var offsets_r_base = j;
+    var num_l: usize = 0;
+    var num_r: usize = 0;
+    var start_l: usize = 0;
+    var start_r: usize = 0;
+
+    while (i <= j) {
+        const num_unknown = j + 1 - i;
+        const left_split = if (num_l == 0)
+            @min(block_size, if (num_r == 0) num_unknown / 2 else num_unknown)
+        else
+            0;
+        const right_split = if (num_r == 0)
+            @min(block_size, num_unknown - left_split)
+        else
+            0;
+
+        for (0..left_split) |k| {
+            offsets_l[num_l] = @intCast(k);
+            num_l += @intFromBool(!context.lessThan(i + k, a));
+        }
+        i += left_split;
+
+        for (0..right_split) |k| {
+            offsets_r[num_r] = @intCast(k);
+            num_r += @intFromBool(context.lessThan(j - k, a));
+        }
+        j -= right_split;
+
+        const num = @min(num_l, num_r);
+        for (0..num) |m| {
+            context.swap(
+                offsets_l_base + offsets_l[start_l + m],
+                offsets_r_base - offsets_r[start_r + m],
+            );
+        }
+        num_l -= num;
+        num_r -= num;
+        start_l += num;
+        start_r += num;
+
+        if (num_l == 0) {
+            start_l = 0;
+            offsets_l_base = i;
+        }
+        if (num_r == 0) {
+            start_r = 0;
+            offsets_r_base = j;
+        }
     }
 
-    // TODO: Enable the BlockQuicksort optimization
+    if (num_l > 0) {
+        while (num_l > 0) {
+            num_l -= 1;
+            context.swap(offsets_l_base + offsets_l[start_l + num_l], j);
+            j -= 1;
+        }
+        i = j + 1;
+    }
+    if (num_r > 0) {
+        while (num_r > 0) {
+            num_r -= 1;
+            context.swap(offsets_r_base - offsets_r[start_r + num_r], i);
+            i += 1;
+        }
+        j = i - 1;
+    }
 
     context.swap(j, a);
     pivot.* = j;
