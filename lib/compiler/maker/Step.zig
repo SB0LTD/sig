@@ -848,3 +848,15 @@ pub fn allocPrintCmd(
     return aw.toOwnedSlice();
 }
 
+pub fn getInstallPath(b: *Build, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
+    assert(!fs.path.isAbsolute(dest_rel_path)); // Install paths must be relative to the prefix
+    const base_dir = switch (dir) {
+        .prefix => b.install_path,
+        .bin => b.exe_dir,
+        .lib => b.lib_dir,
+        .header => b.h_dir,
+        .custom => |p| b.pathJoin(&.{ b.install_path, p }),
+    };
+    return b.pathResolve(&.{ base_dir, dest_rel_path });
+}
+

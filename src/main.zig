@@ -3682,26 +3682,16 @@ fn buildOutputType(
                     if (t.arch == target.cpu.arch and t.os == target.os.tag) {
                         // If there's a `glibc_min`, there's also an `os_ver`.
                         if (t.glibc_min) |glibc_min| {
-                            std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}.{d}.{d}", .{
-                                @tagName(t.arch),
-                                @tagName(t.os),
-                                t.os_ver.?,
-                                @tagName(t.abi),
-                                glibc_min.major,
-                                glibc_min.minor,
+                            std.log.info("zig can provide libc for related target {t}-{t}.{f}-{t}.{d}.{d}", .{
+                                t.arch, t.os, t.os_ver.?, t.abi, glibc_min.major, glibc_min.minor,
                             });
                         } else if (t.os_ver) |os_ver| {
-                            std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}", .{
-                                @tagName(t.arch),
-                                @tagName(t.os),
-                                os_ver,
-                                @tagName(t.abi),
+                            std.log.info("zig can provide libc for related target {t}-{t}.{f}-{t}", .{
+                                t.arch, t.os, os_ver, t.abi,
                             });
                         } else {
-                            std.log.info("zig can provide libc for related target {s}-{s}-{s}", .{
-                                @tagName(t.arch),
-                                @tagName(t.os),
-                                @tagName(t.abi),
+                            std.log.info("zig can provide libc for related target {t}-{t}-{t}", .{
+                                t.arch, t.os, t.abi,
                             });
                         }
                     }
@@ -3710,7 +3700,7 @@ fn buildOutputType(
             },
             else => fatal("{f}", .{create_diag}),
         },
-        else => fatal("failed to create compilation: {s}", .{@errorName(err)}),
+        else => fatal("failed to create compilation: {t}", .{err}),
     };
     var comp_destroyed = false;
     defer if (!comp_destroyed) comp.destroy();
@@ -4984,7 +4974,6 @@ fn cmdBuild(
     try configure_argv.ensureUnusedCapacity(arena, 16);
     try make_argv.ensureUnusedCapacity(arena, 16);
 
-    const argv_index_exe = configure_argv.items.len;
     _ = configure_argv.addOneAssumeCapacity();
     _ = make_argv.addOneAssumeCapacity();
 
@@ -5069,9 +5058,7 @@ fn cmdBuild(
                 } else if (mem.cutPrefix(u8, arg, "--fetch=")) |sub_arg| {
                     fetch_only = true;
                     fetch_mode = std.meta.stringToEnum(Package.Fetch.JobQueue.Mode, sub_arg) orelse
-                        fatal("expected [needed|all] after '--fetch=', found '{s}'", .{
-                            sub_arg,
-                        });
+                        fatal("expected [needed|all] after '--fetch=', found '{s}'", .{sub_arg});
                 } else if (mem.cutPrefix(u8, arg, "--fork=")) |sub_arg| {
                     try forks.append(arena, .{
                         .manifest_ast = undefined,
@@ -5093,7 +5080,7 @@ fn cmdBuild(
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "-freference-trace=")) |num| {
                     reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
-                        fatal("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
+                        fatal("unable to parse reference_trace count '{s}': {t}", .{ num, err });
                     };
                 } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                     reference_trace = null;
@@ -5169,7 +5156,8 @@ fn cmdBuild(
                 } else if (mem.eql(u8, arg, "--")) {
                     // The rest of the args are supposed to get passed onto
                     // build runner's `build.args`
-                    try configure_argv.appendSlice(arena, args[i..]);
+                    try configure_argv.append(arena, "--have-run-args");
+                    try make_argv.appendSlice(arena, args[i..]);
                     break;
                 }
             }
@@ -5273,7 +5261,12 @@ fn cmdBuild(
 
     // Kick off an optimized compilation of the make runner.
     var make_runner_task = io.async(compileMakeRunner, .{ gpa, arena, io, .{
-        .dirs = &dirs,
+        .dirs = .{
+            .cwd = dirs.cwd,
+            .zig_lib = dirs.zig_lib,
+            .global_cache = dirs.global_cache,
+            .local_cache = dirs.global_cache,
+        },
         .environ_map = environ_map,
         .parent_prog_node = root_prog_node,
         .resolved_target = resolved_target,
@@ -5281,6 +5274,7 @@ fn cmdBuild(
         .thread_limit = thread_limit,
         .self_exe_path = self_exe_path,
         .color = color,
+        .reference_trace = reference_trace,
     } });
     defer _ = make_runner_task.cancel(io) catch {};
 
@@ -5288,6 +5282,11 @@ fn cmdBuild(
     configure_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
     configure_argv.items[argv_index_global_cache_dir] = dirs.global_cache.path orelse cwd_path;
     configure_argv.items[argv_index_cache_dir] = dirs.local_cache.path orelse cwd_path;
+
+    make_argv.items[argv_index_zig_lib_dir] = dirs.zig_lib.path orelse cwd_path;
+    make_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
+    make_argv.items[argv_index_global_cache_dir] = dirs.global_cache.path orelse cwd_path;
+    make_argv.items[argv_index_cache_dir] = dirs.local_cache.path orelse cwd_path;
 
     // Dummy http client that is not actually used when fetch_command is unsupported.
     // Prevents bootstrap from depending on a bunch of unnecessary stuff.
@@ -5601,7 +5600,7 @@ fn cmdBuild(
                 .sub_path = try std.fmt.allocPrint(arena, "o/{s}/{s}", .{ hex_digest, comp.emit_bin.? }),
             };
             _ = try config_man.addFilePath(exe_path, null);
-            configure_argv.items[argv_index_exe] = try exe_path.toString(arena);
+            configure_argv.items[0] = try exe_path.toString(arena);
 
             if (try config_man.hit()) {
                 const digest = config_man.final();
@@ -5758,15 +5757,15 @@ fn cmdBuild(
     }) {
         .exited => |code| {
             if (code == 0) return cleanExit(io);
-            const cmd = try std.mem.join(arena, " ", configure_argv.items);
+            const cmd = try std.mem.join(arena, " ", make_argv.items);
             fatal("the following maker command failed with exit code {d}:\n{s}", .{ code, cmd });
         },
         .signal => |sig| {
-            const cmd = try std.mem.join(arena, " ", configure_argv.items);
+            const cmd = try std.mem.join(arena, " ", make_argv.items);
             fatal("the following maker command terminated with signal {t}:\n{s}", .{ sig, cmd });
         },
         else => {
-            const cmd = try std.mem.join(arena, " ", configure_argv.items);
+            const cmd = try std.mem.join(arena, " ", make_argv.items);
             fatal("the following maker command crashed:\n{s}", .{cmd});
         },
     }
@@ -5777,13 +5776,14 @@ const MakeRunner = struct {
 
     const Options = struct {
         environ_map: *const process.Environ.Map,
-        dirs: *Compilation.Directories,
+        dirs: Compilation.Directories,
         parent_prog_node: std.Progress.Node,
         resolved_target: Package.Module.ResolvedTarget,
         libc_installation: ?*const LibCInstallation,
         self_exe_path: []const u8,
         thread_limit: usize,
         color: Color,
+        reference_trace: ?u32,
     };
 };
 
@@ -5798,7 +5798,7 @@ fn compileMakeRunner(gpa: Allocator, arena: Allocator, io: Io, options: MakeRunn
     const strip = optimize_mode != .Debug;
 
     const main_mod_paths: Package.Module.CreateOptions.Paths = .{
-        .root = try .fromRoot(arena, options.dirs.*, .zig_lib, "compiler"),
+        .root = try .fromRoot(arena, options.dirs, .zig_lib, "compiler"),
         .root_src_path = "maker.zig",
     };
 
@@ -5827,7 +5827,7 @@ fn compileMakeRunner(gpa: Allocator, arena: Allocator, io: Io, options: MakeRunn
 
     var create_diag: Compilation.CreateDiagnostic = undefined;
     const comp = Compilation.create(gpa, arena, io, &create_diag, .{
-        .dirs = options.dirs.*,
+        .dirs = options.dirs,
         .root_name = "maker",
         .config = config,
         .root_mod = root_mod,
@@ -5837,6 +5837,7 @@ fn compileMakeRunner(gpa: Allocator, arena: Allocator, io: Io, options: MakeRunn
         .thread_limit = options.thread_limit,
         .cache_mode = .whole,
         .environ_map = options.environ_map,
+        .reference_trace = options.reference_trace,
     }) catch |err| switch (err) {
         error.CreateFail => fatal("failed to create compilation: {f}", .{create_diag}),
         error.Canceled => |e| return e,

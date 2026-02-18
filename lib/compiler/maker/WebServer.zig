@@ -1,3 +1,21 @@
+const WebServer = @This();
+
+const builtin = @import("builtin");
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Build = std.Build;
+const Cache = std.Build.Cache;
+const Io = std.Io;
+const abi = std.Build.abi;
+const assert = std.debug.assert;
+const http = std.http;
+const log = std.log.scoped(.web_server);
+const mem = std.mem;
+const net = std.Io.net;
+
+const Fuzz = @import("Fuzz.zig");
+
 gpa: Allocator,
 graph: *const Build.Graph,
 all_steps: []const *Build.Step,
@@ -907,20 +925,3 @@ const cache_control_header: http.Header = .{
     .name = "Cache-Control",
     .value = "max-age=0, must-revalidate",
 };
-
-const builtin = @import("builtin");
-
-const std = @import("std");
-const Io = std.Io;
-const net = std.Io.net;
-const assert = std.debug.assert;
-const mem = std.mem;
-const log = std.log.scoped(.web_server);
-const Allocator = std.mem.Allocator;
-const Build = std.Build;
-const Cache = Build.Cache;
-const Fuzz = Build.Fuzz;
-const abi = Build.abi;
-const http = std.http;
-
-const WebServer = @This();

@@ -11,7 +11,10 @@ steps: []Step,
 path_deps_base: []Path.Base,
 path_deps_sub: []String,
 unlazy_deps: []String,
+system_integrations: []SystemIntegration,
+available_options: []AvailableOption,
 extra: []u32,
+default_step: Step.Index,
 
 /// The field order here matches `Configuration` which documents the order in
 /// the serialized format.
@@ -20,6 +23,8 @@ pub const Header = extern struct {
     steps_len: u32,
     path_deps_len: u32,
     unlazy_deps_len: u32,
+    system_integrations_len: u32,
+    available_options_len: u32,
     extra_len: u32,
 
     default_step: Step.Index,
@@ -33,6 +38,8 @@ pub const Wip = struct {
 
     string_bytes: std.ArrayList(u8) = .empty,
     unlazy_deps: std.ArrayList(String) = .empty,
+    system_integrations: std.ArrayList(SystemIntegration) = .empty,
+    available_options: std.ArrayList(AvailableOption) = .empty,
     steps: std.ArrayList(Step) = .empty,
     path_deps: std.MultiArrayList(Path) = .empty,
     extra: std.ArrayList(u32) = .empty,
@@ -107,6 +114,8 @@ pub const Wip = struct {
         const gpa = wip.gpa;
         wip.string_bytes.deinit(gpa);
         wip.unlazy_deps.deinit(gpa);
+        wip.system_integrations.deinit(gpa);
+        wip.available_options.deinit(gpa);
         wip.steps.deinit(gpa);
         wip.path_deps.deinit(gpa);
         wip.extra.deinit(gpa);
@@ -123,6 +132,8 @@ pub const Wip = struct {
             .steps_len = @intCast(wip.steps.items.len),
             .path_deps_len = @intCast(wip.path_deps.len),
             .unlazy_deps_len = @intCast(wip.unlazy_deps.items.len),
+            .system_integrations_len = @intCast(wip.system_integrations.items.len),
+            .available_options_len = @intCast(wip.available_options.items.len),
             .extra_len = @intCast(wip.extra.items.len),
 
             .default_step = static.default_step,
@@ -134,6 +145,8 @@ pub const Wip = struct {
             @ptrCast(wip.path_deps.items(.base)),
             @ptrCast(wip.path_deps.items(.sub)),
             @ptrCast(wip.unlazy_deps.items),
+            @ptrCast(wip.system_integrations.items),
+            @ptrCast(wip.available_options.items),
             @ptrCast(wip.extra.items),
         };
         try w.writeVecAll(&buffers);
@@ -367,6 +380,37 @@ pub const Wip = struct {
     }
 };
 
+pub const SystemIntegration = extern struct {
+    name: String,
+    status: Status,
+
+    pub const Status = enum(u32) {
+        disabled = 0,
+        enabled = 1,
+    };
+};
+
+pub const AvailableOption = extern struct {
+    name: String,
+    description: String,
+    type: Type,
+    /// If the `type_id` is `enum` or `enum_list` this provides the list of enum options
+    enum_options: OptionalStringList,
+
+    pub const Type = enum(u8) {
+        bool,
+        int,
+        float,
+        @"enum",
+        enum_list,
+        string,
+        list,
+        build_id,
+        lazy_path,
+        lazy_path_list,
+    };
+};
+
 pub const Step = extern struct {
     name: String,
     deps: Deps,
@@ -375,8 +419,19 @@ pub const Step = extern struct {
     /// with `Tag`.
     extra_index: u32,
 
+    /// Points into `steps`.
     pub const Index = enum(u32) {
         _,
+
+        pub fn ptr(i: Index, c: *const Configuration) *const Step {
+            return &c.steps[@intFromEnum(i)];
+        }
+    };
+
+    /// Shared by all steps.
+    pub const Flags = packed struct(u32) {
+        tag: Tag,
+        _: u27 = 0,
     };
 
     pub const Tag = enum(u5) {
@@ -400,7 +455,7 @@ pub const Step = extern struct {
     };
 
     pub const TopLevel = struct {
-        flags: Flags = .{},
+        flags: @This().Flags = .{},
         description: String,
 
         pub const Flags = packed struct(u32) {
@@ -410,7 +465,7 @@ pub const Step = extern struct {
     };
 
     pub const InstallArtifact = struct {
-        flags: Flags,
+        flags: @This().Flags,
 
         dest_dir: InstallDir,
         dest_sub_path: String,
@@ -445,7 +500,7 @@ pub const Step = extern struct {
     /// * stdio_limit: u64, // if stdio_limit is set
     /// * producer: Step.Index, // if producer is set. always compile step
     pub const Run = struct {
-        flags: Flags,
+        flags: @This().Flags,
         file_inputs_len: u32,
         args_len: u32,
         cwd: OptionalLazyPath,
@@ -554,7 +609,7 @@ pub const Step = extern struct {
     /// * error_limit if flag is set
     /// * Hexstring if build_id is hexstring
     pub const Compile = struct {
-        flags: Flags,
+        flags: @This().Flags,
         flags2: Flags2,
         flags3: Flags3,
         flags4: Flags4,
@@ -989,10 +1044,24 @@ pub const ImportTable = enum(u32) {
     _,
 };
 
-/// Points into `extra`, where the first element is number of deps,
-/// following elements is `Step.Index` per dep.
+/// Points into `extra`, where the first element is count of deps, following
+/// elements is `Step.Index` per count.
 pub const Deps = enum(u32) {
     _,
+};
+
+/// Points into `extra`, where the first element is count of strings, following
+/// elements is `String` per count.
+///
+/// Stored identically to `Deps`.
+pub const OptionalStringList = enum(u32) {
+    none = maxInt(u32),
+    _,
+
+    pub fn slice(osl: OptionalStringList, c: *const Configuration) ?[]const String {
+        const len = c.extra[@intFromEnum(osl)];
+        return @ptrCast(c.extra[@intFromEnum(osl) + 1 ..][0..len]);
+    }
 };
 
 pub const Path = extern struct {
@@ -1444,6 +1513,23 @@ pub const TargetQuery = struct {
     };
 };
 
+pub fn extraData(c: *const Configuration, comptime T: type, index: usize) T {
+    const extra = c.extra;
+    var i: usize = index;
+    var result: T = undefined;
+    inline for (@typeInfo(T).@"struct".fields) |field| {
+        comptime assert(@sizeOf(field.type) == @sizeOf(u32));
+        @field(result, field.name) = switch (@typeInfo(field.type)) {
+            .int => extra[i],
+            .@"enum" => @enumFromInt(extra[i]),
+            .@"struct" => @bitCast(extra[i]),
+            else => comptime unreachable,
+        };
+        i += 1;
+    }
+    return result;
+}
+
 pub const LoadFileError = Io.File.Reader.Error || Allocator.Error || error{EndOfStream};
 
 pub fn loadFile(arena: Allocator, io: Io, file: Io.File) LoadFileError!Configuration {
@@ -1465,7 +1551,10 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
         .path_deps_sub = try arena.alloc(String, header.path_deps_len),
         .path_deps_base = try arena.alloc(Path.Base, header.path_deps_len),
         .unlazy_deps = try arena.alloc(String, header.unlazy_deps_len),
+        .system_integrations = try arena.alloc(SystemIntegration, header.system_integrations_len),
+        .available_options = try arena.alloc(AvailableOption, header.available_options_len),
         .extra = try arena.alloc(u32, header.extra_len),
+        .default_step = header.default_step,
     };
     var vecs = [_][]u8{
         result.string_bytes,
@@ -1473,6 +1562,9 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
         @ptrCast(result.path_deps_base),
         @ptrCast(result.path_deps_sub),
         @ptrCast(result.unlazy_deps),
+        @ptrCast(result.system_integrations),
+        @ptrCast(result.available_options),
+        @ptrCast(result.extra),
     };
     try reader.readVecAll(&vecs);
     return result;

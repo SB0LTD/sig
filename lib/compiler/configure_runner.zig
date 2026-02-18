@@ -1,18 +1,19 @@
 const builtin = @import("builtin");
 
 const std = @import("std");
-const Io = std.Io;
-const assert = std.debug.assert;
-const fmt = std.fmt;
-const mem = std.mem;
-const process = std.process;
-const File = std.Io.File;
-const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
-const fatal = std.process.fatal;
-const Writer = std.Io.Writer;
 const Color = std.zig.Color;
 const Configuration = std.Build.Configuration;
+const File = std.Io.File;
+const Io = std.Io;
+const Step = std.Build.Step;
+const Writer = std.Io.Writer;
+const assert = std.debug.assert;
+const fatal = std.process.fatal;
+const fmt = std.fmt;
+const log = std.log;
+const mem = std.mem;
+const process = std.process;
 
 pub const root = @import("@build");
 pub const dependencies = @import("@dependencies");
@@ -95,7 +96,6 @@ pub fn main(init: process.Init.Minimal) !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(io, .{}),
         },
-        .time_report = false,
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = cwd });
@@ -141,9 +141,9 @@ pub fn main(init: process.Init.Minimal) !void {
                     fatal("  access the help menu with 'zig build -h'", .{});
             }
         } else if (mem.cutPrefix(u8, arg, "-fsys=")) |name| {
-            graph.system_library_options.put(arena, name, .user_enabled) catch @panic("OOM");
+            try graph.system_integration_options.put(arena, name, .user_enabled);
         } else if (mem.cutPrefix(u8, arg, "-fno-sys=")) |name| {
-            graph.system_library_options.put(arena, name, .user_disabled) catch @panic("OOM");
+            try graph.system_integration_options.put(arena, name, .user_disabled);
         } else if (mem.eql(u8, arg, "--release")) {
             graph.release_mode = .any;
         } else if (mem.cutPrefix(u8, arg, "--release=")) |text| {
@@ -177,8 +177,6 @@ pub fn main(init: process.Init.Minimal) !void {
         } else if (mem.cutPrefix(u8, arg, "--build-id=")) |style| {
             builder.build_id = std.zig.BuildId.parse(style) catch |err|
                 fatal("unable to parse --build-id style '{s}': {t}", .{ style, err });
-        } else if (mem.eql(u8, arg, "--debug-rt")) {
-            graph.debug_compiler_runtime_libs = true;
         } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
             builder.debug_compile_errors = true;
         } else if (mem.eql(u8, arg, "--debug-incremental")) {
@@ -204,9 +202,15 @@ pub fn main(init: process.Init.Minimal) !void {
 
     try builder.runBuild(root);
 
+    if (builder.validateUserInputDidItFail()) {
+        fatal("  access the help menu with 'zig build -h'", .{});
+    }
+
     var wc: Configuration.Wip = .init(gpa);
     defer wc.deinit();
     assert(try wc.addString("") == .empty);
+
+    try serializeSystemIntegrationOptions(&graph, &wc);
 
     var stdout_buffer: [1024]u8 = undefined;
     var file_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
@@ -367,7 +371,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .root_name = try wc.addString(c.name),
                         }));
 
-                        std.log.err("TODO serialize the trailing Compile step data", .{});
+                        log.err("TODO serialize the trailing Compile step data", .{});
 
                         break :e extra_index;
                     },
@@ -441,7 +445,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .captured_stderr = captured_stderr,
                         }));
 
-                        std.log.err("TODO serialize the trailing Run step data", .{});
+                        log.err("TODO serialize the trailing Run step data", .{});
 
                         break :e extra_index;
                     },
@@ -489,7 +493,7 @@ fn addModule(
         m.import_table.values(),
         @intFromEnum(import_table) + 1 + m.import_table.entries.len..,
     ) |dep, extra_index| {
-        // TODO module dependencies can be cyclic
+        log.err("TODO module dependencies can be cyclic", .{});
         wc.extra.items[extra_index] = @intFromEnum(try addModule(wc, module_map, dep));
     }
 
@@ -530,7 +534,7 @@ fn addModule(
         .resolved_target = try addOptionalResolvedTarget(wc, m.resolved_target),
     })));
 
-    std.log.err("TODO serialize the trailing Module data", .{});
+    log.err("TODO serialize the trailing Module data", .{});
 
     try module_map.putNoClobber(gpa, m, module_index);
 
@@ -542,7 +546,7 @@ fn addOptionalResolvedTarget(
     optional_resolved_target: ?std.Build.ResolvedTarget,
 ) !Configuration.ResolvedTarget.OptionalIndex {
     const resolved_target = optional_resolved_target orelse return .none;
-    // TODO dedupe
+    log.debug("TODO deduplicate resolved targets", .{});
     return @enumFromInt(try wc.addExtra(@as(Configuration.ResolvedTarget, .{
         .query = try wc.addTargetQuery(resolved_target.query),
         .result = try wc.addTarget(resolved_target.result),
@@ -697,4 +701,31 @@ const Summary = enum { all, new, failures, line, none };
 
 fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
     fatal(f ++ "\n  access the help menu with \"zig build -h\"", args);
+}
+
+fn serializeSystemIntegrationOptions(graph: *std.Build.Graph, wc: *Configuration.Wip) Allocator.Error!void {
+    const gpa = wc.gpa;
+
+    var bad = false;
+    try wc.system_integrations.ensureTotalCapacityPrecise(gpa, graph.system_integration_options.entries.len);
+    for (graph.system_integration_options.keys(), graph.system_integration_options.values()) |k, v| {
+        wc.system_integrations.appendAssumeCapacity(.{
+            .name = try wc.addString(k),
+            .status = switch (v) {
+                .user_disabled, .user_enabled => x: {
+                    // The user tried to enable or disable a system library integration, but
+                    // the configure script did not recognize that option.
+                    log.err("system integration name not recognized by configure script: {s}", .{k});
+                    bad = true;
+                    break :x .disabled;
+                },
+                .declared_disabled => .disabled,
+                .declared_enabled => .enabled,
+            },
+        });
+    }
+    if (bad) {
+        log.info("access the help menu with \"zig build -h\"", .{});
+        process.exit(1);
+    }
 }

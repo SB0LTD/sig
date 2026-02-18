@@ -1,17 +1,19 @@
-const std = @import("Std");
+const Fuzz = @This();
+
+const std = @import("std");
 const Io = std.Io;
 const Build = std.Build;
-const Cache = Build.Cache;
+const Cache = std.Build.Cache;
 const Step = std.Build.Step;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
 const Allocator = std.mem.Allocator;
 const log = std.log;
 const Coverage = std.debug.Coverage;
-const abi = Build.abi.fuzz;
+const abi = std.Build.abi.fuzz;
 
-const Fuzz = @This();
-const build_runner = @import("root");
+const maker = @import("../maker.zig");
+const WebServer = @import("WebServer.zig");
 
 gpa: Allocator,
 io: Io,
@@ -33,7 +35,7 @@ queue_cond: Io.Condition,
 msg_queue: std.ArrayList(Msg),
 
 pub const Mode = union(enum) {
-    forever: struct { ws: *Build.WebServer },
+    forever: struct { ws: *WebServer },
     limit: Limited,
 
     pub const Limited = struct {
@@ -173,7 +175,7 @@ fn rebuildTestsWorkerRunFallible(run: *Step.Run, gpa: Allocator, parent_prog_nod
         var buf: [256]u8 = undefined;
         const stderr = try io.lockStderr(&buf, graph.stderr_mode);
         defer io.unlockStderr();
-        build_runner.printErrorMessages(gpa, &compile.step, .{}, stderr.terminal(), .verbose, .indent) catch {};
+        maker.printErrorMessages(gpa, &compile.step, .{}, stderr.terminal(), .verbose, .indent) catch {};
     }
 
     const rebuilt_bin_path = result catch |err| switch (err) {
@@ -196,7 +198,7 @@ fn fuzzWorkerRun(fuzz: *Fuzz, run: *Step.Run) void {
                 error.Canceled => return,
             };
             defer io.unlockStderr();
-            build_runner.printErrorMessages(gpa, &run.step, .{}, stderr.terminal(), .verbose, .indent) catch {};
+            maker.printErrorMessages(gpa, &run.step, .{}, stderr.terminal(), .verbose, .indent) catch {};
             return;
         },
         else => {

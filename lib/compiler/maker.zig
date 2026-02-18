@@ -1,21 +1,23 @@
 const builtin = @import("builtin");
 
 const std = @import("std");
-const Io = std.Io;
-const assert = std.debug.assert;
-const fmt = std.fmt;
-const mem = std.mem;
-const process = std.process;
-const File = std.Io.File;
 const Allocator = std.mem.Allocator;
-const fatal = std.process.fatal;
-const Writer = std.Io.Writer;
 const Cache = std.Build.Cache;
 const Configuration = std.Build.Configuration;
+const File = std.Io.File;
+const Io = std.Io;
+const Path = std.Build.Cache.Path;
+const Writer = std.Io.Writer;
+const assert = std.debug.assert;
+const fatal = std.process.fatal;
+const fmt = std.fmt;
+const log = std.log;
+const mem = std.mem;
+const process = std.process;
 
 const Fuzz = @import("maker/Fuzz.zig");
 const Graph = @import("maker/Graph.zig");
-const Step = @import("maker/Step.zig");
+const Step = void; // @import("maker/Step.zig");
 const Watch = @import("maker/Watch.zig");
 const WebServer = @import("maker/WebServer.zig");
 
@@ -48,12 +50,12 @@ pub fn main(init: process.Init.Minimal) !void {
     // skip my own exe name
     var arg_idx: usize = 1;
 
-    const zig_exe = cutArgPrefixOrFatal(args, &arg_idx, "--zig=");
-    const zig_lib_dir = cutArgPrefixOrFatal(args, &arg_idx, "--lib=");
-    const build_root = cutArgPrefixOrFatal(args, &arg_idx, "--build-root=");
-    const local_cache_root = cutArgPrefixOrFatal(args, &arg_idx, "--local-cache=");
-    const global_cache_root = cutArgPrefixOrFatal(args, &arg_idx, "--global-cache=");
-    const configure_path = cutArgPrefixOrFatal(args, &arg_idx, "--configure=");
+    const zig_exe = expectArgOrFatal(args, &arg_idx, "--zig");
+    const zig_lib_dir = expectArgOrFatal(args, &arg_idx, "--zig-lib-dir");
+    const build_root = expectArgOrFatal(args, &arg_idx, "--build-root");
+    const local_cache_root = expectArgOrFatal(args, &arg_idx, "--local-cache");
+    const global_cache_root = expectArgOrFatal(args, &arg_idx, "--global-cache");
+    const configure_path = expectArgOrFatal(args, &arg_idx, "--configuration");
 
     const cwd: Io.Dir = .cwd();
 
@@ -90,11 +92,6 @@ pub fn main(init: process.Init.Minimal) !void {
         .environ_map = try init.environ.createMap(arena),
         .global_cache_root = global_cache_directory,
         .zig_lib_directory = zig_lib_directory,
-        .host = .{
-            .query = .{},
-            .result = try std.zig.system.resolveTargetQuery(io, .{}),
-        },
-        .time_report = false,
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = cwd });
@@ -105,9 +102,13 @@ pub fn main(init: process.Init.Minimal) !void {
 
     var targets = std.array_list.Managed([]const u8).init(arena);
     var debug_log_scopes = std.array_list.Managed([]const u8).init(arena);
-
-    var install_prefix: ?[]const u8 = null;
-    var dir_list: std.Build.DirList = .{};
+    var help_menu = false;
+    var steps_menu = false;
+    var print_configuration = false;
+    var override_install_prefix: ?[]const u8 = null;
+    var override_lib_dir: ?[]const u8 = null;
+    var override_bin_dir: ?[]const u8 = null;
+    var override_include_dir: ?[]const u8 = null;
     var error_style: ErrorStyle = .verbose;
     var multiline_errors: MultilineErrors = .indent;
     var summary: ?Summary = null;
@@ -115,8 +116,6 @@ pub fn main(init: process.Init.Minimal) !void {
     var skip_oom_steps = false;
     var test_timeout_ns: ?u64 = null;
     var color: Color = .auto;
-    var help_menu = false;
-    var steps_menu = false;
     var watch = false;
     var fuzz: ?Fuzz.Mode = null;
     var debounce_interval_ms: u16 = 50;
@@ -152,51 +151,53 @@ pub fn main(init: process.Init.Minimal) !void {
         }
     }
 
-    var configuration: Configuration = undefined;
-    {
-        var file = cwd.openFile(io, configure_path, .{}) catch |err|
-            fatal("failed to open configuration file {f}: {t}", .{ configure_path, err });
-        defer file.close(io);
-        configuration = Configuration.load(arena, io, file) catch |err|
-            fatal("failed to load configuration file {f}: {t}", .{ configure_path, err });
-    }
-    graph.configuration = &configuration;
-    graph.scanConfiguration();
+    const scanned_config: ScannedConfig = sc: {
+        const configuration = c: {
+            var file = cwd.openFile(io, configure_path, .{}) catch |err|
+                fatal("failed to open configuration file {s}: {t}", .{ configure_path, err });
+            defer file.close(io);
+            break :c Configuration.loadFile(arena, io, file) catch |err|
+                fatal("failed to load configuration file {s}: {t}", .{ configure_path, err });
+        };
+        var top_level_steps: std.ArrayList(Configuration.Step.Index) = .empty;
+        for (configuration.steps, 0..) |*conf_step, step_index| {
+            const flags: Configuration.Step.Flags = @bitCast(configuration.extra[conf_step.extra_index]);
+            if (flags.tag == .top_level) {
+                try top_level_steps.append(arena, @enumFromInt(step_index));
+            }
+        }
+        break :sc .{
+            .configuration = configuration,
+            .top_level_steps = top_level_steps.items,
+        };
+    };
 
-    std.log.err("TODO handle user -D options", .{});
+    log.err("TODO handle user -D options", .{});
 
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-")) {
-            if (mem.eql(u8, arg, "--verbose")) {
-                verbose = true;
-            } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+            if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                 help_menu = true;
-            } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--prefix")) {
-                install_prefix = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "-l") or mem.eql(u8, arg, "--list-steps")) {
                 steps_menu = true;
-            } else if (mem.startsWith(u8, arg, "-fsys=")) {
-                const name = arg["-fsys=".len..];
-                graph.system_library_options.put(arena, name, .user_enabled) catch @panic("OOM");
-            } else if (mem.startsWith(u8, arg, "-fno-sys=")) {
-                const name = arg["-fno-sys=".len..];
-                graph.system_library_options.put(arena, name, .user_disabled) catch @panic("OOM");
+            } else if (mem.eql(u8, arg, "--print-configuration")) {
+                print_configuration = true;
+            } else if (mem.eql(u8, arg, "--verbose")) {
+                verbose = true;
+            } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--prefix")) {
+                override_install_prefix = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-lib-dir")) {
-                dir_list.lib_dir = nextArgOrFatal(args, &arg_idx);
+                override_lib_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-exe-dir")) {
-                dir_list.exe_dir = nextArgOrFatal(args, &arg_idx);
+                override_bin_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-include-dir")) {
-                dir_list.include_dir = nextArgOrFatal(args, &arg_idx);
+                override_include_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--sysroot")) {
                 sysroot = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--maxrss")) {
                 const max_rss_text = nextArgOrFatal(args, &arg_idx);
-                max_rss = std.fmt.parseIntSizeSuffix(max_rss_text, 10) catch |err| {
-                    std.debug.print("invalid byte size: '{s}': {s}\n", .{
-                        max_rss_text, @errorName(err),
-                    });
-                    process.exit(1);
-                };
+                max_rss = std.fmt.parseIntSizeSuffix(max_rss_text, 10) catch |err|
+                    fatal("invalid byte size: '{s}': {t}", .{ max_rss_text, err });
             } else if (mem.eql(u8, arg, "--skip-oom-steps")) {
                 skip_oom_steps = true;
             } else if (mem.eql(u8, arg, "--test-timeout")) {
@@ -270,9 +271,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected u32 after '{s}'", .{arg});
                 graph.random_seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
-                    fatal("unable to parse seed '{s}' as unsigned 32-bit integer: {s}\n", .{
-                        next_arg, @errorName(err),
-                    });
+                    fatal("unable to parse seed '{s}' as unsigned 32-bit integer: {t}", .{ next_arg, err });
                 };
             } else if (mem.eql(u8, arg, "--debounce")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
@@ -288,7 +287,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 const addr_str = arg["--webui=".len..];
                 if (std.mem.eql(u8, addr_str, "-")) fatal("web interface cannot listen on stdio", .{});
                 webui_listen = Io.net.IpAddress.parseLiteral(addr_str) catch |err| {
-                    fatal("invalid web UI address '{s}': {s}", .{ addr_str, @errorName(err) });
+                    fatal("invalid web UI address '{s}': {t}", .{ addr_str, err });
                 };
             } else if (mem.eql(u8, arg, "--debug-log")) {
                 const next_arg = nextArgOrFatal(args, &arg_idx);
@@ -300,11 +299,6 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.cutPrefix(u8, arg, "--debug-rt=")) |rest| {
                 graph.debug_compiler_runtime_libs = std.meta.stringToEnum(std.builtin.OptimizeMode, rest) orelse
                     fatal("unrecognized optimization mode: {s}", .{rest});
-            } else if (mem.eql(u8, arg, "--system")) {
-                // The usage text shows another argument after this parameter
-                // but it is handled by the parent process. The build runner
-                // only sees this flag.
-                graph.system_package_mode = true;
             } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
                 // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
                 libc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
@@ -383,7 +377,7 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
                 const num = arg["-freference-trace=".len..];
                 reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
-                    std.debug.print("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
+                    std.debug.print("unable to parse reference_trace count '{s}': {t}", .{ num, err });
                     process.exit(1);
                 };
             } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
@@ -414,6 +408,29 @@ pub fn main(init: process.Init.Minimal) !void {
         .off => .no_color,
     };
 
+    if (help_menu) {
+        var w = initStdoutWriter(io);
+        scanned_config.printUsage(&graph, w) catch |err| switch (err) {
+            error.WriteFailed => return stdout_writer_allocation.err.?,
+            else => |e| return e,
+        };
+        w.flush() catch return stdout_writer_allocation.err.?;
+        return;
+    } else if (steps_menu) {
+        var w = initStdoutWriter(io);
+        scanned_config.printSteps(&graph, w) catch |err| switch (err) {
+            error.WriteFailed => return stdout_writer_allocation.err.?,
+            else => |e| return e,
+        };
+        w.flush() catch return stdout_writer_allocation.err.?;
+        return;
+    } else if (print_configuration) {
+        var w = initStdoutWriter(io);
+        scanned_config.print(w) catch return stdout_writer_allocation.err.?;
+        w.flush() catch return stdout_writer_allocation.err.?;
+        return;
+    }
+
     if (webui_listen != null) {
         if (watch) fatal("using '--webui' and '--watch' together is not yet supported; consider omitting '--watch' in favour of the web UI \"Rebuild\" button", .{});
         if (builtin.single_threaded) fatal("'--webui' is not yet supported on single-threaded hosts", .{});
@@ -424,27 +441,33 @@ pub fn main(init: process.Init.Minimal) !void {
     });
     defer main_progress_node.end();
 
-    graph.resolveInstallPrefix(install_prefix, dir_list);
+    const install_prefix_path: Path = if (graph.environ_map.get("DESTDIR")) |dest_dir| .{
+        .root_dir = .cwd(),
+        .sub_path = try Io.Dir.path.join(arena, &.{ dest_dir, override_install_prefix orelse "/usr" }),
+    } else if (override_install_prefix) |cwd_relative| .{
+        .root_dir = .cwd(),
+        .sub_path = cwd_relative,
+    } else .{
+        .root_dir = build_root_directory,
+        .sub_path = "zig-out",
+    };
 
-    if (graph.validateUserInputDidItFail()) {
-        fatal("  access the help menu with 'zig build -h'", .{});
-    }
+    const install_lib_path: Path = if (override_lib_dir) |cwd_relative| .{
+        .root_dir = .cwd(),
+        .sub_path = cwd_relative,
+    } else try install_prefix_path.join(arena, "lib");
 
-    validateSystemLibraryOptions(&graph);
+    const install_bin_path: Path = if (override_bin_dir) |cwd_relative| .{
+        .root_dir = .cwd(),
+        .sub_path = cwd_relative,
+    } else try install_prefix_path.join(arena, "bin");
 
-    if (help_menu) {
-        var w = initStdoutWriter(io);
-        printUsage(&graph, w) catch return stdout_writer_allocation.err.?;
-        w.flush() catch return stdout_writer_allocation.err.?;
-        return;
-    }
+    const install_include_path: Path = if (override_include_dir) |cwd_relative| .{
+        .root_dir = .cwd(),
+        .sub_path = cwd_relative,
+    } else try install_prefix_path.join(arena, "include");
 
-    if (steps_menu) {
-        var w = initStdoutWriter(io);
-        printSteps(&graph, w) catch return stdout_writer_allocation.err.?;
-        w.flush() catch return stdout_writer_allocation.err.?;
-        return;
-    }
+    if (true) @panic("TODO");
 
     var run: Run = .{
         .gpa = gpa,
@@ -463,6 +486,13 @@ pub fn main(init: process.Init.Minimal) !void {
         .error_style = error_style,
         .multiline_errors = multiline_errors,
         .summary = summary orelse if (watch or webui_listen != null) .line else .failures,
+
+        .install_paths = .{
+            .prefix = install_prefix_path,
+            .lib = install_lib_path,
+            .bin = install_bin_path,
+            .include = install_include_path,
+        },
     };
     defer {
         run.memory_blocked_steps.deinit(gpa);
@@ -628,9 +658,9 @@ fn prepare(graph: *Graph, step_names: []const []const u8, run: *Run) !void {
         try step_stack.ensureUnusedCapacity(gpa, step_names.len);
         for (0..step_names.len) |i| {
             const step_name = step_names[step_names.len - i - 1];
-            const s = graph.top_level_steps.get(step_name) orelse {
-                std.log.info("access the help menu with \"zig build -h\"", .{});
-                fatal("no step named '{s}'", .{step_name});
+            const s = run.top_level_steps.get(step_name) orelse {
+                log.info("access the help menu with 'zig build -h'", .{});
+                fatal("no such step: {s}", .{step_name});
             };
             step_stack.putAssumeCapacity(&s.step, {});
         }
@@ -873,11 +903,11 @@ fn runStepNames(
             print_node.last = true;
             printTreeStep(graph, graph.default_step, run, t, &print_node, &step_stack_copy) catch {};
         } else {
-            const last_index = if (run.summary == .all) graph.top_level_steps.count() else blk: {
+            const last_index = if (run.summary == .all) run.top_level_steps.count() else blk: {
                 var i: usize = step_names.len;
                 while (i > 0) {
                     i -= 1;
-                    const step = graph.top_level_steps.get(step_names[i]).?.step;
+                    const step = run.top_level_steps.get(step_names[i]).?.step;
                     const found = switch (run.summary) {
                         .all, .line, .none => unreachable,
                         .failures => step.state != .success,
@@ -885,10 +915,10 @@ fn runStepNames(
                     };
                     if (found) break :blk i;
                 }
-                break :blk graph.top_level_steps.count();
+                break :blk run.top_level_steps.count();
             };
             for (step_names, 0..) |step_name, i| {
-                const tls = graph.top_level_steps.get(step_name).?;
+                const tls = run.top_level_steps.get(step_name).?;
                 print_node.last = i + 1 == last_index;
                 printTreeStep(graph, &tls.step, run, t, &print_node, &step_stack_copy) catch {};
             }
@@ -1207,7 +1237,7 @@ fn constructGraphAndCheckForDependencyLoop(
 
             // We dupe to avoid shuffling the steps in the summary, it depends
             // on s.dependencies' order.
-            const deps = gpa.dupe(*Step, s.dependencies.items) catch @panic("OOM");
+            const deps = try gpa.dupe(*Step, s.dependencies.items);
             defer gpa.free(deps);
 
             rand.shuffle(*Step, deps);
@@ -1327,7 +1357,7 @@ fn makeStep(
             try run.max_rss_mutex.lock(io);
             defer run.max_rss_mutex.unlock(io);
             run.available_rss += s.max_rss;
-            dispatch_set.ensureUnusedCapacity(gpa, run.memory_blocked_steps.items.len) catch @panic("OOM");
+            try dispatch_set.ensureUnusedCapacity(gpa, run.memory_blocked_steps.items.len);
             while (run.memory_blocked_steps.getLast()) |candidate| {
                 if (run.available_rss < candidate.max_rss) break;
                 assert(run.memory_blocked_steps.pop() == candidate);
@@ -1360,7 +1390,7 @@ fn stepReady(
         defer run.max_rss_mutex.unlock(io);
         if (run.available_rss < s.max_rss) {
             // Running this step right now could possibly exceed the allotted RSS.
-            run.memory_blocked_steps.append(run.gpa, s) catch @panic("OOM");
+            try run.memory_blocked_steps.append(run.gpa, s);
             return;
         }
         run.available_rss -= s.max_rss;
@@ -1454,178 +1484,6 @@ pub fn printErrorMessages(
     try writer.writeByte('\n');
 }
 
-fn printSteps(graph: *Graph, w: *Writer) !void {
-    const arena = graph.arena;
-    for (graph.top_level_steps.values()) |top_level_step| {
-        const name = if (&top_level_step.step == graph.default_step)
-            try fmt.allocPrint(arena, "{s} (default)", .{top_level_step.step.name})
-        else
-            top_level_step.step.name;
-        try w.print("  {s:<28} {s}\n", .{ name, top_level_step.description });
-    }
-}
-
-fn printUsage(graph: *Graph, w: *Writer) !void {
-    const arena = graph.arena;
-
-    try w.print(
-        \\Usage: {s} build [steps] [options]
-        \\
-        \\Steps:
-        \\
-    , .{graph.zig_exe});
-    try printSteps(graph, w);
-    try w.writeAll(
-        \\
-        \\Project-Specific Options:
-        \\
-    );
-
-    if (graph.available_options_list.items.len == 0) {
-        try w.print("  (none)\n", .{});
-    } else {
-        for (graph.available_options_list.items) |option| {
-            const name = try fmt.allocPrint(arena, "  -D{s}=[{t}]", .{ option.name, option.type_id });
-            try w.print("{s:<30} {s}\n", .{ name, option.description });
-            if (option.enum_options) |enum_options| {
-                const padding: [33]u8 = @splat(' ');
-                try w.writeAll(padding ++ "Supported Values:\n");
-                for (enum_options) |enum_option| {
-                    try w.print(padding ++ "  {s}\n", .{enum_option});
-                }
-            }
-        }
-    }
-
-    try w.writeAll(
-        \\
-        \\System Integration Options:
-        \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
-        \\  --sysroot [path]             Set the system root directory (usually /)
-        \\  --libc [file]                Provide a file which specifies libc paths
-        \\
-        \\  --system [pkgdir]            Disable package fetching; enable all integrations
-        \\  -fsys=[name]                 Enable a system integration
-        \\  -fno-sys=[name]              Disable a system integration
-        \\
-        \\  -fdarling,  -fno-darling     Integration with system-installed Darling to
-        \\                               execute macOS programs on Linux hosts
-        \\                               (default: no)
-        \\  -fqemu,     -fno-qemu        Integration with system-installed QEMU to execute
-        \\                               foreign-architecture programs on Linux hosts
-        \\                               (default: no)
-        \\  --libc-runtimes [path]       Enhances QEMU integration by providing dynamic libc
-        \\                               (e.g. glibc or musl) built for multiple foreign
-        \\                               architectures, allowing execution of non-native
-        \\                               programs that link with libc.
-        \\  -frosetta,  -fno-rosetta     Rely on Rosetta to execute x86_64 programs on
-        \\                               ARM64 macOS hosts. (default: no)
-        \\  -fwasmtime, -fno-wasmtime    Integration with system-installed wasmtime to
-        \\                               execute WASI binaries. (default: no)
-        \\  -fwine,     -fno-wine        Integration with system-installed Wine to execute
-        \\                               Windows programs on Linux hosts. (default: no)
-        \\
-        \\  Available System Integrations:                Enabled:
-        \\
-    );
-    if (graph.system_library_options.entries.len == 0) {
-        try w.writeAll("  (none)                                        -\n");
-    } else {
-        for (graph.system_library_options.keys(), graph.system_library_options.values()) |k, v| {
-            const status = switch (v) {
-                .declared_enabled => "yes",
-                .declared_disabled => "no",
-                .user_enabled, .user_disabled => unreachable, // already emitted error
-            };
-            try w.print("    {s:<43} {s}\n", .{ k, status });
-        }
-    }
-
-    try w.writeAll(
-        \\
-        \\General Options:
-        \\  -h, --help                   Print this help and exit
-        \\  -l, --list-steps             Print available steps
-        \\
-        \\  -p, --prefix [path]          Where to install files (default: sig-out)
-        \\  --prefix-lib-dir [path]      Where to install libraries
-        \\  --prefix-exe-dir [path]      Where to install executables
-        \\  --prefix-include-dir [path]  Where to install C header files
-        \\  --release[=mode]             Request release mode, optionally specifying a
-        \\                               preferred optimization mode: fast, safe, small
-        \\
-        \\  --verbose                    Print commands before executing them
-        \\  --color [auto|off|on]        Enable or disable colored error messages
-        \\  --error-style [style]        Control how build errors are printed
-        \\    verbose                    (Default) Report errors with full context
-        \\    minimal                    Report errors after summary, excluding context like command lines
-        \\    verbose_clear              Like 'verbose', but clear the terminal at the start of each update
-        \\    minimal_clear              Like 'minimal', but clear the terminal at the start of each update
-        \\  --multiline-errors [style]   Control how multi-line error messages are printed
-        \\    indent                     (Default) Indent non-initial lines to align with initial line
-        \\    newline                    Include a leading newline so that the error message is on its own lines
-        \\    none                       Print as usual so the first line is misaligned
-        \\  --summary [mode]             Control the printing of the build summary
-        \\    all                        Print the build summary in its entirety
-        \\    new                        Omit cached steps
-        \\    failures                   (Default if short-lived) Only print failed steps
-        \\    line                       (Default if long-lived) Only print the single-line summary
-        \\    none                       Do not print the build summary
-        \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
-        \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
-        \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
-        \\  --test-timeout <timeout>     Limit execution time of unit tests, terminating if exceeded.
-        \\                               The timeout must include a unit: ns, us, ms, s, m, h
-        \\  --watch                      Continuously rebuild when source files are modified
-        \\  --debounce <ms>              Delay before rebuilding after changed file detected
-        \\  --webui[=ip]                 Enable the web interface on the given IP address
-        \\  --fuzz[=limit]               Continuously search for unit test failures with an optional 
-        \\                               limit to the max number of iterations. The argument supports
-        \\                               an optional 'K', 'M', or 'G' suffix (e.g. '10K'). Implies
-        \\                               '--webui' when no limit is specified.
-        \\  --time-report                Force full rebuild and provide detailed information on
-        \\                               compilation time of Zig source code (implies '--webui')
-        \\     -fincremental             Enable incremental compilation
-        \\  -fno-incremental             Disable incremental compilation
-        \\
-        \\Package Management Options:
-        \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
-        \\    needed                     (Default) Lazy dependencies are fetched as needed
-        \\    all                        Lazy dependencies are always fetched
-        \\  --fork=[path]                Override one or more projects from dependency tree
-        \\
-        \\Advanced Options:
-        \\  -freference-trace[=num]      How many lines of reference trace should be shown per compile error
-        \\  -fno-reference-trace         Disable reference trace
-        \\  -fallow-so-scripts           Allows .so files to be GNU ld scripts
-        \\  -fno-allow-so-scripts        (default) .so files must be ELF files
-        \\  --build-file [file]          Override path to build.zig
-        \\  --cache-dir [path]           Override path to local Zig cache directory
-        \\  --global-cache-dir [path]    Override path to global Zig cache directory
-        \\  --zig-lib-dir [arg]          Override path to Zig lib directory
-        \\  --build-runner [file]        Override path to build runner
-        \\  --seed [integer]             For shuffling dependency traversal order (default: random)
-        \\  --build-id[=style]           At a minor link-time expense, embeds a build ID in binaries
-        \\      fast                     8-byte non-cryptographic hash (COFF, ELF, WASM)
-        \\      sha1, tree               20-byte cryptographic hash (ELF, WASM)
-        \\      md5                      16-byte cryptographic hash (ELF)
-        \\      uuid                     16-byte random UUID (ELF, WASM)
-        \\      0x[hexstring]            Constant ID, maximum 32 bytes (ELF, WASM)
-        \\      none                     (default) No build ID
-        \\  --debug-log [scope]          Enable debugging the compiler
-        \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
-        \\  --debug-rt                   Debug compiler runtime libraries
-        \\  --verbose-link               Enable compiler debug output for linking
-        \\  --verbose-air                Enable compiler debug output for Zig AIR
-        \\  --verbose-llvm-ir[=file]     Enable compiler debug output for LLVM IR
-        \\  --verbose-llvm-bc=[file]     Enable compiler debug output for LLVM BC
-        \\  --verbose-cimport            Enable compiler debug output for C imports
-        \\  --verbose-cc                 Enable compiler debug output for C compilation
-        \\  --verbose-llvm-cpu-features  Enable compiler debug output for LLVM CPU features
-        \\
-    );
-}
-
 fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
@@ -1633,17 +1491,17 @@ fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
 }
 
 fn nextArgOrFatal(args: []const [:0]const u8, idx: *usize) [:0]const u8 {
-    return nextArg(args, idx) orelse
-        fatal("expected argument after {q}\n  access the help menu with \"zig build -h\"", .{args[idx.* - 1]});
+    return nextArg(args, idx) orelse {
+        log.info("access the help menu with \"zig build -h\"", .{});
+        fatal("expected argument after {q}", .{args[idx.* - 1]});
+    };
 }
 
-fn cutArgPrefixOrFatal(args: []const [:0]const u8, idx: *usize, prefix: []const u8) []const u8 {
-    if (nextArg(args, idx)) |next_arg| {
-        if (mem.cutPrefix(u8, next_arg, prefix)) |arg| {
-            return arg;
-        }
-    }
-    fatal("expected argument after {q} to start with {q}", .{ args[idx.* - 1], prefix });
+fn expectArgOrFatal(args: []const [:0]const u8, index_ptr: *usize, first: []const u8) []const u8 {
+    const next_arg = nextArg(args, index_ptr) orelse fatal("missing {q} argument", .{first});
+    if (!mem.eql(u8, first, next_arg)) fatal("expected {q} instead of {q}", .{ first, next_arg });
+    const arg = nextArg(args, index_ptr) orelse fatal("expected argument after {q}", .{first});
+    return arg;
 }
 
 fn argsRest(args: []const [:0]const u8, idx: usize) ?[]const [:0]const u8 {
@@ -1674,28 +1532,27 @@ const MultilineErrors = enum { indent, newline, none };
 const Summary = enum { all, new, failures, line, none };
 
 fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
-    std.debug.print(f ++ "\n  access the help menu with 'zig build -h'\n", args);
-    process.exit(1);
+    log.info("access the help menu with 'zig build -h'", .{});
+    fatal(f, args);
 }
 
-fn validateSystemLibraryOptions(graph: *Graph) void {
-    var bad = false;
-    for (graph.system_library_options.keys(), graph.system_library_options.values()) |k, v| {
-        switch (v) {
-            .user_disabled, .user_enabled => {
-                // The user tried to enable or disable a system library integration, but
-                // the build script did not recognize that option.
-                std.debug.print("system library name not recognized by build script: '{s}'\n", .{k});
-                bad = true;
-            },
-            .declared_disabled, .declared_enabled => {},
-        }
-    }
-    if (bad) {
-        std.debug.print("  access the help menu with 'zig build -h'\n", .{});
-        process.exit(1);
+fn cleanTmpFiles(io: Io, steps: []const *Step) void {
+    for (steps) |step| {
+        const wf = step.cast(Step.WriteFile) orelse continue;
+        if (wf.mode != .tmp) continue;
+        const path = wf.generated_directory.path orelse continue;
+        Io.Dir.cwd().deleteTree(io, path) catch |err| {
+            log.warn("failed to delete {s}: {t}", .{ path, err });
+        };
     }
 }
+
+const InstallPaths = struct {
+    prefix: Path,
+    lib: Path,
+    bin: Path,
+    include: Path,
+};
 
 var stdio_buffer_allocation: [256]u8 = undefined;
 var stdout_writer_allocation: Io.File.Writer = undefined;
@@ -1705,13 +1562,202 @@ fn initStdoutWriter(io: Io) *Writer {
     return &stdout_writer_allocation.interface;
 }
 
-fn cleanTmpFiles(io: Io, steps: []const *Step) void {
-    for (steps) |step| {
-        const wf = step.cast(Step.WriteFile) orelse continue;
-        if (wf.mode != .tmp) continue;
-        const path = wf.generated_directory.path orelse continue;
-        Io.Dir.cwd().deleteTree(io, path) catch |err| {
-            std.log.warn("failed to delete {s}: {t}", .{ path, err });
-        };
+const ScannedConfig = struct {
+    configuration: Configuration,
+    top_level_steps: []const Configuration.Step.Index,
+
+    fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
+        var serializer: std.zon.Serializer = .{ .writer = w };
+        var s = try serializer.beginStruct(.{});
+
+        try s.field("default_step", @intFromEnum(sc.configuration.default_step), .{});
+        {
+            var tuple = try s.beginTupleField("top_level_steps", .{});
+            for (sc.top_level_steps) |step| try tuple.field(@intFromEnum(step), .{});
+            try tuple.end();
+        }
+
+        try s.end();
     }
-}
+
+    fn printSteps(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
+        const arena = graph.arena;
+        const c = &sc.configuration;
+        for (sc.top_level_steps) |step_index| {
+            const step = step_index.ptr(c);
+            const name = step.name.slice(c);
+            const decorated_name = if (step_index == c.default_step)
+                try fmt.allocPrint(arena, "{s} (default)", .{name})
+            else
+                name;
+            const top_level = c.extraData(Configuration.Step.TopLevel, step.extra_index);
+            const description = top_level.description.slice(c);
+            try w.print("  {s:<28} {s}\n", .{ decorated_name, description });
+        }
+    }
+
+    fn printUsage(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
+        const arena = graph.arena;
+
+        try w.print(
+            \\Usage: {s} build [steps] [options]
+            \\
+            \\Steps:
+            \\
+        , .{graph.zig_exe});
+        try printSteps(sc, graph, w);
+        try w.writeAll(
+            \\
+            \\Project-Specific Options:
+            \\
+        );
+
+        const available_options = sc.configuration.available_options;
+        if (available_options.len == 0) {
+            try w.print("  (none)\n", .{});
+        } else {
+            for (available_options) |option| {
+                const name = option.name.slice(&sc.configuration);
+                const description = option.description.slice(&sc.configuration);
+                const help = try fmt.allocPrint(arena, "  -D{s}=[{t}]", .{ name, option.type });
+                try w.print("{s:<30} {s}\n", .{ help, description });
+                if (option.enum_options.slice(&sc.configuration)) |enum_options| {
+                    const padding: [33]u8 = @splat(' ');
+                    try w.writeAll(padding ++ "Supported Values:\n");
+                    for (enum_options) |enum_option_index| {
+                        const enum_option = enum_option_index.slice(&sc.configuration);
+                        try w.print(padding ++ "  {s}\n", .{enum_option});
+                    }
+                }
+            }
+        }
+
+        try w.writeAll(
+            \\
+            \\System Integration Options:
+            \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
+            \\  --sysroot [path]             Set the system root directory (usually /)
+            \\  --libc [file]                Provide a file which specifies libc paths
+            \\
+            \\  --system [pkgdir]            Disable package fetching; enable all integrations
+            \\  -fsys=[name]                 Enable a system integration
+            \\  -fno-sys=[name]              Disable a system integration
+            \\
+            \\  -fdarling,  -fno-darling     Integration with system-installed Darling to
+            \\                               execute macOS programs on Linux hosts
+            \\                               (default: no)
+            \\  -fqemu,     -fno-qemu        Integration with system-installed QEMU to execute
+            \\                               foreign-architecture programs on Linux hosts
+            \\                               (default: no)
+            \\  --libc-runtimes [path]       Enhances QEMU integration by providing dynamic libc
+            \\                               (e.g. glibc or musl) built for multiple foreign
+            \\                               architectures, allowing execution of non-native
+            \\                               programs that link with libc.
+            \\  -frosetta,  -fno-rosetta     Rely on Rosetta to execute x86_64 programs on
+            \\                               ARM64 macOS hosts. (default: no)
+            \\  -fwasmtime, -fno-wasmtime    Integration with system-installed wasmtime to
+            \\                               execute WASI binaries. (default: no)
+            \\  -fwine,     -fno-wine        Integration with system-installed Wine to execute
+            \\                               Windows programs on Linux hosts. (default: no)
+            \\
+            \\  Available System Integrations:                Enabled:
+            \\
+        );
+        if (sc.configuration.system_integrations.len == 0) {
+            try w.writeAll("  (none)                                        -\n");
+        } else {
+            for (sc.configuration.system_integrations) |system_integration| {
+                const name = system_integration.name.slice(&sc.configuration);
+                const status = switch (system_integration.status) {
+                    .disabled => "no",
+                    .enabled => "yes",
+                };
+                try w.print("    {s:<43} {s}\n", .{ name, status });
+            }
+        }
+
+        try w.writeAll(
+            \\
+            \\General Options:
+            \\  -h, --help                   Print this help and exit
+            \\  -l, --list-steps             Print available steps
+            \\
+            \\  -p, --prefix [path]          Where to install files (default: zig-out)
+            \\  --prefix-lib-dir [path]      Where to install libraries
+            \\  --prefix-exe-dir [path]      Where to install executables
+            \\  --prefix-include-dir [path]  Where to install C header files
+            \\  --release[=mode]             Request release mode, optionally specifying a
+            \\                               preferred optimization mode: fast, safe, small
+            \\
+            \\  --verbose                    Print commands before executing them
+            \\  --color [auto|off|on]        Enable or disable colored error messages
+            \\  --error-style [style]        Control how build errors are printed
+            \\    verbose                    (Default) Report errors with full context
+            \\    minimal                    Report errors after summary, excluding context like command lines
+            \\    verbose_clear              Like 'verbose', but clear the terminal at the start of each update
+            \\    minimal_clear              Like 'minimal', but clear the terminal at the start of each update
+            \\  --multiline-errors [style]   Control how multi-line error messages are printed
+            \\    indent                     (Default) Indent non-initial lines to align with initial line
+            \\    newline                    Include a leading newline so that the error message is on its own lines
+            \\    none                       Print as usual so the first line is misaligned
+            \\  --summary [mode]             Control the printing of the build summary
+            \\    all                        Print the build summary in its entirety
+            \\    new                        Omit cached steps
+            \\    failures                   (Default if short-lived) Only print failed steps
+            \\    line                       (Default if long-lived) Only print the single-line summary
+            \\    none                       Do not print the build summary
+            \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
+            \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
+            \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
+            \\  --test-timeout <timeout>     Limit execution time of unit tests, terminating if exceeded.
+            \\                               The timeout must include a unit: ns, us, ms, s, m, h
+            \\  --watch                      Continuously rebuild when source files are modified
+            \\  --debounce <ms>              Delay before rebuilding after changed file detected
+            \\  --webui[=ip]                 Enable the web interface on the given IP address
+            \\  --fuzz[=limit]               Continuously search for unit test failures with an optional 
+            \\                               limit to the max number of iterations. The argument supports
+            \\                               an optional 'K', 'M', or 'G' suffix (e.g. '10K'). Implies
+            \\                               '--webui' when no limit is specified.
+            \\  --time-report                Force full rebuild and provide detailed information on
+            \\                               compilation time of Zig source code (implies '--webui')
+            \\     -fincremental             Enable incremental compilation
+            \\  -fno-incremental             Disable incremental compilation
+            \\
+            \\Package Management Options:
+            \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
+            \\    needed                     (Default) Lazy dependencies are fetched as needed
+            \\    all                        Lazy dependencies are always fetched
+            \\  --fork=[path]                Override one or more projects from dependency tree
+            \\
+            \\Advanced Options:
+            \\  -freference-trace[=num]      How many lines of reference trace should be shown per compile error
+            \\  -fno-reference-trace         Disable reference trace
+            \\  -fallow-so-scripts           Allows .so files to be GNU ld scripts
+            \\  -fno-allow-so-scripts        (default) .so files must be ELF files
+            \\  --build-file [file]          Override path to build.zig
+            \\  --cache-dir [path]           Override path to local Zig cache directory
+            \\  --global-cache-dir [path]    Override path to global Zig cache directory
+            \\  --zig-lib-dir [arg]          Override path to Zig lib directory
+            \\  --build-runner [file]        Override path to build runner
+            \\  --seed [integer]             For shuffling dependency traversal order (default: random)
+            \\  --build-id[=style]           At a minor link-time expense, embeds a build ID in binaries
+            \\      fast                     8-byte non-cryptographic hash (COFF, ELF, WASM)
+            \\      sha1, tree               20-byte cryptographic hash (ELF, WASM)
+            \\      md5                      16-byte cryptographic hash (ELF)
+            \\      uuid                     16-byte random UUID (ELF, WASM)
+            \\      0x[hexstring]            Constant ID, maximum 32 bytes (ELF, WASM)
+            \\      none                     (default) No build ID
+            \\  --debug-log [scope]          Enable debugging the compiler
+            \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
+            \\  --debug-rt                   Debug compiler runtime libraries
+            \\  --verbose-link               Enable compiler debug output for linking
+            \\  --verbose-air                Enable compiler debug output for Zig AIR
+            \\  --verbose-llvm-ir[=file]     Enable compiler debug output for LLVM IR
+            \\  --verbose-llvm-bc=[file]     Enable compiler debug output for LLVM BC
+            \\  --verbose-cimport            Enable compiler debug output for C imports
+            \\  --verbose-cc                 Enable compiler debug output for C compilation
+            \\  --verbose-llvm-cpu-features  Enable compiler debug output for LLVM CPU features
+            \\
+        );
+    }
+};

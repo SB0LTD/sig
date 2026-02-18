@@ -92,9 +92,8 @@ pub const Graph = struct {
     io: Io,
     /// Process lifetime.
     arena: Allocator,
-    system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
+    system_integration_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
-    debug_compiler_runtime_libs: ?std.builtin.OptimizeMode = null,
     cache: Cache,
     zig_exe: []const u8,
     environ_map: process.Environ.Map,
@@ -108,7 +107,7 @@ pub const Graph = struct {
     /// Steps should use `io` to limit the number of jobs, however in the case of
     /// a single step spawning a fixed number of processes this can be used.
     max_jobs: ?u32 = null,
-    time_report: bool,
+    time_report: bool = false,
     /// Similar to the `Io.Terminal.Mode` returned by `Io.lockStderr`, but also
     /// respects the '--color' flag.
     stderr_mode: ?Io.Terminal.Mode = null,
@@ -322,11 +321,6 @@ fn createChild(
         .invalid_user_input = false,
         .default_step = undefined,
         .top_level_steps = .{},
-        .install_prefix = undefined,
-        .lib_dir = parent.lib_dir,
-        .exe_dir = parent.exe_dir,
-        .h_dir = parent.h_dir,
-        .install_path = parent.install_path,
         .sysroot = parent.sysroot,
         .build_root = build_root,
         .cache_root = parent.cache_root,
@@ -1769,18 +1763,6 @@ pub fn run(b: *Build, argv: []const []const u8) []u8 {
     );
 }
 
-pub fn getInstallPath(b: *Build, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
-    assert(!fs.path.isAbsolute(dest_rel_path)); // Install paths must be relative to the prefix
-    const base_dir = switch (dir) {
-        .prefix => b.install_path,
-        .bin => b.exe_dir,
-        .lib => b.lib_dir,
-        .header => b.h_dir,
-        .custom => |p| b.pathJoin(&.{ b.install_path, p }),
-    };
-    return b.pathResolve(&.{ base_dir, dest_rel_path });
-}
-
 pub const Dependency = struct {
     builder: *Build,
 
@@ -2572,7 +2554,7 @@ pub fn systemIntegrationOption(
     name: []const u8,
     config: SystemIntegrationOptionConfig,
 ) bool {
-    const gop = b.graph.system_library_options.getOrPut(b.allocator, name) catch @panic("OOM");
+    const gop = b.graph.system_integration_options.getOrPut(b.allocator, name) catch @panic("OOM");
     if (gop.found_existing) switch (gop.value_ptr.*) {
         .user_disabled => {
             gop.value_ptr.* = .declared_disabled;
