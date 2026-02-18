@@ -16,11 +16,11 @@ const log = std.log;
 const mem = std.mem;
 const process = std.process;
 
-const Fuzz = @import("maker/Fuzz.zig");
-const Graph = @import("maker/Graph.zig");
-const Step = @import("maker/Step.zig");
-const Watch = @import("maker/Watch.zig");
-const WebServer = @import("maker/WebServer.zig");
+const Fuzz = @import("Maker/Fuzz.zig");
+const Graph = @import("Maker/Graph.zig");
+const Step = @import("Maker/Step.zig");
+const Watch = @import("Maker/Watch.zig");
+const WebServer = @import("Maker/WebServer.zig");
 
 pub const std_options: std.Options = .{
     .side_channels_mitigations = .none,

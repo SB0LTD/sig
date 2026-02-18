@@ -5799,7 +5799,7 @@ fn compileMakeRunner(gpa: Allocator, arena: Allocator, io: Io, options: MakeRunn
 
     const main_mod_paths: Package.Module.CreateOptions.Paths = .{
         .root = try .fromRoot(arena, options.dirs, .zig_lib, "compiler"),
-        .root_src_path = "maker.zig",
+        .root_src_path = "Maker.zig",
     };
 
     const config = try Compilation.Config.resolve(.{

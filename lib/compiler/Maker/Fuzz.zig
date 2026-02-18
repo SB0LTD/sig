@@ -12,7 +12,7 @@ const assert = std.debug.assert;
 const fatal = std.process.fatal;
 const log = std.log;
 
-const maker = @import("../maker.zig");
+const Maker = @import("../Maker.zig");
 const WebServer = @import("WebServer.zig");
 
 gpa: Allocator,
@@ -179,7 +179,7 @@ fn rebuildTestsWorkerRunFallible(run: Configuration.Step.Index, gpa: Allocator, 
         var buf: [256]u8 = undefined;
         const stderr = try io.lockStderr(&buf, graph.stderr_mode);
         defer io.unlockStderr();
-        maker.printErrorMessages(gpa, &compile.step, .{}, stderr.terminal(), .verbose, .indent) catch {};
+        Maker.printErrorMessages(gpa, &compile.step, .{}, stderr.terminal(), .verbose, .indent) catch {};
     }
 
     const rebuilt_bin_path = result catch |err| switch (err) {
@@ -202,7 +202,7 @@ fn fuzzWorkerRun(fuzz: *Fuzz, run: Configuration.Step.Index) void {
                 error.Canceled => return,
             };
             defer io.unlockStderr();
-            maker.printErrorMessages(gpa, &run.step, .{}, stderr.terminal(), .verbose, .indent) catch {};
+            Maker.printErrorMessages(gpa, &run.step, .{}, stderr.terminal(), .verbose, .indent) catch {};
             return;
         },
         else => {
