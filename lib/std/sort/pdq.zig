@@ -47,10 +47,10 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
     const max_limit = std.math.floorPowerOfTwo(usize, b - a) + 1;
 
     // set upper bound on stack memory usage.
-    const Range = struct { a: usize, b: usize, limit: usize };
+    const Range = struct { a: usize, b: usize, limit: usize, leftmost: bool };
     const stack_size = math.log2(math.maxInt(usize) + 1);
     var stack: [stack_size]Range = undefined;
-    var range = Range{ .a = a, .b = b, .limit = max_limit };
+    var range = Range{ .a = a, .b = b, .limit = max_limit, .leftmost = true };
     var top: usize = 0;
 
     while (true) {
@@ -62,7 +62,11 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
 
             // very short slices get sorted using insertion sort.
             if (len <= max_insertion) {
-                break sort.insertionContext(range.a, range.b, context);
+                if (range.leftmost) {
+                    break sort.insertionContext(range.a, range.b, context);
+                } else {
+                    break unguardedInsertionContext(range.a, range.b, context);
+                }
             }
 
             // if too many bad pivot choices were made, simply fall back to heapsort in order to
@@ -115,12 +119,13 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
             const balanced_threshold = len / 8;
             if (left_len < right_len) {
                 was_balanced = left_len >= balanced_threshold;
-                stack[top] = .{ .a = range.a, .b = mid, .limit = range.limit };
+                stack[top] = .{ .a = range.a, .b = mid, .limit = range.limit, .leftmost = range.leftmost };
                 top += 1;
                 range.a = mid + 1;
+                range.leftmost = false;
             } else {
                 was_balanced = right_len >= balanced_threshold;
-                stack[top] = .{ .a = mid + 1, .b = range.b, .limit = range.limit };
+                stack[top] = .{ .a = mid + 1, .b = range.b, .limit = range.limit, .leftmost = false };
                 top += 1;
                 range.b = mid;
             }
@@ -128,6 +133,18 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
 
         top = math.sub(usize, top, 1) catch break;
         range = stack[top];
+    }
+}
+
+/// Insertion sort that assumes `items[a-1]` exists and is <= all elements in `[a, b)`,
+/// allowing the inner loop to skip the bounds check.
+fn unguardedInsertionContext(a: usize, b: usize, context: anytype) void {
+    var i = a + 1;
+    while (i < b) : (i += 1) {
+        var j = i;
+        while (context.lessThan(j, j - 1)) : (j -= 1) {
+            context.swap(j, j - 1);
+        }
     }
 }
 
