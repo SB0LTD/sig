@@ -17,7 +17,7 @@ const process = std.process;
 
 const Fuzz = @import("maker/Fuzz.zig");
 const Graph = @import("maker/Graph.zig");
-const Step = void; // @import("maker/Step.zig");
+const Step = @import("maker/Step.zig");
 const Watch = @import("maker/Watch.zig");
 const WebServer = @import("maker/WebServer.zig");
 
@@ -100,8 +100,8 @@ pub fn main(init: process.Init.Minimal) !void {
     graph.cache.addPrefix(global_cache_directory);
     graph.cache.hash.addBytes(builtin.zig_version_string);
 
-    var targets = std.array_list.Managed([]const u8).init(arena);
-    var debug_log_scopes = std.array_list.Managed([]const u8).init(arena);
+    var step_names: std.ArrayList([]const u8) = .empty;
+    var debug_log_scopes: std.ArrayList([]const u8) = .empty;
     var help_menu = false;
     var steps_menu = false;
     var print_configuration = false;
@@ -150,29 +150,6 @@ pub fn main(init: process.Init.Minimal) !void {
             multiline_errors = style;
         }
     }
-
-    const scanned_config: ScannedConfig = sc: {
-        const configuration = c: {
-            var file = cwd.openFile(io, configure_path, .{}) catch |err|
-                fatal("failed to open configuration file {s}: {t}", .{ configure_path, err });
-            defer file.close(io);
-            break :c Configuration.loadFile(arena, io, file) catch |err|
-                fatal("failed to load configuration file {s}: {t}", .{ configure_path, err });
-        };
-        var top_level_steps: std.ArrayList(Configuration.Step.Index) = .empty;
-        for (configuration.steps, 0..) |*conf_step, step_index| {
-            const flags: Configuration.Step.Flags = @bitCast(configuration.extra[conf_step.extra_index]);
-            if (flags.tag == .top_level) {
-                try top_level_steps.append(arena, @enumFromInt(step_index));
-            }
-        }
-        break :sc .{
-            .configuration = configuration,
-            .top_level_steps = top_level_steps.items,
-        };
-    };
-
-    log.err("TODO handle user -D options", .{});
 
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-")) {
@@ -291,7 +268,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 };
             } else if (mem.eql(u8, arg, "--debug-log")) {
                 const next_arg = nextArgOrFatal(args, &arg_idx);
-                try debug_log_scopes.append(next_arg);
+                try debug_log_scopes.append(arena, next_arg);
             } else if (mem.eql(u8, arg, "--debug-pkg-config")) {
                 debug_pkg_config = true;
             } else if (mem.eql(u8, arg, "--debug-rt")) {
@@ -395,7 +372,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 fatalWithHint("unrecognized argument: '{s}'", .{arg});
             }
         } else {
-            try targets.append(arg);
+            try step_names.append(arena, arg);
         }
     }
 
@@ -406,6 +383,29 @@ pub fn main(init: process.Init.Minimal) !void {
         .auto => try .detect(io, .stderr(), NO_COLOR, CLICOLOR_FORCE),
         .on => .escape_codes,
         .off => .no_color,
+    };
+
+    const scanned_config: ScannedConfig = sc: {
+        const configuration = c: {
+            var file = cwd.openFile(io, configure_path, .{}) catch |err|
+                fatal("failed to open configuration file {s}: {t}", .{ configure_path, err });
+            defer file.close(io);
+            break :c Configuration.loadFile(arena, io, file) catch |err|
+                fatal("failed to load configuration file {s}: {t}", .{ configure_path, err });
+        };
+        var top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index) = .empty;
+        for (configuration.steps, 0..) |*conf_step, step_index_usize| {
+            const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
+            const flags: Configuration.Step.Flags = @bitCast(configuration.extra[conf_step.extra_index]);
+            if (flags.tag == .top_level) {
+                const name = step_index.ptr(&configuration).name.slice(&configuration);
+                try top_level_steps.put(arena, name, step_index);
+            }
+        }
+        break :sc .{
+            .configuration = configuration,
+            .top_level_steps = top_level_steps,
+        };
     };
 
     if (help_menu) {
@@ -467,10 +467,17 @@ pub fn main(init: process.Init.Minimal) !void {
         .sub_path = cwd_relative,
     } else try install_prefix_path.join(arena, "include");
 
-    if (true) @panic("TODO");
-
     var run: Run = .{
         .gpa = gpa,
+        .graph = &graph,
+        .scanned_config = &scanned_config,
+        .install_paths = .{
+            .prefix = install_prefix_path,
+            .lib = install_lib_path,
+            .bin = install_bin_path,
+            .include = install_include_path,
+        },
+        .steps = try arena.alloc(Step, scanned_config.configuration.steps.len),
 
         .available_rss = max_rss,
         .max_rss_is_default = false,
@@ -486,13 +493,6 @@ pub fn main(init: process.Init.Minimal) !void {
         .error_style = error_style,
         .multiline_errors = multiline_errors,
         .summary = summary orelse if (watch or webui_listen != null) .line else .failures,
-
-        .install_paths = .{
-            .prefix = install_prefix_path,
-            .lib = install_lib_path,
-            .bin = install_bin_path,
-            .include = install_include_path,
-        },
     };
     defer {
         run.memory_blocked_steps.deinit(gpa);
@@ -504,16 +504,15 @@ pub fn main(init: process.Init.Minimal) !void {
         run.max_rss_is_default = true;
     }
 
-    prepare(arena, &graph, targets.items, &run) catch |err| switch (err) {
+    run.prepare(step_names.items) catch |err| switch (err) {
         error.DependencyLoopDetected, error.InsufficientMemory => {
-            // Perhaps in the future there could be an Advanced Options flag
-            // such as --debug-build-runner-leaks which would make this code
-            // return instead of calling exit.
             _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
             process.exit(1);
         },
         else => |e| return e,
     };
+
+    if (true) @panic("TODO");
 
     var w: Watch = w: {
         if (!watch) break :w undefined;
@@ -547,7 +546,7 @@ pub fn main(init: process.Init.Minimal) !void {
     }) {
         if (run.web_server) |*ws| ws.startBuild();
 
-        try runStepNames(graph, targets.items, main_progress_node, &run, fuzz);
+        try run.makeStepNames(step_names, main_progress_node, fuzz);
 
         if (run.web_server) |*web_server| {
             if (fuzz) |mode| if (mode != .forever) fatal(
@@ -628,6 +627,10 @@ fn countSubProcesses(all_steps: []const *Step) usize {
 
 const Run = struct {
     gpa: Allocator,
+    graph: *Graph,
+    install_paths: InstallPaths,
+    scanned_config: *const ScannedConfig,
+    steps: []Step,
 
     available_rss: usize,
     max_rss_is_default: bool,
@@ -637,309 +640,331 @@ const Run = struct {
     watch: bool,
     web_server: if (!builtin.single_threaded) ?WebServer else ?noreturn,
     /// Allocated into `gpa`.
-    memory_blocked_steps: std.ArrayList(*Step),
+    memory_blocked_steps: std.ArrayList(Configuration.Step.Index),
     /// Allocated into `gpa`.
-    step_stack: std.AutoArrayHashMapUnmanaged(*Step, void),
+    step_stack: std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
 
     error_style: ErrorStyle,
     multiline_errors: MultilineErrors,
     summary: Summary,
-};
 
-fn prepare(graph: *Graph, step_names: []const []const u8, run: *Run) !void {
-    const arena = graph.arena;
-    const seed: u32 = graph.random_seed;
-    const gpa = run.gpa;
-    const step_stack = &run.step_stack;
-
-    if (step_names.len == 0) {
-        try step_stack.put(gpa, graph.configuration.default_step, {});
-    } else {
-        try step_stack.ensureUnusedCapacity(gpa, step_names.len);
-        for (0..step_names.len) |i| {
-            const step_name = step_names[step_names.len - i - 1];
-            const s = run.top_level_steps.get(step_name) orelse {
-                log.info("access the help menu with 'zig build -h'", .{});
-                fatal("no such step: {s}", .{step_name});
-            };
-            step_stack.putAssumeCapacity(&s.step, {});
-        }
-    }
-
-    const starting_steps = try arena.dupe(*Step, step_stack.keys());
-
-    var rng = std.Random.DefaultPrng.init(seed);
-    const rand = rng.random();
-    rand.shuffle(*Step, starting_steps);
-
-    for (starting_steps) |s| {
-        try constructGraphAndCheckForDependencyLoop(gpa, s, &run.step_stack, rand);
-    }
-
-    {
-        // Check that we have enough memory to complete the build.
-        var any_problems = false;
-        var max_needed: usize = 0;
-        for (step_stack.keys()) |s| {
-            if (s.max_rss == 0) continue;
-            max_needed = @max(max_needed, s.max_rss);
-            if (s.max_rss > run.available_rss) {
-                if (run.skip_oom_steps) {
-                    s.state = .skipped_oom;
-                    for (s.dependants.items) |dependant| {
-                        dependant.pending_deps -= 1;
-                    }
-                } else {
-                    std.log.err("{s}{s}: this step declares an upper bound of {d} bytes of memory, exceeding the available {d} bytes of memory", .{
-                        s.owner.dep_prefix, s.name, s.max_rss, run.available_rss,
-                    });
-                    any_problems = true;
-                }
-            }
-        }
-        if (any_problems) {
-            if (run.max_rss_is_default) {
-                std.log.info("use --maxrss {d} to proceed, risking system memory exhaustion", .{
-                    max_needed,
-                });
-            }
-            return error.InsufficientMemory;
-        }
-    }
-}
-
-fn runStepNames(
-    graph: *Graph,
-    step_names: []const []const u8,
-    parent_prog_node: std.Progress.Node,
-    run: *Run,
-    fuzz: ?Fuzz.Mode,
-) !void {
-    const gpa = run.gpa;
-    const io = graph.io;
-    const step_stack = &run.step_stack;
-
-    {
-        // Collect the initial set of tasks (those with no outstanding dependencies) into a buffer,
-        // then spawn them. The buffer is so that we don't race with `makeStep` and end up thinking
-        // a step is initial when it actually became ready due to an earlier initial step.
-        var initial_set: std.ArrayList(*Step) = .empty;
-        defer initial_set.deinit(gpa);
-        try initial_set.ensureUnusedCapacity(gpa, step_stack.count());
-        for (step_stack.keys()) |s| {
-            if (s.state == .precheck_done and s.pending_deps == 0) {
-                initial_set.appendAssumeCapacity(s);
-            }
-        }
-
-        const step_prog = parent_prog_node.start("steps", step_stack.count());
-        defer step_prog.end();
-
-        var group: Io.Group = .init;
-        defer group.cancel(io);
-        // Start working on all of the initial steps...
-        for (initial_set.items) |s| try stepReady(&group, s, step_prog, run);
-        // ...and `makeStep` will trigger every other step when their last dependency finishes.
-        try group.await(io);
-    }
-
-    assert(run.memory_blocked_steps.items.len == 0);
-
-    var test_pass_count: usize = 0;
-    var test_skip_count: usize = 0;
-    var test_fail_count: usize = 0;
-    var test_crash_count: usize = 0;
-    var test_timeout_count: usize = 0;
-
-    var test_count: usize = 0;
-
-    var success_count: usize = 0;
-    var skipped_count: usize = 0;
-    var failure_count: usize = 0;
-    var pending_count: usize = 0;
-    var total_compile_errors: usize = 0;
-
-    var cleanup_task = io.async(cleanTmpFiles, .{ io, step_stack.keys() });
-    defer cleanup_task.await(io);
-
-    for (step_stack.keys()) |s| {
-        test_pass_count += s.test_results.passCount();
-        test_skip_count += s.test_results.skip_count;
-        test_fail_count += s.test_results.fail_count;
-        test_crash_count += s.test_results.crash_count;
-        test_timeout_count += s.test_results.timeout_count;
-
-        test_count += s.test_results.test_count;
-
-        switch (s.state) {
-            .precheck_unstarted => unreachable,
-            .precheck_started => unreachable,
-            .precheck_done => unreachable,
-            .dependency_failure => pending_count += 1,
-            .success => success_count += 1,
-            .skipped, .skipped_oom => skipped_count += 1,
-            .failure => {
-                failure_count += 1;
-                const compile_errors_len = s.result_error_bundle.errorMessageCount();
-                if (compile_errors_len > 0) {
-                    total_compile_errors += compile_errors_len;
-                }
-            },
-        }
-    }
-
-    if (fuzz) |mode| blk: {
-        switch (builtin.os.tag) {
-            // Current implementation depends on two things that need to be ported to Windows:
-            // * Memory-mapping to share data between the fuzzer and build runner.
-            // * COFF/PE support added to `std.debug.Info` (it needs a batching API for resolving
-            //   many addresses to source locations).
-            .windows => fatal("--fuzz not yet implemented for {t}", .{builtin.os.tag}),
-            else => {},
-        }
-        if (@bitSizeOf(usize) != 64) {
-            // Current implementation depends on posix.mmap()'s second parameter, `length: usize`,
-            // being compatible with file system's u64 return value. This is not the case
-            // on 32-bit platforms.
-            // Affects or affected by issues #5185, #22523, and #22464.
-            fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
-        }
-
-        switch (mode) {
-            .forever => break :blk,
-            .limit => {},
-        }
-
-        assert(mode == .limit);
-        var f = Fuzz.init(
-            gpa,
-            io,
-            step_stack.keys(),
-            parent_prog_node,
-            mode,
-        ) catch |err| fatal("failed to start fuzzer: {t}", .{err});
-        defer f.deinit();
-
-        f.start();
-        try f.waitAndPrintReport();
-    }
-
-    // Every test has a state
-    assert(test_pass_count + test_skip_count + test_fail_count + test_crash_count + test_timeout_count == test_count);
-
-    if (failure_count == 0) {
-        std.Progress.setStatus(.success);
-    } else {
-        std.Progress.setStatus(.failure);
-    }
-
-    summary: {
-        switch (run.summary) {
-            .all, .new, .line => {},
-            .failures => if (failure_count == 0) break :summary,
-            .none => break :summary,
-        }
-
-        const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
-        defer io.unlockStderr();
-        const t = stderr.terminal();
-        const w = &stderr.file_writer.interface;
-
-        const total_count = success_count + failure_count + pending_count + skipped_count;
-        t.setColor(.cyan) catch {};
-        t.setColor(.bold) catch {};
-        w.writeAll("Build Summary: ") catch {};
-        t.setColor(.reset) catch {};
-        w.print("{d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
-        {
-            t.setColor(.dim) catch {};
-            var first = true;
-            if (skipped_count > 0) {
-                w.print("{s}{d} skipped", .{ if (first) " (" else ", ", skipped_count }) catch {};
-                first = false;
-            }
-            if (failure_count > 0) {
-                w.print("{s}{d} failed", .{ if (first) " (" else ", ", failure_count }) catch {};
-                first = false;
-            }
-            if (!first) w.writeByte(')') catch {};
-            t.setColor(.reset) catch {};
-        }
-
-        if (test_count > 0) {
-            w.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
-            t.setColor(.dim) catch {};
-            var first = true;
-            if (test_skip_count > 0) {
-                w.print("{s}{d} skipped", .{ if (first) " (" else ", ", test_skip_count }) catch {};
-                first = false;
-            }
-            if (test_fail_count > 0) {
-                w.print("{s}{d} failed", .{ if (first) " (" else ", ", test_fail_count }) catch {};
-                first = false;
-            }
-            if (test_crash_count > 0) {
-                w.print("{s}{d} crashed", .{ if (first) " (" else ", ", test_crash_count }) catch {};
-                first = false;
-            }
-            if (test_timeout_count > 0) {
-                w.print("{s}{d} timed out", .{ if (first) " (" else ", ", test_timeout_count }) catch {};
-                first = false;
-            }
-            if (!first) w.writeByte(')') catch {};
-            t.setColor(.reset) catch {};
-        }
-
-        w.writeAll("\n") catch {};
-
-        if (run.summary == .line) break :summary;
-
-        // Print a fancy tree with build results.
-        var step_stack_copy = try step_stack.clone(gpa);
-        defer step_stack_copy.deinit(gpa);
-
-        var print_node: PrintNode = .{ .parent = null };
-        if (step_names.len == 0) {
-            print_node.last = true;
-            printTreeStep(graph, graph.default_step, run, t, &print_node, &step_stack_copy) catch {};
-        } else {
-            const last_index = if (run.summary == .all) run.top_level_steps.count() else blk: {
-                var i: usize = step_names.len;
-                while (i > 0) {
-                    i -= 1;
-                    const step = run.top_level_steps.get(step_names[i]).?.step;
-                    const found = switch (run.summary) {
-                        .all, .line, .none => unreachable,
-                        .failures => step.state != .success,
-                        .new => !step.result_cached,
-                    };
-                    if (found) break :blk i;
-                }
-                break :blk run.top_level_steps.count();
-            };
-            for (step_names, 0..) |step_name, i| {
-                const tls = run.top_level_steps.get(step_name).?;
-                print_node.last = i + 1 == last_index;
-                printTreeStep(graph, &tls.step, run, t, &print_node, &step_stack_copy) catch {};
-            }
-        }
-        w.writeByte('\n') catch {};
-    }
-
-    if (run.watch or run.web_server != null) return;
-
-    // Perhaps in the future there could be an Advanced Options flag such as
-    // --debug-build-runner-leaks which would make this code return instead of
-    // calling exit.
-
-    const code: u8 = code: {
-        if (failure_count == 0) break :code 0; // success
-        if (run.error_style.verboseContext()) break :code 1; // failure; print build command
-        break :code 2; // failure; do not print build command
+    const InstallPaths = struct {
+        prefix: Path,
+        lib: Path,
+        bin: Path,
+        include: Path,
     };
-    _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
-    process.exit(code);
-}
+
+    fn stepByIndex(run: *const Run, i: Configuration.Step.Index) *Step {
+        return &run.steps[@intFromEnum(i)];
+    }
+
+    fn prepare(run: *Run, step_names: []const []const u8) !void {
+        const gpa = run.gpa;
+        const graph = run.graph;
+        const arena = graph.arena;
+        const seed: u32 = graph.random_seed;
+        const step_stack = &run.step_stack;
+        const c = &run.scanned_config.configuration;
+
+        @memset(run.steps, .{});
+
+        if (step_names.len == 0) {
+            try step_stack.put(gpa, c.default_step, {});
+        } else {
+            try step_stack.ensureUnusedCapacity(gpa, step_names.len);
+            for (0..step_names.len) |i| {
+                const step_name = step_names[step_names.len - i - 1];
+                const s = run.scanned_config.top_level_steps.get(step_name) orelse {
+                    log.info("to list available steps: zig build -l", .{});
+                    fatal("no such step: {s}", .{step_name});
+                };
+                step_stack.putAssumeCapacity(s, {});
+            }
+        }
+
+        const starting_steps = try arena.dupe(Configuration.Step.Index, step_stack.keys());
+
+        var rng = std.Random.DefaultPrng.init(seed);
+        const rand = rng.random();
+        rand.shuffle(Configuration.Step.Index, starting_steps);
+
+        for (starting_steps) |s| {
+            try constructGraphAndCheckForDependencyLoop(gpa, c, run.steps, s, &run.step_stack, rand);
+        }
+
+        {
+            // Check that we have enough memory to complete the build.
+            var any_problems = false;
+            var max_needed: usize = 0;
+            for (step_stack.keys()) |step_index| {
+                const make_step = run.stepByIndex(step_index);
+                const conf_step = step_index.ptr(c);
+                const max_rss = conf_step.max_rss.toBytes();
+                if (max_rss == 0) continue;
+                max_needed = @max(max_needed, max_rss);
+                if (max_rss > run.available_rss) {
+                    if (run.skip_oom_steps) {
+                        make_step.state = .skipped_oom;
+                        for (make_step.dependants.items) |dependant| {
+                            dependant.pending_deps -= 1;
+                        }
+                    } else {
+                        log.err("{s}{s}: this step declares an upper bound of {d} bytes of memory, exceeding the available {d} bytes of memory", .{
+                            conf_step.owner.depPrefixSlice(c),
+                            conf_step.name.slice(c),
+                            max_rss,
+                            run.available_rss,
+                        });
+                        any_problems = true;
+                    }
+                }
+            }
+            if (any_problems) {
+                if (run.max_rss_is_default) {
+                    std.log.info("use --maxrss {d} to proceed, risking system memory exhaustion", .{
+                        max_needed,
+                    });
+                }
+                return error.InsufficientMemory;
+            }
+        }
+    }
+
+    fn makeStepNames(
+        run: *Run,
+        step_names: []const []const u8,
+        parent_prog_node: std.Progress.Node,
+        fuzz: ?Fuzz.Mode,
+    ) !void {
+        const graph = run.graph;
+        const gpa = run.gpa;
+        const io = graph.io;
+        const step_stack = &run.step_stack;
+        const top_level_steps = &run.scanned_config.top_level_steps;
+
+        {
+            // Collect the initial set of tasks (those with no outstanding dependencies) into a buffer,
+            // then spawn them. The buffer is so that we don't race with `makeStep` and end up thinking
+            // a step is initial when it actually became ready due to an earlier initial step.
+            var initial_set: std.ArrayList(*Step) = .empty;
+            defer initial_set.deinit(gpa);
+            try initial_set.ensureUnusedCapacity(gpa, step_stack.count());
+            for (step_stack.keys()) |s| {
+                if (s.state == .precheck_done and s.pending_deps == 0) {
+                    initial_set.appendAssumeCapacity(s);
+                }
+            }
+
+            const step_prog = parent_prog_node.start("steps", step_stack.count());
+            defer step_prog.end();
+
+            var group: Io.Group = .init;
+            defer group.cancel(io);
+            // Start working on all of the initial steps...
+            for (initial_set.items) |s| try stepReady(&group, s, step_prog, run);
+            // ...and `makeStep` will trigger every other step when their last dependency finishes.
+            try group.await(io);
+        }
+
+        assert(run.memory_blocked_steps.items.len == 0);
+
+        var test_pass_count: usize = 0;
+        var test_skip_count: usize = 0;
+        var test_fail_count: usize = 0;
+        var test_crash_count: usize = 0;
+        var test_timeout_count: usize = 0;
+
+        var test_count: usize = 0;
+
+        var success_count: usize = 0;
+        var skipped_count: usize = 0;
+        var failure_count: usize = 0;
+        var pending_count: usize = 0;
+        var total_compile_errors: usize = 0;
+
+        var cleanup_task = io.async(cleanTmpFiles, .{ io, step_stack.keys() });
+        defer cleanup_task.await(io);
+
+        for (step_stack.keys()) |s| {
+            test_pass_count += s.test_results.passCount();
+            test_skip_count += s.test_results.skip_count;
+            test_fail_count += s.test_results.fail_count;
+            test_crash_count += s.test_results.crash_count;
+            test_timeout_count += s.test_results.timeout_count;
+
+            test_count += s.test_results.test_count;
+
+            switch (s.state) {
+                .precheck_unstarted => unreachable,
+                .precheck_started => unreachable,
+                .precheck_done => unreachable,
+                .dependency_failure => pending_count += 1,
+                .success => success_count += 1,
+                .skipped, .skipped_oom => skipped_count += 1,
+                .failure => {
+                    failure_count += 1;
+                    const compile_errors_len = s.result_error_bundle.errorMessageCount();
+                    if (compile_errors_len > 0) {
+                        total_compile_errors += compile_errors_len;
+                    }
+                },
+            }
+        }
+
+        if (fuzz) |mode| blk: {
+            switch (builtin.os.tag) {
+                // Current implementation depends on two things that need to be ported to Windows:
+                // * Memory-mapping to share data between the fuzzer and build runner.
+                // * COFF/PE support added to `std.debug.Info` (it needs a batching API for resolving
+                //   many addresses to source locations).
+                .windows => fatal("--fuzz not yet implemented for {t}", .{builtin.os.tag}),
+                else => {},
+            }
+            if (@bitSizeOf(usize) != 64) {
+                // Current implementation depends on posix.mmap()'s second parameter, `length: usize`,
+                // being compatible with file system's u64 return value. This is not the case
+                // on 32-bit platforms.
+                // Affects or affected by issues #5185, #22523, and #22464.
+                fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
+            }
+
+            switch (mode) {
+                .forever => break :blk,
+                .limit => {},
+            }
+
+            assert(mode == .limit);
+            var f = Fuzz.init(
+                gpa,
+                io,
+                step_stack.keys(),
+                parent_prog_node,
+                mode,
+            ) catch |err| fatal("failed to start fuzzer: {t}", .{err});
+            defer f.deinit();
+
+            f.start();
+            try f.waitAndPrintReport();
+        }
+
+        // Every test has a state
+        assert(test_pass_count + test_skip_count + test_fail_count + test_crash_count + test_timeout_count == test_count);
+
+        if (failure_count == 0) {
+            std.Progress.setStatus(.success);
+        } else {
+            std.Progress.setStatus(.failure);
+        }
+
+        summary: {
+            switch (run.summary) {
+                .all, .new, .line => {},
+                .failures => if (failure_count == 0) break :summary,
+                .none => break :summary,
+            }
+
+            const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
+            defer io.unlockStderr();
+            const t = stderr.terminal();
+            const w = &stderr.file_writer.interface;
+
+            const total_count = success_count + failure_count + pending_count + skipped_count;
+            t.setColor(.cyan) catch {};
+            t.setColor(.bold) catch {};
+            w.writeAll("Build Summary: ") catch {};
+            t.setColor(.reset) catch {};
+            w.print("{d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
+            {
+                t.setColor(.dim) catch {};
+                var first = true;
+                if (skipped_count > 0) {
+                    w.print("{s}{d} skipped", .{ if (first) " (" else ", ", skipped_count }) catch {};
+                    first = false;
+                }
+                if (failure_count > 0) {
+                    w.print("{s}{d} failed", .{ if (first) " (" else ", ", failure_count }) catch {};
+                    first = false;
+                }
+                if (!first) w.writeByte(')') catch {};
+                t.setColor(.reset) catch {};
+            }
+
+            if (test_count > 0) {
+                w.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
+                t.setColor(.dim) catch {};
+                var first = true;
+                if (test_skip_count > 0) {
+                    w.print("{s}{d} skipped", .{ if (first) " (" else ", ", test_skip_count }) catch {};
+                    first = false;
+                }
+                if (test_fail_count > 0) {
+                    w.print("{s}{d} failed", .{ if (first) " (" else ", ", test_fail_count }) catch {};
+                    first = false;
+                }
+                if (test_crash_count > 0) {
+                    w.print("{s}{d} crashed", .{ if (first) " (" else ", ", test_crash_count }) catch {};
+                    first = false;
+                }
+                if (test_timeout_count > 0) {
+                    w.print("{s}{d} timed out", .{ if (first) " (" else ", ", test_timeout_count }) catch {};
+                    first = false;
+                }
+                if (!first) w.writeByte(')') catch {};
+                t.setColor(.reset) catch {};
+            }
+
+            w.writeAll("\n") catch {};
+
+            if (run.summary == .line) break :summary;
+
+            // Print a fancy tree with build results.
+            var step_stack_copy = try step_stack.clone(gpa);
+            defer step_stack_copy.deinit(gpa);
+
+            var print_node: PrintNode = .{ .parent = null };
+            if (step_names.len == 0) {
+                print_node.last = true;
+                printTreeStep(graph, graph.default_step, run, t, &print_node, &step_stack_copy) catch {};
+            } else {
+                const last_index = if (run.summary == .all) top_level_steps.count() else blk: {
+                    var i: usize = step_names.len;
+                    while (i > 0) {
+                        i -= 1;
+                        const step = top_level_steps.get(step_names[i]).?.step;
+                        const found = switch (run.summary) {
+                            .all, .line, .none => unreachable,
+                            .failures => step.state != .success,
+                            .new => !step.result_cached,
+                        };
+                        if (found) break :blk i;
+                    }
+                    break :blk top_level_steps.count();
+                };
+                for (step_names, 0..) |step_name, i| {
+                    const tls = top_level_steps.get(step_name).?;
+                    print_node.last = i + 1 == last_index;
+                    printTreeStep(graph, &tls.step, run, t, &print_node, &step_stack_copy) catch {};
+                }
+            }
+            w.writeByte('\n') catch {};
+        }
+
+        if (run.watch or run.web_server != null) return;
+
+        // Perhaps in the future there could be an Advanced Options flag such as
+        // --debug-build-runner-leaks which would make this code return instead of
+        // calling exit.
+
+        const code: u8 = code: {
+            if (failure_count == 0) break :code 0; // success
+            if (run.error_style.verboseContext()) break :code 1; // failure; print build command
+            break :code 2; // failure; do not print build command
+        };
+        _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
+        process.exit(code);
+    }
+};
 
 const PrintNode = struct {
     parent: ?*PrintNode,
@@ -1221,40 +1246,47 @@ fn printTreeStep(
 ///   random order
 fn constructGraphAndCheckForDependencyLoop(
     gpa: Allocator,
-    s: *Step,
-    step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
+    c: *const Configuration,
+    steps: []Step,
+    step_index: Configuration.Step.Index,
+    step_stack: *std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
     rand: std.Random,
-) !void {
+) error{ DependencyLoopDetected, OutOfMemory }!void {
+    const s: *Step = &steps[@intFromEnum(step_index)];
     switch (s.state) {
         .precheck_started => {
-            std.debug.print("dependency loop detected:\n  {s}\n", .{s.name});
+            log.err("dependency loop detected: {s}", .{step_index.ptr(c).name.slice(c)});
             return error.DependencyLoopDetected;
         },
         .precheck_unstarted => {
             s.state = .precheck_started;
 
-            try step_stack.ensureUnusedCapacity(gpa, s.dependencies.items.len);
+            const step = step_index.ptr(c);
+            const dependencies = step.deps.slice(c);
+            try step_stack.ensureUnusedCapacity(gpa, dependencies.len);
 
             // We dupe to avoid shuffling the steps in the summary, it depends
-            // on s.dependencies' order.
-            const deps = try gpa.dupe(*Step, s.dependencies.items);
+            // on dependencies' order.
+            const deps = try gpa.dupe(Configuration.Step.Index, dependencies);
             defer gpa.free(deps);
 
-            rand.shuffle(*Step, deps);
+            rand.shuffle(Configuration.Step.Index, deps);
 
             for (deps) |dep| {
+                const dep_step: *Step = &steps[@intFromEnum(dep)];
                 try step_stack.put(gpa, dep, {});
-                try dep.dependants.append(gpa, s);
-                constructGraphAndCheckForDependencyLoop(gpa, dep, step_stack, rand) catch |err| {
-                    if (err == error.DependencyLoopDetected) {
-                        std.debug.print("  {s}\n", .{s.name});
-                    }
-                    return err;
+                try dep_step.dependants.append(gpa, s);
+                constructGraphAndCheckForDependencyLoop(gpa, c, steps, dep, step_stack, rand) catch |err| switch (err) {
+                    error.DependencyLoopDetected => {
+                        log.info("needed by: {s}", .{step_index.ptr(c).name.slice(c)});
+                        return err;
+                    },
+                    else => return err,
                 };
             }
 
             s.state = .precheck_done;
-            s.pending_deps = @intCast(s.dependencies.items.len);
+            s.pending_deps = @intCast(dependencies.len);
         },
         .precheck_done => {},
 
@@ -1492,8 +1524,7 @@ fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
 
 fn nextArgOrFatal(args: []const [:0]const u8, idx: *usize) [:0]const u8 {
     return nextArg(args, idx) orelse {
-        log.info("access the help menu with \"zig build -h\"", .{});
-        fatal("expected argument after {q}", .{args[idx.* - 1]});
+        fatalWithHint("expected argument after {q}", .{args[idx.* - 1]});
     };
 }
 
@@ -1532,7 +1563,7 @@ const MultilineErrors = enum { indent, newline, none };
 const Summary = enum { all, new, failures, line, none };
 
 fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
-    log.info("access the help menu with 'zig build -h'", .{});
+    log.info("to access the help menu: zig build -h", .{});
     fatal(f, args);
 }
 
@@ -1547,13 +1578,6 @@ fn cleanTmpFiles(io: Io, steps: []const *Step) void {
     }
 }
 
-const InstallPaths = struct {
-    prefix: Path,
-    lib: Path,
-    bin: Path,
-    include: Path,
-};
-
 var stdio_buffer_allocation: [256]u8 = undefined;
 var stdout_writer_allocation: Io.File.Writer = undefined;
 
@@ -1564,17 +1588,20 @@ fn initStdoutWriter(io: Io) *Writer {
 
 const ScannedConfig = struct {
     configuration: Configuration,
-    top_level_steps: []const Configuration.Step.Index,
+    top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index),
 
     fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
+        const c = &sc.configuration;
         var serializer: std.zon.Serializer = .{ .writer = w };
         var s = try serializer.beginStruct(.{});
 
-        try s.field("default_step", @intFromEnum(sc.configuration.default_step), .{});
+        try s.field("default_step", @intFromEnum(c.default_step), .{});
         {
-            var tuple = try s.beginTupleField("top_level_steps", .{});
-            for (sc.top_level_steps) |step| try tuple.field(@intFromEnum(step), .{});
-            try tuple.end();
+            var ss = try s.beginStructField("top_level_steps", .{});
+            for (sc.top_level_steps.keys(), sc.top_level_steps.values()) |name, step| {
+                try ss.field(name, @intFromEnum(step), .{});
+            }
+            try ss.end();
         }
 
         try s.end();
@@ -1583,9 +1610,8 @@ const ScannedConfig = struct {
     fn printSteps(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
         const arena = graph.arena;
         const c = &sc.configuration;
-        for (sc.top_level_steps) |step_index| {
+        for (sc.top_level_steps.keys(), sc.top_level_steps.values()) |name, step_index| {
             const step = step_index.ptr(c);
-            const name = step.name.slice(c);
             const decorated_name = if (step_index == c.default_step)
                 try fmt.allocPrint(arena, "{s} (default)", .{name})
             else
@@ -1679,8 +1705,8 @@ const ScannedConfig = struct {
         try w.writeAll(
             \\
             \\General Options:
-            \\  -h, --help                   Print this help and exit
-            \\  -l, --list-steps             Print available steps
+            \\  -h, --help                   Print this help to stdout and exit
+            \\  -l, --list-steps             Print available steps to stdout and exit
             \\
             \\  -p, --prefix [path]          Where to install files (default: zig-out)
             \\  --prefix-lib-dir [path]      Where to install libraries

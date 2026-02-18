@@ -112,6 +112,10 @@ pub const Graph = struct {
     /// respects the '--color' flag.
     stderr_mode: ?Io.Terminal.Mode = null,
     release_mode: ReleaseMode = .off,
+    /// Whether the user passed in "--" arguments. They can be added to a child
+    /// process via `Step.Run` API but cannot be observed in the configure
+    /// phase.
+    have_run_args: bool = false,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };

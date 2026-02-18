@@ -141,6 +141,8 @@ pub const Arg = union(enum) {
     bytes: []u8,
     output_file: *Output,
     output_directory: *Output,
+    /// The arguments passed after "--" on the "zig build" CLI.
+    cli_rest_positionals,
 };
 
 pub const PrefixedArtifact = struct {

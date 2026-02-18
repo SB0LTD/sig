@@ -413,6 +413,7 @@ pub const AvailableOption = extern struct {
 
 pub const Step = extern struct {
     name: String,
+    owner: Package.Index,
     deps: Deps,
     max_rss: MaxRss,
     /// Points into `extra` for step-specific data. First element has flags
@@ -534,6 +535,7 @@ pub const Step = extern struct {
                 bytes,
                 output_file,
                 output_directory,
+                cli_rest_positionals,
             };
         };
 
@@ -841,7 +843,7 @@ pub const LazyPath = enum(u32) {
 
     pub const SourcePath = struct {
         flags: Flags,
-        owner: Package,
+        owner: Package.Index,
         sub_path: String,
 
         pub const Flags = packed struct(u32) {
@@ -877,16 +879,19 @@ pub const LazyPath = enum(u32) {
     };
 };
 
-/// It's an OptionalString which points to the package hash.
-pub const Package = enum(u32) {
-    root = maxInt(u32),
-    _,
+pub const Package = struct {
+    dep_prefix: String,
+    hash: String,
 
-    pub fn fromHash(hash: String) Package {
-        const result: Package = @enumFromInt(@intFromEnum(hash));
-        assert(result != .root);
-        return result;
-    }
+    pub const Index = enum(u32) {
+        root = maxInt(u32),
+        _,
+
+        pub fn depPrefixSlice(i: Index, c: *const Configuration) [:0]const u8 {
+            if (i == .root) return "";
+            return extraData(c, Package, @intFromEnum(i)).dep_prefix.slice(c);
+        }
+    };
 };
 
 /// Trailing:
@@ -900,7 +905,7 @@ pub const Package = enum(u32) {
 pub const Module = struct {
     flags: Flags,
     flags2: Flags2,
-    owner: Package,
+    owner: Package.Index,
     root_source_file: OptionalLazyPath,
     import_table: ImportTable,
     resolved_target: ResolvedTarget.OptionalIndex,
@@ -1048,6 +1053,11 @@ pub const ImportTable = enum(u32) {
 /// elements is `Step.Index` per count.
 pub const Deps = enum(u32) {
     _,
+
+    pub fn slice(deps: Deps, c: *const Configuration) []Step.Index {
+        const len = c.extra[@intFromEnum(deps)];
+        return @ptrCast(c.extra[@intFromEnum(deps) + 1 ..][0..len]);
+    }
 };
 
 /// Points into `extra`, where the first element is count of strings, following

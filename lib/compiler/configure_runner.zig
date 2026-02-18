@@ -186,6 +186,8 @@ pub fn main(init: process.Init.Minimal) !void {
             // but it is handled by the parent process. The build runner
             // only sees this flag.
             graph.system_package_mode = true;
+        } else if (mem.eql(u8, arg, "--have-run-args")) {
+            graph.have_run_args = true;
         } else {
             fatalWithHint("unrecognized argument: '{s}'", .{arg});
         }
@@ -226,13 +228,69 @@ pub fn main(init: process.Init.Minimal) !void {
     process.exit(0);
 }
 
+const Serialize = struct {
+    arena: Allocator,
+    wc: *Configuration.Wip,
+    module_map: std.AutoArrayHashMapUnmanaged(*std.Build.Module, Configuration.Module.Index) = .empty,
+    package_map: std.AutoArrayHashMapUnmanaged(*std.Build, Configuration.Package.Index) = .empty,
+
+    fn builderToPackage(s: *Serialize, b: *std.Build) !Configuration.Package.Index {
+        if (b.pkg_hash.len == 0) return .root;
+        const arena = s.arena;
+        const wc = s.wc;
+        const gop = try s.package_map.getOrPut(arena, b);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = @enumFromInt(try wc.addExtra(@as(Configuration.Package, .{
+                .hash = try wc.addString(b.pkg_hash),
+                .dep_prefix = try wc.addString(b.dep_prefix),
+            })));
+        }
+        return gop.value_ptr.*;
+    }
+
+    fn addOptionalLazyPath(s: *Serialize, lp: ?std.Build.LazyPath) !Configuration.OptionalLazyPath {
+        const wc = s.wc;
+        return @enumFromInt(switch (lp orelse return .none) {
+            .src_path => |src_path| i: {
+                const sub_path = try wc.addString(src_path.sub_path);
+                break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
+                    .flags = .{},
+                    .owner = try s.builderToPackage(src_path.owner),
+                    .sub_path = sub_path,
+                }));
+            },
+            .generated => |generated| i: {
+                const sub_path = try wc.addString(generated.sub_path);
+                break :i try wc.addExtra(@as(Configuration.LazyPath.Generated, .{
+                    .flags = .{ .up = @intCast(generated.up) },
+                    .sub_path = sub_path,
+                }));
+            },
+            .cwd_relative => |cwd_relative_sub_path| i: {
+                const sub_path = try wc.addString(cwd_relative_sub_path);
+                break :i try wc.addExtra(@as(Configuration.LazyPath.Relative, .{
+                    .flags = .{ .base = .cwd },
+                    .sub_path = sub_path,
+                }));
+            },
+            .dependency => |dependency| i: {
+                const sub_path = try wc.addString(dependency.sub_path);
+                break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
+                    .flags = .{},
+                    .owner = try s.builderToPackage(dependency.dependency.builder),
+                    .sub_path = sub_path,
+                }));
+            },
+        });
+    }
+};
+
 fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
     const graph = b.graph;
     const arena = graph.arena;
     const gpa = wc.gpa;
 
-    var module_map: std.AutoArrayHashMapUnmanaged(*std.Build.Module, Configuration.Module.Index) = .empty;
-    defer module_map.deinit(gpa);
+    var s: Serialize = .{ .wc = wc, .arena = arena };
 
     // Starting from all top-level steps in `b`, traverse the entire step graph
     // and add all step dependencies implied by module graphs.
@@ -267,6 +325,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
             try wc.steps.ensureTotalCapacity(gpa, step_map.entries.capacity);
             wc.steps.appendAssumeCapacity(.{
                 .name = try wc.addString(step.name),
+                .owner = try s.builderToPackage(step.owner),
                 .deps = deps,
                 .max_rss = .fromBytes(step.max_rss),
                 .extra_index = switch (step.tag) {
@@ -367,7 +426,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .install_name = c.install_name != null,
                                 .entitlements = c.entitlements != null,
                             },
-                            .root_module = try addModule(wc, &module_map, c.root_module),
+                            .root_module = try addModule(&s, c.root_module),
                             .root_name = try wc.addString(c.name),
                         }));
 
@@ -383,13 +442,13 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             },
                             .dest_dir = try addInstallDir(wc, ia.dest_dir),
                             .dest_sub_path = try wc.addString(ia.dest_sub_path),
-                            .emitted_bin = try addOptionalLazyPath(wc, ia.emitted_bin),
+                            .emitted_bin = try s.addOptionalLazyPath(ia.emitted_bin),
                             .implib_dir = try addInstallDir(wc, ia.implib_dir),
-                            .emitted_implib = try addOptionalLazyPath(wc, ia.emitted_implib),
+                            .emitted_implib = try s.addOptionalLazyPath(ia.emitted_implib),
                             .pdb_dir = try addInstallDir(wc, ia.pdb_dir),
-                            .emitted_pdb = try addOptionalLazyPath(wc, ia.emitted_pdb),
+                            .emitted_pdb = try s.addOptionalLazyPath(ia.emitted_pdb),
                             .h_dir = try addInstallDir(wc, ia.h_dir),
-                            .emitted_h = try addOptionalLazyPath(wc, ia.emitted_h),
+                            .emitted_h = try s.addOptionalLazyPath(ia.emitted_h),
                             .artifact = stepIndex(&step_map, &ia.artifact.step),
                         }));
                     },
@@ -440,7 +499,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             },
                             .file_inputs_len = @intCast(run.file_inputs.items.len),
                             .args_len = @intCast(run.argv.items.len),
-                            .cwd = try addOptionalLazyPath(wc, run.cwd),
+                            .cwd = try s.addOptionalLazyPath(run.cwd),
                             .captured_stdout = captured_stdout,
                             .captured_stderr = captured_stderr,
                         }));
@@ -469,13 +528,11 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
     });
 }
 
-fn addModule(
-    wc: *Configuration.Wip,
-    module_map: *std.AutoArrayHashMapUnmanaged(*std.Build.Module, Configuration.Module.Index),
-    m: *std.Build.Module,
-) !Configuration.Module.Index {
-    if (module_map.get(m)) |index| return index;
+fn addModule(s: *Serialize, m: *std.Build.Module) !Configuration.Module.Index {
+    if (s.module_map.get(m)) |index| return index;
 
+    const wc = s.wc;
+    const arena = s.arena;
     const gpa = wc.gpa;
     const import_table: Configuration.ImportTable = @enumFromInt(wc.extra.items.len);
     const import_table_extra_len = 1 + 2 * m.import_table.entries.len;
@@ -494,7 +551,7 @@ fn addModule(
         @intFromEnum(import_table) + 1 + m.import_table.entries.len..,
     ) |dep, extra_index| {
         log.err("TODO module dependencies can be cyclic", .{});
-        wc.extra.items[extra_index] = @intFromEnum(try addModule(wc, module_map, dep));
+        wc.extra.items[extra_index] = @intFromEnum(try addModule(s, dep));
     }
 
     const module_index: Configuration.Module.Index = @enumFromInt(try wc.addExtra(@as(Configuration.Module, .{
@@ -528,15 +585,15 @@ fn addModule(
             .link_libcpp = .init(m.strip),
             .no_builtin = .init(m.strip),
         },
-        .owner = try builderToPackage(wc, m.owner),
-        .root_source_file = try addOptionalLazyPath(wc, m.root_source_file),
+        .owner = try s.builderToPackage(m.owner),
+        .root_source_file = try s.addOptionalLazyPath(m.root_source_file),
         .import_table = import_table,
         .resolved_target = try addOptionalResolvedTarget(wc, m.resolved_target),
     })));
 
     log.err("TODO serialize the trailing Module data", .{});
 
-    try module_map.putNoClobber(gpa, m, module_index);
+    try s.module_map.putNoClobber(arena, m, module_index);
 
     return module_index;
 }
@@ -551,46 +608,6 @@ fn addOptionalResolvedTarget(
         .query = try wc.addTargetQuery(resolved_target.query),
         .result = try wc.addTarget(resolved_target.result),
     })));
-}
-
-fn addOptionalLazyPath(wc: *Configuration.Wip, lp: ?std.Build.LazyPath) !Configuration.OptionalLazyPath {
-    return @enumFromInt(switch (lp orelse return .none) {
-        .src_path => |src_path| i: {
-            const sub_path = try wc.addString(src_path.sub_path);
-            break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
-                .flags = .{},
-                .owner = try builderToPackage(wc, src_path.owner),
-                .sub_path = sub_path,
-            }));
-        },
-        .generated => |generated| i: {
-            const sub_path = try wc.addString(generated.sub_path);
-            break :i try wc.addExtra(@as(Configuration.LazyPath.Generated, .{
-                .flags = .{ .up = @intCast(generated.up) },
-                .sub_path = sub_path,
-            }));
-        },
-        .cwd_relative => |cwd_relative_sub_path| i: {
-            const sub_path = try wc.addString(cwd_relative_sub_path);
-            break :i try wc.addExtra(@as(Configuration.LazyPath.Relative, .{
-                .flags = .{ .base = .cwd },
-                .sub_path = sub_path,
-            }));
-        },
-        .dependency => |dependency| i: {
-            const sub_path = try wc.addString(dependency.sub_path);
-            break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
-                .flags = .{},
-                .owner = try builderToPackage(wc, dependency.dependency.builder),
-                .sub_path = sub_path,
-            }));
-        },
-    });
-}
-
-fn builderToPackage(wc: *Configuration.Wip, b: *std.Build) !Configuration.Package {
-    if (b.pkg_hash.len == 0) return .root;
-    return .fromHash(try wc.addString(b.pkg_hash));
 }
 
 fn addInstallDir(wc: *Configuration.Wip, install_dir: ?std.Build.InstallDir) !Configuration.InstallDir {
@@ -665,9 +682,7 @@ fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
 
 fn nextArgOrFatal(args: []const [:0]const u8, idx: *usize) [:0]const u8 {
     return nextArg(args, idx) orelse {
-        fatal("expected argument after {q}\n  access the help menu with \"zig build -h\"", .{
-            args[idx.* - 1],
-        });
+        fatalWithHint("expected argument after: {s}", .{args[idx.* - 1]});
     };
 }
 
@@ -700,7 +715,8 @@ const MultilineErrors = enum { indent, newline, none };
 const Summary = enum { all, new, failures, line, none };
 
 fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
-    fatal(f ++ "\n  access the help menu with \"zig build -h\"", args);
+    log.info("to access the help menu: zig build -h", .{});
+    fatal(f, args);
 }
 
 fn serializeSystemIntegrationOptions(graph: *std.Build.Graph, wc: *Configuration.Wip) Allocator.Error!void {
@@ -725,7 +741,7 @@ fn serializeSystemIntegrationOptions(graph: *std.Build.Graph, wc: *Configuration
         });
     }
     if (bad) {
-        log.info("access the help menu with \"zig build -h\"", .{});
+        log.info("help menu contains available options: zig build -h", .{});
         process.exit(1);
     }
 }

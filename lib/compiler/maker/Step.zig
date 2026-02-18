@@ -1,19 +1,27 @@
+//! The state that maker needs in order to process a step.
 const Step = @This();
 
+const builtin = @import("builtin");
+
 const std = @import("std");
-const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
+const Io = std.Io;
+const LazyPath = std.Build.Configuration.LazyPath;
+const Package = std.Build.Configuration.Package;
+const Path = std.Build.Cache.Path;
 const assert = std.debug.assert;
 
 const WebServer = @import("WebServer.zig");
 
-pub const Compile = @import("Step/Compile.zig");
-pub const Run = @import("Step/Run.zig");
+pub const Compile = void; // @import("Step/Compile.zig");
+pub const Run = void; // @import("Step/Run.zig");
 
-state: State,
-makeFn: MakeFn,
-dependants: std.ArrayList(*Step),
+/// Avoid false sharing.
+_: void align(std.atomic.cache_line) = {},
+
+state: State = .precheck_unstarted,
+dependants: std.ArrayList(*Step) = .empty,
 /// Collects the set of files that retrigger this step to run.
 ///
 /// This is used by the build system's implementation of `--watch` but it can
@@ -23,20 +31,19 @@ dependants: std.ArrayList(*Step),
 /// Populated within `make`. Implementation may choose to clear and repopulate,
 /// retain previous value, or update.
 inputs: Inputs = .init,
-pending_deps: u32,
+pending_deps: u32 = undefined,
 
-result_error_msgs: std.ArrayList([]const u8),
-result_error_bundle: std.zig.ErrorBundle,
-result_stderr: []const u8,
-result_cached: bool,
-result_duration_ns: ?u64,
+result_error_msgs: std.ArrayList([]const u8) = .empty,
+result_error_bundle: std.zig.ErrorBundle = .empty,
+result_stderr: []const u8 = "",
+result_cached: bool = false,
+result_duration_ns: ?u64 = null,
 /// 0 means unavailable or not reported.
-result_peak_rss: usize,
+result_peak_rss: usize = 0,
 /// If the step is failed and this field is populated, this is the command which failed.
 /// This field may be populated even if the step succeeded.
-result_failed_command: ?[]const u8,
-test_results: TestResults,
-
+result_failed_command: ?[]const u8 = null,
+test_results: TestResults = .{},
 
 pub const State = enum {
     precheck_unstarted,
@@ -172,18 +179,6 @@ pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!voi
     }
 }
 
-fn makeNoOp(step: *Step, options: MakeOptions) anyerror!void {
-    _ = options;
-
-    var all_cached = true;
-
-    for (step.dependencies.items) |dep| {
-        all_cached = all_cached and dep.result_cached;
-    }
-
-    step.result_cached = all_cached;
-}
-
 /// Implementation detail of file watching. Prepares the step for being re-evaluated.
 /// Returns `true` if the step was newly invalidated, `false` if it was already invalidated.
 pub fn invalidateResult(step: *Step, gpa: Allocator) bool {
@@ -233,7 +228,7 @@ pub fn captureChildProcess(
     s.result_failed_command = try allocPrintCmd(gpa, .inherit, null, argv);
 
     try handleChildProcUnsupported(s);
-    try handleVerbose(s.owner, .inherit, argv);
+    try handleVerbose(s, .inherit, argv);
 
     const result = std.process.run(arena, io, .{
         .argv = argv,
@@ -340,7 +335,7 @@ pub fn evalZigProcess(
     assert(argv.len != 0);
 
     try handleChildProcUnsupported(s);
-    try handleVerbose(s.owner, .inherit, argv);
+    try handleVerbose(s, .inherit, argv);
 
     const zp = try gpa.create(ZigProcess);
     defer if (!watch) gpa.destroy(zp);
@@ -399,11 +394,11 @@ pub fn evalZigProcess(
 }
 
 /// Wrapper around `Io.Dir.updateFile` that handles verbose and error output.
-pub fn installFile(s: *Step, src_lazy_path: Build.LazyPath, dest_path: []const u8) !Io.Dir.PrevStatus {
+pub fn installFile(s: *Step, src_lazy_path: LazyPath, dest_path: []const u8) !Io.Dir.PrevStatus {
     const b = s.owner;
     const io = b.graph.io;
     const src_path = src_lazy_path.getPath3(b, s);
-    try handleVerbose(b, .inherit, &.{ "install", "-C", b.fmt("{f}", .{src_path}), dest_path });
+    try handleVerbose(s, .inherit, &.{ "install", "-C", b.fmt("{f}", .{src_path}), dest_path });
     return Io.Dir.updateFile(src_path.root_dir.handle, io, src_path.sub_path, .cwd(), dest_path, .{}) catch |err|
         return s.fail("unable to update file from '{f}' to '{s}': {t}", .{ src_path, dest_path, err });
 }
@@ -412,7 +407,7 @@ pub fn installFile(s: *Step, src_lazy_path: Build.LazyPath, dest_path: []const u
 pub fn installDir(s: *Step, dest_path: []const u8) !Io.Dir.CreatePathStatus {
     const b = s.owner;
     const io = b.graph.io;
-    try handleVerbose(b, .inherit, &.{ "install", "-d", dest_path });
+    try handleVerbose(s, .inherit, &.{ "install", "-d", dest_path });
     return Io.Dir.cwd().createDirPathStatus(io, dest_path, .default_dir) catch |err|
         return s.fail("unable to create dir '{s}': {t}", .{ dest_path, err });
 }
@@ -567,29 +562,21 @@ fn sendMessage(io: Io, file: Io.File, tag: std.zig.Client.Message.Tag) !void {
 }
 
 pub fn handleVerbose(
-    b: *Build,
-    cwd: std.process.Child.Cwd,
-    argv: []const []const u8,
-) error{OutOfMemory}!void {
-    return handleVerbose2(b, cwd, null, argv);
-}
-
-pub fn handleVerbose2(
-    b: *Build,
+    s: *Step,
+    arena: Allocator,
     cwd: std.process.Child.Cwd,
     opt_env: ?*const std.process.Environ.Map,
     argv: []const []const u8,
 ) error{OutOfMemory}!void {
-    if (b.verbose) {
-        const graph = b.graph;
-        // Intention of verbose is to print all sub-process command lines to
-        // stderr before spawning them.
-        const text = try allocPrintCmd(b.allocator, cwd, if (opt_env) |env| .{
-            .child = env,
-            .parent = &graph.environ_map,
-        } else null, argv);
-        std.debug.print("{s}\n", .{text});
-    }
+    if (!s.verbose) return;
+    const graph = s.graph;
+    // Intention of verbose is to print all sub-process command lines to
+    // stderr before spawning them.
+    const text = try allocPrintCmd(arena, cwd, if (opt_env) |env| .{
+        .child = env,
+        .parent = &graph.environ_map,
+    } else null, argv);
+    std.log.scoped(.verbose).info("{s}", .{text});
 }
 
 /// Asserts that the caller has already populated `s.result_failed_command`.
@@ -688,7 +675,7 @@ fn setWatchInputsFromManifest(s: *Step, man: *Cache.Manifest) !void {
 }
 
 /// For steps that have a single input that never changes when re-running `make`.
-pub fn singleUnchangingWatchInput(step: *Step, lazy_path: Build.LazyPath) Allocator.Error!void {
+pub fn singleUnchangingWatchInput(step: *Step, lazy_path: LazyPath) Allocator.Error!void {
     if (!step.inputs.populated()) try step.addWatchInput(lazy_path);
 }
 
@@ -698,7 +685,7 @@ pub fn clearWatchInputs(step: *Step) void {
 }
 
 /// Places a *file* dependency on the path.
-pub fn addWatchInput(step: *Step, lazy_file: Build.LazyPath) Allocator.Error!void {
+pub fn addWatchInput(step: *Step, lazy_file: LazyPath) Allocator.Error!void {
     switch (lazy_file) {
         .src_path => |src_path| try addWatchInputFromBuilder(step, src_path.owner, src_path.sub_path),
         .dependency => |d| try addWatchInputFromBuilder(step, d.dependency.builder, d.sub_path),
@@ -723,7 +710,7 @@ pub fn addWatchInput(step: *Step, lazy_file: Build.LazyPath) Allocator.Error!voi
 /// Paths derived from this directory should also be manually added via
 /// `addDirectoryWatchInputFromPath` if and only if this function returns
 /// `true`.
-pub fn addDirectoryWatchInput(step: *Step, lazy_directory: Build.LazyPath) Allocator.Error!bool {
+pub fn addDirectoryWatchInput(step: *Step, lazy_directory: LazyPath) Allocator.Error!bool {
     switch (lazy_directory) {
         .src_path => |src_path| try addDirectoryWatchInputFromBuilder(step, src_path.owner, src_path.sub_path),
         .dependency => |d| try addDirectoryWatchInputFromBuilder(step, d.dependency.builder, d.sub_path),
@@ -744,26 +731,26 @@ pub fn addDirectoryWatchInput(step: *Step, lazy_directory: Build.LazyPath) Alloc
 
 /// Any changes inside the directory will trigger invalidation.
 ///
-/// See also `addDirectoryWatchInput` which takes a `Build.LazyPath` instead.
+/// See also `addDirectoryWatchInput` which takes a `LazyPath` instead.
 ///
 /// This function should only be called when it has been verified that the
 /// dependency on `path` is not already accounted for by a `Step` dependency.
 /// In other words, before calling this function, first check that the
-/// `Build.LazyPath` which this `path` is derived from is not `generated`.
+/// `LazyPath` which this `path` is derived from is not `generated`.
 pub fn addDirectoryWatchInputFromPath(step: *Step, path: Cache.Path) !void {
     return addWatchInputFromPath(step, path, ".");
 }
 
-fn addWatchInputFromBuilder(step: *Step, builder: *Build, sub_path: []const u8) !void {
+fn addWatchInputFromBuilder(step: *Step, package: Package, sub_path: []const u8) !void {
     return addWatchInputFromPath(step, .{
-        .root_dir = builder.build_root,
+        .root_dir = package.build_root,
         .sub_path = std.fs.path.dirname(sub_path) orelse "",
     }, std.fs.path.basename(sub_path));
 }
 
-fn addDirectoryWatchInputFromBuilder(step: *Step, builder: *Build, sub_path: []const u8) !void {
+fn addDirectoryWatchInputFromBuilder(step: *Step, package: Package, sub_path: []const u8) !void {
     return addDirectoryWatchInputFromPath(step, .{
-        .root_dir = builder.build_root,
+        .root_dir = package.build_root,
         .sub_path = sub_path,
     });
 }
@@ -847,16 +834,3 @@ pub fn allocPrintCmd(
     }
     return aw.toOwnedSlice();
 }
-
-pub fn getInstallPath(b: *Build, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
-    assert(!fs.path.isAbsolute(dest_rel_path)); // Install paths must be relative to the prefix
-    const base_dir = switch (dir) {
-        .prefix => b.install_path,
-        .bin => b.exe_dir,
-        .lib => b.lib_dir,
-        .header => b.h_dir,
-        .custom => |p| b.pathJoin(&.{ b.install_path, p }),
-    };
-    return b.pathResolve(&.{ base_dir, dest_rel_path });
-}
-
