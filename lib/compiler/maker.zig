@@ -1,3 +1,4 @@
+const Maker = @This();
 const builtin = @import("builtin");
 
 const std = @import("std");
@@ -25,6 +26,28 @@ pub const std_options: std.Options = .{
     .side_channels_mitigations = .none,
     .http_disable_tls = true,
 };
+
+gpa: Allocator,
+graph: *Graph,
+install_paths: InstallPaths,
+scanned_config: *const ScannedConfig,
+steps: []Step,
+
+available_rss: usize,
+max_rss_is_default: bool,
+max_rss_mutex: Io.Mutex,
+skip_oom_steps: bool,
+unit_test_timeout_ns: ?u64,
+watch: bool,
+web_server: if (!builtin.single_threaded) ?WebServer else ?noreturn,
+/// Allocated into `gpa`.
+memory_blocked_steps: std.ArrayList(Configuration.Step.Index),
+/// Allocated into `gpa`.
+step_stack: std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
+
+error_style: ErrorStyle,
+multiline_errors: MultilineErrors,
+summary: Summary,
 
 pub fn main(init: process.Init.Minimal) !void {
     // The build runner is often short-lived, but thanks to `--watch` and `--webui`, that's not
@@ -467,7 +490,7 @@ pub fn main(init: process.Init.Minimal) !void {
         .sub_path = cwd_relative,
     } else try install_prefix_path.join(arena, "include");
 
-    var run: Run = .{
+    var maker: Maker = .{
         .gpa = gpa,
         .graph = &graph,
         .scanned_config = &scanned_config,
@@ -495,16 +518,16 @@ pub fn main(init: process.Init.Minimal) !void {
         .summary = summary orelse if (watch or webui_listen != null) .line else .failures,
     };
     defer {
-        run.memory_blocked_steps.deinit(gpa);
-        run.step_stack.deinit(gpa);
+        maker.memory_blocked_steps.deinit(gpa);
+        maker.step_stack.deinit(gpa);
     }
 
-    if (run.available_rss == 0) {
-        run.available_rss = process.totalSystemMemory() catch std.math.maxInt(u64);
-        run.max_rss_is_default = true;
+    if (maker.available_rss == 0) {
+        maker.available_rss = process.totalSystemMemory() catch std.math.maxInt(u64);
+        maker.max_rss_is_default = true;
     }
 
-    run.prepare(step_names.items) catch |err| switch (err) {
+    maker.prepare(step_names.items) catch |err| switch (err) {
         error.DependencyLoopDetected, error.InsufficientMemory => {
             _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
             process.exit(1);
@@ -515,17 +538,17 @@ pub fn main(init: process.Init.Minimal) !void {
     var w: Watch = w: {
         if (!watch) break :w undefined;
         if (!Watch.have_impl) fatal("--watch not yet implemented for {t}", .{builtin.os.tag});
-        break :w try .init(graph.cache.cwd, &scanned_config.configuration, run.steps);
+        break :w try .init(graph.cache.cwd, &scanned_config.configuration, maker.steps);
     };
 
     const now = Io.Clock.Timestamp.now(io, .awake);
 
-    run.web_server = if (webui_listen) |listen_address| ws: {
+    maker.web_server = if (webui_listen) |listen_address| ws: {
         if (builtin.single_threaded) unreachable; // `fatal` above
         break :ws .init(.{
             .gpa = gpa,
             .graph = &graph,
-            .all_steps = run.step_stack.keys(),
+            .all_steps = maker.step_stack.keys(),
             .root_prog_node = main_progress_node,
             .watch = watch,
             .listen_address = listen_address,
@@ -534,20 +557,20 @@ pub fn main(init: process.Init.Minimal) !void {
         });
     } else null;
 
-    if (run.web_server) |*ws| {
+    if (maker.web_server) |*ws| {
         ws.start() catch |err| fatal("failed to start web server: {t}", .{err});
     }
 
-    rebuild: while (true) : (if (run.error_style.clearOnUpdate()) {
+    rebuild: while (true) : (if (maker.error_style.clearOnUpdate()) {
         const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
         defer io.unlockStderr();
         try stderr.file_writer.interface.writeAll("\x1B[2J\x1B[3J\x1B[H");
     }) {
-        if (run.web_server) |*ws| ws.startBuild();
+        if (maker.web_server) |*ws| ws.startBuild();
 
-        try run.makeStepNames(step_names.items, main_progress_node, fuzz);
+        try maker.makeStepNames(step_names.items, main_progress_node, fuzz);
 
-        if (run.web_server) |*web_server| {
+        if (maker.web_server) |*web_server| {
             if (fuzz) |mode| if (mode != .forever) fatal(
                 "error: limited fuzzing is not implemented yet for --webui",
                 .{},
@@ -556,13 +579,13 @@ pub fn main(init: process.Init.Minimal) !void {
             web_server.finishBuild(.{ .fuzz = fuzz != null });
         }
 
-        if (run.web_server) |*ws| {
+        if (maker.web_server) |*ws| {
             const c = &scanned_config.configuration;
             assert(!watch); // fatal error after CLI parsing
             while (true) switch (try ws.wait()) {
                 .rebuild => {
-                    for (run.step_stack.keys()) |step_index| {
-                        const step = run.stepByIndex(step_index);
+                    for (maker.step_stack.keys()) |step_index| {
+                        const step = maker.stepByIndex(step_index);
                         step.state = .precheck_done;
                         const deps = step_index.ptr(c).deps.slice(c);
                         step.pending_deps = @intCast(deps.len);
@@ -576,7 +599,7 @@ pub fn main(init: process.Init.Minimal) !void {
         // Comptime-known guard to prevent including the logic below when `!Watch.have_impl`.
         if (!Watch.have_impl) unreachable;
 
-        try w.update(gpa, run.step_stack.keys());
+        try w.update(gpa, maker.step_stack.keys());
 
         // Wait until a file system notification arrives. Read all such events
         // until the buffer is empty. Then wait for a debounce interval, resetting
@@ -585,7 +608,7 @@ pub fn main(init: process.Init.Minimal) !void {
         // recursive dependants.
         var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
         const caption = std.fmt.bufPrint(&caption_buf, "watching {d} directories, {d} processes", .{
-            w.dir_count, countSubProcesses(run.steps, run.step_stack.keys()),
+            w.dir_count, countSubProcesses(maker.steps, maker.step_stack.keys()),
         }) catch &caption_buf;
         var debouncing_node = main_progress_node.start(caption, 0);
         var in_debounce = false;
@@ -593,7 +616,7 @@ pub fn main(init: process.Init.Minimal) !void {
             .timeout => {
                 assert(in_debounce);
                 debouncing_node.end();
-                markFailedStepsDirty(gpa, run.steps, run.step_stack.keys());
+                markFailedStepsDirty(gpa, maker.steps, maker.step_stack.keys());
                 continue :rebuild;
             },
             .dirty => if (!in_debounce) {
@@ -634,436 +657,386 @@ fn countSubProcesses(make_steps: []Step, all_steps: []const Configuration.Step.I
     return count;
 }
 
-const Run = struct {
-    gpa: Allocator,
-    graph: *Graph,
-    install_paths: InstallPaths,
-    scanned_config: *const ScannedConfig,
-    steps: []Step,
+const InstallPaths = struct {
+    prefix: Path,
+    lib: Path,
+    bin: Path,
+    include: Path,
+};
 
-    available_rss: usize,
-    max_rss_is_default: bool,
-    max_rss_mutex: Io.Mutex,
-    skip_oom_steps: bool,
-    unit_test_timeout_ns: ?u64,
-    watch: bool,
-    web_server: if (!builtin.single_threaded) ?WebServer else ?noreturn,
-    /// Allocated into `gpa`.
-    memory_blocked_steps: std.ArrayList(Configuration.Step.Index),
-    /// Allocated into `gpa`.
-    step_stack: std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
+fn stepByIndex(maker: *const Maker, i: Configuration.Step.Index) *Step {
+    return &maker.steps[@intFromEnum(i)];
+}
 
-    error_style: ErrorStyle,
-    multiline_errors: MultilineErrors,
-    summary: Summary,
+fn prepare(maker: *Maker, step_names: []const []const u8) !void {
+    const gpa = maker.gpa;
+    const graph = maker.graph;
+    const arena = graph.arena;
+    const seed: u32 = graph.random_seed;
+    const step_stack = &maker.step_stack;
+    const c = &maker.scanned_config.configuration;
 
-    const InstallPaths = struct {
-        prefix: Path,
-        lib: Path,
-        bin: Path,
-        include: Path,
-    };
+    @memset(maker.steps, .{});
 
-    fn stepByIndex(run: *const Run, i: Configuration.Step.Index) *Step {
-        return &run.steps[@intFromEnum(i)];
-    }
-
-    fn prepare(run: *Run, step_names: []const []const u8) !void {
-        const gpa = run.gpa;
-        const graph = run.graph;
-        const arena = graph.arena;
-        const seed: u32 = graph.random_seed;
-        const step_stack = &run.step_stack;
-        const c = &run.scanned_config.configuration;
-
-        @memset(run.steps, .{});
-
-        if (step_names.len == 0) {
-            try step_stack.put(gpa, c.default_step, {});
-        } else {
-            try step_stack.ensureUnusedCapacity(gpa, step_names.len);
-            for (0..step_names.len) |i| {
-                const step_name = step_names[step_names.len - i - 1];
-                const s = run.scanned_config.top_level_steps.get(step_name) orelse {
-                    log.info("to list available steps: zig build -l", .{});
-                    fatal("no such step: {s}", .{step_name});
-                };
-                step_stack.putAssumeCapacity(s, {});
-            }
-        }
-
-        const starting_steps = try arena.dupe(Configuration.Step.Index, step_stack.keys());
-
-        var rng = std.Random.DefaultPrng.init(seed);
-        const rand = rng.random();
-        rand.shuffle(Configuration.Step.Index, starting_steps);
-
-        for (starting_steps) |s| {
-            try constructGraphAndCheckForDependencyLoop(gpa, c, run.steps, s, &run.step_stack, rand);
-        }
-
-        {
-            // Check that we have enough memory to complete the build.
-            var any_problems = false;
-            var max_needed: usize = 0;
-            for (step_stack.keys()) |step_index| {
-                const make_step = run.stepByIndex(step_index);
-                const conf_step = step_index.ptr(c);
-                const max_rss = conf_step.max_rss.toBytes();
-                if (max_rss == 0) continue;
-                max_needed = @max(max_needed, max_rss);
-                if (max_rss > run.available_rss) {
-                    if (run.skip_oom_steps) {
-                        make_step.state = .skipped_oom;
-                        for (make_step.dependants.items) |dependant| {
-                            run.stepByIndex(dependant).pending_deps -= 1;
-                        }
-                    } else {
-                        log.err("{s}{s}: this step declares an upper bound of {d} bytes of memory, exceeding the available {d} bytes of memory", .{
-                            conf_step.owner.depPrefixSlice(c),
-                            conf_step.name.slice(c),
-                            max_rss,
-                            run.available_rss,
-                        });
-                        any_problems = true;
-                    }
-                }
-            }
-            if (any_problems) {
-                if (run.max_rss_is_default) {
-                    std.log.info("use --maxrss {d} to proceed, risking system memory exhaustion", .{
-                        max_needed,
-                    });
-                }
-                return error.InsufficientMemory;
-            }
+    if (step_names.len == 0) {
+        try step_stack.put(gpa, c.default_step, {});
+    } else {
+        try step_stack.ensureUnusedCapacity(gpa, step_names.len);
+        for (0..step_names.len) |i| {
+            const step_name = step_names[step_names.len - i - 1];
+            const s = maker.scanned_config.top_level_steps.get(step_name) orelse {
+                log.info("to list available steps: zig build -l", .{});
+                fatal("no such step: {s}", .{step_name});
+            };
+            step_stack.putAssumeCapacity(s, {});
         }
     }
 
-    fn makeStepNames(
-        run: *Run,
-        step_names: []const []const u8,
-        parent_prog_node: std.Progress.Node,
-        fuzz: ?Fuzz.Mode,
-    ) !void {
-        const graph = run.graph;
-        const gpa = run.gpa;
-        const io = graph.io;
-        const step_stack = &run.step_stack;
-        const top_level_steps = &run.scanned_config.top_level_steps;
-        const c = &run.scanned_config.configuration;
+    const starting_steps = try arena.dupe(Configuration.Step.Index, step_stack.keys());
 
-        {
-            // Collect the initial set of tasks (those with no outstanding dependencies) into a buffer,
-            // then spawn them. The buffer is so that we don't race with `makeStep` and end up thinking
-            // a step is initial when it actually became ready due to an earlier initial step.
-            var initial_set: std.ArrayList(Configuration.Step.Index) = .empty;
-            defer initial_set.deinit(gpa);
-            try initial_set.ensureUnusedCapacity(gpa, step_stack.count());
-            for (step_stack.keys()) |step_index| {
-                const s = run.stepByIndex(step_index);
-                if (s.state == .precheck_done and s.pending_deps == 0) {
-                    initial_set.appendAssumeCapacity(step_index);
-                }
-            }
+    var rng = std.Random.DefaultPrng.init(seed);
+    const rand = rng.random();
+    rand.shuffle(Configuration.Step.Index, starting_steps);
 
-            const step_prog = parent_prog_node.start("steps", step_stack.count());
-            defer step_prog.end();
+    for (starting_steps) |s| {
+        try constructGraphAndCheckForDependencyLoop(gpa, c, maker.steps, s, &maker.step_stack, rand);
+    }
 
-            var group: Io.Group = .init;
-            defer group.cancel(io);
-            // Start working on all of the initial steps...
-            for (initial_set.items) |step_index| try stepReady(run, &group, step_index, step_prog);
-            // ...and `makeStep` will trigger every other step when their last dependency finishes.
-            try group.await(io);
-        }
-
-        assert(run.memory_blocked_steps.items.len == 0);
-
-        var test_pass_count: usize = 0;
-        var test_skip_count: usize = 0;
-        var test_fail_count: usize = 0;
-        var test_crash_count: usize = 0;
-        var test_timeout_count: usize = 0;
-
-        var test_count: usize = 0;
-
-        var success_count: usize = 0;
-        var skipped_count: usize = 0;
-        var failure_count: usize = 0;
-        var pending_count: usize = 0;
-        var total_compile_errors: usize = 0;
-
-        var cleanup_task = io.async(cleanTmpFiles, .{ io, step_stack.keys() });
-        defer cleanup_task.await(io);
-
+    {
+        // Check that we have enough memory to complete the build.
+        var any_problems = false;
+        var max_needed: usize = 0;
         for (step_stack.keys()) |step_index| {
-            const make_step = run.stepByIndex(step_index);
-            test_pass_count += make_step.test_results.passCount();
-            test_skip_count += make_step.test_results.skip_count;
-            test_fail_count += make_step.test_results.fail_count;
-            test_crash_count += make_step.test_results.crash_count;
-            test_timeout_count += make_step.test_results.timeout_count;
-
-            test_count += make_step.test_results.test_count;
-
-            switch (make_step.state) {
-                .precheck_unstarted => unreachable,
-                .precheck_started => unreachable,
-                .precheck_done => unreachable,
-                .dependency_failure => pending_count += 1,
-                .success => success_count += 1,
-                .skipped, .skipped_oom => skipped_count += 1,
-                .failure => {
-                    failure_count += 1;
-                    const compile_errors_len = make_step.result_error_bundle.errorMessageCount();
-                    if (compile_errors_len > 0) {
-                        total_compile_errors += compile_errors_len;
+            const make_step = maker.stepByIndex(step_index);
+            const conf_step = step_index.ptr(c);
+            const max_rss = conf_step.max_rss.toBytes();
+            if (max_rss == 0) continue;
+            max_needed = @max(max_needed, max_rss);
+            if (max_rss > maker.available_rss) {
+                if (maker.skip_oom_steps) {
+                    make_step.state = .skipped_oom;
+                    for (make_step.dependants.items) |dependant| {
+                        maker.stepByIndex(dependant).pending_deps -= 1;
                     }
-                },
+                } else {
+                    log.err("{s}{s}: this step declares an upper bound of {d} bytes of memory, exceeding the available {d} bytes of memory", .{
+                        conf_step.owner.depPrefixSlice(c),
+                        conf_step.name.slice(c),
+                        max_rss,
+                        maker.available_rss,
+                    });
+                    any_problems = true;
+                }
+            }
+        }
+        if (any_problems) {
+            if (maker.max_rss_is_default) {
+                std.log.info("use --maxrss {d} to proceed, risking system memory exhaustion", .{
+                    max_needed,
+                });
+            }
+            return error.InsufficientMemory;
+        }
+    }
+}
+
+fn makeStepNames(
+    maker: *Maker,
+    step_names: []const []const u8,
+    parent_prog_node: std.Progress.Node,
+    fuzz: ?Fuzz.Mode,
+) !void {
+    const graph = maker.graph;
+    const gpa = maker.gpa;
+    const io = graph.io;
+    const step_stack = &maker.step_stack;
+    const top_level_steps = &maker.scanned_config.top_level_steps;
+    const c = &maker.scanned_config.configuration;
+
+    {
+        // Collect the initial set of tasks (those with no outstanding dependencies) into a buffer,
+        // then spawn them. The buffer is so that we don't race with `makeStep` and end up thinking
+        // a step is initial when it actually became ready due to an earlier initial step.
+        var initial_set: std.ArrayList(Configuration.Step.Index) = .empty;
+        defer initial_set.deinit(gpa);
+        try initial_set.ensureUnusedCapacity(gpa, step_stack.count());
+        for (step_stack.keys()) |step_index| {
+            const s = maker.stepByIndex(step_index);
+            if (s.state == .precheck_done and s.pending_deps == 0) {
+                initial_set.appendAssumeCapacity(step_index);
             }
         }
 
-        if (fuzz) |mode| blk: {
-            switch (builtin.os.tag) {
-                // Current implementation depends on two things that need to be ported to Windows:
-                // * Memory-mapping to share data between the fuzzer and build runner.
-                // * COFF/PE support added to `std.debug.Info` (it needs a batching API for resolving
-                //   many addresses to source locations).
-                .windows => fatal("--fuzz not yet implemented for {t}", .{builtin.os.tag}),
-                else => {},
-            }
-            if (@bitSizeOf(usize) != 64) {
-                // Current implementation depends on posix.mmap()'s second parameter, `length: usize`,
-                // being compatible with file system's u64 return value. This is not the case
-                // on 32-bit platforms.
-                // Affects or affected by issues #5185, #22523, and #22464.
-                fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
-            }
+        const step_prog = parent_prog_node.start("steps", step_stack.count());
+        defer step_prog.end();
 
-            switch (mode) {
-                .forever => break :blk,
-                .limit => {},
-            }
+        var group: Io.Group = .init;
+        defer group.cancel(io);
+        // Start working on all of the initial steps...
+        for (initial_set.items) |step_index| try stepReady(maker, &group, step_index, step_prog);
+        // ...and `makeStep` will trigger every other step when their last dependency finishes.
+        try group.await(io);
+    }
 
-            assert(mode == .limit);
-            var f = Fuzz.init(
-                gpa,
-                io,
-                step_stack.keys(),
-                parent_prog_node,
-                mode,
-            ) catch |err| fatal("failed to start fuzzer: {t}", .{err});
-            defer f.deinit();
+    assert(maker.memory_blocked_steps.items.len == 0);
 
-            f.start();
-            try f.waitAndPrintReport();
+    var test_pass_count: usize = 0;
+    var test_skip_count: usize = 0;
+    var test_fail_count: usize = 0;
+    var test_crash_count: usize = 0;
+    var test_timeout_count: usize = 0;
+
+    var test_count: usize = 0;
+
+    var success_count: usize = 0;
+    var skipped_count: usize = 0;
+    var failure_count: usize = 0;
+    var pending_count: usize = 0;
+    var total_compile_errors: usize = 0;
+
+    var cleanup_task = io.async(cleanTmpFiles, .{ io, step_stack.keys() });
+    defer cleanup_task.await(io);
+
+    for (step_stack.keys()) |step_index| {
+        const make_step = maker.stepByIndex(step_index);
+        test_pass_count += make_step.test_results.passCount();
+        test_skip_count += make_step.test_results.skip_count;
+        test_fail_count += make_step.test_results.fail_count;
+        test_crash_count += make_step.test_results.crash_count;
+        test_timeout_count += make_step.test_results.timeout_count;
+
+        test_count += make_step.test_results.test_count;
+
+        switch (make_step.state) {
+            .precheck_unstarted => unreachable,
+            .precheck_started => unreachable,
+            .precheck_done => unreachable,
+            .dependency_failure => pending_count += 1,
+            .success => success_count += 1,
+            .skipped, .skipped_oom => skipped_count += 1,
+            .failure => {
+                failure_count += 1;
+                const compile_errors_len = make_step.result_error_bundle.errorMessageCount();
+                if (compile_errors_len > 0) {
+                    total_compile_errors += compile_errors_len;
+                }
+            },
+        }
+    }
+
+    if (fuzz) |mode| blk: {
+        switch (builtin.os.tag) {
+            // Current implementation depends on two things that need to be ported to Windows:
+            // * Memory-mapping to share data between the fuzzer and build runner.
+            // * COFF/PE support added to `std.debug.Info` (it needs a batching API for resolving
+            //   many addresses to source locations).
+            .windows => fatal("--fuzz not yet implemented for {t}", .{builtin.os.tag}),
+            else => {},
+        }
+        if (@bitSizeOf(usize) != 64) {
+            // Current implementation depends on posix.mmap()'s second parameter, `length: usize`,
+            // being compatible with file system's u64 return value. This is not the case
+            // on 32-bit platforms.
+            // Affects or affected by issues #5185, #22523, and #22464.
+            fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
         }
 
-        // Every test has a state
-        assert(test_pass_count + test_skip_count + test_fail_count + test_crash_count + test_timeout_count == test_count);
-
-        if (failure_count == 0) {
-            std.Progress.setStatus(.success);
-        } else {
-            std.Progress.setStatus(.failure);
+        switch (mode) {
+            .forever => break :blk,
+            .limit => {},
         }
 
-        summary: {
-            switch (run.summary) {
-                .all, .new, .line => {},
-                .failures => if (failure_count == 0) break :summary,
-                .none => break :summary,
+        assert(mode == .limit);
+        var f = Fuzz.init(
+            gpa,
+            io,
+            step_stack.keys(),
+            parent_prog_node,
+            mode,
+        ) catch |err| fatal("failed to start fuzzer: {t}", .{err});
+        defer f.deinit();
+
+        f.start();
+        try f.waitAndPrintReport();
+    }
+
+    // Every test has a state
+    assert(test_pass_count + test_skip_count + test_fail_count + test_crash_count + test_timeout_count == test_count);
+
+    if (failure_count == 0) {
+        std.Progress.setStatus(.success);
+    } else {
+        std.Progress.setStatus(.failure);
+    }
+
+    summary: {
+        switch (maker.summary) {
+            .all, .new, .line => {},
+            .failures => if (failure_count == 0) break :summary,
+            .none => break :summary,
+        }
+
+        const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
+        defer io.unlockStderr();
+        const t = stderr.terminal();
+        const w = &stderr.file_writer.interface;
+
+        const total_count = success_count + failure_count + pending_count + skipped_count;
+        t.setColor(.cyan) catch {};
+        t.setColor(.bold) catch {};
+        w.writeAll("Build Summary: ") catch {};
+        t.setColor(.reset) catch {};
+        w.print("{d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
+        {
+            t.setColor(.dim) catch {};
+            var first = true;
+            if (skipped_count > 0) {
+                w.print("{s}{d} skipped", .{ if (first) " (" else ", ", skipped_count }) catch {};
+                first = false;
             }
-
-            const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
-            defer io.unlockStderr();
-            const t = stderr.terminal();
-            const w = &stderr.file_writer.interface;
-
-            const total_count = success_count + failure_count + pending_count + skipped_count;
-            t.setColor(.cyan) catch {};
-            t.setColor(.bold) catch {};
-            w.writeAll("Build Summary: ") catch {};
+            if (failure_count > 0) {
+                w.print("{s}{d} failed", .{ if (first) " (" else ", ", failure_count }) catch {};
+                first = false;
+            }
+            if (!first) w.writeByte(')') catch {};
             t.setColor(.reset) catch {};
-            w.print("{d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
-            {
-                t.setColor(.dim) catch {};
-                var first = true;
-                if (skipped_count > 0) {
-                    w.print("{s}{d} skipped", .{ if (first) " (" else ", ", skipped_count }) catch {};
-                    first = false;
-                }
-                if (failure_count > 0) {
-                    w.print("{s}{d} failed", .{ if (first) " (" else ", ", failure_count }) catch {};
-                    first = false;
-                }
-                if (!first) w.writeByte(')') catch {};
-                t.setColor(.reset) catch {};
+        }
+
+        if (test_count > 0) {
+            w.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
+            t.setColor(.dim) catch {};
+            var first = true;
+            if (test_skip_count > 0) {
+                w.print("{s}{d} skipped", .{ if (first) " (" else ", ", test_skip_count }) catch {};
+                first = false;
             }
-
-            if (test_count > 0) {
-                w.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
-                t.setColor(.dim) catch {};
-                var first = true;
-                if (test_skip_count > 0) {
-                    w.print("{s}{d} skipped", .{ if (first) " (" else ", ", test_skip_count }) catch {};
-                    first = false;
-                }
-                if (test_fail_count > 0) {
-                    w.print("{s}{d} failed", .{ if (first) " (" else ", ", test_fail_count }) catch {};
-                    first = false;
-                }
-                if (test_crash_count > 0) {
-                    w.print("{s}{d} crashed", .{ if (first) " (" else ", ", test_crash_count }) catch {};
-                    first = false;
-                }
-                if (test_timeout_count > 0) {
-                    w.print("{s}{d} timed out", .{ if (first) " (" else ", ", test_timeout_count }) catch {};
-                    first = false;
-                }
-                if (!first) w.writeByte(')') catch {};
-                t.setColor(.reset) catch {};
+            if (test_fail_count > 0) {
+                w.print("{s}{d} failed", .{ if (first) " (" else ", ", test_fail_count }) catch {};
+                first = false;
             }
+            if (test_crash_count > 0) {
+                w.print("{s}{d} crashed", .{ if (first) " (" else ", ", test_crash_count }) catch {};
+                first = false;
+            }
+            if (test_timeout_count > 0) {
+                w.print("{s}{d} timed out", .{ if (first) " (" else ", ", test_timeout_count }) catch {};
+                first = false;
+            }
+            if (!first) w.writeByte(')') catch {};
+            t.setColor(.reset) catch {};
+        }
 
-            w.writeAll("\n") catch {};
+        w.writeAll("\n") catch {};
 
-            if (run.summary == .line) break :summary;
+        if (maker.summary == .line) break :summary;
 
-            // Print a fancy tree with build results.
-            var step_stack_copy = try step_stack.clone(gpa);
-            defer step_stack_copy.deinit(gpa);
+        // Print a fancy tree with build results.
+        var step_stack_copy = try step_stack.clone(gpa);
+        defer step_stack_copy.deinit(gpa);
 
-            var print_node: PrintNode = .{ .parent = null };
-            if (step_names.len == 0) {
-                print_node.last = true;
-                printTreeStep(run, c.default_step, t, &print_node, &step_stack_copy) catch |err| switch (err) {
+        var print_node: PrintNode = .{ .parent = null };
+        if (step_names.len == 0) {
+            print_node.last = true;
+            printTreeStep(maker, c.default_step, t, &print_node, &step_stack_copy) catch |err| switch (err) {
+                error.Canceled => |e| return e,
+                else => {},
+            };
+        } else {
+            const last_index = if (maker.summary == .all) top_level_steps.count() else blk: {
+                var i: usize = step_names.len;
+                while (i > 0) {
+                    i -= 1;
+                    const step_index = top_level_steps.get(step_names[i]).?;
+                    const step = maker.stepByIndex(step_index);
+                    const found = switch (maker.summary) {
+                        .all, .line, .none => unreachable,
+                        .failures => step.state != .success,
+                        .new => !step.result_cached,
+                    };
+                    if (found) break :blk i;
+                }
+                break :blk top_level_steps.count();
+            };
+            for (step_names, 0..) |step_name, i| {
+                const step_index = top_level_steps.get(step_name).?;
+                print_node.last = i + 1 == last_index;
+                printTreeStep(maker, step_index, t, &print_node, &step_stack_copy) catch |err| switch (err) {
                     error.Canceled => |e| return e,
                     else => {},
                 };
-            } else {
-                const last_index = if (run.summary == .all) top_level_steps.count() else blk: {
-                    var i: usize = step_names.len;
-                    while (i > 0) {
-                        i -= 1;
-                        const step_index = top_level_steps.get(step_names[i]).?;
-                        const step = run.stepByIndex(step_index);
-                        const found = switch (run.summary) {
-                            .all, .line, .none => unreachable,
-                            .failures => step.state != .success,
-                            .new => !step.result_cached,
-                        };
-                        if (found) break :blk i;
-                    }
-                    break :blk top_level_steps.count();
-                };
-                for (step_names, 0..) |step_name, i| {
-                    const step_index = top_level_steps.get(step_name).?;
-                    print_node.last = i + 1 == last_index;
-                    printTreeStep(run, step_index, t, &print_node, &step_stack_copy) catch |err| switch (err) {
-                        error.Canceled => |e| return e,
-                        else => {},
-                    };
-                }
             }
-            w.writeByte('\n') catch {};
         }
-
-        if (run.watch or run.web_server != null) return;
-
-        // Perhaps in the future there could be an Advanced Options flag such as
-        // --debug-build-runner-leaks which would make this code return instead of
-        // calling exit.
-
-        const code: u8 = code: {
-            if (failure_count == 0) break :code 0; // success
-            if (run.error_style.verboseContext()) break :code 1; // failure; print build command
-            break :code 2; // failure; do not print build command
-        };
-        _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
-        process.exit(code);
+        w.writeByte('\n') catch {};
     }
 
-    fn stepReady(
-        run: *Run,
-        group: *Io.Group,
-        step_index: Configuration.Step.Index,
-        root_prog_node: std.Progress.Node,
-    ) Io.Cancelable!void {
-        const graph = run.graph;
-        const io = graph.io;
-        const c = &run.scanned_config.configuration;
-        const max_rss = step_index.ptr(c).max_rss.toBytes();
-        if (max_rss != 0) {
-            try run.max_rss_mutex.lock(io);
-            defer run.max_rss_mutex.unlock(io);
-            if (run.available_rss < max_rss) {
-                // Running this step right now could possibly exceed the allotted RSS.
-                run.memory_blocked_steps.append(run.gpa, step_index) catch
-                    @panic("TODO eliminate memory allocation here");
-                return;
-            }
-            run.available_rss -= max_rss;
+    if (maker.watch or maker.web_server != null) return;
+
+    // Perhaps in the future there could be an Advanced Options flag such as
+    // --debug-build-runner-leaks which would make this code return instead of
+    // calling exit.
+
+    const code: u8 = code: {
+        if (failure_count == 0) break :code 0; // success
+        if (maker.error_style.verboseContext()) break :code 1; // failure; print build command
+        break :code 2; // failure; do not print build command
+    };
+    _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
+    process.exit(code);
+}
+
+fn stepReady(
+    maker: *Maker,
+    group: *Io.Group,
+    step_index: Configuration.Step.Index,
+    root_prog_node: std.Progress.Node,
+) Io.Cancelable!void {
+    const graph = maker.graph;
+    const io = graph.io;
+    const c = &maker.scanned_config.configuration;
+    const max_rss = step_index.ptr(c).max_rss.toBytes();
+    if (max_rss != 0) {
+        try maker.max_rss_mutex.lock(io);
+        defer maker.max_rss_mutex.unlock(io);
+        if (maker.available_rss < max_rss) {
+            // Running this step right now could possibly exceed the allotted RSS.
+            maker.memory_blocked_steps.append(maker.gpa, step_index) catch
+                @panic("TODO eliminate memory allocation here");
+            return;
         }
-        group.async(io, makeStep, .{ run, group, step_index, root_prog_node });
+        maker.available_rss -= max_rss;
     }
+    group.async(io, makeStep, .{ maker, group, step_index, root_prog_node });
+}
 
-    /// Runs the "make" function of the single step `s`, updates its state, and then spawns newly-ready
-    /// dependant steps in `group`. If `s` makes an RSS claim (i.e. `s.max_rss != 0`), the caller must
-    /// have already subtracted this value from `run.available_rss`. This function will release the RSS
-    /// claim (i.e. add `s.max_rss` back into `run.available_rss`) and queue any viable memory-blocked
-    /// steps after "make" completes for `s`.
-    fn makeStep(
-        run: *Run,
-        group: *Io.Group,
-        step_index: Configuration.Step.Index,
-        root_prog_node: std.Progress.Node,
-    ) Io.Cancelable!void {
-        const graph = run.graph;
-        const io = graph.io;
-        const gpa = run.gpa;
-        const c = &run.scanned_config.configuration;
-        const conf_step = step_index.ptr(c);
-        const step_name = conf_step.name.slice(c);
-        const deps = conf_step.deps.slice(c);
-        const make_step = run.stepByIndex(step_index);
+/// Runs the "make" function of the single step `s`, updates its state, and then spawns newly-ready
+/// dependant steps in `group`. If `s` makes an RSS claim (i.e. `s.max_rss != 0`), the caller must
+/// have already subtracted this value from `maker.available_rss`. This function will release the RSS
+/// claim (i.e. add `s.max_rss` back into `maker.available_rss`) and queue any viable memory-blocked
+/// steps after "make" completes for `s`.
+fn makeStep(
+    maker: *Maker,
+    group: *Io.Group,
+    step_index: Configuration.Step.Index,
+    root_prog_node: std.Progress.Node,
+) Io.Cancelable!void {
+    const graph = maker.graph;
+    const io = graph.io;
+    const gpa = maker.gpa;
+    const c = &maker.scanned_config.configuration;
+    const conf_step = step_index.ptr(c);
+    const step_name = conf_step.name.slice(c);
+    const deps = conf_step.deps.slice(c);
+    const make_step = maker.stepByIndex(step_index);
 
-        {
-            const step_prog_node = root_prog_node.start(step_name, 0);
-            defer step_prog_node.end();
+    {
+        const step_prog_node = root_prog_node.start(step_name, 0);
+        defer step_prog_node.end();
 
-            if (run.web_server) |*ws| ws.updateStepStatus(step_index, .wip);
+        if (maker.web_server) |*ws| ws.updateStepStatus(step_index, .wip);
 
-            const new_state: Step.State = for (deps) |dep_index| {
-                const dep_make_step = run.stepByIndex(dep_index);
-                switch (@atomicLoad(Step.State, &dep_make_step.state, .monotonic)) {
-                    .precheck_unstarted => unreachable,
-                    .precheck_started => unreachable,
-                    .precheck_done => unreachable,
-
-                    .failure,
-                    .dependency_failure,
-                    .skipped_oom,
-                    => break .dependency_failure,
-
-                    .success, .skipped => {},
-                }
-            } else if (make_step.make(.{
-                .progress_node = step_prog_node,
-                .watch = run.watch,
-                .web_server = if (run.web_server) |*ws| ws else null,
-                .unit_test_timeout_ns = run.unit_test_timeout_ns,
-                .gpa = gpa,
-            })) state: {
-                break :state .success;
-            } else |err| switch (err) {
-                error.MakeFailed => .failure,
-                error.MakeSkipped => .skipped,
-            };
-
-            @atomicStore(Step.State, &make_step.state, new_state, .monotonic);
-
-            switch (new_state) {
+        const new_state: Step.State = for (deps) |dep_index| {
+            const dep_make_step = maker.stepByIndex(dep_index);
+            switch (@atomicLoad(Step.State, &dep_make_step.state, .monotonic)) {
                 .precheck_unstarted => unreachable,
                 .precheck_started => unreachable,
                 .precheck_done => unreachable,
@@ -1071,234 +1044,260 @@ const Run = struct {
                 .failure,
                 .dependency_failure,
                 .skipped_oom,
-                => {
-                    if (run.web_server) |*ws| ws.updateStepStatus(step_index, .failure);
-                    std.Progress.setStatus(.failure_working);
-                },
+                => break .dependency_failure,
 
-                .success,
-                .skipped,
-                => {
-                    if (run.web_server) |*ws| ws.updateStepStatus(step_index, .success);
-                },
+                .success, .skipped => {},
             }
-        }
-
-        // No matter the result, we want to display error/warning messages.
-        if (make_step.result_error_bundle.errorMessageCount() > 0 or
-            make_step.result_error_msgs.items.len > 0 or
-            make_step.result_stderr.len > 0)
-        {
-            const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
-            defer io.unlockStderr();
-            printErrorMessages(gpa, c, run.steps, step_index, .{}, stderr.terminal(), run.error_style, run.multiline_errors) catch |err| switch (err) {
-                error.Canceled => |e| return e,
-                error.WriteFailed => switch (stderr.file_writer.err.?) {
-                    error.Canceled => |e| return e,
-                    else => {},
-                },
-                else => {},
-            };
-        }
-
-        const max_rss = conf_step.max_rss.toBytes();
-        if (max_rss != 0) {
-            var dispatch_set: std.ArrayList(Configuration.Step.Index) = .empty;
-            defer dispatch_set.deinit(gpa);
-
-            // Release our RSS claim and kick off some blocked steps if possible. We use `dispatch_set`
-            // as a staging buffer to avoid recursing into `makeStep` while `run.max_rss_mutex` is held.
-            {
-                try run.max_rss_mutex.lock(io);
-                defer run.max_rss_mutex.unlock(io);
-                run.available_rss += max_rss;
-                dispatch_set.ensureUnusedCapacity(gpa, run.memory_blocked_steps.items.len) catch
-                    @panic("TODO eliminate memory allocation here");
-                while (run.memory_blocked_steps.getLast()) |candidate_index| {
-                    const candidate_max_rss = candidate_index.ptr(c).max_rss.toBytes();
-                    if (run.available_rss < candidate_max_rss) break;
-                    assert(run.memory_blocked_steps.pop() == candidate_index);
-                    dispatch_set.appendAssumeCapacity(candidate_index);
-                }
-            }
-            for (dispatch_set.items) |candidate| {
-                group.async(io, makeStep, .{ run, group, candidate, root_prog_node });
-            }
-        }
-
-        for (make_step.dependants.items) |dependant_index| {
-            const dependant = run.stepByIndex(dependant_index);
-            // `.acq_rel` synchronizes with itself to ensure all dependencies' final states are visible when this hits 0.
-            if (@atomicRmw(u32, &dependant.pending_deps, .Sub, 1, .acq_rel) == 1) {
-                try stepReady(run, group, dependant_index, root_prog_node);
-            }
-        }
-    }
-
-    fn printTreeStep(
-        run: *const Run,
-        step_index: Configuration.Step.Index,
-        stderr: Io.Terminal,
-        parent_node: *PrintNode,
-        step_stack: *std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
-    ) !void {
-        const writer = stderr.writer;
-        const first = step_stack.swapRemove(step_index);
-        const summary = run.summary;
-        const c = &run.scanned_config.configuration;
-        const conf_step = step_index.ptr(c);
-        const make_step = run.stepByIndex(step_index);
-        const skip = switch (summary) {
-            .none, .line => unreachable,
-            .all => false,
-            .new => make_step.result_cached,
-            .failures => make_step.state == .success,
+        } else if (make_step.make(.{
+            .progress_node = step_prog_node,
+            .watch = maker.watch,
+            .web_server = if (maker.web_server) |*ws| ws else null,
+            .unit_test_timeout_ns = maker.unit_test_timeout_ns,
+            .gpa = gpa,
+        })) state: {
+            break :state .success;
+        } else |err| switch (err) {
+            error.MakeFailed => .failure,
+            error.MakeSkipped => .skipped,
         };
-        if (skip) return;
-        try printPrefix(parent_node, stderr);
 
-        if (parent_node.parent != null) {
-            if (parent_node.last) {
-                try printChildNodePrefix(stderr);
-            } else {
-                try writer.writeAll(switch (stderr.mode) {
-                    .escape_codes => "\x1B\x28\x30\x74\x71\x1B\x28\x42 ", // ├─
-                    else => "+- ",
-                });
-            }
-        }
+        @atomicStore(Step.State, &make_step.state, new_state, .monotonic);
 
-        if (!first) try stderr.setColor(.dim);
-
-        // dep_prefix omitted here because it is redundant with the tree.
-        try writer.writeAll(conf_step.name.slice(c));
-
-        const deps = conf_step.deps.slice(c);
-
-        if (first) {
-            try printStepStatus(run, step_index, stderr);
-
-            const last_index = if (summary == .all) deps.len -| 1 else blk: {
-                var i: usize = deps.len;
-                while (i > 0) {
-                    i -= 1;
-
-                    const dep_index = deps[i];
-                    const dep = run.stepByIndex(dep_index);
-                    const found = switch (summary) {
-                        .all, .line, .none => unreachable,
-                        .failures => dep.state != .success,
-                        .new => !dep.result_cached,
-                    };
-                    if (found) break :blk i;
-                }
-                break :blk deps.len -| 1;
-            };
-            for (deps, 0..) |dep, i| {
-                var print_node: PrintNode = .{
-                    .parent = parent_node,
-                    .last = i == last_index,
-                };
-                try printTreeStep(run, dep, stderr, &print_node, step_stack);
-            }
-        } else {
-            if (deps.len == 0) {
-                try writer.writeAll(" (reused)\n");
-            } else {
-                try writer.print(" (+{d} more reused dependencies)\n", .{deps.len});
-            }
-            try stderr.setColor(.reset);
-        }
-    }
-
-    fn printStepStatus(run: *const Run, step_index: Configuration.Step.Index, stderr: Io.Terminal) !void {
-        const s = run.stepByIndex(step_index);
-        const writer = stderr.writer;
-        switch (s.state) {
+        switch (new_state) {
             .precheck_unstarted => unreachable,
             .precheck_started => unreachable,
             .precheck_done => unreachable,
 
-            .dependency_failure => {
-                try stderr.setColor(.dim);
-                try writer.writeAll(" transitive failure\n");
-                try stderr.setColor(.reset);
+            .failure,
+            .dependency_failure,
+            .skipped_oom,
+            => {
+                if (maker.web_server) |*ws| ws.updateStepStatus(step_index, .failure);
+                std.Progress.setStatus(.failure_working);
             },
 
-            .success => {
-                try stderr.setColor(.green);
-                if (s.result_cached) {
-                    try writer.writeAll(" cached");
-                } else if (s.test_results.test_count > 0) {
-                    const pass_count = s.test_results.passCount();
-                    assert(s.test_results.test_count == pass_count + s.test_results.skip_count);
-                    try writer.print(" {d} pass", .{pass_count});
-                    if (s.test_results.skip_count > 0) {
-                        try stderr.setColor(.reset);
-                        try writer.writeAll(", ");
-                        try stderr.setColor(.yellow);
-                        try writer.print("{d} skip", .{s.test_results.skip_count});
-                    }
-                    try stderr.setColor(.reset);
-                    try writer.print(" ({d} total)", .{s.test_results.test_count});
-                } else {
-                    try writer.writeAll(" success");
-                }
-                try stderr.setColor(.reset);
-                if (s.result_duration_ns) |ns| {
-                    try stderr.setColor(.dim);
-                    if (ns >= std.time.ns_per_min) {
-                        try writer.print(" {d}m", .{ns / std.time.ns_per_min});
-                    } else if (ns >= std.time.ns_per_s) {
-                        try writer.print(" {d}s", .{ns / std.time.ns_per_s});
-                    } else if (ns >= std.time.ns_per_ms) {
-                        try writer.print(" {d}ms", .{ns / std.time.ns_per_ms});
-                    } else if (ns >= std.time.ns_per_us) {
-                        try writer.print(" {d}us", .{ns / std.time.ns_per_us});
-                    } else {
-                        try writer.print(" {d}ns", .{ns});
-                    }
-                    try stderr.setColor(.reset);
-                }
-                if (s.result_peak_rss != 0) {
-                    const rss = s.result_peak_rss;
-                    try stderr.setColor(.dim);
-                    if (rss >= 1000_000_000) {
-                        try writer.print(" MaxRSS:{d}G", .{rss / 1000_000_000});
-                    } else if (rss >= 1000_000) {
-                        try writer.print(" MaxRSS:{d}M", .{rss / 1000_000});
-                    } else if (rss >= 1000) {
-                        try writer.print(" MaxRSS:{d}K", .{rss / 1000});
-                    } else {
-                        try writer.print(" MaxRSS:{d}B", .{rss});
-                    }
-                    try stderr.setColor(.reset);
-                }
-                try writer.writeAll("\n");
-            },
-            .skipped => {
-                try stderr.setColor(.yellow);
-                try writer.writeAll(" skipped\n");
-                try stderr.setColor(.reset);
-            },
-            .skipped_oom => {
-                const c = &run.scanned_config.configuration;
-                const max_rss = step_index.ptr(c).max_rss.toBytes();
-                try stderr.setColor(.yellow);
-                try writer.writeAll(" skipped (not enough memory)");
-                try stderr.setColor(.dim);
-                try writer.print(" upper bound of {d} exceeded runner limit ({d})\n", .{
-                    max_rss, run.available_rss,
-                });
-                try stderr.setColor(.reset);
-            },
-            .failure => {
-                try printStepFailure(run.steps, step_index, stderr, false);
-                try stderr.setColor(.reset);
+            .success,
+            .skipped,
+            => {
+                if (maker.web_server) |*ws| ws.updateStepStatus(step_index, .success);
             },
         }
     }
-};
+
+    // No matter the result, we want to display error/warning messages.
+    if (make_step.result_error_bundle.errorMessageCount() > 0 or
+        make_step.result_error_msgs.items.len > 0 or
+        make_step.result_stderr.len > 0)
+    {
+        const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
+        defer io.unlockStderr();
+        printErrorMessages(gpa, c, maker.steps, step_index, .{}, stderr.terminal(), maker.error_style, maker.multiline_errors) catch |err| switch (err) {
+            error.Canceled => |e| return e,
+            error.WriteFailed => switch (stderr.file_writer.err.?) {
+                error.Canceled => |e| return e,
+                else => {},
+            },
+            else => {},
+        };
+    }
+
+    const max_rss = conf_step.max_rss.toBytes();
+    if (max_rss != 0) {
+        var dispatch_set: std.ArrayList(Configuration.Step.Index) = .empty;
+        defer dispatch_set.deinit(gpa);
+
+        // Release our RSS claim and kick off some blocked steps if possible. We use `dispatch_set`
+        // as a staging buffer to avoid recursing into `makeStep` while `maker.max_rss_mutex` is held.
+        {
+            try maker.max_rss_mutex.lock(io);
+            defer maker.max_rss_mutex.unlock(io);
+            maker.available_rss += max_rss;
+            dispatch_set.ensureUnusedCapacity(gpa, maker.memory_blocked_steps.items.len) catch
+                @panic("TODO eliminate memory allocation here");
+            while (maker.memory_blocked_steps.getLast()) |candidate_index| {
+                const candidate_max_rss = candidate_index.ptr(c).max_rss.toBytes();
+                if (maker.available_rss < candidate_max_rss) break;
+                assert(maker.memory_blocked_steps.pop() == candidate_index);
+                dispatch_set.appendAssumeCapacity(candidate_index);
+            }
+        }
+        for (dispatch_set.items) |candidate| {
+            group.async(io, makeStep, .{ maker, group, candidate, root_prog_node });
+        }
+    }
+
+    for (make_step.dependants.items) |dependant_index| {
+        const dependant = maker.stepByIndex(dependant_index);
+        // `.acq_rel` synchronizes with itself to ensure all dependencies' final states are visible when this hits 0.
+        if (@atomicRmw(u32, &dependant.pending_deps, .Sub, 1, .acq_rel) == 1) {
+            try stepReady(maker, group, dependant_index, root_prog_node);
+        }
+    }
+}
+
+fn printTreeStep(
+    maker: *const Maker,
+    step_index: Configuration.Step.Index,
+    stderr: Io.Terminal,
+    parent_node: *PrintNode,
+    step_stack: *std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
+) !void {
+    const writer = stderr.writer;
+    const first = step_stack.swapRemove(step_index);
+    const summary = maker.summary;
+    const c = &maker.scanned_config.configuration;
+    const conf_step = step_index.ptr(c);
+    const make_step = maker.stepByIndex(step_index);
+    const skip = switch (summary) {
+        .none, .line => unreachable,
+        .all => false,
+        .new => make_step.result_cached,
+        .failures => make_step.state == .success,
+    };
+    if (skip) return;
+    try printPrefix(parent_node, stderr);
+
+    if (parent_node.parent != null) {
+        if (parent_node.last) {
+            try printChildNodePrefix(stderr);
+        } else {
+            try writer.writeAll(switch (stderr.mode) {
+                .escape_codes => "\x1B\x28\x30\x74\x71\x1B\x28\x42 ", // ├─
+                else => "+- ",
+            });
+        }
+    }
+
+    if (!first) try stderr.setColor(.dim);
+
+    // dep_prefix omitted here because it is redundant with the tree.
+    try writer.writeAll(conf_step.name.slice(c));
+
+    const deps = conf_step.deps.slice(c);
+
+    if (first) {
+        try printStepStatus(maker, step_index, stderr);
+
+        const last_index = if (summary == .all) deps.len -| 1 else blk: {
+            var i: usize = deps.len;
+            while (i > 0) {
+                i -= 1;
+
+                const dep_index = deps[i];
+                const dep = maker.stepByIndex(dep_index);
+                const found = switch (summary) {
+                    .all, .line, .none => unreachable,
+                    .failures => dep.state != .success,
+                    .new => !dep.result_cached,
+                };
+                if (found) break :blk i;
+            }
+            break :blk deps.len -| 1;
+        };
+        for (deps, 0..) |dep, i| {
+            var print_node: PrintNode = .{
+                .parent = parent_node,
+                .last = i == last_index,
+            };
+            try printTreeStep(maker, dep, stderr, &print_node, step_stack);
+        }
+    } else {
+        if (deps.len == 0) {
+            try writer.writeAll(" (reused)\n");
+        } else {
+            try writer.print(" (+{d} more reused dependencies)\n", .{deps.len});
+        }
+        try stderr.setColor(.reset);
+    }
+}
+
+fn printStepStatus(maker: *const Maker, step_index: Configuration.Step.Index, stderr: Io.Terminal) !void {
+    const s = maker.stepByIndex(step_index);
+    const writer = stderr.writer;
+    switch (s.state) {
+        .precheck_unstarted => unreachable,
+        .precheck_started => unreachable,
+        .precheck_done => unreachable,
+
+        .dependency_failure => {
+            try stderr.setColor(.dim);
+            try writer.writeAll(" transitive failure\n");
+            try stderr.setColor(.reset);
+        },
+
+        .success => {
+            try stderr.setColor(.green);
+            if (s.result_cached) {
+                try writer.writeAll(" cached");
+            } else if (s.test_results.test_count > 0) {
+                const pass_count = s.test_results.passCount();
+                assert(s.test_results.test_count == pass_count + s.test_results.skip_count);
+                try writer.print(" {d} pass", .{pass_count});
+                if (s.test_results.skip_count > 0) {
+                    try stderr.setColor(.reset);
+                    try writer.writeAll(", ");
+                    try stderr.setColor(.yellow);
+                    try writer.print("{d} skip", .{s.test_results.skip_count});
+                }
+                try stderr.setColor(.reset);
+                try writer.print(" ({d} total)", .{s.test_results.test_count});
+            } else {
+                try writer.writeAll(" success");
+            }
+            try stderr.setColor(.reset);
+            if (s.result_duration_ns) |ns| {
+                try stderr.setColor(.dim);
+                if (ns >= std.time.ns_per_min) {
+                    try writer.print(" {d}m", .{ns / std.time.ns_per_min});
+                } else if (ns >= std.time.ns_per_s) {
+                    try writer.print(" {d}s", .{ns / std.time.ns_per_s});
+                } else if (ns >= std.time.ns_per_ms) {
+                    try writer.print(" {d}ms", .{ns / std.time.ns_per_ms});
+                } else if (ns >= std.time.ns_per_us) {
+                    try writer.print(" {d}us", .{ns / std.time.ns_per_us});
+                } else {
+                    try writer.print(" {d}ns", .{ns});
+                }
+                try stderr.setColor(.reset);
+            }
+            if (s.result_peak_rss != 0) {
+                const rss = s.result_peak_rss;
+                try stderr.setColor(.dim);
+                if (rss >= 1000_000_000) {
+                    try writer.print(" MaxRSS:{d}G", .{rss / 1000_000_000});
+                } else if (rss >= 1000_000) {
+                    try writer.print(" MaxRSS:{d}M", .{rss / 1000_000});
+                } else if (rss >= 1000) {
+                    try writer.print(" MaxRSS:{d}K", .{rss / 1000});
+                } else {
+                    try writer.print(" MaxRSS:{d}B", .{rss});
+                }
+                try stderr.setColor(.reset);
+            }
+            try writer.writeAll("\n");
+        },
+        .skipped => {
+            try stderr.setColor(.yellow);
+            try writer.writeAll(" skipped\n");
+            try stderr.setColor(.reset);
+        },
+        .skipped_oom => {
+            const c = &maker.scanned_config.configuration;
+            const max_rss = step_index.ptr(c).max_rss.toBytes();
+            try stderr.setColor(.yellow);
+            try writer.writeAll(" skipped (not enough memory)");
+            try stderr.setColor(.dim);
+            try writer.print(" upper bound of {d} exceeded runner limit ({d})\n", .{
+                max_rss, maker.available_rss,
+            });
+            try stderr.setColor(.reset);
+        },
+        .failure => {
+            try printStepFailure(maker.steps, step_index, stderr, false);
+            try stderr.setColor(.reset);
+        },
+    }
+}
 
 fn printStepFailure(
     make_steps: []Step,
