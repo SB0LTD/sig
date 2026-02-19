@@ -436,23 +436,23 @@ pub const Step = extern struct {
     };
 
     pub const Tag = enum(u5) {
-        top_level,
-        compile,
-        install_artifact,
-        install_file,
-        install_dir,
-        remove_dir,
-        fail,
-        fmt,
-        translate_c,
-        write_file,
-        update_source_files,
-        run,
         check_file,
         check_object,
+        compile,
         config_header,
+        fail,
+        fmt,
+        install_artifact,
+        install_dir,
+        install_file,
         objcopy,
         options,
+        remove_dir,
+        run,
+        top_level,
+        translate_c,
+        update_source_files,
+        write_file,
     };
 
     pub const TopLevel = struct {
@@ -808,6 +808,10 @@ pub const Step = extern struct {
             _: u23 = 0,
         };
     };
+
+    pub fn flags(s: *const Step, c: *const Configuration) Flags {
+        return @bitCast(c.extra[s.extra_index]);
+    }
 };
 
 pub const MaxRss = enum(u32) {

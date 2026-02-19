@@ -1,4 +1,5 @@
-//! The state that maker needs in order to process a step.
+//! The *mutable* state that `Maker` needs in order to process one node from
+//! the build graph.
 const Step = @This();
 
 const builtin = @import("builtin");
@@ -14,14 +15,20 @@ const Configuration = std.Build.Configuration;
 const assert = std.debug.assert;
 
 const WebServer = @import("WebServer.zig");
+const Maker = @import("../Maker.zig");
 
-pub const Compile = void; // @import("Step/Compile.zig");
-pub const Run = void; // @import("Step/Run.zig");
+const Compile = @import("Step/Compile.zig");
+const Run = @import("Step/Run.zig");
 
 /// Avoid false sharing.
 _: void align(std.atomic.cache_line) = {},
 
+/// Extra data for specific types of steps.
+extended: Extended,
+
+/// This field is atomically accessed multi-threaded.
 state: State = .precheck_unstarted,
+
 dependants: std.ArrayList(Configuration.Step.Index) = .empty,
 /// Collects the set of files that retrigger this step to run.
 ///
@@ -38,6 +45,8 @@ result_error_msgs: std.ArrayList([]const u8) = .empty,
 result_error_bundle: std.zig.ErrorBundle = .empty,
 result_stderr: []const u8 = "",
 result_cached: bool = false,
+/// Indicates error information is missing due to allocation failure.
+result_oom: bool = false,
 result_duration_ns: ?u64 = null,
 /// 0 means unavailable or not reported.
 result_peak_rss: usize = 0,
@@ -45,6 +54,70 @@ result_peak_rss: usize = 0,
 /// This field may be populated even if the step succeeded.
 result_failed_command: ?[]const u8 = null,
 test_results: TestResults = .{},
+
+comptime {
+    // Common cache line size is 128. This check prevents accidentally crossing
+    // an additional cache line. In the future it might be nice to try to fit
+    // this struct in 128 bytes or less.
+    assert(@sizeOf(@This()) <= 128 * 3);
+}
+
+pub const Extended = union(enum) {
+    check_file: Todo,
+    check_object: Todo,
+    compile: Compile,
+    config_header: Todo,
+    fail: Todo,
+    fmt: Todo,
+    install_artifact: Todo,
+    install_dir: Todo,
+    install_file: Todo,
+    objcopy: Todo,
+    options: Todo,
+    remove_dir: Todo,
+    run: Run,
+    top_level: Todo,
+    translate_c: Todo,
+    update_source_files: Todo,
+    write_file: Todo,
+
+    pub fn init(tag: Configuration.Step.Tag) Extended {
+        return switch (tag) {
+            .check_file => .{ .check_file = .{} },
+            .check_object => .{ .check_object = .{} },
+            .compile => .{ .compile = .{} },
+            .config_header => .{ .config_header = .{} },
+            .fail => .{ .fail = .{} },
+            .fmt => .{ .fmt = .{} },
+            .install_artifact => .{ .install_artifact = .{} },
+            .install_dir => .{ .install_dir = .{} },
+            .install_file => .{ .install_file = .{} },
+            .objcopy => .{ .objcopy = .{} },
+            .options => .{ .options = .{} },
+            .remove_dir => .{ .remove_dir = .{} },
+            .run => .{ .run = .{} },
+            .top_level => .{ .top_level = .{} },
+            .translate_c => .{ .translate_c = .{} },
+            .update_source_files => .{ .update_source_files = .{} },
+            .write_file => .{ .write_file = .{} },
+        };
+    }
+
+    pub const Todo = struct {
+        pub fn make(
+            todo: *Todo,
+            step_index: Configuration.Step.Index,
+            maker: *Maker,
+            progress_node: std.Progress.Node,
+        ) Step.ExtendedMakeError!void {
+            _ = todo;
+            _ = step_index;
+            _ = maker;
+            _ = progress_node;
+            @panic("TODO implement another step type");
+        }
+    };
+};
 
 pub const State = enum {
     precheck_unstarted,
@@ -128,43 +201,51 @@ pub const TestResults = struct {
     }
 };
 
-pub const MakeOptions = struct {
-    progress_node: std.Progress.Node,
-    watch: bool,
-    web_server: ?*WebServer,
-    /// If set, this is a timeout to enforce on all individual unit tests, in nanoseconds.
-    unit_test_timeout_ns: ?u64,
-    /// Not to be confused with `Build.allocator`, which is an alias of `Build.graph.arena`.
-    gpa: Allocator,
+pub const MakeError = error{
+    /// Indicates the error is already reported.
+    MakeFailed,
+    MakeSkipped,
 };
 
-pub const MakeFn = *const fn (step: *Step, options: MakeOptions) anyerror!void;
+pub const ExtendedMakeError = MakeError || Allocator.Error;
 
-/// If the Step's `make` function reports `error.MakeFailed`, it indicates they
-/// have already reported the error. Otherwise, we add a simple error report
-/// here.
-pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!void {
-    if (true) @panic("TODO Step.make");
-    const arena = s.owner.allocator;
-    const graph = s.owner.graph;
+pub fn make(
+    step_index: Configuration.Step.Index,
+    maker: *Maker,
+    progress_node: std.Progress.Node,
+) MakeError!void {
+    const graph = maker.graph;
+    const process_arena = graph.arena; // TODO don't leak into the process arena
     const io = graph.io;
+    const c = &maker.scanned_config.configuration;
+    const conf_step = step_index.ptr(c);
+    const s = maker.stepByIndex(step_index);
 
     var start_ts: ?Io.Timestamp = t: {
         if (!graph.time_report) break :t null;
-        if (s.id == .compile) break :t null;
-        if (s.id == .run and s.cast(Run).?.stdio == .zig_test) break :t null;
+        const flags = conf_step.flags(c);
+        switch (flags.tag) {
+            .compile => break :t null,
+            .run => {
+                const run_flags: Configuration.Step.Run.Flags = @bitCast(flags);
+                if (run_flags.stdio == .zig_test) break :t null;
+            },
+            else => {},
+        }
         break :t Io.Clock.awake.now(io);
     };
-    const make_result = s.makeFn(s, options);
+    const make_result = switch (s.extended) {
+        inline else => |*extended| extended.make(step_index, maker, progress_node),
+    };
     if (start_ts) |*ts| {
         const duration = ts.untilNow(io, .awake);
-        options.web_server.?.updateTimeReportGeneric(s, duration);
+        maker.web_server.?.updateTimeReportGeneric(step_index, duration);
     }
 
     make_result catch |err| switch (err) {
         error.MakeFailed, error.MakeSkipped => |e| return e,
-        else => {
-            s.result_error_msgs.append(arena, @errorName(err)) catch @panic("OOM");
+        error.OutOfMemory => {
+            s.result_oom = true;
             return error.MakeFailed;
         },
     };
@@ -173,30 +254,19 @@ pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!voi
         return error.MakeFailed;
     }
 
-    if (s.max_rss != 0 and s.result_peak_rss > s.max_rss) {
-        const msg = std.fmt.allocPrint(arena, "memory usage peaked at {0B:.2} ({0d} bytes), exceeding the declared upper bound of {1B:.2} ({1d} bytes)", .{
-            s.result_peak_rss, s.max_rss,
-        }) catch @panic("OOM");
-        s.result_error_msgs.append(arena, msg) catch @panic("OOM");
+    const max_rss = conf_step.max_rss.toBytes();
+    if (max_rss != 0 and s.result_peak_rss > max_rss) {
+        if (std.fmt.allocPrint(
+            process_arena,
+            "memory usage peaked at {0B:.2} ({0d} bytes), exceeding the declared upper bound of {1B:.2} ({1d} bytes)",
+            .{ s.result_peak_rss, max_rss },
+        )) |msg| {
+            s.oomWrap(s.result_error_msgs.append(process_arena, msg));
+        } else |_| s.result_oom = true;
     }
 }
 
-/// Implementation detail of file watching. Prepares the step for being re-evaluated.
-/// Returns `true` if the step was newly invalidated, `false` if it was already invalidated.
-pub fn invalidateResult(step: *Step, gpa: Allocator) bool {
-    if (true) @panic("TODO Step.invalidateResult");
-    if (step.state == .precheck_done) return false;
-    assert(step.pending_deps == 0);
-    step.state = .precheck_done;
-    step.reset(gpa);
-    for (step.dependants.items) |dependant| {
-        _ = dependant.invalidateResult(gpa);
-        dependant.pending_deps += 1;
-    }
-    return true;
-}
-
-/// Implementation detail of file watching and forced rebuilds. Prepares the step for being re-evaluated.
+/// Prepares the step for being re-evaluated.
 pub fn reset(step: *Step, gpa: Allocator) void {
     assert(step.state == .precheck_done);
 
@@ -547,9 +617,8 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool, web_server: ?*WebSer
 }
 
 pub fn getZigProcess(s: *Step) ?*ZigProcess {
-    if (true) @panic("TODO getZigProcess");
-    return switch (s.id) {
-        .compile => s.cast(Compile).?.zig_process,
+    return switch (s.extended) {
+        .compile => |*compile| compile.zig_process,
         else => null,
     };
 }
@@ -837,4 +906,10 @@ pub fn allocPrintCmd(
         shell.escape(writer, arg, false) catch return error.OutOfMemory;
     }
     return aw.toOwnedSlice();
+}
+
+fn oomWrap(s: *Step, result: error{OutOfMemory}!void) void {
+    result catch {
+        s.result_oom = true;
+    };
 }

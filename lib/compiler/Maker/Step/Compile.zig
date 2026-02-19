@@ -1,19 +1,40 @@
+const Compile = @This();
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Configuration = std.Build.Configuration;
+const Dir = std.Io.Dir;
+const Path = std.Build.Cache.Path;
+const Module = std.Build.Configuration.Module;
+const Io = std.Io;
+const Sha256 = std.crypto.hash.sha2.Sha256;
+const assert = std.debug.assert;
+const mem = std.mem;
+
+const Step = @import("../Step.zig");
+const Maker = @import("../../Maker.zig");
+
 /// Populated during the make phase when there is a long-lived compiler process.
 /// Managed by the build runner, not user build script.
-zig_process: ?*Step.ZigProcess,
+zig_process: ?*Step.ZigProcess = null,
 
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    const b = step.owner;
-    const compile: *Compile = @fieldParentPtr("step", step);
-
-    const zig_args = try getZigArgs(compile, false);
+pub fn make(
+    compile: *Compile,
+    step_index: Configuration.Step.Index,
+    maker: *Maker,
+    progress_node: std.Progress.Node,
+) Step.ExtendedMakeError!void {
+    if (true) @panic("TODO implement compile.make()");
+    const graph = maker.graph;
+    const step = maker.stepByIndex(step_index);
+    const zig_args = try getZigArgs(compile, maker, false);
+    const process_arena = graph.arena; // TODO don't leak into the process_arena
 
     const maybe_output_dir = step.evalZigProcess(
         zig_args,
-        options.progress_node,
-        (b.graph.incremental == true) and (options.watch or options.web_server != null),
-        options.web_server,
-        options.gpa,
+        progress_node,
+        (graph.incremental == true) and (maker.watch or maker.web_server != null),
+        maker,
     ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
@@ -26,7 +47,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     // Update generated files
     if (maybe_output_dir) |output_dir| {
         if (compile.emit_directory) |lp| {
-            lp.path = b.fmt("{f}", .{output_dir});
+            lp.path = try std.fmt.allocPrint(process_arena, "{f}", .{output_dir});
         }
 
         // zig fmt: off
@@ -49,22 +70,23 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     {
         try doAtomicSymLinks(
             step,
-            compile.getEmittedBin().getPath2(b, step),
+            compile.getEmittedBin().getPath2(step.owner, step),
             compile.major_only_filename.?,
             compile.name_only_filename.?,
         );
     }
 }
 
-fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
+fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
     const step = &compile.step;
     const b = step.owner;
-    const arena = b.allocator;
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into the process arena
 
     var zig_args = std.array_list.Managed([]const u8).init(arena);
     defer zig_args.deinit();
 
-    try zig_args.append(b.graph.zig_exe);
+    try zig_args.append(graph.zig_exe);
 
     const cmd = switch (compile.kind) {
         .lib => "build-lib",
@@ -78,7 +100,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (b.reference_trace) |some| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-freference-trace={d}", .{some}));
     }
-    try addFlag(&zig_args, "allow-so-scripts", compile.allow_so_scripts orelse b.graph.allow_so_scripts);
+    try addFlag(&zig_args, "allow-so-scripts", compile.allow_so_scripts orelse graph.allow_so_scripts);
 
     try addFlag(&zig_args, "llvm", compile.use_llvm);
     try addFlag(&zig_args, "lld", compile.use_lld);
@@ -118,7 +140,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         // module, along with any arguments that need to be passed to the
         // compiler for each module individually.
         var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .empty;
-        var frameworks: std.StringArrayHashMapUnmanaged(Module.LinkFrameworkOptions) = .empty;
+        var frameworks: std.StringArrayHashMapUnmanaged(Module.FrameworkFlags) = .empty;
 
         var prev_has_cflags = false;
         var prev_has_rcflags = false;
@@ -130,7 +152,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
         // Fully recursive iteration including dynamic libraries to detect
         // libc and libc++ linkage.
-        for (compile.getCompileDependencies(true)) |some_compile| {
+        for (getCompileDependencies(true)) |some_compile| {
             for (some_compile.root_module.getGraph().modules) |mod| {
                 if (mod.link_libc == true) compile.is_linking_libc = true;
                 if (mod.link_libcpp == true) compile.is_linking_libcpp = true;
@@ -141,7 +163,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
         // For this loop, don't chase dynamic libraries because their link
         // objects are already linked.
-        for (compile.getCompileDependencies(false)) |dep_compile| {
+        for (getCompileDependencies(false)) |dep_compile| {
             for (dep_compile.root_module.getGraph().modules) |mod| {
                 // While walking transitive dependencies, if a given link object is
                 // already included in a library, it should not redundantly be
@@ -207,7 +229,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             switch (system_lib.use_pkg_config) {
                                 .no => try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
                                 .yes, .force => {
-                                    if (compile.runPkgConfig(system_lib.name)) |result| {
+                                    if (compile.runPkgConfig(maker, system_lib.name)) |result| {
                                         try zig_args.appendSlice(result.cflags);
                                         try zig_args.appendSlice(result.libs);
                                         try seen_system_libs.put(arena, system_lib.name, result.cflags);
@@ -227,7 +249,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                                 }));
                                             },
                                             .force => {
-                                                panic("pkg-config failed for library {s}", .{system_lib.name});
+                                                return step.fail("pkg-config failed for library {s}", .{system_lib.name});
                                             },
                                             .no => unreachable,
                                         },
@@ -272,7 +294,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                     if (other.linkage == .dynamic and
                                         compile.rootModuleTarget().os.tag != .windows)
                                     {
-                                        if (fs.path.dirname(full_path_lib)) |dirname| {
+                                        if (Dir.path.dirname(full_path_lib)) |dirname| {
                                             try zig_args.append("-rpath");
                                             try zig_args.append(dirname);
                                         }
@@ -479,7 +501,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (b.verbose_link or compile.verbose_link) try zig_args.append("--verbose-link");
     if (b.verbose_cc or compile.verbose_cc) try zig_args.append("--verbose-cc");
     if (b.verbose_llvm_cpu_features) try zig_args.append("--verbose-llvm-cpu-features");
-    if (b.graph.time_report) try zig_args.append("--time-report");
+    if (graph.time_report) try zig_args.append("--time-report");
 
     if (compile.generated_asm != null) try zig_args.append("-femit-asm");
     if (compile.generated_bin == null) try zig_args.append("-fno-emit-bin");
@@ -555,9 +577,9 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     try zig_args.append(b.cache_root.path orelse ".");
 
     try zig_args.append("--global-cache-dir");
-    try zig_args.append(b.graph.global_cache_root.path orelse ".");
+    try zig_args.append(graph.global_cache_root.path orelse ".");
 
-    if (b.graph.debug_compiler_runtime_libs) |mode|
+    if (graph.debug_compiler_runtime_libs) |mode|
         try zig_args.append(b.fmt("--debug-rt={t}", .{mode}));
 
     try zig_args.append("--name");
@@ -681,7 +703,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     // -I and -L arguments that appear after the last --mod argument apply to all modules.
     const cwd: Io.Dir = .cwd();
-    const io = b.graph.io;
+    const io = graph.io;
 
     for (b.search_prefixes.items) |search_prefix| {
         var prefix_dir = cwd.openDir(io, search_prefix, .{}) catch |err| {
@@ -734,8 +756,8 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
         dir.getPath2(b, step)
-    else if (b.graph.zig_lib_directory.path) |_|
-        b.fmt("{f}", .{b.graph.zig_lib_directory})
+    else if (graph.zig_lib_directory.path) |_|
+        b.fmt("{f}", .{graph.zig_lib_directory})
     else
         null;
 
@@ -769,7 +791,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         "--error-limit", b.fmt("{d}", .{err_limit}),
     });
 
-    try addFlag(&zig_args, "incremental", b.graph.incremental);
+    try addFlag(&zig_args, "incremental", graph.incremental);
 
     try zig_args.append("--listen=-");
 
@@ -814,7 +836,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         var args_hex_hash: [Sha256.digest_length * 2]u8 = undefined;
         _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
 
-        const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
+        const args_file = "args" ++ Dir.path.sep_str ++ args_hex_hash;
         if (b.cache_root.handle.access(io, args_file, .{})) |_| {
             // The args file is already present from a previous run.
         } else |err| switch (err) {
@@ -859,7 +881,9 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     return try zig_args.toOwnedSlice();
 }
 
-pub fn rebuildInFuzzMode(c: *Compile, gpa: Allocator, progress_node: std.Progress.Node) !Path {
+pub fn rebuildInFuzzMode(c: *Compile, maker: *Maker, progress_node: std.Progress.Node) !Path {
+    const gpa = maker.graph.gpa;
+
     c.step.result_error_msgs.clearRetainingCapacity();
     c.step.result_stderr = "";
 
@@ -871,21 +895,23 @@ pub fn rebuildInFuzzMode(c: *Compile, gpa: Allocator, progress_node: std.Progres
         c.step.result_failed_command = null;
     }
 
-    const zig_args = try getZigArgs(c, true);
+    const zig_args = try getZigArgs(c, maker, true);
     const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false, null, gpa);
     return maybe_output_bin_path.?;
 }
 
 pub fn doAtomicSymLinks(
     step: *Step,
+    maker: *Maker,
     output_path: []const u8,
     filename_major_only: []const u8,
     filename_name_only: []const u8,
 ) !void {
     const b = step.owner;
-    const io = b.graph.io;
-    const out_dir = fs.path.dirname(output_path) orelse ".";
-    const out_basename = fs.path.basename(output_path);
+    const graph = maker.graph;
+    const io = graph.io;
+    const out_dir = Dir.path.dirname(output_path) orelse ".";
+    const out_basename = Dir.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = b.pathJoin(&.{ out_dir, filename_major_only });
     const cwd: Io.Dir = .cwd();
@@ -903,10 +929,24 @@ pub fn doAtomicSymLinks(
     };
 }
 
-fn execPkgConfigList(b: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
-    const pkg_config_exe = b.graph.environ_map.get("PKG_CONFIG") orelse "pkg-config";
-    const stdout = try b.runAllowFail(&[_][]const u8{ pkg_config_exe, "--list-all" }, out_code, .ignore);
-    var list = std.array_list.Managed(PkgConfigPkg).init(b.allocator);
+pub const PkgConfigError = error{
+    PkgConfigCrashed,
+    PkgConfigFailed,
+    PkgConfigNotInstalled,
+    PkgConfigInvalidOutput,
+};
+
+pub const PkgConfigPkg = struct {
+    name: []const u8,
+    desc: []const u8,
+};
+
+fn execPkgConfigList(maker: *Maker, out_code: *u8) (PkgConfigError || Maker.RunError)![]const PkgConfigPkg {
+    const graph = maker.graph;
+    const process_arena = graph.arena; // TODO don't leak into process arena
+    const pkg_config_exe = graph.environ_map.get("PKG_CONFIG") orelse "pkg-config";
+    const stdout = try maker.runAllowFail(&[_][]const u8{ pkg_config_exe, "--list-all" }, out_code, .ignore);
+    var list = std.array_list.Managed(PkgConfigPkg).init(process_arena);
     errdefer list.deinit();
     var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
     while (line_it.next()) |line| {
@@ -960,7 +1000,8 @@ const PkgConfigResult = struct {
 
 /// Run pkg-config for the given library name and parse the output, returning the arguments
 /// that should be passed to zig to link the given library.
-fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
+fn runPkgConfig(compile: *Compile, maker: *Maker, lib_name: []const u8) !PkgConfigResult {
+    const graph = maker.graph;
     const wl_rpath_prefix = "-Wl,-rpath,";
 
     const b = compile.step.owner;
@@ -1013,7 +1054,7 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
     };
 
     var code: u8 = undefined;
-    const pkg_config_exe = b.graph.environ_map.get("PKG_CONFIG") orelse "pkg-config";
+    const pkg_config_exe = graph.environ_map.get("PKG_CONFIG") orelse "pkg-config";
     const stdout = if (b.runAllowFail(&[_][]const u8{
         pkg_config_exe,
         pkg_name,
@@ -1198,3 +1239,43 @@ fn moduleNeedsCliArg(mod: *const Module) bool {
     } else false;
 }
 
+const CliNamedModules = struct {
+    modules: std.AutoArrayHashMapUnmanaged(*Module, void),
+    names: std.StringArrayHashMapUnmanaged(void),
+
+    /// Traverse the whole dependency graph and give every module a unique
+    /// name, ideally one named after what it's called somewhere in the graph.
+    /// It will help here to have both a mapping from module to name and a set
+    /// of all the currently-used names.
+    fn init(arena: Allocator, root_module: *Module) Allocator.Error!CliNamedModules {
+        var compile: CliNamedModules = .{
+            .modules = .{},
+            .names = .{},
+        };
+        const graph = root_module.getGraph();
+        {
+            assert(graph.modules[0] == root_module);
+            try compile.modules.put(arena, root_module, {});
+            try compile.names.put(arena, "root", {});
+        }
+        for (graph.modules[1..], graph.names[1..]) |mod, orig_name| {
+            var name = orig_name;
+            var n: usize = 0;
+            while (true) {
+                const gop = try compile.names.getOrPut(arena, name);
+                if (!gop.found_existing) {
+                    try compile.modules.putNoClobber(arena, mod, {});
+                    break;
+                }
+                name = try std.fmt.allocPrint(arena, "{s}{d}", .{ orig_name, n });
+                n += 1;
+            }
+        }
+        return compile;
+    }
+};
+
+fn getCompileDependencies(chase_dynamic: bool) void {
+    _ = chase_dynamic;
+    @panic("TODO");
+}

@@ -45,7 +45,6 @@ install_prefix: []const u8,
 /// Path to the directory containing build.zig.
 build_root: Cache.Directory,
 cache_root: Cache.Directory,
-pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 debug_log_scopes: []const []const u8 = &.{},
 debug_compile_errors: bool = false,
 debug_incremental: bool = false,
@@ -175,18 +174,6 @@ pub const RunError = error{
     ProcessTerminated,
     ExecNotSupported,
 } || std.process.SpawnError;
-
-pub const PkgConfigError = error{
-    PkgConfigCrashed,
-    PkgConfigFailed,
-    PkgConfigNotInstalled,
-    PkgConfigInvalidOutput,
-};
-
-pub const PkgConfigPkg = struct {
-    name: []const u8,
-    desc: []const u8,
-};
 
 const UserInputOptionsMap = StringHashMap(UserInputOption);
 const AvailableOptionsMap = StringHashMap(AvailableOption);

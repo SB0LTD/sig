@@ -3,38 +3,46 @@ const Run = @This();
 const builtin = @import("builtin");
 
 const std = @import("std");
-const Io = std.Io;
+const Cache = std.Build.Cache;
+const Configuration = std.Build.Configuration;
 const Dir = std.Io.Dir;
+const EnvMap = std.process.Environ.Map;
+const Io = std.Io;
+const Path = std.Build.Cache.Path;
+const assert = std.debug.assert;
 const mem = std.mem;
 const process = std.process;
-const EnvMap = std.process.Environ.Map;
-const assert = std.debug.assert;
-const Cache = std.Build.Cache;
-const Path = std.Build.Cache.Path;
 
 const Step = @import("../Step.zig");
+const Maker = @import("../../Maker.zig");
 
 /// If this is a Zig unit test binary, this tracks the names of the unit
 /// tests that are also fuzz tests. Indexes cannot be used as they may
 /// change between reruns.
-fuzz_tests: std.ArrayList([]const u8),
+fuzz_tests: std.ArrayList([]const u8) = .empty,
 cached_test_metadata: ?CachedTestMetadata = null,
 
 /// Populated during the fuzz phase if this run step corresponds to a unit test
 /// executable that contains fuzz tests.
-rebuilt_executable: ?Path,
+rebuilt_executable: ?Path = null,
 
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    const b = step.owner;
-    const io = b.graph.io;
-    const arena = b.allocator;
-    const run: *Run = @fieldParentPtr("step", step);
+pub fn make(
+    run: *Run,
+    step_index: Configuration.Step.Index,
+    maker: *Maker,
+    progress_node: std.Progress.Node,
+) Step.ExtendedMakeError!void {
+    if (true) @panic("TODO implement run.make()");
+    const graph = maker.graph;
+    const step = maker.stepByIndex(step_index);
+    const io = graph.io;
+    const arena = graph.arena; // TODO don't leak into the process arena
     const has_side_effects = run.hasSideEffects();
 
     var argv_list = std.array_list.Managed([]const u8).init(arena);
     var output_placeholders = std.array_list.Managed(IndexedOutput).init(arena);
 
-    var man = b.graph.cache.obtain();
+    var man = graph.cache.obtain();
     defer man.deinit();
 
     if (run.environ_map) |environ_map| {
@@ -54,19 +62,19 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 man.hash.addBytes(bytes);
             },
             .lazy_path => |file| {
-                const file_path = file.lazy_path.getPath3(b, step);
-                try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, run.convertPathArg(file_path) }));
+                const file_path = file.lazy_path.getPath3(graph, step);
+                try argv_list.append(graph.fmt("{s}{s}", .{ file.prefix, run.convertPathArg(maker, file_path) }));
                 man.hash.addBytes(file.prefix);
                 _ = try man.addFilePath(file_path, null);
             },
             .decorated_directory => |dd| {
-                const file_path = dd.lazy_path.getPath3(b, step);
-                const resolved_arg = b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(file_path), dd.suffix });
+                const file_path = dd.lazy_path.getPath3(graph, step);
+                const resolved_arg = graph.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(maker, file_path), dd.suffix });
                 try argv_list.append(resolved_arg);
                 man.hash.addBytes(resolved_arg);
             },
             .file_content => |file_plp| {
-                const file_path = file_plp.lazy_path.getPath3(b, step);
+                const file_path = file_plp.lazy_path.getPath3(graph, step);
 
                 var result: std.Io.Writer.Allocating = .init(arena);
                 errdefer result.deinit();
@@ -99,13 +107,13 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
                 if (artifact.rootModuleTarget().os.tag == .windows) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
-                    run.addPathForDynLibs(artifact);
+                    addPathForDynLibs(artifact);
                 }
                 const file_path = artifact.installed_path orelse artifact.generated_bin.?.path.?;
 
-                try argv_list.append(b.fmt("{s}{s}", .{
+                try argv_list.append(graph.fmt("{s}{s}", .{
                     pa.prefix,
-                    run.convertPathArg(.{ .root_dir = .cwd(), .sub_path = file_path }),
+                    run.convertPathArg(maker, .{ .root_dir = .cwd(), .sub_path = file_path }),
                 }));
 
                 _ = try man.addFile(file_path, null);
@@ -131,7 +139,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             man.hash.addBytes(bytes);
         },
         .lazy_path => |lazy_path| {
-            const file_path = lazy_path.getPath2(b, step);
+            const file_path = lazy_path.getPath2(graph, step);
             _ = try man.addFile(file_path, null);
         },
         .none => {},
@@ -147,14 +155,15 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         man.hash.add(captured.trim_whitespace);
     }
 
-    hashStdIo(&man.hash, run.stdio);
+    std.log.err("TODO hashStdIo", .{});
+    //hashStdIo(&man.hash, run.stdio);
 
     for (run.file_inputs.items) |lazy_path| {
-        _ = try man.addFile(lazy_path.getPath2(b, step), null);
+        _ = try man.addFile(lazy_path.getPath2(graph, step), null);
     }
 
     if (run.cwd) |cwd| {
-        const cwd_path = cwd.getPath3(b, step);
+        const cwd_path = cwd.getPath3(graph, step);
         _ = man.hash.addBytes(try cwd_path.toString(arena));
     }
 
@@ -165,9 +174,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         try populateGeneratedPaths(
             arena,
             output_placeholders.items,
-            run.captured_stdout,
-            run.captured_stderr,
-            b.cache_root,
+            graph.cache_root,
             &digest,
         );
 
@@ -185,36 +192,34 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         try populateGeneratedPaths(
             arena,
             output_placeholders.items,
-            run.captured_stdout,
-            run.captured_stderr,
-            b.cache_root,
+            graph.cache_root,
             &digest,
         );
 
         const output_dir_path = "o" ++ Dir.path.sep_str ++ &digest;
         for (output_placeholders.items) |placeholder| {
-            const output_sub_path = b.pathJoin(&.{ output_dir_path, placeholder.output.basename });
+            const output_sub_path = graph.pathJoin(&.{ output_dir_path, placeholder.output.basename });
             const output_sub_dir_path = switch (placeholder.tag) {
                 .output_file => Dir.path.dirname(output_sub_path).?,
                 .output_directory => output_sub_path,
                 else => unreachable,
             };
-            b.cache_root.handle.createDirPath(io, output_sub_dir_path) catch |err| {
-                return step.fail("unable to make path '{f}{s}': {s}", .{
-                    b.cache_root, output_sub_dir_path, @errorName(err),
+            graph.cache_root.handle.createDirPath(io, output_sub_dir_path) catch |err| {
+                return step.fail("unable to make path '{f}{s}': {t}", .{
+                    graph.cache_root, output_sub_dir_path, err,
                 });
             };
-            const arg_output_path = run.convertPathArg(.{
+            const arg_output_path = run.convertPathArg(maker, .{
                 .root_dir = .cwd(),
                 .sub_path = placeholder.output.generated_file.getPath(),
             });
             argv_list.items[placeholder.index] = if (placeholder.output.prefix.len == 0)
                 arg_output_path
             else
-                b.fmt("{s}{s}", .{ placeholder.output.prefix, arg_output_path });
+                graph.fmt("{s}{s}", .{ placeholder.output.prefix, arg_output_path });
         }
 
-        try runCommand(run, argv_list.items, has_side_effects, output_dir_path, options, null);
+        try runCommand(run, maker, progress_node, argv_list.items, has_side_effects, output_dir_path, null);
         if (!has_side_effects) try step.writeManifestAndWatch(&man);
         return;
     };
@@ -226,32 +231,32 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     for (output_placeholders.items) |placeholder| {
         const output_components = .{ tmp_dir_path, placeholder.output.basename };
-        const output_sub_path = b.pathJoin(&output_components);
+        const output_sub_path = graph.pathJoin(&output_components);
         const output_sub_dir_path = switch (placeholder.tag) {
             .output_file => Dir.path.dirname(output_sub_path).?,
             .output_directory => output_sub_path,
             else => unreachable,
         };
-        b.cache_root.handle.createDirPath(io, output_sub_dir_path) catch |err| {
-            return step.fail("unable to make path '{f}{s}': {s}", .{
-                b.cache_root, output_sub_dir_path, @errorName(err),
+        graph.cache_root.handle.createDirPath(io, output_sub_dir_path) catch |err| {
+            return step.fail("unable to make path '{f}{s}': {t}", .{
+                graph.cache_root, output_sub_dir_path, err,
             });
         };
-        const raw_output_path: Cache.Path = .{
-            .root_dir = b.cache_root,
-            .sub_path = b.pathJoin(&output_components),
+        const raw_output_path: Path = .{
+            .root_dir = graph.cache_root,
+            .sub_path = graph.pathJoin(&output_components),
         };
-        placeholder.output.generated_file.path = raw_output_path.toString(b.graph.arena) catch @panic("OOM");
-        argv_list.items[placeholder.index] = b.fmt("{s}{s}", .{
+        placeholder.output.generated_file.path = raw_output_path.toString(arena) catch @panic("OOM");
+        argv_list.items[placeholder.index] = graph.fmt("{s}{s}", .{
             placeholder.output.prefix,
-            run.convertPathArg(raw_output_path),
+            run.convertPathArg(maker, raw_output_path),
         });
     }
 
-    try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, options, null);
+    try runCommand(run, maker, progress_node, argv_list.items, has_side_effects, tmp_dir_path, null);
 
     const dep_file_dir = Dir.cwd();
-    const dep_file_basename = dep_output_file.generated_file.getPath2(b, step);
+    const dep_file_basename = dep_output_file.generated_file.getPath2(graph, step);
     if (has_side_effects)
         try man.addDepFile(dep_file_dir, dep_file_basename)
     else
@@ -269,21 +274,21 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     if (any_output) {
         const o_sub_path = "o" ++ Dir.path.sep_str ++ &digest;
 
-        b.cache_root.handle.rename(tmp_dir_path, b.cache_root.handle, o_sub_path, io) catch |err| switch (err) {
+        graph.cache_root.handle.rename(tmp_dir_path, graph.cache_root.handle, o_sub_path, io) catch |err| switch (err) {
             Dir.RenameError.DirNotEmpty => {
-                b.cache_root.handle.deleteTree(io, o_sub_path) catch |del_err| {
+                graph.cache_root.handle.deleteTree(io, o_sub_path) catch |del_err| {
                     return step.fail("unable to remove dir '{f}'{s}: {t}", .{
-                        b.cache_root, tmp_dir_path, del_err,
+                        graph.cache_root, tmp_dir_path, del_err,
                     });
                 };
-                b.cache_root.handle.rename(tmp_dir_path, b.cache_root.handle, o_sub_path, io) catch |retry_err| {
+                graph.cache_root.handle.rename(tmp_dir_path, graph.cache_root.handle, o_sub_path, io) catch |retry_err| {
                     return step.fail("unable to rename dir '{f}{s}' to '{f}{s}': {t}", .{
-                        b.cache_root, tmp_dir_path, b.cache_root, o_sub_path, retry_err,
+                        graph.cache_root, tmp_dir_path, graph.cache_root, o_sub_path, retry_err,
                     });
                 };
             },
             else => return step.fail("unable to rename dir '{f}{s}' to '{f}{s}': {t}", .{
-                b.cache_root, tmp_dir_path, b.cache_root, o_sub_path, err,
+                graph.cache_root, tmp_dir_path, graph.cache_root, o_sub_path, err,
             }),
         };
     }
@@ -293,9 +298,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     try populateGeneratedPaths(
         arena,
         output_placeholders.items,
-        run.captured_stdout,
-        run.captured_stderr,
-        b.cache_root,
+        graph.cache_root,
         &digest,
     );
 }
@@ -347,7 +350,6 @@ fn waitZigTest(
     // start and it acknowledging the test starting, we terminate the child and raise an error. This
     // *should* never happen, but could in theory be caused by some very unlucky IB in a test.
     const response_timeout: Io.Clock.Duration = t: {
-        if (fuzz_context != null) break :t null; // don't timeout fuzz tests
         const ns = @max(options.unit_test_timeout_ns orelse 0, 60 * std.time.ns_per_s);
         break :t .{ .clock = .awake, .raw = .fromNanoseconds(ns) };
     };
@@ -773,8 +775,8 @@ const FuzzTestRunner = struct {
                     try f.pending_broadcasts.ensureUnusedCapacity(gpa, size);
                     f.pending_broadcasts.appendSliceAssumeCapacity(body);
                     f.pending_broadcasts.appendSliceAssumeCapacity(@ptrCast(&footer));
-                 }
-             },
+                }
+            },
             else => {}, // ignore other messages
         }
 
@@ -863,7 +865,7 @@ const FuzzTestRunner = struct {
         if (f.coverage_id == null) return;
 
         // Search for the input file corresponding to the instance
-        const InputHeader = Build.abi.fuzz.MmapInputHeader;
+        const InputHeader = std.Build.abi.fuzz.MmapInputHeader;
         var in_r_buf: [@sizeOf(InputHeader)]u8 = undefined;
         var in_r: Io.File.Reader = undefined;
         var in_f: Io.File = undefined;
@@ -1299,11 +1301,11 @@ fn sendRunFuzzTestMessage(
     }
 }
 
-fn evalGeneric(run: *Run, spawn_options: process.SpawnOptions) !EvalGenericResult {
-    const b = run.step.owner;
-    const io = b.graph.io;
-    const arena = b.allocator;
-    const gpa = b.allocator;
+fn evalGeneric(run: *Run, maker: *Maker, spawn_options: process.SpawnOptions) !EvalGenericResult {
+    const graph = maker.graph;
+    const io = graph.io;
+    const arena = graph.allocator; // TODO don't leak into the process arena
+    const gpa = maker.gpa;
 
     var child = try process.spawn(io, spawn_options);
     defer child.kill(io);
@@ -1317,7 +1319,7 @@ fn evalGeneric(run: *Run, spawn_options: process.SpawnOptions) !EvalGenericResul
             child.stdin = null;
         },
         .lazy_path => |lazy_path| {
-            const path = lazy_path.getPath3(b, &run.step);
+            const path = lazy_path.getPath3(graph, &run.step);
             const file = path.root_dir.handle.openFile(io, path.subPathOrDot(), .{}) catch |err| {
                 return run.step.fail("unable to open stdin file: {t}", .{err});
             };
@@ -1417,18 +1419,22 @@ fn evalGeneric(run: *Run, spawn_options: process.SpawnOptions) !EvalGenericResul
 
 const IndexedOutput = struct {
     index: usize,
-    tag: @typeInfo(Arg).@"union".tag_type.?,
+    tag: Configuration.Step.Run.Arg.Tag,
     output: *Output,
 };
+
+const Output = void; // TODO
 
 pub fn rerunInFuzzMode(
     run: *Run,
     fuzz: *std.Build.Fuzz,
     prog_node: std.Progress.Node,
 ) !void {
+    const maker = fuzz.maker;
+    const graph = maker.graph;
     const step = &run.step;
     const b = step.owner;
-    const io = b.graph.io;
+    const io = graph.io;
     const arena = b.allocator;
     var argv_list: std.ArrayList([]const u8) = .empty;
     for (run.argv.items) |arg| {
@@ -1438,11 +1444,11 @@ pub fn rerunInFuzzMode(
             },
             .lazy_path => |file| {
                 const file_path = file.lazy_path.getPath3(b, step);
-                try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, run.convertPathArg(file_path) }));
+                try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, run.convertPathArg(maker, file_path) }));
             },
             .decorated_directory => |dd| {
                 const file_path = dd.lazy_path.getPath3(b, step);
-                try argv_list.append(arena, b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(file_path), dd.suffix }));
+                try argv_list.append(arena, b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(maker, file_path), dd.suffix }));
             },
             .file_content => |file_plp| {
                 const file_path = file_plp.lazy_path.getPath3(b, step);
@@ -1471,7 +1477,7 @@ pub fn rerunInFuzzMode(
                 };
                 try argv_list.append(arena, b.fmt("{s}{s}", .{
                     pa.prefix,
-                    run.convertPathArg(.{ .root_dir = .cwd(), .sub_path = file_path }),
+                    run.convertPathArg(maker, .{ .root_dir = .cwd(), .sub_path = file_path }),
                 }));
             },
             .output_file, .output_directory => unreachable,
@@ -1487,16 +1493,12 @@ pub fn rerunInFuzzMode(
     var rand_int: u64 = undefined;
     io.random(@ptrCast(&rand_int));
     const tmp_dir_path = "tmp" ++ Dir.path.sep_str ++ std.fmt.hex(rand_int);
-    try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, .{
-        .progress_node = prog_node,
-        .watch = undefined, // not used by `runCommand`
-        .web_server = null, // only needed for time reports
-        .unit_test_timeout_ns = null, // don't time out fuzz tests for now
-        .gpa = fuzz.gpa,
-    }, .{
+    try runCommand(run, maker, prog_node, argv_list.items, has_side_effects, tmp_dir_path, .{
         .fuzz = fuzz,
     });
 }
+
+const CapturedStdIo = void; // TODO get it from Configuration
 
 fn populateGeneratedPaths(
     arena: std.mem.Allocator,
@@ -1545,17 +1547,19 @@ const FuzzContext = struct {
 
 fn runCommand(
     run: *Run,
+    maker: *Maker,
+    progress_node: std.Progress.Node,
     argv: []const []const u8,
     has_side_effects: bool,
     output_dir_path: []const u8,
-    options: Step.MakeOptions,
     fuzz_context: ?FuzzContext,
 ) !void {
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into process arena
+    const gpa = maker.gpa;
     const step = &run.step;
     const b = step.owner;
-    const arena = b.allocator;
-    const gpa = options.gpa;
-    const io = b.graph.io;
+    const io = graph.io;
 
     const cwd: process.Child.Cwd = if (run.cwd) |lazy_cwd| .{ .path = lazy_cwd.getPath2(b, step) } else .inherit;
 
@@ -1571,12 +1575,12 @@ fn runCommand(
     defer interp_argv.deinit();
 
     var environ_map: EnvMap = env: {
-        const orig = run.environ_map orelse &b.graph.environ_map;
+        const orig = run.environ_map orelse &graph.environ_map;
         break :env try orig.clone(gpa);
     };
     defer environ_map.deinit();
 
-    const opt_generic_result = spawnChildAndCollect(run, argv, &environ_map, has_side_effects, options, fuzz_context) catch |err| term: {
+    const opt_generic_result = spawnChildAndCollect(run, maker, progress_node, argv, &environ_map, has_side_effects, fuzz_context) catch |err| term: {
         // InvalidExe: cpu arch mismatch
         // FileNotFound: can happen with a wrong dynamic linker path
         if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
@@ -1597,7 +1601,7 @@ fn runCommand(
             const need_cross_libc = exe.is_linking_libc and
                 (root_target.isGnuLibC() or (root_target.isMuslLibC() and exe.linkage == .dynamic));
             const other_target = exe.root_module.resolved_target.?.result;
-            switch (std.zig.system.getExternalExecutor(io, &b.graph.host.result, &other_target, .{
+            switch (std.zig.system.getExternalExecutor(io, &graph.host.result, &other_target, .{
                 .qemu_fixes_dl = need_cross_libc and b.libc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
@@ -1669,7 +1673,7 @@ fn runCommand(
                 .bad_dl => |foreign_dl| {
                     if (allow_skip) return error.MakeSkipped;
 
-                    const host_dl = b.graph.host.result.dynamic_linker.get() orelse "(none)";
+                    const host_dl = graph.host.result.dynamic_linker.get() orelse "(none)";
 
                     return step.fail(
                         \\the host system is unable to execute binaries from the target
@@ -1681,7 +1685,7 @@ fn runCommand(
                 .bad_os_or_cpu => {
                     if (allow_skip) return error.MakeSkipped;
 
-                    const host_name = try b.graph.host.result.zigTriple(b.allocator);
+                    const host_name = try graph.host.result.zigTriple(b.allocator);
                     const foreign_name = try root_target.zigTriple(b.allocator);
 
                     return step.fail("the host system ({s}) is unable to execute binaries from the target ({s})", .{
@@ -1692,14 +1696,14 @@ fn runCommand(
 
             if (root_target.os.tag == .windows) {
                 // On Windows we don't have rpaths so we have to add .dll search paths to PATH
-                run.addPathForDynLibs(exe);
+                addPathForDynLibs(exe);
             }
 
             gpa.free(step.result_failed_command.?);
             step.result_failed_command = null;
             try Step.handleVerbose2(step.owner, cwd, run.environ_map, interp_argv.items);
 
-            break :term spawnChildAndCollect(run, interp_argv.items, &environ_map, has_side_effects, options, fuzz_context) catch |e| {
+            break :term spawnChildAndCollect(run, maker, progress_node, interp_argv.items, &environ_map, has_side_effects, fuzz_context) catch |e| {
                 if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
                 if (e == error.MakeFailed) return error.MakeFailed; // error already reported
                 return step.fail("unable to spawn interpreter {s}: {t}", .{ interp_argv.items[0], e });
@@ -1851,14 +1855,16 @@ const EvalGenericResult = struct {
 
 fn spawnChildAndCollect(
     run: *Run,
+    maker: *Maker,
+    progress_node: std.Progress.Node,
     argv: []const []const u8,
     environ_map: *EnvMap,
     has_side_effects: bool,
-    options: Step.MakeOptions,
     fuzz_context: ?FuzzContext,
 ) !?EvalGenericResult {
     const b = run.step.owner;
-    const graph = b.graph;
+    const graph = maker.graph;
+    const gpa = maker.gpa;
     const io = graph.io;
 
     if (fuzz_context != null) {
@@ -1870,7 +1876,7 @@ fn spawnChildAndCollect(
 
     // If an error occurs, it's caused by this command:
     assert(run.step.result_failed_command == null);
-    run.step.result_failed_command = try Step.allocPrintCmd(options.gpa, child_cwd, .{
+    run.step.result_failed_command = try Step.allocPrintCmd(gpa, child_cwd, .{
         .child = environ_map,
         .parent = &graph.environ_map,
     }, argv);
@@ -1905,7 +1911,7 @@ fn spawnChildAndCollect(
 
     if (run.stdio == .zig_test) {
         const started: Io.Clock.Timestamp = .now(io, .awake);
-        const result = evalZigTest(run, spawn_options, options, fuzz_context) catch |err| switch (err) {
+        const result = evalZigTest(run, maker, progress_node, spawn_options, fuzz_context) catch |err| switch (err) {
             error.Canceled => |e| return e,
             else => |e| e,
         };
@@ -1915,7 +1921,7 @@ fn spawnChildAndCollect(
     } else {
         const inherit = spawn_options.stdout == .inherit or spawn_options.stderr == .inherit;
         if (!run.disable_zig_progress and !inherit) {
-            spawn_options.progress_node = options.progress_node;
+            spawn_options.progress_node = progress_node;
         }
         const terminal_mode: Io.Terminal.Mode = if (inherit) m: {
             const stderr = try io.lockStderr(&.{}, graph.stderr_mode);
@@ -1925,7 +1931,7 @@ fn spawnChildAndCollect(
         try setColorEnvironmentVariables(run, environ_map, terminal_mode);
 
         const started: Io.Clock.Timestamp = .now(io, .awake);
-        const result = evalGeneric(run, spawn_options) catch |err| switch (err) {
+        const result = evalGeneric(run, maker, spawn_options) catch |err| switch (err) {
             error.Canceled => |e| return e,
             else => |e| e,
         };
@@ -1934,11 +1940,11 @@ fn spawnChildAndCollect(
     }
 }
 
-fn hashStdIo(hh: *Cache.HashHelper, stdio: StdIo) void {
+fn hashStdIo(hh: *Cache.HashHelper, stdio: void) void {
     switch (stdio) {
         .infer_from_args, .inherit, .zig_test => {},
         .check => |checks| for (checks.items) |check| {
-            hh.add(@as(std.meta.Tag(StdIo.Check), check));
+            hh.add(@as(std.meta.Tag(@This().StdIo.Check), check));
             switch (check) {
                 .expect_stderr_exact,
                 .expect_stderr_match,
@@ -2010,7 +2016,7 @@ fn setColorEnvironmentVariables(run: *Run, environ_map: *EnvMap, terminal_mode: 
     }
 }
 
-fn checksContainStdout(checks: []const StdIo.Check) bool {
+fn checksContainStdout(checks: []const @This().StdIo.Check) bool {
     for (checks) |check| switch (check) {
         .expect_stderr_exact,
         .expect_stderr_match,
@@ -2024,7 +2030,7 @@ fn checksContainStdout(checks: []const StdIo.Check) bool {
     return false;
 }
 
-fn checksContainStderr(checks: []const StdIo.Check) bool {
+fn checksContainStderr(checks: []const @This().StdIo.Check) bool {
     for (checks) |check| switch (check) {
         .expect_stdout_exact,
         .expect_stdout_match,
@@ -2063,9 +2069,9 @@ fn hasAnyOutputArgs(run: Run) bool {
 ///
 /// Whenever a path is included in the argv of a child, it should be put through this function first
 /// to make sure the child doesn't see paths relative to a cwd other than its own.
-fn convertPathArg(run: *Run, path: Build.Cache.Path) []const u8 {
+fn convertPathArg(run: *Run, maker: *Maker, path: Path) []const u8 {
     const b = run.step.owner;
-    const graph = b.graph;
+    const graph = maker.graph;
     const arena = graph.arena;
 
     const path_str = path.toString(arena) catch @panic("OOM");
@@ -2091,40 +2097,43 @@ fn convertPathArg(run: *Run, path: Build.Cache.Path) []const u8 {
     return Dir.path.join(arena, &.{ ".", child_cwd_rel }) catch @panic("OOM");
 }
 
-fn addPathForDynLibs(run: *Run, artifact: *Step.Compile) void {
-    const b = run.step.owner;
-    const compiles = artifact.getCompileDependencies(true);
-    for (compiles) |compile| {
+fn addPathForDynLibs(artifact: *Step.Compile) void {
+    if (true) @panic("TODO");
+    for (artifact.getCompileDependencies(true)) |compile| {
         if (compile.root_module.resolved_target.?.result.os.tag == .windows and
             compile.isDynamicLibrary())
         {
-            addPathDir(run, Dir.path.dirname(compile.getEmittedBin().getPath2(b, &run.step)).?);
+            @panic("TODO");
+            //addPathDir(run, Dir.path.dirname(compile.getEmittedBin().getPath2(b, &run.step)).?);
         }
     }
 }
 
 fn failForeign(
     run: *Run,
+    maker: *Maker,
+    step_index: Configuration.Step.Index,
     suggested_flag: []const u8,
     argv0: []const u8,
     exe: *Step.Compile,
-) error{ MakeFailed, MakeSkipped, OutOfMemory } {
+) Step.ExtendedMakeError {
+    const step = maker.stepByIndex(step_index);
     switch (run.stdio) {
         .check, .zig_test => {
-            if (run.skip_foreign_checks)
-                return error.MakeSkipped;
+            if (run.skip_foreign_checks) return error.MakeSkipped;
 
-            const b = run.step.owner;
-            const host_name = try b.graph.host.result.zigTriple(b.allocator);
-            const foreign_name = try exe.rootModuleTarget().zigTriple(b.allocator);
+            const graph = maker.graph;
+            const process_arena = graph.arena; // TODO don't leak into process arena
+            const host_name = try graph.host.result.zigTriple(process_arena);
+            const foreign_name = try exe.rootModuleTarget().zigTriple(process_arena);
 
-            return run.step.fail(
+            return step.fail(
                 \\unable to spawn foreign binary '{s}' ({s}) on host system ({s})
                 \\  consider using {s} or enabling skip_foreign_checks in the Run step
             , .{ argv0, foreign_name, host_name, suggested_flag });
         },
         else => {
-            return run.step.fail("unable to spawn foreign binary '{s}'", .{argv0});
+            return step.fail("unable to spawn foreign binary '{s}'", .{argv0});
         },
     }
 }

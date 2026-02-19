@@ -8,13 +8,9 @@ const fs = std.fs;
 const assert = std.debug.assert;
 const panic = std.debug.panic;
 const StringHashMap = std.StringHashMap;
-const Sha256 = std.crypto.hash.sha2.Sha256;
 const Allocator = std.mem.Allocator;
 const Step = std.Build.Step;
 const LazyPath = std.Build.LazyPath;
-const PkgConfigPkg = std.Build.PkgConfigPkg;
-const PkgConfigError = std.Build.PkgConfigError;
-const RunError = std.Build.RunError;
 const Module = std.Build.Module;
 const InstallDir = std.Build.InstallDir;
 const GeneratedFile = std.Build.GeneratedFile;
@@ -776,42 +772,6 @@ pub fn setExecCmd(compile: *Compile, args: []const ?[]const u8) void {
     }
     compile.exec_cmd_args = duped_args;
 }
-
-const CliNamedModules = struct {
-    modules: std.AutoArrayHashMapUnmanaged(*Module, void),
-    names: std.StringArrayHashMapUnmanaged(void),
-
-    /// Traverse the whole dependency graph and give every module a unique
-    /// name, ideally one named after what it's called somewhere in the graph.
-    /// It will help here to have both a mapping from module to name and a set
-    /// of all the currently-used names.
-    fn init(arena: Allocator, root_module: *Module) Allocator.Error!CliNamedModules {
-        var compile: CliNamedModules = .{
-            .modules = .{},
-            .names = .{},
-        };
-        const graph = root_module.getGraph();
-        {
-            assert(graph.modules[0] == root_module);
-            try compile.modules.put(arena, root_module, {});
-            try compile.names.put(arena, "root", {});
-        }
-        for (graph.modules[1..], graph.names[1..]) |mod, orig_name| {
-            var name = orig_name;
-            var n: usize = 0;
-            while (true) {
-                const gop = try compile.names.getOrPut(arena, name);
-                if (!gop.found_existing) {
-                    try compile.modules.putNoClobber(arena, mod, {});
-                    break;
-                }
-                name = try std.fmt.allocPrint(arena, "{s}{d}", .{ orig_name, n });
-                n += 1;
-            }
-        }
-        return compile;
-    }
-};
 
 fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking_step: ?*Step) ![]const u8 {
     const step = &compile.step;

@@ -419,7 +419,7 @@ pub fn main(init: process.Init.Minimal) !void {
         var top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index) = .empty;
         for (configuration.steps, 0..) |*conf_step, step_index_usize| {
             const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
-            const flags: Configuration.Step.Flags = @bitCast(configuration.extra[conf_step.extra_index]);
+            const flags = conf_step.flags(&configuration);
             if (flags.tag == .top_level) {
                 const name = step_index.ptr(&configuration).name.slice(&configuration);
                 try top_level_steps.put(arena, name, step_index);
@@ -538,7 +538,7 @@ pub fn main(init: process.Init.Minimal) !void {
     var w: Watch = w: {
         if (!watch) break :w undefined;
         if (!Watch.have_impl) fatal("--watch not yet implemented for {t}", .{builtin.os.tag});
-        break :w try .init(graph.cache.cwd, &scanned_config.configuration, maker.steps);
+        break :w try .init(&maker);
     };
 
     const now = Io.Clock.Timestamp.now(io, .awake);
@@ -546,14 +546,10 @@ pub fn main(init: process.Init.Minimal) !void {
     maker.web_server = if (webui_listen) |listen_address| ws: {
         if (builtin.single_threaded) unreachable; // `fatal` above
         break :ws .init(.{
-            .gpa = gpa,
-            .graph = &graph,
-            .all_steps = maker.step_stack.keys(),
+            .maker = &maker,
             .root_prog_node = main_progress_node,
-            .watch = watch,
             .listen_address = listen_address,
             .base_timestamp = now,
-            .configuration = &scanned_config.configuration,
         });
     } else null;
 
@@ -564,7 +560,9 @@ pub fn main(init: process.Init.Minimal) !void {
     rebuild: while (true) : (if (maker.error_style.clearOnUpdate()) {
         const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
         defer io.unlockStderr();
-        try stderr.file_writer.interface.writeAll("\x1B[2J\x1B[3J\x1B[H");
+        stderr.file_writer.interface.writeAll("\x1B[2J\x1B[3J\x1B[H") catch |err| switch (err) {
+            error.WriteFailed => return stderr.file_writer.err.?,
+        };
     }) {
         if (maker.web_server) |*ws| ws.startBuild();
 
@@ -608,15 +606,15 @@ pub fn main(init: process.Init.Minimal) !void {
         // recursive dependants.
         var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
         const caption = std.fmt.bufPrint(&caption_buf, "watching {d} directories, {d} processes", .{
-            w.dir_count, countSubProcesses(maker.steps, maker.step_stack.keys()),
+            w.dir_count, countSubProcesses(&maker),
         }) catch &caption_buf;
         var debouncing_node = main_progress_node.start(caption, 0);
         var in_debounce = false;
-        while (true) switch (try w.wait(gpa, io, if (in_debounce) .{ .ms = debounce_interval_ms } else .none)) {
+        while (true) switch (try w.wait(if (in_debounce) .{ .ms = debounce_interval_ms } else .none)) {
             .timeout => {
                 assert(in_debounce);
                 debouncing_node.end();
-                markFailedStepsDirty(gpa, maker.steps, maker.step_stack.keys());
+                markFailedStepsDirty(&maker);
                 continue :rebuild;
             },
             .dirty => if (!in_debounce) {
@@ -629,18 +627,20 @@ pub fn main(init: process.Init.Minimal) !void {
     }
 }
 
-fn markFailedStepsDirty(gpa: Allocator, make_steps: []Step, all_steps: []const Configuration.Step.Index) void {
+fn markFailedStepsDirty(maker: *Maker) void {
+    const all_steps = maker.step_stack.keys();
+
     for (all_steps) |step_index| {
-        const step = &make_steps[@intFromEnum(step_index)];
+        const step = maker.stepByIndex(step_index);
         switch (step.state) {
-            .dependency_failure, .failure, .skipped => _ = step.invalidateResult(gpa),
+            .dependency_failure, .failure, .skipped => _ = maker.invalidateResult(step),
             else => continue,
         }
     }
     // Now that all dirty steps have been found, the remaining steps that
     // succeeded from last run shall be marked "cached".
     for (all_steps) |step_index| {
-        const step = &make_steps[@intFromEnum(step_index)];
+        const step = maker.stepByIndex(step_index);
         switch (step.state) {
             .success => step.result_cached = true,
             else => continue,
@@ -648,10 +648,11 @@ fn markFailedStepsDirty(gpa: Allocator, make_steps: []Step, all_steps: []const C
     }
 }
 
-fn countSubProcesses(make_steps: []Step, all_steps: []const Configuration.Step.Index) usize {
+fn countSubProcesses(maker: *Maker) usize {
+    const all_steps = maker.step_stack.keys();
     var count: usize = 0;
     for (all_steps) |step_index| {
-        const s = &make_steps[@intFromEnum(step_index)];
+        const s = maker.stepByIndex(step_index);
         count += @intFromBool(s.getZigProcess() != null);
     }
     return count;
@@ -664,7 +665,7 @@ const InstallPaths = struct {
     include: Path,
 };
 
-fn stepByIndex(maker: *const Maker, i: Configuration.Step.Index) *Step {
+pub fn stepByIndex(maker: *const Maker, i: Configuration.Step.Index) *Step {
     return &maker.steps[@intFromEnum(i)];
 }
 
@@ -676,7 +677,10 @@ fn prepare(maker: *Maker, step_names: []const []const u8) !void {
     const step_stack = &maker.step_stack;
     const c = &maker.scanned_config.configuration;
 
-    @memset(maker.steps, .{});
+    for (maker.steps, 0..) |*step, step_index_usize| {
+        const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
+        step.* = .{ .extended = .init(step_index.ptr(c).flags(c).tag) };
+    }
 
     if (step_names.len == 0) {
         try step_stack.put(gpa, c.default_step, {});
@@ -699,7 +703,7 @@ fn prepare(maker: *Maker, step_names: []const []const u8) !void {
     rand.shuffle(Configuration.Step.Index, starting_steps);
 
     for (starting_steps) |s| {
-        try constructGraphAndCheckForDependencyLoop(gpa, c, maker.steps, s, &maker.step_stack, rand);
+        try constructGraphAndCheckForDependencyLoop(maker, s, &maker.step_stack, rand);
     }
 
     {
@@ -847,13 +851,8 @@ fn makeStepNames(
         }
 
         assert(mode == .limit);
-        var f = Fuzz.init(
-            gpa,
-            io,
-            step_stack.keys(),
-            parent_prog_node,
-            mode,
-        ) catch |err| fatal("failed to start fuzzer: {t}", .{err});
+        var f = Fuzz.init(maker, step_stack.keys(), parent_prog_node, mode) catch |err|
+            fatal("failed to start fuzzer: {t}", .{err});
         defer f.deinit();
 
         f.start();
@@ -1048,13 +1047,7 @@ fn makeStep(
 
                 .success, .skipped => {},
             }
-        } else if (make_step.make(.{
-            .progress_node = step_prog_node,
-            .watch = maker.watch,
-            .web_server = if (maker.web_server) |*ws| ws else null,
-            .unit_test_timeout_ns = maker.unit_test_timeout_ns,
-            .gpa = gpa,
-        })) state: {
+        } else if (Step.make(step_index, maker, step_prog_node)) state: {
             break :state .success;
         } else |err| switch (err) {
             error.MakeFailed => .failure,
@@ -1091,7 +1084,7 @@ fn makeStep(
     {
         const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
         defer io.unlockStderr();
-        printErrorMessages(gpa, c, maker.steps, step_index, .{}, stderr.terminal(), maker.error_style, maker.multiline_errors) catch |err| switch (err) {
+        printErrorMessages(maker, step_index, .{}, stderr.terminal(), maker.error_style, maker.multiline_errors) catch |err| switch (err) {
             error.Canceled => |e| return e,
             error.WriteFailed => switch (stderr.file_writer.err.?) {
                 error.Canceled => |e| return e,
@@ -1136,7 +1129,7 @@ fn makeStep(
 }
 
 fn printTreeStep(
-    maker: *const Maker,
+    maker: *Maker,
     step_index: Configuration.Step.Index,
     stderr: Io.Terminal,
     parent_node: *PrintNode,
@@ -1211,7 +1204,7 @@ fn printTreeStep(
     }
 }
 
-fn printStepStatus(maker: *const Maker, step_index: Configuration.Step.Index, stderr: Io.Terminal) !void {
+fn printStepStatus(maker: *Maker, step_index: Configuration.Step.Index, stderr: Io.Terminal) !void {
     const s = maker.stepByIndex(step_index);
     const writer = stderr.writer;
     switch (s.state) {
@@ -1293,20 +1286,20 @@ fn printStepStatus(maker: *const Maker, step_index: Configuration.Step.Index, st
             try stderr.setColor(.reset);
         },
         .failure => {
-            try printStepFailure(maker.steps, step_index, stderr, false);
+            try printStepFailure(maker, step_index, stderr, false);
             try stderr.setColor(.reset);
         },
     }
 }
 
 fn printStepFailure(
-    make_steps: []Step,
+    maker: *Maker,
     step_index: Configuration.Step.Index,
     stderr: Io.Terminal,
     dim: bool,
 ) !void {
     const w = stderr.writer;
-    const s = &make_steps[@intFromEnum(step_index)];
+    const s = maker.stepByIndex(step_index);
     if (s.result_error_bundle.errorMessageCount() > 0) {
         try stderr.setColor(.red);
         try w.print(" {d} errors\n", .{
@@ -1428,14 +1421,14 @@ fn printChildNodePrefix(stderr: Io.Terminal) !void {
 ///   when it finishes executing in `makeStep`, it spawns next steps to run in
 ///   random order
 fn constructGraphAndCheckForDependencyLoop(
-    gpa: Allocator,
-    c: *const Configuration,
-    steps: []Step,
+    maker: *Maker,
     step_index: Configuration.Step.Index,
     step_stack: *std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
     rand: std.Random,
 ) error{ DependencyLoopDetected, OutOfMemory }!void {
-    const make_step: *Step = &steps[@intFromEnum(step_index)];
+    const c = &maker.scanned_config.configuration;
+    const gpa = maker.gpa;
+    const make_step = maker.stepByIndex(step_index);
     switch (make_step.state) {
         .precheck_started => {
             log.err("dependency loop detected: {s}", .{step_index.ptr(c).name.slice(c)});
@@ -1456,10 +1449,10 @@ fn constructGraphAndCheckForDependencyLoop(
             rand.shuffle(Configuration.Step.Index, deps);
 
             for (deps) |dep| {
-                const dep_step: *Step = &steps[@intFromEnum(dep)];
+                const dep_step = maker.stepByIndex(dep);
                 try step_stack.put(gpa, dep, {});
                 try dep_step.dependants.append(gpa, step_index);
-                constructGraphAndCheckForDependencyLoop(gpa, c, steps, dep, step_stack, rand) catch |err| switch (err) {
+                constructGraphAndCheckForDependencyLoop(maker, dep, step_stack, rand) catch |err| switch (err) {
                     error.DependencyLoopDetected => {
                         log.info("needed by: {s}", .{step_index.ptr(c).name.slice(c)});
                         return err;
@@ -1482,16 +1475,34 @@ fn constructGraphAndCheckForDependencyLoop(
     }
 }
 
+/// When file watching, prepares the step for being re-evaluated. Returns
+/// `true` if the step was newly invalidated, `false` if it was already
+/// invalidated.
+pub fn invalidateResult(maker: *Maker, step: *Step) bool {
+    if (step.state == .precheck_done) return false;
+    const gpa = maker.gpa;
+    assert(step.pending_deps == 0);
+    step.state = .precheck_done;
+    step.reset(gpa);
+    for (step.dependants.items) |dependant_index| {
+        const dependant = maker.stepByIndex(dependant_index);
+        _ = invalidateResult(maker, dependant);
+        dependant.pending_deps += 1;
+    }
+    return true;
+}
+
 pub fn printErrorMessages(
-    gpa: Allocator,
-    c: *const Configuration,
-    make_steps: []Step,
+    maker: *Maker,
     failing_step_index: Configuration.Step.Index,
     options: std.zig.ErrorBundle.RenderOptions,
     stderr: Io.Terminal,
     error_style: ErrorStyle,
     multiline_errors: MultilineErrors,
 ) !void {
+    const c = &maker.scanned_config.configuration;
+    const gpa = maker.gpa;
+    log.err("TODO also report if result_oom flag is set", .{});
     const writer = stderr.writer;
     if (error_style.verboseContext()) {
         // Provide context for where these error messages are coming from by
@@ -1500,7 +1511,7 @@ pub fn printErrorMessages(
         defer step_stack.deinit(gpa);
         try step_stack.append(gpa, failing_step_index);
         while (true) {
-            const last_step = &make_steps[@intFromEnum(step_stack.items[step_stack.items.len - 1])];
+            const last_step = maker.stepByIndex(step_stack.items[step_stack.items.len - 1]);
             if (last_step.dependants.items.len == 0) break;
             try step_stack.append(gpa, last_step.dependants.items[0]);
         }
@@ -1517,7 +1528,7 @@ pub fn printErrorMessages(
             try writer.writeAll(step_index.ptr(c).name.slice(c));
 
             if (step_index == failing_step_index) {
-                try printStepFailure(make_steps, step_index, stderr, true);
+                try printStepFailure(maker, step_index, stderr, true);
             } else {
                 try writer.writeAll("\n");
             }
@@ -1527,11 +1538,11 @@ pub fn printErrorMessages(
         // Just print the failing step itself.
         try stderr.setColor(.dim);
         try writer.writeAll(failing_step_index.ptr(c).name.slice(c));
-        try printStepFailure(make_steps, failing_step_index, stderr, true);
+        try printStepFailure(maker, failing_step_index, stderr, true);
         try stderr.setColor(.reset);
     }
 
-    const failing_step = &make_steps[@intFromEnum(failing_step_index)];
+    const failing_step = maker.stepByIndex(failing_step_index);
 
     if (failing_step.result_stderr.len > 0) {
         try writer.writeAll(failing_step.result_stderr);

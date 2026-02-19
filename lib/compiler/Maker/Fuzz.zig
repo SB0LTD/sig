@@ -15,8 +15,7 @@ const log = std.log;
 const Maker = @import("../Maker.zig");
 const WebServer = @import("WebServer.zig");
 
-gpa: Allocator,
-io: Io,
+maker: *Maker,
 mode: Mode,
 
 /// Allocated into `gpa`.
@@ -76,12 +75,15 @@ const CoverageMap = struct {
 };
 
 pub fn init(
-    gpa: Allocator,
-    io: Io,
+    maker: *Maker,
     all_steps: []const Configuration.Step.Index,
     root_prog_node: std.Progress.Node,
     mode: Mode,
 ) error{ OutOfMemory, Canceled }!Fuzz {
+    const graph = maker.graph;
+    const gpa = graph.cache.gpa;
+    const io = graph.io;
+
     const run_steps: []const Configuration.Step.Index = steps: {
         var steps: std.ArrayList(Configuration.Step.Index) = .empty;
         defer steps.deinit(gpa);
@@ -115,8 +117,7 @@ pub fn init(
     }
 
     return .{
-        .gpa = gpa,
-        .io = io,
+        .maker = maker,
         .mode = mode,
         .run_steps = run_steps,
         .group = .init,
@@ -131,7 +132,10 @@ pub fn init(
 }
 
 pub fn start(fuzz: *Fuzz) void {
-    const io = fuzz.io;
+    const maker = fuzz.maker;
+    const graph = maker.graph;
+    const io = graph.io;
+
     fuzz.prog_node = fuzz.root_prog_node.start("Fuzzing", 0);
 
     if (fuzz.mode == .forever) {
@@ -149,10 +153,14 @@ pub fn start(fuzz: *Fuzz) void {
 }
 
 pub fn deinit(fuzz: *Fuzz) void {
-    const io = fuzz.io;
+    const maker = fuzz.maker;
+    const graph = maker.graph;
+    const io = graph.io;
+    const gpa = maker.gpa;
+
     fuzz.group.cancel(io);
     fuzz.prog_node.end();
-    fuzz.gpa.free(fuzz.run_steps);
+    gpa.free(fuzz.run_steps);
 }
 
 fn rebuildTestsWorkerRun(run: Configuration.Step.Index, gpa: Allocator, parent_prog_node: std.Progress.Node) void {
@@ -215,19 +223,20 @@ fn fuzzWorkerRun(fuzz: *Fuzz, run: Configuration.Step.Index) void {
 pub fn serveSourcesTar(fuzz: *Fuzz, req: *std.http.Server.Request) !void {
     if (true) @panic("TODO");
     assert(fuzz.mode == .forever);
+    const gpa = fuzz.maker.gpa;
 
-    var arena_state: std.heap.ArenaAllocator = .init(fuzz.gpa);
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
     const DedupTable = std.ArrayHashMapUnmanaged(Build.Cache.Path, void, Build.Cache.Path.TableAdapter, false);
     var dedup_table: DedupTable = .empty;
-    defer dedup_table.deinit(fuzz.gpa);
+    defer dedup_table.deinit(gpa);
 
     for (fuzz.run_steps) |run_step| {
         const compile_inputs = run_step.producer.?.step.inputs.table;
         for (compile_inputs.keys(), compile_inputs.values()) |dir_path, *file_list| {
-            try dedup_table.ensureUnusedCapacity(fuzz.gpa, file_list.items.len);
+            try dedup_table.ensureUnusedCapacity(gpa, file_list.items.len);
             for (file_list.items) |sub_path| {
                 if (!std.mem.endsWith(u8, sub_path, ".zig")) continue;
                 const joined_path = try dir_path.join(arena, sub_path);
@@ -266,7 +275,9 @@ pub fn sendUpdate(
     socket: *std.http.Server.WebSocket,
     prev: *Previous,
 ) !void {
-    const io = fuzz.io;
+    const maker = fuzz.maker;
+    const graph = maker.graph;
+    const io = graph.io;
 
     try fuzz.coverage_mutex.lock(io);
     defer fuzz.coverage_mutex.unlock(io);
@@ -337,7 +348,9 @@ fn coverageRun(fuzz: *Fuzz) void {
 }
 
 fn coverageRunCancelable(fuzz: *Fuzz) Io.Cancelable!void {
-    const io = fuzz.io;
+    const maker = fuzz.maker;
+    const graph = maker.graph;
+    const io = graph.io;
 
     try fuzz.queue_mutex.lock(io);
     defer fuzz.queue_mutex.unlock(io);
@@ -363,8 +376,10 @@ fn prepareTables(fuzz: *Fuzz, run_step_index: Configuration.Step.Index, coverage
     if (true) @panic("TODO");
     assert(fuzz.mode == .forever);
     const ws = fuzz.mode.forever.ws;
-    const gpa = fuzz.gpa;
-    const io = fuzz.io;
+    const maker = fuzz.maker;
+    const graph = maker.graph;
+    const io = graph.io;
+    const gpa = maker.gpa;
 
     try fuzz.coverage_mutex.lock(io);
     defer fuzz.coverage_mutex.unlock(io);
@@ -470,7 +485,10 @@ fn prepareTables(fuzz: *Fuzz, run_step_index: Configuration.Step.Index, coverage
 }
 
 fn addEntryPoint(fuzz: *Fuzz, coverage_id: u64, addr: u64) error{ AlreadyReported, OutOfMemory, Canceled }!void {
-    const io = fuzz.io;
+    const maker = fuzz.maker;
+    const graph = maker.graph;
+    const io = graph.io;
+    const gpa = maker.gpa;
 
     try fuzz.coverage_mutex.lock(io);
     defer fuzz.coverage_mutex.unlock(io);
@@ -516,13 +534,15 @@ fn addEntryPoint(fuzz: *Fuzz, coverage_id: u64, addr: u64) error{ AlreadyReporte
             });
         }
     }
-    try coverage_map.entry_points.append(fuzz.gpa, @intCast(index));
+    try coverage_map.entry_points.append(gpa, @intCast(index));
 }
 
 pub fn waitAndPrintReport(fuzz: *Fuzz) Io.Cancelable!void {
     if (true) @panic("TODO");
     assert(fuzz.mode == .limit);
-    const io = fuzz.io;
+    const maker = fuzz.maker;
+    const graph = maker.graph;
+    const io = graph.io;
 
     try fuzz.group.await(io);
     fuzz.group = .init;
