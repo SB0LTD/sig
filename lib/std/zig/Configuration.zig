@@ -577,39 +577,8 @@ pub const Step = extern struct {
     };
 
     /// Trailing:
-    /// * filters_len: u32, // if flag is set
-    /// * exec_cmd_args_len: u32, // if flag is set
-    /// * installed_headers_len: u32, // if flag is set
-    /// * force_undefined_symbols_len: u32, // if flag is set
-    /// * exacts_len: u32 if expected_compile_errors is exact
-    /// * filter: String for each filters_len
-    /// * exec_cmd_arg: String for each exec_cmd_args_len
-    /// * InstalledHeader for each installed_headers_len
-    /// * force_undefined_symbol: String for each force_undefined_symbols_len
-    /// * String for each exacts_len
-    /// * linker_script: LazyPath if flag is set
-    /// * version_script: LazyPath if flag is set
-    /// * zig_lib_dir: LazyPath if flag is set
-    /// * libc_file: LazyPath if flag is set
-    /// * test_runner: LazyPath if test_runner_mode is not default
-    /// * win32_manifest: LazyPath if flag is set
-    /// * win32_module_definition: LazyPath if flag is set
-    /// * entitlements: LazyPath if flag is set
-    /// * version: String if flag is set (semantic version string)
-    /// * entry: String if entry is symbol
-    /// * install_name: String if flag is set
-    /// * String if expected_compile_errors is contains, starts_with, or stderr_contains
-    /// * initial_memory: u64 if flag is set
-    /// * max_memory: u64 if flag is set
-    /// * global_base: u64 if flag is set
-    /// * image_base: u64 if flag is set
-    /// * link_z_common_page_size if flag is set
-    /// * link_z_max_page_size if flag is set
-    /// * pagezero_size if flag is set
-    /// * stack_size if flag is set
-    /// * headerpad_size if flag is set
-    /// * error_limit if flag is set
-    /// * Hexstring if build_id is hexstring
+    /// * exact_match: String, // if expected_compile_errors is contains, starts_with, or stderr_contains
+    /// * test_runner: LazyPath, // if test_runner_mode is not default
     pub const Compile = struct {
         flags: @This().Flags,
         flags2: Flags2,
@@ -618,6 +587,35 @@ pub const Step = extern struct {
 
         root_module: Module.Index,
         root_name: String,
+
+        trailing: Trailing(struct {
+            filters: FlagLengthPrefixedList(.flags, .filters_len, String),
+            exec_cmd_args: FlagLengthPrefixedList(.flags, .exec_cmd_args_len, u32),
+            installed_headers: FlagLengthPrefixedList(.flags, .installed_headers_len, InstalledHeader),
+            force_undefined_symbols: FlagLengthPrefixedList(.flags, .force_undefined_symbols_len, String),
+            exacts: EnumConditionalPrefixedList(.flags4, .expected_compile_errors, .exact, String),
+            linker_script: FlagOptional(.flags4, .linker_script, LazyPath),
+            version_script: FlagOptional(.flags4, .version_script, LazyPath),
+            zig_lib_dir: FlagOptional(.flags3, .zig_lib_dir, LazyPath),
+            libc_file: FlagOptional(.flags4, .libc_file, LazyPath),
+            win32_manifest: FlagOptional(.flags3, .win32_manifest, LazyPath),
+            win32_module_definition: FlagOptional(.flags3, .win32_module_definition, LazyPath),
+            entitlements: FlagOptional(.flags4, .entitlements, LazyPath),
+            version: FlagOptional(.flags3, .version, String), // semantic version string
+            entry: EnumOptional(.flags3, .entry, .symbol, String),
+            install_name: FlagOptional(.flags4, .install_name, String),
+            initial_memory: FlagOptional(.flags3, .initial_memory, u64),
+            max_memory: FlagOptional(.flags3, .max_memory, u64),
+            global_base: FlagOptional(.flags3, .global_base, u64),
+            image_base: FlagOptional(.flags3, .image_base, u64),
+            link_z_common_page_size: FlagOptional(.flags4, .link_z_common_page_size, u64),
+            link_z_max_page_size: FlagOptional(.flags4, .link_z_max_page_size, u64),
+            pagezero_size: FlagOptional(.flags4, .pagezero_size, u64),
+            stack_size: FlagOptional(.flags4, .stack_size, u64),
+            headerpad_size: FlagOptional(.flags4, .headerpad_size, u32),
+            error_limit: FlagOptional(.flags4, .error_limit, u32),
+            build_id: EnumOptional(.flags3, .build_id, .hexstring, Hexstring),
+        }),
 
         pub const ExpectedCompileErrors = enum(u3) { contains, exact, starts_with, stderr_contains, none };
         pub const TestRunnerMode = enum(u2) { default, simple, server };
@@ -805,7 +803,10 @@ pub const Step = extern struct {
             error_limit: bool,
             install_name: bool,
             entitlements: bool,
-            _: u23 = 0,
+            expected_compile_errors: ExpectedCompileErrors,
+            linker_script: bool,
+            version_script: bool,
+            _: u18 = 0,
         };
     };
 
