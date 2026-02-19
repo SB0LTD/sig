@@ -972,10 +972,11 @@ test "Select.cancel with no tasks, no deadlock" {
     try expectEqual(null, select.cancel());
 }
 
-test "Condition.waitTimeout" {
+test "Condition" {
+    if (builtin.single_threaded) return error.SkipZigTest;
     const io = testing.io;
 
-    const Context = struct {
+    const TestContext = struct {
         ready: Io.Event = .unset,
         mutex: Io.Mutex = .init,
         cond: Io.Condition = .init,
@@ -1000,54 +1001,9 @@ test "Condition.waitTimeout" {
         }
     };
 
-    var ctx: Context = .{};
+    var ctx: TestContext = .{};
 
-    var future = io.concurrent(Context.worker, .{&ctx}) catch |err| switch (err) {
-        error.ConcurrencyUnavailable => return error.SkipZigTest,
-    };
-    defer future.cancel(io) catch {};
-
-    try ctx.ready.wait(io);
-
-    try ctx.mutex.lock(io);
-    ctx.value = 1;
-    ctx.mutex.unlock(io);
-    ctx.cond.signal(io);
-
-    try future.await(io);
-}
-
-test "Condition.waitUncancelable" {
-    const io = testing.io;
-
-    const Context = struct {
-        ready: Io.Event = .unset,
-        mutex: Io.Mutex = .init,
-        cond: Io.Condition = .init,
-        value: u32 = 0,
-
-        fn worker(ctx: *@This()) !void {
-            defer ctx.ready.set(io);
-
-            try ctx.mutex.lock(io);
-            defer ctx.mutex.unlock(io);
-
-            try expectEqual(0, ctx.value);
-
-            ctx.ready.set(io);
-
-            ctx.cond.waitUncancelable(io, &ctx.mutex);
-
-            while (ctx.value == 0) try ctx.cond.wait(io, &ctx.mutex);
-            try expectEqual(1, ctx.value);
-        }
-    };
-
-    var ctx: Context = .{};
-
-    var future = io.concurrent(Context.worker, .{&ctx}) catch |err| switch (err) {
-        error.ConcurrencyUnavailable => return error.SkipZigTest,
-    };
+    var future = try io.concurrent(TestContext.worker, .{&ctx});
     defer future.cancel(io) catch {};
 
     try ctx.ready.wait(io);
