@@ -971,3 +971,47 @@ test "Select.cancel with no tasks, no deadlock" {
     var select: Io.Select(U) = .init(io, &.{});
     try expectEqual(null, select.cancel());
 }
+
+test "Condition" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+    const io = testing.io;
+
+    const TestContext = struct {
+        ready: Io.Event = .unset,
+        mutex: Io.Mutex = .init,
+        cond: Io.Condition = .init,
+        value: u32 = 0,
+
+        fn worker(ctx: *@This()) !void {
+            defer ctx.ready.set(io);
+
+            try ctx.mutex.lock(io);
+            defer ctx.mutex.unlock(io);
+
+            try expectError(error.Timeout, ctx.cond.waitTimeout(io, &ctx.mutex, .{ .duration = .{
+                .raw = .fromMilliseconds(1),
+                .clock = .awake,
+            } }));
+            try expectEqual(0, ctx.value);
+
+            ctx.ready.set(io);
+
+            while (ctx.value == 0) try ctx.cond.wait(io, &ctx.mutex);
+            try expectEqual(1, ctx.value);
+        }
+    };
+
+    var ctx: TestContext = .{};
+
+    var future = try io.concurrent(TestContext.worker, .{&ctx});
+    defer future.cancel(io) catch {};
+
+    try ctx.ready.wait(io);
+
+    try ctx.mutex.lock(io);
+    ctx.value = 1;
+    ctx.mutex.unlock(io);
+    ctx.cond.signal(io);
+
+    try future.await(io);
+}

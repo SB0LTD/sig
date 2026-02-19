@@ -1682,19 +1682,27 @@ pub const Condition = struct {
     };
 
     pub fn wait(cond: *Condition, io: Io, mutex: *Mutex) Cancelable!void {
-        try waitInner(cond, io, mutex, false);
+        waitInner(cond, io, mutex, .{ .timeout = .none }) catch |err| switch (err) {
+            error.Timeout => unreachable,
+            error.Canceled => return error.Canceled,
+        };
+    }
+
+    pub fn waitTimeout(cond: *Condition, io: Io, mutex: *Mutex, timeout: Timeout) (Cancelable || Timeout.Error)!void {
+        return waitInner(cond, io, mutex, .{ .timeout = timeout.toDeadline(io) });
     }
 
     /// Same as `wait`, except does not introduce a cancelation point.
     ///
     /// For a description of cancelation and cancelation points, see `Future.cancel`.
     pub fn waitUncancelable(cond: *Condition, io: Io, mutex: *Mutex) void {
-        waitInner(cond, io, mutex, true) catch |err| switch (err) {
+        waitInner(cond, io, mutex, .uncancelable) catch |err| switch (err) {
+            error.Timeout => unreachable,
             error.Canceled => unreachable,
         };
     }
 
-    fn waitInner(cond: *Condition, io: Io, mutex: *Mutex, uncancelable: bool) Cancelable!void {
+    fn waitInner(cond: *Condition, io: Io, mutex: *Mutex, mode: union(enum) { uncancelable, timeout: Timeout }) (Cancelable || Timeout.Error)!void {
         var epoch = cond.epoch.load(.acquire); // `.acquire` to ensure ordered before state load
 
         {
@@ -1706,10 +1714,10 @@ pub const Condition = struct {
         defer mutex.lockUncancelable(io);
 
         while (true) {
-            const result = if (uncancelable)
-                io.futexWaitUncancelable(u32, &cond.epoch.raw, epoch)
-            else
-                io.futexWait(u32, &cond.epoch.raw, epoch);
+            const result = switch (mode) {
+                .uncancelable => io.futexWaitUncancelable(u32, &cond.epoch.raw, epoch),
+                .timeout => |t| io.futexWaitTimeout(u32, &cond.epoch.raw, epoch, t),
+            };
 
             epoch = cond.epoch.load(.acquire); // `.acquire` to ensure ordered before `state` laod
 
@@ -1729,13 +1737,21 @@ pub const Condition = struct {
             }
 
             // There are no more signals available; this was a spurious wakeup or an error. If it
-            // was an error, we will remove ourselves as a waiter and return that error. Otherwise,
-            // we'll loop back to the futex wait.
+            // was an error, we will remove ourselves as a waiter and return that error. If a
+            // timeout was specified and the deadline has passed, we remove ourselves as a waiter
+            // and return `error.Timeout`. Otherwise, we'll loop back to the futex wait.
             result catch |err| {
                 const prev_state = cond.state.fetchSub(.{ .waiters = 1, .signals = 0 }, .monotonic);
                 assert(prev_state.waiters > 0); // underflow caused by illegal state
                 return err;
             };
+            if (mode == .timeout and mode.timeout != .none) {
+                if (mode.timeout.deadline.untilNow(io).raw.nanoseconds >= 0) {
+                    const prev_state = cond.state.fetchSub(.{ .waiters = 1, .signals = 0 }, .monotonic);
+                    assert(prev_state.waiters > 0); // underflow caused by illegal state
+                    return error.Timeout;
+                }
+            }
         }
     }
 
