@@ -759,7 +759,7 @@ fn lowerZigArgs(
         try zig_args.append(gpa, "-municode");
     }
 
-    if (compile.error_limit) |err_limit| try zig_args.appendSlice(gpa, &.{
+    if (compile.error_limit orelse graph.error_limit) |err_limit| try zig_args.appendSlice(gpa, &.{
         "--error-limit", try allocPrint(arena, "{d}", .{err_limit}),
     });
 

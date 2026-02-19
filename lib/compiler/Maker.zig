@@ -390,6 +390,10 @@ pub fn main(init: process.Init.Minimal) !void {
                     fatal("unable to parse reference_trace count {q}: {t}", .{ num, err });
             } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                 graph.reference_trace = null;
+            } else if (mem.eql(u8, arg, "--error-limit")) {
+                const next_arg = nextArgOrFatal(args, &arg_idx);
+                graph.error_limit = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err|
+                    fatal("unable to parse error limit {q}: {t}", .{ next_arg, err });
             } else if (mem.cutPrefix(u8, arg, "-j")) |text| {
                 const n = std.fmt.parseUnsigned(u32, text, 10) catch |err|
                     fatal("unable to parse jobs count {q}: {t}", .{ text, err });
@@ -1838,6 +1842,7 @@ const ScannedConfig = struct {
             \\  -fno-reference-trace         Disable reference trace
             \\  -fallow-so-scripts           Allows .so files to be GNU ld scripts
             \\  -fno-allow-so-scripts        (default) .so files must be ELF files
+            \\  --error-limit [num]          Set the maximum amount of distinct error values
             \\  --build-file [file]          Override path to build.zig
             \\  --cache-dir [path]           Override path to local Zig cache directory
             \\  --global-cache-dir [path]    Override path to global Zig cache directory

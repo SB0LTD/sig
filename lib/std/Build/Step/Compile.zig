@@ -224,8 +224,8 @@ generated_llvm_bc: ?*GeneratedFile,
 generated_llvm_ir: ?*GeneratedFile,
 generated_h: ?*GeneratedFile,
 
-/// The maximum number of distinct errors within a compilation step
-/// Defaults to `std.math.maxInt(u16)`
+/// The maximum number of distinct errors within a compilation step Defaults to
+/// `std.math.maxInt(u16)`. Overrides the argument passed to `zig build`.
 error_limit: ?u32 = null,
 
 /// Computed during make().
