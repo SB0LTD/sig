@@ -1713,14 +1713,13 @@ const c_abi_targets = blk: {
             },
         },
 
-        // https://gitlab.com/qemu-project/qemu/-/issues/3291
-        // .{
-        //     .target = .{
-        //         .cpu_arch = .hexagon,
-        //         .os_tag = .linux,
-        //         .abi = .musl,
-        //     },
-        // },
+        .{
+            .target = .{
+                .cpu_arch = .hexagon,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+        },
 
         .{
             .target = .{
