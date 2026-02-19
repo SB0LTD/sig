@@ -148,39 +148,30 @@ pub fn main(init: process.Init.Minimal) !void {
             graph.release_mode = .any;
         } else if (mem.cutPrefix(u8, arg, "--release=")) |text| {
             graph.release_mode = std.meta.stringToEnum(std.Build.ReleaseMode, text) orelse {
-                fatalWithHint("expected [off|any|fast|safe|small] in '{s}', found '{s}'", .{
+                fatalWithHint("expected [off|any|fast|safe|small] in {q}, found {q}", .{
                     arg, text,
                 });
             };
         } else if (mem.eql(u8, arg, "--color")) {
             const next_arg = nextArg(args, &arg_idx) orelse
-                fatalWithHint("expected [auto|on|off] after '{s}'", .{arg});
+                fatalWithHint("expected [auto|on|off] after {q}", .{arg});
             color = std.meta.stringToEnum(Color, next_arg) orelse {
-                fatalWithHint("expected [auto|on|off] after '{s}', found '{s}'", .{
+                fatalWithHint("expected [auto|on|off] after {q}, found {q}", .{
                     arg, next_arg,
                 });
             };
         } else if (mem.eql(u8, arg, "--error-style")) {
             const next_arg = nextArg(args, &arg_idx) orelse
-                fatalWithHint("expected style after '{s}'", .{arg});
+                fatalWithHint("expected style after {q}", .{arg});
             error_style = std.meta.stringToEnum(ErrorStyle, next_arg) orelse {
-                fatalWithHint("expected style after '{s}', found '{s}'", .{ arg, next_arg });
+                fatalWithHint("expected style after {q}, found {q}", .{ arg, next_arg });
             };
         } else if (mem.eql(u8, arg, "--multiline-errors")) {
             const next_arg = nextArg(args, &arg_idx) orelse
-                fatalWithHint("expected style after '{s}'", .{arg});
+                fatalWithHint("expected style after {q}", .{arg});
             multiline_errors = std.meta.stringToEnum(MultilineErrors, next_arg) orelse {
-                fatalWithHint("expected style after '{s}', found '{s}'", .{ arg, next_arg });
+                fatalWithHint("expected style after {q}, found {q}", .{ arg, next_arg });
             };
-        } else if (mem.eql(u8, arg, "--build-id")) {
-            builder.build_id = .fast;
-        } else if (mem.cutPrefix(u8, arg, "--build-id=")) |style| {
-            builder.build_id = std.zig.BuildId.parse(style) catch |err|
-                fatal("unable to parse --build-id style '{s}': {t}", .{ style, err });
-        } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
-            builder.debug_compile_errors = true;
-        } else if (mem.eql(u8, arg, "--debug-incremental")) {
-            builder.debug_incremental = true;
         } else if (mem.eql(u8, arg, "--system")) {
             // The usage text shows another argument after this parameter
             // but it is handled by the parent process. The build runner
@@ -189,7 +180,7 @@ pub fn main(init: process.Init.Minimal) !void {
         } else if (mem.eql(u8, arg, "--have-run-args")) {
             graph.have_run_args = true;
         } else {
-            fatalWithHint("unrecognized argument: '{s}'", .{arg});
+            fatalWithHint("unrecognized argument: {q}", .{arg});
         }
     }
 

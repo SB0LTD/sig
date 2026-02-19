@@ -1564,7 +1564,7 @@ fn runCommand(
     const cwd: process.Child.Cwd = if (run.cwd) |lazy_cwd| .{ .path = lazy_cwd.getPath2(b, step) } else .inherit;
 
     try step.handleChildProcUnsupported();
-    try Step.handleVerbose2(step.owner, cwd, run.environ_map, argv);
+    try Step.handleVerbose(step.owner, cwd, run.environ_map, argv);
 
     const allow_skip = switch (run.stdio) {
         .check, .zig_test => run.skip_foreign_checks,
@@ -1701,7 +1701,7 @@ fn runCommand(
 
             gpa.free(step.result_failed_command.?);
             step.result_failed_command = null;
-            try Step.handleVerbose2(step.owner, cwd, run.environ_map, interp_argv.items);
+            try Step.handleVerbose(step.owner, cwd, run.environ_map, interp_argv.items);
 
             break :term spawnChildAndCollect(run, maker, progress_node, interp_argv.items, &environ_map, has_side_effects, fuzz_context) catch |e| {
                 if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;

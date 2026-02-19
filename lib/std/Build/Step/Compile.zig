@@ -87,9 +87,13 @@ libc_file: ?LazyPath = null,
 each_lib_rpath: ?bool = null,
 /// On ELF targets, this will emit a link section called ".note.gnu.build-id"
 /// which can be used to coordinate a stripped binary with its debug symbols.
+///
 /// As an example, the bloaty project refuses to work unless its inputs have
 /// build ids, in order to prevent accidental mismatches.
+///
 /// The default is to not include this section because it slows down linking.
+///
+/// This option overrides the CLI argument passed to `zig build`.
 build_id: ?std.zig.BuildId = null,
 
 /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF

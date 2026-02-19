@@ -298,7 +298,7 @@ pub fn captureChildProcess(
 
     // If an error occurs, it's happened in this command:
     assert(s.result_failed_command == null);
-    s.result_failed_command = try allocPrintCmd(gpa, .inherit, null, argv);
+    s.result_failed_command = try std.zig.allocPrintCmd(gpa, .inherit, null, argv);
 
     try handleChildProcUnsupported(s);
     try handleVerbose(s, .inherit, argv);
@@ -354,15 +354,15 @@ pub fn evalZigProcess(
     argv: []const []const u8,
     prog_node: std.Progress.Node,
     watch: bool,
-    web_server: ?*WebServer,
-    gpa: Allocator,
+    maker: *Maker,
 ) !?Cache.Path {
+    const gpa = maker.gpa;
     const b = s.owner;
     const io = b.graph.io;
 
     // If an error occurs, it's happened in this command:
     assert(s.result_failed_command == null);
-    s.result_failed_command = try allocPrintCmd(gpa, .inherit, null, argv);
+    s.result_failed_command = try std.zig.allocPrintCmd(gpa, .inherit, null, argv);
 
     if (s.getZigProcess()) |zp| update: {
         assert(watch);
@@ -374,7 +374,7 @@ pub fn evalZigProcess(
             zp.deinit(io);
             gpa.destroy(zp);
         } else zp.saveState(prog_node);
-        const result = zigProcessUpdate(s, zp, watch, web_server, gpa) catch |err| switch (err) {
+        const result = zigProcessUpdate(s, zp, watch, maker) catch |err| switch (err) {
             error.BrokenPipe, error.EndOfStream => |reason| {
                 std.log.info("{s} restart required: {t}", .{ argv[0], reason });
                 // Process restart required.
@@ -431,7 +431,7 @@ pub fn evalZigProcess(
 
     const result = result: {
         defer if (watch) zp.saveState(prog_node);
-        break :result try zigProcessUpdate(s, zp, watch, web_server, gpa);
+        break :result try zigProcessUpdate(s, zp, watch, maker);
     };
 
     if (!watch) {
@@ -485,7 +485,8 @@ pub fn installDir(s: *Step, dest_path: []const u8) !Io.Dir.CreatePathStatus {
         return s.fail("unable to create dir '{s}': {t}", .{ dest_path, err });
 }
 
-fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool, web_server: ?*WebServer, gpa: Allocator) !?Path {
+fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool, maker: *Maker) !?Path {
+    const gpa = maker.gpa;
     const b = s.owner;
     const arena = b.allocator;
     const io = b.graph.io;
@@ -586,7 +587,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool, web_server: ?*WebSer
                     }
                 }
             },
-            .time_report => if (web_server) |ws| {
+            .time_report => if (maker.web_server) |ws| {
                 const TimeReport = std.zig.Server.Message.TimeReport;
                 const tr: *align(1) const TimeReport = @ptrCast(body[0..@sizeOf(TimeReport)]);
                 ws.updateTimeReportCompile(.{
@@ -641,11 +642,11 @@ pub fn handleVerbose(
     opt_env: ?*const std.process.Environ.Map,
     argv: []const []const u8,
 ) error{OutOfMemory}!void {
-    if (!s.verbose) return;
     const graph = s.graph;
+    if (!graph.verbose) return;
     // Intention of verbose is to print all sub-process command lines to
     // stderr before spawning them.
-    const text = try allocPrintCmd(arena, cwd, if (opt_env) |env| .{
+    const text = try std.zig.allocPrintCmd(arena, cwd, if (opt_env) |env| .{
         .child = env,
         .parent = &graph.environ_map,
     } else null, argv);
@@ -833,79 +834,6 @@ fn addWatchInputFromPath(step: *Step, path: Cache.Path, basename: []const u8) !v
     const gop = try step.inputs.table.getOrPut(gpa, path);
     if (!gop.found_existing) gop.value_ptr.* = .empty;
     try gop.value_ptr.append(gpa, basename);
-}
-
-pub fn allocPrintCmd(
-    gpa: Allocator,
-    cwd: std.process.Child.Cwd,
-    opt_env: ?struct {
-        child: *const std.process.Environ.Map,
-        parent: *const std.process.Environ.Map,
-    },
-    argv: []const []const u8,
-) Allocator.Error![]u8 {
-    const shell = struct {
-        fn escape(writer: *Io.Writer, string: []const u8, is_argv0: bool) !void {
-            for (string) |c| {
-                if (switch (c) {
-                    else => true,
-                    '%', '+'...':', '@'...'Z', '_', 'a'...'z' => false,
-                    '=' => is_argv0,
-                }) break;
-            } else return writer.writeAll(string);
-
-            try writer.writeByte('"');
-            for (string) |c| {
-                if (switch (c) {
-                    std.ascii.control_code.nul => break,
-                    '!', '"', '$', '\\', '`' => true,
-                    else => !std.ascii.isPrint(c),
-                }) try writer.writeByte('\\');
-                switch (c) {
-                    std.ascii.control_code.nul => unreachable,
-                    std.ascii.control_code.bel => try writer.writeByte('a'),
-                    std.ascii.control_code.bs => try writer.writeByte('b'),
-                    std.ascii.control_code.ht => try writer.writeByte('t'),
-                    std.ascii.control_code.lf => try writer.writeByte('n'),
-                    std.ascii.control_code.vt => try writer.writeByte('v'),
-                    std.ascii.control_code.ff => try writer.writeByte('f'),
-                    std.ascii.control_code.cr => try writer.writeByte('r'),
-                    std.ascii.control_code.esc => try writer.writeByte('E'),
-                    ' '...'~' => try writer.writeByte(c),
-                    else => try writer.print("{o:0>3}", .{c}),
-                }
-            }
-            try writer.writeByte('"');
-        }
-    };
-
-    var aw: Io.Writer.Allocating = .init(gpa);
-    defer aw.deinit();
-    const writer = &aw.writer;
-    switch (cwd) {
-        .inherit => {},
-        .path => |path| writer.print("cd {s} && ", .{path}) catch return error.OutOfMemory,
-        .dir => @panic("TODO"),
-    }
-    if (opt_env) |env| {
-        var it = env.child.iterator();
-        while (it.next()) |entry| {
-            const key = entry.key_ptr.*;
-            const value = entry.value_ptr.*;
-            if (env.parent.get(key)) |process_value| {
-                if (std.mem.eql(u8, value, process_value)) continue;
-            }
-            writer.print("{s}=", .{key}) catch return error.OutOfMemory;
-            shell.escape(writer, value, false) catch return error.OutOfMemory;
-            writer.writeByte(' ') catch return error.OutOfMemory;
-        }
-    }
-    shell.escape(writer, argv[0], true) catch return error.OutOfMemory;
-    for (argv[1..]) |arg| {
-        writer.writeByte(' ') catch return error.OutOfMemory;
-        shell.escape(writer, arg, false) catch return error.OutOfMemory;
-    }
-    return aw.toOwnedSlice();
 }
 
 fn oomWrap(s: *Step, result: error{OutOfMemory}!void) void {

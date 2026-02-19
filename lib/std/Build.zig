@@ -46,8 +46,6 @@ install_prefix: []const u8,
 build_root: Cache.Directory,
 cache_root: Cache.Directory,
 debug_log_scopes: []const []const u8 = &.{},
-debug_compile_errors: bool = false,
-debug_incremental: bool = false,
 /// Number of stack frames captured when a `StackTrace` is recorded for debug purposes,
 /// in particular at `Step` creation.
 /// Set to 0 to disable stack collection.
@@ -74,8 +72,6 @@ named_lazy_paths: std.array_hash_map.String(LazyPath),
 pkg_hash: []const u8,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
-
-build_id: ?std.zig.BuildId = null,
 
 pub const ReleaseMode = enum {
     off,
@@ -227,13 +223,6 @@ pub fn create(
         .graph = graph,
         .build_root = build_root,
         .cache_root = cache_root,
-        .verbose = false,
-        .verbose_link = false,
-        .verbose_cc = false,
-        .verbose_air = false,
-        .verbose_llvm_ir = null,
-        .verbose_llvm_bc = null,
-        .verbose_llvm_cpu_features = false,
         .invalid_user_input = false,
         .allocator = arena,
         .user_input_options = UserInputOptionsMap.init(arena),
@@ -302,22 +291,12 @@ fn createChild(
         .user_input_options = user_input_options,
         .available_options_map = AvailableOptionsMap.init(allocator),
         .available_options_list = std.array_list.Managed(AvailableOption).init(allocator),
-        .verbose = parent.verbose,
-        .verbose_link = parent.verbose_link,
-        .verbose_cc = parent.verbose_cc,
-        .verbose_air = parent.verbose_air,
-        .verbose_llvm_ir = parent.verbose_llvm_ir,
-        .verbose_llvm_bc = parent.verbose_llvm_bc,
-        .verbose_llvm_cpu_features = parent.verbose_llvm_cpu_features,
         .invalid_user_input = false,
         .default_step = undefined,
         .top_level_steps = .{},
-        .sysroot = parent.sysroot,
         .build_root = build_root,
         .cache_root = parent.cache_root,
         .debug_log_scopes = parent.debug_log_scopes,
-        .debug_compile_errors = parent.debug_compile_errors,
-        .debug_incremental = parent.debug_incremental,
         .enable_darling = parent.enable_darling,
         .enable_qemu = parent.enable_qemu,
         .enable_rosetta = parent.enable_rosetta,
@@ -1125,7 +1104,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                 if (std.zig.BuildId.parse(s)) |build_id| {
                     return build_id;
                 } else |err| {
-                    log.err("unable to parse option '-D{s}': {s}", .{ name, @errorName(err) });
+                    log.err("unable to parse option '-D{s}': {t}", .{ name, err });
                     b.markInvalidUserInput();
                     return null;
                 }
@@ -1594,8 +1573,9 @@ pub fn addCheckFile(
 }
 
 pub fn truncateFile(b: *Build, dest_path: []const u8) (Io.Dir.CreateDirError || Io.Dir.StatFileError)!void {
-    const io = b.graph.io;
-    if (b.verbose) log.info("truncate {s}", .{dest_path});
+    const graph = b.graph;
+    const io = graph.io;
+    if (graph.verbose) log.info("truncate {s}", .{dest_path});
     const cwd = Io.Dir.cwd();
     var src_file = cwd.createFile(io, dest_path, .{}) catch |err| switch (err) {
         error.FileNotFound => blk: {
@@ -1705,9 +1685,13 @@ pub fn runAllowFail(
 
     const graph = b.graph;
     const io = graph.io;
+    const arena = graph.arena;
 
     const max_output_size = 400 * 1024;
-    try Step.handleVerbose2(b, .inherit, &graph.environ_map, argv);
+    if (graph.verbose) {
+        const text = std.zig.allocPrintCmd(arena, .inherit, null, argv);
+        std.log.scoped(.verbose).info("{s}", .{text});
+    }
 
     var child = try std.process.spawn(io, .{
         .argv = argv,
@@ -1718,10 +1702,10 @@ pub fn runAllowFail(
     });
 
     var stdout_reader = child.stdout.?.readerStreaming(io, &.{});
-    const stdout = stdout_reader.interface.allocRemaining(b.allocator, .limited(max_output_size)) catch {
+    const stdout = stdout_reader.interface.allocRemaining(arena, .limited(max_output_size)) catch {
         return error.ReadFailure;
     };
-    errdefer b.allocator.free(stdout);
+    errdefer arena.free(stdout);
 
     const term = try child.wait(io);
     switch (term) {
@@ -2089,34 +2073,6 @@ pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
 pub const GeneratedFile = struct {
     /// The step that generates the file.
     step: *Step,
-    /// The path to the generated file. Must be either absolute or relative to the build runner cwd.
-    /// This value must be set in the `fn make()` of the `step` and must not be `null` afterwards.
-    path: ?[]const u8 = null,
-
-    /// Deprecated, see `getPath3`.
-    pub fn getPath(gen: GeneratedFile) []const u8 {
-        return gen.step.owner.pathFromCwd(gen.path orelse std.debug.panic(
-            "getPath() was called on a GeneratedFile that wasn't built yet. Is there a missing Step dependency on step '{s}'?",
-            .{gen.step.name},
-        ));
-    }
-
-    /// Deprecated, see `getPath3`.
-    pub fn getPath2(gen: GeneratedFile, src_builder: *Build, asking_step: ?*Step) []const u8 {
-        return getPath3(gen, src_builder, asking_step) catch |err| switch (err) {
-            error.Canceled => std.process.exit(1),
-        };
-    }
-
-    pub fn getPath3(gen: GeneratedFile, src_builder: *Build, asking_step: ?*Step) Io.Cancelable![]const u8 {
-        return gen.path orelse {
-            const graph = gen.step.owner.graph;
-            const io = graph.io;
-            const stderr = try io.lockStderr(&.{}, graph.stderr_mode);
-            dumpBadGetPathHelp(gen.step, stderr.terminal(), src_builder, asking_step) catch {};
-            @panic("misconfigured build script");
-        };
-    }
 };
 
 // dirnameAllowEmpty is a variant of fs.path.dirname
@@ -2290,94 +2246,6 @@ pub const LazyPath = union(enum) {
         }
     }
 
-    /// Deprecated, see `getPath4`.
-    pub fn getPath(lazy_path: LazyPath, src_builder: *Build) []const u8 {
-        return getPath2(lazy_path, src_builder, null);
-    }
-
-    /// Deprecated, see `getPath4`.
-    pub fn getPath2(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
-        const p = getPath3(lazy_path, src_builder, asking_step);
-        return src_builder.pathResolve(&.{ p.root_dir.path orelse ".", p.sub_path });
-    }
-
-    /// Deprecated, see `getPath4`.
-    pub fn getPath3(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) Cache.Path {
-        return getPath4(lazy_path, src_builder, asking_step) catch |err| switch (err) {
-            error.Canceled => std.process.exit(1),
-        };
-    }
-
-    /// Intended to be used during the make phase only.
-    ///
-    /// `asking_step` is only used for debugging purposes; it's the step being
-    /// run that is asking for the path.
-    pub fn getPath4(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) Io.Cancelable!Cache.Path {
-        switch (lazy_path) {
-            .src_path => |sp| return .{
-                .root_dir = sp.owner.build_root,
-                .sub_path = sp.sub_path,
-            },
-            .cwd_relative => |sub_path| return .{
-                .root_dir = Cache.Directory.cwd(),
-                .sub_path = sub_path,
-            },
-            .generated => |gen| {
-                // TODO make gen.file.path not be absolute and use that as the
-                // basis for not traversing up too many directories.
-
-                const graph = src_builder.graph;
-
-                var file_path: Cache.Path = .{
-                    .root_dir = Cache.Directory.cwd(),
-                    .sub_path = gen.file.path orelse {
-                        const io = graph.io;
-                        const stderr = try io.lockStderr(&.{}, graph.stderr_mode);
-                        dumpBadGetPathHelp(gen.file.step, stderr.terminal(), src_builder, asking_step) catch {};
-                        io.unlockStderr();
-                        @panic("misconfigured build script");
-                    },
-                };
-
-                if (gen.up > 0) {
-                    const cache_root_path = src_builder.cache_root.path orelse
-                        (src_builder.cache_root.join(src_builder.allocator, &.{"."}) catch @panic("OOM"));
-
-                    for (0..gen.up) |_| {
-                        if (mem.eql(u8, file_path.sub_path, cache_root_path)) {
-                            // If we hit the cache root and there's still more to go,
-                            // the script attempted to go too far.
-                            dumpBadDirnameHelp(gen.file.step, asking_step,
-                                \\dirname() attempted to traverse outside the cache root.
-                                \\This is not allowed.
-                                \\
-                            , .{}) catch {};
-                            @panic("misconfigured build script");
-                        }
-
-                        // path is absolute.
-                        // dirname will return null only if we're at root.
-                        // Typically, we'll stop well before that at the cache root.
-                        file_path.sub_path = fs.path.dirname(file_path.sub_path) orelse {
-                            dumpBadDirnameHelp(gen.file.step, asking_step,
-                                \\dirname() reached root.
-                                \\No more directories left to go up.
-                                \\
-                            , .{}) catch {};
-                            @panic("misconfigured build script");
-                        };
-                    }
-                }
-
-                return file_path.join(src_builder.allocator, gen.sub_path) catch @panic("OOM");
-            },
-            .dependency => |dep| return .{
-                .root_dir = dep.dependency.builder.build_root,
-                .sub_path = dep.sub_path,
-            },
-        }
-    }
-
     pub fn basename(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
         return fs.path.basename(switch (lazy_path) {
             .src_path => |sp| sp.sub_path,
@@ -2449,36 +2317,6 @@ fn dumpBadDirnameHelp(
     stderr.setColor(.red) catch {};
     try w.writeAll("    Proceeding to panic.\n");
     stderr.setColor(.reset) catch {};
-}
-
-/// In this function the stderr mutex has already been locked.
-pub fn dumpBadGetPathHelp(s: *Step, t: Io.Terminal, src_builder: *Build, asking_step: ?*Step) anyerror!void {
-    const w = t.writer;
-    try w.print(
-        \\getPath() was called on a GeneratedFile that wasn't built yet.
-        \\  source package path: {s}
-        \\  Is there a missing Step dependency on step '{s}'?
-        \\
-    , .{
-        src_builder.build_root.path orelse ".",
-        s.name,
-    });
-
-    t.setColor(.red) catch {};
-    try w.writeAll("    The step was created by this stack trace:\n");
-    t.setColor(.reset) catch {};
-
-    s.dump(t);
-    if (asking_step) |as| {
-        t.setColor(.red) catch {};
-        try w.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
-        t.setColor(.reset) catch {};
-
-        as.dump(t);
-    }
-    t.setColor(.red) catch {};
-    try w.writeAll("    Proceeding to panic.\n");
-    t.setColor(.reset) catch {};
 }
 
 pub const InstallDir = union(enum) {

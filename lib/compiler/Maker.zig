@@ -124,7 +124,6 @@ pub fn main(init: process.Init.Minimal) !void {
     graph.cache.hash.addBytes(builtin.zig_version_string);
 
     var step_names: std.ArrayList([]const u8) = .empty;
-    var debug_log_scopes: std.ArrayList([]const u8) = .empty;
     var help_menu = false;
     var steps_menu = false;
     var print_configuration = false;
@@ -143,10 +142,6 @@ pub fn main(init: process.Init.Minimal) !void {
     var fuzz: ?Fuzz.Mode = null;
     var debounce_interval_ms: u16 = 50;
     var webui_listen: ?Io.net.IpAddress = null;
-    var verbose = false;
-    var sysroot: ?[]const u8 = null;
-    var search_prefixes: std.ArrayList([]const u8) = .empty;
-    var libc_file: ?[]const u8 = null;
     var debug_pkg_config: bool = false;
     // After following the steps in https://codeberg.org/ziglang/infra/src/branch/master/libc-update/glibc.md,
     // this will be the directory $glibc-build-dir/install/glibcs
@@ -159,7 +154,6 @@ pub fn main(init: process.Init.Minimal) !void {
     var enable_wasmtime = false;
     var enable_darling = false;
     var enable_rosetta = false;
-    var reference_trace: ?u32 = null;
     var run_args: ?[]const []const u8 = null;
 
     if (std.zig.EnvVar.ZIG_BUILD_ERROR_STYLE.get(&graph.environ_map)) |str| {
@@ -182,8 +176,6 @@ pub fn main(init: process.Init.Minimal) !void {
                 steps_menu = true;
             } else if (mem.eql(u8, arg, "--print-configuration")) {
                 print_configuration = true;
-            } else if (mem.eql(u8, arg, "--verbose")) {
-                verbose = true;
             } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--prefix")) {
                 override_install_prefix = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-lib-dir")) {
@@ -193,11 +185,12 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.eql(u8, arg, "--prefix-include-dir")) {
                 override_include_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--sysroot")) {
-                sysroot = nextArgOrFatal(args, &arg_idx);
+                graph.sysroot = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--maxrss")) {
+                // TODO refactor and reuse the fuzz number parsing here
                 const max_rss_text = nextArgOrFatal(args, &arg_idx);
                 max_rss = std.fmt.parseIntSizeSuffix(max_rss_text, 10) catch |err|
-                    fatal("invalid byte size: '{s}': {t}", .{ max_rss_text, err });
+                    fatal("invalid byte size {q}: {t}", .{ max_rss_text, err });
             } else if (mem.eql(u8, arg, "--skip-oom-steps")) {
                 skip_oom_steps = true;
             } else if (mem.eql(u8, arg, "--test-timeout")) {
@@ -217,7 +210,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 };
                 const timeout_str = nextArgOrFatal(args, &arg_idx);
                 const num_end_idx = std.mem.findLastNone(u8, timeout_str, "abcdefghijklmnopqrstuvwxyz") orelse fatal(
-                    "invalid timeout '{s}': expected unit (ns, us, ms, s, m, h)",
+                    "invalid timeout {q}: expected unit (ns, us, ms, s, m, h)",
                     .{timeout_str},
                 );
                 const num_str = timeout_str[0 .. num_end_idx + 1];
@@ -227,57 +220,63 @@ pub fn main(init: process.Init.Minimal) !void {
                         break @floatFromInt(unit_and_factor[1]);
                     }
                 } else fatal(
-                    "invalid timeout '{s}': invalid unit '{s}' (expected ns, us, ms, s, m, h)",
+                    "invalid timeout {q}: invalid unit {q} (expected ns, us, ms, s, m, h)",
                     .{ timeout_str, unit_str },
                 );
                 const num_parsed = std.fmt.parseFloat(f64, num_str) catch |err| fatal(
-                    "invalid timeout '{s}': invalid number '{s}' ({t})",
+                    "invalid timeout {q}: invalid number {q} ({t})",
                     .{ timeout_str, num_str, err },
                 );
                 test_timeout_ns = std.math.lossyCast(u64, unit_factor * num_parsed);
             } else if (mem.eql(u8, arg, "--search-prefix")) {
-                try search_prefixes.append(arena, nextArgOrFatal(args, &arg_idx));
+                try graph.search_prefixes.append(arena, nextArgOrFatal(args, &arg_idx));
             } else if (mem.eql(u8, arg, "--libc")) {
-                libc_file = nextArgOrFatal(args, &arg_idx);
+                graph.libc_file = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--color")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
-                    fatalWithHint("expected [auto|on|off] after '{s}'", .{arg});
+                    fatalWithHint("expected [auto|on|off] after {q}", .{arg});
                 color = std.meta.stringToEnum(Color, next_arg) orelse {
-                    fatalWithHint("expected [auto|on|off] after '{s}', found '{s}'", .{
+                    fatalWithHint("expected [auto|on|off] after {q}, found {q}", .{
                         arg, next_arg,
                     });
                 };
             } else if (mem.eql(u8, arg, "--error-style")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
-                    fatalWithHint("expected style after '{s}'", .{arg});
+                    fatalWithHint("expected style after {q}", .{arg});
                 error_style = std.meta.stringToEnum(ErrorStyle, next_arg) orelse {
-                    fatalWithHint("expected style after '{s}', found '{s}'", .{ arg, next_arg });
+                    fatalWithHint("expected style after {q}, found {q}", .{ arg, next_arg });
                 };
             } else if (mem.eql(u8, arg, "--multiline-errors")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
-                    fatalWithHint("expected style after '{s}'", .{arg});
+                    fatalWithHint("expected style after {q}", .{arg});
                 multiline_errors = std.meta.stringToEnum(MultilineErrors, next_arg) orelse {
-                    fatalWithHint("expected style after '{s}', found '{s}'", .{ arg, next_arg });
+                    fatalWithHint("expected style after {q}, found {q}", .{ arg, next_arg });
                 };
             } else if (mem.eql(u8, arg, "--summary")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
-                    fatalWithHint("expected [all|new|failures|line|none] after '{s}'", .{arg});
+                    fatalWithHint("expected [all|new|failures|line|none] after {q}", .{arg});
                 summary = std.meta.stringToEnum(Summary, next_arg) orelse {
-                    fatalWithHint("expected [all|new|failures|line|none] after '{s}', found '{s}'", .{
+                    fatalWithHint("expected [all|new|failures|line|none] after {q}, found {q}", .{
                         arg, next_arg,
                     });
                 };
             } else if (mem.eql(u8, arg, "--seed")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
-                    fatalWithHint("expected u32 after '{s}'", .{arg});
+                    fatalWithHint("expected u32 after {q}", .{arg});
                 graph.random_seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
-                    fatal("unable to parse seed '{s}' as unsigned 32-bit integer: {t}", .{ next_arg, err });
+                    fatal("unable to parse seed {q} as unsigned 32-bit integer: {t}", .{ next_arg, err });
                 };
+            } else if (mem.eql(u8, arg, "--build-id")) {
+                graph.build_id = .fast;
+            } else if (mem.cutPrefix(u8, arg, "--build-id=")) |style| {
+                graph.build_id = std.zig.BuildId.parse(style) catch |err|
+                    fatal("unable to parse --build-id style {q}: {t}", .{ style, err });
             } else if (mem.eql(u8, arg, "--debounce")) {
+                // TODO refactor and reuse the timeout parsing code also here
                 const next_arg = nextArg(args, &arg_idx) orelse
-                    fatalWithHint("expected u16 after '{s}'", .{arg});
+                    fatalWithHint("expected u16 after {q}", .{arg});
                 debounce_interval_ms = std.fmt.parseUnsigned(u16, next_arg, 0) catch |err| {
-                    fatal("unable to parse debounce interval '{s}' as unsigned 16-bit integer: {t}\n", .{
+                    fatal("unable to parse debounce interval {q} as unsigned 16-bit integer: {t}", .{
                         next_arg, err,
                     });
                 };
@@ -287,11 +286,15 @@ pub fn main(init: process.Init.Minimal) !void {
                 const addr_str = arg["--webui=".len..];
                 if (std.mem.eql(u8, addr_str, "-")) fatal("web interface cannot listen on stdio", .{});
                 webui_listen = Io.net.IpAddress.parseLiteral(addr_str) catch |err| {
-                    fatal("invalid web UI address '{s}': {t}", .{ addr_str, err });
+                    fatal("invalid web UI address {q}: {t}", .{ addr_str, err });
                 };
             } else if (mem.eql(u8, arg, "--debug-log")) {
                 const next_arg = nextArgOrFatal(args, &arg_idx);
-                try debug_log_scopes.append(arena, next_arg);
+                try graph.debug_log_scopes.append(arena, next_arg);
+            } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
+                graph.debug_compile_errors = true;
+            } else if (mem.eql(u8, arg, "--debug-incremental")) {
+                graph.debug_incremental = true;
             } else if (mem.eql(u8, arg, "--debug-pkg-config")) {
                 debug_pkg_config = true;
             } else if (mem.eql(u8, arg, "--debug-rt")) {
@@ -302,6 +305,14 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
                 // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
                 libc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
+            } else if (mem.eql(u8, arg, "--verbose")) {
+                graph.verbose = true;
+            } else if (mem.eql(u8, arg, "--verbose-air")) {
+                graph.verbose_air = true;
+            } else if (mem.eql(u8, arg, "--verbose-cc")) {
+                graph.verbose_cc = true;
+            } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
+                graph.verbose_llvm_ir = true;
             } else if (mem.eql(u8, arg, "--watch")) {
                 watch = true;
             } else if (mem.eql(u8, arg, "--time-report")) {
@@ -373,18 +384,15 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.eql(u8, arg, "-fno-allow-so-scripts")) {
                 graph.allow_so_scripts = false;
             } else if (mem.eql(u8, arg, "-freference-trace")) {
-                reference_trace = 256;
-            } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
-                const num = arg["-freference-trace=".len..];
-                reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
-                    std.debug.print("unable to parse reference_trace count '{s}': {t}", .{ num, err });
-                    process.exit(1);
-                };
+                graph.reference_trace = 256;
+            } else if (mem.cutPrefix(u8, arg, "-freference-trace=")) |num| {
+                graph.reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err|
+                    fatal("unable to parse reference_trace count {q}: {t}", .{ num, err });
             } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
-                reference_trace = null;
+                graph.reference_trace = null;
             } else if (mem.cutPrefix(u8, arg, "-j")) |text| {
                 const n = std.fmt.parseUnsigned(u32, text, 10) catch |err|
-                    fatal("unable to parse jobs count '{s}': {t}", .{ text, err });
+                    fatal("unable to parse jobs count {q}: {t}", .{ text, err });
                 if (n < 1) fatal("number of jobs must be at least 1", .{});
                 threaded.setAsyncLimit(.limited(n));
                 graph.max_jobs = n;
@@ -392,7 +400,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 run_args = argsRest(args, arg_idx);
                 break;
             } else {
-                fatalWithHint("unrecognized argument: '{s}'", .{arg});
+                fatalWithHint("unrecognized argument: {s}", .{arg});
             }
         } else {
             try step_names.append(arena, arg);
@@ -1848,8 +1856,7 @@ const ScannedConfig = struct {
             \\  --debug-rt                   Debug compiler runtime libraries
             \\  --verbose-link               Enable compiler debug output for linking
             \\  --verbose-air                Enable compiler debug output for Zig AIR
-            \\  --verbose-llvm-ir[=file]     Enable compiler debug output for LLVM IR
-            \\  --verbose-llvm-bc=[file]     Enable compiler debug output for LLVM BC
+            \\  --verbose-llvm-ir            Enable compiler debug output for LLVM IR
             \\  --verbose-cimport            Enable compiler debug output for C imports
             \\  --verbose-cc                 Enable compiler debug output for C compilation
             \\  --verbose-llvm-cpu-features  Enable compiler debug output for LLVM CPU features

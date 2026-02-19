@@ -1157,6 +1157,79 @@ pub const ClangCliParam = struct {
     }
 };
 
+pub fn allocPrintCmd(
+    gpa: Allocator,
+    cwd: std.process.Child.Cwd,
+    opt_env: ?struct {
+        child: *const std.process.Environ.Map,
+        parent: *const std.process.Environ.Map,
+    },
+    argv: []const []const u8,
+) Allocator.Error![]u8 {
+    const shell = struct {
+        fn escape(writer: *Io.Writer, string: []const u8, is_argv0: bool) !void {
+            for (string) |c| {
+                if (switch (c) {
+                    else => true,
+                    '%', '+'...':', '@'...'Z', '_', 'a'...'z' => false,
+                    '=' => is_argv0,
+                }) break;
+            } else return writer.writeAll(string);
+
+            try writer.writeByte('"');
+            for (string) |c| {
+                if (switch (c) {
+                    std.ascii.control_code.nul => break,
+                    '!', '"', '$', '\\', '`' => true,
+                    else => !std.ascii.isPrint(c),
+                }) try writer.writeByte('\\');
+                switch (c) {
+                    std.ascii.control_code.nul => unreachable,
+                    std.ascii.control_code.bel => try writer.writeByte('a'),
+                    std.ascii.control_code.bs => try writer.writeByte('b'),
+                    std.ascii.control_code.ht => try writer.writeByte('t'),
+                    std.ascii.control_code.lf => try writer.writeByte('n'),
+                    std.ascii.control_code.vt => try writer.writeByte('v'),
+                    std.ascii.control_code.ff => try writer.writeByte('f'),
+                    std.ascii.control_code.cr => try writer.writeByte('r'),
+                    std.ascii.control_code.esc => try writer.writeByte('E'),
+                    ' '...'~' => try writer.writeByte(c),
+                    else => try writer.print("{o:0>3}", .{c}),
+                }
+            }
+            try writer.writeByte('"');
+        }
+    };
+
+    var aw: Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    const writer = &aw.writer;
+    switch (cwd) {
+        .inherit => {},
+        .path => |path| writer.print("cd {s} && ", .{path}) catch return error.OutOfMemory,
+        .dir => @panic("TODO"),
+    }
+    if (opt_env) |env| {
+        var it = env.child.iterator();
+        while (it.next()) |entry| {
+            const key = entry.key_ptr.*;
+            const value = entry.value_ptr.*;
+            if (env.parent.get(key)) |process_value| {
+                if (std.mem.eql(u8, value, process_value)) continue;
+            }
+            writer.print("{s}=", .{key}) catch return error.OutOfMemory;
+            shell.escape(writer, value, false) catch return error.OutOfMemory;
+            writer.writeByte(' ') catch return error.OutOfMemory;
+        }
+    }
+    shell.escape(writer, argv[0], true) catch return error.OutOfMemory;
+    for (argv[1..]) |arg| {
+        writer.writeByte(' ') catch return error.OutOfMemory;
+        shell.escape(writer, arg, false) catch return error.OutOfMemory;
+    }
+    return aw.toOwnedSlice();
+}
+
 test {
     _ = Ast;
     _ = AstRlAnnotate;

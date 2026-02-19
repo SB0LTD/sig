@@ -10,6 +10,7 @@ const Io = std.Io;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const assert = std.debug.assert;
 const mem = std.mem;
+const allocPrint = std.fmt.allocPrint;
 
 const Step = @import("../Step.zig");
 const Maker = @import("../../Maker.zig");
@@ -17,6 +18,8 @@ const Maker = @import("../../Maker.zig");
 /// Populated during the make phase when there is a long-lived compiler process.
 /// Managed by the build runner, not user build script.
 zig_process: ?*Step.ZigProcess = null,
+/// Persisted to reuse memory on subsequent make.
+zig_args: std.ArrayList([]const u8) = .empty,
 
 pub fn make(
     compile: *Compile,
@@ -24,14 +27,15 @@ pub fn make(
     maker: *Maker,
     progress_node: std.Progress.Node,
 ) Step.ExtendedMakeError!void {
-    if (true) @panic("TODO implement compile.make()");
     const graph = maker.graph;
     const step = maker.stepByIndex(step_index);
-    const zig_args = try getZigArgs(compile, maker, false);
+    compile.zig_args.clearRetainingCapacity();
+    if (true) @panic("TODO implement compile.make()");
+    try lowerZigArgs(compile, step_index, maker, &compile.zig_args, false);
     const process_arena = graph.arena; // TODO don't leak into the process_arena
 
     const maybe_output_dir = step.evalZigProcess(
-        zig_args,
+        compile.zig_args.items,
         progress_node,
         (graph.incremental == true) and (maker.watch or maker.web_server != null),
         maker,
@@ -47,7 +51,7 @@ pub fn make(
     // Update generated files
     if (maybe_output_dir) |output_dir| {
         if (compile.emit_directory) |lp| {
-            lp.path = try std.fmt.allocPrint(process_arena, "{f}", .{output_dir});
+            lp.path = try allocPrint(process_arena, "{f}", .{output_dir});
         }
 
         // zig fmt: off
@@ -70,23 +74,26 @@ pub fn make(
     {
         try doAtomicSymLinks(
             step,
-            compile.getEmittedBin().getPath2(step.owner, step),
+            compile.getEmittedBin().getPath2(step),
             compile.major_only_filename.?,
             compile.name_only_filename.?,
         );
     }
 }
 
-fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
-    const step = &compile.step;
-    const b = step.owner;
+fn lowerZigArgs(
+    compile: *Compile,
+    step_index: Configuration.Step.Index,
+    maker: *Maker,
+    zig_args: *std.ArrayList([]const u8),
+    fuzz: bool,
+) Allocator.Error!void {
+    const step = maker.stepByIndex(step_index);
     const graph = maker.graph;
     const arena = graph.arena; // TODO don't leak into the process arena
+    const gpa = maker.gpa;
 
-    var zig_args = std.array_list.Managed([]const u8).init(arena);
-    defer zig_args.deinit();
-
-    try zig_args.append(graph.zig_exe);
+    try zig_args.append(gpa, graph.zig_exe);
 
     const cmd = switch (compile.kind) {
         .lib => "build-lib",
@@ -95,10 +102,10 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
         .@"test" => "test",
         .test_obj => "test-obj",
     };
-    try zig_args.append(cmd);
+    try zig_args.append(gpa, cmd);
 
-    if (b.reference_trace) |some| {
-        try zig_args.append(try std.fmt.allocPrint(arena, "-freference-trace={d}", .{some}));
+    if (graph.reference_trace) |some| {
+        try zig_args.append(gpa, try allocPrint(arena, "-freference-trace={d}", .{some}));
     }
     try addFlag(&zig_args, "allow-so-scripts", compile.allow_so_scripts orelse graph.allow_so_scripts);
 
@@ -107,33 +114,31 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
     try addFlag(&zig_args, "new-linker", compile.use_new_linker);
 
     if (compile.root_module.resolved_target.?.query.ofmt) |ofmt| {
-        try zig_args.append(try std.fmt.allocPrint(arena, "-ofmt={s}", .{@tagName(ofmt)}));
+        try zig_args.append(gpa, try allocPrint(arena, "-ofmt={t}", .{ofmt}));
     }
 
     switch (compile.entry) {
         .default => {},
-        .disabled => try zig_args.append("-fno-entry"),
-        .enabled => try zig_args.append("-fentry"),
+        .disabled => try zig_args.append(gpa, "-fno-entry"),
+        .enabled => try zig_args.append(gpa, "-fentry"),
         .symbol_name => |entry_name| {
-            try zig_args.append(try std.fmt.allocPrint(arena, "-fentry={s}", .{entry_name}));
+            try zig_args.append(gpa, try allocPrint(arena, "-fentry={s}", .{entry_name}));
         },
     }
 
     {
         for (compile.force_undefined_symbols.keys()) |symbol_name| {
-            try zig_args.append("--force_undefined");
-            try zig_args.append(symbol_name.*);
+            try zig_args.append(gpa, "--force_undefined");
+            try zig_args.append(gpa, symbol_name.*);
         }
     }
 
     if (compile.stack_size) |stack_size| {
-        try zig_args.append("--stack");
-        try zig_args.append(try std.fmt.allocPrint(arena, "{}", .{stack_size}));
+        try zig_args.append(gpa, "--stack");
+        try zig_args.append(gpa, try allocPrint(arena, "{}", .{stack_size}));
     }
 
-    if (fuzz) {
-        try zig_args.append("-ffuzz");
-    }
+    try addBool(gpa, zig_args, fuzz, "-ffuzz");
 
     {
         // Stores system libraries that have already been seen for at least one
@@ -183,14 +188,14 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                     switch (link_object) {
                         .static_path => |static_path| {
                             if (my_responsibility) {
-                                try zig_args.append(static_path.getPath2(mod.owner, step));
+                                try zig_args.append(gpa, static_path.getPath2(step));
                                 total_linker_objects += 1;
                             }
                         },
                         .system_lib => |system_lib| {
                             const system_lib_gop = try seen_system_libs.getOrPut(arena, system_lib.name);
                             if (system_lib_gop.found_existing) {
-                                try zig_args.appendSlice(system_lib_gop.value_ptr.*);
+                                try zig_args.appendSlice(gpa, system_lib_gop.value_ptr.*);
                                 continue;
                             } else {
                                 system_lib_gop.value_ptr.* = &.{};
@@ -205,16 +210,16 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                             {
                                 switch (system_lib.search_strategy) {
                                     .no_fallback => switch (system_lib.preferred_link_mode) {
-                                        .dynamic => try zig_args.append("-search_dylibs_only"),
-                                        .static => try zig_args.append("-search_static_only"),
+                                        .dynamic => try zig_args.append(gpa, "-search_dylibs_only"),
+                                        .static => try zig_args.append(gpa, "-search_static_only"),
                                     },
                                     .paths_first => switch (system_lib.preferred_link_mode) {
-                                        .dynamic => try zig_args.append("-search_paths_first"),
-                                        .static => try zig_args.append("-search_paths_first_static"),
+                                        .dynamic => try zig_args.append(gpa, "-search_paths_first"),
+                                        .static => try zig_args.append(gpa, "-search_paths_first_static"),
                                     },
                                     .mode_first => switch (system_lib.preferred_link_mode) {
-                                        .dynamic => try zig_args.append("-search_dylibs_first"),
-                                        .static => try zig_args.append("-search_static_first"),
+                                        .dynamic => try zig_args.append(gpa, "-search_dylibs_first"),
+                                        .static => try zig_args.append(gpa, "-search_static_first"),
                                     },
                                 }
                                 prev_search_strategy = system_lib.search_strategy;
@@ -227,11 +232,11 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                                 break :prefix "-l";
                             };
                             switch (system_lib.use_pkg_config) {
-                                .no => try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
+                                .no => try zig_args.append(gpa, try allocPrint(arena, "{s}{s}", .{ prefix, system_lib.name })),
                                 .yes, .force => {
                                     if (compile.runPkgConfig(maker, system_lib.name)) |result| {
-                                        try zig_args.appendSlice(result.cflags);
-                                        try zig_args.appendSlice(result.libs);
+                                        try zig_args.appendSlice(gpa, result.cflags);
+                                        try zig_args.appendSlice(gpa, result.libs);
                                         try seen_system_libs.put(arena, system_lib.name, result.cflags);
                                     } else |err| switch (err) {
                                         error.PkgConfigInvalidOutput,
@@ -243,7 +248,7 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                                             .yes => {
                                                 // pkg-config failed, so fall back to linking the library
                                                 // by name directly.
-                                                try zig_args.append(b.fmt("{s}{s}", .{
+                                                try zig_args.append(gpa, try allocPrint(arena, "{s}{s}", .{
                                                     prefix,
                                                     system_lib.name,
                                                 }));
@@ -267,7 +272,7 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                                     const included_in_lib_or_obj = !my_responsibility and
                                         (dep_compile.kind == .lib or dep_compile.kind == .obj or dep_compile.kind == .test_obj);
                                     if (!already_linked and !included_in_lib_or_obj) {
-                                        try zig_args.append(other.getEmittedBin().getPath2(b, step));
+                                        try zig_args.append(gpa, other.getEmittedBin().getPath2(step));
                                         total_linker_objects += 1;
                                     }
                                 },
@@ -288,15 +293,15 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                                     else
                                         try other.getGeneratedFilePath("generated_bin", &compile.step);
 
-                                    try zig_args.append(full_path_lib);
+                                    try zig_args.append(gpa, full_path_lib);
                                     total_linker_objects += 1;
 
                                     if (other.linkage == .dynamic and
                                         compile.rootModuleTarget().os.tag != .windows)
                                     {
                                         if (Dir.path.dirname(full_path_lib)) |dirname| {
-                                            try zig_args.append("-rpath");
-                                            try zig_args.append(dirname);
+                                            try zig_args.append(gpa, "-rpath");
+                                            try zig_args.append(gpa, dirname);
                                         }
                                     }
                                 },
@@ -306,11 +311,11 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                             if (!my_responsibility) break :l;
 
                             if (prev_has_cflags) {
-                                try zig_args.append("-cflags");
-                                try zig_args.append("--");
+                                try zig_args.append(gpa, "-cflags");
+                                try zig_args.append(gpa, "--");
                                 prev_has_cflags = false;
                             }
-                            try zig_args.append(asm_file.getPath2(mod.owner, step));
+                            try zig_args.append(gpa, asm_file.getPath2(mod.owner, step));
                             total_linker_objects += 1;
                         },
 
@@ -318,24 +323,24 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                             if (!my_responsibility) break :l;
 
                             if (prev_has_cflags or c_source_file.flags.len != 0) {
-                                try zig_args.append("-cflags");
+                                try zig_args.append(gpa, "-cflags");
                                 for (c_source_file.flags) |arg| {
-                                    try zig_args.append(arg);
+                                    try zig_args.append(gpa, arg);
                                 }
-                                try zig_args.append("--");
+                                try zig_args.append(gpa, "--");
                             }
                             prev_has_cflags = (c_source_file.flags.len != 0);
 
                             if (c_source_file.language) |lang| {
-                                try zig_args.append("-x");
-                                try zig_args.append(lang.internalIdentifier());
+                                try zig_args.append(gpa, "-x");
+                                try zig_args.append(gpa, lang.internalIdentifier());
                             }
 
-                            try zig_args.append(c_source_file.file.getPath2(mod.owner, step));
+                            try zig_args.append(gpa, c_source_file.file.getPath2(mod.owner, step));
 
                             if (c_source_file.language != null) {
-                                try zig_args.append("-x");
-                                try zig_args.append("none");
+                                try zig_args.append(gpa, "-x");
+                                try zig_args.append(gpa, "none");
                             }
                             total_linker_objects += 1;
                         },
@@ -344,27 +349,27 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                             if (!my_responsibility) break :l;
 
                             if (prev_has_cflags or c_source_files.flags.len != 0) {
-                                try zig_args.append("-cflags");
+                                try zig_args.append(gpa, "-cflags");
                                 for (c_source_files.flags) |arg| {
-                                    try zig_args.append(arg);
+                                    try zig_args.append(gpa, arg);
                                 }
-                                try zig_args.append("--");
+                                try zig_args.append(gpa, "--");
                             }
                             prev_has_cflags = (c_source_files.flags.len != 0);
 
                             if (c_source_files.language) |lang| {
-                                try zig_args.append("-x");
-                                try zig_args.append(lang.internalIdentifier());
+                                try zig_args.append(gpa, "-x");
+                                try zig_args.append(gpa, lang.internalIdentifier());
                             }
 
                             const root_path = c_source_files.root.getPath2(mod.owner, step);
                             for (c_source_files.files) |file| {
-                                try zig_args.append(b.pathJoin(&.{ root_path, file }));
+                                try zig_args.append(gpa, try Dir.path.join(arena, &.{ root_path, file }));
                             }
 
                             if (c_source_files.language != null) {
-                                try zig_args.append("-x");
-                                try zig_args.append("none");
+                                try zig_args.append(gpa, "-x");
+                                try zig_args.append(gpa, "none");
                             }
 
                             total_linker_objects += c_source_files.files.len;
@@ -375,23 +380,23 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
 
                             if (rc_source_file.flags.len == 0 and rc_source_file.include_paths.len == 0) {
                                 if (prev_has_rcflags) {
-                                    try zig_args.append("-rcflags");
-                                    try zig_args.append("--");
+                                    try zig_args.append(gpa, "-rcflags");
+                                    try zig_args.append(gpa, "--");
                                     prev_has_rcflags = false;
                                 }
                             } else {
-                                try zig_args.append("-rcflags");
+                                try zig_args.append(gpa, "-rcflags");
                                 for (rc_source_file.flags) |arg| {
-                                    try zig_args.append(arg);
+                                    try zig_args.append(gpa, arg);
                                 }
                                 for (rc_source_file.include_paths) |include_path| {
-                                    try zig_args.append("/I");
-                                    try zig_args.append(include_path.getPath2(mod.owner, step));
+                                    try zig_args.append(gpa, "/I");
+                                    try zig_args.append(gpa, include_path.getPath2(mod.owner, step));
                                 }
-                                try zig_args.append("--");
+                                try zig_args.append(gpa, "--");
                                 prev_has_rcflags = true;
                             }
-                            try zig_args.append(rc_source_file.file.getPath2(mod.owner, step));
+                            try zig_args.append(gpa, rc_source_file.file.getPath2(mod.owner, step));
                             total_linker_objects += 1;
                         },
                     }
@@ -414,7 +419,7 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                         if (std.mem.eql(u8, import_cli_name, name)) {
                             zig_args.appendAssumeCapacity(import_cli_name);
                         } else {
-                            zig_args.appendAssumeCapacity(b.fmt("{s}={s}", .{ name, import_cli_name }));
+                            zig_args.appendAssumeCapacity(try allocPrint(arena, "{s}={s}", .{ name, import_cli_name }));
                         }
                     }
 
@@ -427,9 +432,9 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                     // files must have a module parent.
                     if (mod.root_source_file) |lp| {
                         const src = lp.getPath2(mod.owner, step);
-                        try zig_args.append(b.fmt("-M{s}={s}", .{ module_cli_name, src }));
+                        try zig_args.append(gpa, try allocPrint(arena, "-M{s}={s}", .{ module_cli_name, src }));
                     } else if (moduleNeedsCliArg(mod)) {
-                        try zig_args.append(b.fmt("-M{s}", .{module_cli_name}));
+                        try zig_args.append(gpa, try allocPrint(arena, "-M{s}", .{module_cli_name}));
                     }
                 }
             }
@@ -441,275 +446,248 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
 
         for (frameworks.keys(), frameworks.values()) |name, info| {
             if (info.needed) {
-                try zig_args.append("-needed_framework");
+                try zig_args.append(gpa, "-needed_framework");
             } else if (info.weak) {
-                try zig_args.append("-weak_framework");
+                try zig_args.append(gpa, "-weak_framework");
             } else {
-                try zig_args.append("-framework");
+                try zig_args.append(gpa, "-framework");
             }
-            try zig_args.append(name);
+            try zig_args.append(gpa, name);
         }
 
         if (compile.is_linking_libcpp) {
-            try zig_args.append("-lc++");
+            try zig_args.append(gpa, "-lc++");
         }
 
         if (compile.is_linking_libc) {
-            try zig_args.append("-lc");
+            try zig_args.append(gpa, "-lc");
         }
     }
 
     if (compile.win32_manifest) |manifest_file| {
-        try zig_args.append(manifest_file.getPath2(b, step));
+        try zig_args.append(gpa, manifest_file.getPath2(step));
     }
 
     if (compile.win32_module_definition) |module_file| {
-        try zig_args.append(module_file.getPath2(b, step));
+        try zig_args.append(gpa, module_file.getPath2(step));
     }
 
     if (compile.image_base) |image_base| {
-        try zig_args.append("--image-base");
-        try zig_args.append(b.fmt("0x{x}", .{image_base}));
+        try zig_args.appendSlice(gpa, &.{
+            "--image-base", try allocPrint(arena, "0x{x}", .{image_base}),
+        });
     }
 
     for (compile.filters) |filter| {
-        try zig_args.append("--test-filter");
-        try zig_args.append(filter);
+        try zig_args.appendSlice(gpa, &.{ "--test-filter", filter });
     }
 
     if (compile.test_runner) |test_runner| {
-        try zig_args.append("--test-runner");
-        try zig_args.append(test_runner.path.getPath2(b, step));
+        try zig_args.appendSlice(gpa, &.{ "--test-runner", test_runner.path.getPath2(step) });
     }
 
-    for (b.debug_log_scopes) |log_scope| {
-        try zig_args.append("--debug-log");
-        try zig_args.append(log_scope);
+    for (graph.debug_log_scopes) |log_scope| {
+        try zig_args.appendSlice(gpa, &.{ "--debug-log", log_scope });
     }
 
-    if (b.debug_compile_errors) {
-        try zig_args.append("--debug-compile-errors");
-    }
+    try addBool(gpa, zig_args, graph.debug_compile_errors, "--debug-compile-errors");
+    try addBool(gpa, zig_args, graph.debug_incremental, "--debug-incremental");
+    try addBool(gpa, zig_args, graph.verbose_air, "--verbose-air");
+    try addBool(gpa, zig_args, graph.verbose_llvm_ir, "--verbose-llvm-ir");
+    try addBool(gpa, zig_args, graph.verbose_link or compile.verbose_link, "--verbose-link");
+    try addBool(gpa, zig_args, graph.verbose_cc or compile.verbose_cc, "--verbose-cc");
+    try addBool(gpa, zig_args, graph.verbose_llvm_cpu_features, "--verbose-llvm-cpu-features");
+    try addBool(gpa, zig_args, graph.time_report, "--time-report");
 
-    if (b.debug_incremental) {
-        try zig_args.append("--debug-incremental");
-    }
-
-    if (b.verbose_air) try zig_args.append("--verbose-air");
-    if (b.verbose_llvm_ir) |path| try zig_args.append(b.fmt("--verbose-llvm-ir={s}", .{path}));
-    if (b.verbose_llvm_bc) |path| try zig_args.append(b.fmt("--verbose-llvm-bc={s}", .{path}));
-    if (b.verbose_link or compile.verbose_link) try zig_args.append("--verbose-link");
-    if (b.verbose_cc or compile.verbose_cc) try zig_args.append("--verbose-cc");
-    if (b.verbose_llvm_cpu_features) try zig_args.append("--verbose-llvm-cpu-features");
-    if (graph.time_report) try zig_args.append("--time-report");
-
-    if (compile.generated_asm != null) try zig_args.append("-femit-asm");
-    if (compile.generated_bin == null) try zig_args.append("-fno-emit-bin");
-    if (compile.generated_docs != null) try zig_args.append("-femit-docs");
-    if (compile.generated_implib != null) try zig_args.append("-femit-implib");
-    if (compile.generated_llvm_bc != null) try zig_args.append("-femit-llvm-bc");
-    if (compile.generated_llvm_ir != null) try zig_args.append("-femit-llvm-ir");
-    if (compile.generated_h != null) try zig_args.append("-femit-h");
+    if (compile.generated_asm != null) try zig_args.append(gpa, "-femit-asm");
+    if (compile.generated_bin == null) try zig_args.append(gpa, "-fno-emit-bin");
+    if (compile.generated_docs != null) try zig_args.append(gpa, "-femit-docs");
+    if (compile.generated_implib != null) try zig_args.append(gpa, "-femit-implib");
+    if (compile.generated_llvm_bc != null) try zig_args.append(gpa, "-femit-llvm-bc");
+    if (compile.generated_llvm_ir != null) try zig_args.append(gpa, "-femit-llvm-ir");
+    if (compile.generated_h != null) try zig_args.append(gpa, "-femit-h");
 
     try addFlag(&zig_args, "formatted-panics", compile.formatted_panics);
 
     switch (compile.compress_debug_sections) {
         .none => {},
-        .zlib => try zig_args.append("--compress-debug-sections=zlib"),
-        .zstd => try zig_args.append("--compress-debug-sections=zstd"),
+        .zlib => try zig_args.append(gpa, "--compress-debug-sections=zlib"),
+        .zstd => try zig_args.append(gpa, "--compress-debug-sections=zstd"),
     }
 
     if (compile.link_eh_frame_hdr) {
-        try zig_args.append("--eh-frame-hdr");
+        try zig_args.append(gpa, "--eh-frame-hdr");
     }
     if (compile.link_emit_relocs) {
-        try zig_args.append("--emit-relocs");
+        try zig_args.append(gpa, "--emit-relocs");
     }
     if (compile.link_function_sections) {
-        try zig_args.append("-ffunction-sections");
+        try zig_args.append(gpa, "-ffunction-sections");
     }
     if (compile.link_data_sections) {
-        try zig_args.append("-fdata-sections");
+        try zig_args.append(gpa, "-fdata-sections");
     }
     if (compile.link_gc_sections) |x| {
-        try zig_args.append(if (x) "--gc-sections" else "--no-gc-sections");
+        try zig_args.append(gpa, if (x) "--gc-sections" else "--no-gc-sections");
     }
     if (!compile.linker_dynamicbase) {
-        try zig_args.append("--no-dynamicbase");
+        try zig_args.append(gpa, "--no-dynamicbase");
     }
     if (compile.linker_allow_shlib_undefined) |x| {
-        try zig_args.append(if (x) "-fallow-shlib-undefined" else "-fno-allow-shlib-undefined");
+        try zig_args.append(gpa, if (x) "-fallow-shlib-undefined" else "-fno-allow-shlib-undefined");
     }
-    if (compile.link_z_notext) {
-        try zig_args.append("-z");
-        try zig_args.append("notext");
-    }
-    if (!compile.link_z_relro) {
-        try zig_args.append("-z");
-        try zig_args.append("norelro");
-    }
-    if (compile.link_z_lazy) {
-        try zig_args.append("-z");
-        try zig_args.append("lazy");
-    }
-    if (compile.link_z_common_page_size) |size| {
-        try zig_args.append("-z");
-        try zig_args.append(b.fmt("common-page-size={d}", .{size}));
-    }
-    if (compile.link_z_max_page_size) |size| {
-        try zig_args.append("-z");
-        try zig_args.append(b.fmt("max-page-size={d}", .{size}));
-    }
-    if (compile.link_z_defs) {
-        try zig_args.append("-z");
-        try zig_args.append("defs");
-    }
+    if (compile.link_z_notext) try zig_args.appendSlice(gpa, &.{ "-z", "notext" });
+    if (!compile.link_z_relro) try zig_args.appendSlice(gpa, &.{ "-z", "norelro" });
+    if (compile.link_z_lazy) try zig_args.appendSlice(gpa, &.{ "-z", "lazy" });
+    if (compile.link_z_common_page_size) |size| try zig_args.appendSlice(gpa, &.{
+        "-z",
+        try allocPrint(arena, "common-page-size={d}", .{size}),
+    });
+    if (compile.link_z_max_page_size) |size| try zig_args.appendSlice(gpa, &.{
+        "-z",
+        try allocPrint(arena, "max-page-size={d}", .{size}),
+    });
+    if (compile.link_z_defs) try zig_args.appendSlice(gpa, &.{ "-z", "defs" });
 
     if (compile.libc_file) |libc_file| {
-        try zig_args.append("--libc");
-        try zig_args.append(libc_file.getPath2(b, step));
-    } else if (b.libc_file) |libc_file| {
-        try zig_args.append("--libc");
-        try zig_args.append(libc_file);
+        try zig_args.appendSlice(gpa, &.{ "--libc", libc_file.getPath2(step) });
+    } else if (graph.libc_file) |libc_file| {
+        try zig_args.appendSlice(gpa, &.{ "--libc", libc_file });
     }
 
-    try zig_args.append("--cache-dir");
-    try zig_args.append(b.cache_root.path orelse ".");
+    try zig_args.append(gpa, "--cache-dir");
+    try zig_args.append(gpa, graph.cache_root.path orelse ".");
 
-    try zig_args.append("--global-cache-dir");
-    try zig_args.append(graph.global_cache_root.path orelse ".");
+    try zig_args.append(gpa, "--global-cache-dir");
+    try zig_args.append(gpa, graph.global_cache_root.path orelse ".");
 
     if (graph.debug_compiler_runtime_libs) |mode|
-        try zig_args.append(b.fmt("--debug-rt={t}", .{mode}));
+        try zig_args.append(gpa, try allocPrint(arena, "--debug-rt={t}", .{mode}));
 
-    try zig_args.append("--name");
-    try zig_args.append(compile.name);
+    try zig_args.append(gpa, "--name");
+    try zig_args.append(gpa, compile.name);
 
     if (compile.linkage) |some| switch (some) {
-        .dynamic => try zig_args.append("-dynamic"),
-        .static => try zig_args.append("-static"),
+        .dynamic => try zig_args.append(gpa, "-dynamic"),
+        .static => try zig_args.append(gpa, "-static"),
     };
     if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic) {
         if (compile.version) |version| {
-            try zig_args.append("--version");
-            try zig_args.append(b.fmt("{f}", .{version}));
+            try zig_args.append(gpa, "--version");
+            try zig_args.append(gpa, try allocPrint(arena, "{f}", .{version}));
         }
 
         if (compile.rootModuleTarget().os.tag.isDarwin()) {
-            const install_name = compile.install_name orelse b.fmt("@rpath/{s}{s}{s}", .{
+            const install_name = compile.install_name orelse try allocPrint(arena, "@rpath/{s}{s}{s}", .{
                 compile.rootModuleTarget().libPrefix(),
                 compile.name,
                 compile.rootModuleTarget().dynamicLibSuffix(),
             });
-            try zig_args.append("-install_name");
-            try zig_args.append(install_name);
+            try zig_args.append(gpa, "-install_name");
+            try zig_args.append(gpa, install_name);
         }
     }
 
     if (compile.entitlements) |entitlements| {
-        try zig_args.appendSlice(&[_][]const u8{ "--entitlements", entitlements });
+        try zig_args.appendSlice(gpa, &[_][]const u8{ "--entitlements", entitlements });
     }
     if (compile.pagezero_size) |pagezero_size| {
-        const size = try std.fmt.allocPrint(arena, "{x}", .{pagezero_size});
-        try zig_args.appendSlice(&[_][]const u8{ "-pagezero_size", size });
+        const size = try allocPrint(arena, "{x}", .{pagezero_size});
+        try zig_args.appendSlice(gpa, &[_][]const u8{ "-pagezero_size", size });
     }
     if (compile.headerpad_size) |headerpad_size| {
-        const size = try std.fmt.allocPrint(arena, "{x}", .{headerpad_size});
-        try zig_args.appendSlice(&[_][]const u8{ "-headerpad", size });
+        const size = try allocPrint(arena, "{x}", .{headerpad_size});
+        try zig_args.appendSlice(gpa, &[_][]const u8{ "-headerpad", size });
     }
     if (compile.headerpad_max_install_names) {
-        try zig_args.append("-headerpad_max_install_names");
+        try zig_args.append(gpa, "-headerpad_max_install_names");
     }
     if (compile.dead_strip_dylibs) {
-        try zig_args.append("-dead_strip_dylibs");
+        try zig_args.append(gpa, "-dead_strip_dylibs");
     }
     if (compile.force_load_objc) {
-        try zig_args.append("-ObjC");
+        try zig_args.append(gpa, "-ObjC");
     }
     if (compile.discard_local_symbols) {
-        try zig_args.append("--discard-all");
+        try zig_args.append(gpa, "--discard-all");
     }
 
     try addFlag(&zig_args, "compiler-rt", compile.bundle_compiler_rt);
     try addFlag(&zig_args, "ubsan-rt", compile.bundle_ubsan_rt);
     try addFlag(&zig_args, "dll-export-fns", compile.dll_export_fns);
     if (compile.rdynamic) {
-        try zig_args.append("-rdynamic");
+        try zig_args.append(gpa, "-rdynamic");
     }
     if (compile.import_memory) {
-        try zig_args.append("--import-memory");
+        try zig_args.append(gpa, "--import-memory");
     }
     if (compile.export_memory) {
-        try zig_args.append("--export-memory");
+        try zig_args.append(gpa, "--export-memory");
     }
     if (compile.import_symbols) {
-        try zig_args.append("--import-symbols");
+        try zig_args.append(gpa, "--import-symbols");
     }
     if (compile.import_table) {
-        try zig_args.append("--import-table");
+        try zig_args.append(gpa, "--import-table");
     }
     if (compile.export_table) {
-        try zig_args.append("--export-table");
+        try zig_args.append(gpa, "--export-table");
     }
     if (compile.initial_memory) |initial_memory| {
-        try zig_args.append(b.fmt("--initial-memory={d}", .{initial_memory}));
+        try zig_args.append(gpa, try allocPrint(arena, "--initial-memory={d}", .{initial_memory}));
     }
     if (compile.max_memory) |max_memory| {
-        try zig_args.append(b.fmt("--max-memory={d}", .{max_memory}));
+        try zig_args.append(gpa, try allocPrint(arena, "--max-memory={d}", .{max_memory}));
     }
     if (compile.shared_memory) {
-        try zig_args.append("--shared-memory");
+        try zig_args.append(gpa, "--shared-memory");
     }
     if (compile.global_base) |global_base| {
-        try zig_args.append(b.fmt("--global-base={d}", .{global_base}));
+        try zig_args.append(gpa, try allocPrint(arena, "--global-base={d}", .{global_base}));
     }
 
     if (compile.wasi_exec_model) |model| {
-        try zig_args.append(b.fmt("-mexec-model={s}", .{@tagName(model)}));
+        try zig_args.append(gpa, try allocPrint(arena, "-mexec-model={t}", .{model}));
     }
     if (compile.linker_script) |linker_script| {
-        try zig_args.append("--script");
-        try zig_args.append(linker_script.getPath2(b, step));
+        try zig_args.append(gpa, "--script");
+        try zig_args.append(gpa, linker_script.getPath2(step));
     }
 
     if (compile.version_script) |version_script| {
-        try zig_args.append("--version-script");
-        try zig_args.append(version_script.getPath2(b, step));
+        try zig_args.append(gpa, "--version-script");
+        try zig_args.append(gpa, version_script.getPath2(step));
     }
     if (compile.linker_allow_undefined_version) |x| {
-        try zig_args.append(if (x) "--undefined-version" else "--no-undefined-version");
+        try zig_args.append(gpa, if (x) "--undefined-version" else "--no-undefined-version");
     }
 
     if (compile.linker_enable_new_dtags) |enabled| {
-        try zig_args.append(if (enabled) "--enable-new-dtags" else "--disable-new-dtags");
+        try zig_args.append(gpa, if (enabled) "--enable-new-dtags" else "--disable-new-dtags");
     }
 
     if (compile.kind == .@"test") {
         if (compile.exec_cmd_args) |exec_cmd_args| {
             for (exec_cmd_args) |cmd_arg| {
                 if (cmd_arg) |arg| {
-                    try zig_args.append("--test-cmd");
-                    try zig_args.append(arg);
+                    try zig_args.append(gpa, "--test-cmd");
+                    try zig_args.append(gpa, arg);
                 } else {
-                    try zig_args.append("--test-cmd-bin");
+                    try zig_args.append(gpa, "--test-cmd-bin");
                 }
             }
         }
     }
 
-    if (b.sysroot) |sysroot| {
-        try zig_args.appendSlice(&[_][]const u8{ "--sysroot", sysroot });
-    }
+    if (graph.sysroot) |sysroot| try zig_args.appendSlice(gpa, &.{ "--sysroot", sysroot });
 
     // -I and -L arguments that appear after the last --mod argument apply to all modules.
     const cwd: Io.Dir = .cwd();
     const io = graph.io;
 
-    for (b.search_prefixes.items) |search_prefix| {
+    for (graph.search_prefixes.items) |search_prefix| {
         var prefix_dir = cwd.openDir(io, search_prefix, .{}) catch |err| {
-            return step.fail("unable to open prefix directory '{s}': {s}", .{
-                search_prefix, @errorName(err),
-            });
+            return step.fail("unable to open prefix directory '{s}': {t}", .{ search_prefix, err });
         };
         defer prefix_dir.close(io);
 
@@ -718,58 +696,53 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
         // CLI parsing code, when the linker sees an -L directory that does not exist.
 
         if (prefix_dir.access(io, "lib", .{})) |_| {
-            try zig_args.appendSlice(&.{
-                "-L", b.pathJoin(&.{ search_prefix, "lib" }),
+            try zig_args.appendSlice(gpa, &.{
+                "-L", try Dir.path.join(arena, &.{ search_prefix, "lib" }),
             });
         } else |err| switch (err) {
             error.FileNotFound => {},
-            else => |e| return step.fail("unable to access '{s}/lib' directory: {s}", .{
-                search_prefix, @errorName(e),
-            }),
+            else => |e| return step.fail("unable to access '{s}/lib' directory: {t}", .{ search_prefix, e }),
         }
 
         if (prefix_dir.access(io, "include", .{})) |_| {
-            try zig_args.appendSlice(&.{
-                "-I", b.pathJoin(&.{ search_prefix, "include" }),
+            try zig_args.appendSlice(gpa, &.{
+                "-I", try Dir.path.join(arena, &.{ search_prefix, "include" }),
             });
         } else |err| switch (err) {
             error.FileNotFound => {},
-            else => |e| return step.fail("unable to access '{s}/include' directory: {s}", .{
-                search_prefix, @errorName(e),
-            }),
+            else => |e| return step.fail("unable to access '{s}/include' directory: {t}", .{ search_prefix, e }),
         }
     }
 
     if (compile.rc_includes != .any) {
-        try zig_args.append("-rcincludes");
-        try zig_args.append(@tagName(compile.rc_includes));
+        try zig_args.appendSlice(gpa, &.{ "-rcincludes", @tagName(compile.rc_includes) });
     }
 
     try addFlag(&zig_args, "each-lib-rpath", compile.each_lib_rpath);
 
-    if (compile.build_id orelse b.build_id) |build_id| {
-        try zig_args.append(switch (build_id) {
-            .hexstring => |hs| b.fmt("--build-id=0x{x}", .{hs.toSlice()}),
-            .none, .fast, .uuid, .sha1, .md5 => b.fmt("--build-id={s}", .{@tagName(build_id)}),
+    if (compile.build_id orelse graph.build_id) |build_id| {
+        try zig_args.append(gpa, switch (build_id) {
+            .hexstring => |hs| try allocPrint(arena, "--build-id=0x{x}", .{hs.toSlice()}),
+            .none, .fast, .uuid, .sha1, .md5 => try allocPrint(arena, "--build-id={t}", .{build_id}),
         });
     }
 
     const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
-        dir.getPath2(b, step)
+        dir.getPath2(step)
     else if (graph.zig_lib_directory.path) |_|
-        b.fmt("{f}", .{graph.zig_lib_directory})
+        try allocPrint(arena, "{f}", .{graph.zig_lib_directory})
     else
         null;
 
     if (opt_zig_lib_dir) |zig_lib_dir| {
-        try zig_args.append("--zig-lib-dir");
-        try zig_args.append(zig_lib_dir);
+        try zig_args.append(gpa, "--zig-lib-dir");
+        try zig_args.append(gpa, zig_lib_dir);
     }
 
     try addFlag(&zig_args, "PIE", compile.pie);
 
     if (compile.lto) |lto| {
-        try zig_args.append(switch (lto) {
+        try zig_args.append(gpa, switch (lto) {
             .full => "-flto=full",
             .thin => "-flto=thin",
             .none => "-fno-lto",
@@ -779,21 +752,20 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
     try addFlag(&zig_args, "sanitize-coverage-trace-pc-guard", compile.sanitize_coverage_trace_pc_guard);
 
     if (compile.subsystem) |subsystem| {
-        try zig_args.append("--subsystem");
-        try zig_args.append(@tagName(subsystem));
+        try zig_args.appendSlice(gpa, &.{ "--subsystem", @tagName(subsystem) });
     }
 
     if (compile.mingw_unicode_entry_point) {
-        try zig_args.append("-municode");
+        try zig_args.append(gpa, "-municode");
     }
 
-    if (compile.error_limit) |err_limit| try zig_args.appendSlice(&.{
-        "--error-limit", b.fmt("{d}", .{err_limit}),
+    if (compile.error_limit) |err_limit| try zig_args.appendSlice(gpa, &.{
+        "--error-limit", try allocPrint(arena, "{d}", .{err_limit}),
     });
 
     try addFlag(&zig_args, "incremental", graph.incremental);
 
-    try zig_args.append("--listen=-");
+    try zig_args.append(gpa, "--listen=-");
 
     // Windows has an argument length limit of 32,766 characters, macOS 262,144 and Linux
     // 2,097,152. If our args exceed 30 KiB, we instead write them to a "response file" and
@@ -804,7 +776,7 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
         args_length += arg.len + 1; // +1 to account for null terminator
     }
     if (args_length >= 30 * 1024) {
-        try b.cache_root.handle.createDirPath(io, "args");
+        try graph.cache_root.handle.createDirPath(io, "args");
 
         const args_to_escape = zig_args.items[2..];
         var escaped_args = try std.array_list.Managed([]const u8).initCapacity(arena, args_to_escape.len);
@@ -837,21 +809,21 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
         _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
 
         const args_file = "args" ++ Dir.path.sep_str ++ args_hex_hash;
-        if (b.cache_root.handle.access(io, args_file, .{})) |_| {
+        if (graph.cache_root.handle.access(io, args_file, .{})) |_| {
             // The args file is already present from a previous run.
         } else |err| switch (err) {
             error.FileNotFound => {
-                var af = b.cache_root.handle.createFileAtomic(io, args_file, .{
+                var af = graph.cache_root.handle.createFileAtomic(io, args_file, .{
                     .replace = false,
                     .make_path = true,
                 }) catch |e| return step.fail("failed creating tmp args file {f}{s}: {t}", .{
-                    b.cache_root, args_file, e,
+                    graph.cache_root, args_file, e,
                 });
                 defer af.deinit(io);
 
                 af.file.writeStreamingAll(io, args) catch |e| {
                     return step.fail("failed writing args data to tmp file {f}{s}: {t}", .{
-                        b.cache_root, args_file, e,
+                        graph.cache_root, args_file, e,
                     });
                 };
                 // Note we can't clean up this file, not even after build
@@ -862,7 +834,7 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
                         // The args file was created by another concurrent build process.
                     },
                     else => |other_err| return step.fail("failed linking tmp file {f}{s}: {t}", .{
-                        b.cache_root, args_file, other_err,
+                        graph.cache_root, args_file, other_err,
                     }),
                 };
             },
@@ -871,32 +843,34 @@ fn getZigArgs(compile: *Compile, maker: *Maker, fuzz: bool) ![][]const u8 {
 
         const resolved_args_file = try mem.concat(arena, u8, &.{
             "@",
-            try b.cache_root.join(arena, &.{args_file}),
+            try graph.cache_root.join(arena, &.{args_file}),
         });
 
         zig_args.shrinkRetainingCapacity(2);
-        try zig_args.append(resolved_args_file);
+        try zig_args.append(gpa, resolved_args_file);
     }
 
     return try zig_args.toOwnedSlice();
 }
 
-pub fn rebuildInFuzzMode(c: *Compile, maker: *Maker, progress_node: std.Progress.Node) !Path {
+pub fn rebuildInFuzzMode(compile: *Compile, maker: *Maker, progress_node: std.Progress.Node) !Path {
     const gpa = maker.graph.gpa;
 
-    c.step.result_error_msgs.clearRetainingCapacity();
-    c.step.result_stderr = "";
+    compile.step.result_error_msgs.clearRetainingCapacity();
+    compile.step.result_stderr = "";
 
-    c.step.result_error_bundle.deinit(gpa);
-    c.step.result_error_bundle = std.zig.ErrorBundle.empty;
+    compile.step.result_error_bundle.deinit(gpa);
+    compile.step.result_error_bundle = std.zig.ErrorBundle.empty;
 
-    if (c.step.result_failed_command) |cmd| {
+    if (compile.step.result_failed_command) |cmd| {
         gpa.free(cmd);
-        c.step.result_failed_command = null;
+        compile.step.result_failed_command = null;
     }
 
-    const zig_args = try getZigArgs(c, maker, true);
-    const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false, null, gpa);
+    const zig_args = &compile.zig_args;
+    zig_args.clearRetainingCapacity();
+    try lowerZigArgs(compile, maker, zig_args, true);
+    const maybe_output_bin_path = try compile.step.evalZigProcess(zig_args.items, progress_node, false, maker);
     return maybe_output_bin_path.?;
 }
 
@@ -907,24 +881,24 @@ pub fn doAtomicSymLinks(
     filename_major_only: []const u8,
     filename_name_only: []const u8,
 ) !void {
-    const b = step.owner;
     const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into process arena
     const io = graph.io;
     const out_dir = Dir.path.dirname(output_path) orelse ".";
     const out_basename = Dir.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
-    const major_only_path = b.pathJoin(&.{ out_dir, filename_major_only });
+    const major_only_path = try Dir.path.join(arena, &.{ out_dir, filename_major_only });
     const cwd: Io.Dir = .cwd();
     cwd.symLinkAtomic(io, out_basename, major_only_path, .{}) catch |err| {
-        return step.fail("unable to symlink {s} -> {s}: {s}", .{
-            major_only_path, out_basename, @errorName(err),
+        return step.fail("unable to symlink {s} -> {s}: {t}", .{
+            major_only_path, out_basename, err,
         });
     };
     // sym link for libfoo.so to libfoo.so.1
-    const name_only_path = b.pathJoin(&.{ out_dir, filename_name_only });
+    const name_only_path = try Dir.path.join(arena, &.{ out_dir, filename_name_only });
     cwd.symLinkAtomic(io, filename_major_only, name_only_path, .{}) catch |err| {
-        return step.fail("Unable to symlink {s} -> {s}: {s}", .{
-            name_only_path, filename_major_only, @errorName(err),
+        return step.fail("unable to symlink {s} -> {s}: {t}", .{
+            name_only_path, filename_major_only, err,
         });
     };
 }
@@ -983,14 +957,13 @@ fn getPkgConfigList(b: *std.Build) ![]const PkgConfigPkg {
     }
 }
 
-fn addFlag(args: *std.array_list.Managed([]const u8), comptime name: []const u8, opt: ?bool) !void {
+fn addBool(gpa: Allocator, args: *std.ArrayList([]const u8), arg: []const u8, opt: bool) !void {
+    if (opt) try args.append(gpa, arg);
+}
+
+fn addFlag(gpa: Allocator, args: *std.ArrayList([]const u8), comptime name: []const u8, opt: ?bool) !void {
     const cond = opt orelse return;
-    try args.ensureUnusedCapacity(1);
-    if (cond) {
-        args.appendAssumeCapacity("-f" ++ name);
-    } else {
-        args.appendAssumeCapacity("-fno-" ++ name);
-    }
+    try args.append(gpa, if (cond) "-f" ++ name else "-fno-" ++ name);
 }
 
 const PkgConfigResult = struct {
@@ -1267,7 +1240,7 @@ const CliNamedModules = struct {
                     try compile.modules.putNoClobber(arena, mod, {});
                     break;
                 }
-                name = try std.fmt.allocPrint(arena, "{s}{d}", .{ orig_name, n });
+                name = try allocPrint(arena, "{s}{d}", .{ orig_name, n });
                 n += 1;
             }
         }
