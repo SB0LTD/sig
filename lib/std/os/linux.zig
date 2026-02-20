@@ -2266,10 +2266,7 @@ pub fn getsid(pid: pid_t) usize {
 
 pub fn getpid() pid_t {
     // Casts result to a pid_t, safety-checking >= 0, because getpid() cannot fail
-    return @intCast(@as(u32, @truncate(syscall0(comptime switch (native_arch) {
-        .alpha => .getxpid,
-        else => .getpid,
-    }))));
+    return @intCast(@as(u32, @truncate(syscall0(.getpid))));
 }
 
 pub fn getppid() pid_t {
