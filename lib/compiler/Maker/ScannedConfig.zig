@@ -3,6 +3,7 @@ const ScannedConfig = @This();
 const std = @import("std");
 const Configuration = std.Build.Configuration;
 const Writer = std.Io.Writer;
+const Serializer = std.zon.Serializer;
 
 const Graph = @import("Graph.zig");
 
@@ -10,8 +11,12 @@ configuration: Configuration,
 top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index),
 
 pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
+    std.log.err("TODO also print paths", .{});
+    std.log.err("TODO also print unlazy deps", .{});
+    std.log.err("TODO also print system integrations", .{});
+    std.log.err("TODO also print available options", .{});
     const c = &sc.configuration;
-    var serializer: std.zon.Serializer = .{ .writer = w };
+    var serializer: Serializer = .{ .writer = w };
     var s = try serializer.beginStruct(.{});
 
     try s.field("default_step", @intFromEnum(c.default_step), .{});
@@ -27,48 +32,81 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
         var tf = try s.beginTupleField("steps", .{});
         for (c.steps) |*step| {
             var step_field = try tf.beginStructField(.{});
-            try step_field.field("name", step.name.slice(c), .{});
-            switch (step.owner) {
-                .root => try step_field.field("owner", .root, .{}),
-                _ => try step_field.field("owner", @intFromEnum(step.owner), .{}),
-            }
-            {
-                var deps_field = try step_field.beginTupleField("deps", .{});
-                for (step.deps.slice(c)) |dep| {
-                    try deps_field.field(@intFromEnum(dep), .{});
-                }
-                try deps_field.end();
-            }
-            try step_field.field("max_rss", step.max_rss.toBytes(), .{});
-            switch (step.extended.get(c.extra)) {
-                .check_file => try step_field.field("check_file", .TODO, .{}),
-                .check_object => try step_field.field("check_object", .TODO, .{}),
-                .compile => try step_field.field("compile", .TODO, .{}),
-                .config_header => try step_field.field("config_header", .TODO, .{}),
-                .fail => try step_field.field("fail", .TODO, .{}),
-                .fmt => try step_field.field("fmt", .TODO, .{}),
-                .install_artifact => try step_field.field("install_artifact", .TODO, .{}),
-                .install_dir => try step_field.field("install_dir", .TODO, .{}),
-                .install_file => try step_field.field("install_file", .TODO, .{}),
-                .objcopy => try step_field.field("objcopy", .TODO, .{}),
-                .options => try step_field.field("options", .TODO, .{}),
-                .remove_dir => try step_field.field("remove_dir", .TODO, .{}),
-                .run => try step_field.field("run", .TODO, .{}),
-                .top_level => |top_level| {
-                    var sf = try step_field.beginStructField("top_level", .{});
-                    try sf.field("description", top_level.description.slice(c), .{});
-                    try sf.end();
-                },
-                .translate_c => try step_field.field("translate_c", .TODO, .{}),
-                .update_source_files => try step_field.field("update_source_files", .TODO, .{}),
-                .write_file => try step_field.field("write_file", .TODO, .{}),
-            }
+            try printStruct(sc, &step_field, Configuration.Step, step);
             try step_field.end();
         }
         try tf.end();
     }
 
     try s.end();
+}
+
+fn printStruct(sc: *const ScannedConfig, s: *Serializer.Struct, comptime S: type, v: *const S) !void {
+    inline for (@typeInfo(S).@"struct".fields) |field| {
+        try s.fieldPrefix(field.name);
+        try printValue(sc, s.container.serializer, field.type, @field(v, field.name));
+    }
+}
+
+fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, field_value: Field) !void {
+    const c = &sc.configuration;
+    switch (Field) {
+        Configuration.String => {
+            try s.value(field_value.slice(c), .{});
+        },
+        Configuration.Deps => {
+            var deps_field = try s.beginTuple(.{});
+            for (field_value.slice(c)) |dep| {
+                try deps_field.field(@intFromEnum(dep), .{});
+            }
+            try deps_field.end();
+        },
+        Configuration.MaxRss => {
+            try s.value(field_value.toBytes(), .{});
+        },
+        else => switch (@typeInfo(Field)) {
+            .int => try s.int(field_value),
+            .@"enum" => {
+                if (@hasDecl(Field, "storage")) switch (Field.storage) {
+                    .extended => {
+                        var sub_struct = try s.beginStruct(.{});
+                        try printTaggedUnion(sc, &sub_struct, field_value.get(c.extra));
+                        try sub_struct.end();
+                    },
+                    .flag_optional => comptime unreachable,
+                } else if (std.enums.tagName(Field, field_value)) |name| {
+                    try s.ident(name);
+                } else {
+                    try s.int(@intFromEnum(field_value));
+                }
+            },
+            .@"struct" => |info| switch (info.layout) {
+                .@"packed" => {
+                    try s.value(field_value, .{});
+                },
+                .auto => switch (Field.storage) {
+                    .flag_optional => {
+                        if (field_value.value) |some| {
+                            try printValue(sc, s, Field.Value, some);
+                        } else {
+                            try s.value(null, .{});
+                        }
+                    },
+                    .extended => @compileError("TODO"),
+                },
+                else => @compileError("not implemented: " ++ @typeName(Field)),
+            },
+            else => @compileError("not implemented: " ++ @typeName(Field)),
+        },
+    }
+}
+
+fn printTaggedUnion(sc: *const ScannedConfig, s: *Serializer.Struct, value: anytype) !void {
+    switch (value) {
+        inline else => |*u| {
+            try printStruct(sc, s, @TypeOf(u.*), u);
+        },
+    }
 }
 
 pub fn printSteps(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {

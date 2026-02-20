@@ -1663,6 +1663,8 @@ pub const Storage = enum {
         return enum(u32) {
             _,
 
+            pub const storage: Storage = .extended;
+
             pub fn get(this: @This(), buffer: []const u32) U {
                 var i: usize = @intFromEnum(this);
                 const base_flags: BaseFlags = @bitCast(buffer[i]);
