@@ -16,11 +16,33 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
 
     try s.field("default_step", @intFromEnum(c.default_step), .{});
     {
-        var ss = try s.beginStructField("top_level_steps", .{});
+        var sf = try s.beginStructField("top_level_steps", .{});
         for (sc.top_level_steps.keys(), sc.top_level_steps.values()) |name, step| {
-            try ss.field(name, @intFromEnum(step), .{});
+            try sf.field(name, @intFromEnum(step), .{});
         }
-        try ss.end();
+        try sf.end();
+    }
+
+    {
+        var tf = try s.beginTupleField("steps", .{});
+        for (c.steps) |*step| {
+            var step_field = try tf.beginStructField(.{});
+            try step_field.field("name", step.name.slice(c), .{});
+            switch (step.owner) {
+                .root => try step_field.field("owner", .root, .{}),
+                _ => try step_field.field("owner", @intFromEnum(step.owner), .{}),
+            }
+            {
+                var deps_field = try step_field.beginTupleField("deps", .{});
+                for (step.deps.slice(c)) |dep| {
+                    try deps_field.field(@intFromEnum(dep), .{});
+                }
+                try deps_field.end();
+            }
+            try step_field.field("max_rss", step.max_rss.toBytes(), .{});
+            try step_field.end();
+        }
+        try tf.end();
     }
 
     try s.end();
