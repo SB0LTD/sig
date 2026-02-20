@@ -1273,6 +1273,8 @@ test "symlinkat" {
         .SUCCESS => {},
         // This kernel's io_uring does not yet implement symlinkat (kernel version < 5.15)
         .BADF, .INVAL => return error.SkipZigTest,
+        // Can occur on certain filesystems (seen on CIFS)
+        .OPNOTSUPP => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
