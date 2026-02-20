@@ -18,6 +18,7 @@ const is_mips = native_arch.isMIPS();
 const is_ppc = native_arch.isPowerPC();
 const is_riscv = native_arch.isRISCV();
 const is_sparc = native_arch.isSPARC();
+const is_hppa = native_arch.isHppa();
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
 const winsize = std.posix.winsize;
@@ -1943,23 +1944,68 @@ pub const F = struct {
     pub const SETLK = GET_SET_LK.SETLK;
     pub const SETLKW = GET_SET_LK.SETLKW;
 
-    const GET_SET_LK = if (@sizeOf(usize) == 64) extern struct {
-        pub const GETLK = if (is_mips) 14 else if (is_sparc) 7 else 5;
-        pub const SETLK = if (is_mips) 6 else if (is_sparc) 8 else 6;
-        pub const SETLKW = if (is_mips) 7 else if (is_sparc) 9 else 7;
-    } else extern struct {
-        // Ensure that 32-bit code uses the large-file variants (GETLK64, etc).
+    pub const SETOWN = GET_SET_OWN.SETOWN;
+    pub const GETOWN = GET_SET_OWN.GETOWN;
 
-        pub const GETLK = if (is_mips) 33 else 12;
-        pub const SETLK = if (is_mips) 34 else 13;
-        pub const SETLKW = if (is_mips) 35 else 14;
+    const GET_SET_LK = switch (native_arch) {
+        .mips, .mipsel => struct {
+            const GETLK = 33;
+            const SETLK = 34;
+            const SETLKW = 35;
+        },
+        .mips64, .mips64el => switch (native_abi) {
+            .gnuabin32, .muslabin32 => struct {
+                const GETLK = 33;
+                const SETLK = 34;
+                const SETLKW = 35;
+            },
+            else => struct {
+                const GETLK = 14;
+                const SETLK = 6;
+                const SETLKW = 7;
+            },
+        },
+        .alpha, .sparc64 => struct {
+            const GETLK = 7;
+            const SETLK = 8;
+            const SETLKW = 9;
+        },
+        .hppa, .hppa64 => struct {
+            const GETLK = 8;
+            const SETLK = 9;
+            const SETLKW = 10;
+        },
+        else => if (@sizeOf(usize) == 8) struct {
+            const GETLK = 5;
+            const SETLK = 6;
+            const SETLKW = 7;
+        } else struct {
+            const GETLK = 12;
+            const SETLK = 13;
+            const SETLKW = 14;
+        },
+    };
+    const GET_SET_OWN = switch (native_arch) {
+        .mips, .mipsel, .mips64, .mips64el => struct {
+            const GETOWN = 23;
+            const SETOWN = 24;
+        },
+        .alpha, .sparc, .sparc64 => struct {
+            const GETOWN = 5;
+            const SETOWN = 6;
+        },
+        .hppa, .hppa64 => struct {
+            const GETOWN = 11;
+            const SETOWN = 12;
+        },
+        else => struct {
+            const GETOWN = 8;
+            const SETOWN = 9;
+        },
     };
 
-    pub const SETOWN = if (is_mips) 24 else if (is_sparc) 6 else 8;
-    pub const GETOWN = if (is_mips) 23 else if (is_sparc) 5 else 9;
-
-    pub const SETSIG = 10;
-    pub const GETSIG = 11;
+    pub const SETSIG = if (is_hppa or native_arch == .alpha) 13 else 11;
+    pub const GETSIG = if (is_hppa or native_arch == .alpha) 14 else 12;
 
     pub const SETOWN_EX = 15;
     pub const GETOWN_EX = 16;
@@ -1972,7 +2018,7 @@ pub const F = struct {
 
     pub const RDLCK = if (is_sparc) 1 else 0;
     pub const WRLCK = if (is_sparc) 2 else 1;
-    pub const UNLCK = if (is_sparc) 3 else 2;
+    pub const UNLCK = if (is_sparc) 3 else if (native_arch == .alpha) 8 else 2;
 
     pub const LINUX_SPECIFIC_BASE = 1024;
 
@@ -3437,6 +3483,294 @@ pub const E = switch (native_arch) {
         HWPOISON = 135,
         _,
     },
+    .alpha => enum(u16) {
+        /// No error occurred.
+        SUCCESS = 0,
+
+        /// Operation not permitted
+        PERM = 1,
+        /// No such file or directory
+        NOENT = 2,
+        /// No such process
+        SRCH = 3,
+        /// Interrupted system call
+        INTR = 4,
+        /// I/O error
+        IO = 5,
+        /// No such device or address
+        NXIO = 6,
+        /// Argument list too long
+        @"2BIG" = 7,
+        /// Exec format error
+        NOEXEC = 8,
+        /// Bad file number
+        BADF = 9,
+        /// No child processes
+        CHILD = 10,
+        /// Out of memory
+        NOMEM = 12,
+        /// Permission denied
+        ACCES = 13,
+        /// Bad address
+        FAULT = 14,
+        /// Block device required
+        NOTBLK = 15,
+        /// Device or resource busy
+        BUSY = 16,
+        /// File exists
+        EXIST = 17,
+        /// Cross-device link
+        XDEV = 18,
+        /// No such device
+        NODEV = 19,
+        /// Not a directory
+        NOTDIR = 20,
+        /// Is a directory
+        ISDIR = 21,
+        /// Invalid argument
+        INVAL = 22,
+        /// File table overflow
+        NFILE = 23,
+        /// Too many open files
+        MFILE = 24,
+        /// Not a typewriter
+        NOTTY = 25,
+        /// Text file busy
+        TXTBSY = 26,
+        /// File too large
+        FBIG = 27,
+        /// No space left on device
+        NOSPC = 28,
+        /// Illegal seek
+        SPIPE = 29,
+        /// Read-only file system
+        ROFS = 30,
+        /// Too many links
+        MLINK = 31,
+        /// Broken pipe
+        PIPE = 32,
+        /// Math argument out of domain of func
+        DOM = 33,
+        /// Math result not representable
+        RANGE = 34,
+
+        /// Resource deadlock would occur
+        DEADLK = 11,
+
+        /// Try again.
+        /// Also used for WOULDBLOCK.
+        AGAIN = 35,
+        /// Operation now in progress
+        INPROGRESS = 36,
+        /// Operation already in progress
+        ALREADY = 37,
+        /// Socket operation on non-socket
+        NOTSOCK = 38,
+        /// Destination address required
+        DESTADDRREQ = 39,
+        /// Message too long
+        MSGSIZE = 40,
+        /// Protocol wrong type for socket
+        PROTOTYPE = 41,
+        /// Protocol not available
+        NOPROTOOPT = 42,
+        /// Protocol not supported
+        PROTONOSUPPORT = 43,
+        /// Socket type not supported
+        SOCKTNOSUPPORT = 44,
+        /// Operation not supported on transport endpoint
+        OPNOTSUPP = 45,
+        /// Protocol family not supported
+        PFNOSUPPORT = 46,
+        /// Address family not supported by protocol
+        AFNOSUPPORT = 47,
+        /// Address already in use
+        ADDRINUSE = 48,
+        /// Cannot assign requested address
+        ADDRNOTAVAIL = 49,
+        /// Network is down
+        NETDOWN = 50,
+        /// Network is unreachable
+        NETUNREACH = 51,
+        /// Network dropped connection because of reset
+        NETRESET = 52,
+        /// Software caused connection abort
+        CONNABORTED = 53,
+        /// Connection reset by peer
+        CONNRESET = 54,
+        /// No buffer space available
+        NOBUFS = 55,
+        /// Transport endpoint is already connected
+        ISCONN = 56,
+        /// Transport endpoint is not connected
+        NOTCONN = 57,
+        /// Cannot send after transport endpoint shutdown
+        SHUTDOWN = 58,
+        /// Too many references: cannot splice
+        TOOMANYREFS = 59,
+        /// Connection timed out
+        TIMEDOUT = 60,
+        /// Connection refused
+        CONNREFUSED = 61,
+        /// Too many symbolic links encountered
+        LOOP = 62,
+        /// File name too long
+        NAMETOOLONG = 63,
+        /// Host is down
+        HOSTDOWN = 64,
+        /// No route to host
+        HOSTUNREACH = 65,
+        /// Directory not empty
+        NOTEMPTY = 66,
+
+        /// Too many users
+        USERS = 68,
+        /// Quota exceeded
+        DQUOT = 69,
+        /// Stale file handle
+        STALE = 70,
+        /// Object is remote
+        REMOTE = 71,
+
+        /// No record locks available
+        NOLCK = 77,
+        /// Function not implemented
+        NOSYS = 78,
+
+        /// No message of desired type
+        NOMSG = 80,
+        /// Identifier removed
+        IDRM = 81,
+        /// Out of streams resources
+        NOSR = 82,
+        /// Timer expired
+        TIME = 83,
+        /// Not a data message
+        /// Also used for FSBADCRC.
+        BADMSG = 84,
+        /// Protocol error
+        PROTO = 85,
+        /// No data available
+        NODATA = 86,
+        /// Device not a stream
+        NOSTR = 87,
+
+        /// Package not installed
+        NOPKG = 92,
+
+        /// Illegal byte sequence
+        ILSEQ = 116,
+
+        // The following are designated "random noise" by the kernel sources.
+        /// Channel number out of range
+        CHRNG = 88,
+        /// Level 2 not synchronized
+        L2NSYNC = 89,
+        /// Level 3 halted
+        L3HLT = 90,
+        /// Level 3 reset
+        L3RST = 91,
+
+        /// Link number out of range
+        LNRNG = 93,
+        /// Protocol driver not attached
+        UNATCH = 94,
+        /// No CSI structure available
+        NOCSI = 95,
+        /// Level 2 halted
+        L2HLT = 96,
+        /// Invalid exchange
+        BADE = 97,
+        /// Invalid request descriptor
+        BADR = 98,
+        /// Exchange full
+        XFULL = 99,
+        /// No anode
+        NOANO = 100,
+        /// Invalid request code
+        BADRQC = 101,
+        /// Invalid slot
+        BADSLT = 102,
+
+        /// Bad font file format
+        BFONT = 104,
+        /// Machine is not on the network
+        NONET = 105,
+        /// Link has been severed
+        NOLINK = 106,
+        /// Advertise error
+        ADV = 107,
+        /// Srmount error
+        SRMNT = 108,
+        /// Communication error on send
+        COMM = 109,
+        /// Multihop attempted
+        MULTIHOP = 110,
+        /// RFS specific error
+        DOTDOT = 111,
+        /// Value too large for defined data type
+        OVERFLOW = 112,
+        /// Name not unique on network
+        NOTUNIQ = 113,
+        /// File descriptor in bad state
+        BADFD = 114,
+        /// Remote address changed
+        REMCHG = 115,
+
+        /// Structure needs cleaning
+        /// Also used for FSCORRUPTED.
+        UCLEAN = 117,
+        /// Not a XENIX named type file
+        NOTNAM = 118,
+        /// No XENIX semaphores available
+        NAVAIL = 119,
+        /// Is a named type file
+        ISNAM = 120,
+        /// Remote I/O error
+        REMOTEIO = 121,
+
+        /// Can not access a needed shared library
+        LIBACC = 122,
+        /// Accessing a corrupted shared library
+        LIBBAD = 123,
+        /// .lib section in a.out corrupted
+        LIBSCN = 124,
+        /// Attempting to link in too many shared libraries
+        LIBMAX = 125,
+        /// Cannot exec a shared library directly
+        LIBEXEC = 126,
+        /// Interrupted system call should be restarted
+        RESTART = 127,
+        /// Streams pipe error
+        STRPIPE = 128,
+
+        /// No medium found
+        NOMEDIUM = 129,
+        /// Wrong medium type
+        MEDIUMTYPE = 130,
+        /// Operation Cancelled
+        CANCELED = 131,
+        /// Required key not available
+        NOKEY = 132,
+        /// Key has expired
+        KEYEXPIRED = 133,
+        /// Key has been revoked
+        KEYREVOKED = 134,
+        /// Key was rejected by service
+        KEYREJECTED = 135,
+
+        // For robust mutexes
+        /// Owner died
+        OWNERDEAD = 136,
+        /// State not recoverable
+        NOTRECOVERABLE = 137,
+
+        /// Operation not possible due to RF-kill
+        RFKILL = 138,
+        /// Memory page has hardware error
+        HWPOISON = 139,
+        _,
+    },
     else => enum(u16) {
         /// No error occurred.
         /// Same code used for `NSROK`.
@@ -4008,6 +4342,14 @@ pub const SA = if (is_mips) struct {
     pub const RESETHAND = 0x80000000;
     pub const ONSTACK = 0x08000000;
     pub const NODEFER = 0x40000000;
+} else if (native_arch == .alpha) struct {
+    pub const ONSTACK = 0x00000001;
+    pub const RESTART = 0x00000002;
+    pub const NOCLDSTOP = 0x00000004;
+    pub const NODEFER = 0x00000008;
+    pub const RESETHAND = 0x00000010;
+    pub const NOCLDWAIT = 0x00000020;
+    pub const SIGINFO = 0x00000040;
 } else struct {
     pub const NOCLDSTOP = 1;
     pub const NOCLDWAIT = 2;
@@ -4155,6 +4497,50 @@ pub const SIG = if (is_mips) enum(u32) {
     USR1 = 30,
     USR2 = 31,
     _,
+} else if (is_hppa) enum(u32) {
+    pub const BLOCK = 0;
+    pub const UNBLOCK = 1;
+    pub const SETMASK = 2;
+
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+
+    pub const POLL: SIG = .IO;
+    pub const IOT: SIG = .ABRT;
+
+    HUP = 1,
+    INT = 2,
+    QUIT = 3,
+    ILL = 4,
+    TRAP = 5,
+    ABRT = 6,
+    STKFLT = 7,
+    FPE = 8,
+    KILL = 9,
+    BUS = 10,
+    SEGV = 11,
+    XCPU = 12,
+    PIPE = 13,
+    ALRM = 14,
+    TERM = 15,
+    USR1 = 16,
+    USR2 = 17,
+    CHLD = 18,
+    PWR = 19,
+    VTALRM = 20,
+    PROF = 21,
+    IO = 22,
+    WINCH = 23,
+    STOP = 24,
+    TSTP = 25,
+    CONT = 26,
+    TTIN = 27,
+    TTOU = 28,
+    URG = 29,
+    XFSZ = 30,
+    SYS = 31,
+    _,
 } else enum(u32) {
     pub const BLOCK = 0;
     pub const UNBLOCK = 1;
@@ -4231,8 +4617,20 @@ pub const SOCK = struct {
     pub const SEQPACKET = 5;
     pub const DCCP = 6;
     pub const PACKET = 10;
-    pub const CLOEXEC = if (is_sparc) 0o20000000 else 0o2000000;
-    pub const NONBLOCK = if (is_mips) 0o200 else if (is_sparc) 0o40000 else 0o4000;
+    pub const CLOEXEC = if (is_sparc)
+        0o20000000
+    else if (native_arch == .alpha)
+        0o10000000
+    else
+        0o2000000;
+    pub const NONBLOCK = if (is_mips)
+        0o200
+    else if (is_sparc)
+        0o40000
+    else if (is_hppa or native_arch == .alpha)
+        0x40000000
+    else
+        0o4000;
 };
 
 pub const TCP = struct {
@@ -4646,6 +5044,77 @@ pub const SO = if (is_mips) struct {
     pub const RCVTIMEO_NEW = 68;
     pub const SNDTIMEO_NEW = 69;
     pub const DETACH_REUSEPORT_BPF = 71;
+} else if (native_arch == .alpha) struct {
+    pub const DEBUG = 1;
+    pub const REUSEADDR = 0x0004;
+    pub const KEEPALIVE = 0x0008;
+    pub const DONTROUTE = 0x0010;
+    pub const BROADCAST = 0x0020;
+    pub const LINGER = 0x0080;
+    pub const OOBINLINE = 0x0100;
+    pub const REUSEPORT = 0x0200;
+
+    pub const SNDBUF = 0x1001;
+    pub const RCVBUF = 0x1002;
+    pub const SNDLOWAT = 0x1011;
+    pub const RCVLOWAT = 0x1010;
+    pub const RCVTIMEO = 0x1012;
+    pub const SNDTIMEO = 0x1013;
+    pub const ERROR = 0x1007;
+    pub const TYPE = 0x1008;
+    pub const ACCEPTCONN = 0x1014;
+    pub const PROTOCOL = 0x1028;
+    pub const DOMAIN = 0x1029;
+
+    pub const NO_CHECK = 11;
+    pub const PRIORITY = 12;
+    pub const BSDCOMPAT = 14;
+    pub const PASSCRED = 17;
+    pub const PEERCRED = 18;
+    pub const PEERSEC = 30;
+    pub const SNDBUFFORCE = 0x100a;
+    pub const RCVBUFFORCE = 0x100b;
+    pub const SECURITY_AUTHENTICATION = 19;
+    pub const SECURITY_ENCRYPTION_TRANSPORT = 20;
+    pub const SECURITY_ENCRYPTION_NETWORK = 21;
+    pub const BINDTODEVICE = 25;
+    pub const ATTACH_FILTER = 26;
+    pub const DETACH_FILTER = 27;
+    pub const GET_FILTER = ATTACH_FILTER;
+    pub const PEERNAME = 28;
+    pub const TIMESTAMP_OLD = 29;
+    pub const PASSSEC = 34;
+    pub const TIMESTAMPNS_OLD = 35;
+    pub const MARK = 36;
+    pub const TIMESTAMPING_OLD = 37;
+    pub const RXQ_OVFL = 40;
+    pub const WIFI_STATUS = 41;
+    pub const PEEK_OFF = 42;
+    pub const NOFCS = 43;
+    pub const LOCK_FILTER = 44;
+    pub const SELECT_ERR_QUEUE = 45;
+    pub const BUSY_POLL = 46;
+    pub const MAX_PACING_RATE = 47;
+    pub const BPF_EXTENSIONS = 48;
+    pub const INCOMING_CPU = 49;
+    pub const ATTACH_BPF = 50;
+    pub const DETACH_BPF = DETACH_FILTER;
+    pub const ATTACH_REUSEPORT_CBPF = 51;
+    pub const ATTACH_REUSEPORT_EBPF = 52;
+    pub const CNX_ADVICE = 53;
+    pub const MEMINFO = 55;
+    pub const INCOMING_NAPI_ID = 56;
+    pub const COOKIE = 57;
+    pub const PEERGROUPS = 59;
+    pub const ZEROCOPY = 60;
+    pub const TXTIME = 61;
+    pub const BINDTOIFINDEX = 62;
+    pub const TIMESTAMP_NEW = 63;
+    pub const TIMESTAMPNS_NEW = 64;
+    pub const TIMESTAMPING_NEW = 65;
+    pub const RCVTIMEO_NEW = 66;
+    pub const SNDTIMEO_NEW = 67;
+    pub const DETACH_REUSEPORT_BPF = 68;
 } else struct {
     pub const DEBUG = 1;
     pub const REUSEADDR = 2;
@@ -4731,7 +5200,10 @@ pub const SCM = struct {
 };
 
 pub const SOL = struct {
-    pub const SOCKET = if (is_mips or is_sparc) 65535 else 1;
+    pub const SOCKET = if (is_mips or is_sparc or native_arch == .alpha)
+        0xffff
+    else
+        1;
 
     pub const IP = 0;
     pub const IPV6 = 41;
@@ -5318,7 +5790,7 @@ pub const T = if (is_mips) struct {
     pub const IOCSERSETMULTI = 0x5490;
     pub const IOCMIWAIT = 0x5491;
     pub const IOCGICOUNT = 0x5492;
-} else if (is_ppc) struct {
+} else if (is_ppc or native_arch == .alpha) struct {
     pub const FIOCLEX = IOCTL.IO('f', 1);
     pub const FIONCLEX = IOCTL.IO('f', 2);
     pub const FIOASYNC = IOCTL.IOW('f', 125, c_int);
@@ -6102,6 +6574,15 @@ pub const TFD = switch (native_arch) {
 
         pub const TIMER = TFD_TIMER;
     },
+    .alpha => packed struct(u32) {
+        _0: u2 = 0,
+        NONBLOCK: bool = false,
+        _3: u18 = 0,
+        CLOEXEC: bool = false,
+        _: u10 = 0,
+
+        pub const TIMER = TFD_TIMER;
+    },
     else => packed struct(u32) {
         _0: u11 = 0,
         NONBLOCK: bool = false,
@@ -6131,6 +6612,11 @@ pub const k_sigaction = switch (native_arch) {
         flags: c_ulong,
         mask: sigset_t,
     },
+    .alpha => extern struct {
+        handler: k_sigaction_funcs.handler,
+        mask: sigset_t,
+        flags: c_int,
+    },
     else => extern struct {
         handler: k_sigaction_funcs.handler,
         flags: c_ulong,
@@ -6155,6 +6641,7 @@ pub const Sigaction = struct {
     mask: sigset_t,
     flags: switch (native_arch) {
         .mips, .mipsel, .mips64, .mips64el => c_uint,
+        .alpha => c_int,
         else => c_ulong,
     },
 };
@@ -7625,7 +8112,14 @@ pub const rusage = extern struct {
 };
 
 pub const NCC = if (is_ppc) 10 else 8;
-pub const NCCS = if (is_mips) 32 else if (is_ppc) 19 else if (is_sparc) 17 else 32;
+pub const NCCS = if (is_mips)
+    32
+else if (is_ppc or native_arch == .alpha)
+    19
+else if (is_sparc)
+    17
+else
+    32;
 
 pub const speed_t = if (is_ppc) enum(c_uint) {
     B0 = 0x0000000,
@@ -7739,7 +8233,7 @@ pub const speed_t = if (is_ppc) enum(c_uint) {
 
 pub const tcflag_t = if (native_arch == .sparc) c_ulong else c_uint;
 
-pub const tc_iflag_t = if (is_ppc) packed struct(tcflag_t) {
+pub const tc_iflag_t = if (is_ppc or native_arch == .alpha) packed struct(tcflag_t) {
     IGNBRK: bool = false,
     BRKINT: bool = false,
     IGNPAR: bool = false,
@@ -7775,7 +8269,7 @@ pub const tc_iflag_t = if (is_ppc) packed struct(tcflag_t) {
     _15: u17 = 0,
 };
 
-pub const NLDLY = if (is_ppc) enum(u2) {
+pub const NLDLY = if (is_ppc or native_arch == .alpha) enum(u2) {
     NL0 = 0,
     NL1 = 1,
     NL2 = 2,
@@ -7816,7 +8310,7 @@ pub const FFDLY = enum(u1) {
     FF1 = 1,
 };
 
-pub const tc_oflag_t = if (is_ppc) packed struct(tcflag_t) {
+pub const tc_oflag_t = if (is_ppc or native_arch == .alpha) packed struct(tcflag_t) {
     OPOST: bool = false,
     ONLCR: bool = false,
     OLCUC: bool = false,
@@ -7875,7 +8369,7 @@ pub const CSIZE = enum(u2) {
     CS8 = 3,
 };
 
-pub const tc_cflag_t = if (is_ppc) packed struct(tcflag_t) {
+pub const tc_cflag_t = if (is_ppc or native_arch == .alpha) packed struct(tcflag_t) {
     _0: u8 = 0,
     CSIZE: CSIZE = .CS5,
     CSTOPB: bool = false,
@@ -7922,7 +8416,7 @@ pub const tc_lflag_t = if (is_mips) packed struct(tcflag_t) {
     TOSTOP: bool = false,
     EXTPROC: bool = false,
     _17: u15 = 0,
-} else if (is_ppc) packed struct(tcflag_t) {
+} else if (is_ppc or native_arch == .alpha) packed struct(tcflag_t) {
     ECHOKE: bool = false,
     ECHOE: bool = false,
     ECHOK: bool = false,
@@ -8023,6 +8517,24 @@ pub const V = if (is_mips) enum(u32) {
     STOP = 14,
     LNEXT = 15,
     DISCARD = 16,
+} else if (arch_bits == .alpha) enum(u32) {
+    EOF = 0,
+    EOL = 1,
+    EOL2 = 2,
+    ERASE = 3,
+    WERASE = 4,
+    KILL = 5,
+    REPRINT = 6,
+    SWTC = 7,
+    INTR = 8,
+    QUIT = 9,
+    SUSP = 10,
+    START = 12,
+    STOP = 13,
+    LNEXT = 14,
+    DISCARD = 15,
+    MIN = 16,
+    TIME = 17,
 } else enum(u32) {
     INTR = 0,
     QUIT = 1,
@@ -8053,7 +8565,7 @@ pub const sgttyb = if (is_mips or is_ppc or is_sparc) extern struct {
     flags: if (is_mips) c_int else c_short,
 } else void;
 
-pub const tchars = if (is_mips or is_ppc or is_sparc) extern struct {
+pub const tchars = if (is_mips or is_ppc or is_sparc or native_arch == .alpha) extern struct {
     intrc: c_char,
     quitc: c_char,
     startc: c_char,
@@ -8062,7 +8574,7 @@ pub const tchars = if (is_mips or is_ppc or is_sparc) extern struct {
     brkc: c_char,
 } else void;
 
-pub const ltchars = if (is_mips or is_ppc or is_sparc) extern struct {
+pub const ltchars = if (is_mips or is_ppc or is_sparc or native_arch == .alpha) extern struct {
     suspc: c_char,
     dsuspc: c_char,
     rprntc: c_char,
@@ -8087,7 +8599,7 @@ pub const termios = if (is_mips or is_sparc) extern struct {
     lflag: tc_lflag_t,
     line: cc_t,
     cc: [NCCS]cc_t,
-} else if (is_ppc) extern struct {
+} else if (is_ppc or native_arch == .alpha) extern struct {
     iflag: tc_iflag_t,
     oflag: tc_oflag_t,
     cflag: tc_cflag_t,
@@ -8107,7 +8619,7 @@ pub const termios = if (is_mips or is_sparc) extern struct {
     ospeed: speed_t,
 };
 
-pub const termios2 = if (is_mips) extern struct {
+pub const termios2 = if (is_mips or native_arch == .alpha) extern struct {
     iflag: tc_iflag_t,
     oflag: tc_oflag_t,
     cflag: tc_cflag_t,
@@ -8687,6 +9199,49 @@ pub const rlimit_resource = if (native_arch.isMIPS()) enum(c_int) {
     RTTIME = 15,
 
     _,
+} else if (native_arch == .alpha) enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 5,
+    /// Number of open files.
+    NOFILE = 6,
+    /// Address space limit.
+    AS = 7,
+    /// Number of processes.
+    NPROC = 8,
+    /// Locked-in-memory address space.
+    MEMLOCK = 9,
+    /// Maximum number of file locks.
+    LOCKS = 10,
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
 } else enum(c_int) {
     /// Per-process CPU limit, in seconds.
     CPU = 0,
@@ -8736,7 +9291,10 @@ pub const rlim_t = u64;
 
 pub const RLIM = struct {
     /// No limit
-    pub const INFINITY = ~@as(rlim_t, 0);
+    pub const INFINITY: rlim_t = if (native_arch == .alpha)
+        ~@as(u63, 0)
+    else
+        ~@as(rlim_t, 0);
 
     pub const SAVED_MAX = INFINITY;
     pub const SAVED_CUR = INFINITY;
