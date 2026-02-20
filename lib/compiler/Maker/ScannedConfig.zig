@@ -74,6 +74,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                         try sub_struct.end();
                     },
                     .flag_optional => comptime unreachable,
+                    .enum_optional => comptime unreachable,
                 } else if (std.enums.tagName(Field, field_value)) |name| {
                     try s.ident(name);
                 } else {
@@ -85,7 +86,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                     try s.value(field_value, .{});
                 },
                 .auto => switch (Field.storage) {
-                    .flag_optional => {
+                    .flag_optional, .enum_optional => {
                         if (field_value.value) |some| {
                             try printValue(sc, s, Field.Value, some);
                         } else {

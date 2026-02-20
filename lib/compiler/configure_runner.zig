@@ -458,6 +458,14 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .stack_size = .{ .value = c.stack_size },
                             .headerpad_size = .{ .value = c.headerpad_size },
                             .error_limit = .{ .value = c.error_limit },
+                            .entry = .{ .value = switch (c.entry) {
+                                .symbol_name => |name| try wc.addString(name),
+                                .default, .disabled, .enabled => null,
+                            } },
+                            .build_id = .{ .value = if (c.build_id) |id| switch (id) {
+                                .hexstring => |*hexstring| try wc.addString(hexstring.toSlice()),
+                                .none, .fast, .uuid, .sha1, .md5 => null,
+                            } else null },
                         }));
 
                         log.err("TODO serialize the trailing Compile step data", .{});

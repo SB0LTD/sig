@@ -225,11 +225,11 @@ pub const Wip = struct {
             .glibc_version = .{ .value = glibc_version },
             .android_api_level = .{ .value = q.android_api_level },
             .dynamic_linker = .{ .value = dynamic_linker },
+            .cpu_name = .{ .value = cpu_name },
         })));
         std.log.err("TODO serialize more target query stuff", .{});
         _ = os_version_min;
         _ = os_version_max;
-        _ = cpu_name;
 
         // Deduplicate.
         const gop = try wip.targets_table.getOrPutContext(gpa, result_index, @as(TargetsTableContext, .{
@@ -306,9 +306,9 @@ pub const Wip = struct {
             .glibc_version = .{ .value = glibc_version },
             .android_api_level = .{ .value = android_api_level },
             .dynamic_linker = .{ .value = dynamic_linker },
+            .cpu_name = .{ .value = cpu_name },
         })));
         std.log.err("TODO serialize more target stuff", .{});
-        _ = cpu_name;
         _ = os_version_min;
         _ = os_version_max;
 
@@ -598,7 +598,7 @@ pub const Step = extern struct {
         win32_module_definition: Storage.FlagOptional(.flags3, .win32_module_definition, LazyPath),
         entitlements: Storage.FlagOptional(.flags4, .entitlements, LazyPath),
         version: Storage.FlagOptional(.flags3, .version, String), // semantic version string
-        //entry: EnumOptional(.flags3, .entry, .symbol, String),
+        entry: Storage.EnumOptional(.flags3, .entry, .symbol_name, String),
         install_name: Storage.FlagOptional(.flags4, .install_name, String),
         initial_memory: Storage.FlagOptional(.flags3, .initial_memory, u64),
         max_memory: Storage.FlagOptional(.flags3, .max_memory, u64),
@@ -610,7 +610,7 @@ pub const Step = extern struct {
         stack_size: Storage.FlagOptional(.flags4, .stack_size, u64),
         headerpad_size: Storage.FlagOptional(.flags4, .headerpad_size, u32),
         error_limit: Storage.FlagOptional(.flags4, .error_limit, u32),
-        //build_id: EnumOptional(.flags3, .build_id, .hexstring, Hexstring),
+        build_id: Storage.EnumOptional(.flags3, .build_id, .hexstring, String),
 
         pub const ExpectErrors = enum(u3) { contains, exact, starts_with, stderr_contains, none };
         pub const TestRunnerMode = enum(u2) { default, simple, server };
@@ -1378,14 +1378,19 @@ pub const TargetQuery = struct {
 
     cpu_features_add: Storage.FlagOptional(.flags, .cpu_features_add, std.Target.Cpu.Feature.Set),
     cpu_features_sub: Storage.FlagOptional(.flags, .cpu_features_sub, std.Target.Cpu.Feature.Set),
-    //cpu_name: Storage.EnumOptional(.flags, .cpu_name, .explicit, String),
-    //os_version_min: Storage.EnumOptional(.flags, .os_version_min, .windows, WindowsVersion),
-    //os_version_min: Storage.EnumOptional(.flags, .os_version_min, .semver, String),
-    //os_version_max: Storage.EnumOptional(.flags, .os_version_max, .windows, WindowsVersion),
-    //os_version_max: Storage.EnumOptional(.flags, .os_version_max, .semver, String),
+    cpu_name: Storage.EnumOptional(.flags, .cpu_model, .explicit, String),
+    //os_version_min: Storage.FlagsUnion(.flags, .os_version_min, VersionStorage),
+    //os_version_max: Storage.FlagsUnion(.flags, .os_version_max, VersionStorage),
     glibc_version: Storage.FlagOptional(.flags, .glibc_version, String),
     android_api_level: Storage.FlagOptional(.flags, .android_api_level, u32),
     dynamic_linker: Storage.FlagOptional(.flags, .dynamic_linker, String),
+
+    const VersionStorage = union(OsVersion) {
+        none: void,
+        semver: String,
+        windows: std.Target.Os.WindowsVersion,
+        default: void,
+    };
 
     pub const Index = enum(u32) {
         _,
@@ -1629,6 +1634,7 @@ pub const TargetQuery = struct {
 
 pub const Storage = enum {
     flag_optional,
+    enum_optional,
     extended,
 
     /// The presence of the field is determined by a boolean within a packed
@@ -1641,9 +1647,27 @@ pub const Storage = enum {
         return struct {
             value: ?Value,
 
+            pub const storage: Storage = .flag_optional;
             pub const flags = flags_arg;
             pub const flag = flag_arg;
-            pub const storage: Storage = .flag_optional;
+            pub const Value = ValueArg;
+        };
+    }
+
+    /// The field is present if an enum tag from flags matches a specific value.
+    pub fn EnumOptional(
+        comptime flags_arg: @EnumLiteral(),
+        comptime flag_arg: @EnumLiteral(),
+        comptime tag_arg: @EnumLiteral(),
+        comptime ValueArg: type,
+    ) type {
+        return struct {
+            value: ?Value,
+
+            pub const storage: Storage = .enum_optional;
+            pub const flags = flags_arg;
+            pub const flag = flag_arg;
+            pub const tag = tag_arg;
             pub const Value = ValueArg;
         };
     }
@@ -1736,6 +1760,14 @@ pub const Storage = enum {
                                 .value = if (flag) dataField(buffer, i, container, Field.Value) else null,
                             };
                         },
+                        .enum_optional => {
+                            const flags = @field(container, @tagName(Field.flags));
+                            const tag = @field(flags, @tagName(Field.flag));
+                            const match = tag == Field.tag;
+                            return .{
+                                .value = if (match) dataField(buffer, i, container, Field.Value) else null,
+                            };
+                        },
                         .extended => @compileError("TODO"),
                     },
                 },
@@ -1800,7 +1832,7 @@ pub const Storage = enum {
                         return casted.len;
                     },
                     else => switch (Field.storage) {
-                        .flag_optional => {
+                        .flag_optional, .enum_optional => {
                             return if (value.value) |v| setExtraField(buffer, i, Field.Value, v) else 0;
                         },
                         .extended => @compileError("TODO"),
@@ -1827,7 +1859,7 @@ pub const Storage = enum {
                     else => comptime unreachable,
                 },
                 .auto => switch (Field.storage) {
-                    .flag_optional, .extended => 1,
+                    .flag_optional, .enum_optional, .extended => 1,
                 },
                 .@"extern" => comptime unreachable,
             },
