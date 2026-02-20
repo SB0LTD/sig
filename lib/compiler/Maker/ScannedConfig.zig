@@ -40,6 +40,31 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
                 try deps_field.end();
             }
             try step_field.field("max_rss", step.max_rss.toBytes(), .{});
+            const type_erased_flags: Configuration.Step.Flags = @bitCast(c.extra[step.extra_index]);
+            switch (type_erased_flags.tag) {
+                .check_file => try step_field.field("check_file", .TODO, .{}),
+                .check_object => try step_field.field("check_object", .TODO, .{}),
+                .compile => try step_field.field("compile", .TODO, .{}),
+                .config_header => try step_field.field("config_header", .TODO, .{}),
+                .fail => try step_field.field("fail", .TODO, .{}),
+                .fmt => try step_field.field("fmt", .TODO, .{}),
+                .install_artifact => try step_field.field("install_artifact", .TODO, .{}),
+                .install_dir => try step_field.field("install_dir", .TODO, .{}),
+                .install_file => try step_field.field("install_file", .TODO, .{}),
+                .objcopy => try step_field.field("objcopy", .TODO, .{}),
+                .options => try step_field.field("options", .TODO, .{}),
+                .remove_dir => try step_field.field("remove_dir", .TODO, .{}),
+                .run => try step_field.field("run", .TODO, .{}),
+                .top_level => {
+                    const top_level = c.extraData(Configuration.Step.TopLevel, step.extra_index);
+                    var sf = try step_field.beginStructField("top_level", .{});
+                    try sf.field("description", top_level.description.slice(c), .{});
+                    try sf.end();
+                },
+                .translate_c => try step_field.field("translate_c", .TODO, .{}),
+                .update_source_files => try step_field.field("update_source_files", .TODO, .{}),
+                .write_file => try step_field.field("write_file", .TODO, .{}),
+            }
             try step_field.end();
         }
         try tf.end();
