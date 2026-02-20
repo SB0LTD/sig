@@ -431,6 +431,7 @@ pub fn main(init: process.Init.Minimal) !void {
         };
         var top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index) = .empty;
         for (configuration.steps, 0..) |*conf_step, step_index_usize| {
+            if (conf_step.owner != .root) continue;
             const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
             const flags = conf_step.flags(&configuration);
             if (flags.tag == .top_level) {
