@@ -205,9 +205,7 @@ pub const Wip = struct {
             null;
         const cpu_features_add_empty = q.cpu_features_add.isEmpty();
         const cpu_features_sub_empty = q.cpu_features_sub.isEmpty();
-        try wip.extra.ensureUnusedCapacity(gpa, @typeInfo(TargetQuery).@"struct".fields.len + 6 +
-            2 * ((@sizeOf(std.Target.Cpu.Feature.Set) + 3) / 4));
-        const result_index: TargetQuery.Index = @enumFromInt(wip.addExtraAssumeCapacity(@as(TargetQuery, .{
+        const result_index: TargetQuery.Index = @enumFromInt(try wip.addExtra(@as(TargetQuery, .{
             .flags = .{
                 .cpu_arch = .init(q.cpu_arch),
                 .cpu_model = .init(q.cpu_model),
@@ -218,19 +216,20 @@ pub const Wip = struct {
                 .object_format = .init(q.ofmt),
                 .os_version_min = .init(q.os_version_min),
                 .os_version_max = .init(q.os_version_max),
-                .glibc_version = q.glibc_version != null,
+                .glibc_version = glibc_version != null,
                 .android_api_level = q.android_api_level != null,
-                .dynamic_linker = q.dynamic_linker != null,
+                .dynamic_linker = dynamic_linker != null,
             },
+            .cpu_features_add = .{ .value = if (cpu_features_add_empty) null else q.cpu_features_add },
+            .cpu_features_sub = .{ .value = if (cpu_features_sub_empty) null else q.cpu_features_sub },
+            .glibc_version = .{ .value = glibc_version },
+            .android_api_level = .{ .value = q.android_api_level },
+            .dynamic_linker = .{ .value = dynamic_linker },
         })));
-        if (!cpu_features_add_empty) wip.extra.appendSliceAssumeCapacity(@ptrCast(&q.cpu_features_add.ints));
-        if (!cpu_features_sub_empty) wip.extra.appendSliceAssumeCapacity(@ptrCast(&q.cpu_features_sub.ints));
-        wip.addExtraOptionalStringAssumeCapacity(cpu_name);
-        if (os_version_min) |v| wip.extra.appendAssumeCapacity(v);
-        if (os_version_max) |v| wip.extra.appendAssumeCapacity(v);
-        wip.addExtraOptionalStringAssumeCapacity(glibc_version);
-        if (q.android_api_level) |x| wip.extra.appendAssumeCapacity(x);
-        wip.addExtraOptionalStringAssumeCapacity(dynamic_linker);
+        std.log.err("TODO serialize more target query stuff", .{});
+        _ = os_version_min;
+        _ = os_version_max;
+        _ = cpu_name;
 
         // Deduplicate.
         const gop = try wip.targets_table.getOrPutContext(gpa, result_index, @as(TargetsTableContext, .{
@@ -287,9 +286,7 @@ pub const Wip = struct {
             .semver, .linux, .hurd => .semver,
             .windows => .windows,
         };
-        try wip.extra.ensureUnusedCapacity(gpa, @typeInfo(TargetQuery).@"struct".fields.len + 6 +
-            2 * ((@sizeOf(std.Target.Cpu.Feature.Set) + 3) / 4));
-        const result_index: TargetQuery.Index = @enumFromInt(wip.addExtraAssumeCapacity(@as(TargetQuery, .{
+        const result_index: TargetQuery.Index = @enumFromInt(try wip.addExtra(@as(TargetQuery, .{
             .flags = .{
                 .cpu_arch = .init(t.cpu.arch),
                 .cpu_model = .explicit,
@@ -304,14 +301,16 @@ pub const Wip = struct {
                 .android_api_level = android_api_level != null,
                 .dynamic_linker = dynamic_linker != null,
             },
+            .cpu_features_add = .{ .value = if (cpu_features_add_empty) null else t.cpu.features },
+            .cpu_features_sub = .{ .value = null },
+            .glibc_version = .{ .value = glibc_version },
+            .android_api_level = .{ .value = android_api_level },
+            .dynamic_linker = .{ .value = dynamic_linker },
         })));
-        if (!cpu_features_add_empty) wip.extra.appendSliceAssumeCapacity(@ptrCast(&t.cpu.features.ints));
-        wip.addExtraOptionalStringAssumeCapacity(cpu_name);
-        if (os_version_min) |v| wip.extra.appendAssumeCapacity(v);
-        if (os_version_max) |v| wip.extra.appendAssumeCapacity(v);
-        wip.addExtraOptionalStringAssumeCapacity(glibc_version);
-        if (android_api_level) |x| wip.extra.appendAssumeCapacity(x);
-        wip.addExtraOptionalStringAssumeCapacity(dynamic_linker);
+        std.log.err("TODO serialize more target stuff", .{});
+        _ = cpu_name;
+        _ = os_version_min;
+        _ = os_version_max;
 
         // Deduplicate.
         const gop = try wip.targets_table.getOrPutContext(gpa, result_index, @as(TargetsTableContext, .{
@@ -345,38 +344,20 @@ pub const Wip = struct {
     }
 
     pub fn addExtra(wip: *Wip, extra: anytype) Allocator.Error!u32 {
-        const gpa = wip.gpa;
-        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
-        try wip.extra.ensureUnusedCapacity(gpa, fields.len);
+        const extra_len = Storage.calculateExtraLenUpperBound(@TypeOf(extra));
+        try wip.extra.ensureUnusedCapacity(wip.gpa, extra_len);
         return addExtraAssumeCapacity(wip, extra);
     }
 
     pub fn addExtraAssumeCapacity(wip: *Wip, extra: anytype) u32 {
-        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
         const result: u32 = @intCast(wip.extra.items.len);
-        wip.extra.items.len += fields.len;
-        setExtra(wip, result, extra);
+        wip.extra.items.len = Storage.setExtra(wip.extra.allocatedSlice(), result, extra);
         return result;
     }
 
     fn addExtraOptionalStringAssumeCapacity(wip: *Wip, optional_string: ?String) void {
         const string = optional_string orelse return;
         wip.extra.appendAssumeCapacity(@intFromEnum(string));
-    }
-
-    fn setExtra(wip: *Wip, index: usize, extra: anytype) void {
-        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
-        var i = index;
-        inline for (fields) |field| {
-            comptime assert(@sizeOf(field.type) == @sizeOf(u32));
-            wip.extra.items[i] = switch (@typeInfo(field.type)) {
-                .int => @field(extra, field.name),
-                .@"enum" => @intFromEnum(@field(extra, field.name)),
-                .@"struct" => @bitCast(@field(extra, field.name)),
-                else => @compileError("bad field type: " ++ @typeName(field.type)),
-            };
-            i += 1;
-        }
     }
 };
 
@@ -577,7 +558,7 @@ pub const Step = extern struct {
     };
 
     /// Trailing:
-    /// * exact_match: String, // if expected_compile_errors is contains, starts_with, or stderr_contains
+    /// * exact_match: String, // if expect_errors is contains, starts_with, or stderr_contains
     /// * test_runner: LazyPath, // if test_runner_mode is not default
     pub const Compile = struct {
         flags: @This().Flags,
@@ -588,36 +569,34 @@ pub const Step = extern struct {
         root_module: Module.Index,
         root_name: String,
 
-        trailing: Trailing(struct {
-            filters: FlagLengthPrefixedList(.flags, .filters_len, String),
-            exec_cmd_args: FlagLengthPrefixedList(.flags, .exec_cmd_args_len, u32),
-            installed_headers: FlagLengthPrefixedList(.flags, .installed_headers_len, InstalledHeader),
-            force_undefined_symbols: FlagLengthPrefixedList(.flags, .force_undefined_symbols_len, String),
-            exacts: EnumConditionalPrefixedList(.flags4, .expected_compile_errors, .exact, String),
-            linker_script: FlagOptional(.flags4, .linker_script, LazyPath),
-            version_script: FlagOptional(.flags4, .version_script, LazyPath),
-            zig_lib_dir: FlagOptional(.flags3, .zig_lib_dir, LazyPath),
-            libc_file: FlagOptional(.flags4, .libc_file, LazyPath),
-            win32_manifest: FlagOptional(.flags3, .win32_manifest, LazyPath),
-            win32_module_definition: FlagOptional(.flags3, .win32_module_definition, LazyPath),
-            entitlements: FlagOptional(.flags4, .entitlements, LazyPath),
-            version: FlagOptional(.flags3, .version, String), // semantic version string
-            entry: EnumOptional(.flags3, .entry, .symbol, String),
-            install_name: FlagOptional(.flags4, .install_name, String),
-            initial_memory: FlagOptional(.flags3, .initial_memory, u64),
-            max_memory: FlagOptional(.flags3, .max_memory, u64),
-            global_base: FlagOptional(.flags3, .global_base, u64),
-            image_base: FlagOptional(.flags3, .image_base, u64),
-            link_z_common_page_size: FlagOptional(.flags4, .link_z_common_page_size, u64),
-            link_z_max_page_size: FlagOptional(.flags4, .link_z_max_page_size, u64),
-            pagezero_size: FlagOptional(.flags4, .pagezero_size, u64),
-            stack_size: FlagOptional(.flags4, .stack_size, u64),
-            headerpad_size: FlagOptional(.flags4, .headerpad_size, u32),
-            error_limit: FlagOptional(.flags4, .error_limit, u32),
-            build_id: EnumOptional(.flags3, .build_id, .hexstring, Hexstring),
-        }),
+        //filters: FlagLengthPrefixedList(.flags, .filters_len, String),
+        //exec_cmd_args: FlagLengthPrefixedList(.flags, .exec_cmd_args_len, u32),
+        //installed_headers: FlagLengthPrefixedList(.flags, .installed_headers_len, InstalledHeader),
+        //force_undefined_symbols: FlagLengthPrefixedList(.flags, .force_undefined_symbols_len, String),
+        //exacts: EnumConditionalPrefixedList(.flags4, .expect_errors, .exact, String),
+        linker_script: Storage.FlagOptional(.flags4, .linker_script, LazyPath),
+        version_script: Storage.FlagOptional(.flags4, .version_script, LazyPath),
+        zig_lib_dir: Storage.FlagOptional(.flags3, .zig_lib_dir, LazyPath),
+        libc_file: Storage.FlagOptional(.flags4, .libc_file, LazyPath),
+        win32_manifest: Storage.FlagOptional(.flags3, .win32_manifest, LazyPath),
+        win32_module_definition: Storage.FlagOptional(.flags3, .win32_module_definition, LazyPath),
+        entitlements: Storage.FlagOptional(.flags4, .entitlements, LazyPath),
+        version: Storage.FlagOptional(.flags3, .version, String), // semantic version string
+        //entry: EnumOptional(.flags3, .entry, .symbol, String),
+        install_name: Storage.FlagOptional(.flags4, .install_name, String),
+        initial_memory: Storage.FlagOptional(.flags3, .initial_memory, u64),
+        max_memory: Storage.FlagOptional(.flags3, .max_memory, u64),
+        global_base: Storage.FlagOptional(.flags3, .global_base, u64),
+        image_base: Storage.FlagOptional(.flags3, .image_base, u64),
+        link_z_common_page_size: Storage.FlagOptional(.flags4, .link_z_common_page_size, u64),
+        link_z_max_page_size: Storage.FlagOptional(.flags4, .link_z_max_page_size, u64),
+        pagezero_size: Storage.FlagOptional(.flags4, .pagezero_size, u64),
+        stack_size: Storage.FlagOptional(.flags4, .stack_size, u64),
+        headerpad_size: Storage.FlagOptional(.flags4, .headerpad_size, u32),
+        error_limit: Storage.FlagOptional(.flags4, .error_limit, u32),
+        //build_id: EnumOptional(.flags3, .build_id, .hexstring, Hexstring),
 
-        pub const ExpectedCompileErrors = enum(u3) { contains, exact, starts_with, stderr_contains, none };
+        pub const ExpectErrors = enum(u3) { contains, exact, starts_with, stderr_contains, none };
         pub const TestRunnerMode = enum(u2) { default, simple, server };
         pub const Entry = enum(u2) { default, disabled, enabled, symbol_name };
 
@@ -803,7 +782,7 @@ pub const Step = extern struct {
             error_limit: bool,
             install_name: bool,
             entitlements: bool,
-            expected_compile_errors: ExpectedCompileErrors,
+            expect_errors: ExpectErrors,
             linker_script: bool,
             version_script: bool,
             _: u18 = 0,
@@ -833,6 +812,13 @@ pub const MaxRss = enum(u32) {
 pub const OptionalLazyPath = enum(u32) {
     none = maxInt(u32),
     _,
+
+    pub fn unwrap(this: @This()) ?LazyPath {
+        return switch (this) {
+            .none => null,
+            else => @enumFromInt(@intFromEnum(this)),
+        };
+    }
 };
 
 /// An index into `extra`.
@@ -909,7 +895,6 @@ pub const Package = struct {
 /// * link_objects: UnionList(LinkObject), // if flag is set
 pub const Module = struct {
     flags: Flags,
-    flags2: Flags2,
     owner: Package.Index,
     root_source_file: OptionalLazyPath,
     import_table: ImportTable,
@@ -979,7 +964,7 @@ pub const Module = struct {
         _,
     };
 
-    pub const Flags = packed struct(u32) {
+    pub const Flags = packed struct(u64) {
         optimize: Optimize,
         strip: DefaultingBool,
         unwind_tables: UnwindTables,
@@ -998,9 +983,7 @@ pub const Module = struct {
         frameworks: bool,
         link_objects: bool,
         export_symbol_names: bool,
-    };
 
-    pub const Flags2 = packed struct(u32) {
         valgrind: DefaultingBool,
         pic: DefaultingBool,
         red_zone: DefaultingBool,
@@ -1257,19 +1240,19 @@ pub const ResolvedTarget = struct {
     };
 };
 
-/// Trailing:
-/// * cpu_features_add: std.Target.Feature.Set, // if flag set
-/// * cpu_features_sub: std.Target.Feature.Set, // if flag set
-/// * cpu_name: String, // if cpu_model is explicit
-/// * os_version_min: WindowsVersion // if os_version_min is windows
-/// * os_version_min: String // if os_version_min is semver
-/// * os_version_max: WindowsVersion // if os_version_max is windows
-/// * os_version_max: String // if os_version_max is semver
-/// * glibc_version: String, // if flag is set
-/// * android_api_level: u32, // if flag is set
-/// * dynamic_linker: String, // if flag is set
 pub const TargetQuery = struct {
     flags: Flags,
+
+    cpu_features_add: Storage.FlagOptional(.flags, .cpu_features_add, std.Target.Cpu.Feature.Set),
+    cpu_features_sub: Storage.FlagOptional(.flags, .cpu_features_sub, std.Target.Cpu.Feature.Set),
+    //cpu_name: Storage.EnumOptional(.flags, .cpu_name, .explicit, String),
+    //os_version_min: Storage.EnumOptional(.flags, .os_version_min, .windows, WindowsVersion),
+    //os_version_min: Storage.EnumOptional(.flags, .os_version_min, .semver, String),
+    //os_version_max: Storage.EnumOptional(.flags, .os_version_max, .windows, WindowsVersion),
+    //os_version_max: Storage.EnumOptional(.flags, .os_version_max, .semver, String),
+    glibc_version: Storage.FlagOptional(.flags, .glibc_version, String),
+    android_api_level: Storage.FlagOptional(.flags, .android_api_level, u32),
+    dynamic_linker: Storage.FlagOptional(.flags, .dynamic_linker, String),
 
     pub const Index = enum(u32) {
         _,
@@ -1279,24 +1262,7 @@ pub const TargetQuery = struct {
         }
 
         pub fn length(i: Index, extra: []const u32) usize {
-            //const flags = getExtra(extra, @intFromEnum(i), TargetQuery).flags;
-            const flags: Flags = @bitCast(extra[@intFromEnum(i)]);
-            const feature_set_size: usize = (@sizeOf(std.Target.Cpu.Feature.Set) + 3) / 4;
-            return @typeInfo(TargetQuery).@"struct".fields.len +
-                (if (flags.cpu_features_add) feature_set_size else 0) +
-                (if (flags.cpu_features_sub) feature_set_size else 0) +
-                @intFromBool(flags.cpu_model == .explicit) +
-                @as(usize, switch (flags.os_version_min) {
-                    .semver, .windows => 1,
-                    else => 0,
-                }) +
-                @as(usize, switch (flags.os_version_max) {
-                    .semver, .windows => 1,
-                    else => 0,
-                }) +
-                @intFromBool(flags.glibc_version) +
-                @intFromBool(flags.android_api_level) +
-                @intFromBool(flags.dynamic_linker);
+            return Storage.dataLength(extra, @intFromEnum(i), TargetQuery);
         }
     };
 
@@ -1528,21 +1494,186 @@ pub const TargetQuery = struct {
     };
 };
 
-pub fn extraData(c: *const Configuration, comptime T: type, index: usize) T {
-    const extra = c.extra;
-    var i: usize = index;
-    var result: T = undefined;
-    inline for (@typeInfo(T).@"struct".fields) |field| {
-        comptime assert(@sizeOf(field.type) == @sizeOf(u32));
-        @field(result, field.name) = switch (@typeInfo(field.type)) {
-            .int => extra[i],
-            .@"enum" => @enumFromInt(extra[i]),
-            .@"struct" => @bitCast(extra[i]),
+pub const Storage = enum {
+    flag_optional,
+
+    pub fn FlagOptional(
+        comptime flags_arg: @EnumLiteral(),
+        comptime flag_arg: @EnumLiteral(),
+        comptime ValueArg: type,
+    ) type {
+        return struct {
+            value: ?Value,
+
+            pub const flags = flags_arg;
+            pub const flag = flag_arg;
+            pub const storage: Storage = .flag_optional;
+            pub const Value = ValueArg;
+        };
+    }
+
+    pub fn dataLength(buffer: []const u32, i: usize, comptime S: type) usize {
+        var end = i;
+        _ = data(buffer, &end, S);
+        return end - i;
+    }
+
+    pub fn data(buffer: []const u32, i: *usize, comptime S: type) S {
+        var result: S = undefined;
+        const fields = @typeInfo(S).@"struct".fields;
+        inline for (fields) |field| {
+            @field(result, field.name) = dataField(buffer, i, &result, field.type);
+        }
+        return result;
+    }
+
+    fn dataField(buffer: []const u32, i: *usize, container: anytype, comptime Field: type) Field {
+        switch (@typeInfo(Field)) {
+            .int => |info| switch (info.bits) {
+                32 => {
+                    defer i.* += 1;
+                    return buffer[i.*];
+                },
+                64 => {
+                    defer i.* += 2;
+                    return buffer[i.*..][0..2].*;
+                },
+                else => comptime unreachable,
+            },
+            .@"enum" => {
+                defer i.* += 1;
+                return @enumFromInt(buffer[i.*]);
+            },
+            .@"struct" => |info| switch (info.layout) {
+                .@"packed" => switch (info.backing_integer.?) {
+                    u32 => {
+                        defer i.* += 1;
+                        return @bitCast(buffer[i.*]);
+                    },
+                    u64 => {
+                        defer i.* += 2;
+                        return @bitCast(buffer[i.*..][0..2].*);
+                    },
+                    else => comptime unreachable,
+                },
+                .auto => switch (Field) {
+                    std.Target.Cpu.Feature.Set => {
+                        const u32_count = (Field.usize_count * @sizeOf(usize)) / @sizeOf(u32);
+                        defer i.* += u32_count;
+                        return .{ .ints = @as(
+                            *align(@alignOf(u32)) const [Field.usize_count]usize,
+                            @ptrCast(buffer[i.*..][0..u32_count]),
+                        ).* };
+                    },
+                    else => switch (Field.storage) {
+                        .flag_optional => {
+                            const flags = @field(container, @tagName(Field.flags));
+                            const flag = @field(flags, @tagName(Field.flag));
+                            return .{
+                                .value = if (flag) dataField(buffer, i, container, Field.Value) else null,
+                            };
+                        },
+                    },
+                },
+                .@"extern" => comptime unreachable,
+            },
+            else => comptime unreachable,
+        }
+    }
+
+    /// Returns new end index.
+    fn setExtra(buffer: []u32, index: usize, extra: anytype) usize {
+        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
+        var i = index;
+        inline for (fields) |field| {
+            i += setExtraField(buffer, i, field.type, @field(extra, field.name));
+        }
+        return i;
+    }
+
+    fn calculateExtraLenUpperBound(comptime Extra: type) comptime_int {
+        var i = 0;
+        const fields = @typeInfo(Extra).@"struct".fields;
+        inline for (fields) |field| {
+            i += calculateExtraFieldLenUpperBound(field.type);
+        }
+        return i;
+    }
+
+    inline fn setExtraField(buffer: []u32, i: usize, comptime Field: type, value: anytype) usize {
+        switch (@typeInfo(Field)) {
+            .int => |info| switch (info.bits) {
+                32 => {
+                    buffer[i] = value;
+                    return 1;
+                },
+                64 => {
+                    buffer[i..][0..2].* = @bitCast(value);
+                    return 2;
+                },
+                else => comptime unreachable,
+            },
+            .@"enum" => {
+                buffer[i] = @intFromEnum(value);
+                return 1;
+            },
+            .@"struct" => |info| switch (info.layout) {
+                .@"packed" => switch (info.backing_integer.?) {
+                    u32 => {
+                        buffer[i] = @bitCast(value);
+                        return 1;
+                    },
+                    u64 => {
+                        buffer[i..][0..2].* = @bitCast(value);
+                        return 2;
+                    },
+                    else => comptime unreachable,
+                },
+                .auto => switch (Field) {
+                    std.Target.Cpu.Feature.Set => {
+                        const casted: []const u32 = @ptrCast(&value.ints);
+                        @memcpy(buffer[i..][0..casted.len], casted);
+                        return casted.len;
+                    },
+                    else => switch (Field.storage) {
+                        .flag_optional => {
+                            return if (value.value) |v| setExtraField(buffer, i, Field.Value, v) else 0;
+                        },
+                    },
+                },
+                .@"extern" => comptime unreachable,
+            },
+            else => @compileError("bad field type: " ++ @typeName(Field)),
+        }
+    }
+
+    fn calculateExtraFieldLenUpperBound(comptime Field: type) comptime_int {
+        return switch (@typeInfo(Field)) {
+            .int => |info| switch (info.bits) {
+                32 => 1,
+                64 => 2,
+                else => comptime unreachable,
+            },
+            .@"enum" => 1,
+            .@"struct" => |info| switch (info.layout) {
+                .@"packed" => switch (info.backing_integer.?) {
+                    u32 => 1,
+                    u64 => 2,
+                    else => comptime unreachable,
+                },
+                .auto => switch (Field.storage) {
+                    .flag_optional => 1,
+                },
+                .@"extern" => comptime unreachable,
+            },
             else => comptime unreachable,
         };
-        i += 1;
     }
-    return result;
+};
+
+pub fn extraData(c: *const Configuration, comptime T: type, index: usize) T {
+    var i: usize = index;
+    return Storage.data(c.extra, &i, T);
 }
 
 pub const LoadFileError = Io.File.Reader.Error || Allocator.Error || error{EndOfStream};

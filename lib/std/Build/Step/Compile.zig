@@ -145,8 +145,8 @@ link_z_defs: bool = false,
 /// (Darwin) Install name for the dylib
 install_name: ?[]const u8 = null,
 
-/// (Darwin) Path to entitlements file
-entitlements: ?[]const u8 = null,
+/// Must be passed in via `Options`.
+entitlements: ?LazyPath = null,
 
 /// (Darwin) Size of the pagezero segment.
 pagezero_size: ?u64 = null,
@@ -286,6 +286,8 @@ pub const Options = struct {
     win32_manifest: ?LazyPath = null,
     /// Win32 module definition file.
     win32_module_definition: ?LazyPath = null,
+    /// (Darwin) Path to entitlements file
+    entitlements: ?LazyPath = null,
 };
 
 pub const Kind = std.Build.Configuration.Step.Compile.Kind;
@@ -460,6 +462,11 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
                 lp.addStepDependencies(&compile.step);
             }
         }
+    }
+
+    if (options.entitlements) |lp| {
+        compile.entitlements = lp.dupe(compile.step.owner);
+        lp.addStepDependencies(&compile.step);
     }
 
     if (compile.kind == .lib) {

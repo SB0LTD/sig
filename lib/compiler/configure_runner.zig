@@ -239,7 +239,7 @@ const Serialize = struct {
         return gop.value_ptr.*;
     }
 
-    fn addOptionalLazyPath(s: *Serialize, lp: ?std.Build.LazyPath) !Configuration.OptionalLazyPath {
+    fn addOptionalLazyPathEnum(s: *Serialize, lp: ?std.Build.LazyPath) !Configuration.OptionalLazyPath {
         const wc = s.wc;
         return @enumFromInt(switch (lp orelse return .none) {
             .src_path => |src_path| i: {
@@ -273,6 +273,18 @@ const Serialize = struct {
                 }));
             },
         });
+    }
+
+    fn addOptionalLazyPath(s: *Serialize, lp: ?std.Build.LazyPath) !?Configuration.LazyPath {
+        return (try addOptionalLazyPathEnum(s, lp)).unwrap();
+    }
+
+    fn addOptionalSemVer(s: *Serialize, sem_ver: ?std.SemanticVersion) !?Configuration.String {
+        return if (sem_ver) |sv| try s.wc.addSemVer(sv) else null;
+    }
+
+    fn addOptionalString(s: *Serialize, opt_slice: ?[]const u8) !?Configuration.String {
+        return if (opt_slice) |slice| try s.wc.addString(slice) else null;
     }
 };
 
@@ -416,9 +428,36 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .error_limit = c.error_limit != null,
                                 .install_name = c.install_name != null,
                                 .entitlements = c.entitlements != null,
+                                .expect_errors = if (c.expect_errors) |x| switch (x) {
+                                    .contains => .contains,
+                                    .exact => .exact,
+                                    .starts_with => .starts_with,
+                                    .stderr_contains => .stderr_contains,
+                                } else .none,
+                                .linker_script = c.linker_script != null,
+                                .version_script = c.version_script != null,
                             },
                             .root_module = try addModule(&s, c.root_module),
                             .root_name = try wc.addString(c.name),
+                            .linker_script = .{ .value = try s.addOptionalLazyPath(c.linker_script) },
+                            .version_script = .{ .value = try s.addOptionalLazyPath(c.version_script) },
+                            .zig_lib_dir = .{ .value = try s.addOptionalLazyPath(c.zig_lib_dir) },
+                            .libc_file = .{ .value = try s.addOptionalLazyPath(c.libc_file) },
+                            .win32_manifest = .{ .value = try s.addOptionalLazyPath(c.win32_manifest) },
+                            .win32_module_definition = .{ .value = try s.addOptionalLazyPath(c.win32_module_definition) },
+                            .entitlements = .{ .value = try s.addOptionalLazyPath(c.entitlements) },
+                            .version = .{ .value = try s.addOptionalSemVer(c.version) },
+                            .install_name = .{ .value = try s.addOptionalString(c.install_name) },
+                            .initial_memory = .{ .value = c.initial_memory },
+                            .max_memory = .{ .value = c.max_memory },
+                            .global_base = .{ .value = c.global_base },
+                            .image_base = .{ .value = c.image_base },
+                            .link_z_common_page_size = .{ .value = c.link_z_common_page_size },
+                            .link_z_max_page_size = .{ .value = c.link_z_max_page_size },
+                            .pagezero_size = .{ .value = c.pagezero_size },
+                            .stack_size = .{ .value = c.stack_size },
+                            .headerpad_size = .{ .value = c.headerpad_size },
+                            .error_limit = .{ .value = c.error_limit },
                         }));
 
                         log.err("TODO serialize the trailing Compile step data", .{});
@@ -433,13 +472,13 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             },
                             .dest_dir = try addInstallDir(wc, ia.dest_dir),
                             .dest_sub_path = try wc.addString(ia.dest_sub_path),
-                            .emitted_bin = try s.addOptionalLazyPath(ia.emitted_bin),
+                            .emitted_bin = try s.addOptionalLazyPathEnum(ia.emitted_bin),
                             .implib_dir = try addInstallDir(wc, ia.implib_dir),
-                            .emitted_implib = try s.addOptionalLazyPath(ia.emitted_implib),
+                            .emitted_implib = try s.addOptionalLazyPathEnum(ia.emitted_implib),
                             .pdb_dir = try addInstallDir(wc, ia.pdb_dir),
-                            .emitted_pdb = try s.addOptionalLazyPath(ia.emitted_pdb),
+                            .emitted_pdb = try s.addOptionalLazyPathEnum(ia.emitted_pdb),
                             .h_dir = try addInstallDir(wc, ia.h_dir),
-                            .emitted_h = try s.addOptionalLazyPath(ia.emitted_h),
+                            .emitted_h = try s.addOptionalLazyPathEnum(ia.emitted_h),
                             .artifact = stepIndex(&step_map, &ia.artifact.step),
                         }));
                     },
@@ -490,7 +529,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             },
                             .file_inputs_len = @intCast(run.file_inputs.items.len),
                             .args_len = @intCast(run.argv.items.len),
-                            .cwd = try s.addOptionalLazyPath(run.cwd),
+                            .cwd = try s.addOptionalLazyPathEnum(run.cwd),
                             .captured_stdout = captured_stdout,
                             .captured_stderr = captured_stderr,
                         }));
@@ -565,8 +604,7 @@ fn addModule(s: *Serialize, m: *std.Build.Module) !Configuration.Module.Index {
             .frameworks = m.frameworks.entries.len != 0,
             .link_objects = m.link_objects.items.len != 0,
             .export_symbol_names = m.export_symbol_names.len != 0,
-        },
-        .flags2 = .{
+
             .valgrind = .init(m.strip),
             .pic = .init(m.strip),
             .red_zone = .init(m.strip),
@@ -577,7 +615,7 @@ fn addModule(s: *Serialize, m: *std.Build.Module) !Configuration.Module.Index {
             .no_builtin = .init(m.strip),
         },
         .owner = try s.builderToPackage(m.owner),
-        .root_source_file = try s.addOptionalLazyPath(m.root_source_file),
+        .root_source_file = try s.addOptionalLazyPathEnum(m.root_source_file),
         .import_table = import_table,
         .resolved_target = try addOptionalResolvedTarget(wc, m.resolved_target),
     })));
