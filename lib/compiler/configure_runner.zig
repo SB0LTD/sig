@@ -331,12 +331,12 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                 .owner = try s.builderToPackage(step.owner),
                 .deps = deps,
                 .max_rss = .fromBytes(step.max_rss),
-                .extra_index = switch (step.tag) {
+                .extended = switch (step.tag) {
                     .top_level => e: {
                         const top_level: *Step.TopLevel = @fieldParentPtr("step", step);
-                        break :e try wc.addExtra(@as(Configuration.Step.TopLevel, .{
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.TopLevel, .{
                             .description = try wc.addString(top_level.description),
-                        }));
+                        })));
                     },
                     .compile => e: {
                         const c: *Step.Compile = @fieldParentPtr("step", step);
@@ -462,11 +462,11 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
 
                         log.err("TODO serialize the trailing Compile step data", .{});
 
-                        break :e extra_index;
+                        break :e @enumFromInt(extra_index);
                     },
                     .install_artifact => e: {
                         const ia: *Step.InstallArtifact = @fieldParentPtr("step", step);
-                        break :e try wc.addExtra(@as(Configuration.Step.InstallArtifact, .{
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.InstallArtifact, .{
                             .flags = .{
                                 .dylib_symlinks = ia.dylib_symlinks != null,
                             },
@@ -480,7 +480,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .h_dir = try addInstallDir(wc, ia.h_dir),
                             .emitted_h = try s.addOptionalLazyPathEnum(ia.emitted_h),
                             .artifact = stepIndex(&step_map, &ia.artifact.step),
-                        }));
+                        })));
                     },
                     .install_file => @panic("TODO"),
                     .install_dir => @panic("TODO"),
@@ -536,7 +536,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
 
                         log.err("TODO serialize the trailing Run step data", .{});
 
-                        break :e extra_index;
+                        break :e @enumFromInt(extra_index);
                     },
                     .check_file => @panic("TODO"),
                     .check_object => @panic("TODO"),
@@ -639,7 +639,7 @@ fn addOptionalResolvedTarget(
     })));
 }
 
-fn addInstallDir(wc: *Configuration.Wip, install_dir: ?std.Build.InstallDir) !Configuration.InstallDir {
+fn addInstallDir(wc: *Configuration.Wip, install_dir: ?std.Build.InstallDir) !Configuration.InstallDestDir {
     switch (install_dir orelse return .none) {
         .prefix => return .prefix,
         .lib => return .lib,

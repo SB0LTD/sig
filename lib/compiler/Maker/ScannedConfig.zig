@@ -40,8 +40,7 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
                 try deps_field.end();
             }
             try step_field.field("max_rss", step.max_rss.toBytes(), .{});
-            const type_erased_flags: Configuration.Step.Flags = @bitCast(c.extra[step.extra_index]);
-            switch (type_erased_flags.tag) {
+            switch (step.extended.get(c.extra)) {
                 .check_file => try step_field.field("check_file", .TODO, .{}),
                 .check_object => try step_field.field("check_object", .TODO, .{}),
                 .compile => try step_field.field("compile", .TODO, .{}),
@@ -55,8 +54,7 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
                 .options => try step_field.field("options", .TODO, .{}),
                 .remove_dir => try step_field.field("remove_dir", .TODO, .{}),
                 .run => try step_field.field("run", .TODO, .{}),
-                .top_level => {
-                    const top_level = c.extraData(Configuration.Step.TopLevel, step.extra_index);
+                .top_level => |top_level| {
                     var sf = try step_field.beginStructField("top_level", .{});
                     try sf.field("description", top_level.description.slice(c), .{});
                     try sf.end();
@@ -82,7 +80,7 @@ pub fn printSteps(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
             try std.fmt.allocPrint(arena, "{s} (default)", .{name})
         else
             name;
-        const top_level = c.extraData(Configuration.Step.TopLevel, step.extra_index);
+        const top_level = step.extended.get(c.extra).top_level;
         const description = top_level.description.slice(c);
         try w.print("  {s:<28} {s}\n", .{ decorated_name, description });
     }

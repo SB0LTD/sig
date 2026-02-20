@@ -397,9 +397,25 @@ pub const Step = extern struct {
     owner: Package.Index,
     deps: Deps,
     max_rss: MaxRss,
-    /// Points into `extra` for step-specific data. First element has flags
-    /// with `Tag`.
-    extra_index: u32,
+    extended: Storage.ExtendedIndex(Flags, union(Tag) {
+        check_file: CheckFile,
+        check_object: CheckObject,
+        compile: Compile,
+        config_header: ConfigHeader,
+        fail: Fail,
+        fmt: Fmt,
+        install_artifact: InstallArtifact,
+        install_dir: InstallDir,
+        install_file: InstallFile,
+        objcopy: Objcopy,
+        options: Options,
+        remove_dir: RemoveDir,
+        run: Run,
+        top_level: TopLevel,
+        translate_c: TranslateC,
+        update_source_files: UpdateSourceFiles,
+        write_file: WriteFile,
+    }),
 
     /// Points into `steps`.
     pub const Index = enum(u32) {
@@ -449,17 +465,17 @@ pub const Step = extern struct {
     pub const InstallArtifact = struct {
         flags: @This().Flags,
 
-        dest_dir: InstallDir,
+        dest_dir: InstallDestDir,
         dest_sub_path: String,
         emitted_bin: OptionalLazyPath,
 
-        implib_dir: InstallDir,
+        implib_dir: InstallDestDir,
         emitted_implib: OptionalLazyPath,
 
-        pdb_dir: InstallDir,
+        pdb_dir: InstallDestDir,
         emitted_pdb: OptionalLazyPath,
 
-        h_dir: InstallDir,
+        h_dir: InstallDestDir,
         emitted_h: OptionalLazyPath,
 
         /// Always a compile step.
@@ -789,8 +805,125 @@ pub const Step = extern struct {
         };
     };
 
+    pub const CheckFile = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .check_file,
+            _: u27 = 0,
+        };
+    };
+
+    pub const CheckObject = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .check_object,
+            _: u27 = 0,
+        };
+    };
+
+    pub const ConfigHeader = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .config_header,
+            _: u27 = 0,
+        };
+    };
+
+    pub const Fail = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .fail,
+            _: u27 = 0,
+        };
+    };
+
+    pub const Fmt = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .fmt,
+            _: u27 = 0,
+        };
+    };
+
+    pub const InstallDir = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .install_dir,
+            _: u27 = 0,
+        };
+    };
+
+    pub const InstallFile = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .install_file,
+            _: u27 = 0,
+        };
+    };
+
+    pub const Objcopy = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .objcopy,
+            _: u27 = 0,
+        };
+    };
+
+    pub const Options = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .options,
+            _: u27 = 0,
+        };
+    };
+
+    pub const RemoveDir = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .remove_dir,
+            _: u27 = 0,
+        };
+    };
+
+    pub const TranslateC = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .translate_c,
+            _: u27 = 0,
+        };
+    };
+
+    pub const UpdateSourceFiles = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .update_source_files,
+            _: u27 = 0,
+        };
+    };
+
+    pub const WriteFile = struct {
+        flags: @This().Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .write_file,
+            _: u27 = 0,
+        };
+    };
+
     pub fn flags(s: *const Step, c: *const Configuration) Flags {
-        return @bitCast(c.extra[s.extra_index]);
+        return @bitCast(c.extra[@intFromEnum(s.extended)]);
     }
 };
 
@@ -1081,7 +1214,7 @@ pub const Path = extern struct {
     }
 };
 
-pub const InstallDir = enum(u32) {
+pub const InstallDestDir = enum(u32) {
     none = maxInt(u32) - 4,
     prefix = maxInt(u32) - 3,
     lib = maxInt(u32) - 2,
@@ -1090,8 +1223,8 @@ pub const InstallDir = enum(u32) {
     /// A `String` path relative to the prefix.
     _,
 
-    pub fn initCustom(sub_path: String) InstallDir {
-        assert(@intFromEnum(sub_path) < @intFromEnum(InstallDir.none));
+    pub fn initCustom(sub_path: String) InstallDestDir {
+        assert(@intFromEnum(sub_path) < @intFromEnum(InstallDestDir.none));
         return @enumFromInt(@intFromEnum(sub_path));
     }
 };
@@ -1496,7 +1629,10 @@ pub const TargetQuery = struct {
 
 pub const Storage = enum {
     flag_optional,
+    extended,
 
+    /// The presence of the field is determined by a boolean within a packed
+    /// struct.
     pub fn FlagOptional(
         comptime flags_arg: @EnumLiteral(),
         comptime flag_arg: @EnumLiteral(),
@@ -1509,6 +1645,31 @@ pub const Storage = enum {
             pub const flag = flag_arg;
             pub const storage: Storage = .flag_optional;
             pub const Value = ValueArg;
+        };
+    }
+
+    /// The field indexes into an auxilary buffer, with the first element being
+    /// a packed struct that contains the tag.
+    pub fn Extended(comptime U: type) type {
+        return struct {
+            value: U,
+
+            pub const storage: Storage = .extended;
+        };
+    }
+
+    /// Equivalent to `Extended` but works in an `extern struct`.
+    pub fn ExtendedIndex(comptime BaseFlags: type, comptime U: type) type {
+        return enum(u32) {
+            _,
+
+            pub fn get(this: @This(), buffer: []const u32) U {
+                var i: usize = @intFromEnum(this);
+                const base_flags: BaseFlags = @bitCast(buffer[i]);
+                return switch (base_flags.tag) {
+                    inline else => |tag| @unionInit(U, @tagName(tag), data(buffer, &i, @FieldType(U, @tagName(tag)))),
+                };
+            }
         };
     }
 
@@ -1536,7 +1697,7 @@ pub const Storage = enum {
                 },
                 64 => {
                     defer i.* += 2;
-                    return buffer[i.*..][0..2].*;
+                    return @bitCast(buffer[i.*..][0..2].*);
                 },
                 else => comptime unreachable,
             },
@@ -1573,6 +1734,7 @@ pub const Storage = enum {
                                 .value = if (flag) dataField(buffer, i, container, Field.Value) else null,
                             };
                         },
+                        .extended => @compileError("TODO"),
                     },
                 },
                 .@"extern" => comptime unreachable,
@@ -1639,6 +1801,7 @@ pub const Storage = enum {
                         .flag_optional => {
                             return if (value.value) |v| setExtraField(buffer, i, Field.Value, v) else 0;
                         },
+                        .extended => @compileError("TODO"),
                     },
                 },
                 .@"extern" => comptime unreachable,
@@ -1662,7 +1825,7 @@ pub const Storage = enum {
                     else => comptime unreachable,
                 },
                 .auto => switch (Field.storage) {
-                    .flag_optional => 1,
+                    .flag_optional, .extended => 1,
                 },
                 .@"extern" => comptime unreachable,
             },
