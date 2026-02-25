@@ -279,12 +279,30 @@ const Serialize = struct {
         return (try addOptionalLazyPathEnum(s, lp)).unwrap();
     }
 
+    fn addLazyPath(s: *Serialize, lp: ?std.Build.LazyPath) !Configuration.LazyPath {
+        return @enumFromInt(@intFromEnum(try addOptionalLazyPathEnum(s, lp)));
+    }
+
     fn addOptionalSemVer(s: *Serialize, sem_ver: ?std.SemanticVersion) !?Configuration.String {
         return if (sem_ver) |sv| try s.wc.addSemVer(sv) else null;
     }
 
     fn addOptionalString(s: *Serialize, opt_slice: ?[]const u8) !?Configuration.String {
         return if (opt_slice) |slice| try s.wc.addString(slice) else null;
+    }
+
+    fn initStringList(s: *Serialize, list: []const []const u8) ![]const Configuration.String {
+        const wc = s.wc;
+        const result = try s.arena.alloc(Configuration.String, list.len);
+        for (result, list) |*dest, src| dest.* = try wc.addString(src);
+        return result;
+    }
+
+    fn initOptionalStringList(s: *Serialize, list: []const ?[]const u8) ![]const Configuration.OptionalString {
+        const wc = s.wc;
+        const result = try s.arena.alloc(Configuration.OptionalString, list.len);
+        for (result, list) |*dest, src| dest.* = try wc.addOptionalString(src);
+        return result;
     }
 };
 
@@ -320,7 +338,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
             // Add and then de-duplicate dependencies.
             const deps = d: {
                 const deps: Configuration.Deps = @enumFromInt(wc.extra.items.len);
-                for (try wc.prepareDeps(step.dependencies.items.len), step.dependencies.items) |*dep, dep_step|
+                for (try wc.reserveLengthPrefixed(step.dependencies.items.len), step.dependencies.items) |*dep, dep_step|
                     dep.* = @intCast(step_map.getIndex(dep_step).?);
                 break :d try wc.dedupeDeps(deps);
             };
@@ -340,11 +358,35 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                     },
                     .compile => e: {
                         const c: *Step.Compile = @fieldParentPtr("step", step);
+                        const exec_cmd_args: []const ?[]const u8 = c.exec_cmd_args orelse &.{};
+                        const installed_headers: []u32 = try arena.alloc(u32, c.installed_headers.items.len);
+                        for (installed_headers, c.installed_headers.items) |*dst, src| switch (src) {
+                            .file => |file| {
+                                dst.* = try wc.addExtra(@as(Configuration.Step.Compile.InstalledHeader.File, .{
+                                    .source = try s.addLazyPath(file.source),
+                                    .dest_sub_path = try wc.addString(file.dest_rel_path),
+                                }));
+                            },
+                            .directory => |directory| {
+                                const include_extensions = directory.options.include_extensions orelse &.{};
+                                dst.* = try wc.addExtra(@as(Configuration.Step.Compile.InstalledHeader.Directory, .{
+                                    .flags = .{
+                                        .include_extensions = include_extensions.len != 0,
+                                        .exclude_extensions = directory.options.exclude_extensions.len != 0,
+                                    },
+                                    .source = try s.addLazyPath(directory.source),
+                                    .dest_sub_path = try wc.addString(directory.dest_rel_path),
+                                    .exclude_extensions = .{ .slice = try s.initStringList(directory.options.exclude_extensions) },
+                                    .include_extensions = .{ .slice = try s.initStringList(include_extensions) },
+                                }));
+                            },
+                        };
+
                         const extra_index = try wc.addExtra(@as(Configuration.Step.Compile, .{
                             .flags = .{
                                 .filters_len = c.filters.len != 0,
-                                .exec_cmd_args_len = if (c.exec_cmd_args) |a| a.len != 0 else false,
-                                .installed_headers_len = c.installed_headers.items.len != 0,
+                                .exec_cmd_args_len = exec_cmd_args.len != 0,
+                                .installed_headers_len = installed_headers.len != 0,
                                 .force_undefined_symbols_len = c.force_undefined_symbols.entries.len != 0,
 
                                 .verbose_link = c.verbose_link,
@@ -466,6 +508,10 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .hexstring => |*hexstring| try wc.addString(hexstring.toSlice()),
                                 .none, .fast, .uuid, .sha1, .md5 => null,
                             } else null },
+                            .filters = .{ .slice = try s.initStringList(c.filters) },
+                            .exec_cmd_args = .{ .slice = try s.initOptionalStringList(exec_cmd_args) },
+                            .installed_headers = .initErased(installed_headers),
+                            .force_undefined_symbols = .{ .slice = try s.initStringList(c.force_undefined_symbols.keys()) },
                         }));
 
                         log.err("TODO serialize the trailing Compile step data", .{});

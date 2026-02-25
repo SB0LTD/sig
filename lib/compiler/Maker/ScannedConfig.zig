@@ -55,17 +55,24 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
             try s.value(field_value.slice(c), .{});
         },
         Configuration.Deps => {
-            var deps_field = try s.beginTuple(.{});
-            for (field_value.slice(c)) |dep| {
-                try deps_field.field(@intFromEnum(dep), .{});
-            }
-            try deps_field.end();
+            try printValue(sc, s, []Configuration.Step.Index, field_value.slice(c));
         },
         Configuration.MaxRss => {
             try s.value(field_value.toBytes(), .{});
         },
         else => switch (@typeInfo(Field)) {
             .int => try s.int(field_value),
+            .pointer => |info| switch (info.size) {
+                .slice => {
+                    var slice_field = try s.beginTuple(.{});
+                    for (field_value) |elem| {
+                        try slice_field.fieldPrefix();
+                        try printValue(sc, s, info.child, elem);
+                    }
+                    try slice_field.end();
+                },
+                else => comptime unreachable,
+            },
             .@"enum" => {
                 if (@hasDecl(Field, "storage")) switch (Field.storage) {
                     .extended => {
@@ -74,6 +81,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                         try sub_struct.end();
                     },
                     .flag_optional => comptime unreachable,
+                    .flag_length_prefixed_list => comptime unreachable,
                     .enum_optional => comptime unreachable,
                 } else if (std.enums.tagName(Field, field_value)) |name| {
                     try s.ident(name);
@@ -92,6 +100,9 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                         } else {
                             try s.value(null, .{});
                         }
+                    },
+                    .flag_length_prefixed_list => {
+                        try printValue(sc, s, @TypeOf(field_value.slice), field_value.slice);
                     },
                     .extended => @compileError("TODO"),
                 },

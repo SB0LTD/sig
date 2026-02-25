@@ -33,7 +33,9 @@ pub const Header = extern struct {
 pub const Wip = struct {
     gpa: Allocator,
     string_table: StringTable = .empty,
-    deps_table: DepsTable = .empty,
+    /// De-duplicates an array inside `extra` that has first element length
+    /// followed by length elements.
+    length_prefixed_table: LengthPrefixedTable = .empty,
     targets_table: TargetsTable = .empty,
 
     string_bytes: std.ArrayList(u8) = .empty,
@@ -44,23 +46,23 @@ pub const Wip = struct {
     path_deps: std.MultiArrayList(Path) = .empty,
     extra: std.ArrayList(u32) = .empty,
 
-    const DepsTable = std.HashMapUnmanaged(Deps, void, DepsTableContext, std.hash_map.default_max_load_percentage);
+    const LengthPrefixedTable = std.HashMapUnmanaged(u32, void, LengthPrefixedContext, std.hash_map.default_max_load_percentage);
     const TargetsTable = std.HashMapUnmanaged(TargetQuery.Index, void, TargetsTableContext, std.hash_map.default_max_load_percentage);
 
-    const DepsTableContext = struct {
+    const LengthPrefixedContext = struct {
         extra: []const u32,
 
-        pub fn eql(ctx: @This(), a: Deps, b: Deps) bool {
-            const len_a = ctx.extra[@intFromEnum(a)];
-            const len_b = ctx.extra[@intFromEnum(b)];
-            const slice_a = ctx.extra[@intFromEnum(a) + 1 ..][0..len_a];
-            const slice_b = ctx.extra[@intFromEnum(b) + 1 ..][0..len_b];
+        pub fn eql(ctx: @This(), a: u32, b: u32) bool {
+            const len_a = ctx.extra[a];
+            const len_b = ctx.extra[b];
+            const slice_a = ctx.extra[a + 1 ..][0..len_a];
+            const slice_b = ctx.extra[b + 1 ..][0..len_b];
             return std.mem.eql(u32, slice_a, slice_b);
         }
 
-        pub fn hash(ctx: @This(), key: Deps) u64 {
-            const len = ctx.extra[@intFromEnum(key)];
-            const slice = ctx.extra[@intFromEnum(key) + 1 ..][0..len];
+        pub fn hash(ctx: @This(), key: u32) u64 {
+            const len = ctx.extra[key];
+            const slice = ctx.extra[key + 1 ..][0..len];
             return std.hash_map.hashString(@ptrCast(slice));
         }
     };
@@ -172,6 +174,10 @@ pub const Wip = struct {
         gop.key_ptr.* = new_off;
 
         return new_off;
+    }
+
+    pub fn addOptionalString(wip: *Wip, bytes: ?[]const u8) Allocator.Error!OptionalString {
+        return .init(try addString(wip, bytes orelse return .none));
     }
 
     pub fn addSemVer(wip: *Wip, sv: std.SemanticVersion) Allocator.Error!String {
@@ -324,27 +330,32 @@ pub const Wip = struct {
         }
     }
 
-    pub fn prepareDeps(wip: *Wip, n: usize) Allocator.Error![]u32 {
+    pub fn reserveLengthPrefixed(wip: *Wip, n: usize) Allocator.Error![]u32 {
         const slice = try wip.extra.addManyAsSlice(wip.gpa, n + 1);
         slice[0] = @intCast(n);
         return slice[1..];
     }
 
-    pub fn dedupeDeps(wip: *Wip, deps: Deps) Allocator.Error!Deps {
+    pub fn dedupeLengthPrefixed(wip: *Wip, index: u32) Allocator.Error!u32 {
+        assert(wip.extra.items.len == index + wip.extra.items[index] + 1);
         const gpa = wip.gpa;
-        const gop = try wip.deps_table.getOrPutContext(gpa, deps, @as(DepsTableContext, .{
+        const gop = try wip.length_prefixed_table.getOrPutContext(gpa, index, @as(LengthPrefixedContext, .{
             .extra = wip.extra.items,
         }));
         if (gop.found_existing) {
-            wip.extra.items.len = @intFromEnum(deps);
+            wip.extra.items.len = index;
             return gop.key_ptr.*;
         } else {
-            return deps;
+            return index;
         }
     }
 
+    pub fn dedupeDeps(wip: *Wip, deps: Deps) Allocator.Error!Deps {
+        return @enumFromInt(try dedupeLengthPrefixed(wip, @intFromEnum(deps)));
+    }
+
     pub fn addExtra(wip: *Wip, extra: anytype) Allocator.Error!u32 {
-        const extra_len = Storage.calculateExtraLenUpperBound(@TypeOf(extra));
+        const extra_len = Storage.extraLen(extra);
         try wip.extra.ensureUnusedCapacity(wip.gpa, extra_len);
         return addExtraAssumeCapacity(wip, extra);
     }
@@ -397,7 +408,7 @@ pub const Step = extern struct {
     owner: Package.Index,
     deps: Deps,
     max_rss: MaxRss,
-    extended: Storage.ExtendedIndex(Flags, union(Tag) {
+    extended: Storage.Extended(Flags, union(Tag) {
         check_file: CheckFile,
         check_object: CheckObject,
         compile: Compile,
@@ -585,10 +596,10 @@ pub const Step = extern struct {
         root_module: Module.Index,
         root_name: String,
 
-        //filters: FlagLengthPrefixedList(.flags, .filters_len, String),
-        //exec_cmd_args: FlagLengthPrefixedList(.flags, .exec_cmd_args_len, u32),
-        //installed_headers: FlagLengthPrefixedList(.flags, .installed_headers_len, InstalledHeader),
-        //force_undefined_symbols: FlagLengthPrefixedList(.flags, .force_undefined_symbols_len, String),
+        filters: Storage.FlagLengthPrefixedList(.flags, .filters_len, String),
+        exec_cmd_args: Storage.FlagLengthPrefixedList(.flags, .exec_cmd_args_len, OptionalString),
+        installed_headers: Storage.FlagLengthPrefixedList(.flags, .installed_headers_len, Storage.Extended(InstalledHeader.Flags, InstalledHeader)),
+        force_undefined_symbols: Storage.FlagLengthPrefixedList(.flags, .force_undefined_symbols_len, String),
         //exacts: EnumConditionalPrefixedList(.flags4, .expect_errors, .exact, String),
         linker_script: Storage.FlagOptional(.flags4, .linker_script, LazyPath),
         version_script: Storage.FlagOptional(.flags4, .version_script, LazyPath),
@@ -612,6 +623,46 @@ pub const Step = extern struct {
         error_limit: Storage.FlagOptional(.flags4, .error_limit, u32),
         build_id: Storage.EnumOptional(.flags3, .build_id, .hexstring, String),
 
+        pub const InstalledHeader = union(@This().Tag) {
+            file: File,
+            directory: Directory,
+
+            pub const Flags = packed struct(u32) {
+                tag: InstalledHeader.Tag,
+                _: u24 = 0,
+            };
+
+            pub const Tag = enum(u8) {
+                file,
+                directory,
+            };
+
+            pub const File = struct {
+                flags: @This().Flags = .{},
+                source: LazyPath,
+                dest_sub_path: String,
+
+                pub const Flags = packed struct(u32) {
+                    tag: InstalledHeader.Tag = .file,
+                    _: u24 = 0,
+                };
+            };
+
+            pub const Directory = struct {
+                flags: @This().Flags,
+                source: LazyPath,
+                dest_sub_path: String,
+                exclude_extensions: Storage.FlagLengthPrefixedList(.flags, .exclude_extensions, String),
+                include_extensions: Storage.FlagLengthPrefixedList(.flags, .include_extensions, String),
+
+                pub const Flags = packed struct(u32) {
+                    tag: InstalledHeader.Tag = .directory,
+                    exclude_extensions: bool,
+                    include_extensions: bool,
+                    _: u22 = 0,
+                };
+            };
+        };
         pub const ExpectErrors = enum(u3) { contains, exact, starts_with, stderr_contains, none };
         pub const TestRunnerMode = enum(u2) { default, simple, server };
         pub const Entry = enum(u2) { default, disabled, enabled, symbol_name };
@@ -1636,6 +1687,7 @@ pub const Storage = enum {
     flag_optional,
     enum_optional,
     extended,
+    flag_length_prefixed_list,
 
     /// The presence of the field is determined by a boolean within a packed
     /// struct.
@@ -1674,16 +1726,7 @@ pub const Storage = enum {
 
     /// The field indexes into an auxilary buffer, with the first element being
     /// a packed struct that contains the tag.
-    pub fn Extended(comptime U: type) type {
-        return struct {
-            value: U,
-
-            pub const storage: Storage = .extended;
-        };
-    }
-
-    /// Equivalent to `Extended` but works in an `extern struct`.
-    pub fn ExtendedIndex(comptime BaseFlags: type, comptime U: type) type {
+    pub fn Extended(comptime BaseFlags: type, comptime U: type) type {
         return enum(u32) {
             _,
 
@@ -1695,6 +1738,30 @@ pub const Storage = enum {
                 return switch (base_flags.tag) {
                     inline else => |tag| @unionInit(U, @tagName(tag), data(buffer, &i, @FieldType(U, @tagName(tag)))),
                 };
+            }
+        };
+    }
+
+    /// A field in flags determines whether the length is zero or nonzero. If the length is
+    /// nonzero, then there is a length field followed by the list.
+    ///
+    /// When deserializing, the slice field is set. When serializing, the index
+    /// field must be set.
+    pub fn FlagLengthPrefixedList(
+        comptime flags_arg: @EnumLiteral(),
+        comptime flag_arg: @EnumLiteral(),
+        comptime ValueArg: type,
+    ) type {
+        return struct {
+            slice: []const Value,
+
+            pub const storage: Storage = .flag_length_prefixed_list;
+            pub const flags = flags_arg;
+            pub const flag = flag_arg;
+            pub const Value = ValueArg;
+
+            pub fn initErased(s: []const u32) @This() {
+                return .{ .slice = @ptrCast(s) };
             }
         };
     }
@@ -1769,6 +1836,15 @@ pub const Storage = enum {
                             };
                         },
                         .extended => @compileError("TODO"),
+                        .flag_length_prefixed_list => {
+                            const flags = @field(container, @tagName(Field.flags));
+                            const flag = @field(flags, @tagName(Field.flag));
+                            if (!flag) return .{ .slice = &.{} };
+                            const data_start = i.* + 1;
+                            const len = buffer[data_start - 1];
+                            defer i.* = data_start + len;
+                            return .{ .slice = @ptrCast(buffer[data_start..][0..len]) };
+                        },
                     },
                 },
                 .@"extern" => comptime unreachable,
@@ -1787,11 +1863,36 @@ pub const Storage = enum {
         return i;
     }
 
-    fn calculateExtraLenUpperBound(comptime Extra: type) comptime_int {
-        var i = 0;
-        const fields = @typeInfo(Extra).@"struct".fields;
+    fn extraFieldLen(field: anytype) usize {
+        const Field = @TypeOf(field);
+        return switch (@typeInfo(Field)) {
+            .int => |info| switch (info.bits) {
+                32 => 1,
+                64 => 2,
+                else => comptime unreachable,
+            },
+            .@"enum" => 1,
+            .@"struct" => |info| switch (info.layout) {
+                .@"packed" => switch (info.backing_integer.?) {
+                    u32 => 1,
+                    u64 => 2,
+                    else => comptime unreachable,
+                },
+                .auto => switch (Field.storage) {
+                    .flag_optional, .enum_optional, .extended => 1,
+                    .flag_length_prefixed_list => field.slice.len + 1,
+                },
+                .@"extern" => comptime unreachable,
+            },
+            else => @compileError("bad type: " ++ @typeName(Field)),
+        };
+    }
+
+    fn extraLen(extra: anytype) usize {
+        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
+        var i: usize = 0;
         inline for (fields) |field| {
-            i += calculateExtraFieldLenUpperBound(field.type);
+            i += Storage.extraFieldLen(@field(extra, field.name));
         }
         return i;
     }
@@ -1836,35 +1937,19 @@ pub const Storage = enum {
                             return if (value.value) |v| setExtraField(buffer, i, Field.Value, v) else 0;
                         },
                         .extended => @compileError("TODO"),
+                        .flag_length_prefixed_list => {
+                            const len: u32 = @intCast(value.slice.len);
+                            if (len == 0) return 0;
+                            buffer[i] = len;
+                            @memcpy(buffer[i + 1 ..][0..len], @as([]const u32, @ptrCast(value.slice)));
+                            return len + 1;
+                        },
                     },
                 },
                 .@"extern" => comptime unreachable,
             },
             else => @compileError("bad field type: " ++ @typeName(Field)),
         }
-    }
-
-    fn calculateExtraFieldLenUpperBound(comptime Field: type) comptime_int {
-        return switch (@typeInfo(Field)) {
-            .int => |info| switch (info.bits) {
-                32 => 1,
-                64 => 2,
-                else => comptime unreachable,
-            },
-            .@"enum" => 1,
-            .@"struct" => |info| switch (info.layout) {
-                .@"packed" => switch (info.backing_integer.?) {
-                    u32 => 1,
-                    u64 => 2,
-                    else => comptime unreachable,
-                },
-                .auto => switch (Field.storage) {
-                    .flag_optional, .enum_optional, .extended => 1,
-                },
-                .@"extern" => comptime unreachable,
-            },
-            else => comptime unreachable,
-        };
     }
 };
 
