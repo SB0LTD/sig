@@ -279,7 +279,7 @@ const Serialize = struct {
         return (try addOptionalLazyPathEnum(s, lp)).unwrap();
     }
 
-    fn addLazyPath(s: *Serialize, lp: ?std.Build.LazyPath) !Configuration.LazyPath {
+    fn addLazyPath(s: *Serialize, lp: std.Build.LazyPath) !Configuration.LazyPath {
         return @enumFromInt(@intFromEnum(try addOptionalLazyPathEnum(s, lp)));
     }
 
@@ -303,6 +303,86 @@ const Serialize = struct {
         const result = try s.arena.alloc(Configuration.OptionalString, list.len);
         for (result, list) |*dest, src| dest.* = try wc.addOptionalString(src);
         return result;
+    }
+
+    fn addModule(s: *Serialize, m: *std.Build.Module) !Configuration.Module.Index {
+        if (s.module_map.get(m)) |index| return index;
+
+        const wc = s.wc;
+        const arena = s.arena;
+        const gpa = wc.gpa;
+
+        const lib_paths = try arena.alloc(Configuration.LazyPath, m.lib_paths.items.len);
+        for (lib_paths, m.lib_paths.items) |*dest, src| dest.* = try addLazyPath(s, src);
+
+        const c_macros = try initStringList(s, m.c_macros.items);
+        const export_symbol_names = try initStringList(s, m.export_symbol_names);
+
+        const import_table: Configuration.ImportTable = @enumFromInt(wc.extra.items.len);
+        const import_table_extra_len = 1 + 2 * m.import_table.entries.len;
+        try wc.extra.ensureUnusedCapacity(gpa, import_table_extra_len);
+        wc.extra.items.len += import_table_extra_len;
+        wc.extra.appendAssumeCapacity(@intCast(m.import_table.entries.len));
+        wc.extra.items[@intFromEnum(import_table)] = @intCast(m.import_table.entries.len);
+        for (
+            m.import_table.keys(),
+            @intFromEnum(import_table) + 1..,
+        ) |mod_name, extra_index| {
+            wc.extra.items[extra_index] = @intFromEnum(try wc.addString(mod_name));
+        }
+        for (
+            m.import_table.values(),
+            @intFromEnum(import_table) + 1 + m.import_table.entries.len..,
+        ) |dep, extra_index| {
+            log.err("TODO module dependencies can be cyclic", .{});
+            wc.extra.items[extra_index] = @intFromEnum(try addModule(s, dep));
+        }
+
+        const module_index: Configuration.Module.Index = @enumFromInt(try wc.addExtra(@as(Configuration.Module, .{
+            .flags = .{
+                .optimize = .init(m.optimize),
+                .strip = .init(m.strip),
+                .unwind_tables = .init(m.unwind_tables),
+                .dwarf_format = .init(m.dwarf_format),
+                .single_threaded = .init(m.strip),
+                .stack_protector = .init(m.strip),
+                .stack_check = .init(m.strip),
+                .sanitize_c = .init(m.sanitize_c),
+                .sanitize_thread = .init(m.strip),
+                .fuzz = .init(m.strip),
+                .code_model = m.code_model,
+                .c_macros = c_macros.len != 0,
+                .include_dirs = m.include_dirs.items.len != 0,
+                .lib_paths = lib_paths.len != 0,
+                .rpaths = m.rpaths.items.len != 0,
+                .frameworks = m.frameworks.entries.len != 0,
+                .link_objects = m.link_objects.items.len != 0,
+                .export_symbol_names = export_symbol_names.len != 0,
+            },
+            .flags2 = .{
+                .valgrind = .init(m.strip),
+                .pic = .init(m.strip),
+                .red_zone = .init(m.strip),
+                .omit_frame_pointer = .init(m.strip),
+                .error_tracing = .init(m.strip),
+                .link_libc = .init(m.strip),
+                .link_libcpp = .init(m.strip),
+                .no_builtin = .init(m.strip),
+            },
+            .owner = try s.builderToPackage(m.owner),
+            .root_source_file = try s.addOptionalLazyPathEnum(m.root_source_file),
+            .import_table = import_table,
+            .resolved_target = try addOptionalResolvedTarget(wc, m.resolved_target),
+            .c_macros = .{ .slice = c_macros },
+            .lib_paths = .{ .slice = lib_paths },
+            .export_symbol_names = .{ .slice = export_symbol_names },
+        })));
+
+        log.err("TODO serialize the trailing Module data", .{});
+
+        try s.module_map.putNoClobber(arena, m, module_index);
+
+        return module_index;
     }
 };
 
@@ -479,7 +559,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .linker_script = c.linker_script != null,
                                 .version_script = c.version_script != null,
                             },
-                            .root_module = try addModule(&s, c.root_module),
+                            .root_module = try s.addModule(c.root_module),
                             .root_name = try wc.addString(c.name),
                             .linker_script = .{ .value = try s.addOptionalLazyPath(c.linker_script) },
                             .version_script = .{ .value = try s.addOptionalLazyPath(c.version_script) },
@@ -610,75 +690,6 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
     try wc.write(writer, .{
         .default_step = stepIndex(&step_map, b.default_step),
     });
-}
-
-fn addModule(s: *Serialize, m: *std.Build.Module) !Configuration.Module.Index {
-    if (s.module_map.get(m)) |index| return index;
-
-    const wc = s.wc;
-    const arena = s.arena;
-    const gpa = wc.gpa;
-    const import_table: Configuration.ImportTable = @enumFromInt(wc.extra.items.len);
-    const import_table_extra_len = 1 + 2 * m.import_table.entries.len;
-    try wc.extra.ensureUnusedCapacity(gpa, import_table_extra_len);
-    wc.extra.items.len += import_table_extra_len;
-    wc.extra.appendAssumeCapacity(@intCast(m.import_table.entries.len));
-    wc.extra.items[@intFromEnum(import_table)] = @intCast(m.import_table.entries.len);
-    for (
-        m.import_table.keys(),
-        @intFromEnum(import_table) + 1..,
-    ) |mod_name, extra_index| {
-        wc.extra.items[extra_index] = @intFromEnum(try wc.addString(mod_name));
-    }
-    for (
-        m.import_table.values(),
-        @intFromEnum(import_table) + 1 + m.import_table.entries.len..,
-    ) |dep, extra_index| {
-        log.err("TODO module dependencies can be cyclic", .{});
-        wc.extra.items[extra_index] = @intFromEnum(try addModule(s, dep));
-    }
-
-    const module_index: Configuration.Module.Index = @enumFromInt(try wc.addExtra(@as(Configuration.Module, .{
-        .flags = .{
-            .optimize = .init(m.optimize),
-            .strip = .init(m.strip),
-            .unwind_tables = .init(m.unwind_tables),
-            .dwarf_format = .init(m.dwarf_format),
-            .single_threaded = .init(m.strip),
-            .stack_protector = .init(m.strip),
-            .stack_check = .init(m.strip),
-            .sanitize_c = .init(m.sanitize_c),
-            .sanitize_thread = .init(m.strip),
-            .fuzz = .init(m.strip),
-            .code_model = m.code_model,
-            .c_macros = m.c_macros.items.len != 0,
-            .include_dirs = m.include_dirs.items.len != 0,
-            .lib_paths = m.lib_paths.items.len != 0,
-            .rpaths = m.rpaths.items.len != 0,
-            .frameworks = m.frameworks.entries.len != 0,
-            .link_objects = m.link_objects.items.len != 0,
-            .export_symbol_names = m.export_symbol_names.len != 0,
-
-            .valgrind = .init(m.strip),
-            .pic = .init(m.strip),
-            .red_zone = .init(m.strip),
-            .omit_frame_pointer = .init(m.strip),
-            .error_tracing = .init(m.strip),
-            .link_libc = .init(m.strip),
-            .link_libcpp = .init(m.strip),
-            .no_builtin = .init(m.strip),
-        },
-        .owner = try s.builderToPackage(m.owner),
-        .root_source_file = try s.addOptionalLazyPathEnum(m.root_source_file),
-        .import_table = import_table,
-        .resolved_target = try addOptionalResolvedTarget(wc, m.resolved_target),
-    })));
-
-    log.err("TODO serialize the trailing Module data", .{});
-
-    try s.module_map.putNoClobber(arena, m, module_index);
-
-    return module_index;
 }
 
 fn addOptionalResolvedTarget(

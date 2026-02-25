@@ -1070,19 +1070,20 @@ pub const Package = struct {
 };
 
 /// Trailing:
-/// * c_macros: LengthPrefixedList(String), // if flag is set
-/// * lib_paths: LengthPrefixedList(LazyPath), // if flag is set
-/// * export_symbol_names: LengthPrefixedList(String), // if flag is set
 /// * frameworks: FlagsPrefixedList(FrameworkFlags), // if flag is set
 /// * include_dirs: UnionList(IncludeDir), // if flag is set
 /// * rpaths: UnionList(RPath), // if flag is set
 /// * link_objects: UnionList(LinkObject), // if flag is set
 pub const Module = struct {
     flags: Flags,
+    flags2: Flags2,
     owner: Package.Index,
     root_source_file: OptionalLazyPath,
     import_table: ImportTable,
     resolved_target: ResolvedTarget.OptionalIndex,
+    c_macros: Storage.FlagLengthPrefixedList(.flags, .c_macros, String),
+    lib_paths: Storage.FlagLengthPrefixedList(.flags, .lib_paths, LazyPath),
+    export_symbol_names: Storage.FlagLengthPrefixedList(.flags, .export_symbol_names, String),
 
     pub const Optimize = enum(u3) {
         debug,
@@ -1148,7 +1149,7 @@ pub const Module = struct {
         _,
     };
 
-    pub const Flags = packed struct(u64) {
+    pub const Flags = packed struct(u32) {
         optimize: Optimize,
         strip: DefaultingBool,
         unwind_tables: UnwindTables,
@@ -1167,7 +1168,9 @@ pub const Module = struct {
         frameworks: bool,
         link_objects: bool,
         export_symbol_names: bool,
+    };
 
+    pub const Flags2 = packed struct(u32) {
         valgrind: DefaultingBool,
         pic: DefaultingBool,
         red_zone: DefaultingBool,
