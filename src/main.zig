@@ -5333,7 +5333,7 @@ fn cmdBuild(
                 .root_src_path = fs.path.basename(runner),
             } else .{
                 .root = try .fromRoot(arena, dirs, .zig_lib, "compiler"),
-                .root_src_path = "configure_runner.zig",
+                .root_src_path = "configurer.zig",
             };
 
             const config = try Compilation.Config.resolve(.{
