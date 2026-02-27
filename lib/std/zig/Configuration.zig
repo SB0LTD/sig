@@ -1147,6 +1147,10 @@ pub const Module = struct {
 
     pub const Index = enum(u32) {
         _,
+
+        pub fn get(this: @This(), c: *const Configuration) Module {
+            return extraData(c, Module, @intFromEnum(this));
+        }
     };
 
     pub const Flags = packed struct(u32) {
@@ -1318,6 +1322,14 @@ pub const DefaultingBool = enum(u2) {
             true => .true,
         };
     }
+
+    pub fn toBool(db: DefaultingBool) ?bool {
+        return switch (db) {
+            .false => false,
+            .true => true,
+            .default => null,
+        };
+    }
 };
 
 pub const SystemLib = struct {
@@ -1431,11 +1443,26 @@ pub const ResolvedTarget = struct {
 
     pub const Index = enum(u32) {
         _,
+
+        pub fn get(this: @This(), c: *const Configuration) ?ResolvedTarget {
+            return extraData(c, ResolvedTarget, @intFromEnum(this));
+        }
     };
 
     pub const OptionalIndex = enum(u32) {
         none = maxInt(u32),
         _,
+
+        pub fn unwrap(this: @This()) ?Index {
+            return switch (this) {
+                .none => null,
+                _ => @enumFromInt(@intFromEnum(this)),
+            };
+        }
+
+        pub fn get(this: @This(), c: *const Configuration) ?ResolvedTarget {
+            return (unwrap(this) orelse return null).get(c);
+        }
     };
 };
 
@@ -1468,6 +1495,10 @@ pub const TargetQuery = struct {
         pub fn length(i: Index, extra: []const u32) usize {
             return Storage.dataLength(extra, @intFromEnum(i), TargetQuery);
         }
+
+        pub fn get(this: @This(), c: *const Configuration) TargetQuery {
+            return extraData(c, TargetQuery, @intFromEnum(this));
+        }
     };
 
     pub const OptionalIndex = enum(u32) {
@@ -1478,6 +1509,13 @@ pub const TargetQuery = struct {
             const result: OptionalIndex = @enumFromInt(@intFromEnum(i));
             assert(result != .none);
             return result;
+        }
+
+        pub fn unwrap(this: @This()) ?Index {
+            return switch (this) {
+                .none => null,
+                _ => @enumFromInt(@intFromEnum(this)),
+            };
         }
     };
 
@@ -1679,6 +1717,22 @@ pub const TargetQuery = struct {
         pub fn init(x: ?std.Target.ObjectFormat) @This() {
             // TODO comptime assert the enums match
             return @enumFromInt(@intFromEnum(x orelse return .default));
+        }
+
+        pub fn get(this: @This()) ?std.Target.ObjectFormat {
+            return switch (this) {
+                .c => .c,
+                .coff => .coff,
+                .elf => .elf,
+                .hex => .hex,
+                .macho => .macho,
+                .plan9 => .plan9,
+                .raw => .raw,
+                .spirv => .spirv,
+                .wasm => .wasm,
+
+                .default => null,
+            };
         }
     };
 
@@ -1933,7 +1987,7 @@ pub const Storage = enum {
                             }
                             const end = meta_start + Field.extraLen(len);
                             i.* = end;
-                            return .{ .data = end - len, .len = len };
+                            return .{ .data = @ptrFromInt(end - len), .len = len };
                         },
                     },
                 },

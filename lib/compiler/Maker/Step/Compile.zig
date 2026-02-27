@@ -30,8 +30,8 @@ pub fn make(
     const graph = maker.graph;
     const step = maker.stepByIndex(step_index);
     compile.zig_args.clearRetainingCapacity();
-    if (true) @panic("TODO implement compile.make()");
     try lowerZigArgs(compile, step_index, maker, &compile.zig_args, false);
+    if (true) @panic("TODO implement compile.make()");
     const process_arena = graph.arena; // TODO don't leak into the process_arena
 
     const maybe_output_dir = step.evalZigProcess(
@@ -92,10 +92,13 @@ fn lowerZigArgs(
     const graph = maker.graph;
     const arena = graph.arena; // TODO don't leak into the process arena
     const gpa = maker.gpa;
+    const conf = &maker.scanned_config.configuration;
+    const conf_step = step_index.ptr(conf);
+    const conf_comp = conf_step.extended.get(conf.extra).compile;
 
     try zig_args.append(gpa, graph.zig_exe);
 
-    const cmd = switch (compile.kind) {
+    const cmd = switch (conf_comp.flags3.kind) {
         .lib => "build-lib",
         .exe => "build-exe",
         .obj => "build-obj",
@@ -107,24 +110,31 @@ fn lowerZigArgs(
     if (graph.reference_trace) |some| {
         try zig_args.append(gpa, try allocPrint(arena, "-freference-trace={d}", .{some}));
     }
-    try addFlag(&zig_args, "allow-so-scripts", compile.allow_so_scripts orelse graph.allow_so_scripts);
+    try addFlag(gpa, zig_args, "allow-so-scripts", conf_comp.flags2.allow_so_scripts.toBool() orelse graph.allow_so_scripts);
 
-    try addFlag(&zig_args, "llvm", compile.use_llvm);
-    try addFlag(&zig_args, "lld", compile.use_lld);
-    try addFlag(&zig_args, "new-linker", compile.use_new_linker);
+    try addFlag(gpa, zig_args, "llvm", conf_comp.flags2.use_llvm.toBool());
+    try addFlag(gpa, zig_args, "lld", conf_comp.flags2.use_lld.toBool());
+    try addFlag(gpa, zig_args, "new-linker", conf_comp.flags2.use_new_linker.toBool());
 
-    if (compile.root_module.resolved_target.?.query.ofmt) |ofmt| {
-        try zig_args.append(gpa, try allocPrint(arena, "-ofmt={t}", .{ofmt}));
+    const root_module = conf_comp.root_module.get(conf);
+
+    if (root_module.resolved_target.get(conf).?.query.unwrap()) |query| {
+        if (query.get(conf).flags.object_format.get()) |ofmt| {
+            try zig_args.append(gpa, try allocPrint(arena, "-ofmt={t}", .{ofmt}));
+        }
     }
 
-    switch (compile.entry) {
+    switch (conf_comp.flags3.entry) {
         .default => {},
         .disabled => try zig_args.append(gpa, "-fno-entry"),
         .enabled => try zig_args.append(gpa, "-fentry"),
-        .symbol_name => |entry_name| {
-            try zig_args.append(gpa, try allocPrint(arena, "-fentry={s}", .{entry_name}));
+        .symbol_name => {
+            const symbol_name = conf_comp.entry.value.?.slice(conf);
+            try zig_args.append(gpa, try allocPrint(arena, "-fentry={s}", .{symbol_name}));
         },
     }
+
+    if (true) @panic("TODO");
 
     {
         for (compile.force_undefined_symbols.keys()) |symbol_name| {
@@ -408,7 +418,7 @@ fn lowerZigArgs(
                 if (!my_responsibility) continue;
                 if (cli_named_modules.modules.getIndex(mod)) |module_cli_index| {
                     const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
-                    try mod.appendZigProcessFlags(&zig_args, step);
+                    try mod.appendZigProcessFlags(zig_args, step);
 
                     // --dep arguments
                     try zig_args.ensureUnusedCapacity(mod.import_table.count() * 2);
@@ -507,7 +517,7 @@ fn lowerZigArgs(
     if (compile.generated_llvm_ir != null) try zig_args.append(gpa, "-femit-llvm-ir");
     if (compile.generated_h != null) try zig_args.append(gpa, "-femit-h");
 
-    try addFlag(&zig_args, "formatted-panics", compile.formatted_panics);
+    try addFlag(gpa, zig_args, "formatted-panics", compile.formatted_panics);
 
     switch (compile.compress_debug_sections) {
         .none => {},
@@ -612,9 +622,9 @@ fn lowerZigArgs(
         try zig_args.append(gpa, "--discard-all");
     }
 
-    try addFlag(&zig_args, "compiler-rt", compile.bundle_compiler_rt);
-    try addFlag(&zig_args, "ubsan-rt", compile.bundle_ubsan_rt);
-    try addFlag(&zig_args, "dll-export-fns", compile.dll_export_fns);
+    try addFlag(gpa, zig_args, "compiler-rt", compile.bundle_compiler_rt);
+    try addFlag(gpa, zig_args, "ubsan-rt", compile.bundle_ubsan_rt);
+    try addFlag(gpa, zig_args, "dll-export-fns", compile.dll_export_fns);
     if (compile.rdynamic) {
         try zig_args.append(gpa, "-rdynamic");
     }
@@ -718,7 +728,7 @@ fn lowerZigArgs(
         try zig_args.appendSlice(gpa, &.{ "-rcincludes", @tagName(compile.rc_includes) });
     }
 
-    try addFlag(&zig_args, "each-lib-rpath", compile.each_lib_rpath);
+    try addFlag(gpa, zig_args, "each-lib-rpath", compile.each_lib_rpath);
 
     if (compile.build_id orelse graph.build_id) |build_id| {
         try zig_args.append(gpa, switch (build_id) {
@@ -739,7 +749,7 @@ fn lowerZigArgs(
         try zig_args.append(gpa, zig_lib_dir);
     }
 
-    try addFlag(&zig_args, "PIE", compile.pie);
+    try addFlag(gpa, zig_args, "PIE", compile.pie);
 
     if (compile.lto) |lto| {
         try zig_args.append(gpa, switch (lto) {
@@ -749,7 +759,7 @@ fn lowerZigArgs(
         });
     }
 
-    try addFlag(&zig_args, "sanitize-coverage-trace-pc-guard", compile.sanitize_coverage_trace_pc_guard);
+    try addFlag(gpa, zig_args, "sanitize-coverage-trace-pc-guard", compile.sanitize_coverage_trace_pc_guard);
 
     if (compile.subsystem) |subsystem| {
         try zig_args.appendSlice(gpa, &.{ "--subsystem", @tagName(subsystem) });
@@ -763,7 +773,7 @@ fn lowerZigArgs(
         "--error-limit", try allocPrint(arena, "{d}", .{err_limit}),
     });
 
-    try addFlag(&zig_args, "incremental", graph.incremental);
+    try addFlag(gpa, zig_args, "incremental", graph.incremental);
 
     try zig_args.append(gpa, "--listen=-");
 
