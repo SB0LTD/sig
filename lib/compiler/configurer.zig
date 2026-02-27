@@ -224,6 +224,8 @@ const Serialize = struct {
     wc: *Configuration.Wip,
     module_map: std.AutoArrayHashMapUnmanaged(*std.Build.Module, Configuration.Module.Index) = .empty,
     package_map: std.AutoArrayHashMapUnmanaged(*std.Build, Configuration.Package.Index) = .empty,
+    /// Index corresponds to `Configuration.steps` index.
+    step_map: std.AutoArrayHashMapUnmanaged(*Step, void) = .empty,
 
     fn builderToPackage(s: *Serialize, b: *std.Build) !Configuration.Package.Index {
         if (b.pkg_hash.len == 0) return .root;
@@ -291,6 +293,56 @@ const Serialize = struct {
         return if (opt_slice) |slice| try s.wc.addString(slice) else null;
     }
 
+    fn addSystemLib(s: *Serialize, sl: *const std.Build.Module.SystemLib) !Configuration.SystemLib.Index {
+        log.err("TODO deduplicate addSystemLib", .{});
+        const wc = s.wc;
+        return @enumFromInt(try wc.addExtra(@as(Configuration.SystemLib, .{
+            .flags = .{
+                .needed = sl.needed,
+                .weak = sl.weak,
+                .use_pkg_config = sl.use_pkg_config,
+                .preferred_link_mode = sl.preferred_link_mode,
+                .search_strategy = sl.search_strategy,
+            },
+            .name = try wc.addString(sl.name),
+        })));
+    }
+
+    fn addCSourceFile(s: *Serialize, csf: *const std.Build.Module.CSourceFile) !Configuration.CSourceFile.Index {
+        log.err("TODO addCSourceFile trailing data", .{});
+        const wc = s.wc;
+        return @enumFromInt(try wc.addExtra(@as(Configuration.CSourceFile, .{
+            .flags = .{
+                .args_len = @intCast(csf.flags.len),
+                .lang = .init(csf.language),
+            },
+            .file = try addLazyPath(s, csf.file),
+        })));
+    }
+
+    fn addCSourceFiles(s: *Serialize, csf: *const std.Build.Module.CSourceFiles) !Configuration.CSourceFiles.Index {
+        log.err("TODO addCSourceFiles trailing data", .{});
+        const wc = s.wc;
+        return @enumFromInt(try wc.addExtra(@as(Configuration.CSourceFiles, .{
+            .flags = .{
+                .args_len = @intCast(csf.flags.len),
+                .lang = .init(csf.language),
+            },
+            .root = try addLazyPath(s, csf.root),
+            .files_len = @intCast(csf.files.len),
+        })));
+    }
+
+    fn addRcSourceFile(s: *Serialize, rsf: *const std.Build.Module.RcSourceFile) !Configuration.RcSourceFile.Index {
+        log.err("TODO addRcSourceFile trailing data", .{});
+        const wc = s.wc;
+        return @enumFromInt(try wc.addExtra(@as(Configuration.RcSourceFile, .{
+            .file = try addLazyPath(s, rsf.file),
+            .args_len = @intCast(rsf.flags.len),
+            .include_paths_len = @intCast(rsf.include_paths.len),
+        })));
+    }
+
     fn initStringList(s: *Serialize, list: []const []const u8) ![]const Configuration.String {
         const wc = s.wc;
         const result = try s.arena.alloc(Configuration.String, list.len);
@@ -311,6 +363,35 @@ const Serialize = struct {
         const wc = s.wc;
         const arena = s.arena;
         const gpa = wc.gpa;
+
+        const include_dirs = try arena.alloc(Configuration.Module.IncludeDir, m.include_dirs.items.len);
+        for (include_dirs, m.include_dirs.items) |*dest, src| dest.* = switch (src) {
+            .path => |lp| .{ .path = try addLazyPath(s, lp) },
+            .path_system => |lp| .{ .path_system = try addLazyPath(s, lp) },
+            .path_after => |lp| .{ .path_after = try addLazyPath(s, lp) },
+            .framework_path => |lp| .{ .framework_path = try addLazyPath(s, lp) },
+            .framework_path_system => |lp| .{ .framework_path_system = try addLazyPath(s, lp) },
+            .embed_path => |lp| .{ .embed_path = try addLazyPath(s, lp) },
+            .other_step => |cs| .{ .other_step = stepIndex(s, &cs.step) },
+            .config_header_step => |chs| .{ .config_header_step = stepIndex(s, &chs.step) },
+        };
+
+        const rpaths = try arena.alloc(Configuration.Module.RPath, m.rpaths.items.len);
+        for (rpaths, m.rpaths.items) |*dest, src| dest.* = switch (src) {
+            .lazy_path => |lp| .{ .lazy_path = try addLazyPath(s, lp) },
+            .special => |slice| .{ .special = try wc.addString(slice) },
+        };
+
+        const link_objects = try arena.alloc(Configuration.Module.LinkObject, m.link_objects.items.len);
+        for (link_objects, m.link_objects.items) |*dest, *src| dest.* = switch (src.*) {
+            .static_path => |lp| .{ .static_path = try addLazyPath(s, lp) },
+            .other_step => |cs| .{ .other_step = stepIndex(s, &cs.step) },
+            .system_lib => |*sl| .{ .system_lib = try addSystemLib(s, sl) },
+            .assembly_file => |lp| .{ .assembly_file = try addLazyPath(s, lp) },
+            .c_source_file => |csf| .{ .c_source_file = try addCSourceFile(s, csf) },
+            .c_source_files => |csf| .{ .c_source_files = try addCSourceFiles(s, csf) },
+            .win32_resource_file => |wrf| .{ .win32_resource_file = try addRcSourceFile(s, wrf) },
+        };
 
         const lib_paths = try arena.alloc(Configuration.LazyPath, m.lib_paths.items.len);
         for (lib_paths, m.lib_paths.items) |*dest, src| dest.* = try addLazyPath(s, src);
@@ -352,11 +433,11 @@ const Serialize = struct {
                 .fuzz = .init(m.strip),
                 .code_model = m.code_model,
                 .c_macros = c_macros.len != 0,
-                .include_dirs = m.include_dirs.items.len != 0,
+                .include_dirs = include_dirs.len != 0,
                 .lib_paths = lib_paths.len != 0,
-                .rpaths = m.rpaths.items.len != 0,
+                .rpaths = rpaths.len != 0,
                 .frameworks = m.frameworks.entries.len != 0,
-                .link_objects = m.link_objects.items.len != 0,
+                .link_objects = link_objects.len != 0,
                 .export_symbol_names = export_symbol_names.len != 0,
             },
             .flags2 = .{
@@ -376,6 +457,9 @@ const Serialize = struct {
             .c_macros = .{ .slice = c_macros },
             .lib_paths = .{ .slice = lib_paths },
             .export_symbol_names = .{ .slice = export_symbol_names },
+            .include_dirs = .init(include_dirs),
+            .rpaths = .init(rpaths),
+            .link_objects = .init(link_objects),
         })));
 
         log.err("TODO serialize the trailing Module data", .{});
@@ -383,6 +467,10 @@ const Serialize = struct {
         try s.module_map.putNoClobber(arena, m, module_index);
 
         return module_index;
+    }
+
+    fn stepIndex(s: *const Serialize, step: *Step) Configuration.Step.Index {
+        return @enumFromInt(s.step_map.getIndex(step).?);
     }
 };
 
@@ -396,34 +484,32 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
     // Starting from all top-level steps in `b`, traverse the entire step graph
     // and add all step dependencies implied by module graphs.
     const top_level_steps = b.top_level_steps.values();
-    // Index corresponds to `Configuration.steps` index.
-    var step_map: std.AutoArrayHashMapUnmanaged(*Step, void) = .empty;
-    try step_map.ensureUnusedCapacity(arena, top_level_steps.len);
+    try s.step_map.ensureUnusedCapacity(arena, top_level_steps.len);
     for (top_level_steps) |tls| {
-        step_map.putAssumeCapacityNoClobber(&tls.step, {});
+        s.step_map.putAssumeCapacityNoClobber(&tls.step, {});
     }
     {
-        while (wc.steps.items.len < step_map.count()) {
-            const step = step_map.keys()[wc.steps.items.len];
+        while (wc.steps.items.len < s.step_map.count()) {
+            const step = s.step_map.keys()[wc.steps.items.len];
 
             // Set up any implied dependencies for this step. It's important that we do this first, so
             // that the loop below discovers steps implied by the module graph.
             try createModuleDependenciesForStep(step);
 
-            try step_map.ensureUnusedCapacity(arena, step.dependencies.items.len);
+            try s.step_map.ensureUnusedCapacity(arena, step.dependencies.items.len);
             for (step.dependencies.items) |other_step| {
-                step_map.putAssumeCapacity(other_step, {});
+                s.step_map.putAssumeCapacity(other_step, {});
             }
 
             // Add and then de-duplicate dependencies.
             const deps = d: {
                 const deps: Configuration.Deps = @enumFromInt(wc.extra.items.len);
                 for (try wc.reserveLengthPrefixed(step.dependencies.items.len), step.dependencies.items) |*dep, dep_step|
-                    dep.* = @intCast(step_map.getIndex(dep_step).?);
+                    dep.* = @intCast(s.step_map.getIndex(dep_step).?);
                 break :d try wc.dedupeDeps(deps);
             };
 
-            try wc.steps.ensureTotalCapacity(gpa, step_map.entries.capacity);
+            try wc.steps.ensureTotalCapacity(gpa, s.step_map.entries.capacity);
             wc.steps.appendAssumeCapacity(.{
                 .name = try wc.addString(step.name),
                 .owner = try s.builderToPackage(step.owner),
@@ -613,7 +699,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .emitted_pdb = try s.addOptionalLazyPathEnum(ia.emitted_pdb),
                             .h_dir = try addInstallDir(wc, ia.h_dir),
                             .emitted_h = try s.addOptionalLazyPathEnum(ia.emitted_h),
-                            .artifact = stepIndex(&step_map, &ia.artifact.step),
+                            .artifact = s.stepIndex(&ia.artifact.step),
                         })));
                     },
                     .install_file => @panic("TODO"),
@@ -688,7 +774,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
     }
 
     try wc.write(writer, .{
-        .default_step = stepIndex(&step_map, b.default_step),
+        .default_step = s.stepIndex(b.default_step),
     });
 }
 
@@ -712,10 +798,6 @@ fn addInstallDir(wc: *Configuration.Wip, install_dir: ?std.Build.InstallDir) !Co
         .header => return .header,
         .custom => |sub_path| return .initCustom(try wc.addString(sub_path)),
     }
-}
-
-fn stepIndex(step_map: *const std.AutoArrayHashMapUnmanaged(*Step, void), step: *Step) Configuration.Step.Index {
-    return @enumFromInt(step_map.getIndex(step).?);
 }
 
 /// If the given `Step` is a `Step.Compile`, adds any dependencies for that step which

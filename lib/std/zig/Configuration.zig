@@ -1071,9 +1071,6 @@ pub const Package = struct {
 
 /// Trailing:
 /// * frameworks: FlagsPrefixedList(FrameworkFlags), // if flag is set
-/// * include_dirs: UnionList(IncludeDir), // if flag is set
-/// * rpaths: UnionList(RPath), // if flag is set
-/// * link_objects: UnionList(LinkObject), // if flag is set
 pub const Module = struct {
     flags: Flags,
     flags2: Flags2,
@@ -1084,6 +1081,9 @@ pub const Module = struct {
     c_macros: Storage.FlagLengthPrefixedList(.flags, .c_macros, String),
     lib_paths: Storage.FlagLengthPrefixedList(.flags, .lib_paths, LazyPath),
     export_symbol_names: Storage.FlagLengthPrefixedList(.flags, .export_symbol_names, String),
+    include_dirs: Storage.UnionList(.flags, .include_dirs, IncludeDir),
+    rpaths: Storage.UnionList(.flags, .rpaths, RPath),
+    link_objects: Storage.UnionList(.flags, .link_objects, LinkObject),
 
     pub const Optimize = enum(u3) {
         debug,
@@ -1204,7 +1204,7 @@ pub const Module = struct {
         static_path: LazyPath,
         /// Always `Step.Tag.compile`.
         other_step: Step.Index,
-        system_lib: SystemLib,
+        system_lib: SystemLib.Index,
         assembly_file: LazyPath,
         c_source_file: CSourceFile.Index,
         c_source_files: CSourceFiles.Index,
@@ -1328,8 +1328,18 @@ pub const SystemLib = struct {
         _,
     };
 
-    pub const UsePkgConfig = enum(u2) { no, yes, force };
-    pub const LinkMode = enum { static, dynamic };
+    pub const UsePkgConfig = enum(u2) {
+        /// Don't use pkg-config, just pass -lfoo where foo is name.
+        no,
+        /// Try to get information on how to link the library from pkg-config.
+        /// If that fails, fall back to passing -lfoo where foo is name.
+        yes,
+        /// Try to get information on how to link the library from pkg-config.
+        /// If that fails, error out.
+        force,
+    };
+
+    pub const LinkMode = std.builtin.LinkMode;
 
     pub const Flags = packed struct(u32) {
         needed: bool,
@@ -1337,18 +1347,19 @@ pub const SystemLib = struct {
         use_pkg_config: UsePkgConfig,
         preferred_link_mode: LinkMode,
         search_strategy: SearchStrategy,
+        _: u25 = 0,
     };
 
     pub const SearchStrategy = enum(u2) { paths_first, mode_first, no_fallback };
 };
 
 /// Trailing:
-/// * flag: String, // for each flags_len
+/// * arg: String, // for each args_len
 /// * sub_path: String, // for each files_len
 pub const CSourceFiles = struct {
+    flags: Flags,
     root: LazyPath,
     files_len: u32,
-    flags: Flags,
 
     pub const Index = enum(u32) {
         _,
@@ -1356,16 +1367,16 @@ pub const CSourceFiles = struct {
 
     pub const Flags = packed struct(u32) {
         /// C compiler CLI flags.
-        flags_len: u29,
+        args_len: u29,
         lang: OptionalCSourceLanguage,
     };
 };
 
 /// Trailing:
-/// * flag: String, // for each flags_len
+/// * arg: String, // for each args_len
 pub const CSourceFile = struct {
-    file: LazyPath,
     flags: Flags,
+    file: LazyPath,
 
     pub const Index = enum(u32) {
         _,
@@ -1373,8 +1384,21 @@ pub const CSourceFile = struct {
 
     pub const Flags = packed struct(u32) {
         /// C compiler CLI flags.
-        flags_len: u29,
+        args_len: u29,
         lang: OptionalCSourceLanguage,
+    };
+};
+
+/// Trailing:
+/// * arg: String, // for each args_len
+/// * include_path: String, // for each include_paths_len
+pub const RcSourceFile = struct {
+    file: LazyPath,
+    args_len: u32,
+    include_paths_len: u32,
+
+    pub const Index = enum(u32) {
+        _,
     };
 };
 
@@ -1386,29 +1410,17 @@ pub const OptionalCSourceLanguage = enum(u3) {
     assembly,
     assembly_with_preprocessor,
     default,
-};
 
-pub const RcSourceFile = struct {
-    file: LazyPath,
-    /// Any option that rc.exe accepts will work here, with the exception of:
-    /// - `/fo`: The output filename is set by the build system
-    /// - `/p`: Only running the preprocessor is not supported in this context
-    /// - `/:no-preprocess` (non-standard option): Not supported in this context
-    /// - Any MUI-related option
-    /// https://learn.microsoft.com/en-us/windows/win32/menurc/using-rc-the-rc-command-line-
-    ///
-    /// Implicitly defined options:
-    ///  /x (ignore the INCLUDE environment variable)
-    ///  /D_DEBUG or /DNDEBUG depending on the optimization mode
-    flags: []const []const u8 = &.{},
-    /// Include paths that may or may not exist yet and therefore need to be
-    /// specified as a LazyPath. Each path will be appended to the flags
-    /// as `/I <resolved path>`.
-    include_paths: []const LazyPath = &.{},
-
-    pub const Index = enum(u32) {
-        _,
-    };
+    pub fn init(x: ?std.Build.Module.CSourceLanguage) @This() {
+        return switch (x orelse return .default) {
+            .c => .c,
+            .cpp => .cpp,
+            .objective_c => .objective_c,
+            .objective_cpp => .objective_cpp,
+            .assembly => .assembly,
+            .assembly_with_preprocessor => .assembly_with_preprocessor,
+        };
+    }
 };
 
 pub const ResolvedTarget = struct {
@@ -1691,6 +1703,7 @@ pub const Storage = enum {
     enum_optional,
     extended,
     flag_length_prefixed_list,
+    union_list,
 
     /// The presence of the field is determined by a boolean within a packed
     /// struct.
@@ -1765,6 +1778,63 @@ pub const Storage = enum {
 
             pub fn initErased(s: []const u32) @This() {
                 return .{ .slice = @ptrCast(s) };
+            }
+        };
+    }
+
+    /// `UnionArg` is a tagged union with a small integer for the enum tag.
+    ///
+    /// A field in flags determines whether the metadata is present.
+    ///
+    /// The metadata is bit-packed consecutive packed struct which is the
+    /// `UnionArg` enum tag combined with a "last" marker boolean field.
+    /// When "last" is true, the element is the last one, providing
+    /// the length of the list.
+    ///
+    /// Following is each element of the list; each bitcastable to u32.
+    pub fn UnionList(
+        comptime flags_arg: @EnumLiteral(),
+        comptime flag_arg: @EnumLiteral(),
+        comptime UnionArg: type,
+    ) type {
+        return struct {
+            /// When serializing it is UnionArg slice pointer.
+            /// When deserializing it is extra index of first UnionArg element.
+            data: ?*const anyopaque,
+            len: usize,
+
+            pub const storage: Storage = .union_list;
+            pub const flags = flags_arg;
+            pub const flag = flag_arg;
+            pub const Union = UnionArg;
+
+            pub const Tag = @typeInfo(Union).@"union".tag_type.?;
+            pub const MetaInt = @Int(.unsigned, @bitSizeOf(Tag) + 1);
+            pub const Meta = packed struct(MetaInt) {
+                tag: Tag,
+                last: bool,
+            };
+
+            /// Valid to call only when serializing.
+            pub fn init(slice: []const Union) @This() {
+                return .{ .data = slice.ptr, .len = slice.len };
+            }
+
+            /// Valid to call only when deserializing.
+            pub fn get(this: *const @This(), extra: []const u32) []const u32 {
+                return extra[@intFromPtr(this.data)..][0..this.len];
+            }
+
+            /// Valid to call only when deserializing.
+            pub fn tag(this: *const @This(), extra: []const u32, i: usize) Tag {
+                _ = this;
+                _ = extra;
+                _ = i;
+                @panic("TODO implement UnionList.tag");
+            }
+
+            fn extraLen(len: usize) usize {
+                return len + (len * @bitSizeOf(Meta) + 31) / 32;
             }
         };
     }
@@ -1848,6 +1918,23 @@ pub const Storage = enum {
                             defer i.* = data_start + len;
                             return .{ .slice = @ptrCast(buffer[data_start..][0..len]) };
                         },
+                        .union_list => {
+                            const flags = @field(container, @tagName(Field.flags));
+                            const flag = @field(flags, @tagName(Field.flag));
+                            if (!flag) return .{ .data = null, .len = 0 };
+                            const meta_start = i.*;
+                            const meta_buffer = buffer[meta_start..];
+                            var len: u32 = 0;
+                            var bit_offset: usize = 0;
+                            while (true) : (bit_offset += @bitSizeOf(Field.Meta)) {
+                                const meta = loadBits(u32, meta_buffer, bit_offset, Field.Meta);
+                                len += 1;
+                                if (meta.last) break;
+                            }
+                            const end = meta_start + Field.extraLen(len);
+                            i.* = end;
+                            return .{ .data = end - len, .len = len };
+                        },
                     },
                 },
                 .@"extern" => comptime unreachable,
@@ -1884,6 +1971,7 @@ pub const Storage = enum {
                 .auto => switch (Field.storage) {
                     .flag_optional, .enum_optional, .extended => 1,
                     .flag_length_prefixed_list => field.slice.len + 1,
+                    .union_list => Field.extraLen(field.len),
                 },
                 .@"extern" => comptime unreachable,
             },
@@ -1947,6 +2035,33 @@ pub const Storage = enum {
                             @memcpy(buffer[i + 1 ..][0..len], @as([]const u32, @ptrCast(value.slice)));
                             return len + 1;
                         },
+                        .union_list => {
+                            if (value.len == 0) return 0;
+                            const Tag = @typeInfo(Field.Union).@"union".tag_type.?;
+                            const slice_ptr: [*]const Field.Union = @ptrCast(@alignCast(value.data));
+                            const slice = slice_ptr[0..value.len];
+                            const meta_buffer = buffer[i..][0 .. (slice.len * @bitSizeOf(Field.Meta) + 31) / 32];
+                            for (slice[0 .. slice.len - 1], 0..) |elem, elem_index| {
+                                const union_tag: Tag = elem;
+                                storeBits(u32, meta_buffer, elem_index * @bitSizeOf(Field.Meta), @as(Field.Meta, .{
+                                    .tag = union_tag,
+                                    .last = false,
+                                }));
+                            } else {
+                                const elem_index = slice.len - 1;
+                                const elem = slice[elem_index];
+                                const union_tag: Tag = elem;
+                                storeBits(u32, meta_buffer, elem_index * @bitSizeOf(Field.Meta), @as(Field.Meta, .{
+                                    .tag = union_tag,
+                                    .last = true,
+                                }));
+                            }
+                            var total: usize = meta_buffer.len;
+                            for (i + meta_buffer.len.., slice) |elem_index, src| switch (src) {
+                                inline else => |x| total += setExtraField(buffer, elem_index, @TypeOf(x), x),
+                            };
+                            return total;
+                        },
                     },
                 },
                 .@"extern" => comptime unreachable,
@@ -1999,4 +2114,49 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
     };
     try reader.readVecAll(&vecs);
     return result;
+}
+
+pub fn loadBits(comptime Int: type, buffer: []const Int, bit_offset: usize, comptime Result: type) Result {
+    const index = bit_offset / @bitSizeOf(Int);
+    const small_bit_offset = bit_offset % @bitSizeOf(Int);
+    const ResultInt = @Int(.unsigned, @bitSizeOf(Result));
+    const result: ResultInt = @truncate(buffer[index] >> @intCast(small_bit_offset));
+    const available_bits = @bitSizeOf(Int) - small_bit_offset;
+    if (available_bits >= @bitSizeOf(ResultInt)) return @bitCast(result);
+    const missing_bits = @bitSizeOf(ResultInt) - available_bits;
+    const upper: ResultInt = @truncate(buffer[index + 1] & ((@as(usize, 1) << @intCast(missing_bits)) - 1));
+    return @bitCast(result | (upper << @intCast(available_bits)));
+}
+
+pub fn storeBits(comptime Int: type, buffer: []Int, bit_offset: usize, value: anytype) void {
+    const Value = @TypeOf(value);
+    const ValueInt = @Int(.unsigned, @bitSizeOf(Value));
+    const value_int: ValueInt = @bitCast(value);
+    const index = bit_offset / @bitSizeOf(Int);
+    const small_bit_offset = bit_offset % @bitSizeOf(Int);
+    const available_bits = @bitSizeOf(Int) - small_bit_offset;
+    if (available_bits >= @bitSizeOf(ValueInt)) {
+        buffer[index] &= ~(((@as(Int, 1) << @intCast(@bitSizeOf(Value))) - 1) << @intCast(small_bit_offset));
+        buffer[index] |= @as(Int, value_int) << @intCast(small_bit_offset);
+    } else {
+        const DoubleInt = @Int(.unsigned, @bitSizeOf(Int) * 2);
+        const ptr: *align(@alignOf(Int)) DoubleInt = @ptrCast(buffer[index..][0..2]);
+        ptr.* &= ~(((@as(DoubleInt, 1) << @intCast(@bitSizeOf(Value))) - 1) << @intCast(small_bit_offset));
+        ptr.* |= @as(DoubleInt, value_int) << @intCast(small_bit_offset);
+    }
+}
+
+test "loadBits and storeBits" {
+    var buffer: [2]u32 = .{
+        0b01111111000000001111111100000000,
+        0b11111111000000001111111100000100,
+    };
+    try std.testing.expectEqual(0b100, loadBits(u32, &buffer, 6, u3));
+    try std.testing.expectEqual(0b100011, loadBits(u32, &buffer, 29, u6));
+
+    storeBits(u32, &buffer, 6, @as(u3, 0b010));
+    storeBits(u32, &buffer, 29, @as(u6, 0b010010));
+
+    try std.testing.expectEqual(0b010, loadBits(u32, &buffer, 6, u3));
+    try std.testing.expectEqual(0b010010, loadBits(u32, &buffer, 29, u6));
 }

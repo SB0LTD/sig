@@ -73,18 +73,8 @@ pub const SystemLib = struct {
     preferred_link_mode: std.builtin.LinkMode,
     search_strategy: SystemLib.SearchStrategy,
 
-    pub const UsePkgConfig = enum {
-        /// Don't use pkg-config, just pass -lfoo where foo is name.
-        no,
-        /// Try to get information on how to link the library from pkg-config.
-        /// If that fails, fall back to passing -lfoo where foo is name.
-        yes,
-        /// Try to get information on how to link the library from pkg-config.
-        /// If that fails, error out.
-        force,
-    };
-
-    pub const SearchStrategy = enum { paths_first, mode_first, no_fallback };
+    pub const UsePkgConfig = std.Build.Configuration.SystemLib.UsePkgConfig;
+    pub const SearchStrategy = std.Build.Configuration.SystemLib.SearchStrategy;
 };
 
 pub const CSourceLanguage = enum {

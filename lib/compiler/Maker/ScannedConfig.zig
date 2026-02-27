@@ -15,6 +15,7 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
     std.log.err("TODO also print unlazy deps", .{});
     std.log.err("TODO also print system integrations", .{});
     std.log.err("TODO also print available options", .{});
+    std.log.err("TODO also print modules", .{});
     const c = &sc.configuration;
     var serializer: Serializer = .{ .writer = w };
     var s = try serializer.beginStruct(.{});
@@ -83,6 +84,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                     .flag_optional => comptime unreachable,
                     .flag_length_prefixed_list => comptime unreachable,
                     .enum_optional => comptime unreachable,
+                    .union_list => comptime unreachable,
                 } else if (std.enums.tagName(Field, field_value)) |name| {
                     try s.ident(name);
                 } else {
@@ -105,6 +107,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                         try printValue(sc, s, @TypeOf(field_value.slice), field_value.slice);
                     },
                     .extended => @compileError("TODO"),
+                    .union_list => @compileError("TODO"),
                 },
                 else => @compileError("not implemented: " ++ @typeName(Field)),
             },
