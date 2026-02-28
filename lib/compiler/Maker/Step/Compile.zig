@@ -134,21 +134,20 @@ fn lowerZigArgs(
         },
     }
 
+    for (conf_comp.force_undefined_symbols.slice) |symbol_name| {
+        try zig_args.appendSlice(gpa, &.{ "--force_undefined", symbol_name.slice(conf) });
+    }
+
+    if (conf_comp.stack_size.value) |stack_size| {
+        try zig_args.appendSlice(gpa, &.{ "--stack", try allocPrint(arena, "{d}", .{stack_size}) });
+    }
+
+    try addBool(gpa, zig_args, "-ffuzz", fuzz);
+
     if (true) @panic("TODO");
 
-    {
-        for (compile.force_undefined_symbols.keys()) |symbol_name| {
-            try zig_args.append(gpa, "--force_undefined");
-            try zig_args.append(gpa, symbol_name.*);
-        }
-    }
-
-    if (compile.stack_size) |stack_size| {
-        try zig_args.append(gpa, "--stack");
-        try zig_args.append(gpa, try allocPrint(arena, "{}", .{stack_size}));
-    }
-
-    try addBool(gpa, zig_args, fuzz, "-ffuzz");
+    var is_linking_libc = conf_comp.flags3.is_linking_libc;
+    var is_linking_libcpp = conf_comp.flags3.is_linking_libcpp;
 
     {
         // Stores system libraries that have already been seen for at least one
@@ -163,14 +162,14 @@ fn lowerZigArgs(
         var prev_preferred_link_mode: std.builtin.LinkMode = .dynamic;
         // Track the number of positional arguments so that a nice error can be
         // emitted if there is nothing to link.
-        var total_linker_objects: usize = @intFromBool(compile.root_module.root_source_file != null);
+        var total_linker_objects: usize = @intFromBool(root_module.root_source_file != .none);
 
         // Fully recursive iteration including dynamic libraries to detect
         // libc and libc++ linkage.
         for (getCompileDependencies(true)) |some_compile| {
             for (some_compile.root_module.getGraph().modules) |mod| {
-                if (mod.link_libc == true) compile.is_linking_libc = true;
-                if (mod.link_libcpp == true) compile.is_linking_libcpp = true;
+                if (mod.link_libc == true) is_linking_libc = true;
+                if (mod.link_libcpp == true) is_linking_libcpp = true;
             }
         }
 
@@ -465,11 +464,11 @@ fn lowerZigArgs(
             try zig_args.append(gpa, name);
         }
 
-        if (compile.is_linking_libcpp) {
+        if (is_linking_libcpp) {
             try zig_args.append(gpa, "-lc++");
         }
 
-        if (compile.is_linking_libc) {
+        if (is_linking_libc) {
             try zig_args.append(gpa, "-lc");
         }
     }
@@ -500,14 +499,14 @@ fn lowerZigArgs(
         try zig_args.appendSlice(gpa, &.{ "--debug-log", log_scope });
     }
 
-    try addBool(gpa, zig_args, graph.debug_compile_errors, "--debug-compile-errors");
-    try addBool(gpa, zig_args, graph.debug_incremental, "--debug-incremental");
-    try addBool(gpa, zig_args, graph.verbose_air, "--verbose-air");
-    try addBool(gpa, zig_args, graph.verbose_llvm_ir, "--verbose-llvm-ir");
-    try addBool(gpa, zig_args, graph.verbose_link or compile.verbose_link, "--verbose-link");
-    try addBool(gpa, zig_args, graph.verbose_cc or compile.verbose_cc, "--verbose-cc");
-    try addBool(gpa, zig_args, graph.verbose_llvm_cpu_features, "--verbose-llvm-cpu-features");
-    try addBool(gpa, zig_args, graph.time_report, "--time-report");
+    try addBool(gpa, zig_args, "--debug-compile-errors", graph.debug_compile_errors);
+    try addBool(gpa, zig_args, "--debug-incremental", graph.debug_incremental);
+    try addBool(gpa, zig_args, "--verbose-air", graph.verbose_air);
+    try addBool(gpa, zig_args, "--verbose-llvm-ir", graph.verbose_llvm_ir);
+    try addBool(gpa, zig_args, "--verbose-link", graph.verbose_link or compile.verbose_link);
+    try addBool(gpa, zig_args, "--verbose-cc", graph.verbose_cc or compile.verbose_cc);
+    try addBool(gpa, zig_args, "--verbose-llvm-cpu-features", graph.verbose_llvm_cpu_features);
+    try addBool(gpa, zig_args, "--time-report", graph.time_report);
 
     if (compile.generated_asm != null) try zig_args.append(gpa, "-femit-asm");
     if (compile.generated_bin == null) try zig_args.append(gpa, "-fno-emit-bin");

@@ -584,9 +584,6 @@ pub const Step = extern struct {
         };
     };
 
-    /// Trailing:
-    /// * exact_match: String, // if expect_errors is contains, starts_with, or stderr_contains
-    /// * test_runner: LazyPath, // if test_runner_mode is not default
     pub const Compile = struct {
         flags: @This().Flags,
         flags2: Flags2,
@@ -600,7 +597,7 @@ pub const Step = extern struct {
         exec_cmd_args: Storage.FlagLengthPrefixedList(.flags, .exec_cmd_args_len, OptionalString),
         installed_headers: Storage.FlagLengthPrefixedList(.flags, .installed_headers_len, Storage.Extended(InstalledHeader.Flags, InstalledHeader)),
         force_undefined_symbols: Storage.FlagLengthPrefixedList(.flags, .force_undefined_symbols_len, String),
-        //exacts: EnumConditionalPrefixedList(.flags4, .expect_errors, .exact, String),
+        expect_errors: Storage.FlagUnion(.flags4, .expect_errors, ExpectErrors),
         linker_script: Storage.FlagOptional(.flags4, .linker_script, LazyPath),
         version_script: Storage.FlagOptional(.flags4, .version_script, LazyPath),
         zig_lib_dir: Storage.FlagOptional(.flags3, .zig_lib_dir, LazyPath),
@@ -622,6 +619,7 @@ pub const Step = extern struct {
         headerpad_size: Storage.FlagOptional(.flags4, .headerpad_size, u32),
         error_limit: Storage.FlagOptional(.flags4, .error_limit, u32),
         build_id: Storage.EnumOptional(.flags3, .build_id, .hexstring, String),
+        test_runner: Storage.FlagUnion(.flags3, .test_runner, TestRunner),
 
         pub const InstalledHeader = union(@This().Tag) {
             file: File,
@@ -663,8 +661,22 @@ pub const Step = extern struct {
                 };
             };
         };
-        pub const ExpectErrors = enum(u3) { contains, exact, starts_with, stderr_contains, none };
-        pub const TestRunnerMode = enum(u2) { default, simple, server };
+        pub const ExpectErrors = union(@This().Tag) {
+            pub const Tag = enum(u3) { contains, exact, starts_with, stderr_contains, none };
+
+            contains: String,
+            exact: Storage.LengthPrefixedList(String),
+            starts_with: String,
+            stderr_contains: String,
+            none: void,
+        };
+        pub const TestRunner = union(@This().Tag) {
+            pub const Tag = enum(u2) { default, simple, server };
+
+            default: void,
+            simple: LazyPath,
+            server: LazyPath,
+        };
         pub const Entry = enum(u2) { default, disabled, enabled, symbol_name };
 
         pub const Lto = enum(u2) {
@@ -826,7 +838,7 @@ pub const Step = extern struct {
             kind: Kind,
             compress_debug_sections: std.zig.CompressDebugSections,
             global_base: bool,
-            test_runner_mode: TestRunnerMode,
+            test_runner: TestRunner.Tag,
             wasi_exec_model: WasiExecModel,
             win32_manifest: bool,
             win32_module_definition: bool,
@@ -849,7 +861,7 @@ pub const Step = extern struct {
             error_limit: bool,
             install_name: bool,
             entitlements: bool,
-            expect_errors: ExpectErrors,
+            expect_errors: ExpectErrors.Tag,
             linker_script: bool,
             version_script: bool,
             _: u18 = 0,
@@ -1756,8 +1768,10 @@ pub const Storage = enum {
     flag_optional,
     enum_optional,
     extended,
+    length_prefixed_list,
     flag_length_prefixed_list,
     union_list,
+    flag_union,
 
     /// The presence of the field is determined by a boolean within a packed
     /// struct.
@@ -1773,6 +1787,24 @@ pub const Storage = enum {
             pub const flags = flags_arg;
             pub const flag = flag_arg;
             pub const Value = ValueArg;
+        };
+    }
+
+    /// The type of the field is determined by an enum within a packed struct.
+    pub fn FlagUnion(
+        comptime flags_arg: @EnumLiteral(),
+        comptime flag_arg: @EnumLiteral(),
+        comptime UnionArg: type,
+    ) type {
+        return struct {
+            u: Union,
+
+            pub const storage: Storage = .flag_union;
+            pub const flags = flags_arg;
+            pub const flag = flag_arg;
+            pub const Union = UnionArg;
+
+            pub const Tag = @typeInfo(Union).@"union".tag_type.?;
         };
     }
 
@@ -1814,21 +1846,32 @@ pub const Storage = enum {
 
     /// A field in flags determines whether the length is zero or nonzero. If the length is
     /// nonzero, then there is a length field followed by the list.
-    ///
-    /// When deserializing, the slice field is set. When serializing, the index
-    /// field must be set.
     pub fn FlagLengthPrefixedList(
         comptime flags_arg: @EnumLiteral(),
         comptime flag_arg: @EnumLiteral(),
-        comptime ValueArg: type,
+        comptime ElemArg: type,
     ) type {
         return struct {
-            slice: []const Value,
+            slice: []const Elem,
 
             pub const storage: Storage = .flag_length_prefixed_list;
             pub const flags = flags_arg;
             pub const flag = flag_arg;
-            pub const Value = ValueArg;
+            pub const Elem = ElemArg;
+
+            pub fn initErased(s: []const u32) @This() {
+                return .{ .slice = @ptrCast(s) };
+            }
+        };
+    }
+
+    /// The field contains a u32 length followed by that many items.
+    pub fn LengthPrefixedList(comptime ElemArg: type) type {
+        return struct {
+            slice: []const Elem,
+
+            pub const storage: Storage = .length_prefixed_list;
+            pub const Elem = ElemArg;
 
             pub fn initErased(s: []const u32) @This() {
                 return .{ .slice = @ptrCast(s) };
@@ -1910,6 +1953,7 @@ pub const Storage = enum {
 
     fn dataField(buffer: []const u32, i: *usize, container: anytype, comptime Field: type) Field {
         switch (@typeInfo(Field)) {
+            .void => return {},
             .int => |info| switch (info.bits) {
                 32 => {
                     defer i.* += 1;
@@ -1954,6 +1998,24 @@ pub const Storage = enum {
                                 .value = if (flag) dataField(buffer, i, container, Field.Value) else null,
                             };
                         },
+                        .flag_union => {
+                            const flags = @field(container, @tagName(Field.flags));
+                            const tag: Field.Tag = @field(flags, @tagName(Field.flag));
+                            return .{
+                                .u = switch (tag) {
+                                    inline else => |comptime_tag| @unionInit(
+                                        Field.Union,
+                                        @tagName(comptime_tag),
+                                        dataField(
+                                            buffer,
+                                            i,
+                                            container,
+                                            @typeInfo(Field.Union).@"union".fields[@intFromEnum(comptime_tag)].type,
+                                        ),
+                                    ),
+                                },
+                            };
+                        },
                         .enum_optional => {
                             const flags = @field(container, @tagName(Field.flags));
                             const tag = @field(flags, @tagName(Field.flag));
@@ -1963,6 +2025,12 @@ pub const Storage = enum {
                             };
                         },
                         .extended => @compileError("TODO"),
+                        .length_prefixed_list => {
+                            const data_start = i.* + 1;
+                            const len = buffer[data_start - 1];
+                            defer i.* = data_start + len;
+                            return .{ .slice = @ptrCast(buffer[data_start..][0..len]) };
+                        },
                         .flag_length_prefixed_list => {
                             const flags = @field(container, @tagName(Field.flags));
                             const flag = @field(flags, @tagName(Field.flag));
@@ -2010,6 +2078,7 @@ pub const Storage = enum {
     fn extraFieldLen(field: anytype) usize {
         const Field = @TypeOf(field);
         return switch (@typeInfo(Field)) {
+            .void => 0,
             .int => |info| switch (info.bits) {
                 32 => 1,
                 64 => 2,
@@ -2024,8 +2093,11 @@ pub const Storage = enum {
                 },
                 .auto => switch (Field.storage) {
                     .flag_optional, .enum_optional, .extended => 1,
-                    .flag_length_prefixed_list => field.slice.len + 1,
+                    .length_prefixed_list, .flag_length_prefixed_list => field.slice.len + 1,
                     .union_list => Field.extraLen(field.len),
+                    .flag_union => switch (field.u) {
+                        inline else => |v| extraFieldLen(v),
+                    },
                 },
                 .@"extern" => comptime unreachable,
             },
@@ -2044,6 +2116,7 @@ pub const Storage = enum {
 
     inline fn setExtraField(buffer: []u32, i: usize, comptime Field: type, value: anytype) usize {
         switch (@typeInfo(Field)) {
+            .void => return 0,
             .int => |info| switch (info.bits) {
                 32 => {
                     buffer[i] = value;
@@ -2081,8 +2154,11 @@ pub const Storage = enum {
                         .flag_optional, .enum_optional => {
                             return if (value.value) |v| setExtraField(buffer, i, Field.Value, v) else 0;
                         },
+                        .flag_union => return switch (value.u) {
+                            inline else => |x| setExtraField(buffer, i, @TypeOf(x), x),
+                        },
                         .extended => @compileError("TODO"),
-                        .flag_length_prefixed_list => {
+                        .flag_length_prefixed_list, .length_prefixed_list => {
                             const len: u32 = @intCast(value.slice.len);
                             if (len == 0) return 0;
                             buffer[i] = len;

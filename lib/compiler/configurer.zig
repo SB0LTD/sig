@@ -606,7 +606,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .max_memory = c.max_memory != null,
                                 .kind = c.kind,
                                 .global_base = c.global_base != null,
-                                .test_runner_mode = if (c.test_runner) |tr| switch (tr.mode) {
+                                .test_runner = if (c.test_runner) |tr| switch (tr.mode) {
                                     .simple => .simple,
                                     .server => .server,
                                 } else .default,
@@ -678,9 +678,17 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .exec_cmd_args = .{ .slice = try s.initOptionalStringList(exec_cmd_args) },
                             .installed_headers = .initErased(installed_headers),
                             .force_undefined_symbols = .{ .slice = try s.initStringList(c.force_undefined_symbols.keys()) },
+                            .expect_errors = .{ .u = if (c.expect_errors) |x| switch (x) {
+                                .contains => |slice| .{ .contains = try wc.addString(slice) },
+                                .exact => |exact| .{ .exact = .{ .slice = try s.initStringList(exact) } },
+                                .starts_with => |slice| .{ .starts_with = try wc.addString(slice) },
+                                .stderr_contains => |slice| .{ .stderr_contains = try wc.addString(slice) },
+                            } else .none },
+                            .test_runner = .{ .u = if (c.test_runner) |tr| switch (tr.mode) {
+                                .simple => .{ .simple = try s.addLazyPath(tr.path) },
+                                .server => .{ .server = try s.addLazyPath(tr.path) },
+                            } else .default },
                         }));
-
-                        log.err("TODO serialize the trailing Compile step data", .{});
 
                         break :e @enumFromInt(extra_index);
                     },

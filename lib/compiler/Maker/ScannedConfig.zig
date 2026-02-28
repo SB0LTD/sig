@@ -85,6 +85,8 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                     .flag_length_prefixed_list => comptime unreachable,
                     .enum_optional => comptime unreachable,
                     .union_list => comptime unreachable,
+                    .length_prefixed_list => comptime unreachable,
+                    .flag_union => comptime unreachable,
                 } else if (std.enums.tagName(Field, field_value)) |name| {
                     try s.ident(name);
                 } else {
@@ -103,13 +105,28 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                             try s.value(null, .{});
                         }
                     },
-                    .flag_length_prefixed_list => {
+                    .length_prefixed_list, .flag_length_prefixed_list => {
                         try printValue(sc, s, @TypeOf(field_value.slice), field_value.slice);
                     },
                     .extended => @compileError("TODO"),
                     .union_list => @compileError("TODO"),
+                    .flag_union => try printValue(sc, s, Field.Union, field_value.u),
                 },
                 else => @compileError("not implemented: " ++ @typeName(Field)),
+            },
+            .@"union" => {
+                switch (field_value) {
+                    inline else => |u, tag| {
+                        if (@TypeOf(u) == void) {
+                            try s.ident(@tagName(tag));
+                        } else {
+                            var sub_struct = try s.beginStruct(.{});
+                            try sub_struct.fieldPrefix(@tagName(tag));
+                            try printValue(sc, s, @TypeOf(u), u);
+                            try sub_struct.end();
+                        }
+                    },
+                }
             },
             else => @compileError("not implemented: " ++ @typeName(Field)),
         },
