@@ -298,11 +298,7 @@ fn mainArgs(
         return process.exit(try llvmArMain(arena, args));
     } else if (mem.eql(u8, cmd, "build")) {
         dev.check(.build_command);
-        var thread_safe_arena: std.heap.ThreadSafeAllocator = .{
-            .child_allocator = arena,
-            .io = io,
-        };
-        return cmdBuild(gpa, thread_safe_arena.allocator(), io, cmd_args, environ_map);
+        return cmdBuild(gpa, arena, io, cmd_args, environ_map);
     } else if (mem.eql(u8, cmd, "clang") or
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
@@ -4935,7 +4931,6 @@ test sanitizeExampleName {
 
 fn cmdBuild(
     gpa: Allocator,
-    /// Needs a thread-safe arena.
     arena: Allocator,
     io: Io,
     args: []const []const u8,
