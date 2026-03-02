@@ -194,16 +194,16 @@ pub const Wip = struct {
             .native, .baseline, .determined_by_arch_os => null,
             .explicit => |model| try wip.addString(model.name),
         };
-        const os_version_min: ?u32 = if (q.os_version_min) |ver| switch (ver) {
-            .none => null,
-            .semver => |sem_ver| @intFromEnum(try wip.addSemVer(sem_ver)),
-            .windows => |win_ver| @intFromEnum(win_ver),
-        } else null;
-        const os_version_max: ?u32 = if (q.os_version_max) |ver| switch (ver) {
-            .none => null,
-            .semver => |sem_ver| @intFromEnum(try wip.addSemVer(sem_ver)),
-            .windows => |win_ver| @intFromEnum(win_ver),
-        } else null;
+        const os_version_min: TargetQuery.OsVersion = if (q.os_version_min) |ver| switch (ver) {
+            .none => .none,
+            .semver => |sem_ver| .{ .semver = try wip.addSemVer(sem_ver) },
+            .windows => |win_ver| .{ .windows = win_ver },
+        } else .default;
+        const os_version_max: TargetQuery.OsVersion = if (q.os_version_max) |ver| switch (ver) {
+            .none => .none,
+            .semver => |sem_ver| .{ .semver = try wip.addSemVer(sem_ver) },
+            .windows => |win_ver| .{ .windows = win_ver },
+        } else .default;
         const glibc_version: ?String = if (q.glibc_version) |sem_ver| try wip.addSemVer(sem_ver) else null;
         const dynamic_linker: ?String = if (q.dynamic_linker) |*dl|
             if (dl.get()) |s| try wip.addString(s) else .empty
@@ -220,8 +220,8 @@ pub const Wip = struct {
                 .os_tag = .init(q.os_tag),
                 .abi = .init(q.abi),
                 .object_format = .init(q.ofmt),
-                .os_version_min = .init(q.os_version_min),
-                .os_version_max = .init(q.os_version_max),
+                .os_version_min = os_version_min,
+                .os_version_max = os_version_max,
                 .glibc_version = glibc_version != null,
                 .android_api_level = q.android_api_level != null,
                 .dynamic_linker = dynamic_linker != null,
@@ -232,10 +232,9 @@ pub const Wip = struct {
             .android_api_level = .{ .value = q.android_api_level },
             .dynamic_linker = .{ .value = dynamic_linker },
             .cpu_name = .{ .value = cpu_name },
+            .os_version_min = .{ .u = os_version_min },
+            .os_version_max = .{ .u = os_version_max },
         })));
-        std.log.err("TODO serialize more target query stuff", .{});
-        _ = os_version_min;
-        _ = os_version_max;
 
         // Deduplicate.
         const gop = try wip.targets_table.getOrPutContext(gpa, result_index, @as(TargetsTableContext, .{
@@ -253,45 +252,40 @@ pub const Wip = struct {
         const gpa = wip.gpa;
         const cpu_name: String = try wip.addString(t.cpu.model.name);
 
-        const os_version_min: ?u32, const os_version_max: ?u32, const glibc_version: ?String, const android_api_level: ?u32 = switch (t.os.versionRange()) {
+        const os_version_min: TargetQuery.OsVersion, const os_version_max: TargetQuery.OsVersion, const glibc_version: ?String, const android_api_level: ?u32 = switch (t.os.versionRange()) {
             .none => .{
-                null,
-                null,
+                .none,
+                .none,
                 null,
                 null,
             },
             .semver => |range| .{
-                @intFromEnum(try wip.addSemVer(range.min)),
-                @intFromEnum(try wip.addSemVer(range.max)),
+                .{ .semver = try wip.addSemVer(range.min) },
+                .{ .semver = try wip.addSemVer(range.max) },
                 null,
                 null,
             },
             .hurd => |hurd| .{
-                @intFromEnum(try wip.addSemVer(hurd.range.min)),
-                @intFromEnum(try wip.addSemVer(hurd.range.max)),
+                .{ .semver = try wip.addSemVer(hurd.range.min) },
+                .{ .semver = try wip.addSemVer(hurd.range.max) },
                 try wip.addSemVer(hurd.glibc),
                 null,
             },
             .linux => |linux| .{
-                @intFromEnum(try wip.addSemVer(linux.range.min)),
-                @intFromEnum(try wip.addSemVer(linux.range.max)),
+                .{ .semver = try wip.addSemVer(linux.range.min) },
+                .{ .semver = try wip.addSemVer(linux.range.max) },
                 try wip.addSemVer(linux.glibc),
                 linux.android,
             },
             .windows => |range| .{
-                @intFromEnum(range.min),
-                @intFromEnum(range.max),
+                .{ .windows = range.min },
+                .{ .windows = range.max },
                 null,
                 null,
             },
         };
         const dynamic_linker: ?String = if (t.dynamic_linker.get()) |dl| try wip.addString(dl) else null;
         const cpu_features_add_empty = t.cpu.features.isEmpty();
-        const os_version: TargetQuery.OsVersion = switch (t.os.versionRange()) {
-            .none => .none,
-            .semver, .linux, .hurd => .semver,
-            .windows => .windows,
-        };
         const result_index: TargetQuery.Index = @enumFromInt(try wip.addExtra(@as(TargetQuery, .{
             .flags = .{
                 .cpu_arch = .init(t.cpu.arch),
@@ -301,8 +295,8 @@ pub const Wip = struct {
                 .os_tag = .init(t.os.tag),
                 .abi = .init(t.abi),
                 .object_format = .init(t.ofmt),
-                .os_version_min = os_version,
-                .os_version_max = os_version,
+                .os_version_min = os_version_min,
+                .os_version_max = os_version_max,
                 .glibc_version = glibc_version != null,
                 .android_api_level = android_api_level != null,
                 .dynamic_linker = dynamic_linker != null,
@@ -313,10 +307,9 @@ pub const Wip = struct {
             .android_api_level = .{ .value = android_api_level },
             .dynamic_linker = .{ .value = dynamic_linker },
             .cpu_name = .{ .value = cpu_name },
+            .os_version_min = .{ .u = os_version_min },
+            .os_version_max = .{ .u = os_version_max },
         })));
-        std.log.err("TODO serialize more target stuff", .{});
-        _ = os_version_min;
-        _ = os_version_max;
 
         // Deduplicate.
         const gop = try wip.targets_table.getOrPutContext(gpa, result_index, @as(TargetsTableContext, .{
@@ -1484,18 +1477,11 @@ pub const TargetQuery = struct {
     cpu_features_add: Storage.FlagOptional(.flags, .cpu_features_add, std.Target.Cpu.Feature.Set),
     cpu_features_sub: Storage.FlagOptional(.flags, .cpu_features_sub, std.Target.Cpu.Feature.Set),
     cpu_name: Storage.EnumOptional(.flags, .cpu_model, .explicit, String),
-    //os_version_min: Storage.FlagsUnion(.flags, .os_version_min, VersionStorage),
-    //os_version_max: Storage.FlagsUnion(.flags, .os_version_max, VersionStorage),
+    os_version_min: Storage.FlagUnion(.flags, .os_version_min, OsVersion),
+    os_version_max: Storage.FlagUnion(.flags, .os_version_max, OsVersion),
     glibc_version: Storage.FlagOptional(.flags, .glibc_version, String),
     android_api_level: Storage.FlagOptional(.flags, .android_api_level, u32),
     dynamic_linker: Storage.FlagOptional(.flags, .dynamic_linker, String),
-
-    const VersionStorage = union(OsVersion) {
-        none: void,
-        semver: String,
-        windows: std.Target.Os.WindowsVersion,
-        default: void,
-    };
 
     pub const Index = enum(u32) {
         _,
@@ -1546,11 +1532,13 @@ pub const TargetQuery = struct {
             };
         }
     };
-    pub const OsVersion = enum(u2) {
-        none,
-        semver,
-        windows,
-        default,
+    pub const OsVersion = union(@This().Tag) {
+        pub const Tag = enum(u2) { none, semver, windows, default };
+
+        none: void,
+        semver: String,
+        windows: std.Target.Os.WindowsVersion,
+        default: void,
 
         pub fn init(x: ?std.Target.Query.OsVersion) @This() {
             return switch (x orelse return .default) {
@@ -1756,8 +1744,8 @@ pub const TargetQuery = struct {
         os_tag: OsTag,
         abi: Abi,
         object_format: ObjectFormat,
-        os_version_min: OsVersion,
-        os_version_max: OsVersion,
+        os_version_min: OsVersion.Tag,
+        os_version_max: OsVersion.Tag,
         glibc_version: bool,
         android_api_level: bool,
         dynamic_linker: bool,
