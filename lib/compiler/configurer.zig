@@ -294,9 +294,8 @@ const Serialize = struct {
     }
 
     fn addSystemLib(s: *Serialize, sl: *const std.Build.Module.SystemLib) !Configuration.SystemLib.Index {
-        log.err("TODO deduplicate addSystemLib", .{});
         const wc = s.wc;
-        return @enumFromInt(try wc.addExtra(@as(Configuration.SystemLib, .{
+        return @enumFromInt(try wc.addDeduped(@as(Configuration.SystemLib, .{
             .flags = .{
                 .needed = sl.needed,
                 .weak = sl.weak,
@@ -362,7 +361,6 @@ const Serialize = struct {
 
         const wc = s.wc;
         const arena = s.arena;
-        const gpa = wc.gpa;
 
         const include_dirs = try arena.alloc(Configuration.Module.IncludeDir, m.include_dirs.items.len);
         for (include_dirs, m.include_dirs.items) |*dest, src| dest.* = switch (src) {
@@ -393,31 +391,20 @@ const Serialize = struct {
             .win32_resource_file => |wrf| .{ .win32_resource_file = try addRcSourceFile(s, wrf) },
         };
 
+        const frameworks = try arena.alloc(Configuration.Module.Framework, m.frameworks.entries.len);
+        for (frameworks, m.frameworks.keys(), m.frameworks.values()) |*dest, name, options| dest.* = .{
+            .flags = .{
+                .needed = options.needed,
+                .weak = options.weak,
+            },
+            .name = try wc.addString(name),
+        };
+
         const lib_paths = try arena.alloc(Configuration.LazyPath, m.lib_paths.items.len);
         for (lib_paths, m.lib_paths.items) |*dest, src| dest.* = try addLazyPath(s, src);
 
         const c_macros = try initStringList(s, m.c_macros.items);
         const export_symbol_names = try initStringList(s, m.export_symbol_names);
-
-        const import_table: Configuration.ImportTable = @enumFromInt(wc.extra.items.len);
-        const import_table_extra_len = 1 + 2 * m.import_table.entries.len;
-        try wc.extra.ensureUnusedCapacity(gpa, import_table_extra_len);
-        wc.extra.items.len += import_table_extra_len;
-        wc.extra.appendAssumeCapacity(@intCast(m.import_table.entries.len));
-        wc.extra.items[@intFromEnum(import_table)] = @intCast(m.import_table.entries.len);
-        for (
-            m.import_table.keys(),
-            @intFromEnum(import_table) + 1..,
-        ) |mod_name, extra_index| {
-            wc.extra.items[extra_index] = @intFromEnum(try wc.addString(mod_name));
-        }
-        for (
-            m.import_table.values(),
-            @intFromEnum(import_table) + 1 + m.import_table.entries.len..,
-        ) |dep, extra_index| {
-            log.err("TODO module dependencies can be cyclic", .{});
-            wc.extra.items[extra_index] = @intFromEnum(try addModule(s, dep));
-        }
 
         const module_index: Configuration.Module.Index = @enumFromInt(try wc.addExtra(@as(Configuration.Module, .{
             .flags = .{
@@ -425,34 +412,34 @@ const Serialize = struct {
                 .strip = .init(m.strip),
                 .unwind_tables = .init(m.unwind_tables),
                 .dwarf_format = .init(m.dwarf_format),
-                .single_threaded = .init(m.strip),
-                .stack_protector = .init(m.strip),
-                .stack_check = .init(m.strip),
+                .single_threaded = .init(m.single_threaded),
+                .stack_protector = .init(m.stack_protector),
+                .stack_check = .init(m.stack_check),
                 .sanitize_c = .init(m.sanitize_c),
-                .sanitize_thread = .init(m.strip),
-                .fuzz = .init(m.strip),
+                .sanitize_thread = .init(m.sanitize_thread),
+                .fuzz = .init(m.fuzz),
                 .code_model = m.code_model,
                 .c_macros = c_macros.len != 0,
                 .include_dirs = include_dirs.len != 0,
                 .lib_paths = lib_paths.len != 0,
                 .rpaths = rpaths.len != 0,
-                .frameworks = m.frameworks.entries.len != 0,
+                .frameworks = frameworks.len != 0,
                 .link_objects = link_objects.len != 0,
                 .export_symbol_names = export_symbol_names.len != 0,
             },
             .flags2 = .{
-                .valgrind = .init(m.strip),
-                .pic = .init(m.strip),
-                .red_zone = .init(m.strip),
-                .omit_frame_pointer = .init(m.strip),
-                .error_tracing = .init(m.strip),
-                .link_libc = .init(m.strip),
-                .link_libcpp = .init(m.strip),
-                .no_builtin = .init(m.strip),
+                .valgrind = .init(m.valgrind),
+                .pic = .init(m.pic),
+                .red_zone = .init(m.red_zone),
+                .omit_frame_pointer = .init(m.omit_frame_pointer),
+                .error_tracing = .init(m.error_tracing),
+                .link_libc = .init(m.link_libc),
+                .link_libcpp = .init(m.link_libcpp),
+                .no_builtin = .init(m.no_builtin),
             },
             .owner = try s.builderToPackage(m.owner),
             .root_source_file = try s.addOptionalLazyPathEnum(m.root_source_file),
-            .import_table = import_table,
+            .import_table = .invalid,
             .resolved_target = try addOptionalResolvedTarget(wc, m.resolved_target),
             .c_macros = .{ .slice = c_macros },
             .lib_paths = .{ .slice = lib_paths },
@@ -460,11 +447,32 @@ const Serialize = struct {
             .include_dirs = .init(include_dirs),
             .rpaths = .init(rpaths),
             .link_objects = .init(link_objects),
+            .frameworks = .{ .slice = frameworks },
         })));
 
-        log.err("TODO serialize the trailing Module data", .{});
-
+        // The import table is the only place that modules can form dependency
+        // loops. Therefore, we populate the module indexes only after adding
+        // the module to module_map.
         try s.module_map.putNoClobber(arena, m, module_index);
+
+        var imports = try std.MultiArrayList(Configuration.ImportTable.Import).initCapacity(arena, m.import_table.entries.len);
+        imports.len = m.import_table.entries.len;
+        for (
+            imports.items(.name),
+            imports.items(.module),
+            m.import_table.keys(),
+            m.import_table.values(),
+        ) |*dest_name, *dest_module, src_name, src_module| {
+            dest_name.* = try wc.addString(src_name);
+            dest_module.* = try addModule(s, src_module);
+        }
+
+        comptime assert(std.mem.eql(u8, @typeInfo(Configuration.Module).@"struct".fields[2].name, "import_table"));
+        comptime assert(@typeInfo(Configuration.Module).@"struct".fields[2].type == Configuration.ImportTable.Index);
+        assert(wc.extra.items[@intFromEnum(module_index) + 2] == @intFromEnum(Configuration.ImportTable.Index.invalid));
+        wc.extra.items[@intFromEnum(module_index) + 2] = try wc.addDeduped(@as(Configuration.ImportTable, .{
+            .imports = .{ .mal = imports },
+        }));
 
         return module_index;
     }
@@ -502,12 +510,12 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
             }
 
             // Add and then de-duplicate dependencies.
-            const deps = d: {
-                const deps: Configuration.Deps = @enumFromInt(wc.extra.items.len);
-                for (try wc.reserveLengthPrefixed(step.dependencies.items.len), step.dependencies.items) |*dep, dep_step|
-                    dep.* = @intCast(s.step_map.getIndex(dep_step).?);
-                break :d try wc.dedupeDeps(deps);
-            };
+            const dep_steps = try arena.alloc(Configuration.Step.Index, step.dependencies.items.len);
+            for (dep_steps, step.dependencies.items) |*dest, src|
+                dest.* = @enumFromInt(s.step_map.getIndex(src).?);
+            const deps: Configuration.Deps.Index = @enumFromInt(try wc.addDeduped(@as(Configuration.Deps, .{
+                .steps = .{ .slice = dep_steps },
+            })));
 
             try wc.steps.ensureTotalCapacity(gpa, s.step_map.entries.capacity);
             wc.steps.appendAssumeCapacity(.{
@@ -791,8 +799,7 @@ fn addOptionalResolvedTarget(
     optional_resolved_target: ?std.Build.ResolvedTarget,
 ) !Configuration.ResolvedTarget.OptionalIndex {
     const resolved_target = optional_resolved_target orelse return .none;
-    log.debug("TODO deduplicate resolved targets", .{});
-    return @enumFromInt(try wc.addExtra(@as(Configuration.ResolvedTarget, .{
+    return @enumFromInt(try wc.addDeduped(@as(Configuration.ResolvedTarget, .{
         .query = try wc.addTargetQuery(resolved_target.query),
         .result = try wc.addTarget(resolved_target.result),
     })));

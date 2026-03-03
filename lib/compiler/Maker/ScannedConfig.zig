@@ -87,6 +87,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                     .union_list => comptime unreachable,
                     .length_prefixed_list => comptime unreachable,
                     .flag_union => comptime unreachable,
+                    .multi_list => comptime unreachable,
                 } else if (std.enums.tagName(Field, field_value)) |name| {
                     try s.ident(name);
                 } else {
@@ -111,6 +112,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                     .extended => @compileError("TODO"),
                     .union_list => @compileError("TODO"),
                     .flag_union => try printValue(sc, s, Field.Union, field_value.u),
+                    .multi_list => @compileError("TODO"),
                 },
                 else => @compileError("not implemented: " ++ @typeName(Field)),
             },

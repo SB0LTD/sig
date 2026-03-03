@@ -33,9 +33,8 @@ pub const Header = extern struct {
 pub const Wip = struct {
     gpa: Allocator,
     string_table: StringTable = .empty,
-    /// De-duplicates an array inside `extra` that has first element length
-    /// followed by length elements.
-    length_prefixed_table: LengthPrefixedTable = .empty,
+    /// De-duplicates an array inside `extra`.
+    dedupe_table: DedupeTable = .empty,
     targets_table: TargetsTable = .empty,
 
     string_bytes: std.ArrayList(u8) = .empty,
@@ -46,25 +45,27 @@ pub const Wip = struct {
     path_deps: std.MultiArrayList(Path) = .empty,
     extra: std.ArrayList(u32) = .empty,
 
-    const LengthPrefixedTable = std.HashMapUnmanaged(u32, void, LengthPrefixedContext, std.hash_map.default_max_load_percentage);
+    const DedupeTable = std.HashMapUnmanaged(ExtraSlice, void, ExtraSlice.Context, std.hash_map.default_max_load_percentage);
     const TargetsTable = std.HashMapUnmanaged(TargetQuery.Index, void, TargetsTableContext, std.hash_map.default_max_load_percentage);
 
-    const LengthPrefixedContext = struct {
-        extra: []const u32,
+    const ExtraSlice = struct {
+        index: u32,
+        len: u32,
 
-        pub fn eql(ctx: @This(), a: u32, b: u32) bool {
-            const len_a = ctx.extra[a];
-            const len_b = ctx.extra[b];
-            const slice_a = ctx.extra[a + 1 ..][0..len_a];
-            const slice_b = ctx.extra[b + 1 ..][0..len_b];
-            return std.mem.eql(u32, slice_a, slice_b);
-        }
+        const Context = struct {
+            extra: []const u32,
 
-        pub fn hash(ctx: @This(), key: u32) u64 {
-            const len = ctx.extra[key];
-            const slice = ctx.extra[key + 1 ..][0..len];
-            return std.hash_map.hashString(@ptrCast(slice));
-        }
+            pub fn eql(ctx: @This(), a: ExtraSlice, b: ExtraSlice) bool {
+                const slice_a = ctx.extra[a.index..][0..a.len];
+                const slice_b = ctx.extra[b.index..][0..b.len];
+                return std.mem.eql(u32, slice_a, slice_b);
+            }
+
+            pub fn hash(ctx: @This(), key: ExtraSlice) u64 {
+                const slice = ctx.extra[key.index..][0..key.len];
+                return std.hash_map.hashString(@ptrCast(slice));
+            }
+        };
     };
 
     const TargetsTableContext = struct {
@@ -323,34 +324,33 @@ pub const Wip = struct {
         }
     }
 
-    pub fn reserveLengthPrefixed(wip: *Wip, n: usize) Allocator.Error![]u32 {
-        const slice = try wip.extra.addManyAsSlice(wip.gpa, n + 1);
-        slice[0] = @intCast(n);
-        return slice[1..];
-    }
-
-    pub fn dedupeLengthPrefixed(wip: *Wip, index: u32) Allocator.Error!u32 {
-        assert(wip.extra.items.len == index + wip.extra.items[index] + 1);
-        const gpa = wip.gpa;
-        const gop = try wip.length_prefixed_table.getOrPutContext(gpa, index, @as(LengthPrefixedContext, .{
-            .extra = wip.extra.items,
-        }));
-        if (gop.found_existing) {
-            wip.extra.items.len = index;
-            return gop.key_ptr.*;
-        } else {
-            return index;
-        }
-    }
-
-    pub fn dedupeDeps(wip: *Wip, deps: Deps) Allocator.Error!Deps {
-        return @enumFromInt(try dedupeLengthPrefixed(wip, @intFromEnum(deps)));
-    }
-
     pub fn addExtra(wip: *Wip, extra: anytype) Allocator.Error!u32 {
         const extra_len = Storage.extraLen(extra);
         try wip.extra.ensureUnusedCapacity(wip.gpa, extra_len);
         return addExtraAssumeCapacity(wip, extra);
+    }
+
+    /// Same as `addExtra` but uses a hash map to possibly return an already
+    /// existing index instead of appending to `extra`.
+    pub fn addDeduped(wip: *Wip, extra: anytype) Allocator.Error!u32 {
+        const gpa = wip.gpa;
+        const revert_index = wip.extra.items.len;
+        const extra_len = Storage.extraLen(extra);
+        try wip.extra.ensureUnusedCapacity(gpa, extra_len);
+        const new_index = addExtraAssumeCapacity(wip, extra);
+        const len: u32 = @intCast(wip.extra.items.len - new_index);
+
+        const gop = try wip.dedupe_table.getOrPutContext(gpa, .{
+            .index = new_index,
+            .len = len,
+        }, @as(ExtraSlice.Context, .{ .extra = wip.extra.items }));
+
+        if (gop.found_existing) {
+            wip.extra.items.len = revert_index;
+            return gop.key_ptr.index;
+        }
+
+        return new_index;
     }
 
     pub fn addExtraAssumeCapacity(wip: *Wip, extra: anytype) u32 {
@@ -399,7 +399,7 @@ pub const AvailableOption = extern struct {
 pub const Step = extern struct {
     name: String,
     owner: Package.Index,
-    deps: Deps,
+    deps: Deps.Index,
     max_rss: MaxRss,
     extended: Storage.Extended(Flags, union(Tag) {
         check_file: CheckFile,
@@ -1074,14 +1074,12 @@ pub const Package = struct {
     };
 };
 
-/// Trailing:
-/// * frameworks: FlagsPrefixedList(FrameworkFlags), // if flag is set
 pub const Module = struct {
     flags: Flags,
     flags2: Flags2,
+    import_table: ImportTable.Index,
     owner: Package.Index,
     root_source_file: OptionalLazyPath,
-    import_table: ImportTable,
     resolved_target: ResolvedTarget.OptionalIndex,
     c_macros: Storage.FlagLengthPrefixedList(.flags, .c_macros, String),
     lib_paths: Storage.FlagLengthPrefixedList(.flags, .lib_paths, LazyPath),
@@ -1089,6 +1087,7 @@ pub const Module = struct {
     include_dirs: Storage.UnionList(.flags, .include_dirs, IncludeDir),
     rpaths: Storage.UnionList(.flags, .rpaths, RPath),
     link_objects: Storage.UnionList(.flags, .link_objects, LinkObject),
+    frameworks: Storage.FlagLengthPrefixedList(.flags, .frameworks, Framework),
 
     pub const Optimize = enum(u3) {
         debug,
@@ -1220,28 +1219,47 @@ pub const Module = struct {
         win32_resource_file: RcSourceFile.Index,
     };
 
-    pub const FrameworkFlags = packed struct(u2) {
-        needed: bool,
-        weak: bool,
+    pub const Framework = struct {
+        flags: @This().Flags,
+        name: String,
+
+        pub const Flags = packed struct(u32) {
+            needed: bool,
+            weak: bool,
+            _: u30 = 0,
+        };
     };
 };
 
-/// Points into `extra`, first element is len, then:
-/// * import_name: String, // for each len
-/// * Module.Index, // for each len
-pub const ImportTable = enum(u32) {
-    _,
+pub const ImportTable = struct {
+    imports: Storage.MultiList(Import),
+
+    pub const Import = struct {
+        name: String,
+        module: Module.Index,
+    };
+
+    /// Points into `extra`.
+    pub const Index = enum(u32) {
+        invalid = maxInt(u32),
+        _,
+    };
 };
 
-/// Points into `extra`, where the first element is count of deps, following
-/// elements is `Step.Index` per count.
-pub const Deps = enum(u32) {
-    _,
+pub const Deps = struct {
+    steps: Storage.LengthPrefixedList(Step.Index),
 
-    pub fn slice(deps: Deps, c: *const Configuration) []Step.Index {
-        const len = c.extra[@intFromEnum(deps)];
-        return @ptrCast(c.extra[@intFromEnum(deps) + 1 ..][0..len]);
-    }
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn get(this: @This(), c: *const Configuration) Deps {
+            return extraData(c, Deps, @intFromEnum(this));
+        }
+
+        pub fn slice(this: @This(), c: *const Configuration) []const Step.Index {
+            return get(this, c).steps.slice;
+        }
+    };
 };
 
 /// Points into `extra`, where the first element is count of strings, following
@@ -1760,6 +1778,7 @@ pub const Storage = enum {
     flag_length_prefixed_list,
     union_list,
     flag_union,
+    multi_list,
 
     /// The presence of the field is determined by a boolean within a packed
     /// struct.
@@ -1853,7 +1872,8 @@ pub const Storage = enum {
         };
     }
 
-    /// The field contains a u32 length followed by that many items.
+    /// The field contains a u32 length followed by that many items, each
+    /// element bitcastable to u32.
     pub fn LengthPrefixedList(comptime ElemArg: type) type {
         return struct {
             slice: []const Elem,
@@ -1864,6 +1884,17 @@ pub const Storage = enum {
             pub fn initErased(s: []const u32) @This() {
                 return .{ .slice = @ptrCast(s) };
             }
+        };
+    }
+
+    /// The field contains a u32 length followed by that many items for the
+    /// first field, that many items for the second field, etc.
+    pub fn MultiList(comptime ElemArg: type) type {
+        return struct {
+            mal: std.MultiArrayList(Elem),
+
+            pub const storage: Storage = .multi_list;
+            pub const Elem = ElemArg;
         };
     }
 
@@ -2028,6 +2059,16 @@ pub const Storage = enum {
                             defer i.* = data_start + len;
                             return .{ .slice = @ptrCast(buffer[data_start..][0..len]) };
                         },
+                        .multi_list => {
+                            const data_start = i.* + 1;
+                            const len = buffer[data_start - 1];
+                            defer i.* = data_start + len * @typeInfo(Field.Elem).@"struct".fields.len;
+                            return .{ .mal = .{
+                                .bytes = @ptrCast(buffer[data_start..][0..len]),
+                                .len = len,
+                                .capacity = len,
+                            } };
+                        },
                         .union_list => {
                             const flags = @field(container, @tagName(Field.flags));
                             const flag = @field(flags, @tagName(Field.flag));
@@ -2082,6 +2123,7 @@ pub const Storage = enum {
                 .auto => switch (Field.storage) {
                     .flag_optional, .enum_optional, .extended => 1,
                     .length_prefixed_list, .flag_length_prefixed_list => field.slice.len + 1,
+                    .multi_list => 1 + field.mal.len * @typeInfo(Field.Elem).@"struct".fields.len,
                     .union_list => Field.extraLen(field.len),
                     .flag_union => switch (field.u) {
                         inline else => |v| extraFieldLen(v),
@@ -2152,6 +2194,17 @@ pub const Storage = enum {
                             buffer[i] = len;
                             @memcpy(buffer[i + 1 ..][0..len], @as([]const u32, @ptrCast(value.slice)));
                             return len + 1;
+                        },
+                        .multi_list => {
+                            const len: u32 = @intCast(value.mal.len);
+                            if (len == 0) return 0;
+                            buffer[i] = len;
+                            const fields = @typeInfo(Field.Elem).@"struct".fields;
+                            inline for (0..fields.len) |field_i| @memcpy(
+                                buffer[i + 1 + field_i * len ..][0..len],
+                                @as([]const u32, @ptrCast(value.mal.items(@enumFromInt(field_i)))),
+                            );
+                            return 1 + fields.len * len;
                         },
                         .union_list => {
                             if (value.len == 0) return 0;

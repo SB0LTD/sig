@@ -43,6 +43,7 @@ export_memory: bool = false,
 /// For WebAssembly targets, this will allow for undefined symbols to
 /// be imported from the host environment.
 import_symbols: bool = false,
+/// (WebAssembly) import function table from the host environment
 import_table: bool = false,
 export_table: bool = false,
 initial_memory: ?u64 = null,
