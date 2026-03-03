@@ -429,19 +429,29 @@ pub fn main(init: process.Init.Minimal) !void {
             break :c Configuration.loadFile(arena, io, file) catch |err|
                 fatal("failed to load configuration file {s}: {t}", .{ configure_path, err });
         };
+        const c = &configuration;
         var top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index) = .empty;
+        var modules: std.AutoArrayHashMapUnmanaged(Configuration.Module.Index, void) = .empty;
         for (configuration.steps, 0..) |*conf_step, step_index_usize| {
             if (conf_step.owner != .root) continue;
             const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
-            const flags = conf_step.flags(&configuration);
-            if (flags.tag == .top_level) {
-                const name = step_index.ptr(&configuration).name.slice(&configuration);
-                try top_level_steps.put(arena, name, step_index);
+            const flags = conf_step.flags(c);
+            switch (flags.tag) {
+                .top_level => {
+                    const name = step_index.ptr(c).name.slice(c);
+                    try top_level_steps.put(arena, name, step_index);
+                },
+                .compile => {
+                    const root_module = step_index.ptr(c).extended.get(configuration.extra).compile.root_module;
+                    try modules.put(arena, root_module, {});
+                },
+                else => {},
             }
         }
         break :sc .{
             .configuration = configuration,
             .top_level_steps = top_level_steps,
+            .modules = modules,
         };
     };
 

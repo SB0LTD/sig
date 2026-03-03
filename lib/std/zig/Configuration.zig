@@ -1219,7 +1219,7 @@ pub const Module = struct {
         win32_resource_file: RcSourceFile.Index,
     };
 
-    pub const Framework = struct {
+    pub const Framework = extern struct {
         flags: @This().Flags,
         name: String,
 
@@ -2122,7 +2122,7 @@ pub const Storage = enum {
                 },
                 .auto => switch (Field.storage) {
                     .flag_optional, .enum_optional, .extended => 1,
-                    .length_prefixed_list, .flag_length_prefixed_list => field.slice.len + 1,
+                    .length_prefixed_list, .flag_length_prefixed_list => 1 + @divExact(@sizeOf(Field.Elem), @sizeOf(u32)) * field.slice.len,
                     .multi_list => 1 + field.mal.len * @typeInfo(Field.Elem).@"struct".fields.len,
                     .union_list => Field.extraLen(field.len),
                     .flag_union => switch (field.u) {

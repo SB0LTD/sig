@@ -9,13 +9,13 @@ const Graph = @import("Graph.zig");
 
 configuration: Configuration,
 top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index),
+modules: std.AutoArrayHashMapUnmanaged(Configuration.Module.Index, void),
 
 pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
     std.log.err("TODO also print paths", .{});
     std.log.err("TODO also print unlazy deps", .{});
     std.log.err("TODO also print system integrations", .{});
     std.log.err("TODO also print available options", .{});
-    std.log.err("TODO also print modules", .{});
     const c = &sc.configuration;
     var serializer: Serializer = .{ .writer = w };
     var s = try serializer.beginStruct(.{});
@@ -31,7 +31,7 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
 
     {
         var tf = try s.beginTupleField("steps", .{});
-        for (c.steps) |*step| {
+        for (c.steps) |step| {
             var step_field = try tf.beginStructField(.{});
             try printStruct(sc, &step_field, Configuration.Step, step);
             try step_field.end();
@@ -39,10 +39,23 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
         try tf.end();
     }
 
+    {
+        var sf = try s.beginStructField("modules", .{});
+
+        for (sc.modules.keys()) |module_index| {
+            var int_buf: [50]u8 = undefined;
+            const int_str = std.fmt.bufPrint(&int_buf, "{d}", .{module_index}) catch unreachable;
+            var step_field = try sf.beginStructField(int_str, .{});
+            try printStruct(sc, &step_field, Configuration.Module, module_index.get(c));
+            try step_field.end();
+        }
+        try sf.end();
+    }
+
     try s.end();
 }
 
-fn printStruct(sc: *const ScannedConfig, s: *Serializer.Struct, comptime S: type, v: *const S) !void {
+fn printStruct(sc: *const ScannedConfig, s: *Serializer.Struct, comptime S: type, v: S) !void {
     inline for (@typeInfo(S).@"struct".fields) |field| {
         try s.fieldPrefix(field.name);
         try printValue(sc, s.container.serializer, field.type, @field(v, field.name));
@@ -78,7 +91,11 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                 if (@hasDecl(Field, "storage")) switch (Field.storage) {
                     .extended => {
                         var sub_struct = try s.beginStruct(.{});
-                        try printTaggedUnion(sc, &sub_struct, field_value.get(c.extra));
+                        switch (field_value.get(c.extra)) {
+                            inline else => |u| {
+                                try printStruct(sc, &sub_struct, @TypeOf(u), u);
+                            },
+                        }
                         try sub_struct.end();
                     },
                     .flag_optional => comptime unreachable,
@@ -98,6 +115,11 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                 .@"packed" => {
                     try s.value(field_value, .{});
                 },
+                .@"extern" => {
+                    var sub_struct = try s.beginStruct(.{});
+                    try printStruct(sc, &sub_struct, Field, field_value);
+                    try sub_struct.end();
+                },
                 .auto => switch (Field.storage) {
                     .flag_optional, .enum_optional => {
                         if (field_value.value) |some| {
@@ -110,35 +132,41 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                         try printValue(sc, s, @TypeOf(field_value.slice), field_value.slice);
                     },
                     .extended => @compileError("TODO"),
-                    .union_list => @compileError("TODO"),
+                    .union_list => {
+                        var slice_field = try s.beginTuple(.{});
+                        for (field_value.get(c.extra), 0..) |elem, i| switch (field_value.tag(c.extra, i)) {
+                            inline else => |tag| {
+                                var sub_struct = try s.beginStruct(.{});
+                                try sub_struct.fieldPrefix(@tagName(tag));
+                                try printValue(sc, s, @FieldType(Field.Union, @tagName(tag)), @enumFromInt(elem));
+                                try sub_struct.end();
+                            },
+                        };
+                        try slice_field.end();
+                    },
                     .flag_union => try printValue(sc, s, Field.Union, field_value.u),
                     .multi_list => @compileError("TODO"),
                 },
-                else => @compileError("not implemented: " ++ @typeName(Field)),
             },
             .@"union" => {
-                switch (field_value) {
-                    inline else => |u, tag| {
-                        if (@TypeOf(u) == void) {
-                            try s.ident(@tagName(tag));
-                        } else {
-                            var sub_struct = try s.beginStruct(.{});
-                            try sub_struct.fieldPrefix(@tagName(tag));
-                            try printValue(sc, s, @TypeOf(u), u);
-                            try sub_struct.end();
-                        }
-                    },
-                }
+                try printTaggedUnion(sc, s, field_value);
             },
             else => @compileError("not implemented: " ++ @typeName(Field)),
         },
     }
 }
 
-fn printTaggedUnion(sc: *const ScannedConfig, s: *Serializer.Struct, value: anytype) !void {
+fn printTaggedUnion(sc: *const ScannedConfig, s: *Serializer, value: anytype) !void {
     switch (value) {
-        inline else => |*u| {
-            try printStruct(sc, s, @TypeOf(u.*), u);
+        inline else => |u, tag| {
+            if (@TypeOf(u) == void) {
+                try s.ident(@tagName(tag));
+            } else {
+                var sub_struct = try s.beginStruct(.{});
+                try sub_struct.fieldPrefix(@tagName(tag));
+                try printValue(sc, s, @TypeOf(u), u);
+                try sub_struct.end();
+            }
         },
     }
 }
