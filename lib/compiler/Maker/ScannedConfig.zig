@@ -103,6 +103,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                     .enum_optional => comptime unreachable,
                     .union_list => comptime unreachable,
                     .length_prefixed_list => comptime unreachable,
+                    .flag_list => comptime unreachable,
                     .flag_union => comptime unreachable,
                     .multi_list => comptime unreachable,
                 } else if (std.enums.tagName(Field, field_value)) |name| {
@@ -128,7 +129,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                             try s.value(null, .{});
                         }
                     },
-                    .length_prefixed_list, .flag_length_prefixed_list => {
+                    .length_prefixed_list, .flag_length_prefixed_list, .flag_list => {
                         try printValue(sc, s, @TypeOf(field_value.slice), field_value.slice);
                     },
                     .extended => @compileError("TODO"),

@@ -308,38 +308,52 @@ const Serialize = struct {
     }
 
     fn addCSourceFile(s: *Serialize, csf: *const std.Build.Module.CSourceFile) !Configuration.CSourceFile.Index {
-        log.err("TODO addCSourceFile trailing data", .{});
         const wc = s.wc;
+        const args = try initStringList(s, csf.flags);
         return @enumFromInt(try wc.addExtra(@as(Configuration.CSourceFile, .{
             .flags = .{
-                .args_len = @intCast(csf.flags.len),
+                .args_len = @intCast(args.len),
                 .lang = .init(csf.language),
             },
             .file = try addLazyPath(s, csf.file),
+            .args = .{ .slice = args },
         })));
     }
 
     fn addCSourceFiles(s: *Serialize, csf: *const std.Build.Module.CSourceFiles) !Configuration.CSourceFiles.Index {
-        log.err("TODO addCSourceFiles trailing data", .{});
         const wc = s.wc;
+        const sub_paths = try initStringList(s, csf.files);
+        const args = try initStringList(s, csf.flags);
         return @enumFromInt(try wc.addExtra(@as(Configuration.CSourceFiles, .{
             .flags = .{
-                .args_len = @intCast(csf.flags.len),
+                .args_len = @intCast(args.len),
                 .lang = .init(csf.language),
             },
             .root = try addLazyPath(s, csf.root),
-            .files_len = @intCast(csf.files.len),
+            .sub_paths = .{ .slice = sub_paths },
+            .args = .{ .slice = args },
         })));
     }
 
     fn addRcSourceFile(s: *Serialize, rsf: *const std.Build.Module.RcSourceFile) !Configuration.RcSourceFile.Index {
-        log.err("TODO addRcSourceFile trailing data", .{});
         const wc = s.wc;
+        const include_paths = try initLazyPathList(s, rsf.include_paths);
+        const args = try initStringList(s, rsf.flags);
         return @enumFromInt(try wc.addExtra(@as(Configuration.RcSourceFile, .{
+            .flags = .{
+                .args_len = @intCast(args.len),
+                .include_paths = include_paths.len != 0,
+            },
             .file = try addLazyPath(s, rsf.file),
-            .args_len = @intCast(rsf.flags.len),
-            .include_paths_len = @intCast(rsf.include_paths.len),
+            .include_paths = .{ .slice = include_paths },
+            .args = .{ .slice = args },
         })));
+    }
+
+    fn initLazyPathList(s: *Serialize, list: []const std.Build.LazyPath) ![]const Configuration.LazyPath {
+        const result = try s.arena.alloc(Configuration.LazyPath, list.len);
+        for (result, list) |*dest, src| dest.* = try addLazyPath(s, src);
+        return result;
     }
 
     fn initStringList(s: *Serialize, list: []const []const u8) ![]const Configuration.String {
@@ -400,9 +414,7 @@ const Serialize = struct {
             .name = try wc.addString(name),
         };
 
-        const lib_paths = try arena.alloc(Configuration.LazyPath, m.lib_paths.items.len);
-        for (lib_paths, m.lib_paths.items) |*dest, src| dest.* = try addLazyPath(s, src);
-
+        const lib_paths = try initLazyPathList(s, m.lib_paths.items);
         const c_macros = try initStringList(s, m.c_macros.items);
         const export_symbol_names = try initStringList(s, m.export_symbol_names);
 

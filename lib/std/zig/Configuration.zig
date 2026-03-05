@@ -1388,13 +1388,11 @@ pub const SystemLib = struct {
     pub const SearchStrategy = enum(u2) { paths_first, mode_first, no_fallback };
 };
 
-/// Trailing:
-/// * arg: String, // for each args_len
-/// * sub_path: String, // for each files_len
 pub const CSourceFiles = struct {
     flags: Flags,
     root: LazyPath,
-    files_len: u32,
+    args: Storage.FlagList(.flags, .args_len, String),
+    sub_paths: Storage.LengthPrefixedList(String),
 
     pub const Index = enum(u32) {
         _,
@@ -1407,11 +1405,10 @@ pub const CSourceFiles = struct {
     };
 };
 
-/// Trailing:
-/// * arg: String, // for each args_len
 pub const CSourceFile = struct {
     flags: Flags,
     file: LazyPath,
+    args: Storage.FlagList(.flags, .args_len, String),
 
     pub const Index = enum(u32) {
         _,
@@ -1424,16 +1421,20 @@ pub const CSourceFile = struct {
     };
 };
 
-/// Trailing:
-/// * arg: String, // for each args_len
-/// * include_path: String, // for each include_paths_len
 pub const RcSourceFile = struct {
+    flags: Flags,
     file: LazyPath,
-    args_len: u32,
-    include_paths_len: u32,
+    args: Storage.FlagList(.flags, .args_len, String),
+    include_paths: Storage.FlagLengthPrefixedList(.flags, .include_paths, LazyPath),
 
     pub const Index = enum(u32) {
         _,
+    };
+
+    pub const Flags = packed struct(u32) {
+        /// C compiler CLI flags.
+        args_len: u31,
+        include_paths: bool,
     };
 };
 
@@ -1779,6 +1780,7 @@ pub const Storage = enum {
     union_list,
     flag_union,
     multi_list,
+    flag_list,
 
     /// The presence of the field is determined by a boolean within a packed
     /// struct.
@@ -1879,6 +1881,26 @@ pub const Storage = enum {
             slice: []const Elem,
 
             pub const storage: Storage = .length_prefixed_list;
+            pub const Elem = ElemArg;
+
+            pub fn initErased(s: []const u32) @This() {
+                return .{ .slice = @ptrCast(s) };
+            }
+        };
+    }
+
+    /// The field is a list whose length is an integer inside flags.
+    pub fn FlagList(
+        comptime flags_arg: @EnumLiteral(),
+        comptime flag_arg: @EnumLiteral(),
+        comptime ElemArg: type,
+    ) type {
+        return struct {
+            slice: []const Elem,
+
+            pub const storage: Storage = .flag_list;
+            pub const flags = flags_arg;
+            pub const flag = flag_arg;
             pub const Elem = ElemArg;
 
             pub fn initErased(s: []const u32) @This() {
@@ -2059,6 +2081,13 @@ pub const Storage = enum {
                             defer i.* = data_start + len;
                             return .{ .slice = @ptrCast(buffer[data_start..][0..len]) };
                         },
+                        .flag_list => {
+                            const flags = @field(container, @tagName(Field.flags));
+                            const len: u32 = @field(flags, @tagName(Field.flag));
+                            const data_start = i.*;
+                            defer i.* = data_start + len;
+                            return .{ .slice = @ptrCast(buffer[data_start..][0..len]) };
+                        },
                         .multi_list => {
                             const data_start = i.* + 1;
                             const len = buffer[data_start - 1];
@@ -2122,7 +2151,10 @@ pub const Storage = enum {
                 },
                 .auto => switch (Field.storage) {
                     .flag_optional, .enum_optional, .extended => 1,
-                    .length_prefixed_list, .flag_length_prefixed_list => 1 + @divExact(@sizeOf(Field.Elem), @sizeOf(u32)) * field.slice.len,
+                    .length_prefixed_list,
+                    .flag_length_prefixed_list,
+                    .flag_list,
+                    => 1 + @divExact(@sizeOf(Field.Elem), @sizeOf(u32)) * field.slice.len,
                     .multi_list => 1 + field.mal.len * @typeInfo(Field.Elem).@"struct".fields.len,
                     .union_list => Field.extraLen(field.len),
                     .flag_union => switch (field.u) {
@@ -2194,6 +2226,11 @@ pub const Storage = enum {
                             buffer[i] = len;
                             @memcpy(buffer[i + 1 ..][0..len], @as([]const u32, @ptrCast(value.slice)));
                             return len + 1;
+                        },
+                        .flag_list => {
+                            const len: u32 = @intCast(value.slice.len);
+                            @memcpy(buffer[i..][0..len], @as([]const u32, @ptrCast(value.slice)));
+                            return len;
                         },
                         .multi_list => {
                             const len: u32 = @intCast(value.mal.len);
