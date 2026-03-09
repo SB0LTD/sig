@@ -859,6 +859,10 @@ pub const Step = extern struct {
             version_script: bool,
             _: u18 = 0,
         };
+
+        pub fn isDynamicLibrary(compile: *const Compile) bool {
+            return compile.flags3.kind == .lib and compile.flags2.linkage == .dynamic;
+        }
     };
 
     pub const CheckFile = struct {
@@ -1243,6 +1247,13 @@ pub const ImportTable = struct {
     pub const Index = enum(u32) {
         invalid = maxInt(u32),
         _,
+
+        pub fn get(this: @This(), c: *const Configuration) ImportTable {
+            return switch (this) {
+                .invalid => unreachable,
+                _ => extraData(c, ImportTable, @intFromEnum(this)),
+            };
+        }
     };
 };
 
@@ -1313,6 +1324,8 @@ pub const InstallDestDir = enum(u32) {
 /// Points into `string_bytes`, null-terminated.
 pub const OptionalString = enum(u32) {
     empty = 0,
+    /// The string "root".
+    root = 1,
     none = maxInt(u32),
     _,
 
@@ -1326,6 +1339,8 @@ pub const OptionalString = enum(u32) {
 /// Points into `string_bytes`, null-terminated.
 pub const String = enum(u32) {
     empty = 0,
+    /// The string "root".
+    root = 1,
     _,
 
     pub fn slice(index: String, c: *const Configuration) [:0]const u8 {
@@ -1954,13 +1969,21 @@ pub const Storage = enum {
             };
 
             /// Valid to call only when serializing.
-            pub fn init(slice: []const Union) @This() {
-                return .{ .data = slice.ptr, .len = slice.len };
+            pub fn init(s: []const Union) @This() {
+                return .{ .data = s.ptr, .len = s.len };
             }
 
             /// Valid to call only when deserializing.
-            pub fn get(this: *const @This(), extra: []const u32) []const u32 {
+            pub fn slice(this: *const @This(), extra: []const u32) []const u32 {
                 return extra[@intFromPtr(this.data)..][0..this.len];
+            }
+
+            /// Valid to call only when deserializing.
+            pub fn get(this: *const @This(), extra: []const u32, i: usize) Union {
+                const elem = slice(this, extra)[i];
+                return switch (this.tag(extra, i)) {
+                    inline else => |comptime_tag| @unionInit(Union, @tagName(comptime_tag), @enumFromInt(elem)),
+                };
             }
 
             /// Valid to call only when deserializing.
@@ -2093,7 +2116,7 @@ pub const Storage = enum {
                             const len = buffer[data_start - 1];
                             defer i.* = data_start + len * @typeInfo(Field.Elem).@"struct".fields.len;
                             return .{ .mal = .{
-                                .bytes = @ptrCast(buffer[data_start..][0..len]),
+                                .bytes = @ptrCast(@constCast(buffer[data_start..][0..len])),
                                 .len = len,
                                 .capacity = len,
                             } };

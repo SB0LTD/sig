@@ -135,7 +135,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                     .extended => @compileError("TODO"),
                     .union_list => {
                         var slice_field = try s.beginTuple(.{});
-                        for (field_value.get(c.extra), 0..) |elem, i| switch (field_value.tag(c.extra, i)) {
+                        for (field_value.slice(c.extra), 0..) |elem, i| switch (field_value.tag(c.extra, i)) {
                             inline else => |tag| {
                                 var sub_struct = try s.beginStruct(.{});
                                 try sub_struct.fieldPrefix(@tagName(tag));

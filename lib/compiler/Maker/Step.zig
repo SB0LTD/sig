@@ -316,13 +316,14 @@ pub fn captureChildProcess(
     return result;
 }
 
-pub fn fail(step: *Step, comptime fmt: []const u8, args: anytype) error{ OutOfMemory, MakeFailed } {
-    try step.addError(fmt, args);
+pub fn fail(step: *Step, maker: *const Maker, comptime fmt: []const u8, args: anytype) error{ OutOfMemory, MakeFailed } {
+    try step.addError(maker, fmt, args);
     return error.MakeFailed;
 }
 
-pub fn addError(step: *Step, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
-    const arena = step.owner.allocator;
+pub fn addError(step: *Step, maker: *const Maker, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into the process_arena
     const msg = try std.fmt.allocPrint(arena, fmt, args);
     try step.result_error_msgs.append(arena, msg);
 }

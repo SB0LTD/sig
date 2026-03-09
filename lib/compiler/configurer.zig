@@ -202,6 +202,7 @@ pub fn main(init: process.Init.Minimal) !void {
     var wc: Configuration.Wip = .init(gpa);
     defer wc.deinit();
     assert(try wc.addString("") == .empty);
+    assert(try wc.addString("root") == .root);
 
     try serializeSystemIntegrationOptions(&graph, &wc);
 

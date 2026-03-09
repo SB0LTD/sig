@@ -668,11 +668,9 @@ pub const Graph = struct {
     names: []const []const u8,
 };
 
-/// Intended to be used during the make phase only.
-///
-/// Given that `root` is the root `Module` of a compilation, return all `Module`s
-/// in the module graph, including `root` itself. `root` is guaranteed to be the
-/// first module in the returned slice.
+/// Given that `root` is the root `Module` of a compilation, return all
+/// `Module` in the module graph, including `root` itself. `root` is guaranteed
+/// to be the first module in the returned slice.
 pub fn getGraph(root: *Module) Graph {
     if (root.cached_graph.modules.len != 0) {
         return root.cached_graph;
