@@ -9,6 +9,7 @@ const Step = std.Build.Step;
 const elf = std.elf;
 const fs = std.fs;
 const sort = std.sort;
+const Configuration = std.Build.Configuration;
 
 pub const base_tag: Step.Tag = .objcopy;
 
@@ -71,8 +72,8 @@ pub const SetSectionFlags = struct {
 step: Step,
 input_file: std.Build.LazyPath,
 basename: []const u8,
-output_file: std.Build.GeneratedFile,
-output_file_debug: ?std.Build.GeneratedFile,
+output_file: Configuration.GeneratedFileIndex,
+output_file_debug: Configuration.OptionalGeneratedFileIndex,
 
 format: ?RawFormat,
 only_section: ?[]const u8,
@@ -108,7 +109,10 @@ pub fn create(
     input_file: std.Build.LazyPath,
     options: Options,
 ) *ObjCopy {
-    const objcopy = owner.allocator.create(ObjCopy) catch @panic("OOM");
+    const graph = owner.graph;
+    const arena = graph.arena;
+
+    const objcopy = arena.create(ObjCopy) catch @panic("OOM");
     objcopy.* = ObjCopy{
         .step = Step.init(.{
             .tag = base_tag,
@@ -118,8 +122,11 @@ pub fn create(
         }),
         .input_file = input_file,
         .basename = options.basename orelse input_file.getDisplayName(),
-        .output_file = std.Build.GeneratedFile{ .step = &objcopy.step },
-        .output_file_debug = if (options.strip != .none and options.extract_to_separate_file) std.Build.GeneratedFile{ .step = &objcopy.step } else null,
+        .output_file = graph.addGeneratedFile(&objcopy.step),
+        .output_file_debug = if (options.strip != .none and options.extract_to_separate_file)
+            .init(graph.addGeneratedFile(&objcopy.step))
+        else
+            .none,
         .format = options.format,
         .only_section = options.only_section,
         .pad_to = options.pad_to,
@@ -134,10 +141,10 @@ pub fn create(
 }
 
 pub fn getOutput(objcopy: *const ObjCopy) std.Build.LazyPath {
-    return .{ .generated = .{ .file = &objcopy.output_file } };
+    return .{ .generated = .{ .index = objcopy.output_file } };
 }
 pub fn getOutputSeparatedDebug(objcopy: *const ObjCopy) ?std.Build.LazyPath {
-    return if (objcopy.output_file_debug) |*file| .{ .generated = .{ .file = file } } else null;
+    return if (objcopy.output_file_debug.unwrap()) |index| .{ .generated = .{ .index = index } } else null;
 }
 
 fn make(step: *Step, options: Step.MakeOptions) !void {

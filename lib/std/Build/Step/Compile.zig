@@ -1,4 +1,5 @@
 const Compile = @This();
+
 const builtin = @import("builtin");
 
 const std = @import("std");
@@ -13,8 +14,8 @@ const Step = std.Build.Step;
 const LazyPath = std.Build.LazyPath;
 const Module = std.Build.Module;
 const InstallDir = std.Build.InstallDir;
-const GeneratedFile = std.Build.GeneratedFile;
 const Path = std.Build.Cache.Path;
+const Configuration = std.Build.Configuration;
 
 pub const base_tag: Step.Tag = .compile;
 
@@ -212,19 +213,6 @@ allow_so_scripts: ?bool = null,
 /// otherwise.
 expect_errors: ?ExpectedCompileErrors = null,
 
-emit_directory: ?*GeneratedFile,
-
-generated_docs: ?*GeneratedFile,
-generated_asm: ?*GeneratedFile,
-generated_bin: ?*GeneratedFile,
-generated_pdb: ?*GeneratedFile,
-// hack for stage2_x86_64 + coff
-generated_compiler_rt_dyn_lib: ?*GeneratedFile,
-generated_implib: ?*GeneratedFile,
-generated_llvm_bc: ?*GeneratedFile,
-generated_llvm_ir: ?*GeneratedFile,
-generated_h: ?*GeneratedFile,
-
 /// The maximum number of distinct errors within a compilation step Defaults to
 /// `std.math.maxInt(u16)`. Overrides the argument passed to `zig build`.
 error_limit: ?u32 = null,
@@ -247,6 +235,16 @@ is_linking_libcpp: bool = false,
 /// To instead enable fuzz testing instrumentation on a compilation using Zig's
 /// builtin fuzzer, see the `fuzz` flag in `Module`.
 sanitize_coverage_trace_pc_guard: ?bool = null,
+
+emit_directory: Configuration.OptionalGeneratedFileIndex = .none,
+generated_docs: Configuration.OptionalGeneratedFileIndex = .none,
+generated_asm: Configuration.OptionalGeneratedFileIndex = .none,
+generated_bin: Configuration.OptionalGeneratedFileIndex = .none,
+generated_pdb: Configuration.OptionalGeneratedFileIndex = .none,
+generated_implib: Configuration.OptionalGeneratedFileIndex = .none,
+generated_llvm_bc: Configuration.OptionalGeneratedFileIndex = .none,
+generated_llvm_ir: Configuration.OptionalGeneratedFileIndex = .none,
+generated_h: Configuration.OptionalGeneratedFileIndex = .none,
 
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
@@ -291,7 +289,7 @@ pub const Options = struct {
     entitlements: ?LazyPath = null,
 };
 
-pub const Kind = std.Build.Configuration.Step.Compile.Kind;
+pub const Kind = Configuration.Step.Compile.Kind;
 
 pub const HeaderInstallation = union(enum) {
     file: File,
@@ -362,6 +360,9 @@ pub const TestRunner = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *Compile {
+    const graph = owner.graph;
+    const arena = graph.arena;
+
     const name = owner.dupe(options.name);
     if (mem.find(u8, name, "/") != null or mem.find(u8, name, "\\") != null) {
         panic("invalid name: '{s}'. It looks like a file path, but it is supposed to be the library or application name.", .{name});
@@ -376,12 +377,12 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         if (options.kind.isTest() and mem.eql(u8, name, "test"))
             @tagName(options.kind)
         else
-            owner.fmt("{s} {s}", .{ @tagName(options.kind), name }),
+            owner.fmt("{t} {s}", .{ options.kind, name }),
         @tagName(options.root_module.optimize orelse .Debug),
-        resolved_target.query.zigTriple(owner.allocator) catch @panic("OOM"),
+        resolved_target.query.zigTriple(arena) catch @panic("OOM"),
     });
 
-    const out_filename = std.zig.binNameAlloc(owner.allocator, .{
+    const out_filename = std.zig.binNameAlloc(arena, .{
         .root_name = name,
         .target = target,
         .output_mode = switch (options.kind) {
@@ -393,7 +394,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .version = options.version,
     }) catch @panic("OOM");
 
-    const compile = owner.allocator.create(Compile) catch @panic("OOM");
+    const compile = arena.create(Compile) catch @panic("OOM");
     compile.* = .{
         .root_module = options.root_module,
         .verbose_link = false,
@@ -419,17 +420,6 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .test_runner = null, // set below
         .rdynamic = false,
         .force_undefined_symbols = .empty,
-
-        .emit_directory = null,
-        .generated_docs = null,
-        .generated_asm = null,
-        .generated_bin = null,
-        .generated_pdb = null,
-        .generated_compiler_rt_dyn_lib = null,
-        .generated_implib = null,
-        .generated_llvm_bc = null,
-        .generated_llvm_ir = null,
-        .generated_h = null,
 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
@@ -706,13 +696,12 @@ pub fn setLibCFile(compile: *Compile, libc_file: ?LazyPath) void {
     }
 }
 
-fn getEmittedFileGeneric(compile: *Compile, output_file: *?*GeneratedFile) LazyPath {
-    if (output_file.*) |file| return .{ .generated = .{ .file = file } };
-    const arena = compile.step.owner.allocator;
-    const generated_file = arena.create(GeneratedFile) catch @panic("OOM");
-    generated_file.* = .{ .step = &compile.step };
-    output_file.* = generated_file;
-    return .{ .generated = .{ .file = generated_file } };
+fn getEmittedFileGeneric(compile: *Compile, output_file: *Configuration.OptionalGeneratedFileIndex) LazyPath {
+    if (output_file.unwrap()) |index| return .{ .generated = .{ .index = index } };
+    const graph = compile.step.owner.graph;
+    const index = graph.addGeneratedFile(&compile.step);
+    output_file.* = .init(index);
+    return .{ .generated = .{ .index = index } };
 }
 
 /// Returns the path to the directory that contains the emitted binary file.
@@ -783,46 +772,6 @@ pub fn setExecCmd(compile: *Compile, args: []const ?[]const u8) void {
         duped_args[i] = if (arg) |a| b.dupe(a) else null;
     }
     compile.exec_cmd_args = duped_args;
-}
-
-fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking_step: ?*Step) ![]const u8 {
-    const step = &compile.step;
-    const b = step.owner;
-    const graph = b.graph;
-    const io = graph.io;
-    const maybe_path: ?*GeneratedFile = @field(compile, tag_name);
-
-    const generated_file = maybe_path orelse {
-        const stderr = try io.lockStderr(&.{}, graph.stderr_mode);
-        std.Build.dumpBadGetPathHelp(&compile.step, stderr.terminal(), compile.step.owner, asking_step) catch {};
-        io.unlockStderr();
-        @panic("missing emit option for " ++ tag_name);
-    };
-
-    const path = generated_file.path orelse {
-        const stderr = try io.lockStderr(&.{}, graph.stderr_mode);
-        std.Build.dumpBadGetPathHelp(&compile.step, stderr.terminal(), compile.step.owner, asking_step) catch {};
-        io.unlockStderr();
-        @panic(tag_name ++ " is null. Is there a missing step dependency?");
-    };
-
-    return path;
-}
-
-fn outputPath(c: *Compile, out_dir: std.Build.Cache.Path, ea: std.zig.EmitArtifact) []const u8 {
-    const arena = c.step.owner.graph.arena;
-    const name = ea.cacheName(arena, .{
-        .root_name = c.name,
-        .target = &c.root_module.resolved_target.?.result,
-        .output_mode = switch (c.kind) {
-            .lib => .Lib,
-            .obj, .test_obj => .Obj,
-            .exe, .@"test" => .Exe,
-        },
-        .link_mode = c.linkage,
-        .version = c.version,
-    }) catch @panic("OOM");
-    return out_dir.joinString(arena, name) catch @panic("OOM");
 }
 
 pub fn rootModuleTarget(c: *Compile) std.Target {

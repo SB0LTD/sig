@@ -9,13 +9,13 @@ const Dir = std.Io.Dir;
 const Step = std.Build.Step;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
+const Configuration = std.Build.Configuration;
 
 step: Step,
 
-/// The elements here are pointers because we need stable pointers for the GeneratedFile field.
 files: std.ArrayList(File),
 directories: std.ArrayList(Directory),
-generated_directory: std.Build.GeneratedFile,
+generated_directory: Configuration.GeneratedFileIndex,
 mode: Mode = .whole_cached,
 
 pub const base_tag: Step.Tag = .write_file;
@@ -86,7 +86,9 @@ pub const Contents = union(enum) {
 };
 
 pub fn create(owner: *std.Build) *WriteFile {
-    const write_file = owner.allocator.create(WriteFile) catch @panic("OOM");
+    const graph = owner.graph;
+    const arena = graph.arena;
+    const write_file = arena.create(WriteFile) catch @panic("OOM");
     write_file.* = .{
         .step = Step.init(.{
             .tag = base_tag,
@@ -95,7 +97,7 @@ pub fn create(owner: *std.Build) *WriteFile {
         }),
         .files = .empty,
         .directories = .empty,
-        .generated_directory = .{ .step = &write_file.step },
+        .generated_directory = graph.addGeneratedFile(&write_file.step),
     };
     return write_file;
 }
@@ -111,7 +113,7 @@ pub fn add(write_file: *WriteFile, sub_path: []const u8, bytes: []const u8) std.
     write_file.maybeUpdateName();
     return .{
         .generated = .{
-            .file = &write_file.generated_directory,
+            .index = write_file.generated_directory,
             .sub_path = file.sub_path,
         },
     };
@@ -137,7 +139,7 @@ pub fn addCopyFile(write_file: *WriteFile, source: std.Build.LazyPath, sub_path:
     source.addStepDependencies(&write_file.step);
     return .{
         .generated = .{
-            .file = &write_file.generated_directory,
+            .index = write_file.generated_directory,
             .sub_path = file.sub_path,
         },
     };
@@ -165,7 +167,7 @@ pub fn addCopyDirectory(
     source.addStepDependencies(&write_file.step);
     return .{
         .generated = .{
-            .file = &write_file.generated_directory,
+            .index = write_file.generated_directory,
             .sub_path = dir.sub_path,
         },
     };
@@ -174,7 +176,7 @@ pub fn addCopyDirectory(
 /// Returns a `LazyPath` representing the base directory that contains all the
 /// files from this `WriteFile`.
 pub fn getDirectory(write_file: *WriteFile) std.Build.LazyPath {
-    return .{ .generated = .{ .file = &write_file.generated_directory } };
+    return .{ .generated = .{ .index = write_file.generated_directory } };
 }
 
 fn maybeUpdateName(write_file: *WriteFile) void {

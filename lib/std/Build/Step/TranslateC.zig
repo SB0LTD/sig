@@ -1,10 +1,11 @@
+const TranslateC = @This();
+
 const std = @import("std");
 const Step = std.Build.Step;
 const LazyPath = std.Build.LazyPath;
 const fs = std.fs;
 const mem = std.mem;
-
-const TranslateC = @This();
+const Configuration = std.Build.Configuration;
 
 pub const base_tag: Step.Tag = .translate_c;
 
@@ -16,7 +17,7 @@ c_macros: std.array_list.Managed([]const u8),
 out_basename: []const u8,
 target: std.Build.ResolvedTarget,
 optimize: std.builtin.OptimizeMode,
-output_file: std.Build.GeneratedFile,
+output_file: Configuration.GeneratedFileIndex,
 link_libc: bool,
 
 pub const Options = struct {
@@ -27,7 +28,9 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *TranslateC {
-    const translate_c = owner.allocator.create(TranslateC) catch @panic("OOM");
+    const graph = owner.graph;
+    const arena = graph.arena;
+    const translate_c = arena.create(TranslateC) catch @panic("OOM");
     const source = options.root_source_file.dupe(owner);
     translate_c.* = .{
         .step = Step.init(.{
@@ -37,12 +40,12 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
             .makeFn = make,
         }),
         .source = source,
-        .include_dirs = std.array_list.Managed(std.Build.Module.IncludeDir).init(owner.allocator),
-        .c_macros = std.array_list.Managed([]const u8).init(owner.allocator),
+        .include_dirs = std.array_list.Managed(std.Build.Module.IncludeDir).init(arena),
+        .c_macros = std.array_list.Managed([]const u8).init(arena),
         .out_basename = undefined,
         .target = options.target,
         .optimize = options.optimize,
-        .output_file = .{ .step = &translate_c.step },
+        .output_file = graph.addGeneratedFile(&translate_c.step),
         .link_libc = options.link_libc,
         .system_libs = .empty,
     };
@@ -59,7 +62,7 @@ pub const AddExecutableOptions = struct {
 };
 
 pub fn getOutput(translate_c: *TranslateC) std.Build.LazyPath {
-    return .{ .generated = .{ .file = &translate_c.output_file } };
+    return .{ .generated = .{ .index = translate_c.output_file } };
 }
 
 /// Creates a module from the translated source and adds it to the package's

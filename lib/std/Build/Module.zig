@@ -89,7 +89,8 @@ pub const CSourceLanguage = enum {
     /// Assembly with the C preprocessor
     assembly_with_preprocessor,
 
-    pub fn internalIdentifier(self: CSourceLanguage) []const u8 {
+    /// The value passed to "-x" CLI flag of Clang.
+    pub fn clangIdentifier(self: CSourceLanguage) [:0]const u8 {
         return switch (self) {
             .c => "c",
             .cpp => "c++",
@@ -164,33 +165,6 @@ pub const IncludeDir = union(enum) {
     other_step: *Step.Compile,
     config_header_step: *Step.ConfigHeader,
     embed_path: LazyPath,
-
-    pub fn appendZigProcessFlags(
-        include_dir: IncludeDir,
-        b: *std.Build,
-        zig_args: *std.array_list.Managed([]const u8),
-        asking_step: ?*Step,
-    ) !void {
-        const flag: []const u8, const lazy_path: LazyPath = switch (include_dir) {
-            // zig fmt: off
-            .path                  => |lp|   .{ "-I",          lp },
-            .path_system           => |lp|   .{ "-isystem",    lp },
-            .path_after            => |lp|   .{ "-idirafter",  lp },
-            .framework_path        => |lp|   .{ "-F",          lp },
-            .framework_path_system => |lp|   .{ "-iframework", lp },
-            .config_header_step    => |ch|   .{ "-I",          ch.getOutputDir() },
-            .other_step            => |comp| .{ "-I",          comp.installed_headers_include_tree.?.getDirectory() },
-            // zig fmt: on
-            .embed_path => |lazy_path| {
-                // Special case: this is a single arg.
-                const resolved = lazy_path.getPath3(b, asking_step);
-                const arg = b.fmt("--embed-dir={f}", .{resolved});
-                return zig_args.append(arg);
-            },
-        };
-        const resolved_str = try lazy_path.getPath3(b, asking_step).toString(b.graph.arena);
-        return zig_args.appendSlice(&.{ flag, resolved_str });
-    }
 };
 
 pub const LinkFrameworkOptions = struct {
@@ -531,117 +505,6 @@ pub fn addRPathSpecial(m: *Module, bytes: []const u8) void {
 pub fn addCMacro(m: *Module, name: []const u8, value: []const u8) void {
     const b = m.owner;
     m.c_macros.append(b.allocator, b.fmt("-D{s}={s}", .{ name, value })) catch @panic("OOM");
-}
-
-pub fn appendZigProcessFlags(
-    m: *Module,
-    zig_args: *std.array_list.Managed([]const u8),
-    asking_step: ?*Step,
-) !void {
-    const b = m.owner;
-
-    try addFlag(zig_args, m.strip, "-fstrip", "-fno-strip");
-    try addFlag(zig_args, m.single_threaded, "-fsingle-threaded", "-fno-single-threaded");
-    try addFlag(zig_args, m.stack_check, "-fstack-check", "-fno-stack-check");
-    try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
-    try addFlag(zig_args, m.omit_frame_pointer, "-fomit-frame-pointer", "-fno-omit-frame-pointer");
-    try addFlag(zig_args, m.error_tracing, "-ferror-tracing", "-fno-error-tracing");
-    try addFlag(zig_args, m.sanitize_thread, "-fsanitize-thread", "-fno-sanitize-thread");
-    try addFlag(zig_args, m.fuzz, "-ffuzz", "-fno-fuzz");
-    try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");
-    try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
-    try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
-    try addFlag(zig_args, m.no_builtin, "-fno-builtin", "-fbuiltin");
-
-    if (m.sanitize_c) |sc| switch (sc) {
-        .off => try zig_args.append("-fno-sanitize-c"),
-        .trap => try zig_args.append("-fsanitize-c=trap"),
-        .full => try zig_args.append("-fsanitize-c=full"),
-    };
-
-    if (m.dwarf_format) |dwarf_format| {
-        try zig_args.append(switch (dwarf_format) {
-            .@"32" => "-gdwarf32",
-            .@"64" => "-gdwarf64",
-        });
-    }
-
-    if (m.unwind_tables) |unwind_tables| {
-        try zig_args.append(switch (unwind_tables) {
-            .none => "-fno-unwind-tables",
-            .sync => "-funwind-tables",
-            .async => "-fasync-unwind-tables",
-        });
-    }
-
-    try zig_args.ensureUnusedCapacity(1);
-    if (m.optimize) |optimize| switch (optimize) {
-        .Debug => zig_args.appendAssumeCapacity("-ODebug"),
-        .ReleaseSmall => zig_args.appendAssumeCapacity("-OReleaseSmall"),
-        .ReleaseFast => zig_args.appendAssumeCapacity("-OReleaseFast"),
-        .ReleaseSafe => zig_args.appendAssumeCapacity("-OReleaseSafe"),
-    };
-
-    if (m.code_model != .default) {
-        try zig_args.append("-mcmodel");
-        try zig_args.append(@tagName(m.code_model));
-    }
-
-    if (m.resolved_target) |*target| {
-        // Communicate the query via CLI since it's more compact.
-        if (!target.query.isNative()) {
-            try zig_args.appendSlice(&.{
-                "-target", try target.query.zigTriple(b.allocator),
-                "-mcpu",   try target.query.serializeCpuAlloc(b.allocator),
-            });
-            if (target.query.dynamic_linker) |*dynamic_linker| {
-                if (dynamic_linker.get()) |dynamic_linker_path| {
-                    try zig_args.append("--dynamic-linker");
-                    try zig_args.append(dynamic_linker_path);
-                } else {
-                    try zig_args.append("--no-dynamic-linker");
-                }
-            }
-        }
-    }
-
-    for (m.export_symbol_names) |symbol_name| {
-        try zig_args.append(b.fmt("--export={s}", .{symbol_name}));
-    }
-
-    for (m.include_dirs.items) |include_dir| {
-        try include_dir.appendZigProcessFlags(b, zig_args, asking_step);
-    }
-
-    try zig_args.appendSlice(m.c_macros.items);
-
-    try zig_args.ensureUnusedCapacity(2 * m.lib_paths.items.len);
-    for (m.lib_paths.items) |lib_path| {
-        zig_args.appendAssumeCapacity("-L");
-        zig_args.appendAssumeCapacity(lib_path.getPath2(b, asking_step));
-    }
-
-    try zig_args.ensureUnusedCapacity(2 * m.rpaths.items.len);
-    for (m.rpaths.items) |rpath| switch (rpath) {
-        .lazy_path => |lp| {
-            zig_args.appendAssumeCapacity("-rpath");
-            zig_args.appendAssumeCapacity(lp.getPath2(b, asking_step));
-        },
-        .special => |bytes| {
-            zig_args.appendAssumeCapacity("-rpath");
-            zig_args.appendAssumeCapacity(bytes);
-        },
-    };
-}
-
-fn addFlag(
-    args: *std.array_list.Managed([]const u8),
-    opt: ?bool,
-    then_name: []const u8,
-    else_name: []const u8,
-) !void {
-    const cond = opt orelse return;
-    return args.append(if (cond) then_name else else_name);
 }
 
 fn linkLibraryOrObject(m: *Module, other: *Step.Compile) void {

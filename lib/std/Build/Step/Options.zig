@@ -1,24 +1,28 @@
 const Options = @This();
+
 const builtin = @import("builtin");
 
 const std = @import("std");
 const Io = std.Io;
 const fs = std.fs;
 const Step = std.Build.Step;
-const GeneratedFile = std.Build.GeneratedFile;
 const LazyPath = std.Build.LazyPath;
+const Configuration = std.Build.Configuration;
 
 pub const base_tag: Step.Tag = .options;
 
 step: Step,
-generated_file: GeneratedFile,
+generated_file: Configuration.GeneratedFileIndex,
 
 contents: std.ArrayList(u8),
 args: std.ArrayList(Arg),
 encountered_types: std.StringHashMapUnmanaged(void),
 
 pub fn create(owner: *std.Build) *Options {
-    const options = owner.allocator.create(Options) catch @panic("OOM");
+    const graph = owner.graph;
+    const arena = graph.arena;
+
+    const options = arena.create(Options) catch @panic("OOM");
     options.* = .{
         .step = .init(.{
             .tag = base_tag,
@@ -26,12 +30,11 @@ pub fn create(owner: *std.Build) *Options {
             .owner = owner,
             .makeFn = make,
         }),
-        .generated_file = undefined,
+        .generated_file = graph.addGeneratedFile(&options.step),
         .contents = .empty,
         .args = .empty,
         .encountered_types = .empty,
     };
-    options.generated_file = .{ .step = &options.step };
 
     return options;
 }
@@ -434,7 +437,7 @@ pub fn createModule(options: *Options) *std.Build.Module {
 /// Returns the main artifact of this Build Step which is a Zig source file
 /// generated from the key-value pairs of the Options.
 pub fn getOutput(options: *Options) LazyPath {
-    return .{ .generated = .{ .file = &options.generated_file } };
+    return .{ .generated = .{ .index = options.generated_file } };
 }
 
 fn make(step: *Step, make_options: Step.MakeOptions) !void {

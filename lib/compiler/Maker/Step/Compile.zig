@@ -129,6 +129,7 @@ fn lowerZigArgs(
     const conf = &maker.scanned_config.configuration;
     const conf_step = compile_index.ptr(conf);
     const conf_comp = conf_step.extended.get(conf.extra).compile;
+    const root_module_target = conf_comp.rootModuleTarget(conf);
 
     try zig_args.append(gpa, graph.zig_exe);
 
@@ -232,17 +233,17 @@ fn lowerZigArgs(
                     }
                 }
 
-                if (true) @panic("TODO");
-
                 // Inherit dependencies on system libraries and static libraries.
                 for (0..mod.link_objects.len) |lo_i| switch (mod.link_objects.get(conf.extra, lo_i)) {
                     .static_path => |static_path| {
                         if (my_responsibility) {
-                            try zig_args.append(gpa, static_path.getPath2(step));
+                            try zig_args.append(gpa, try maker.resolveLazyPathIndexAbs(arena, static_path, compile_index));
                             total_linker_objects += 1;
                         }
                     },
-                    .system_lib => |system_lib| {
+                    .system_lib => |system_lib_index| {
+                        const system_lib = system_lib_index.get(conf);
+                        const system_lib_name = system_lib.name.slice(conf);
                         const system_lib_gop = try seen_system_libs.getOrPut(arena, system_lib.name);
                         if (system_lib_gop.found_existing) {
                             try zig_args.appendSlice(gpa, system_lib_gop.value_ptr.*);
@@ -254,37 +255,39 @@ fn lowerZigArgs(
                         if (already_linked)
                             continue;
 
-                        if ((system_lib.search_strategy != prev_search_strategy or
-                            system_lib.preferred_link_mode != prev_preferred_link_mode) and
-                            compile.linkage != .static)
+                        if ((system_lib.flags.search_strategy != prev_search_strategy or
+                            system_lib.flags.preferred_link_mode != prev_preferred_link_mode) and
+                            conf_comp.flags2.linkage != .static)
                         {
-                            switch (system_lib.search_strategy) {
-                                .no_fallback => switch (system_lib.preferred_link_mode) {
+                            switch (system_lib.flags.search_strategy) {
+                                .no_fallback => switch (system_lib.flags.preferred_link_mode) {
                                     .dynamic => try zig_args.append(gpa, "-search_dylibs_only"),
                                     .static => try zig_args.append(gpa, "-search_static_only"),
                                 },
-                                .paths_first => switch (system_lib.preferred_link_mode) {
+                                .paths_first => switch (system_lib.flags.preferred_link_mode) {
                                     .dynamic => try zig_args.append(gpa, "-search_paths_first"),
                                     .static => try zig_args.append(gpa, "-search_paths_first_static"),
                                 },
-                                .mode_first => switch (system_lib.preferred_link_mode) {
+                                .mode_first => switch (system_lib.flags.preferred_link_mode) {
                                     .dynamic => try zig_args.append(gpa, "-search_dylibs_first"),
                                     .static => try zig_args.append(gpa, "-search_static_first"),
                                 },
                             }
-                            prev_search_strategy = system_lib.search_strategy;
-                            prev_preferred_link_mode = system_lib.preferred_link_mode;
+                            prev_search_strategy = system_lib.flags.search_strategy;
+                            prev_preferred_link_mode = system_lib.flags.preferred_link_mode;
                         }
 
                         const prefix: []const u8 = prefix: {
-                            if (system_lib.needed) break :prefix "-needed-l";
-                            if (system_lib.weak) break :prefix "-weak-l";
+                            if (system_lib.flags.needed) break :prefix "-needed-l";
+                            if (system_lib.flags.weak) break :prefix "-weak-l";
                             break :prefix "-l";
                         };
-                        switch (system_lib.use_pkg_config) {
-                            .no => try zig_args.append(gpa, try allocPrint(arena, "{s}{s}", .{ prefix, system_lib.name })),
+                        switch (system_lib.flags.use_pkg_config) {
+                            .no => try zig_args.append(gpa, try allocPrint(arena, "{s}{s}", .{
+                                prefix, system_lib_name,
+                            })),
                             .yes, .force => {
-                                if (compile.runPkgConfig(maker, system_lib.name)) |result| {
+                                if (compile.runPkgConfig(maker, system_lib_name)) |result| {
                                     try zig_args.appendSlice(gpa, result.cflags);
                                     try zig_args.appendSlice(gpa, result.libs);
                                     try seen_system_libs.put(arena, system_lib.name, result.cflags);
@@ -294,17 +297,18 @@ fn lowerZigArgs(
                                     error.PkgConfigFailed,
                                     error.PkgConfigNotInstalled,
                                     error.PackageNotFound,
-                                    => switch (system_lib.use_pkg_config) {
+                                    => switch (system_lib.flags.use_pkg_config) {
                                         .yes => {
                                             // pkg-config failed, so fall back to linking the library
                                             // by name directly.
                                             try zig_args.append(gpa, try allocPrint(arena, "{s}{s}", .{
-                                                prefix,
-                                                system_lib.name,
+                                                prefix, system_lib_name,
                                             }));
                                         },
                                         .force => {
-                                            return step.fail(maker, "pkg-config failed for library {s}", .{system_lib.name});
+                                            return step.fail(maker, "pkg-config failed for library {s}", .{
+                                                system_lib_name,
+                                            });
                                         },
                                         .no => unreachable,
                                     },
@@ -314,23 +318,31 @@ fn lowerZigArgs(
                             },
                         }
                     },
-                    .other_step => |other| {
-                        switch (other.kind) {
+                    .other_step => |other_step_index| {
+                        const other = other_step_index.ptr(conf);
+                        const other_compile = other.extended.get(conf.extra).compile;
+                        switch (other_compile.flags3.kind) {
                             .exe => return step.fail(maker, "cannot link with an executable build artifact", .{}),
                             .@"test" => return step.fail(maker, "cannot link with a test", .{}),
                             .obj, .test_obj => {
-                                const included_in_lib_or_obj = !my_responsibility and
-                                    (dep_compile.kind == .lib or dep_compile.kind == .obj or dep_compile.kind == .test_obj);
+                                const included_in_lib_or_obj = switch (dep_compile.flags3.kind) {
+                                    .lib, .obj, .test_obj => !my_responsibility,
+                                    else => false,
+                                };
                                 if (!already_linked and !included_in_lib_or_obj) {
-                                    try zig_args.append(gpa, other.getEmittedBin().getPath2(step));
+                                    try zig_args.append(gpa, try maker.resolveLazyPathAbs(
+                                        arena,
+                                        .{ .generated = .{ .index = other_compile.generated_bin.value.? } },
+                                        compile_index,
+                                    ));
                                     total_linker_objects += 1;
                                 }
                             },
                             .lib => l: {
-                                const other_produces_implib = other.producesImplib();
-                                const other_is_static = other_produces_implib or other.isStaticLibrary();
+                                const other_produces_implib = other_compile.producesImplib(conf);
+                                const other_is_static = other_produces_implib or other_compile.isStaticLibrary();
 
-                                if (compile.isStaticLibrary() and other_is_static) {
+                                if (conf_comp.isStaticLibrary() and other_is_static) {
                                     // Avoid putting a static library inside a static library.
                                     break :l;
                                 }
@@ -338,20 +350,25 @@ fn lowerZigArgs(
                                 // For DLLs, we must link against the implib.
                                 // For everything else, we directly link
                                 // against the library file.
-                                const full_path_lib = if (other_produces_implib)
-                                    try other.getGeneratedFilePath("generated_implib", &compile.step)
-                                else
-                                    try other.getGeneratedFilePath("generated_bin", &compile.step);
+                                const full_path_lib = try maker.resolveLazyPathAbs(
+                                    arena,
+                                    .{ .generated = .{
+                                        .index = if (other_produces_implib)
+                                            other_compile.generated_implib.value.?
+                                        else
+                                            other_compile.generated_bin.value.?,
+                                    } },
+                                    compile_index,
+                                );
 
                                 try zig_args.append(gpa, full_path_lib);
                                 total_linker_objects += 1;
 
-                                if (other.linkage == .dynamic and
-                                    compile.rootModuleTarget().os.tag != .windows)
+                                if (other_compile.flags2.linkage == .dynamic and
+                                    root_module_target.flags.os_tag != .windows)
                                 {
                                     if (Dir.path.dirname(full_path_lib)) |dirname| {
-                                        try zig_args.append(gpa, "-rpath");
-                                        try zig_args.append(gpa, dirname);
+                                        try zig_args.appendSlice(gpa, &.{ "-rpath", dirname });
                                     }
                                 }
                             },
@@ -361,92 +378,96 @@ fn lowerZigArgs(
                         if (!my_responsibility) break :l;
 
                         if (prev_has_cflags) {
-                            try zig_args.append(gpa, "-cflags");
-                            try zig_args.append(gpa, "--");
+                            try zig_args.appendSlice(gpa, &.{ "-cflags", "--" });
                             prev_has_cflags = false;
                         }
-                        try zig_args.append(gpa, asm_file.getPath2(mod.owner, step));
+                        try zig_args.append(gpa, try maker.resolveLazyPathIndexAbs(arena, asm_file, compile_index));
                         total_linker_objects += 1;
                     },
 
-                    .c_source_file => |c_source_file| l: {
+                    .c_source_file => |c_source_file_index| l: {
                         if (!my_responsibility) break :l;
 
-                        if (prev_has_cflags or c_source_file.flags.len != 0) {
-                            try zig_args.append(gpa, "-cflags");
-                            for (c_source_file.flags) |arg| {
-                                try zig_args.append(gpa, arg);
+                        const c_source_file = c_source_file_index.get(conf);
+
+                        if (prev_has_cflags or c_source_file.args.slice.len != 0) {
+                            try zig_args.ensureUnusedCapacity(gpa, 2 + c_source_file.args.slice.len);
+                            zig_args.appendAssumeCapacity("-cflags");
+                            for (c_source_file.args.slice) |arg| {
+                                zig_args.appendAssumeCapacity(arg.slice(conf));
                             }
-                            try zig_args.append(gpa, "--");
+                            zig_args.appendAssumeCapacity("--");
                         }
-                        prev_has_cflags = (c_source_file.flags.len != 0);
+                        prev_has_cflags = (c_source_file.args.slice.len != 0);
 
-                        if (c_source_file.language) |lang| {
-                            try zig_args.append(gpa, "-x");
-                            try zig_args.append(gpa, lang.internalIdentifier());
-                        }
+                        if (c_source_file.flags.lang.get()) |lang|
+                            (try zig_args.addManyAsArray(gpa, 2)).* = .{ "-x", lang.clangIdentifier() };
 
-                        try zig_args.append(gpa, c_source_file.file.getPath2(mod.owner, step));
+                        try zig_args.append(gpa, try maker.resolveLazyPathIndexAbs(arena, c_source_file.file, compile_index));
 
-                        if (c_source_file.language != null) {
-                            try zig_args.append(gpa, "-x");
-                            try zig_args.append(gpa, "none");
-                        }
+                        if (c_source_file.flags.lang != .default)
+                            (try zig_args.addManyAsArray(gpa, 2)).* = .{ "-x", "none" };
+
                         total_linker_objects += 1;
                     },
 
-                    .c_source_files => |c_source_files| l: {
+                    .c_source_files => |c_source_files_index| l: {
                         if (!my_responsibility) break :l;
 
-                        if (prev_has_cflags or c_source_files.flags.len != 0) {
-                            try zig_args.append(gpa, "-cflags");
-                            for (c_source_files.flags) |arg| {
-                                try zig_args.append(gpa, arg);
+                        const c_source_files = c_source_files_index.get(conf);
+
+                        if (prev_has_cflags or c_source_files.args.slice.len != 0) {
+                            try zig_args.ensureUnusedCapacity(gpa, 2 + c_source_files.args.slice.len);
+                            zig_args.appendAssumeCapacity("-cflags");
+                            for (c_source_files.args.slice) |arg| {
+                                zig_args.appendAssumeCapacity(arg.slice(conf));
                             }
-                            try zig_args.append(gpa, "--");
+                            zig_args.appendAssumeCapacity("--");
                         }
-                        prev_has_cflags = (c_source_files.flags.len != 0);
+                        prev_has_cflags = (c_source_files.args.slice.len != 0);
 
-                        if (c_source_files.language) |lang| {
-                            try zig_args.append(gpa, "-x");
-                            try zig_args.append(gpa, lang.internalIdentifier());
-                        }
+                        if (c_source_files.flags.lang.get()) |lang|
+                            (try zig_args.addManyAsArray(gpa, 2)).* = .{ "-x", lang.clangIdentifier() };
 
-                        const root_path = c_source_files.root.getPath2(mod.owner, step);
-                        for (c_source_files.files) |file| {
-                            try zig_args.append(gpa, try Dir.path.join(arena, &.{ root_path, file }));
-                        }
-
-                        if (c_source_files.language != null) {
-                            try zig_args.append(gpa, "-x");
-                            try zig_args.append(gpa, "none");
+                        const root_path = try maker.resolveLazyPathIndexAbs(arena, c_source_files.root, compile_index);
+                        try zig_args.ensureUnusedCapacity(gpa, c_source_files.sub_paths.slice.len);
+                        for (c_source_files.sub_paths.slice) |sub_path| {
+                            zig_args.appendAssumeCapacity(try Dir.path.join(arena, &.{
+                                root_path, sub_path.slice(conf),
+                            }));
                         }
 
-                        total_linker_objects += c_source_files.files.len;
+                        if (c_source_files.flags.lang != .default)
+                            (try zig_args.addManyAsArray(gpa, 2)).* = .{ "-x", "none" };
+
+                        total_linker_objects += c_source_files.sub_paths.slice.len;
                     },
 
-                    .win32_resource_file => |rc_source_file| l: {
+                    .win32_resource_file => |rc_source_file_index| l: {
                         if (!my_responsibility) break :l;
 
-                        if (rc_source_file.flags.len == 0 and rc_source_file.include_paths.len == 0) {
+                        const rc_source_file = rc_source_file_index.get(conf);
+
+                        if (rc_source_file.args.slice.len == 0 and rc_source_file.include_paths.slice.len == 0) {
                             if (prev_has_rcflags) {
-                                try zig_args.append(gpa, "-rcflags");
-                                try zig_args.append(gpa, "--");
+                                (try zig_args.addManyAsArray(gpa, 2)).* = .{ "-rcflags", "--" };
                                 prev_has_rcflags = false;
                             }
                         } else {
-                            try zig_args.append(gpa, "-rcflags");
-                            for (rc_source_file.flags) |arg| {
-                                try zig_args.append(gpa, arg);
+                            try zig_args.ensureUnusedCapacity(gpa, 1 + rc_source_file.args.slice.len);
+                            zig_args.appendAssumeCapacity("-rcflags");
+                            for (rc_source_file.args.slice) |arg| {
+                                zig_args.appendAssumeCapacity(arg.slice(conf));
                             }
-                            for (rc_source_file.include_paths) |include_path| {
-                                try zig_args.append(gpa, "/I");
-                                try zig_args.append(gpa, include_path.getPath2(mod.owner, step));
+                            try zig_args.ensureUnusedCapacity(gpa, 1 + 2 * rc_source_file.include_paths.slice.len);
+                            for (rc_source_file.include_paths.slice) |include_path| {
+                                zig_args.appendAssumeCapacity("/I");
+                                zig_args.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, include_path, compile_index));
                             }
-                            try zig_args.append(gpa, "--");
+                            zig_args.appendAssumeCapacity("--");
                             prev_has_rcflags = true;
                         }
-                        try zig_args.append(gpa, rc_source_file.file.getPath2(mod.owner, step));
+                        try zig_args.append(gpa, try maker.resolveLazyPathIndexAbs(arena, rc_source_file.file, compile_index));
                         total_linker_objects += 1;
                     },
                 };
@@ -455,9 +476,10 @@ fn lowerZigArgs(
                 // have the correct parent module, but only if the module is part of
                 // this compilation.
                 if (!my_responsibility) continue;
-                if (cli_named_modules.modules.getIndex(mod)) |module_cli_index| {
+                if (cli_named_modules.modules.getIndex(mod_index)) |module_cli_index| {
                     const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
-                    try mod.appendZigProcessFlags(zig_args, step);
+                    if (true) @panic("TODO");
+                    try appendModuleFlags(zig_args, step);
 
                     // --dep arguments
                     try zig_args.ensureUnusedCapacity(mod.import_table.count() * 2);
@@ -510,11 +532,11 @@ fn lowerZigArgs(
         if (is_linking_libc) zig_args.appendAssumeCapacity("-lc");
     }
 
-    if (true) @panic("TODO");
-
-    if (conf_comp.win32_manifest) |manifest_file| {
-        try zig_args.append(gpa, manifest_file.getPath2(step));
+    if (conf_comp.win32_manifest.value) |manifest_file| {
+        try zig_args.append(gpa, try maker.resolveLazyPathIndexAbs(arena, manifest_file, compile_index));
     }
+
+    if (true) @panic("TODO");
 
     if (conf_comp.win32_module_definition) |module_file| {
         try zig_args.append(gpa, module_file.getPath2(step));
@@ -623,27 +645,26 @@ fn lowerZigArgs(
             "--version", try allocPrint(arena, "{f}", .{version}),
         });
 
-        if (compile.rootModuleTarget().os.tag.isDarwin()) {
+        if (root_module_target.flags.os_tag.isDarwin()) {
             const install_name = compile.install_name orelse try allocPrint(arena, "@rpath/{s}{s}{s}", .{
-                compile.rootModuleTarget().libPrefix(),
+                root_module_target.libPrefix(),
                 compile.name,
-                compile.rootModuleTarget().dynamicLibSuffix(),
+                root_module_target.dynamicLibSuffix(),
             });
-            try zig_args.append(gpa, "-install_name");
-            try zig_args.append(gpa, install_name);
+            try zig_args.appendSlice(gpa, &.{ "-install_name", install_name });
         }
     }
 
     if (compile.entitlements) |entitlements| {
-        try zig_args.appendSlice(gpa, &[_][]const u8{ "--entitlements", entitlements });
+        try zig_args.appendSlice(gpa, &.{ "--entitlements", entitlements });
     }
     if (compile.pagezero_size) |pagezero_size| {
         const size = try allocPrint(arena, "{x}", .{pagezero_size});
-        try zig_args.appendSlice(gpa, &[_][]const u8{ "-pagezero_size", size });
+        try zig_args.appendSlice(gpa, &.{ "-pagezero_size", size });
     }
     if (compile.headerpad_size) |headerpad_size| {
         const size = try allocPrint(arena, "{x}", .{headerpad_size});
-        try zig_args.appendSlice(gpa, &[_][]const u8{ "-headerpad", size });
+        try zig_args.appendSlice(gpa, &.{ "-headerpad", size });
     }
     if (compile.headerpad_max_install_names) {
         try zig_args.append(gpa, "-headerpad_max_install_names");
@@ -1019,7 +1040,8 @@ const PkgConfigResult = struct {
 
 /// Run pkg-config for the given library name and parse the output, returning the arguments
 /// that should be passed to zig to link the given library.
-fn runPkgConfig(compile: *Compile, maker: *Maker, lib_name: []const u8) !PkgConfigResult {
+fn runPkgConfig(compile: *const Compile, maker: *const Maker, lib_name: []const u8) !PkgConfigResult {
+    if (true) @panic("TODO");
     const graph = maker.graph;
     const wl_rpath_prefix = "-Wl,-rpath,";
 
@@ -1364,4 +1386,132 @@ fn getModuleList(
     }
 
     return modules;
+}
+
+fn appendModuleFlags(
+    m: *Module,
+    zig_args: *std.array_list.Managed([]const u8),
+    asking_step: ?*Step,
+) !void {
+    const b = m.owner;
+
+    try addFlag(zig_args, m.strip, "-fstrip", "-fno-strip");
+    try addFlag(zig_args, m.single_threaded, "-fsingle-threaded", "-fno-single-threaded");
+    try addFlag(zig_args, m.stack_check, "-fstack-check", "-fno-stack-check");
+    try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
+    try addFlag(zig_args, m.omit_frame_pointer, "-fomit-frame-pointer", "-fno-omit-frame-pointer");
+    try addFlag(zig_args, m.error_tracing, "-ferror-tracing", "-fno-error-tracing");
+    try addFlag(zig_args, m.sanitize_thread, "-fsanitize-thread", "-fno-sanitize-thread");
+    try addFlag(zig_args, m.fuzz, "-ffuzz", "-fno-fuzz");
+    try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");
+    try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
+    try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
+    try addFlag(zig_args, m.no_builtin, "-fno-builtin", "-fbuiltin");
+
+    if (m.sanitize_c) |sc| switch (sc) {
+        .off => try zig_args.append("-fno-sanitize-c"),
+        .trap => try zig_args.append("-fsanitize-c=trap"),
+        .full => try zig_args.append("-fsanitize-c=full"),
+    };
+
+    if (m.dwarf_format) |dwarf_format| {
+        try zig_args.append(switch (dwarf_format) {
+            .@"32" => "-gdwarf32",
+            .@"64" => "-gdwarf64",
+        });
+    }
+
+    if (m.unwind_tables) |unwind_tables| {
+        try zig_args.append(switch (unwind_tables) {
+            .none => "-fno-unwind-tables",
+            .sync => "-funwind-tables",
+            .async => "-fasync-unwind-tables",
+        });
+    }
+
+    try zig_args.ensureUnusedCapacity(1);
+    if (m.optimize) |optimize| switch (optimize) {
+        .Debug => zig_args.appendAssumeCapacity("-ODebug"),
+        .ReleaseSmall => zig_args.appendAssumeCapacity("-OReleaseSmall"),
+        .ReleaseFast => zig_args.appendAssumeCapacity("-OReleaseFast"),
+        .ReleaseSafe => zig_args.appendAssumeCapacity("-OReleaseSafe"),
+    };
+
+    if (m.code_model != .default) {
+        try zig_args.append("-mcmodel");
+        try zig_args.append(@tagName(m.code_model));
+    }
+
+    if (m.resolved_target) |*target| {
+        // Communicate the query via CLI since it's more compact.
+        if (!target.query.isNative()) {
+            try zig_args.appendSlice(&.{
+                "-target", try target.query.zigTriple(b.allocator),
+                "-mcpu",   try target.query.serializeCpuAlloc(b.allocator),
+            });
+            if (target.query.dynamic_linker) |*dynamic_linker| {
+                if (dynamic_linker.get()) |dynamic_linker_path| {
+                    try zig_args.append("--dynamic-linker");
+                    try zig_args.append(dynamic_linker_path);
+                } else {
+                    try zig_args.append("--no-dynamic-linker");
+                }
+            }
+        }
+    }
+
+    for (m.export_symbol_names) |symbol_name| {
+        try zig_args.append(b.fmt("--export={s}", .{symbol_name}));
+    }
+
+    for (m.include_dirs.items) |include_dir| {
+        try appendIncludeDirFlags(include_dir, b, zig_args, asking_step);
+    }
+
+    try zig_args.appendSlice(m.c_macros.items);
+
+    try zig_args.ensureUnusedCapacity(2 * m.lib_paths.items.len);
+    for (m.lib_paths.items) |lib_path| {
+        zig_args.appendAssumeCapacity("-L");
+        zig_args.appendAssumeCapacity(lib_path.getPath2(b, asking_step));
+    }
+
+    try zig_args.ensureUnusedCapacity(2 * m.rpaths.items.len);
+    for (m.rpaths.items) |rpath| switch (rpath) {
+        .lazy_path => |lp| {
+            zig_args.appendAssumeCapacity("-rpath");
+            zig_args.appendAssumeCapacity(lp.getPath2(b, asking_step));
+        },
+        .special => |bytes| {
+            zig_args.appendAssumeCapacity("-rpath");
+            zig_args.appendAssumeCapacity(bytes);
+        },
+    };
+}
+
+fn appendIncludeDirFlags(
+    include_dir: Configuration.Module.IncludeDir,
+    b: *std.Build,
+    zig_args: *std.array_list.Managed([]const u8),
+    asking_step: ?*Step,
+) !void {
+    const flag: []const u8, const lazy_path: Configuration.LazyPath = switch (include_dir) {
+        // zig fmt: off
+        .path                  => |lp|   .{ "-I",          lp },
+        .path_system           => |lp|   .{ "-isystem",    lp },
+        .path_after            => |lp|   .{ "-idirafter",  lp },
+        .framework_path        => |lp|   .{ "-F",          lp },
+        .framework_path_system => |lp|   .{ "-iframework", lp },
+        .config_header_step    => |ch|   .{ "-I",          ch.getOutputDir() },
+        .other_step            => |comp| .{ "-I",          comp.installed_headers_include_tree.?.getDirectory() },
+        // zig fmt: on
+        .embed_path => |lazy_path| {
+            // Special case: this is a single arg.
+            const resolved = lazy_path.getPath3(b, asking_step);
+            const arg = b.fmt("--embed-dir={f}", .{resolved});
+            return zig_args.append(arg);
+        },
+    };
+    const resolved_str = try lazy_path.getPath3(b, asking_step).toString(b.graph.arena);
+    return zig_args.appendSlice(&.{ flag, resolved_str });
 }

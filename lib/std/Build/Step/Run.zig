@@ -11,6 +11,7 @@ const process = std.process;
 const EnvMap = std.process.Environ.Map;
 const assert = std.debug.assert;
 const Path = std.Build.Cache.Path;
+const Configuration = std.Build.Configuration;
 
 pub const base_tag: Step.Tag = .run;
 
@@ -162,7 +163,7 @@ pub const DecoratedLazyPath = struct {
 };
 
 pub const Output = struct {
-    generated_file: std.Build.GeneratedFile,
+    generated_file: Configuration.GeneratedFileIndex,
     prefix: []const u8,
     basename: []const u8,
 };
@@ -272,21 +273,23 @@ pub fn addPrefixedOutputFileArg(
     basename: []const u8,
 ) std.Build.LazyPath {
     const b = run.step.owner;
+    const graph = b.graph;
+    const arena = graph.arena;
     if (basename.len == 0) @panic("basename must not be empty");
 
-    const output = b.allocator.create(Output) catch @panic("OOM");
+    const output = arena.create(Output) catch @panic("OOM");
     output.* = .{
         .prefix = b.dupe(prefix),
         .basename = b.dupe(basename),
-        .generated_file = .{ .step = &run.step },
+        .generated_file = graph.addGeneratedFile(&run.step),
     };
-    run.argv.append(b.allocator, .{ .output_file = output }) catch @panic("OOM");
+    run.argv.append(arena, .{ .output_file = output }) catch @panic("OOM");
 
     if (run.rename_step_with_output_arg) {
         run.setName(b.fmt("{s} ({s})", .{ run.step.name, basename }));
     }
 
-    return .{ .generated = .{ .file = &output.generated_file } };
+    return .{ .generated = .{ .index = output.generated_file } };
 }
 
 /// Appends an input file to the command line arguments.
@@ -470,20 +473,22 @@ pub fn addDepFileOutputArg(run: *Run, basename: []const u8) std.Build.LazyPath {
 /// Only one dep file argument is allowed by instance.
 pub fn addPrefixedDepFileOutputArg(run: *Run, prefix: []const u8, basename: []const u8) std.Build.LazyPath {
     const b = run.step.owner;
+    const graph = b.graph;
+    const arena = graph.arena;
     assert(run.dep_output_file == null);
 
-    const dep_file = b.allocator.create(Output) catch @panic("OOM");
+    const dep_file = arena.create(Output) catch @panic("OOM");
     dep_file.* = .{
         .prefix = b.dupe(prefix),
         .basename = b.dupe(basename),
-        .generated_file = .{ .step = &run.step },
+        .generated_file = graph.addGeneratedFile(&run.step),
     };
 
     run.dep_output_file = dep_file;
 
-    run.argv.append(b.allocator, .{ .output_file = dep_file }) catch @panic("OOM");
+    run.argv.append(arena, .{ .output_file = dep_file }) catch @panic("OOM");
 
-    return .{ .generated = .{ .file = &dep_file.generated_file } };
+    return .{ .generated = .{ .index = dep_file.generated_file } };
 }
 
 pub fn addArg(run: *Run, arg: []const u8) void {
@@ -627,20 +632,22 @@ pub fn captureStdErr(run: *Run, options: CapturedStdIo.Options) std.Build.LazyPa
     assert(run.stdio != .zig_test);
 
     const b = run.step.owner;
+    const graph = b.graph;
+    const arena = graph.arena;
 
-    if (run.captured_stderr) |captured| return .{ .generated = .{ .file = &captured.output.generated_file } };
+    if (run.captured_stderr) |captured| return .{ .generated = .{ .index = captured.output.generated_file } };
 
-    const captured = b.allocator.create(CapturedStdIo) catch @panic("OOM");
+    const captured = arena.create(CapturedStdIo) catch @panic("OOM");
     captured.* = .{
         .output = .{
             .prefix = "",
             .basename = if (options.basename) |basename| b.dupe(basename) else "stderr",
-            .generated_file = .{ .step = &run.step },
+            .generated_file = graph.addGeneratedFile(&run.step),
         },
         .trim_whitespace = options.trim_whitespace,
     };
     run.captured_stderr = captured;
-    return .{ .generated = .{ .file = &captured.output.generated_file } };
+    return .{ .generated = .{ .index = captured.output.generated_file } };
 }
 
 pub fn captureStdOut(run: *Run, options: CapturedStdIo.Options) std.Build.LazyPath {
@@ -648,20 +655,22 @@ pub fn captureStdOut(run: *Run, options: CapturedStdIo.Options) std.Build.LazyPa
     assert(run.stdio != .zig_test);
 
     const b = run.step.owner;
+    const graph = b.graph;
+    const arena = graph.arena;
 
-    if (run.captured_stdout) |captured| return .{ .generated = .{ .file = &captured.output.generated_file } };
+    if (run.captured_stdout) |captured| return .{ .generated = .{ .index = captured.output.generated_file } };
 
-    const captured = b.allocator.create(CapturedStdIo) catch @panic("OOM");
+    const captured = arena.create(CapturedStdIo) catch @panic("OOM");
     captured.* = .{
         .output = .{
             .prefix = "",
             .basename = if (options.basename) |basename| b.dupe(basename) else "stdout",
-            .generated_file = .{ .step = &run.step },
+            .generated_file = graph.addGeneratedFile(&run.step),
         },
         .trim_whitespace = options.trim_whitespace,
     };
     run.captured_stdout = captured;
-    return .{ .generated = .{ .file = &captured.output.generated_file } };
+    return .{ .generated = .{ .index = captured.output.generated_file } };
 }
 
 /// Adds an additional input files that, when modified, indicates that this Run

@@ -96,6 +96,7 @@ pub fn main(init: process.Init.Minimal) !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(io, .{}),
         },
+        .generated_files = .empty,
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = cwd });
@@ -242,7 +243,7 @@ const Serialize = struct {
         return gop.value_ptr.*;
     }
 
-    fn addOptionalLazyPathEnum(s: *Serialize, lp: ?std.Build.LazyPath) !Configuration.OptionalLazyPath {
+    fn addOptionalLazyPathEnum(s: *Serialize, lp: ?std.Build.LazyPath) !Configuration.LazyPath.OptionalIndex {
         const wc = s.wc;
         return @enumFromInt(switch (lp orelse return .none) {
             .src_path => |src_path| i: {
@@ -257,6 +258,7 @@ const Serialize = struct {
                 const sub_path = try wc.addString(generated.sub_path);
                 break :i try wc.addExtra(@as(Configuration.LazyPath.Generated, .{
                     .flags = .{ .up = @intCast(generated.up) },
+                    .index = generated.index,
                     .sub_path = sub_path,
                 }));
             },
@@ -278,11 +280,11 @@ const Serialize = struct {
         });
     }
 
-    fn addOptionalLazyPath(s: *Serialize, lp: ?std.Build.LazyPath) !?Configuration.LazyPath {
+    fn addOptionalLazyPath(s: *Serialize, lp: ?std.Build.LazyPath) !?Configuration.LazyPath.Index {
         return (try addOptionalLazyPathEnum(s, lp)).unwrap();
     }
 
-    fn addLazyPath(s: *Serialize, lp: std.Build.LazyPath) !Configuration.LazyPath {
+    fn addLazyPath(s: *Serialize, lp: std.Build.LazyPath) !Configuration.LazyPath.Index {
         return @enumFromInt(@intFromEnum(try addOptionalLazyPathEnum(s, lp)));
     }
 
@@ -351,8 +353,8 @@ const Serialize = struct {
         })));
     }
 
-    fn initLazyPathList(s: *Serialize, list: []const std.Build.LazyPath) ![]const Configuration.LazyPath {
-        const result = try s.arena.alloc(Configuration.LazyPath, list.len);
+    fn initLazyPathList(s: *Serialize, list: []const std.Build.LazyPath) ![]const Configuration.LazyPath.Index {
+        const result = try s.arena.alloc(Configuration.LazyPath.Index, list.len);
         for (result, list) |*dest, src| dest.* = try addLazyPath(s, src);
         return result;
     }
@@ -665,6 +667,15 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 } else .none,
                                 .linker_script = c.linker_script != null,
                                 .version_script = c.version_script != null,
+                                .emit_directory = c.emit_directory != .none,
+                                .generated_docs = c.generated_docs != .none,
+                                .generated_asm = c.generated_asm != .none,
+                                .generated_bin = c.generated_bin != .none,
+                                .generated_pdb = c.generated_pdb != .none,
+                                .generated_implib = c.generated_implib != .none,
+                                .generated_llvm_bc = c.generated_llvm_bc != .none,
+                                .generated_llvm_ir = c.generated_llvm_ir != .none,
+                                .generated_h = c.generated_h != .none,
                             },
                             .root_module = try s.addModule(c.root_module),
                             .root_name = try wc.addString(c.name),
@@ -709,6 +720,16 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .simple => .{ .simple = try s.addLazyPath(tr.path) },
                                 .server => .{ .server = try s.addLazyPath(tr.path) },
                             } else .default },
+
+                            .emit_directory = .{ .value = c.emit_directory.unwrap() },
+                            .generated_docs = .{ .value = c.generated_docs.unwrap() },
+                            .generated_asm = .{ .value = c.generated_asm.unwrap() },
+                            .generated_bin = .{ .value = c.generated_bin.unwrap() },
+                            .generated_pdb = .{ .value = c.generated_pdb.unwrap() },
+                            .generated_implib = .{ .value = c.generated_implib.unwrap() },
+                            .generated_llvm_bc = .{ .value = c.generated_llvm_bc.unwrap() },
+                            .generated_llvm_ir = .{ .value = c.generated_llvm_ir.unwrap() },
+                            .generated_h = .{ .value = c.generated_h.unwrap() },
                         }));
 
                         break :e @enumFromInt(extra_index);
@@ -804,6 +825,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
 
     try wc.write(writer, .{
         .default_step = s.stepIndex(b.default_step),
+        .generated_files_len = @intCast(graph.generated_files.items.len),
     });
 }
 

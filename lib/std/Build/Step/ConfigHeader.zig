@@ -5,6 +5,7 @@ const Io = std.Io;
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
+const Configuration = std.Build.Configuration;
 
 pub const Style = union(enum) {
     /// A configure format supported by autotools that uses `#undef foo` to
@@ -40,7 +41,7 @@ pub const Value = union(enum) {
 step: Step,
 values: std.array_hash_map.String(Value),
 /// This directory contains the generated file under the name `include_path`.
-generated_dir: std.Build.GeneratedFile,
+generated_dir: Configuration.GeneratedFileIndex,
 
 style: Style,
 max_bytes: usize,
@@ -58,7 +59,9 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
-    const config_header = owner.allocator.create(ConfigHeader) catch @panic("OOM");
+    const graph = owner.graph;
+    const arena = graph.arena;
+    const config_header = arena.create(ConfigHeader) catch @panic("OOM");
 
     var include_path: []const u8 = "config.h";
 
@@ -80,11 +83,9 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
     }
 
     const name = if (options.style.getPath()) |s|
-        owner.fmt("configure {s} header {s} to {s}", .{
-            @tagName(options.style), s.getDisplayName(), include_path,
-        })
+        owner.fmt("configure {t} header {s} to {s}", .{ options.style, s.getDisplayName(), include_path })
     else
-        owner.fmt("configure {s} header to {s}", .{ @tagName(options.style), include_path });
+        owner.fmt("configure {t} header to {s}", .{ options.style, include_path });
 
     config_header.* = .{
         .step = .init(.{
@@ -100,7 +101,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
         .max_bytes = options.max_bytes,
         .include_path = include_path,
         .include_guard_override = options.include_guard_override,
-        .generated_dir = .{ .step = &config_header.step },
+        .generated_dir = graph.addGeneratedFile(&config_header.step),
     };
 
     if (options.style.getPath()) |s| {
@@ -125,7 +126,7 @@ pub fn addValues(config_header: *ConfigHeader, values: anytype) void {
 }
 
 pub fn getOutputDir(ch: *ConfigHeader) std.Build.LazyPath {
-    return .{ .generated = .{ .file = &ch.generated_dir } };
+    return .{ .generated = .{ .index = &ch.generated_dir } };
 }
 pub fn getOutputFile(ch: *ConfigHeader) std.Build.LazyPath {
     return ch.getOutputDir().path(ch.step.owner, ch.include_path);

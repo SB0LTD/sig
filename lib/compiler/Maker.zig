@@ -33,6 +33,7 @@ graph: *Graph,
 install_paths: InstallPaths,
 scanned_config: *const ScannedConfig,
 steps: []Step,
+generated_files: []Path,
 
 available_rss: usize,
 max_rss_is_default: bool,
@@ -115,7 +116,13 @@ pub fn main(init: process.Init.Minimal) !void {
         .zig_exe = zig_exe,
         .environ_map = try init.environ.createMap(arena),
         .global_cache_root = global_cache_directory,
+        .local_cache_root = local_cache_directory,
         .zig_lib_directory = zig_lib_directory,
+        .build_root_directory = build_root_directory,
+        .pkg_root = .{
+            .root_dir = build_root_directory,
+            .sub_path = "zig-pkg",
+        },
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = cwd });
@@ -525,6 +532,7 @@ pub fn main(init: process.Init.Minimal) !void {
             .include = install_include_path,
         },
         .steps = try arena.alloc(Step, scanned_config.configuration.steps.len),
+        .generated_files = try arena.alloc(Path, scanned_config.configuration.generated_files_len),
 
         .available_rss = max_rss,
         .max_rss_is_default = false,
@@ -1678,4 +1686,100 @@ var stdout_writer_allocation: Io.File.Writer = undefined;
 fn initStdoutWriter(io: Io) *Writer {
     stdout_writer_allocation = Io.File.stdout().writerStreaming(io, &stdio_buffer_allocation);
     return &stdout_writer_allocation.interface;
+}
+
+/// `asking_step` is only used for debugging purposes; it's the step being run
+/// that is asking for the path.
+pub fn resolveLazyPath(
+    maker: *const Maker,
+    arena: Allocator,
+    lazy_path: Configuration.LazyPath,
+    asking_step_index: Configuration.Step.Index,
+) Allocator.Error!Path {
+    _ = asking_step_index; // TODO use this to enhance debugability when this function fails
+    const c = &maker.scanned_config.configuration;
+    const graph = maker.graph;
+    return switch (lazy_path) {
+        .source_path => |sp| try packagePath(maker, arena, sp.owner, sp.sub_path.slice(c)),
+        .relative => |relative| switch (relative.flags.base) {
+            .cwd => .{
+                .root_dir = .cwd(),
+                .sub_path = relative.sub_path.slice(c),
+            },
+            .local_cache => .{
+                .root_dir = graph.local_cache_root,
+            },
+            .global_cache => .{
+                .root_dir = graph.global_cache_root,
+            },
+            .build_root => .{
+                .root_dir = graph.build_root_directory,
+            },
+        },
+        .generated => |gen| {
+            const base = maker.generated_files[@intFromEnum(gen.index)];
+            var file_path = base;
+            for (0..gen.flags.up) |_| {
+                file_path.sub_path = Io.Dir.path.dirname(file_path.sub_path) orelse
+                    fatal("invalid LazyPath traversal: up {d} times from {f}", .{ gen.flags.up, base });
+            }
+            return file_path.join(arena, gen.sub_path.slice(c));
+        },
+    };
+}
+
+pub fn resolveLazyPathIndex(
+    maker: *const Maker,
+    arena: Allocator,
+    lazy_path_index: Configuration.LazyPath.Index,
+    asking_step_index: Configuration.Step.Index,
+) Allocator.Error!Path {
+    const c = &maker.scanned_config.configuration;
+    return resolveLazyPath(maker, arena, lazy_path_index.get(c), asking_step_index);
+}
+
+/// `resolveLazyPath` is preferred, but this can be necessary when passing Path
+/// objects to child processes.
+pub fn resolveLazyPathAbs(
+    maker: *const Maker,
+    arena: Allocator,
+    lazy_path: Configuration.LazyPath,
+    asking_step_index: Configuration.Step.Index,
+) Allocator.Error![]const u8 {
+    const p = try resolveLazyPath(maker, arena, lazy_path, asking_step_index);
+    const root_dir_path = p.root_dir.path orelse return p.subPathOrDot();
+    if (p.sub_path.len == 0) return root_dir_path;
+    return Io.Dir.path.join(arena, &.{ root_dir_path, p.sub_path });
+}
+
+/// `resolveLazyPath` is preferred, but this can be necessary when passing Path
+/// objects to child processes.
+pub fn resolveLazyPathIndexAbs(
+    maker: *const Maker,
+    arena: Allocator,
+    lazy_path_index: Configuration.LazyPath.Index,
+    asking_step_index: Configuration.Step.Index,
+) Allocator.Error![]const u8 {
+    const c = &maker.scanned_config.configuration;
+    return resolveLazyPathAbs(maker, arena, lazy_path_index.get(c), asking_step_index);
+}
+
+fn packagePath(
+    maker: *const Maker,
+    arena: Allocator,
+    package_index: Configuration.Package.Index,
+    sub_path: []const u8,
+) Allocator.Error!Path {
+    const c = &maker.scanned_config.configuration;
+    const graph = maker.graph;
+    const package = package_index.get(c) orelse return .{
+        .root_dir = graph.build_root_directory,
+        .sub_path = sub_path,
+    };
+    const hash = package.hash.slice(c);
+    const pkg_root = graph.pkg_root;
+    return .{
+        .root_dir = pkg_root.root_dir,
+        .sub_path = try Io.Dir.path.join(arena, &.{ pkg_root.sub_path, hash, sub_path }),
+    };
 }
