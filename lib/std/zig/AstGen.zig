@@ -6656,9 +6656,16 @@ fn whileExpr(
                 .operand = undefined,
             } },
         });
+        if (!continue_scope.is_comptime) {
+            _ = try continue_scope.addRestoreErrRetIndex(.{ .block = continue_block }, .always, then_node);
+        }
         _ = try continue_scope.addBreak(break_tag, continue_block, .void_value);
     }
     try continue_scope.setBlockBody(continue_block);
+    if (!then_scope.is_comptime) {
+        const cont_node = while_full.ast.cont_expr.unwrap() orelse then_node;
+        _ = try then_scope.addRestoreErrRetIndex(.{ .block = cond_block }, .always, cont_node);
+    }
     _ = try then_scope.addBreak(break_tag, cond_block, .void_value);
 
     var else_scope = parent_gz.makeSubBlock(&cond_scope.base);
@@ -6703,6 +6710,9 @@ fn whileExpr(
 
         try checkUsed(parent_gz, &else_scope.base, sub_scope);
         if (!else_scope.endsWithNoReturn()) {
+            if (!else_scope.is_comptime) {
+                _ = try else_scope.addRestoreErrRetIndex(.{ .block = loop_block }, .always, else_node);
+            }
             _ = try else_scope.addBreakWithSrcNode(break_tag, loop_block, else_result, else_node);
         }
     } else {
@@ -6973,6 +6983,9 @@ fn forExpr(
     });
 
     const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
+    if (!then_scope.is_comptime) {
+        _ = try then_scope.addRestoreErrRetIndex(.{ .block = cond_block }, .always, then_node);
+    }
     _ = try then_scope.addBreak(break_tag, cond_block, .void_value);
 
     var else_scope = parent_gz.makeSubBlock(&cond_scope.base);
@@ -6990,6 +7003,9 @@ fn forExpr(
             _ = try addEnsureResult(&else_scope, else_result, else_node);
         }
         if (!else_scope.endsWithNoReturn()) {
+            if (!else_scope.is_comptime) {
+                _ = try else_scope.addRestoreErrRetIndex(.{ .block = loop_block }, .always, else_node);
+            }
             _ = try else_scope.addBreakWithSrcNode(break_tag, loop_block, else_result, else_node);
         }
     } else {

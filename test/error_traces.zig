@@ -93,6 +93,132 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext, os: std.Target.
     });
 
     cases.addCase(.{
+        .name = "for loop pops error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    for (0..2) |_| {
+        \\        const f = foo();
+        \\        f catch {};
+        \\    } else {
+        \\        const f = foo();
+        \\        f catch {};
+        \\    }
+        \\    return error.Stop;
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.zig:11:5: [address] in main
+        \\    return error.Stop;
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .name = "implicit continue in for loop pops stale error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    for (0..2) |i| {
+        \\        const f = foo();
+        \\        f catch {};
+        \\
+        \\        if (i == 1) return error.Stop;
+        \\    }
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.zig:1:18: [address] in foo
+        \\fn foo() !void { return error.FooError; }
+        \\                 ^
+        \\source.zig:8:21: [address] in main
+        \\        if (i == 1) return error.Stop;
+        \\                    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .name = "while loop pops error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    var i: usize = 0;
+        \\    while (i < 2) {
+        \\        const f = foo();
+        \\        f catch {};
+        \\        i += 1;
+        \\    } else {
+        \\        const f = foo();
+        \\        f catch {};
+        \\    }
+        \\    return error.Stop;
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.zig:13:5: [address] in main
+        \\    return error.Stop;
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .name = "implicit continue in while loop pops stale error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    var i: usize = 0;
+        \\    while (i < 2) {
+        \\        const f = foo();
+        \\        f catch {};
+        \\
+        \\        if (i == 1) return error.Stop;
+        \\        i += 1;
+        \\    }
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.zig:1:18: [address] in foo
+        \\fn foo() !void { return error.FooError; }
+        \\                 ^
+        \\source.zig:9:21: [address] in main
+        \\        if (i == 1) return error.Stop;
+        \\                    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
         .name = "try return + handled catch/if-else",
         .source =
         \\fn foo() !void {
