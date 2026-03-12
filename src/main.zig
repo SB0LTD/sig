@@ -4942,6 +4942,10 @@ fn cmdBuild(
     var override_local_cache_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_CACHE_DIR.get(environ_map);
     var override_pkg_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_PKG_DIR.get(environ_map);
     var override_make_runner: ?[]const u8 = EnvVar.ZIG_BUILD_RUNNER.get(environ_map);
+    var maker_optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet(environ_map))
+        .Debug
+    else
+        .ReleaseSafe;
     var configure_argv: std.ArrayList([]const u8) = .empty;
     var make_argv: std.ArrayList([]const u8) = .empty;
     var forks: std.ArrayList(Fork) = .empty;
@@ -5079,6 +5083,12 @@ fn cmdBuild(
                     };
                 } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                     reference_trace = null;
+                } else if (mem.eql(u8, arg, "--debug-maker")) {
+                    maker_optimize_mode = .Debug;
+                    continue;
+                } else if (mem.cutPrefix(u8, arg, "--debug-maker=")) |rest| {
+                    maker_optimize_mode = parseOptimizeMode(rest);
+                    continue;
                 } else if (mem.eql(u8, arg, "--debug-log")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     try make_argv.appendSlice(arena, args[i .. i + 2]);
@@ -5270,6 +5280,7 @@ fn cmdBuild(
         .self_exe_path = self_exe_path,
         .color = color,
         .reference_trace = reference_trace,
+        .optimize_mode = maker_optimize_mode,
     } });
     defer _ = make_runner_task.cancel(io) catch {};
 
@@ -5779,6 +5790,7 @@ const MakeRunner = struct {
         thread_limit: usize,
         color: Color,
         reference_trace: ?u32,
+        optimize_mode: std.builtin.OptimizeMode,
     };
 };
 
@@ -5786,11 +5798,7 @@ fn compileMakeRunner(gpa: Allocator, arena: Allocator, io: Io, options: MakeRunn
     const compile_prog_node = options.parent_prog_node.start("Compile Maker", 0);
     defer compile_prog_node.end();
 
-    const optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet(options.environ_map))
-        .Debug
-    else
-        .ReleaseSafe;
-    const strip = optimize_mode != .Debug;
+    const strip = options.optimize_mode != .Debug;
 
     const main_mod_paths: Package.Module.CreateOptions.Paths = .{
         .root = try .fromRoot(arena, options.dirs, .zig_lib, "compiler"),
@@ -5800,7 +5808,7 @@ fn compileMakeRunner(gpa: Allocator, arena: Allocator, io: Io, options: MakeRunn
     const config = try Compilation.Config.resolve(.{
         .output_mode = .Exe,
         .root_strip = strip,
-        .root_optimize_mode = optimize_mode,
+        .root_optimize_mode = options.optimize_mode,
         .resolved_target = options.resolved_target,
         .have_zcu = true,
         .emit_bin = true,
@@ -5813,7 +5821,7 @@ fn compileMakeRunner(gpa: Allocator, arena: Allocator, io: Io, options: MakeRunn
         .cc_argv = &.{},
         .inherited = .{
             .resolved_target = options.resolved_target,
-            .optimize_mode = optimize_mode,
+            .optimize_mode = options.optimize_mode,
             .strip = strip,
         },
         .global = config,

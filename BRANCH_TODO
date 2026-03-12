@@ -9,4 +9,4 @@
 * get zig tests passing
 * test a bunch of third party projects / help people migrate
 * refactor with DefaultingEnum
-* add flag for compiling maker in debug mode
+* inspect b4ffb402c082605c4b324e88120306fc8fb3cf32 diff and apply changes as needed (merge conflict)
