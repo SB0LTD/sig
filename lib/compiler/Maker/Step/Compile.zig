@@ -478,11 +478,13 @@ fn lowerZigArgs(
                 if (!my_responsibility) continue;
                 if (cli_named_modules.modules.getIndex(mod_index)) |module_cli_index| {
                     const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
+                    const module_index = cli_named_modules.modules.keys()[module_cli_index];
+                    try appendModuleFlags(module_index, zig_args, compile_index, maker);
+
                     if (true) @panic("TODO");
-                    try appendModuleFlags(zig_args, step);
 
                     // --dep arguments
-                    try zig_args.ensureUnusedCapacity(mod.import_table.count() * 2);
+                    try zig_args.ensureUnusedCapacity(gpa, mod.import_table.count() * 2);
                     for (mod.import_table.keys(), mod.import_table.values()) |name, import| {
                         const import_index = cli_named_modules.modules.getIndex(import).?;
                         const import_cli_name = cli_named_modules.names.keys()[import_index];
@@ -1389,129 +1391,170 @@ fn getModuleList(
 }
 
 fn appendModuleFlags(
-    m: *Module,
-    zig_args: *std.array_list.Managed([]const u8),
-    asking_step: ?*Step,
+    module_index: Configuration.Module.Index,
+    zig_args: *std.ArrayList([]const u8),
+    asking_step: Configuration.Step.Index,
+    maker: *const Maker,
 ) !void {
-    const b = m.owner;
+    const gpa = maker.gpa;
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into the process arena
+    const conf = &maker.scanned_config.configuration;
+    const m = module_index.get(conf);
 
-    try addFlag(zig_args, m.strip, "-fstrip", "-fno-strip");
-    try addFlag(zig_args, m.single_threaded, "-fsingle-threaded", "-fno-single-threaded");
-    try addFlag(zig_args, m.stack_check, "-fstack-check", "-fno-stack-check");
-    try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
-    try addFlag(zig_args, m.omit_frame_pointer, "-fomit-frame-pointer", "-fno-omit-frame-pointer");
-    try addFlag(zig_args, m.error_tracing, "-ferror-tracing", "-fno-error-tracing");
-    try addFlag(zig_args, m.sanitize_thread, "-fsanitize-thread", "-fno-sanitize-thread");
-    try addFlag(zig_args, m.fuzz, "-ffuzz", "-fno-fuzz");
-    try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");
-    try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
-    try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
-    try addFlag(zig_args, m.no_builtin, "-fno-builtin", "-fbuiltin");
+    try addFlag(gpa, zig_args, "strip", m.flags.strip.toBool());
+    try addFlag(gpa, zig_args, "single-threaded", m.flags.single_threaded.toBool());
+    try addFlag(gpa, zig_args, "stack-check", m.flags.stack_check.toBool());
+    try addFlag(gpa, zig_args, "stack-protector", m.flags.stack_protector.toBool());
+    try addFlag(gpa, zig_args, "omit-frame-pointer", m.flags2.omit_frame_pointer.toBool());
+    try addFlag(gpa, zig_args, "error-tracing", m.flags2.error_tracing.toBool());
+    try addFlag(gpa, zig_args, "sanitize-thread", m.flags.sanitize_thread.toBool());
+    try addFlag(gpa, zig_args, "fuzz", m.flags.fuzz.toBool());
+    try addFlag(gpa, zig_args, "valgrind", m.flags2.valgrind.toBool());
+    try addFlag(gpa, zig_args, "PIC", m.flags2.pic.toBool());
+    try addFlag(gpa, zig_args, "red-zone", m.flags2.red_zone.toBool());
+    try addFlag(gpa, zig_args, "no-builtin", m.flags2.no_builtin.toBool());
 
-    if (m.sanitize_c) |sc| switch (sc) {
-        .off => try zig_args.append("-fno-sanitize-c"),
-        .trap => try zig_args.append("-fsanitize-c=trap"),
-        .full => try zig_args.append("-fsanitize-c=full"),
-    };
+    {
+        try zig_args.ensureUnusedCapacity(gpa, 6);
 
-    if (m.dwarf_format) |dwarf_format| {
-        try zig_args.append(switch (dwarf_format) {
-            .@"32" => "-gdwarf32",
-            .@"64" => "-gdwarf64",
-        });
+        switch (m.flags.sanitize_c) {
+            .off => zig_args.appendAssumeCapacity("-fno-sanitize-c"),
+            .trap => zig_args.appendAssumeCapacity("-fsanitize-c=trap"),
+            .full => zig_args.appendAssumeCapacity("-fsanitize-c=full"),
+            .default => {},
+        }
+
+        switch (m.flags.dwarf_format) {
+            .@"32" => zig_args.appendAssumeCapacity("-gdwarf32"),
+            .@"64" => zig_args.appendAssumeCapacity("-gdwarf64"),
+            .default => {},
+        }
+
+        switch (m.flags.unwind_tables) {
+            .none => zig_args.appendAssumeCapacity("-fno-unwind-tables"),
+            .sync => zig_args.appendAssumeCapacity("-funwind-tables"),
+            .async => zig_args.appendAssumeCapacity("-fasync-unwind-tables"),
+            .default => {},
+        }
+
+        switch (m.flags.optimize) {
+            .debug => zig_args.appendAssumeCapacity("-ODebug"),
+            .safe => zig_args.appendAssumeCapacity("-OReleaseSafe"),
+            .fast => zig_args.appendAssumeCapacity("-OReleaseFast"),
+            .small => zig_args.appendAssumeCapacity("-OReleaseSmall"),
+            .default => {},
+        }
+
+        if (m.flags.code_model != .default) {
+            zig_args.appendAssumeCapacity("-mcmodel");
+            zig_args.appendAssumeCapacity(@tagName(m.flags.code_model));
+        }
     }
 
-    if (m.unwind_tables) |unwind_tables| {
-        try zig_args.append(switch (unwind_tables) {
-            .none => "-fno-unwind-tables",
-            .sync => "-funwind-tables",
-            .async => "-fasync-unwind-tables",
-        });
-    }
-
-    try zig_args.ensureUnusedCapacity(1);
-    if (m.optimize) |optimize| switch (optimize) {
-        .Debug => zig_args.appendAssumeCapacity("-ODebug"),
-        .ReleaseSmall => zig_args.appendAssumeCapacity("-OReleaseSmall"),
-        .ReleaseFast => zig_args.appendAssumeCapacity("-OReleaseFast"),
-        .ReleaseSafe => zig_args.appendAssumeCapacity("-OReleaseSafe"),
-    };
-
-    if (m.code_model != .default) {
-        try zig_args.append("-mcmodel");
-        try zig_args.append(@tagName(m.code_model));
-    }
-
-    if (m.resolved_target) |*target| {
+    if (m.resolved_target.get(conf)) |target| {
         // Communicate the query via CLI since it's more compact.
-        if (!target.query.isNative()) {
-            try zig_args.appendSlice(&.{
-                "-target", try target.query.zigTriple(b.allocator),
-                "-mcpu",   try target.query.serializeCpuAlloc(b.allocator),
-            });
-            if (target.query.dynamic_linker) |*dynamic_linker| {
-                if (dynamic_linker.get()) |dynamic_linker_path| {
-                    try zig_args.append("--dynamic-linker");
-                    try zig_args.append(dynamic_linker_path);
+        if (target.query.get(conf)) |query| {
+            try zig_args.ensureUnusedCapacity(gpa, 6);
+
+            if (true) @panic("TODO");
+
+            zig_args.appendAssumeCapacity("-target");
+            zig_args.appendAssumeCapacity(try query.zigTriple(arena));
+            zig_args.appendAssumeCapacity("-mcpu");
+            zig_args.appendAssumeCapacity(try query.serializeCpuAlloc(arena));
+
+            if (query.dynamic_linker) |dynamic_linker| {
+                const dynamic_linker_slice = dynamic_linker.slice(conf);
+                if (dynamic_linker_slice.len != 0) {
+                    zig_args.appendAssumeCapacity("--dynamic-linker");
+                    zig_args.appendAssumeCapacity(dynamic_linker_slice);
                 } else {
-                    try zig_args.append("--no-dynamic-linker");
+                    zig_args.appendAssumeCapacity("--no-dynamic-linker");
                 }
             }
         }
     }
 
-    for (m.export_symbol_names) |symbol_name| {
-        try zig_args.append(b.fmt("--export={s}", .{symbol_name}));
+    for (m.export_symbol_names.slice) |symbol_name| {
+        try zig_args.append(gpa, try allocPrint(arena, "--export={s}", .{symbol_name.slice(conf)}));
     }
 
-    for (m.include_dirs.items) |include_dir| {
-        try appendIncludeDirFlags(include_dir, b, zig_args, asking_step);
-    }
+    for (0..m.include_dirs.len) |i|
+        try appendIncludeDirFlags(m.include_dirs.get(conf.extra, i), zig_args, asking_step, maker);
 
-    try zig_args.appendSlice(m.c_macros.items);
+    try zig_args.ensureUnusedCapacity(gpa, m.c_macros.slice.len);
+    for (m.c_macros.slice) |c_macro|
+        zig_args.appendAssumeCapacity(c_macro.slice(conf));
 
-    try zig_args.ensureUnusedCapacity(2 * m.lib_paths.items.len);
-    for (m.lib_paths.items) |lib_path| {
+    try zig_args.ensureUnusedCapacity(gpa, 2 * m.lib_paths.slice.len);
+    for (m.lib_paths.slice) |lib_path| {
         zig_args.appendAssumeCapacity("-L");
-        zig_args.appendAssumeCapacity(lib_path.getPath2(b, asking_step));
+        zig_args.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lib_path, asking_step));
     }
 
-    try zig_args.ensureUnusedCapacity(2 * m.rpaths.items.len);
-    for (m.rpaths.items) |rpath| switch (rpath) {
+    try zig_args.ensureUnusedCapacity(gpa, 2 * m.rpaths.len);
+    for (0..m.rpaths.len) |i| switch (m.rpaths.get(conf.extra, i)) {
         .lazy_path => |lp| {
             zig_args.appendAssumeCapacity("-rpath");
-            zig_args.appendAssumeCapacity(lp.getPath2(b, asking_step));
+            zig_args.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lp, asking_step));
         },
-        .special => |bytes| {
+        .special => |string| {
             zig_args.appendAssumeCapacity("-rpath");
-            zig_args.appendAssumeCapacity(bytes);
+            zig_args.appendAssumeCapacity(string.slice(conf));
         },
     };
 }
 
 fn appendIncludeDirFlags(
     include_dir: Configuration.Module.IncludeDir,
-    b: *std.Build,
-    zig_args: *std.array_list.Managed([]const u8),
-    asking_step: ?*Step,
+    zig_args: *std.ArrayList([]const u8),
+    asking_step: Configuration.Step.Index,
+    maker: *const Maker,
 ) !void {
-    const flag: []const u8, const lazy_path: Configuration.LazyPath = switch (include_dir) {
-        // zig fmt: off
-        .path                  => |lp|   .{ "-I",          lp },
-        .path_system           => |lp|   .{ "-isystem",    lp },
-        .path_after            => |lp|   .{ "-idirafter",  lp },
-        .framework_path        => |lp|   .{ "-F",          lp },
-        .framework_path_system => |lp|   .{ "-iframework", lp },
-        .config_header_step    => |ch|   .{ "-I",          ch.getOutputDir() },
-        .other_step            => |comp| .{ "-I",          comp.installed_headers_include_tree.?.getDirectory() },
-        // zig fmt: on
-        .embed_path => |lazy_path| {
-            // Special case: this is a single arg.
-            const resolved = lazy_path.getPath3(b, asking_step);
-            const arg = b.fmt("--embed-dir={f}", .{resolved});
-            return zig_args.append(arg);
+    const gpa = maker.gpa;
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into the process arena
+
+    try zig_args.ensureUnusedCapacity(gpa, 2);
+    switch (include_dir) {
+        .path => |lp| {
+            zig_args.appendAssumeCapacity("-I");
+            zig_args.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lp, asking_step));
         },
-    };
-    const resolved_str = try lazy_path.getPath3(b, asking_step).toString(b.graph.arena);
-    return zig_args.appendSlice(&.{ flag, resolved_str });
+        .path_system => |lp| {
+            zig_args.appendAssumeCapacity("-isystem");
+            zig_args.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lp, asking_step));
+        },
+        .path_after => |lp| {
+            zig_args.appendAssumeCapacity("-idirafter");
+            zig_args.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lp, asking_step));
+        },
+        .framework_path => |lp| {
+            zig_args.appendAssumeCapacity("-F");
+            zig_args.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lp, asking_step));
+        },
+        .framework_path_system => |lp| {
+            zig_args.appendAssumeCapacity("-iframework");
+            zig_args.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lp, asking_step));
+        },
+        .config_header_step => |ch| {
+            zig_args.appendAssumeCapacity("-I");
+            if (true) @panic("TODO");
+            ch.getOutputDir();
+        },
+        .other_step => |comp| {
+            zig_args.appendAssumeCapacity("-I");
+            if (true) @panic("TODO");
+            comp.installed_headers_include_tree.?.getDirectory();
+        },
+        .embed_path => |lazy_path| {
+            try zig_args.append(
+                gpa,
+                try allocPrint(arena, "--embed-dir={f}", .{
+                    try maker.resolveLazyPathIndex(arena, lazy_path, asking_step),
+                }),
+            );
+        },
+    }
 }

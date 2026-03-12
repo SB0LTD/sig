@@ -1668,6 +1668,10 @@ pub const TargetQuery = struct {
                 _ => @enumFromInt(@intFromEnum(this)),
             };
         }
+
+        pub fn get(this: @This(), c: *const Configuration) ?TargetQuery {
+            return (unwrap(this) orelse return null).get(c);
+        }
     };
 
     pub const CpuModel = enum(u2) {
