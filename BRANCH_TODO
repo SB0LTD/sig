@@ -1,4 +1,3 @@
-* rename std.zig.Configuration to std.Build.Configuration
 * replace union(@This().Tag)
 * replace b.dupe() with string internment
 * don't forget to add -listen arg back
@@ -10,3 +9,4 @@
 * get zig tests passing
 * test a bunch of third party projects / help people migrate
 * refactor with DefaultingEnum
+* add flag for compiling maker in debug mode
