@@ -15,10 +15,10 @@ const allocPrint = std.fmt.allocPrint;
 const Step = @import("../Step.zig");
 const Maker = @import("../../Maker.zig");
 
-/// Populated during the make phase when there is a long-lived compiler process.
-/// Managed by the build runner, not user build script.
+/// Populated when there is compiler process that lives across multiple calls
+/// to `make`.
 zig_process: ?*Step.ZigProcess = null,
-/// Persisted to reuse memory on subsequent make.
+/// Persisted to reuse memory on subsequent calls to `make`.
 zig_args: std.ArrayList([]const u8) = .empty,
 
 pub fn make(
@@ -538,28 +538,29 @@ fn lowerZigArgs(
         try zig_args.append(gpa, try maker.resolveLazyPathIndexAbs(arena, manifest_file, compile_index));
     }
 
-    if (true) @panic("TODO");
-
-    if (conf_comp.win32_module_definition) |module_file| {
-        try zig_args.append(gpa, module_file.getPath2(step));
+    if (conf_comp.win32_module_definition.value) |module_file| {
+        try zig_args.append(gpa, try maker.resolveLazyPathIndexAbs(arena, module_file, compile_index));
     }
 
-    if (conf_comp.image_base) |image_base| {
-        try zig_args.appendSlice(gpa, &.{
+    if (conf_comp.image_base.value) |image_base| {
+        (try zig_args.addManyAsArray(gpa, 2)).* = .{
             "--image-base", try allocPrint(arena, "0x{x}", .{image_base}),
-        });
+        };
     }
 
-    for (conf_comp.filters) |filter| {
-        try zig_args.appendSlice(gpa, &.{ "--test-filter", filter });
+    for (conf_comp.filters.slice) |filter| {
+        (try zig_args.addManyAsArray(gpa, 2)).* = .{ "--test-filter", filter.slice(conf) };
     }
 
-    if (conf_comp.test_runner) |test_runner| {
-        try zig_args.appendSlice(gpa, &.{ "--test-runner", test_runner.path.getPath2(step) });
+    switch (conf_comp.test_runner.u) {
+        .default => {},
+        .simple, .server => |lp| (try zig_args.addManyAsArray(gpa, 2)).* = .{
+            "--test-runner", try maker.resolveLazyPathIndexAbs(arena, lp, compile_index),
+        },
     }
 
-    for (graph.debug_log_scopes) |log_scope| {
-        try zig_args.appendSlice(gpa, &.{ "--debug-log", log_scope });
+    for (graph.debug_log_scopes.items) |log_scope| {
+        (try zig_args.addManyAsArray(gpa, 2)).* = .{ "--debug-log", log_scope };
     }
 
     try addBool(gpa, zig_args, "--debug-compile-errors", graph.debug_compile_errors);
@@ -571,179 +572,172 @@ fn lowerZigArgs(
     try addBool(gpa, zig_args, "--verbose-llvm-cpu-features", graph.verbose_llvm_cpu_features);
     try addBool(gpa, zig_args, "--time-report", graph.time_report);
 
-    if (compile.generated_asm != null) try zig_args.append(gpa, "-femit-asm");
-    if (compile.generated_bin == null) try zig_args.append(gpa, "-fno-emit-bin");
-    if (compile.generated_docs != null) try zig_args.append(gpa, "-femit-docs");
-    if (compile.generated_implib != null) try zig_args.append(gpa, "-femit-implib");
-    if (compile.generated_llvm_bc != null) try zig_args.append(gpa, "-femit-llvm-bc");
-    if (compile.generated_llvm_ir != null) try zig_args.append(gpa, "-femit-llvm-ir");
-    if (compile.generated_h != null) try zig_args.append(gpa, "-femit-h");
+    if (conf_comp.generated_bin.value == null) try zig_args.append(gpa, "-fno-emit-bin");
+    if (conf_comp.generated_asm.value != null) try zig_args.append(gpa, "-femit-asm");
+    if (conf_comp.generated_docs.value != null) try zig_args.append(gpa, "-femit-docs");
+    if (conf_comp.generated_implib.value != null) try zig_args.append(gpa, "-femit-implib");
+    if (conf_comp.generated_llvm_bc.value != null) try zig_args.append(gpa, "-femit-llvm-bc");
+    if (conf_comp.generated_llvm_ir.value != null) try zig_args.append(gpa, "-femit-llvm-ir");
+    if (conf_comp.generated_h.value != null) try zig_args.append(gpa, "-femit-h");
 
-    try addFlag(gpa, zig_args, "formatted-panics", conf_comp.flags.formatted_panics);
+    try addFlag(gpa, zig_args, "formatted-panics", conf_comp.flags2.formatted_panics.toBool());
 
-    switch (conf_comp.compress_debug_sections) {
+    switch (conf_comp.flags3.compress_debug_sections) {
         .none => {},
         .zlib => try zig_args.append(gpa, "--compress-debug-sections=zlib"),
         .zstd => try zig_args.append(gpa, "--compress-debug-sections=zstd"),
     }
 
-    if (conf_comp.flags.link_eh_frame_hdr) {
-        try zig_args.append(gpa, "--eh-frame-hdr");
-    }
-    if (conf_comp.flags.link_emit_relocs) {
-        try zig_args.append(gpa, "--emit-relocs");
-    }
-    if (conf_comp.flags.link_function_sections) {
-        try zig_args.append(gpa, "-ffunction-sections");
-    }
-    if (conf_comp.flags.link_data_sections) {
-        try zig_args.append(gpa, "-fdata-sections");
-    }
-    if (conf_comp.flags.link_gc_sections) |x| {
+    try addBool(gpa, zig_args, "--eh-frame-hdr", conf_comp.flags.link_eh_frame_hdr);
+    try addBool(gpa, zig_args, "--emit-relocs", conf_comp.flags.link_emit_relocs);
+    try addBool(gpa, zig_args, "-ffunction-sections", conf_comp.flags.link_function_sections);
+    try addBool(gpa, zig_args, "-fdata-sections", conf_comp.flags.link_data_sections);
+
+    if (conf_comp.flags2.link_gc_sections.toBool()) |x|
         try zig_args.append(gpa, if (x) "--gc-sections" else "--no-gc-sections");
-    }
-    if (!conf_comp.flags.linker_dynamicbase) {
+
+    if (!conf_comp.flags.linker_dynamicbase)
         try zig_args.append(gpa, "--no-dynamicbase");
-    }
-    if (conf_comp.flags.linker_allow_shlib_undefined) |x| {
-        try zig_args.append(gpa, if (x) "-fallow-shlib-undefined" else "-fno-allow-shlib-undefined");
-    }
-    if (conf_comp.flags.link_z_notext) try zig_args.appendSlice(gpa, &.{ "-z", "notext" });
-    if (!conf_comp.flags.link_z_relro) try zig_args.appendSlice(gpa, &.{ "-z", "norelro" });
-    if (conf_comp.flags.link_z_lazy) try zig_args.appendSlice(gpa, &.{ "-z", "lazy" });
-    if (conf_comp.flags.link_z_common_page_size) |size| try zig_args.appendSlice(gpa, &.{
-        "-z",
-        try allocPrint(arena, "common-page-size={d}", .{size}),
-    });
-    if (conf_comp.flags.link_z_max_page_size) |size| try zig_args.appendSlice(gpa, &.{
-        "-z",
-        try allocPrint(arena, "max-page-size={d}", .{size}),
-    });
-    if (conf_comp.flags.link_z_defs) try zig_args.appendSlice(gpa, &.{ "-z", "defs" });
 
-    if (conf_comp.flags.libc_file) |libc_file| {
-        try zig_args.appendSlice(gpa, &.{ "--libc", libc_file.getPath2(step) });
-    } else if (graph.libc_file) |libc_file| {
-        try zig_args.appendSlice(gpa, &.{ "--libc", libc_file });
-    }
-
-    try zig_args.append(gpa, "--cache-dir");
-    try zig_args.append(gpa, graph.cache_root.path orelse ".");
-
-    try zig_args.append(gpa, "--global-cache-dir");
-    try zig_args.append(gpa, graph.global_cache_root.path orelse ".");
-
-    if (graph.debug_compiler_runtime_libs) |mode|
-        try zig_args.append(gpa, try allocPrint(arena, "--debug-rt={t}", .{mode}));
-
-    try zig_args.appendSlice(gpa, &.{ "--name", conf_comp.root_name.slice(conf) });
-
-    if (compile.linkage) |some| switch (some) {
-        .dynamic => try zig_args.append(gpa, "-dynamic"),
-        .static => try zig_args.append(gpa, "-static"),
+    try addFlag(gpa, zig_args, "allow-shlib-undefined", conf_comp.flags2.linker_allow_shlib_undefined.toBool());
+    if (conf_comp.flags.link_z_notext) (try zig_args.addManyAsArray(gpa, 2)).* = .{ "-z", "notext" };
+    if (!conf_comp.flags.link_z_relro) (try zig_args.addManyAsArray(gpa, 2)).* = .{ "-z", "norelro" };
+    if (conf_comp.flags.link_z_lazy) (try zig_args.addManyAsArray(gpa, 2)).* = .{ "-z", "lazy" };
+    if (conf_comp.link_z_common_page_size.value) |size| (try zig_args.addManyAsArray(gpa, 2)).* = .{
+        "-z", try allocPrint(arena, "common-page-size={d}", .{size}),
     };
-    if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic) {
-        if (compile.version) |version| try zig_args.appendSlice(gpa, &.{
-            "--version", try allocPrint(arena, "{f}", .{version}),
-        });
+    if (conf_comp.link_z_max_page_size.value) |size| (try zig_args.addManyAsArray(gpa, 2)).* = .{
+        "-z", try allocPrint(arena, "max-page-size={d}", .{size}),
+    };
+    if (conf_comp.flags.link_z_defs) (try zig_args.addManyAsArray(gpa, 2)).* = .{ "-z", "defs" };
 
-        if (root_module_target.flags.os_tag.isDarwin()) {
-            const install_name = compile.install_name orelse try allocPrint(arena, "@rpath/{s}{s}{s}", .{
-                root_module_target.libPrefix(),
-                compile.name,
-                root_module_target.dynamicLibSuffix(),
-            });
-            try zig_args.appendSlice(gpa, &.{ "-install_name", install_name });
+    try zig_args.ensureUnusedCapacity(gpa, 2);
+    if (conf_comp.libc_file.value) |libc_file| {
+        zig_args.appendAssumeCapacity("--libc");
+        zig_args.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, libc_file, compile_index));
+    } else if (graph.libc_file) |libc_file| {
+        zig_args.appendAssumeCapacity("--libc");
+        zig_args.appendAssumeCapacity(libc_file);
+    }
+
+    (try zig_args.addManyAsArray(gpa, 4)).* = .{
+        "--cache-dir",        graph.local_cache_root.path orelse ".",
+        "--global-cache-dir", graph.global_cache_root.path orelse ".",
+    };
+
+    try zig_args.ensureUnusedCapacity(gpa, 1);
+    if (graph.debug_compiler_runtime_libs) |mode| switch (mode) {
+        .Debug => zig_args.appendAssumeCapacity("--debug-rt"),
+        else => zig_args.appendAssumeCapacity(try allocPrint(arena, "--debug-rt={t}", .{mode})),
+    };
+
+    {
+        try zig_args.ensureUnusedCapacity(gpa, 7);
+
+        zig_args.addManyAsArrayAssumeCapacity(2).* = .{ "--name", conf_comp.root_name.slice(conf) };
+
+        switch (conf_comp.flags2.linkage) {
+            .dynamic => zig_args.appendAssumeCapacity("-dynamic"),
+            .static => zig_args.appendAssumeCapacity("-static"),
+            .default => {},
+        }
+
+        if (conf_comp.flags3.kind == .lib and conf_comp.flags2.linkage == .dynamic) {
+            if (conf_comp.version.value) |version| zig_args.addManyAsArrayAssumeCapacity(2).* = .{
+                "--version", version.slice(conf),
+            };
+
+            const os_tag = root_module_target.flags.os_tag.unwrap().?;
+            if (os_tag.isDarwin()) {
+                const abi = root_module_target.flags.abi.unwrap().?;
+                zig_args.addManyAsArrayAssumeCapacity(2).* = .{
+                    "-install_name",
+                    if (conf_comp.install_name.value) |s| s.slice(conf) else try allocPrint(
+                        arena,
+                        "@rpath/{s}{s}{s}",
+                        .{
+                            os_tag.libPrefix(abi),
+                            conf_comp.root_name.slice(conf),
+                            os_tag.dynamicLibSuffix(),
+                        },
+                    ),
+                };
+            }
         }
     }
 
-    if (compile.entitlements) |entitlements| {
-        try zig_args.appendSlice(gpa, &.{ "--entitlements", entitlements });
+    if (conf_comp.entitlements.value) |entitlements| {
+        (try zig_args.addManyAsArray(gpa, 2)).* = .{
+            "--entitlements", try maker.resolveLazyPathIndexAbs(arena, entitlements, compile_index),
+        };
     }
-    if (compile.pagezero_size) |pagezero_size| {
-        const size = try allocPrint(arena, "{x}", .{pagezero_size});
-        try zig_args.appendSlice(gpa, &.{ "-pagezero_size", size });
+    if (conf_comp.pagezero_size.value) |pagezero_size| {
+        (try zig_args.addManyAsArray(gpa, 2)).* = .{
+            "-pagezero_size", try allocPrint(arena, "{x}", .{pagezero_size}),
+        };
     }
-    if (compile.headerpad_size) |headerpad_size| {
-        const size = try allocPrint(arena, "{x}", .{headerpad_size});
-        try zig_args.appendSlice(gpa, &.{ "-headerpad", size });
+    if (conf_comp.headerpad_size.value) |headerpad_size| {
+        (try zig_args.addManyAsArray(gpa, 2)).* = .{
+            "-headerpad", try allocPrint(arena, "{x}", .{headerpad_size}),
+        };
     }
-    if (compile.headerpad_max_install_names) {
-        try zig_args.append(gpa, "-headerpad_max_install_names");
-    }
-    if (compile.dead_strip_dylibs) {
-        try zig_args.append(gpa, "-dead_strip_dylibs");
-    }
-    if (compile.force_load_objc) {
-        try zig_args.append(gpa, "-ObjC");
-    }
-    if (compile.discard_local_symbols) {
-        try zig_args.append(gpa, "--discard-all");
+    try addBool(gpa, zig_args, "-headerpad_max_install_names", conf_comp.flags.headerpad_max_install_names);
+    try addBool(gpa, zig_args, "-dead_strip_dylibs", conf_comp.flags.dead_strip_dylibs);
+    try addBool(gpa, zig_args, "-ObjC", conf_comp.flags.force_load_objc);
+    try addBool(gpa, zig_args, "--discard-all", conf_comp.flags.discard_local_symbols);
+
+    try addFlag(gpa, zig_args, "compiler-rt", conf_comp.flags2.bundle_compiler_rt.toBool());
+    try addFlag(gpa, zig_args, "ubsan-rt", conf_comp.flags2.bundle_ubsan_rt.toBool());
+    try addFlag(gpa, zig_args, "dll-export-fns", conf_comp.flags2.dll_export_fns.toBool());
+
+    try addBool(gpa, zig_args, "-rdynamic", conf_comp.flags.rdynamic);
+    try addBool(gpa, zig_args, "--import-memory", conf_comp.flags.import_memory);
+    try addBool(gpa, zig_args, "--export-memory", conf_comp.flags.export_memory);
+    try addBool(gpa, zig_args, "--import-symbols", conf_comp.flags.import_symbols);
+    try addBool(gpa, zig_args, "--import-table", conf_comp.flags.import_table);
+    try addBool(gpa, zig_args, "--export-table", conf_comp.flags.export_table);
+    try addBool(gpa, zig_args, "--shared-memory", conf_comp.flags.shared_memory);
+
+    {
+        try zig_args.ensureUnusedCapacity(gpa, 4);
+        if (conf_comp.initial_memory.value) |initial_memory| {
+            zig_args.appendAssumeCapacity(try allocPrint(arena, "--initial-memory={d}", .{initial_memory}));
+        }
+        if (conf_comp.max_memory.value) |max_memory| {
+            zig_args.appendAssumeCapacity(try allocPrint(arena, "--max-memory={d}", .{max_memory}));
+        }
+        if (conf_comp.global_base.value) |global_base| {
+            zig_args.appendAssumeCapacity(try allocPrint(arena, "--global-base={d}", .{global_base}));
+        }
+        switch (conf_comp.flags3.wasi_exec_model) {
+            .default => {},
+            .command => zig_args.appendAssumeCapacity("-mexec-model=command"),
+            .reactor => zig_args.appendAssumeCapacity("-mexec-model=reactor"),
+        }
     }
 
-    try addFlag(gpa, zig_args, "compiler-rt", compile.bundle_compiler_rt);
-    try addFlag(gpa, zig_args, "ubsan-rt", compile.bundle_ubsan_rt);
-    try addFlag(gpa, zig_args, "dll-export-fns", compile.dll_export_fns);
-    if (compile.rdynamic) {
-        try zig_args.append(gpa, "-rdynamic");
-    }
-    if (compile.import_memory) {
-        try zig_args.append(gpa, "--import-memory");
-    }
-    if (compile.export_memory) {
-        try zig_args.append(gpa, "--export-memory");
-    }
-    if (compile.import_symbols) {
-        try zig_args.append(gpa, "--import-symbols");
-    }
-    if (compile.import_table) {
-        try zig_args.append(gpa, "--import-table");
-    }
-    if (compile.export_table) {
-        try zig_args.append(gpa, "--export-table");
-    }
-    if (compile.initial_memory) |initial_memory| {
-        try zig_args.append(gpa, try allocPrint(arena, "--initial-memory={d}", .{initial_memory}));
-    }
-    if (compile.max_memory) |max_memory| {
-        try zig_args.append(gpa, try allocPrint(arena, "--max-memory={d}", .{max_memory}));
-    }
-    if (compile.shared_memory) {
-        try zig_args.append(gpa, "--shared-memory");
-    }
-    if (compile.global_base) |global_base| {
-        try zig_args.append(gpa, try allocPrint(arena, "--global-base={d}", .{global_base}));
-    }
-
-    if (compile.wasi_exec_model) |model| {
-        try zig_args.append(gpa, try allocPrint(arena, "-mexec-model={t}", .{model}));
-    }
-    if (compile.linker_script) |linker_script| {
-        try zig_args.append(gpa, "--script");
-        try zig_args.append(gpa, linker_script.getPath2(step));
-    }
-
-    if (compile.version_script) |version_script| {
-        try zig_args.append(gpa, "--version-script");
-        try zig_args.append(gpa, version_script.getPath2(step));
-    }
-    if (compile.linker_allow_undefined_version) |x| {
+    if (conf_comp.linker_script.value) |linker_script| (try zig_args.addManyAsArray(gpa, 2)).* = .{
+        "--script", try maker.resolveLazyPathIndexAbs(arena, linker_script, compile_index),
+    };
+    if (conf_comp.version_script.value) |version_script| (try zig_args.addManyAsArray(gpa, 2)).* = .{
+        "--version-script", try maker.resolveLazyPathIndexAbs(arena, version_script, compile_index),
+    };
+    if (conf_comp.flags2.linker_allow_undefined_version.toBool()) |x| {
         try zig_args.append(gpa, if (x) "--undefined-version" else "--no-undefined-version");
     }
 
-    if (compile.linker_enable_new_dtags) |enabled| {
+    if (conf_comp.flags2.linker_enable_new_dtags.toBool()) |enabled| {
         try zig_args.append(gpa, if (enabled) "--enable-new-dtags" else "--disable-new-dtags");
     }
 
-    if (compile.kind == .@"test") {
-        if (compile.exec_cmd_args) |exec_cmd_args| {
-            for (exec_cmd_args) |cmd_arg| {
-                if (cmd_arg) |arg| {
-                    try zig_args.append(gpa, "--test-cmd");
-                    try zig_args.append(gpa, arg);
-                } else {
-                    try zig_args.append(gpa, "--test-cmd-bin");
-                }
+    if (conf_comp.flags3.kind == .@"test" and conf_comp.exec_cmd_args.slice.len != 0) {
+        for (conf_comp.exec_cmd_args.slice) |cmd_arg| {
+            try zig_args.ensureUnusedCapacity(gpa, 2);
+            if (cmd_arg.slice(conf)) |arg| {
+                zig_args.appendAssumeCapacity("--test-cmd");
+                zig_args.appendAssumeCapacity(arg);
+            } else {
+                zig_args.appendAssumeCapacity("--test-cmd-bin");
             }
         }
     }
@@ -783,54 +777,52 @@ fn lowerZigArgs(
         }
     }
 
-    if (compile.rc_includes != .any) {
-        try zig_args.appendSlice(gpa, &.{ "-rcincludes", @tagName(compile.rc_includes) });
-    }
+    if (conf_comp.flags3.rc_includes != .any) (try zig_args.addManyAsArray(gpa, 2)).* = .{
+        "-rcincludes", @tagName(conf_comp.flags3.rc_includes),
+    };
 
-    try addFlag(gpa, zig_args, "each-lib-rpath", compile.each_lib_rpath);
+    try addFlag(gpa, zig_args, "each-lib-rpath", conf_comp.flags2.each_lib_rpath.toBool());
 
-    if (compile.build_id orelse graph.build_id) |build_id| {
+    if (conf_comp.flags3.build_id.unwrap(conf_comp.build_id.value, conf) orelse graph.build_id) |build_id| {
         try zig_args.append(gpa, switch (build_id) {
             .hexstring => |hs| try allocPrint(arena, "--build-id=0x{x}", .{hs.toSlice()}),
             .none, .fast, .uuid, .sha1, .md5 => try allocPrint(arena, "--build-id={t}", .{build_id}),
         });
     }
 
-    const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
-        dir.getPath2(step)
+    const opt_zig_lib_dir: ?[]const u8 = if (conf_comp.zig_lib_dir.value) |dir|
+        try maker.resolveLazyPathIndexAbs(arena, dir, compile_index)
     else if (graph.zig_lib_directory.path) |_|
         try allocPrint(arena, "{f}", .{graph.zig_lib_directory})
     else
         null;
 
-    if (opt_zig_lib_dir) |zig_lib_dir| {
-        try zig_args.append(gpa, "--zig-lib-dir");
-        try zig_args.append(gpa, zig_lib_dir);
+    if (opt_zig_lib_dir) |zig_lib_dir| (try zig_args.addManyAsArray(gpa, 2)).* = .{
+        "--zig-lib-dir", zig_lib_dir,
+    };
+
+    try addFlag(gpa, zig_args, "PIE", conf_comp.flags2.pie.toBool());
+
+    try zig_args.ensureUnusedCapacity(gpa, 1);
+    switch (conf_comp.flags3.lto) {
+        .full => zig_args.appendAssumeCapacity("-flto=full"),
+        .thin => zig_args.appendAssumeCapacity("-flto=thin"),
+        .none => zig_args.appendAssumeCapacity("-fno-lto"),
+        .default => {},
     }
 
-    try addFlag(gpa, zig_args, "PIE", compile.pie);
+    try addFlag(gpa, zig_args, "sanitize-coverage-trace-pc-guard", conf_comp.flags2.sanitize_coverage_trace_pc_guard.toBool());
 
-    if (compile.lto) |lto| {
-        try zig_args.append(gpa, switch (lto) {
-            .full => "-flto=full",
-            .thin => "-flto=thin",
-            .none => "-fno-lto",
-        });
+    switch (conf_comp.flags3.subsystem) {
+        .default => {},
+        else => |t| (try zig_args.addManyAsArray(gpa, 2)).* = .{ "--subsystem", @tagName(t) },
     }
 
-    try addFlag(gpa, zig_args, "sanitize-coverage-trace-pc-guard", compile.sanitize_coverage_trace_pc_guard);
+    try addBool(gpa, zig_args, "-municode", conf_comp.flags.mingw_unicode_entry_point);
 
-    if (compile.subsystem) |subsystem| {
-        try zig_args.appendSlice(gpa, &.{ "--subsystem", @tagName(subsystem) });
-    }
-
-    if (compile.mingw_unicode_entry_point) {
-        try zig_args.append(gpa, "-municode");
-    }
-
-    if (compile.error_limit orelse graph.error_limit) |err_limit| try zig_args.appendSlice(gpa, &.{
+    if (conf_comp.error_limit.value orelse graph.error_limit) |err_limit| (try zig_args.addManyAsArray(gpa, 2)).* = .{
         "--error-limit", try allocPrint(arena, "{d}", .{err_limit}),
-    });
+    };
 
     try addFlag(gpa, zig_args, "incremental", graph.incremental);
 
@@ -845,7 +837,10 @@ fn lowerZigArgs(
         args_length += arg.len + 1; // +1 to account for null terminator
     }
     if (args_length >= 30 * 1024) {
-        try graph.cache_root.handle.createDirPath(io, "args");
+        const local_cache_root = graph.local_cache_root;
+        const args_path: Path = .{ .root_dir = local_cache_root, .sub_path = "args" };
+        args_path.root_dir.handle.createDirPath(io, args_path.sub_path) catch |err|
+            return step.fail(maker, "failed creating directory {f}: {t}", .{ args_path, err });
 
         const args_to_escape = zig_args.items[2..];
         var escaped_args = try std.array_list.Managed([]const u8).initCapacity(arena, args_to_escape.len);
@@ -875,51 +870,43 @@ fn lowerZigArgs(
         var args_hash: [Sha256.digest_length]u8 = undefined;
         Sha256.hash(args, &args_hash, .{});
         var args_hex_hash: [Sha256.digest_length * 2]u8 = undefined;
-        _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
+        _ = std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash}) catch unreachable;
 
         const args_file = "args" ++ Dir.path.sep_str ++ args_hex_hash;
-        if (graph.cache_root.handle.access(io, args_file, .{})) |_| {
-            // The args file is already present from a previous run.
-        } else |err| switch (err) {
-            error.FileNotFound => {
-                var af = graph.cache_root.handle.createFileAtomic(io, args_file, .{
-                    .replace = false,
-                    .make_path = true,
-                }) catch |e| return step.fail(maker, "failed creating tmp args file {f}{s}: {t}", .{
-                    graph.cache_root, args_file, e,
-                });
-                defer af.deinit(io);
+        local_cache_root.handle.access(io, args_file, .{}) catch {
+            var af = local_cache_root.handle.createFileAtomic(io, args_file, .{
+                .replace = false,
+                .make_path = true,
+            }) catch |e| return step.fail(maker, "failed creating tmp args file {f}{s}: {t}", .{
+                local_cache_root, args_file, e,
+            });
+            defer af.deinit(io);
 
-                af.file.writeStreamingAll(io, args) catch |e| {
-                    return step.fail(maker, "failed writing args data to tmp file {f}{s}: {t}", .{
-                        graph.cache_root, args_file, e,
-                    });
-                };
-                // Note we can't clean up this file, not even after build
-                // success, because that might interfere with another build
-                // process that needs the same file.
-                af.link(io) catch |e| switch (e) {
-                    error.PathAlreadyExists => {
-                        // The args file was created by another concurrent build process.
-                    },
-                    else => |other_err| return step.fail(maker, "failed linking tmp file {f}{s}: {t}", .{
-                        graph.cache_root, args_file, other_err,
-                    }),
-                };
-            },
-            else => |other_err| return other_err,
-        }
+            af.file.writeStreamingAll(io, args) catch |e| {
+                return step.fail(maker, "failed writing args data to tmp file {f}{s}: {t}", .{
+                    local_cache_root, args_file, e,
+                });
+            };
+            // Note we can't clean up this file, not even after build
+            // success, because that might interfere with another build
+            // process that needs the same file.
+            af.link(io) catch |e| switch (e) {
+                error.PathAlreadyExists => {
+                    // The args file was created by another concurrent build process.
+                },
+                else => |other_err| return step.fail(maker, "failed linking tmp file {f}{s}: {t}", .{
+                    local_cache_root, args_file, other_err,
+                }),
+            };
+        };
 
         const resolved_args_file = try mem.concat(arena, u8, &.{
-            "@",
-            try graph.cache_root.join(arena, &.{args_file}),
+            "@", try local_cache_root.join(arena, &.{args_file}),
         });
 
         zig_args.shrinkRetainingCapacity(2);
         try zig_args.append(gpa, resolved_args_file);
     }
-
-    return try zig_args.toOwnedSlice();
 }
 
 pub fn rebuildInFuzzMode(compile: *Compile, maker: *Maker, progress_node: std.Progress.Node) !Path {

@@ -728,6 +728,22 @@ pub const Step = extern struct {
                     .hexstring => .hexstring,
                 };
             }
+
+            pub fn unwrap(this: @This(), hexstring: ?String, c: *const Configuration) ?std.zig.BuildId {
+                if (hexstring) |h| {
+                    assert(this == .hexstring);
+                    return .initHexString(h.slice(c));
+                }
+                return switch (this) {
+                    .none => .none,
+                    .fast => .fast,
+                    .uuid => .uuid,
+                    .sha1 => .sha1,
+                    .md5 => .md5,
+                    .hexstring => unreachable,
+                    .default => null,
+                };
+            }
         };
         pub const WasiExecModel = enum(u2) {
             default,
@@ -1425,6 +1441,15 @@ pub const OptionalString = enum(u32) {
         assert(result != .none);
         return result;
     }
+
+    pub fn unwrap(this: @This()) ?String {
+        if (this == .none) return null;
+        return @enumFromInt(@intFromEnum(this));
+    }
+
+    pub fn slice(this: @This(), c: *const Configuration) ?[:0]const u8 {
+        return (unwrap(this) orelse return null).slice(c);
+    }
 };
 
 /// Points into `string_bytes`, null-terminated.
@@ -1740,6 +1765,12 @@ pub const TargetQuery = struct {
             // TODO comptime assert the enums match
             return @enumFromInt(@intFromEnum(x orelse return .default));
         }
+
+        pub fn unwrap(this: @This()) ?std.Target.Abi {
+            // TODO comptime assert the enums match
+            if (this == .default) return null;
+            return @enumFromInt(@intFromEnum(this));
+        }
     };
     pub const CpuArch = enum(u6) {
         aarch64,
@@ -1856,6 +1887,12 @@ pub const TargetQuery = struct {
         pub fn init(x: ?std.Target.Os.Tag) @This() {
             // TODO comptime assert the enums match
             return @enumFromInt(@intFromEnum(x orelse return .default));
+        }
+
+        pub fn unwrap(this: @This()) ?std.Target.Os.Tag {
+            // TODO comptime assert the enums match
+            if (this == .default) return null;
+            return @enumFromInt(@intFromEnum(this));
         }
     };
     pub const ObjectFormat = enum(u4) {
