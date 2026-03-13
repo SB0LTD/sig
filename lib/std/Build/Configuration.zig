@@ -4,7 +4,7 @@ const std = @import("../std.zig");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const maxInt = std.math.maxInt;
+const max_u32 = std.math.maxInt(u32);
 
 string_bytes: []u8,
 steps: []Step,
@@ -1094,7 +1094,7 @@ pub const LazyPath = union(@This().Tag) {
 
     /// An index into `extra`, or `null`.
     pub const OptionalIndex = enum(u32) {
-        none = maxInt(u32),
+        none = max_u32,
         _,
 
         pub fn unwrap(this: @This()) ?Index {
@@ -1149,7 +1149,7 @@ pub const GeneratedFileIndex = enum(u32) {
 };
 
 pub const OptionalGeneratedFileIndex = enum(u32) {
-    none = maxInt(u32),
+    none = max_u32,
     _,
 
     pub fn init(i: ?GeneratedFileIndex) OptionalGeneratedFileIndex {
@@ -1169,7 +1169,7 @@ pub const Package = struct {
     hash: String,
 
     pub const Index = enum(u32) {
-        root = maxInt(u32),
+        root = max_u32,
         _,
 
         /// Returns `null` for root package.
@@ -1352,7 +1352,7 @@ pub const ImportTable = struct {
 
     /// Points into `extra`.
     pub const Index = enum(u32) {
-        invalid = maxInt(u32),
+        invalid = max_u32,
         _,
 
         pub fn get(this: @This(), c: *const Configuration) ImportTable {
@@ -1385,7 +1385,7 @@ pub const Deps = struct {
 ///
 /// Stored identically to `Deps`.
 pub const OptionalStringList = enum(u32) {
-    none = maxInt(u32),
+    none = max_u32,
     _,
 
     pub fn slice(osl: OptionalStringList, c: *const Configuration) ?[]const String {
@@ -1414,11 +1414,11 @@ pub const Path = extern struct {
 };
 
 pub const InstallDestDir = enum(u32) {
-    none = maxInt(u32) - 4,
-    prefix = maxInt(u32) - 3,
-    lib = maxInt(u32) - 2,
-    bin = maxInt(u32) - 1,
-    header = maxInt(u32),
+    none = max_u32 - 4,
+    prefix = max_u32 - 3,
+    lib = max_u32 - 2,
+    bin = max_u32 - 1,
+    header = max_u32,
     /// A `String` path relative to the prefix.
     _,
 
@@ -1433,7 +1433,7 @@ pub const OptionalString = enum(u32) {
     empty = 0,
     /// The string "root".
     root = 1,
-    none = maxInt(u32),
+    none = max_u32,
     _,
 
     pub fn init(s: String) OptionalString {
@@ -1633,7 +1633,7 @@ pub const ResolvedTarget = struct {
     };
 
     pub const OptionalIndex = enum(u32) {
-        none = maxInt(u32),
+        none = max_u32,
         _,
 
         pub fn unwrap(this: @This()) ?Index {
@@ -1678,7 +1678,7 @@ pub const TargetQuery = struct {
     };
 
     pub const OptionalIndex = enum(u32) {
-        none = maxInt(u32),
+        none = max_u32,
         _,
 
         pub fn init(i: Index) OptionalIndex {
