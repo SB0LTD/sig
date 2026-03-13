@@ -481,18 +481,21 @@ fn lowerZigArgs(
                     const module_index = cli_named_modules.modules.keys()[module_cli_index];
                     try appendModuleFlags(module_index, zig_args, compile_index, maker);
 
-                    if (true) @panic("TODO");
+                    const imports = mod.import_table.get(conf).imports.mal;
 
                     // --dep arguments
-                    try zig_args.ensureUnusedCapacity(gpa, mod.import_table.count() * 2);
-                    for (mod.import_table.keys(), mod.import_table.values()) |name, import| {
+                    try zig_args.ensureUnusedCapacity(gpa, imports.len * 2);
+                    for (imports.items(.name), imports.items(.module)) |name, import| {
                         const import_index = cli_named_modules.modules.getIndex(import).?;
                         const import_cli_name = cli_named_modules.names.keys()[import_index];
                         zig_args.appendAssumeCapacity("--dep");
-                        if (std.mem.eql(u8, import_cli_name, name)) {
+                        const name_slice = name.slice(conf);
+                        if (std.mem.eql(u8, import_cli_name, name_slice)) {
                             zig_args.appendAssumeCapacity(import_cli_name);
                         } else {
-                            zig_args.appendAssumeCapacity(try allocPrint(arena, "{s}={s}", .{ name, import_cli_name }));
+                            zig_args.appendAssumeCapacity(try allocPrint(arena, "{s}={s}", .{
+                                name_slice, import_cli_name,
+                            }));
                         }
                     }
 
@@ -503,11 +506,12 @@ fn lowerZigArgs(
                     // perhaps a set of linker objects, or C source files instead.
                     // Linker objects are added to the CLI globally, while C source
                     // files must have a module parent.
-                    if (mod.root_source_file) |lp| {
-                        const src = lp.getPath2(mod.owner, step);
-                        try zig_args.append(gpa, try allocPrint(arena, "-M{s}={s}", .{ module_cli_name, src }));
-                    } else if (moduleNeedsCliArg(mod)) {
-                        try zig_args.append(gpa, try allocPrint(arena, "-M{s}", .{module_cli_name}));
+                    try zig_args.ensureUnusedCapacity(gpa, 1);
+                    if (mod.root_source_file.unwrap()) |lp| {
+                        const src = try maker.resolveLazyPathIndexAbs(arena, lp, compile_index);
+                        zig_args.appendAssumeCapacity(try allocPrint(arena, "-M{s}={s}", .{ module_cli_name, src }));
+                    } else if (moduleNeedsCliArg(&mod, conf)) {
+                        zig_args.appendAssumeCapacity(try allocPrint(arena, "-M{s}", .{module_cli_name}));
                     }
                 }
             }
@@ -1262,8 +1266,8 @@ fn matchCompileError(actual: []const u8, expected: []const u8) bool {
     return false;
 }
 
-fn moduleNeedsCliArg(mod: *const Module) bool {
-    return for (mod.link_objects.items) |o| switch (o) {
+fn moduleNeedsCliArg(mod: *const Configuration.Module, conf: *const Configuration) bool {
+    return for (0..mod.link_objects.len) |i| switch (mod.link_objects.tag(conf.extra, i)) {
         .c_source_file, .c_source_files, .assembly_file, .win32_resource_file => break true,
         else => continue,
     } else false;
