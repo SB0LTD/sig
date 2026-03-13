@@ -695,7 +695,7 @@ pub fn llvmMachineAbi(target: *const std.Target) ?[:0]const u8 {
             .gnuabin32, .muslabin32 => "n32",
             else => "n64",
         },
-        .powerpc64, .powerpc64le => "elfv2", // We do not support ELFv1.
+        .powerpc64, .powerpc64le => if (target.os.tag == .ps3) "elfv1" else "elfv2",
         .riscv64, .riscv64be => if (target.cpu.has(.riscv, .e))
             "lp64e"
         else if (target.cpu.has(.riscv, .d))

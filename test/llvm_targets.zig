@@ -205,7 +205,6 @@ const targets = [_]std.Target.Query{
 
     .{ .cpu_arch = .powerpc64, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .powerpc64, .os_tag = .freestanding, .abi = .none },
-    .{ .cpu_arch = .powerpc64, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .powerpc64, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .powerpc64, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .powerpc64, .os_tag = .openbsd, .abi = .none },

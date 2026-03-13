@@ -837,15 +837,6 @@ const module_test_targets = blk: {
             .link_libc = true,
             .extra_target = true,
         },
-        // glibc's build-many-glibcs.py currently only builds this target for ELFv1.
-        // .{
-        //     .target = .{
-        //         .cpu_arch = .powerpc64,
-        //         .os_tag = .linux,
-        //         .abi = .gnu,
-        //     },
-        //     .link_libc = true,
-        // },
         .{
             .target = .{
                 .cpu_arch = .powerpc64le,

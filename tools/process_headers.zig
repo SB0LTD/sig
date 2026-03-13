@@ -49,7 +49,6 @@ const glibc_targets = [_]LibCTarget{
     .{ .arch = .mips64el, .abi = .gnuabin32, .dest = "mips-linux-gnu" },
     .{ .arch = .powerpc, .abi = .gnueabi, .dest = "powerpc-linux-gnu" },
     .{ .arch = .powerpc, .abi = .gnueabihf, .dest = "powerpc-linux-gnu" },
-    .{ .arch = .powerpc64, .abi = .gnu, .dest = "powerpc-linux-gnu" },
     .{ .arch = .powerpc64le, .abi = .gnu, .dest = "powerpc-linux-gnu" },
     .{ .arch = .riscv32, .abi = .gnu, .dest = "riscv-linux-gnu" },
     .{ .arch = .riscv64, .abi = .gnu, .dest = "riscv-linux-gnu" },

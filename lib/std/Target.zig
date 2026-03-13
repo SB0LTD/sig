@@ -2682,9 +2682,8 @@ pub const DynamicLinker = struct {
                         else => none,
                     },
 
-                    .powerpc64,
-                    .powerpc64le,
-                    => if (abi == .gnu) init("/lib64/ld64.so.2") else none,
+                    .powerpc64 => if (abi == .gnu) init("/lib64/ld64.so.1") else none,
+                    .powerpc64le => if (abi == .gnu) init("/lib64/ld64.so.2") else none,
 
                     .riscv32,
                     .riscv64,
@@ -3741,10 +3740,10 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .riscv32, .riscv32be => .{ .riscv32_ilp32 = .{} },
         .sparc64 => .{ .sparc64_sysv = .{} },
         .sparc => .{ .sparc_sysv = .{} },
-        .powerpc64 => if (target.abi.isMusl())
-            .{ .powerpc64_elf_v2 = .{} }
+        .powerpc64 => if (target.abi.isGnu())
+            .{ .powerpc64_elf = .{} }
         else
-            .{ .powerpc64_elf = .{} },
+            .{ .powerpc64_elf_v2 = .{} },
         .powerpc64le => .{ .powerpc64_elf_v2 = .{} },
         .powerpc, .powerpcle => .{ .powerpc_sysv = .{} },
         .wasm32, .wasm64 => .{ .wasm_mvp = .{} },
