@@ -68,8 +68,8 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
         Configuration.String => {
             try s.value(field_value.slice(c), .{});
         },
-        Configuration.Deps => {
-            try printValue(sc, s, []Configuration.Step.Index, field_value.slice(c));
+        Configuration.Deps.Index => {
+            try printValue(sc, s, []const Configuration.Step.Index, field_value.get(c).steps.slice);
         },
         Configuration.MaxRss => {
             try s.value(field_value.toBytes(), .{});

@@ -528,6 +528,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
             const dep_steps = try arena.alloc(Configuration.Step.Index, step.dependencies.items.len);
             for (dep_steps, step.dependencies.items) |*dest, src|
                 dest.* = @enumFromInt(s.step_map.getIndex(src).?);
+
             const deps: Configuration.Deps.Index = @enumFromInt(try wc.addDeduped(@as(Configuration.Deps, .{
                 .steps = .{ .slice = dep_steps },
             })));

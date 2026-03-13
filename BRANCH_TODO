@@ -1,4 +1,4 @@
-* replace union(@This().Tag)
+* maxInt(u32) -> max_u32
 * replace b.dupe() with string internment
 * don't forget to add -listen arg back
 * get zig init template working

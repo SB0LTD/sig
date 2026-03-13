@@ -346,7 +346,7 @@ pub const Wip = struct {
         try wip.extra.ensureUnusedCapacity(gpa, extra_len);
         const new_index = addExtraAssumeCapacity(wip, extra);
         const len: u32 = @intCast(wip.extra.items.len - new_index);
-
+        assert(len != 0);
         const gop = try wip.dedupe_table.getOrPutContext(gpa, .{
             .index = new_index,
             .len = len,
@@ -2417,9 +2417,15 @@ pub const Storage = enum {
                             inline else => |x| setExtraField(buffer, i, @TypeOf(x), x),
                         },
                         .extended => @compileError("TODO"),
-                        .flag_length_prefixed_list, .length_prefixed_list => {
+                        .flag_length_prefixed_list => {
                             const len: u32 = @intCast(value.slice.len);
-                            if (len == 0) return 0;
+                            if (len == 0) return 0; // Flag bit hides the length prefix.
+                            buffer[i] = len;
+                            @memcpy(buffer[i + 1 ..][0..len], @as([]const u32, @ptrCast(value.slice)));
+                            return len + 1;
+                        },
+                        .length_prefixed_list => {
+                            const len: u32 = @intCast(value.slice.len);
                             buffer[i] = len;
                             @memcpy(buffer[i + 1 ..][0..len], @as([]const u32, @ptrCast(value.slice)));
                             return len + 1;
@@ -2431,7 +2437,6 @@ pub const Storage = enum {
                         },
                         .multi_list => {
                             const len: u32 = @intCast(value.mal.len);
-                            if (len == 0) return 0;
                             buffer[i] = len;
                             const fields = @typeInfo(Field.Elem).@"struct".fields;
                             inline for (0..fields.len) |field_i| @memcpy(
