@@ -1084,6 +1084,7 @@ fn makeStep(
         } else |err| switch (err) {
             error.MakeFailed => .failure,
             error.MakeSkipped => .skipped,
+            error.Canceled => |e| return e,
         };
 
         @atomicStore(Step.State, &make_step.state, new_state, .monotonic);
@@ -1764,6 +1765,10 @@ pub fn resolveLazyPathIndexAbs(
     return resolveLazyPathAbs(maker, arena, lazy_path_index.get(c), asking_step_index);
 }
 
+pub fn generatedPath(maker: *Maker, index: Configuration.GeneratedFileIndex) *Path {
+    return &maker.generated_files[@intFromEnum(index)];
+}
+
 fn packagePath(
     maker: *const Maker,
     arena: Allocator,
@@ -1781,5 +1786,42 @@ fn packagePath(
     return .{
         .root_dir = pkg_root.root_dir,
         .sub_path = try Io.Dir.path.join(arena, &.{ pkg_root.sub_path, hash, sub_path }),
+    };
+}
+
+/// Wrapper around `Io.Dir.updateFile` that handles verbose and error output.
+pub fn installFile(
+    maker: *Maker,
+    arena: Allocator,
+    src_lazy_path: Configuration.LazyPath,
+    dest_path: []const u8,
+    asking_step_index: Configuration.Step.Index,
+) !Io.Dir.PrevStatus {
+    const graph = maker.graph;
+    const io = graph.io;
+    const src_path = try resolveLazyPath(maker, arena, src_lazy_path, asking_step_index);
+    {
+        const src_path_rendered = try src_path.toString(arena);
+        defer arena.free(src_path_rendered);
+        try graph.handleVerbose(.inherit, null, &.{ "install", "-C", src_path_rendered, dest_path });
+    }
+    return Io.Dir.updateFile(src_path.root_dir.handle, io, src_path.sub_path, .cwd(), dest_path, .{}) catch |err| {
+        const s = stepByIndex(maker, asking_step_index);
+        return s.fail(maker, "unable to update file from '{f}' to '{s}': {t}", .{ src_path, dest_path, err });
+    };
+}
+
+/// Wrapper around `Io.Dir.createDirPathStatus` that handles verbose and error output.
+pub fn installDir(
+    maker: *Maker,
+    dest_path: []const u8,
+    asking_step_index: Configuration.Step.Index,
+) !Io.Dir.CreatePathStatus {
+    const graph = maker.graph;
+    const io = graph.io;
+    try graph.handleVerbose(.inherit, null, &.{ "install", "-d", dest_path });
+    return Io.Dir.cwd().createDirPathStatus(io, dest_path, .default_dir) catch |err| {
+        const s = stepByIndex(maker, asking_step_index);
+        return s.fail(maker, "unable to create dir '{s}': {t}", .{ dest_path, err });
     };
 }

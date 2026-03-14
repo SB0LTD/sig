@@ -29,59 +29,89 @@ pub fn make(
 ) Step.ExtendedMakeError!void {
     const graph = maker.graph;
     const step = maker.stepByIndex(compile_index);
+    const conf = &maker.scanned_config.configuration;
+    const conf_step = compile_index.ptr(conf);
+    const conf_comp = conf_step.extended.get(conf.extra).compile;
 
     // Reset / repopulate persistent state.
     compile.zig_args.clearRetainingCapacity();
 
     try lowerZigArgs(compile, compile_index, maker, &compile.zig_args, false);
-    if (true) @panic("TODO implement compile.make()");
-    const process_arena = graph.arena; // TODO don't leak into the process_arena
 
-    const maybe_output_dir = step.evalZigProcess(
+    const maybe_output_dir = Step.evalZigProcess(
+        compile_index,
+        maker,
         compile.zig_args.items,
         progress_node,
         (graph.incremental == true) and (maker.watch or maker.web_server != null),
-        maker,
     ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
-            assert(compile.expect_errors != null);
             try checkCompileErrors(compile, maker);
             return;
         },
         else => |e| return e,
     };
 
+    const root_module = conf_comp.root_module.get(conf);
+    const target = root_module.resolved_target.get(conf).?.result.get(conf);
+
     // Update generated files
     if (maybe_output_dir) |output_dir| {
-        if (compile.emit_directory) |lp| {
-            lp.path = try allocPrint(process_arena, "{f}", .{output_dir});
-        }
-
-        // zig fmt: off
-        if (compile.generated_bin)     |lp| lp.path = compile.outputPath(output_dir, .bin);
-        if (compile.generated_pdb)     |lp| lp.path = compile.outputPath(output_dir, .pdb);
-        // hack for stage2_x86_64 + coff
-        if (compile.generated_compiler_rt_dyn_lib) |lp| lp.path = compile.outputPath(output_dir, .compiler_rt_dyn_lib);
-        if (compile.generated_implib)  |lp| lp.path = compile.outputPath(output_dir, .implib);
-        if (compile.generated_h)       |lp| lp.path = compile.outputPath(output_dir, .h);
-        if (compile.generated_docs)    |lp| lp.path = compile.outputPath(output_dir, .docs);
-        if (compile.generated_asm)     |lp| lp.path = compile.outputPath(output_dir, .@"asm");
-        if (compile.generated_llvm_ir) |lp| lp.path = compile.outputPath(output_dir, .llvm_ir);
-        if (compile.generated_llvm_bc) |lp| lp.path = compile.outputPath(output_dir, .llvm_bc);
-        // zig fmt: on
+        if (conf_comp.emit_directory.value) |gf| maker.generatedPath(gf).* = output_dir;
+        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_bin.value, .bin);
+        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_pdb.value, .pdb);
+        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_implib.value, .implib);
+        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_h.value, .h);
+        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_docs.value, .docs);
+        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_asm.value, .@"asm");
+        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_llvm_ir.value, .llvm_ir);
+        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_llvm_bc.value, .llvm_bc);
     }
 
-    if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic and
-        compile.version != null and compile.generated_bin != null and
-        std.Build.wantSharedLibSymLinks(compile.rootModuleTarget()))
+    if (conf_comp.flags3.kind == .lib and conf_comp.flags2.linkage == .dynamic and
+        conf_comp.version.value != null and conf_comp.generated_bin.value != null and
+        target.flags.os_tag != .windows)
     {
+        if (true) @panic("TODO");
         try doAtomicSymLinks(
             step,
-            compile.getEmittedBin().getPath2(step),
-            compile.major_only_filename.?,
-            compile.name_only_filename.?,
+            conf_comp.getEmittedBin().getPath2(step),
+            conf_comp.major_only_filename.?,
+            conf_comp.name_only_filename.?,
         );
     }
+}
+
+fn updateGeneratedFile(
+    conf_comp: *const Configuration.Step.Compile,
+    maker: *Maker,
+    out_path: std.Build.Cache.Path,
+    target: *const Configuration.TargetQuery,
+    opt_gf: ?Configuration.GeneratedFileIndex,
+    ea: std.zig.EmitArtifact,
+) Allocator.Error!void {
+    const gf = opt_gf orelse return;
+    const graph = maker.graph;
+    const conf = &maker.scanned_config.configuration;
+    const arena = graph.arena; // TODO don't leak into process arena
+    const name = try ea.cacheName(arena, .{
+        .root_name = conf_comp.root_name.slice(conf),
+        .cpu_arch = target.flags.cpu_arch.unwrap().?,
+        .os_tag = target.flags.os_tag.unwrap().?,
+        .ofmt = target.flags.object_format.unwrap().?,
+        .abi = target.flags.abi.unwrap().?,
+        .output_mode = switch (conf_comp.flags3.kind) {
+            .lib => .Lib,
+            .obj, .test_obj => .Obj,
+            .exe, .@"test" => .Exe,
+        },
+        .link_mode = conf_comp.flags2.linkage.unwrap(),
+        .version = if (conf_comp.version.value) |v|
+            std.SemanticVersion.parse(v.slice(conf)) catch unreachable
+        else
+            null,
+    });
+    maker.generatedPath(gf).* = try out_path.join(arena, name);
 }
 
 /// List of importable modules in a compilation's module graph, including
@@ -154,7 +184,7 @@ fn lowerZigArgs(
     const root_module = conf_comp.root_module.get(conf);
 
     if (root_module.resolved_target.get(conf).?.query.unwrap()) |query| {
-        if (query.get(conf).flags.object_format.get()) |ofmt| {
+        if (query.get(conf).flags.object_format.unwrap()) |ofmt| {
             try zig_args.append(gpa, try allocPrint(arena, "-ofmt={t}", .{ofmt}));
         }
     }
@@ -1146,6 +1176,7 @@ fn runPkgConfig(compile: *const Compile, maker: *const Maker, lib_name: []const 
 }
 
 fn checkCompileErrors(compile: *Compile, maker: *Maker) !void {
+    if (true) @panic("TODO");
     // Clear this field so that it does not get printed by the build runner.
     const actual_eb = compile.step.result_error_bundle;
     compile.step.result_error_bundle = .empty;

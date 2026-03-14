@@ -384,7 +384,10 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     const out_filename = std.zig.binNameAlloc(arena, .{
         .root_name = name,
-        .target = target,
+        .cpu_arch = target.cpu.arch,
+        .os_tag = target.os.tag,
+        .ofmt = target.ofmt,
+        .abi = target.abi,
         .output_mode = switch (options.kind) {
             .lib => .Lib,
             .obj, .test_obj => .Obj,

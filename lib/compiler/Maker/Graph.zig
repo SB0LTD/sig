@@ -47,3 +47,21 @@ sysroot: ?[]const u8 = null,
 search_prefixes: std.ArrayList([]const u8) = .empty,
 build_id: ?std.zig.BuildId = null,
 error_limit: ?u32 = null,
+
+/// Intention of verbose is to print all sub-process command lines to stderr
+/// before spawning them.
+pub fn handleVerbose(
+    graph: *const Graph,
+    cwd: std.process.Child.Cwd,
+    opt_env: ?*const std.process.Environ.Map,
+    argv: []const []const u8,
+) error{OutOfMemory}!void {
+    if (!graph.verbose) return;
+    const arena = graph.arena;
+    const text = try std.zig.allocPrintCmd(arena, cwd, if (opt_env) |env| .{
+        .child = env,
+        .parent = &graph.environ_map,
+    } else null, argv);
+    defer arena.free(text);
+    std.log.scoped(.verbose).info("{s}", .{text});
+}

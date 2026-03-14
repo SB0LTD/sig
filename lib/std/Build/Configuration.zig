@@ -768,6 +768,14 @@ pub const Step = extern struct {
                     .dynamic => .dynamic,
                 };
             }
+
+            pub fn unwrap(this: @This()) ?std.builtin.LinkMode {
+                return switch (this) {
+                    .static => .static,
+                    .dynamic => .dynamic,
+                    .default => null,
+                };
+            }
         };
         pub const Kind = enum(u3) {
             exe,
@@ -1838,6 +1846,12 @@ pub const TargetQuery = struct {
             // TODO comptime assert the enums match
             return @enumFromInt(@intFromEnum(x orelse return .default));
         }
+
+        pub fn unwrap(this: @This()) ?std.Target.Cpu.Arch {
+            // TODO comptime assert the enums match
+            if (this == .default) return null;
+            return @enumFromInt(@intFromEnum(this));
+        }
     };
     pub const OsTag = enum(u6) {
         freestanding,
@@ -1913,7 +1927,7 @@ pub const TargetQuery = struct {
             return @enumFromInt(@intFromEnum(x orelse return .default));
         }
 
-        pub fn get(this: @This()) ?std.Target.ObjectFormat {
+        pub fn unwrap(this: @This()) ?std.Target.ObjectFormat {
             return switch (this) {
                 .c => .c,
                 .coff => .coff,
@@ -2018,11 +2032,16 @@ pub const Storage = enum {
 
             pub const storage: Storage = .extended;
 
+            pub fn tag(this: @This(), c: *const Configuration) @FieldType(BaseFlags, "tag") {
+                const base_flags: BaseFlags = @bitCast(c.extra[@intFromEnum(this)]);
+                return base_flags.tag;
+            }
+
             pub fn get(this: @This(), buffer: []const u32) U {
                 var i: usize = @intFromEnum(this);
                 const base_flags: BaseFlags = @bitCast(buffer[i]);
                 return switch (base_flags.tag) {
-                    inline else => |tag| @unionInit(U, @tagName(tag), data(buffer, &i, @FieldType(U, @tagName(tag)))),
+                    inline else => |t| @unionInit(U, @tagName(t), data(buffer, &i, @FieldType(U, @tagName(t)))),
                 };
             }
         };

@@ -757,12 +757,16 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         });
         return error.WasmCompilationFailed;
     };
+    const target = std.zig.system.resolveTargetQuery(io, std.Build.parseTargetQuery(.{
+        .arch_os_abi = arch_os_abi,
+        .cpu_features = cpu_features,
+    }) catch unreachable) catch unreachable;
     const bin_name = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
-        .target = &(std.zig.system.resolveTargetQuery(io, std.Build.parseTargetQuery(.{
-            .arch_os_abi = arch_os_abi,
-            .cpu_features = cpu_features,
-        }) catch unreachable) catch unreachable),
+        .cpu_arch = target.cpu.arch,
+        .os_tag = target.os.tag,
+        .ofmt = target.ofmt,
+        .abi = target.abi,
         .output_mode = .Exe,
     });
     return base_path.join(arena, bin_name);
