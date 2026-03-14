@@ -123,7 +123,6 @@ pub const ResolveError = error{
     WasiExecModelRequiresWasi,
     SharedMemoryIsWasmOnly,
     ObjectFilesCannotShareMemory,
-    ObjectFilesCannotSpecifyDynamicLinker,
     SharedMemoryRequiresAtomicsAndBulkMemory,
     ThreadsRequireSharedMemory,
     EmittingLlvmModuleRequiresLlvmBackend,
@@ -132,7 +131,6 @@ pub const ResolveError = error{
     EmittingBinaryRequiresLlvmLibrary,
     LldIncompatibleObjectFormat,
     LldCannotIncrementallyLink,
-    LldCannotSpecifyDynamicLinkerForSharedLibraries,
     LtoRequiresLld,
     SanitizeThreadRequiresLibCpp,
     LibCRequiresLibUnwind,
@@ -421,12 +419,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             // linking to any shared libraries.
             if (link_mode == .dynamic) return error.DynamicLinkingWithLldRequiresSharedLibraries;
         },
-        .Lib => if (use_lld and options.resolved_target.is_explicit_dynamic_linker) {
-            return error.LldCannotSpecifyDynamicLinkerForSharedLibraries;
-        },
-        .Obj => if (options.resolved_target.is_explicit_dynamic_linker) {
-            return error.ObjectFilesCannotSpecifyDynamicLinker;
-        },
+        .Lib, .Obj => {},
     }
 
     const use_new_linker = b: {
