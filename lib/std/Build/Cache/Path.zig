@@ -213,6 +213,13 @@ pub fn stem(p: Path) []const u8 {
     return fs.path.stem(p.sub_path);
 }
 
+pub fn dirname(p: Path) ?Path {
+    return .{
+        .root_dir = p.root_dir,
+        .sub_path = fs.path.dirname(p.subPathOpt() orelse return null) orelse "",
+    };
+}
+
 pub fn basename(p: Path) []const u8 {
     return fs.path.basename(p.sub_path);
 }

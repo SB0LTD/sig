@@ -28,7 +28,7 @@ pub fn make(
     progress_node: std.Progress.Node,
 ) Step.ExtendedMakeError!void {
     const graph = maker.graph;
-    const step = maker.stepByIndex(compile_index);
+    const arena = graph.arena; // TODO don't leak into process arena
     const conf = &maker.scanned_config.configuration;
     const conf_step = compile_index.ptr(conf);
     const conf_comp = conf_step.extended.get(conf.extra).compile;
@@ -69,16 +69,12 @@ pub fn make(
     }
 
     if (conf_comp.flags3.kind == .lib and conf_comp.flags2.linkage == .dynamic and
-        conf_comp.version.value != null and conf_comp.generated_bin.value != null and
-        target.flags.os_tag != .windows)
+        conf_comp.version.value != null and target.flags.os_tag != .windows)
     {
-        if (true) @panic("TODO");
-        try doAtomicSymLinks(
-            step,
-            conf_comp.getEmittedBin().getPath2(step),
-            conf_comp.major_only_filename.?,
-            conf_comp.name_only_filename.?,
-        );
+        if (conf_comp.generated_bin.value) |generated_bin| {
+            const full_dest_path = maker.generatedPath(generated_bin).*;
+            try maker.installSymLinks(arena, full_dest_path, compile_index, compile_index);
+        }
     }
 }
 
@@ -962,35 +958,6 @@ pub fn rebuildInFuzzMode(compile: *Compile, maker: *Maker, progress_node: std.Pr
     try lowerZigArgs(compile, maker, zig_args, true);
     const maybe_output_bin_path = try compile.step.evalZigProcess(zig_args.items, progress_node, false, maker);
     return maybe_output_bin_path.?;
-}
-
-pub fn doAtomicSymLinks(
-    step: *Step,
-    maker: *Maker,
-    output_path: []const u8,
-    filename_major_only: []const u8,
-    filename_name_only: []const u8,
-) !void {
-    const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into process arena
-    const io = graph.io;
-    const out_dir = Dir.path.dirname(output_path) orelse ".";
-    const out_basename = Dir.path.basename(output_path);
-    // sym link for libfoo.so.1 to libfoo.so.1.2.3
-    const major_only_path = try Dir.path.join(arena, &.{ out_dir, filename_major_only });
-    const cwd: Io.Dir = .cwd();
-    cwd.symLinkAtomic(io, out_basename, major_only_path, .{}) catch |err| {
-        return step.fail(maker, "unable to symlink {s} -> {s}: {t}", .{
-            major_only_path, out_basename, err,
-        });
-    };
-    // sym link for libfoo.so to libfoo.so.1
-    const name_only_path = try Dir.path.join(arena, &.{ out_dir, filename_name_only });
-    cwd.symLinkAtomic(io, filename_major_only, name_only_path, .{}) catch |err| {
-        return step.fail(maker, "unable to symlink {s} -> {s}: {t}", .{
-            name_only_path, filename_major_only, err,
-        });
-    };
 }
 
 pub const PkgConfigError = error{

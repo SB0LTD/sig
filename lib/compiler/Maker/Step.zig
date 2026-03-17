@@ -8,6 +8,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const Io = std.Io;
+const Dir = std.Io.Dir;
 const LazyPath = std.Build.Configuration.LazyPath;
 const Package = std.Build.Configuration.Package;
 const Path = std.Build.Cache.Path;
@@ -19,6 +20,8 @@ const Maker = @import("../Maker.zig");
 
 const Compile = @import("Step/Compile.zig");
 const Run = @import("Step/Run.zig");
+const InstallArtifact = @import("Step/InstallArtifact.zig");
+const InstallFile = @import("Step/InstallFile.zig");
 
 /// Avoid false sharing.
 _: void align(std.atomic.cache_line) = {},
@@ -69,9 +72,9 @@ pub const Extended = union(enum) {
     config_header: Todo,
     fail: Todo,
     fmt: Todo,
-    install_artifact: Todo,
+    install_artifact: InstallArtifact,
     install_dir: Todo,
-    install_file: Todo,
+    install_file: InstallFile,
     objcopy: Todo,
     options: Todo,
     remove_dir: Todo,
@@ -524,7 +527,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                 const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
                 result = .{
                     .root_dir = graph.local_cache_root,
-                    .sub_path = try arena.dupe(u8, "o" ++ Io.Dir.path.sep_str ++ Cache.binToHex(digest.*)),
+                    .sub_path = try arena.dupe(u8, "o" ++ Dir.path.sep_str ++ Cache.binToHex(digest.*)),
                 };
             },
             .file_system_inputs => {
@@ -535,14 +538,14 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                 while (it.next()) |prefixed_path| {
                     const prefix_index: std.zig.Server.Message.PathPrefix = @enumFromInt(prefixed_path[0] - 1);
                     const sub_path = try arena.dupe(u8, prefixed_path[1..]);
-                    const sub_path_dirname = Io.Dir.path.dirname(sub_path) orelse "";
+                    const sub_path_dirname = Dir.path.dirname(sub_path) orelse "";
                     switch (prefix_index) {
                         .cwd => {
                             const path: Path = .{
                                 .root_dir = .cwd(),
                                 .sub_path = sub_path_dirname,
                             };
-                            try addWatchInputFromPath(s, maker, path, Io.Dir.path.basename(sub_path));
+                            try addWatchInputFromPath(s, maker, path, Dir.path.basename(sub_path));
                         },
                         .zig_lib => zl: {
                             switch (conf_step.extended.get(conf.extra)) {
@@ -558,21 +561,21 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                                 .root_dir = graph.zig_lib_directory,
                                 .sub_path = sub_path_dirname,
                             };
-                            try addWatchInputFromPath(s, maker, path, Io.Dir.path.basename(sub_path));
+                            try addWatchInputFromPath(s, maker, path, Dir.path.basename(sub_path));
                         },
                         .local_cache => {
                             const path: Path = .{
                                 .root_dir = graph.local_cache_root,
                                 .sub_path = sub_path_dirname,
                             };
-                            try addWatchInputFromPath(s, maker, path, Io.Dir.path.basename(sub_path));
+                            try addWatchInputFromPath(s, maker, path, Dir.path.basename(sub_path));
                         },
                         .global_cache => {
                             const path: Path = .{
                                 .root_dir = graph.global_cache_root,
                                 .sub_path = sub_path_dirname,
                             };
-                            try addWatchInputFromPath(s, maker, path, Io.Dir.path.basename(sub_path));
+                            try addWatchInputFromPath(s, maker, path, Dir.path.basename(sub_path));
                         },
                     }
                 }
@@ -680,7 +683,7 @@ fn failWithCacheError(
                 const pp = man.files.keys()[op.file_index].prefixed_path;
                 const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
                 return s.fail(maker, "failed to check cache: '{s}{c}{s}' {t} {t}", .{
-                    prefix, Io.Dir.path.sep, pp.sub_path, man.diagnostic, op.err,
+                    prefix, Dir.path.sep, pp.sub_path, man.diagnostic, op.err,
                 });
             },
         },
@@ -718,14 +721,14 @@ fn setWatchInputsFromManifest(s: *Step, maker: *Maker, man: *Cache.Manifest) !vo
         const sub_path = try arena.dupe(u8, file.prefixed_path.sub_path);
         try addWatchInputFromPath(s, maker, .{
             .root_dir = prefixes[file.prefixed_path.prefix],
-            .sub_path = Io.Dir.path.dirname(sub_path) orelse "",
-        }, Io.Dir.path.basename(sub_path));
+            .sub_path = Dir.path.dirname(sub_path) orelse "",
+        }, Dir.path.basename(sub_path));
     }
 }
 
 /// For steps that have a single input that never changes when re-running `make`.
-pub fn singleUnchangingWatchInput(step: *Step, maker: *Maker, lazy_path: LazyPath) Allocator.Error!void {
-    if (!step.inputs.populated()) try step.addWatchInput(maker, lazy_path);
+pub fn singleUnchangingWatchInput(step: *Step, maker: *Maker, arena: Allocator, lazy_path: LazyPath) Allocator.Error!void {
+    if (!step.inputs.populated()) try step.addWatchInput(maker, arena, lazy_path);
 }
 
 pub fn clearWatchInputs(step: *Step, maker: *Maker) void {
@@ -733,19 +736,15 @@ pub fn clearWatchInputs(step: *Step, maker: *Maker) void {
 }
 
 /// Places a *file* dependency on the path.
-pub fn addWatchInput(step: *Step, maker: *Maker, lazy_file: LazyPath) Allocator.Error!void {
+pub fn addWatchInput(step: *Step, maker: *Maker, arena: Allocator, lazy_file: LazyPath) Allocator.Error!void {
+    const conf = &maker.scanned_config.configuration;
     switch (lazy_file) {
-        .src_path => |src_path| try addWatchInputFromBuilder(step, src_path.owner, src_path.sub_path),
-        .dependency => |d| try addWatchInputFromBuilder(step, d.dependency.builder, d.sub_path),
-        .cwd_relative => |path_string| {
-            try addWatchInputFromPath(step, maker, .{
-                .root_dir = .{
-                    .path = null,
-                    .handle = Io.Dir.cwd(),
-                },
-                .sub_path = Io.Dir.path.dirname(path_string) orelse "",
-            }, Io.Dir.path.basename(path_string));
+        .source_path => |source_path| {
+            const sub_path = source_path.sub_path.slice(conf);
+            const pkg_path = try maker.packagePath(arena, source_path.owner, sub_path);
+            try addWatchInputPath(step, maker, pkg_path);
         },
+        .relative => |relative| try addWatchInputPath(step, maker, maker.relativePath(relative)),
         // Nothing to watch because this dependency edge is modeled instead via `dependants`.
         .generated => {},
     }
@@ -766,7 +765,7 @@ pub fn addDirectoryWatchInput(step: *Step, lazy_directory: LazyPath) Allocator.E
             try addDirectoryWatchInputFromPath(step, .{
                 .root_dir = .{
                     .path = null,
-                    .handle = Io.Dir.cwd(),
+                    .handle = .cwd(),
                 },
                 .sub_path = path_string,
             });
@@ -789,13 +788,6 @@ pub fn addDirectoryWatchInputFromPath(step: *Step, maker: *Maker, path: Path) !v
     return addWatchInputFromPath(step, maker, path, ".");
 }
 
-fn addWatchInputFromBuilder(step: *Step, maker: *Maker, package: Package, sub_path: []const u8) !void {
-    return addWatchInputFromPath(step, maker, .{
-        .root_dir = package.build_root,
-        .sub_path = Io.Dir.path.dirname(sub_path) orelse "",
-    }, Io.Dir.path.basename(sub_path));
-}
-
 fn addDirectoryWatchInputFromBuilder(step: *Step, package: Package, sub_path: []const u8) !void {
     return addDirectoryWatchInputFromPath(step, .{
         .root_dir = package.build_root,
@@ -806,8 +798,8 @@ fn addDirectoryWatchInputFromBuilder(step: *Step, package: Package, sub_path: []
 fn addWatchInputPath(step: *Step, maker: *Maker, path: Path) Allocator.Error!void {
     return addWatchInputFromPath(step, maker, .{
         .root_dir = path.root_dir,
-        .sub_path = Io.Dir.path.dirname(path.sub_path) orelse "",
-    }, Io.Dir.path.basename(path.sub_path));
+        .sub_path = Dir.path.dirname(path.sub_path) orelse "",
+    }, Dir.path.basename(path.sub_path));
 }
 
 fn addWatchInputFromPath(step: *Step, maker: *Maker, directory: Path, basename: []const u8) Allocator.Error!void {

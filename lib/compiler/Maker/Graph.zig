@@ -5,6 +5,7 @@ const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Configuration = std.Build.Configuration;
+const Path = std.Build.Cache.Path;
 
 io: Io,
 /// Process lifetime.
@@ -16,7 +17,7 @@ global_cache_root: std.Build.Cache.Directory,
 local_cache_root: std.Build.Cache.Directory,
 zig_lib_directory: std.Build.Cache.Directory,
 build_root_directory: std.Build.Cache.Directory,
-pkg_root: std.Build.Cache.Path,
+pkg_root: Path,
 
 debug_compiler_runtime_libs: ?std.builtin.OptimizeMode = null,
 incremental: ?bool = null,

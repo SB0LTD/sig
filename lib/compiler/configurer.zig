@@ -739,21 +739,28 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                         const ia: *Step.InstallArtifact = @fieldParentPtr("step", step);
                         break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.InstallArtifact, .{
                             .flags = .{
-                                .dylib_symlinks = ia.dylib_symlinks != null,
+                                .dylib_symlinks = ia.dylib_symlinks,
+                                .bin_dir = ia.dest_dir != null,
+                                .implib_dir = ia.implib_dir != null,
+                                .pdb_dir = ia.pdb_dir != null,
+                                .h_dir = ia.h_dir != null,
+                                .bin_sub_path = ia.dest_sub_path != null,
                             },
-                            .dest_dir = try addInstallDir(wc, ia.dest_dir),
-                            .dest_sub_path = try wc.addString(ia.dest_sub_path),
-                            .emitted_bin = try s.addOptionalLazyPathEnum(ia.emitted_bin),
-                            .implib_dir = try addInstallDir(wc, ia.implib_dir),
-                            .emitted_implib = try s.addOptionalLazyPathEnum(ia.emitted_implib),
-                            .pdb_dir = try addInstallDir(wc, ia.pdb_dir),
-                            .emitted_pdb = try s.addOptionalLazyPathEnum(ia.emitted_pdb),
-                            .h_dir = try addInstallDir(wc, ia.h_dir),
-                            .emitted_h = try s.addOptionalLazyPathEnum(ia.emitted_h),
-                            .artifact = s.stepIndex(&ia.artifact.step),
+                            .bin_dir = .{ .value = try addInstallDirDefaultNull(wc, ia.dest_dir) },
+                            .implib_dir = .{ .value = try addInstallDirDefaultNull(wc, ia.implib_dir) },
+                            .pdb_dir = .{ .value = try addInstallDirDefaultNull(wc, ia.pdb_dir) },
+                            .h_dir = .{ .value = try addInstallDirDefaultNull(wc, ia.h_dir) },
+                            .bin_sub_path = .{ .value = try s.addOptionalString(ia.dest_sub_path) },
                         })));
                     },
-                    .install_file => @panic("TODO"),
+                    .install_file => e: {
+                        const sif: *Step.InstallFile = @fieldParentPtr("step", step);
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.InstallFile, .{
+                            .source = try s.addLazyPath(sif.source),
+                            .dest_dir = try addInstallDir(wc, sif.dir),
+                            .dest_sub_path = try wc.addString(sif.dest_rel_path),
+                        })));
+                    },
                     .install_dir => @panic("TODO"),
                     .remove_dir => @panic("TODO"),
                     .fail => @panic("TODO"),
@@ -849,6 +856,10 @@ fn addInstallDir(wc: *Configuration.Wip, install_dir: ?std.Build.InstallDir) !Co
         .header => return .header,
         .custom => |sub_path| return .initCustom(try wc.addString(sub_path)),
     }
+}
+
+fn addInstallDirDefaultNull(wc: *Configuration.Wip, install_dir: ?std.Build.InstallDir) !?Configuration.InstallDestDir {
+    return try addInstallDir(wc, install_dir orelse return null);
 }
 
 /// If the given `Step` is a `Step.Compile`, adds any dependencies for that step which

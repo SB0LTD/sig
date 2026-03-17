@@ -26,12 +26,9 @@ name: []const u8,
 linker_script: ?LazyPath = null,
 version_script: ?LazyPath = null,
 out_filename: []const u8,
-out_lib_filename: []const u8,
 linkage: ?std.builtin.LinkMode = null,
 version: ?std.SemanticVersion,
 kind: Kind,
-major_only_filename: ?[]const u8,
-name_only_filename: ?[]const u8,
 formatted_panics: ?bool = null,
 compress_debug_sections: std.zig.CompressDebugSections = .none,
 verbose_link: bool,
@@ -413,9 +410,6 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         }),
         .version = options.version,
         .out_filename = out_filename,
-        .out_lib_filename = undefined,
-        .major_only_filename = null,
-        .name_only_filename = null,
         .installed_headers = .empty,
         .zig_lib_dir = null,
         .exec_cmd_args = null,
@@ -461,35 +455,6 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     if (options.entitlements) |lp| {
         compile.entitlements = lp.dupe(compile.step.owner);
         lp.addStepDependencies(&compile.step);
-    }
-
-    if (compile.kind == .lib) {
-        if (compile.linkage != null and compile.linkage.? == .static) {
-            compile.out_lib_filename = compile.out_filename;
-        } else if (compile.version) |version| {
-            if (target.os.tag.isDarwin()) {
-                compile.major_only_filename = owner.fmt("lib{s}.{d}.dylib", .{
-                    compile.name,
-                    version.major,
-                });
-                compile.name_only_filename = owner.fmt("lib{s}.dylib", .{compile.name});
-                compile.out_lib_filename = compile.out_filename;
-            } else if (target.os.tag == .windows) {
-                compile.out_lib_filename = owner.fmt("{s}.lib", .{compile.name});
-            } else {
-                compile.major_only_filename = owner.fmt("lib{s}.so.{d}", .{ compile.name, version.major });
-                compile.name_only_filename = owner.fmt("lib{s}.so", .{compile.name});
-                compile.out_lib_filename = compile.out_filename;
-            }
-        } else {
-            if (target.os.tag.isDarwin()) {
-                compile.out_lib_filename = compile.out_filename;
-            } else if (target.os.tag == .windows) {
-                compile.out_lib_filename = owner.fmt("{s}.lib", .{compile.name});
-            } else {
-                compile.out_lib_filename = compile.out_filename;
-            }
-        }
     }
 
     return compile;

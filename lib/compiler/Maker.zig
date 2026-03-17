@@ -7,6 +7,7 @@ const Cache = std.Build.Cache;
 const Configuration = std.Build.Configuration;
 const File = std.Io.File;
 const Io = std.Io;
+const Dir = std.Io.Dir;
 const Path = std.Build.Cache.Path;
 const Writer = std.Io.Writer;
 const assert = std.debug.assert;
@@ -82,7 +83,7 @@ pub fn main(init: process.Init.Minimal) !void {
     const global_cache_root = expectArgOrFatal(args, &arg_idx, "--global-cache");
     const configure_path = expectArgOrFatal(args, &arg_idx, "--configuration");
 
-    const cwd: Io.Dir = .cwd();
+    const cwd: Dir = .cwd();
 
     const zig_lib_directory: Cache.Directory = .{
         .path = zig_lib_dir,
@@ -497,7 +498,7 @@ pub fn main(init: process.Init.Minimal) !void {
 
     const install_prefix_path: Path = if (graph.environ_map.get("DESTDIR")) |dest_dir| .{
         .root_dir = .cwd(),
-        .sub_path = try Io.Dir.path.join(arena, &.{ dest_dir, override_install_prefix orelse "/usr" }),
+        .sub_path = try Dir.path.join(arena, &.{ dest_dir, override_install_prefix orelse "/usr" }),
     } else if (override_install_prefix) |cwd_relative| .{
         .root_dir = .cwd(),
         .sub_path = cwd_relative,
@@ -1675,7 +1676,7 @@ fn cleanTmpFiles(io: Io, steps: []const Configuration.Step.Index) void {
         const wf = step_index.cast(std.Build.Step.WriteFile) orelse continue;
         if (wf.mode != .tmp) continue;
         const path = wf.generated_directory.path orelse continue;
-        Io.Dir.cwd().deleteTree(io, path) catch |err| {
+        Dir.cwd().deleteTree(io, path) catch |err| {
             log.warn("failed to delete {s}: {t}", .{ path, err });
         };
     }
@@ -1699,29 +1700,14 @@ pub fn resolveLazyPath(
 ) Allocator.Error!Path {
     _ = asking_step_index; // TODO use this to enhance debugability when this function fails
     const c = &maker.scanned_config.configuration;
-    const graph = maker.graph;
     return switch (lazy_path) {
         .source_path => |sp| try packagePath(maker, arena, sp.owner, sp.sub_path.slice(c)),
-        .relative => |relative| switch (relative.flags.base) {
-            .cwd => .{
-                .root_dir = .cwd(),
-                .sub_path = relative.sub_path.slice(c),
-            },
-            .local_cache => .{
-                .root_dir = graph.local_cache_root,
-            },
-            .global_cache => .{
-                .root_dir = graph.global_cache_root,
-            },
-            .build_root => .{
-                .root_dir = graph.build_root_directory,
-            },
-        },
+        .relative => |relative| relativePath(maker, relative),
         .generated => |gen| {
-            const base = maker.generated_files[@intFromEnum(gen.index)];
+            const base = generatedPath(maker, gen.index);
             var file_path = base;
             for (0..gen.flags.up) |_| {
-                file_path.sub_path = Io.Dir.path.dirname(file_path.sub_path) orelse
+                file_path.sub_path = Dir.path.dirname(file_path.sub_path) orelse
                     fatal("invalid LazyPath traversal: up {d} times from {f}", .{ gen.flags.up, base });
             }
             return file_path.join(arena, gen.sub_path.slice(c));
@@ -1750,7 +1736,7 @@ pub fn resolveLazyPathAbs(
     const p = try resolveLazyPath(maker, arena, lazy_path, asking_step_index);
     const root_dir_path = p.root_dir.path orelse return p.subPathOrDot();
     if (p.sub_path.len == 0) return root_dir_path;
-    return Io.Dir.path.join(arena, &.{ root_dir_path, p.sub_path });
+    return Dir.path.join(arena, &.{ root_dir_path, p.sub_path });
 }
 
 /// `resolveLazyPath` is preferred, but this can be necessary when passing Path
@@ -1765,11 +1751,11 @@ pub fn resolveLazyPathIndexAbs(
     return resolveLazyPathAbs(maker, arena, lazy_path_index.get(c), asking_step_index);
 }
 
-pub fn generatedPath(maker: *Maker, index: Configuration.GeneratedFileIndex) *Path {
+pub fn generatedPath(maker: *const Maker, index: Configuration.GeneratedFileIndex) *Path {
     return &maker.generated_files[@intFromEnum(index)];
 }
 
-fn packagePath(
+pub fn packagePath(
     maker: *const Maker,
     arena: Allocator,
     package_index: Configuration.Package.Index,
@@ -1785,43 +1771,183 @@ fn packagePath(
     const pkg_root = graph.pkg_root;
     return .{
         .root_dir = pkg_root.root_dir,
-        .sub_path = try Io.Dir.path.join(arena, &.{ pkg_root.sub_path, hash, sub_path }),
+        .sub_path = try Dir.path.join(arena, &.{ pkg_root.sub_path, hash, sub_path }),
     };
 }
 
-/// Wrapper around `Io.Dir.updateFile` that handles verbose and error output.
-pub fn installFile(
+pub fn relativePath(maker: *const Maker, relative: Configuration.LazyPath.Relative) Path {
+    const graph = maker.graph;
+    const c = &maker.scanned_config.configuration;
+    const sub_path = relative.sub_path.slice(c);
+    return switch (relative.flags.base) {
+        .cwd => .{
+            .root_dir = .cwd(),
+            .sub_path = sub_path,
+        },
+        .local_cache => .{
+            .root_dir = graph.local_cache_root,
+            .sub_path = sub_path,
+        },
+        .global_cache => .{
+            .root_dir = graph.global_cache_root,
+            .sub_path = sub_path,
+        },
+        .build_root => .{
+            .root_dir = graph.build_root_directory,
+            .sub_path = sub_path,
+        },
+    };
+}
+
+pub fn resolveInstallDir(
     maker: *Maker,
     arena: Allocator,
-    src_lazy_path: Configuration.LazyPath,
-    dest_path: []const u8,
-    asking_step_index: Configuration.Step.Index,
-) !Io.Dir.PrevStatus {
-    const graph = maker.graph;
-    const io = graph.io;
-    const src_path = try resolveLazyPath(maker, arena, src_lazy_path, asking_step_index);
-    {
-        const src_path_rendered = try src_path.toString(arena);
-        defer arena.free(src_path_rendered);
-        try graph.handleVerbose(.inherit, null, &.{ "install", "-C", src_path_rendered, dest_path });
-    }
-    return Io.Dir.updateFile(src_path.root_dir.handle, io, src_path.sub_path, .cwd(), dest_path, .{}) catch |err| {
-        const s = stepByIndex(maker, asking_step_index);
-        return s.fail(maker, "unable to update file from '{f}' to '{s}': {t}", .{ src_path, dest_path, err });
+    dest_dir: Configuration.InstallDestDir,
+) Allocator.Error!Path {
+    const c = &maker.scanned_config.configuration;
+    return switch (dest_dir.unpack().?) {
+        .prefix => maker.install_paths.prefix,
+        .lib => maker.install_paths.lib,
+        .bin => maker.install_paths.bin,
+        .header => maker.install_paths.include,
+        .sub_path => |s| try maker.install_paths.prefix.join(arena, s.slice(c)),
     };
 }
 
-/// Wrapper around `Io.Dir.createDirPathStatus` that handles verbose and error output.
-pub fn installDir(
+pub fn installLazyPathSub(
     maker: *Maker,
-    dest_path: []const u8,
+    arena: Allocator,
+    source: Configuration.LazyPath.Index,
+    dest_dir: Configuration.InstallDestDir,
+    sub_path: []const u8,
     asking_step_index: Configuration.Step.Index,
-) !Io.Dir.CreatePathStatus {
+) !Dir.PrevStatus {
+    const src_path = try resolveLazyPathIndex(maker, arena, source, asking_step_index);
+    const dest_dir_path = try resolveInstallDir(maker, arena, dest_dir);
+    const dest_path = try dest_dir_path.join(arena, sub_path);
+    return installPath(maker, arena, src_path, dest_path, asking_step_index);
+}
+
+pub fn installLazyPath(
+    maker: *Maker,
+    arena: Allocator,
+    source: Configuration.LazyPath.Index,
+    dest_dir: Configuration.InstallDestDir,
+    asking_step_index: Configuration.Step.Index,
+) !Dir.PrevStatus {
+    const src_path = try resolveLazyPathIndex(maker, arena, source, asking_step_index);
+    const dest_dir_path = try resolveInstallDir(maker, arena, dest_dir);
+    const dest_path = try dest_dir_path.join(arena, src_path.basename());
+    return installPath(maker, arena, src_path, dest_path, asking_step_index);
+}
+
+pub fn installGenerated(
+    maker: *Maker,
+    arena: Allocator,
+    source: Configuration.GeneratedFileIndex,
+    dest_dir: Configuration.InstallDestDir,
+    asking_step_index: Configuration.Step.Index,
+) !Dir.PrevStatus {
+    const src_path = generatedPath(maker, source).*;
+    const dest_dir_path = try resolveInstallDir(maker, arena, dest_dir);
+    const dest_path = try dest_dir_path.join(arena, src_path.basename());
+    return installPath(maker, arena, src_path, dest_path, asking_step_index);
+}
+
+pub fn installPath(
+    maker: *Maker,
+    arena: Allocator,
+    src_path: Path,
+    dest_path: Path,
+    asking_step_index: Configuration.Step.Index,
+) !Dir.PrevStatus {
     const graph = maker.graph;
     const io = graph.io;
-    try graph.handleVerbose(.inherit, null, &.{ "install", "-d", dest_path });
-    return Io.Dir.cwd().createDirPathStatus(io, dest_path, .default_dir) catch |err| {
+    if (graph.verbose) try graph.handleVerbose(.inherit, null, &.{
+        "install", "-C", try src_path.toString(arena), try dest_path.toString(arena),
+    });
+    return Dir.updateFile(
+        src_path.root_dir.handle,
+        io,
+        src_path.sub_path,
+        dest_path.root_dir.handle,
+        dest_path.sub_path,
+        .{},
+    ) catch |err| {
         const s = stepByIndex(maker, asking_step_index);
-        return s.fail(maker, "unable to create dir '{s}': {t}", .{ dest_path, err });
+        return s.fail(maker, "unable to update file from {f} to {f}: {t}", .{ src_path, dest_path, err });
+    };
+}
+
+/// Wrapper around `Dir.createDirPathStatus` that handles verbose and error output.
+pub fn installDir(
+    maker: *Maker,
+    arena: Allocator,
+    dest_path: Path,
+    asking_step_index: Configuration.Step.Index,
+) !Dir.CreatePathStatus {
+    const graph = maker.graph;
+    const io = graph.io;
+    if (graph.verbose) try graph.handleVerbose(.inherit, null, &.{
+        "install", "-d", try dest_path.toString(arena),
+    });
+    return dest_path.root_dir.handle.createDirPathStatus(io, dest_path.sub_path, .default_dir) catch |err| {
+        const s = stepByIndex(maker, asking_step_index);
+        return s.fail(maker, "unable to create dir {f}: {t}", .{ dest_path, err });
+    };
+}
+
+pub fn installSymLinks(
+    maker: *Maker,
+    arena: Allocator,
+    output_path: Path,
+    compile_step_index: Configuration.Step.Index,
+    asking_step_index: Configuration.Step.Index,
+) !void {
+    const c = &maker.scanned_config.configuration;
+    const conf_step = compile_step_index.ptr(c);
+    const conf_comp = conf_step.extended.get(c.extra).compile;
+    const root_module = conf_comp.root_module.get(c);
+    const target = root_module.resolved_target.get(c).?.result.get(c);
+    const os_tag = target.flags.os_tag.unwrap().?;
+
+    assert(conf_comp.flags3.kind == .lib);
+    assert(conf_comp.flags2.linkage == .dynamic);
+    assert(os_tag != .windows);
+
+    const version = std.SemanticVersion.parse(conf_comp.version.value.?.slice(c)) catch unreachable;
+    const name = conf_comp.root_name.slice(c);
+
+    const filename_major_only, const filename_name_only = if (os_tag.isDarwin()) .{
+        try std.fmt.allocPrint(arena, "lib{s}.{d}.dylib", .{ name, version.major }),
+        try std.fmt.allocPrint(arena, "lib{s}.dylib", .{name}),
+    } else .{
+        try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ name, version.major }),
+        try std.fmt.allocPrint(arena, "lib{s}.so", .{name}),
+    };
+
+    return installSymLinksInner(maker, arena, output_path, asking_step_index, filename_major_only, filename_name_only);
+}
+
+fn installSymLinksInner(
+    maker: *Maker,
+    arena: Allocator,
+    output_path: Path,
+    asking_step_index: Configuration.Step.Index,
+    filename_major_only: []const u8,
+    filename_name_only: []const u8,
+) !void {
+    const io = maker.graph.io;
+    const step = stepByIndex(maker, asking_step_index);
+    const out_dir = output_path.dirname().?;
+    // sym link for libfoo.so.1 to libfoo.so.1.2.3
+    const major_only_path = try out_dir.join(arena, filename_major_only);
+    output_path.root_dir.handle.symLinkAtomic(io, output_path.sub_path, major_only_path.sub_path, .{}) catch |err| {
+        return step.fail(maker, "unable to symlink {f} -> {f}: {t}", .{ output_path, major_only_path, err });
+    };
+    // sym link for libfoo.so to libfoo.so.1
+    const name_only_path = try out_dir.join(arena, filename_name_only);
+    major_only_path.root_dir.handle.symLinkAtomic(io, major_only_path.sub_path, name_only_path.sub_path, .{}) catch |err| {
+        return step.fail(maker, "unable to symlink {f} -> {s}: {t}", .{ name_only_path, filename_major_only, err });
     };
 }

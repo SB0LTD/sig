@@ -25,7 +25,6 @@ pub fn create(
             .tag = base_tag,
             .name = owner.fmt("install {s} to {s}", .{ source.getDisplayName(), dest_rel_path }),
             .owner = owner,
-            .makeFn = make,
         }),
         .source = source.dupe(owner),
         .dir = dir.dupe(owner),
@@ -33,15 +32,4 @@ pub fn create(
     };
     source.addStepDependencies(&install_file.step);
     return install_file;
-}
-
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    _ = options;
-    const b = step.owner;
-    const install_file: *InstallFile = @fieldParentPtr("step", step);
-    try step.singleUnchangingWatchInput(install_file.source);
-
-    const full_dest_path = b.getInstallPath(install_file.dir, install_file.dest_rel_path);
-    const p = try step.installFile(install_file.source, full_dest_path);
-    step.result_cached = p == .fresh;
 }

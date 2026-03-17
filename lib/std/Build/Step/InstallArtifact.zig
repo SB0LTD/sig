@@ -8,7 +8,7 @@ const LazyPath = std.Build.LazyPath;
 step: Step,
 
 dest_dir: ?InstallDir,
-dest_sub_path: []const u8,
+dest_sub_path: ?[]const u8,
 emitted_bin: ?LazyPath,
 
 implib_dir: ?InstallDir,
@@ -24,7 +24,7 @@ emitted_compiler_rt_dyn_lib: ?LazyPath,
 h_dir: ?InstallDir,
 emitted_h: ?LazyPath,
 
-dylib_symlinks: ?DylibSymlinkInfo,
+dylib_symlinks: bool,
 
 artifact: *Step.Compile,
 
@@ -67,6 +67,16 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
         },
         .override => |o| o,
     };
+    const pdb_dir: ?InstallDir = switch (options.pdb_dir) {
+        .disabled => null,
+        .default => if (artifact.producesPdbFile()) dest_dir else null,
+        .override => |o| o,
+    };
+    const implib_dir: ?InstallDir = switch (options.implib_dir) {
+        .disabled => null,
+        .default => if (artifact.producesImplib()) .lib else null,
+        .override => |o| o,
+    };
     install_artifact.* = .{
         .step = Step.init(.{
             .tag = base_tag,
@@ -74,54 +84,30 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
             .owner = owner,
         }),
         .dest_dir = dest_dir,
-        .pdb_dir = switch (options.pdb_dir) {
-            .disabled => null,
-            .default => if (artifact.producesPdbFile()) dest_dir else null,
-            .override => |o| o,
-        },
-        .compiler_rt_dyn_lib_dir = switch (options.compiler_rt_dyn_lib_dir) {
-            .disabled => null,
-            .default => if (artifact.producesCompilerRtDynLib()) dest_dir else null,
-            .override => |o| o,
-        },
+        .pdb_dir = pdb_dir,
         .h_dir = switch (options.h_dir) {
             .disabled => null,
             .default => if (artifact.kind == .lib) .header else null,
             .override => |o| o,
         },
-        .implib_dir = switch (options.implib_dir) {
-            .disabled => null,
-            .default => if (artifact.producesImplib()) .lib else null,
-            .override => |o| o,
-        },
+        .implib_dir = implib_dir,
 
-        .dylib_symlinks = if (options.dylib_symlinks orelse (dest_dir != null and
-            artifact.isDynamicLibrary() and
-            artifact.version != null and
-            std.Build.wantSharedLibSymLinks(artifact.rootModuleTarget()))) .{
-            .major_only_filename = artifact.major_only_filename.?,
-            .name_only_filename = artifact.name_only_filename.?,
-        } else null,
+        .dylib_symlinks = options.dylib_symlinks orelse (dest_dir != null and
+            artifact.isDynamicLibrary() and artifact.version != null and
+            std.Build.wantSharedLibSymLinks(artifact.rootModuleTarget())),
 
-        .dest_sub_path = options.dest_sub_path orelse artifact.out_filename,
+        .dest_sub_path = options.dest_sub_path,
 
-        .emitted_bin = null,
-        .emitted_pdb = null,
-        .emitted_compiler_rt_dyn_lib = null,
+        .emitted_bin = if (dest_dir != null) artifact.getEmittedBin() else null,
+        .emitted_pdb = if (pdb_dir != null) artifact.getEmittedPdb() else null,
+        // https://github.com/ziglang/zig/issues/9698
         .emitted_h = null,
-        .emitted_implib = null,
+        .emitted_implib = if (implib_dir != null) artifact.getEmittedImplib() else null,
 
         .artifact = artifact,
     };
 
     install_artifact.step.dependOn(&artifact.step);
-
-    if (install_artifact.dest_dir != null) install_artifact.emitted_bin = artifact.getEmittedBin();
-    if (install_artifact.compiler_rt_dyn_lib_dir != null) install_artifact.emitted_compiler_rt_dyn_lib = artifact.getEmittedCompilerRtDynLib();
-    if (install_artifact.pdb_dir != null) install_artifact.emitted_pdb = artifact.getEmittedPdb();
-    // https://github.com/ziglang/zig/issues/9698
-    //if (install_artifact.h_dir != null) install_artifact.emitted_h = artifact.getEmittedH();
-    if (install_artifact.implib_dir != null) install_artifact.emitted_implib = artifact.getEmittedImplib();
 
     return install_artifact;
 }

@@ -478,29 +478,25 @@ pub const Step = extern struct {
         };
     };
 
+    /// The first dependency step index will be the compile step whose
+    /// artifacts are being installed with this step.
     pub const InstallArtifact = struct {
         flags: @This().Flags,
-
-        dest_dir: InstallDestDir,
-        dest_sub_path: String,
-        emitted_bin: LazyPath.OptionalIndex,
-
-        implib_dir: InstallDestDir,
-        emitted_implib: LazyPath.OptionalIndex,
-
-        pdb_dir: InstallDestDir,
-        emitted_pdb: LazyPath.OptionalIndex,
-
-        h_dir: InstallDestDir,
-        emitted_h: LazyPath.OptionalIndex,
-
-        /// Always a compile step.
-        artifact: Step.Index,
+        bin_dir: Storage.FlagOptional(.flags, .bin_dir, InstallDestDir),
+        implib_dir: Storage.FlagOptional(.flags, .implib_dir, InstallDestDir),
+        pdb_dir: Storage.FlagOptional(.flags, .pdb_dir, InstallDestDir),
+        h_dir: Storage.FlagOptional(.flags, .h_dir, InstallDestDir),
+        bin_sub_path: Storage.FlagOptional(.flags, .bin_sub_path, String),
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .install_artifact,
             dylib_symlinks: bool,
-            _: u26 = 0,
+            bin_dir: bool,
+            implib_dir: bool,
+            pdb_dir: bool,
+            h_dir: bool,
+            bin_sub_path: bool,
+            _: u21 = 0,
         };
     };
 
@@ -790,6 +786,14 @@ pub const Step = extern struct {
                     .@"test", .test_obj => true,
                 };
             }
+
+            pub fn toOutputMode(kind: Kind) std.builtin.OutputMode {
+                return switch (kind) {
+                    .exe, .@"test" => .Exe,
+                    .lib => .Lib,
+                    .obj, .test_obj => .Obj,
+                };
+            }
         };
         pub const Subsystem = enum(u4) {
             console,
@@ -991,7 +995,10 @@ pub const Step = extern struct {
     };
 
     pub const InstallFile = struct {
-        flags: @This().Flags,
+        flags: @This().Flags = .{},
+        source: LazyPath.Index,
+        dest_dir: InstallDestDir,
+        dest_sub_path: String,
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .install_file,
@@ -1433,6 +1440,25 @@ pub const InstallDestDir = enum(u32) {
     pub fn initCustom(sub_path: String) InstallDestDir {
         assert(@intFromEnum(sub_path) < @intFromEnum(InstallDestDir.none));
         return @enumFromInt(@intFromEnum(sub_path));
+    }
+
+    pub const Unpacked = union(enum) {
+        prefix,
+        lib,
+        bin,
+        header,
+        sub_path: String,
+    };
+
+    pub fn unpack(this: @This()) ?Unpacked {
+        return switch (this) {
+            .none => null,
+            .prefix => .prefix,
+            .lib => .lib,
+            .bin => .bin,
+            .header => .header,
+            _ => .{ .sub_path = @enumFromInt(@intFromEnum(this)) },
+        };
     }
 };
 
@@ -2366,7 +2392,8 @@ pub const Storage = enum {
                     else => comptime unreachable,
                 },
                 .auto => switch (Field.storage) {
-                    .flag_optional, .enum_optional, .extended => 1,
+                    .flag_optional, .enum_optional => (@sizeOf(Field.Value) + 3) / 4,
+                    .extended => 1,
                     .length_prefixed_list,
                     .flag_length_prefixed_list,
                     .flag_list,
@@ -2520,7 +2547,7 @@ pub const LoadError = Io.Reader.Error || Allocator.Error;
 
 pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
     const header = try reader.takeStruct(Header, .little);
-    var result: Configuration = .{
+    const result: Configuration = .{
         .string_bytes = try arena.alloc(u8, header.string_bytes_len),
         .steps = try arena.alloc(Step, header.steps_len),
         .path_deps_sub = try arena.alloc(String, header.path_deps_len),

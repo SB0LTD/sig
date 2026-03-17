@@ -1,88 +1,127 @@
+const InstallArtifact = @This();
 
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    _ = options;
-    const install_artifact: *InstallArtifact = @fieldParentPtr("step", step);
-    const b = step.owner;
-    const io = b.graph.io;
+const std = @import("std");
+const Io = std.Io;
+const Configuration = std.Build.Configuration;
+const assert = std.debug.assert;
+
+const Step = @import("../Step.zig");
+const Maker = @import("../../Maker.zig");
+
+pub fn make(
+    install_artifact: *InstallArtifact,
+    step_index: Configuration.Step.Index,
+    maker: *Maker,
+    progress_node: std.Progress.Node,
+) Step.ExtendedMakeError!void {
+    _ = install_artifact;
+    _ = progress_node;
+    const step = maker.stepByIndex(step_index);
+    const conf = &maker.scanned_config.configuration;
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into process arena
+    const io = graph.io;
+    const conf_step = step_index.ptr(conf);
+    const conf_ia = conf_step.extended.get(conf.extra).install_artifact;
+    const compile_step_index = conf_step.deps.get(conf).steps.slice[0];
+    const conf_comp_step = compile_step_index.ptr(conf);
+    const conf_comp = conf_comp_step.extended.get(conf.extra).compile;
+    const root_module = conf_comp.root_module.get(conf);
+    const target = root_module.resolved_target.get(conf).?.result.get(conf);
 
     var all_cached = true;
 
-    if (install_artifact.dest_dir) |dest_dir| {
-        const full_dest_path = b.getInstallPath(dest_dir, install_artifact.dest_sub_path);
-        const p = try step.installFile(install_artifact.emitted_bin.?, full_dest_path);
-        all_cached = all_cached and p == .fresh;
+    if (conf_ia.bin_dir.value) |bin_dir| {
+        if (conf_comp.generated_bin.value) |generated_bin| {
+            const bin_sub_path = if (conf_ia.bin_sub_path.value) |s| s.slice(conf) else try std.zig.binNameAlloc(arena, .{
+                .root_name = conf_comp.root_name.slice(conf),
+                .cpu_arch = target.flags.cpu_arch.unwrap().?,
+                .os_tag = target.flags.os_tag.unwrap().?,
+                .ofmt = target.flags.object_format.unwrap().?,
+                .abi = target.flags.abi.unwrap().?,
+                .output_mode = conf_comp.flags3.kind.toOutputMode(),
+                .link_mode = conf_comp.flags2.linkage.unwrap(),
+                .version = v: {
+                    const string = conf_comp.version.value orelse break :v null;
+                    const slice = string.slice(conf);
+                    break :v std.SemanticVersion.parse(slice) catch @panic("bad semver string");
+                },
+            });
+            const dest_dir = try maker.resolveInstallDir(arena, bin_dir);
+            const dest_path = try dest_dir.join(arena, bin_sub_path);
+            const src_path = maker.generatedPath(generated_bin).*;
+            const p = try maker.installPath(arena, src_path, dest_path, step_index);
+            all_cached = all_cached and p == .fresh;
 
-        if (install_artifact.dylib_symlinks) |dls| {
-            try Step.Compile.doAtomicSymLinks(step, full_dest_path, dls.major_only_filename, dls.name_only_filename);
+            if (conf_ia.flags.dylib_symlinks)
+                try maker.installSymLinks(arena, dest_path, compile_step_index, step_index);
         }
-
-        install_artifact.artifact.installed_path = full_dest_path;
     }
 
-    if (install_artifact.compiler_rt_dyn_lib_dir) |compiler_rt_dir| {
-        const full_compiler_rt_path = b.getInstallPath(compiler_rt_dir, install_artifact.emitted_compiler_rt_dyn_lib.?.basename(b, step));
-        const p = try step.installFile(install_artifact.emitted_compiler_rt_dyn_lib.?, full_compiler_rt_path);
-        all_cached = all_cached and p == .fresh;
+    if (conf_ia.implib_dir.value) |implib_dir| {
+        if (conf_comp.generated_implib.value) |generated_implib| {
+            const p = try maker.installGenerated(arena, generated_implib, implib_dir, step_index);
+            all_cached = all_cached and p == .fresh;
+        }
     }
 
-    if (install_artifact.implib_dir) |implib_dir| {
-        const full_implib_path = b.getInstallPath(implib_dir, install_artifact.emitted_implib.?.basename(b, step));
-        const p = try step.installFile(install_artifact.emitted_implib.?, full_implib_path);
-        all_cached = all_cached and p == .fresh;
+    if (conf_ia.pdb_dir.value) |pdb_dir| {
+        if (conf_comp.generated_pdb.value) |generated_pdb| {
+            const p = try maker.installGenerated(arena, generated_pdb, pdb_dir, step_index);
+            all_cached = all_cached and p == .fresh;
+        }
     }
 
-    if (install_artifact.pdb_dir) |pdb_dir| {
-        const full_pdb_path = b.getInstallPath(pdb_dir, install_artifact.emitted_pdb.?.basename(b, step));
-        const p = try step.installFile(install_artifact.emitted_pdb.?, full_pdb_path);
-        all_cached = all_cached and p == .fresh;
-    }
+    if (conf_ia.h_dir.value) |h_dir| {
+        const h_prefix = try maker.resolveInstallDir(arena, h_dir);
 
-    if (install_artifact.h_dir) |h_dir| {
-        if (install_artifact.emitted_h) |emitted_h| {
-            const full_h_path = b.getInstallPath(h_dir, emitted_h.basename(b, step));
-            const p = try step.installFile(emitted_h, full_h_path);
+        if (conf_comp.generated_h.value) |generated_h| {
+            const p = try maker.installGenerated(arena, generated_h, h_dir, step_index);
             all_cached = all_cached and p == .fresh;
         }
 
-        for (install_artifact.artifact.installed_headers.items) |installation| switch (installation) {
+        for (conf_comp.installed_headers.slice) |installation| switch (installation.get(conf.extra)) {
             .file => |file| {
-                const full_h_path = b.getInstallPath(h_dir, file.dest_rel_path);
-                const p = try step.installFile(file.source, full_h_path);
+                const src_path = try maker.resolveLazyPathIndex(arena, file.source, step_index);
+                const dest_path = try h_prefix.join(arena, file.dest_sub_path.slice(conf));
+                const p = try maker.installPath(arena, src_path, dest_path, step_index);
                 all_cached = all_cached and p == .fresh;
             },
             .directory => |dir| {
-                const src_dir_path = dir.source.getPath3(b, step);
-                const full_h_prefix = b.getInstallPath(h_dir, dir.dest_rel_path);
+                const src_dir_path = try maker.resolveLazyPathIndex(arena, dir.source, step_index);
+                const full_h_prefix = try h_prefix.join(arena, dir.dest_sub_path.slice(conf));
 
                 var src_dir = src_dir_path.root_dir.handle.openDir(io, src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
-                    return step.fail("unable to open source directory '{f}': {s}", .{
-                        src_dir_path, @errorName(err),
-                    });
+                    return step.fail(maker, "unable to open source directory {f}: {t}", .{ src_dir_path, err });
                 };
                 defer src_dir.close(io);
 
-                var it = try src_dir.walk(b.allocator);
-                next_entry: while (try it.next(io)) |entry| {
-                    for (dir.options.exclude_extensions) |ext| {
-                        if (std.mem.endsWith(u8, entry.path, ext)) continue :next_entry;
+                var it = try src_dir.walk(arena);
+                next_entry: while (it.next(io) catch |err| switch (err) {
+                    error.Canceled, error.OutOfMemory => |e| return e,
+                    else => |e| return step.fail(maker, "failed to iterate directory {f}: {t}", .{ src_dir_path, e }),
+                }) |entry| {
+                    for (dir.exclude_extensions.slice) |ext| {
+                        if (std.mem.endsWith(u8, entry.path, ext.slice(conf))) continue :next_entry;
                     }
-                    if (dir.options.include_extensions) |incs| {
-                        for (incs) |inc| {
-                            if (std.mem.endsWith(u8, entry.path, inc)) break;
+                    if (dir.flags.include_extensions) {
+                        for (dir.include_extensions.slice) |inc| {
+                            if (std.mem.endsWith(u8, entry.path, inc.slice(conf))) break;
                         } else {
                             continue :next_entry;
                         }
                     }
 
-                    const full_dest_path = b.pathJoin(&.{ full_h_prefix, entry.path });
+                    const full_dest_path = try full_h_prefix.join(arena, entry.path);
                     switch (entry.kind) {
                         .directory => {
-                            try Step.handleVerbose(b, .inherit, &.{ "install", "-d", full_dest_path });
-                            const p = try step.installDir(full_dest_path);
+                            const p = try maker.installDir(arena, full_dest_path, step_index);
                             all_cached = all_cached and p == .existed;
                         },
                         .file => {
-                            const p = try step.installFile(try dir.source.join(b.allocator, entry.path), full_dest_path);
+                            const entry_dir_path = try maker.resolveLazyPathIndex(arena, dir.source, step_index);
+                            const entry_path = try entry_dir_path.join(arena, entry.path);
+                            const p = try maker.installPath(arena, entry_path, full_dest_path, step_index);
                             all_cached = all_cached and p == .fresh;
                         },
                         else => continue,
