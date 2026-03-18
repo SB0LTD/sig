@@ -3380,7 +3380,10 @@ fn buildOutputType(
                 .pch => try std.fmt.allocPrint(arena, "{s}.pch", .{root_name}),
                 else => try std.zig.binNameAlloc(arena, .{
                     .root_name = root_name,
-                    .target = target,
+                    .cpu_arch = target.cpu.arch,
+                    .os_tag = target.os.tag,
+                    .ofmt = target.ofmt,
+                    .abi = target.abi,
                     .output_mode = create_module.resolved_options.output_mode,
                     .link_mode = create_module.resolved_options.link_mode,
                     .version = optional_version,

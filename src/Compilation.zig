@@ -1747,9 +1747,13 @@ pub const CreateOptions = struct {
                 .no => return null,
                 .yes_cache => {
                     assert(opts.cache_mode != .none);
+                    const target = &opts.root_mod.resolved_target.result;
                     return try ea.cacheName(arena, .{
                         .root_name = opts.root_name,
-                        .target = &opts.root_mod.resolved_target.result,
+                        .cpu_arch = target.cpu.arch,
+                        .os_tag = target.os.tag,
+                        .ofmt = target.ofmt,
+                        .abi = target.abi,
                         .output_mode = opts.config.output_mode,
                         .link_mode = opts.config.link_mode,
                         .version = opts.version,
