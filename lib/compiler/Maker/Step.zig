@@ -79,7 +79,7 @@ pub const Extended = union(enum) {
     options: Todo,
     remove_dir: Todo,
     run: Run,
-    top_level: Todo,
+    top_level: TopLevel,
     translate_c: Todo,
     update_source_files: Todo,
     write_file: Todo,
@@ -117,6 +117,20 @@ pub const Extended = union(enum) {
             _ = maker;
             _ = progress_node;
             std.debug.panic("TODO implement another step type (index {d})", .{step_index});
+        }
+    };
+
+    pub const TopLevel = struct {
+        pub fn make(
+            top_level: *TopLevel,
+            step_index: Configuration.Step.Index,
+            maker: *Maker,
+            progress_node: std.Progress.Node,
+        ) Step.ExtendedMakeError!void {
+            _ = top_level;
+            _ = step_index;
+            _ = maker;
+            _ = progress_node;
         }
     };
 };

@@ -10,6 +10,7 @@
 * test a bunch of third party projects / help people migrate
 * refactor with DefaultingEnum
 * inspect b4ffb402c082605c4b324e88120306fc8fb3cf32 diff and apply changes as needed (merge conflict)
+* https://codeberg.org/ziglang/zig/issues/31397
 
 ## Followup Issues
 * link_eh_frame_hdr should be DefaultingBool
