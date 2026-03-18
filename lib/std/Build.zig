@@ -122,22 +122,16 @@ pub const Graph = struct {
         return @enumFromInt(graph.generated_files.items.len - 1);
     }
 
-    pub fn dupeString(graph: *Graph, bytes: []const u8) [:0]const u8 {
-        // This code assumes the `Configuration.Wip` uses arena allocation such
-        // that references to string_bytes never die even when the ArrayList is
-        // reallocated.
-        const wc = &graph.wip_configuration;
-        const i = wc.addString(bytes) catch @panic("OOM");
-        return wc.string_bytes.items[@intFromEnum(i)..][0..bytes.len :0];
+    pub fn dupeString(graph: *Graph, bytes: []const u8) []const u8 {
+        return graph.arena.dupe(u8, bytes) catch @panic("OOM");
     }
 
-    pub fn dupePath(graph: *Graph, bytes: []const u8) [:0]const u8 {
-        if (builtin.os.tag != .windows) return dupeString(graph, bytes);
+    pub fn dupePath(graph: *Graph, bytes: []const u8) []const u8 {
         const arena = graph.arena;
+        if (builtin.os.tag != .windows) return graph.arena.dupe(u8, bytes) catch @panic("OOM");
         const the_copy = arena.dupe(u8, bytes) catch @panic("OOM");
-        defer arena.free(the_copy);
         mem.replaceScalar(u8, the_copy, '/', '\\');
-        return dupeString(graph, the_copy);
+        return the_copy;
     }
 
     pub fn dupeStrings(graph: *Graph, strings: []const []const u8) []const []const u8 {
@@ -895,7 +889,7 @@ pub fn addConfigHeader(
     return config_header_step;
 }
 
-pub fn dupe(b: *Build, bytes: []const u8) [:0]const u8 {
+pub fn dupe(b: *Build, bytes: []const u8) []const u8 {
     return b.graph.dupeString(bytes);
 }
 
@@ -905,7 +899,7 @@ pub fn dupeStrings(b: *Build, strings: []const []const u8) []const []const u8 {
 }
 
 /// Duplicates a path, canonicalizing path separators.
-pub fn dupePath(b: *Build, bytes: []const u8) [:0]const u8 {
+pub fn dupePath(b: *Build, bytes: []const u8) []const u8 {
     return b.graph.dupePath(bytes);
 }
 

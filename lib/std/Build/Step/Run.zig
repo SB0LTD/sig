@@ -139,7 +139,7 @@ pub const Arg = union(enum) {
     lazy_path: PrefixedLazyPath,
     decorated_directory: DecoratedLazyPath,
     file_content: PrefixedLazyPath,
-    bytes: [:0]const u8,
+    bytes: []const u8,
     output_file: *Output,
     output_directory: *Output,
     /// The arguments passed after "--" on the "zig build" CLI.
