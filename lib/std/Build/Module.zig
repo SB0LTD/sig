@@ -240,13 +240,14 @@ pub fn init(
     owner: *std.Build,
     value: union(enum) { options: CreateOptions, existing: *const Module },
 ) void {
-    const allocator = owner.allocator;
+    const graph = owner.graph;
+    const arena = graph.arena;
 
     switch (value) {
         .options => |options| {
             m.* = .{
                 .owner = owner,
-                .root_source_file = if (options.root_source_file) |lp| lp.dupe(owner) else null,
+                .root_source_file = if (options.root_source_file) |lp| lp.dupe(graph) else null,
                 .import_table = .empty,
                 .resolved_target = options.target,
                 .optimize = options.optimize,
@@ -277,7 +278,7 @@ pub fn init(
                 .no_builtin = options.no_builtin,
             };
 
-            m.import_table.ensureUnusedCapacity(allocator, options.imports.len) catch @panic("OOM");
+            m.import_table.ensureUnusedCapacity(arena, options.imports.len) catch @panic("OOM");
             for (options.imports) |dep| {
                 m.import_table.putAssumeCapacity(dep.name, dep.module);
             }

@@ -55,10 +55,10 @@ pub const Directory = struct {
         /// `exclude_extensions` takes precedence over `include_extensions`.
         include_extensions: ?[]const []const u8 = null,
 
-        pub fn dupe(opts: Options, b: *std.Build) Options {
+        pub fn dupe(opts: Options, graph: *std.Build.Graph) Options {
             return .{
-                .exclude_extensions = b.dupeStrings(opts.exclude_extensions),
-                .include_extensions = if (opts.include_extensions) |incs| b.dupeStrings(incs) else null,
+                .exclude_extensions = graph.dupeStrings(opts.exclude_extensions),
+                .include_extensions = if (opts.include_extensions) |incs| graph.dupeStrings(incs) else null,
             };
         }
 
@@ -103,13 +103,13 @@ pub fn create(owner: *std.Build) *WriteFile {
 }
 
 pub fn add(write_file: *WriteFile, sub_path: []const u8, bytes: []const u8) std.Build.LazyPath {
-    const b = write_file.step.owner;
-    const gpa = b.allocator;
-    const file = File{
-        .sub_path = b.dupePath(sub_path),
-        .contents = .{ .bytes = b.dupe(bytes) },
+    const graph = write_file.step.owner.graph;
+    const arena = graph.arena;
+    const file: File = .{
+        .sub_path = graph.dupePath(sub_path),
+        .contents = .{ .bytes = graph.dupeString(bytes) },
     };
-    write_file.files.append(gpa, file) catch @panic("OOM");
+    write_file.files.append(arena, file) catch @panic("OOM");
     write_file.maybeUpdateName();
     return .{
         .generated = .{
@@ -154,14 +154,14 @@ pub fn addCopyDirectory(
     sub_path: []const u8,
     options: Directory.Options,
 ) std.Build.LazyPath {
-    const b = write_file.step.owner;
-    const gpa = b.allocator;
+    const graph = write_file.step.owner.graph;
+    const arena = graph.arena;
     const dir = Directory{
-        .source = source.dupe(b),
-        .sub_path = b.dupePath(sub_path),
-        .options = options.dupe(b),
+        .source = source.dupe(graph),
+        .sub_path = graph.dupePath(sub_path),
+        .options = options.dupe(graph),
     };
-    write_file.directories.append(gpa, dir) catch @panic("OOM");
+    write_file.directories.append(arena, dir) catch @panic("OOM");
 
     write_file.maybeUpdateName();
     source.addStepDependencies(&write_file.step);

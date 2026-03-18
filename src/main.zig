@@ -5356,6 +5356,7 @@ fn cmdBuild(
                 .cc_argv = &.{},
                 .inherited = .{
                     .resolved_target = resolved_target,
+                    .single_threaded = true,
                 },
                 .global = config,
                 .parent = null,

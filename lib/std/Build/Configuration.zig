@@ -1419,13 +1419,6 @@ pub const Path = extern struct {
         global_cache,
         build_root,
     };
-
-    pub fn toCachePath(path: Path, c: *const Configuration, arena: Allocator) std.Build.Cache.Path {
-        _ = c;
-        _ = arena;
-        _ = path;
-        @panic("TODO");
-    }
 };
 
 pub const InstallDestDir = enum(u32) {

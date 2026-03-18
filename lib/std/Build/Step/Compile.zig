@@ -296,10 +296,10 @@ pub const HeaderInstallation = union(enum) {
         source: LazyPath,
         dest_rel_path: []const u8,
 
-        pub fn dupe(file: File, b: *std.Build) File {
+        pub fn dupe(file: File, graph: *std.Build.Graph) File {
             return .{
-                .source = file.source.dupe(b),
-                .dest_rel_path = b.dupePath(file.dest_rel_path),
+                .source = file.source.dupe(graph),
+                .dest_rel_path = graph.dupePath(file.dest_rel_path),
             };
         }
     };
@@ -424,13 +424,13 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     };
 
     if (options.zig_lib_dir) |lp| {
-        compile.zig_lib_dir = lp.dupe(compile.step.owner);
+        compile.zig_lib_dir = lp.dupe(graph);
         lp.addStepDependencies(&compile.step);
     }
 
     if (options.test_runner) |runner| {
         compile.test_runner = .{
-            .path = runner.path.dupe(compile.step.owner),
+            .path = runner.path.dupe(graph),
             .mode = runner.mode,
         };
         runner.path.addStepDependencies(&compile.step);
@@ -440,20 +440,20 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     // gets embedded, so for any other target the manifest file is just ignored.
     if (target.ofmt == .coff) {
         if (options.win32_manifest) |lp| {
-            compile.win32_manifest = lp.dupe(compile.step.owner);
+            compile.win32_manifest = lp.dupe(graph);
             lp.addStepDependencies(&compile.step);
         }
         if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic) {
             // Building a Win32 DLL, check for win32 .def file.
             if (options.win32_module_definition) |lp| {
-                compile.win32_module_definition = lp.dupe(compile.step.owner);
+                compile.win32_module_definition = lp.dupe(graph);
                 lp.addStepDependencies(&compile.step);
             }
         }
     }
 
     if (options.entitlements) |lp| {
-        compile.entitlements = lp.dupe(compile.step.owner);
+        compile.entitlements = lp.dupe(graph);
         lp.addStepDependencies(&compile.step);
     }
 
@@ -464,12 +464,13 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 /// When a module links with this artifact, all headers marked for installation are added to that
 /// module's include search path.
 pub fn installHeader(cs: *Compile, source: LazyPath, dest_rel_path: []const u8) void {
-    const b = cs.step.owner;
+    const graph = cs.step.owner.graph;
+    const arena = graph.arena;
     const installation: HeaderInstallation = .{ .file = .{
-        .source = source.dupe(b),
-        .dest_rel_path = b.dupePath(dest_rel_path),
+        .source = source.dupe(graph),
+        .dest_rel_path = graph.dupePath(dest_rel_path),
     } };
-    cs.installed_headers.append(b.allocator, installation) catch @panic("OOM");
+    cs.installed_headers.append(arena, installation) catch @panic("OOM");
     cs.addHeaderInstallationToIncludeTree(installation);
     installation.getSource().addStepDependencies(&cs.step);
 }
@@ -483,13 +484,14 @@ pub fn installHeadersDirectory(
     dest_rel_path: []const u8,
     options: HeaderInstallation.Directory.Options,
 ) void {
-    const b = cs.step.owner;
+    const graph = cs.step.owner.graph;
+    const arena = graph.arena;
     const installation: HeaderInstallation = .{ .directory = .{
-        .source = source.dupe(b),
-        .dest_rel_path = b.dupePath(dest_rel_path),
-        .options = options.dupe(b),
+        .source = source.dupe(graph),
+        .dest_rel_path = graph.dupePath(dest_rel_path),
+        .options = options.dupe(graph),
     } };
-    cs.installed_headers.append(b.allocator, installation) catch @panic("OOM");
+    cs.installed_headers.append(arena, installation) catch @panic("OOM");
     cs.addHeaderInstallationToIncludeTree(installation);
     installation.getSource().addStepDependencies(&cs.step);
 }
@@ -506,9 +508,10 @@ pub fn installConfigHeader(cs: *Compile, config_header: *Step.ConfigHeader) void
 /// module's include search path.
 pub fn installLibraryHeaders(cs: *Compile, lib: *Compile) void {
     assert(lib.kind == .lib);
-    const arena = cs.owner.allocator;
+    const graph = cs.step.owner.graph;
+    const arena = graph.arena;
     for (lib.installed_headers.items) |installation| {
-        const installation_copy = installation.dupe(lib.step.owner);
+        const installation_copy = installation.dupe(graph);
         cs.installed_headers.append(arena, installation_copy) catch @panic("OOM");
         cs.addHeaderInstallationToIncludeTree(installation_copy);
         installation_copy.getSource().addStepDependencies(&cs.step);
@@ -556,21 +559,21 @@ pub fn addObjCopy(cs: *Compile, options: Step.ObjCopy.Options) *Step.ObjCopy {
 }
 
 pub fn setLinkerScript(compile: *Compile, source: LazyPath) void {
-    const b = compile.step.owner;
-    compile.linker_script = source.dupe(b);
+    const graph = compile.step.owner.graph;
+    compile.linker_script = source.dupe(graph);
     source.addStepDependencies(&compile.step);
 }
 
 pub fn setVersionScript(compile: *Compile, source: LazyPath) void {
-    const b = compile.step.owner;
-    compile.version_script = source.dupe(b);
+    const graph = compile.step.owner.graph;
+    compile.version_script = source.dupe(graph);
     source.addStepDependencies(&compile.step);
 }
 
 pub fn forceUndefinedSymbol(compile: *Compile, symbol_name: []const u8) void {
-    const b = compile.step.owner;
-    const arena = b.allocator;
-    compile.force_undefined_symbols.put(arena, b.dupe(symbol_name), {}) catch @panic("OOM");
+    const graph = compile.step.owner.graph;
+    const arena = graph.allocator;
+    compile.force_undefined_symbols.put(arena, graph.dupeString(symbol_name), {}) catch @panic("OOM");
 }
 
 /// Returns whether the library, executable, or object depends on a particular system library.
@@ -655,9 +658,9 @@ pub fn setVerboseCC(compile: *Compile, value: bool) void {
 }
 
 pub fn setLibCFile(compile: *Compile, libc_file: ?LazyPath) void {
-    const b = compile.step.owner;
+    const graph = compile.step.owner.graph;
     if (libc_file) |f| {
-        compile.libc_file = f.dupe(b);
+        compile.libc_file = f.dupe(graph);
         f.addStepDependencies(&compile.step);
     } else {
         compile.libc_file = null;
@@ -733,11 +736,12 @@ pub fn getEmittedLlvmBc(compile: *Compile) LazyPath {
 }
 
 pub fn setExecCmd(compile: *Compile, args: []const ?[]const u8) void {
-    const b = compile.step.owner;
+    const graph = compile.step.owner.graph;
+    const arena = graph.arena;
     assert(compile.kind == .@"test");
-    const duped_args = b.allocator.alloc(?[]u8, args.len) catch @panic("OOM");
+    const duped_args = arena.alloc(?[]u8, args.len) catch @panic("OOM");
     for (args, 0..) |arg, i| {
-        duped_args[i] = if (arg) |a| b.dupe(a) else null;
+        duped_args[i] = if (arg) |a| graph.dupeString(a) else null;
     }
     compile.exec_cmd_args = duped_args;
 }

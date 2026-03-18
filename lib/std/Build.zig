@@ -115,10 +115,36 @@ pub const Graph = struct {
 
     /// Indexes correspond to `Configuration.GeneratedFileIndex`.
     generated_files: std.ArrayList(*Step),
+    wip_configuration: Configuration.Wip,
 
     pub fn addGeneratedFile(graph: *Graph, owner: *Step) Configuration.GeneratedFileIndex {
         graph.generated_files.append(graph.arena, owner) catch @panic("OOM");
         return @enumFromInt(graph.generated_files.items.len - 1);
+    }
+
+    pub fn dupeString(graph: *Graph, bytes: []const u8) [:0]const u8 {
+        // This code assumes the `Configuration.Wip` uses arena allocation such
+        // that references to string_bytes never die even when the ArrayList is
+        // reallocated.
+        const wc = &graph.wip_configuration;
+        const i = wc.addString(bytes) catch @panic("OOM");
+        return wc.string_bytes.items[@intFromEnum(i)..][0..bytes.len :0];
+    }
+
+    pub fn dupePath(graph: *Graph, bytes: []const u8) [:0]const u8 {
+        if (builtin.os.tag != .windows) return dupeString(graph, bytes);
+        const arena = graph.arena;
+        const the_copy = arena.dupe(u8, bytes) catch @panic("OOM");
+        defer arena.free(the_copy);
+        mem.replaceScalar(u8, the_copy, '/', '\\');
+        return dupeString(graph, the_copy);
+    }
+
+    pub fn dupeStrings(graph: *Graph, strings: []const []const u8) []const []const u8 {
+        const arena = graph.arena;
+        const array = arena.alloc([]const u8, strings.len) catch @panic("OOM");
+        for (array, strings) |*dest, source| dest.* = dupeString(graph, source);
+        return array;
     }
 };
 
@@ -869,36 +895,18 @@ pub fn addConfigHeader(
     return config_header_step;
 }
 
-/// Allocator.dupe without the need to handle out of memory.
-pub fn dupe(b: *Build, bytes: []const u8) []u8 {
-    return dupeInner(b.allocator, bytes);
-}
-
-pub fn dupeInner(allocator: Allocator, bytes: []const u8) []u8 {
-    return allocator.dupe(u8, bytes) catch @panic("OOM");
+pub fn dupe(b: *Build, bytes: []const u8) [:0]const u8 {
+    return b.graph.dupeString(bytes);
 }
 
 /// Duplicates an array of strings without the need to handle out of memory.
-pub fn dupeStrings(b: *Build, strings: []const []const u8) [][]u8 {
-    const array = b.allocator.alloc([]u8, strings.len) catch @panic("OOM");
-    for (array, strings) |*dest, source| dest.* = b.dupe(source);
-    return array;
+pub fn dupeStrings(b: *Build, strings: []const []const u8) []const []const u8 {
+    return b.graph.dupeStrings(strings);
 }
 
-/// Duplicates a path and converts all slashes to the OS's canonical path separator.
-pub fn dupePath(b: *Build, bytes: []const u8) []u8 {
-    return dupePathInner(b.allocator, bytes);
-}
-
-fn dupePathInner(allocator: Allocator, bytes: []const u8) []u8 {
-    const the_copy = dupeInner(allocator, bytes);
-    for (the_copy) |*byte| {
-        switch (byte.*) {
-            '/', '\\' => byte.* = fs.path.sep,
-            else => {},
-        }
-    }
-    return the_copy;
+/// Duplicates a path, canonicalizing path separators.
+pub fn dupePath(b: *Build, bytes: []const u8) [:0]const u8 {
+    return b.graph.dupePath(bytes);
 }
 
 pub fn addWriteFile(b: *Build, file_path: []const u8, data: []const u8) *Step.WriteFile {
@@ -2268,25 +2276,18 @@ pub const LazyPath = union(enum) {
     ///
     /// The `b` parameter is only used for its allocator. All *Build instances
     /// share the same allocator.
-    pub fn dupe(lazy_path: LazyPath, b: *Build) LazyPath {
-        return lazy_path.dupeInner(b.allocator);
-    }
-
-    fn dupeInner(lazy_path: LazyPath, allocator: Allocator) LazyPath {
+    pub fn dupe(lazy_path: LazyPath, graph: *Graph) LazyPath {
         return switch (lazy_path) {
-            .src_path => |sp| .{ .src_path = .{
-                .owner = sp.owner,
-                .sub_path = sp.owner.dupePath(sp.sub_path),
-            } },
-            .cwd_relative => |p| .{ .cwd_relative = dupePathInner(allocator, p) },
+            .src_path => |sp| .{ .src_path = .{ .owner = sp.owner, .sub_path = sp.owner.dupePath(sp.sub_path) } },
+            .cwd_relative => |p| .{ .cwd_relative = graph.dupePath(p) },
             .generated => |gen| .{ .generated = .{
                 .index = gen.index,
                 .up = gen.up,
-                .sub_path = dupePathInner(allocator, gen.sub_path),
+                .sub_path = graph.dupePath(gen.sub_path),
             } },
             .dependency => |dep| .{ .dependency = .{
                 .dependency = dep.dependency,
-                .sub_path = dupePathInner(allocator, dep.sub_path),
+                .sub_path = graph.dupePath(dep.sub_path),
             } },
         };
     }

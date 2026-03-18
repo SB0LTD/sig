@@ -1,10 +1,10 @@
+* remove Cache from configurer
 * implement the build options
 * don't forget to add -listen arg back
 * get zig init template working
 * finish migrating the rest of the build steps
 * make zig-pkg path root configurable in maker (make sure --system still works)
 * eliminate calls to getPath, getPath2, getPath3
-* replace b.dupe() with string internment
 * solve the TODOs added in this branch
 * get zig tests passing
 * test a bunch of third party projects / help people migrate

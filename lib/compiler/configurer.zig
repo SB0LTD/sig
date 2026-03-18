@@ -24,31 +24,22 @@ pub const std_options: std.Options = .{
 };
 
 pub fn main(init: process.Init.Minimal) !void {
-    // The build runner is often short-lived, but thanks to `--watch` and `--webui`, that's not
-    // always the case. So, we do need a true gpa for some things.
-    var debug_gpa_state: std.heap.DebugAllocator(.{
-        // We'd rather have `zig build` run faster than catch harmless leaks in
-        // the user's build.zig script.
-        .stack_trace_frames = 0,
-    }) = .init;
-    defer _ = debug_gpa_state.deinit();
-    const gpa = debug_gpa_state.allocator();
+    var arena_allocator: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
 
-    var threaded: std.Io.Threaded = .init(gpa, .{
+    // The configurer is always short-lived because all it does is serialize
+    // the configuration, which is picked up by a separate maker process.
+    var threaded: std.Io.Threaded = .init(arena, .{
         .environ = init.environ,
         .argv0 = .init(init.args),
     });
     defer threaded.deinit();
     const io = threaded.io();
 
-    // ...but we'll back our arena by `std.heap.page_allocator` for efficiency.
-    var arena_allocator: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
-
     const args = try init.args.toSlice(arena);
 
-    // skip my own exe name
+    // Skip own executable name.
     var arg_idx: usize = 1;
 
     const zig_exe = expectArgOrFatal(args, &arg_idx, "--zig");
@@ -84,7 +75,7 @@ pub fn main(init: process.Init.Minimal) !void {
         .arena = arena,
         .cache = .{
             .io = io,
-            .gpa = gpa,
+            .gpa = arena,
             .manifest_dir = try local_cache_directory.handle.createDirPathOpen(io, "h", .{}),
             .cwd = try process.currentPathAlloc(io, arena),
         },
@@ -97,7 +88,18 @@ pub fn main(init: process.Init.Minimal) !void {
             .result = try std.zig.system.resolveTargetQuery(io, .{}),
         },
         .generated_files = .empty,
+
+        // Created before running the user's configure script so that some things
+        // can be added during script execution such as strings.
+        //
+        // Use of arena here is load-bearing because `std.Build.dupe` is
+        // implemented by string internment, and then returning the interned
+        // slice. When the string bytes array is reallocated, that reference
+        // must stay alive.
+        .wip_configuration = .init(arena),
     };
+    assert(try graph.wip_configuration.addString("") == .empty);
+    assert(try graph.wip_configuration.addString("root") == .root);
 
     graph.cache.addPrefix(.{ .path = null, .handle = cwd });
     graph.cache.addPrefix(build_root_directory);
@@ -200,19 +202,15 @@ pub fn main(init: process.Init.Minimal) !void {
         fatal("  access the help menu with 'zig build -h'", .{});
     }
 
-    var wc: Configuration.Wip = .init(gpa);
-    defer wc.deinit();
-    assert(try wc.addString("") == .empty);
-    assert(try wc.addString("root") == .root);
-
-    try serializeSystemIntegrationOptions(&graph, &wc);
+    try serializeSystemIntegrationOptions(&graph, &graph.wip_configuration);
 
     var stdout_buffer: [1024]u8 = undefined;
     var file_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
-    serialize(builder, &wc, &file_writer.interface) catch |err| switch (err) {
+    serialize(builder, &graph.wip_configuration, &file_writer.interface) catch |err| switch (err) {
         error.WriteFailed => fatal("failed to write configuration output: {t}", .{file_writer.err.?}),
         error.OutOfMemory => |e| return e,
     };
+    file_writer.flush() catch |err| fatal("failed to write configuration output: {t}", .{err});
 
     // This executable is short-lived and run in Debug mode, so we'd rather
     // have `zig build` run faster than catch resource leaks in the user's
