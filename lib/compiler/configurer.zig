@@ -351,6 +351,169 @@ const Serialize = struct {
         })));
     }
 
+    fn addEnvironMap(s: *Serialize, opt_map: ?*std.process.Environ.Map) !?Configuration.EnvironMap.Index {
+        const wc = s.wc;
+        const map = opt_map orelse return null;
+        return @enumFromInt(try wc.addDeduped(@as(Configuration.EnvironMap, .{
+            .keys = try wc.addStringList(map.array_hash_map.keys()),
+            .values = try wc.addStringList(map.array_hash_map.values()),
+        })));
+    }
+
+    fn initArgsList(s: *Serialize, args: []const Step.Run.Arg) ![]const Configuration.Step.Run.Arg.Index {
+        const wc = s.wc;
+        const result = try s.arena.alloc(Configuration.Step.Run.Arg.Index, args.len);
+        for (result, args) |*dest, src| {
+            dest.* = @enumFromInt(try wc.addExtra(@as(Configuration.Step.Run.Arg, switch (src) {
+                .artifact => |a| .{
+                    .flags = .{
+                        .tag = .artifact,
+                        .prefix = a.prefix.len != 0,
+                        .suffix = false,
+                        .basename = false,
+                        .path = false,
+                        .producer = true,
+                        .generated = false,
+                        .dep_file = false,
+                    },
+                    .prefix = .{ .value = try s.addOptionalString(a.prefix) },
+                    .suffix = .{ .value = null },
+                    .basename = .{ .value = null },
+                    .path = .{ .value = null },
+                    .producer = .{ .value = stepIndex(s, &a.artifact.step) },
+                    .generated = .{ .value = null },
+                },
+                .lazy_path => |a| .{
+                    .flags = .{
+                        .tag = .path_file,
+                        .prefix = a.prefix.len != 0,
+                        .suffix = false,
+                        .basename = false,
+                        .path = true,
+                        .producer = false,
+                        .generated = false,
+                        .dep_file = false,
+                    },
+                    .prefix = .{ .value = try s.addOptionalString(a.prefix) },
+                    .suffix = .{ .value = null },
+                    .basename = .{ .value = null },
+                    .path = .{ .value = try addLazyPath(s, a.lazy_path) },
+                    .producer = .{ .value = null },
+                    .generated = .{ .value = null },
+                },
+                .decorated_directory => |a| .{
+                    .flags = .{
+                        .tag = .path_directory,
+                        .prefix = a.prefix.len != 0,
+                        .suffix = a.suffix.len != 0,
+                        .basename = false,
+                        .path = true,
+                        .producer = false,
+                        .generated = false,
+                        .dep_file = false,
+                    },
+                    .prefix = .{ .value = try addOptionalString(s, a.prefix) },
+                    .suffix = .{ .value = try addOptionalString(s, a.suffix) },
+                    .basename = .{ .value = null },
+                    .path = .{ .value = try addLazyPath(s, a.lazy_path) },
+                    .producer = .{ .value = null },
+                    .generated = .{ .value = null },
+                },
+                .file_content => |a| .{
+                    .flags = .{
+                        .tag = .file_content,
+                        .prefix = a.prefix.len != 0,
+                        .suffix = false,
+                        .basename = false,
+                        .path = true,
+                        .producer = false,
+                        .generated = false,
+                        .dep_file = false,
+                    },
+                    .prefix = .{ .value = try addOptionalString(s, a.prefix) },
+                    .suffix = .{ .value = null },
+                    .basename = .{ .value = null },
+                    .path = .{ .value = try addLazyPath(s, a.lazy_path) },
+                    .producer = .{ .value = null },
+                    .generated = .{ .value = null },
+                },
+                .bytes => |a| .{
+                    .flags = .{
+                        .tag = .string,
+                        .prefix = true,
+                        .suffix = false,
+                        .basename = false,
+                        .path = false,
+                        .producer = false,
+                        .generated = false,
+                        .dep_file = false,
+                    },
+                    .prefix = .{ .value = try addOptionalString(s, a) },
+                    .suffix = .{ .value = null },
+                    .basename = .{ .value = null },
+                    .path = .{ .value = null },
+                    .producer = .{ .value = null },
+                    .generated = .{ .value = null },
+                },
+                .output_file => |a| .{
+                    .flags = .{
+                        .tag = .output_file,
+                        .prefix = a.prefix.len != 0,
+                        .suffix = false,
+                        .basename = a.basename.len != 0,
+                        .path = false,
+                        .producer = false,
+                        .generated = true,
+                        .dep_file = false,
+                    },
+                    .prefix = .{ .value = try addOptionalString(s, a.prefix) },
+                    .suffix = .{ .value = null },
+                    .basename = .{ .value = try addOptionalString(s, a.basename) },
+                    .path = .{ .value = null },
+                    .producer = .{ .value = null },
+                    .generated = .{ .value = a.generated_file },
+                },
+                .output_directory => |a| .{
+                    .flags = .{
+                        .tag = .output_directory,
+                        .prefix = a.prefix.len != 0,
+                        .suffix = false,
+                        .basename = a.basename.len != 0,
+                        .path = false,
+                        .producer = false,
+                        .generated = true,
+                        .dep_file = false,
+                    },
+                    .prefix = .{ .value = try addOptionalString(s, a.prefix) },
+                    .suffix = .{ .value = null },
+                    .basename = .{ .value = try addOptionalString(s, a.basename) },
+                    .path = .{ .value = null },
+                    .producer = .{ .value = null },
+                    .generated = .{ .value = a.generated_file },
+                },
+                .cli_rest_positionals => .{
+                    .flags = .{
+                        .tag = .cli_rest_positionals,
+                        .prefix = false,
+                        .suffix = false,
+                        .basename = false,
+                        .path = false,
+                        .producer = false,
+                        .generated = false,
+                        .dep_file = false,
+                    },
+                    .prefix = .{ .value = null },
+                    .suffix = .{ .value = null },
+                    .basename = .{ .value = null },
+                    .path = .{ .value = null },
+                    .producer = .{ .value = null },
+                    .generated = .{ .value = null },
+                },
+            })));
+        }
+        return result;
+    }
+
     fn initLazyPathList(s: *Serialize, list: []const std.Build.LazyPath) ![]const Configuration.LazyPath.Index {
         const result = try s.arena.alloc(Configuration.LazyPath.Index, list.len);
         for (result, list) |*dest, src| dest.* = try addLazyPath(s, src);
@@ -768,16 +931,33 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                     .update_source_files => @panic("TODO"),
                     .run => e: {
                         const run: *Step.Run = @fieldParentPtr("step", step);
-
-                        const captured_stdout: Configuration.OptionalString = if (run.captured_stdout) |cs|
-                            .init(try wc.addString(cs.output.basename))
-                        else
-                            .none;
-
-                        const captured_stderr: Configuration.OptionalString = if (run.captured_stderr) |cs|
-                            .init(try wc.addString(cs.output.basename))
-                        else
-                            .none;
+                        var expect_stderr_exact: ?Configuration.Bytes = null;
+                        var expect_stdout_exact: ?Configuration.Bytes = null;
+                        var expect_stderr_match: std.ArrayList(Configuration.Bytes) = .empty;
+                        var expect_stdout_match: std.ArrayList(Configuration.Bytes) = .empty;
+                        var expect_term: ?struct {
+                            status: Configuration.Step.Run.ExpectTermStatus,
+                            value: u32,
+                        } = null;
+                        switch (run.stdio) {
+                            .check => |checks| for (checks.items) |check| switch (check) {
+                                .expect_stderr_exact => |bytes| expect_stderr_exact = try wc.addBytes(bytes),
+                                .expect_stdout_exact => |bytes| expect_stdout_exact = try wc.addBytes(bytes),
+                                .expect_stderr_match => |bytes| {
+                                    try expect_stderr_match.append(arena, try wc.addBytes(bytes));
+                                },
+                                .expect_stdout_match => |bytes| {
+                                    try expect_stdout_match.append(arena, try wc.addBytes(bytes));
+                                },
+                                .expect_term => |t| expect_term = switch (t) {
+                                    .exited => |x| .{ .status = .exited, .value = x },
+                                    .signal => |x| .{ .status = .signal, .value = @intFromEnum(x) },
+                                    .stopped => |x| .{ .status = .stopped, .value = x },
+                                    .unknown => |x| .{ .status = .unknown, .value = x },
+                                },
+                            },
+                            else => {},
+                        }
 
                         const extra_index = try wc.addExtra(@as(Configuration.Step.Run, .{
                             .flags = .{
@@ -802,16 +982,44 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .stderr_trim_whitespace = if (run.captured_stderr) |cs| cs.trim_whitespace else .none,
                                 .stdio_limit = run.stdio_limit != .unlimited,
                                 .producer = run.producer != null,
+                                .cwd = run.cwd != null,
+                                .captured_stdout = run.captured_stdout != null,
+                                .captured_stderr = run.captured_stderr != null,
+                                .environ_map = run.environ_map != null,
                             },
-                            .file_inputs_len = @intCast(run.file_inputs.items.len),
-                            .args_len = @intCast(run.argv.items.len),
-                            .cwd = try s.addOptionalLazyPathEnum(run.cwd),
-                            .captured_stdout = captured_stdout,
-                            .captured_stderr = captured_stderr,
+                            .flags2 = .{
+                                .expect_stderr_exact = expect_stderr_exact != null,
+                                .expect_stdout_exact = expect_stdout_exact != null,
+                                .expect_stderr_match = expect_stderr_match.items.len != 0,
+                                .expect_stdout_match = expect_stdout_match.items.len != 0,
+                                .expect_term = expect_term != null,
+                                .expect_term_status = if (expect_term) |t| t.status else .exited,
+                            },
+                            .file_inputs = .{ .slice = try s.initLazyPathList(run.file_inputs.items) },
+                            .args = .{ .slice = try s.initArgsList(run.argv.items) },
+                            .cwd = .{ .value = try s.addOptionalLazyPath(run.cwd) },
+                            .captured_stdout = .{ .value = if (run.captured_stdout) |cs| .{
+                                .basename = try wc.addString(cs.output.basename),
+                                .generated_file = cs.output.generated_file,
+                            } else null },
+                            .captured_stderr = .{ .value = if (run.captured_stderr) |cs| .{
+                                .basename = try wc.addString(cs.output.basename),
+                                .generated_file = cs.output.generated_file,
+                            } else null },
+                            .environ_map = .{ .value = try s.addEnvironMap(run.environ_map) },
+                            .expect_term_value = .{ .value = if (expect_term) |t| t.value else null },
+                            .stdio_limit = .{ .value = run.stdio_limit.toInt() },
+                            .producer = .{ .value = if (run.producer) |cs| s.stepIndex(&cs.step) else null },
+                            .expect_stderr_exact = .{ .value = if (expect_stderr_exact) |bytes| bytes else null },
+                            .expect_stdout_exact = .{ .value = if (expect_stdout_exact) |bytes| bytes else null },
+                            .expect_stderr_match = .{ .slice = expect_stderr_match.items },
+                            .expect_stdout_match = .{ .slice = expect_stdout_match.items },
+                            .stdin = .{ .u = switch (run.stdin) {
+                                .none => .none,
+                                .bytes => |bytes| .{ .bytes = try wc.addBytes(bytes) },
+                                .lazy_path => |lp| .{ .lazy_path = try s.addLazyPath(lp) },
+                            } },
                         }));
-
-                        log.err("TODO serialize the trailing Run step data", .{});
-
                         break :e @enumFromInt(extra_index);
                     },
                     .check_file => @panic("TODO"),

@@ -1,3 +1,5 @@
+* make more stuff use IndexType
+* make addExtra return Index using reflection
 * remove Cache from configurer
 * implement the build options
 * don't forget to add -listen arg back

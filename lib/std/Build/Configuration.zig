@@ -188,6 +188,18 @@ pub const Wip = struct {
         return .init(try addString(wip, bytes orelse return .none));
     }
 
+    pub fn addStringList(wip: *Wip, list: []const []const u8) Allocator.Error!StringList {
+        _ = wip;
+        _ = list;
+        @panic("TODO");
+    }
+
+    pub fn addBytes(wip: *Wip, bytes: []const u8) Allocator.Error!Bytes {
+        _ = wip;
+        _ = bytes;
+        @panic("TODO");
+    }
+
     pub fn addSemVer(wip: *Wip, sv: std.SemanticVersion) Allocator.Error!String {
         var buffer: [256]u8 = undefined;
         var writer: std.Io.Writer = .fixed(&buffer);
@@ -500,52 +512,65 @@ pub const Step = extern struct {
         };
     };
 
-    /// Trailing:
-    /// * LazyPath.Index for each file_inputs_len
-    /// * Arg for each args_len
-    /// * environ_map if corresponding flag is set
-    /// * stdin: Bytes, // if StdIn.bytes is chosen
-    /// * stdin: LazyPath.Index, // if StdIn.lazy_path is chosen
-    /// * checks: Checks, // if StdIo.check is chosen
-    /// * stdio_limit: u64, // if stdio_limit is set
-    /// * producer: Step.Index, // if producer is set. always compile step
     pub const Run = struct {
         flags: @This().Flags,
-        file_inputs_len: u32,
-        args_len: u32,
-        cwd: LazyPath.OptionalIndex,
-        captured_stdout: OptionalString, // basename
-        captured_stderr: OptionalString, // basename
+        flags2: Flags2,
+        args: Storage.LengthPrefixedList(Arg.Index),
+        cwd: Storage.FlagOptional(.flags, .cwd, LazyPath.Index),
+        captured_stdout: Storage.FlagOptional(.flags, .captured_stdout, CapturedStream),
+        captured_stderr: Storage.FlagOptional(.flags, .captured_stderr, CapturedStream),
+        file_inputs: Storage.LengthPrefixedList(LazyPath.Index),
+        stdio_limit: Storage.FlagOptional(.flags, .stdio_limit, u64),
+        /// Always a compile step.
+        producer: Storage.FlagOptional(.flags, .producer, Step.Index),
+        /// First half is keys, second half is values.
+        environ_map: Storage.FlagOptional(.flags, .environ_map, EnvironMap.Index),
+        stdin: Storage.FlagUnion(.flags, .stdin, StdIn),
+        expect_stderr_exact: Storage.FlagOptional(.flags2, .expect_stderr_exact, Bytes),
+        expect_stdout_exact: Storage.FlagOptional(.flags2, .expect_stdout_exact, Bytes),
+        expect_stderr_match: Storage.FlagLengthPrefixedList(.flags2, .expect_stderr_match, Bytes),
+        expect_stdout_match: Storage.FlagLengthPrefixedList(.flags2, .expect_stdout_match, Bytes),
+        expect_term_value: Storage.FlagOptional(.flags2, .expect_term, u32),
 
-        /// Trailing:
-        /// * String if prefix set
-        /// * String if suffix set
-        /// * String if basename set
-        /// * Step.Index which is always a compile step if tag is artifact
-        /// * LazyPath.Index if tag is path_file, path_directory, or file_content
+        pub const CapturedStream = extern struct {
+            generated_file: GeneratedFileIndex,
+            basename: String,
+        };
+
         pub const Arg = struct {
-            flags: Arg.Flags,
+            flags: @This().Flags,
+            prefix: Storage.FlagOptional(.flags, .prefix, String),
+            suffix: Storage.FlagOptional(.flags, .suffix, String),
+            basename: Storage.FlagOptional(.flags, .basename, String),
+            path: Storage.FlagOptional(.flags, .path, LazyPath.Index),
+            /// Always a compile step.
+            producer: Storage.FlagOptional(.flags, .producer, Step.Index),
+            generated: Storage.FlagOptional(.flags, .generated, GeneratedFileIndex),
 
             pub const Flags = packed struct(u32) {
                 tag: Arg.Tag,
                 prefix: bool,
                 suffix: bool,
                 basename: bool,
-                /// Implies Tag is output_file
+                path: bool,
+                producer: bool,
+                generated: bool,
                 dep_file: bool,
-                _: u20 = 0,
+                _: u22 = 0,
             };
 
-            pub const Tag = enum(u8) {
+            pub const Tag = enum(u3) {
                 artifact,
                 path_file,
                 path_directory,
+                string,
                 file_content,
-                bytes,
                 output_file,
                 output_directory,
                 cli_rest_positionals,
             };
+
+            pub const Index = IndexType(@This());
         };
 
         pub const Color = enum(u4) {
@@ -562,26 +587,47 @@ pub const Step = extern struct {
             manual,
         };
 
-        pub const StdIn = enum(u2) { none, bytes, lazy_path };
+        pub const StdIn = union(@This().Tag) {
+            none: void,
+            bytes: Bytes,
+            lazy_path: LazyPath.Index,
+
+            pub const Tag = enum(u2) { none, bytes, lazy_path };
+        };
         pub const TrimWhitespace = enum(u2) { none, all, leading, trailing };
         pub const StdIo = enum(u2) { infer_from_args, inherit, check, zig_test };
 
+        pub const ExpectTermStatus = enum(u2) { exited, signal, stopped, unknown };
+
         pub const Flags = packed struct(u32) {
             tag: Tag = .run,
-
             disable_zig_progress: bool,
             skip_foreign_checks: bool,
             failing_to_execute_foreign_is_an_error: bool,
             has_side_effects: bool,
             test_runner_mode: bool,
             color: Color,
-            stdin: StdIn,
+            stdin: StdIn.Tag,
             stdio: StdIo,
             stdout_trim_whitespace: TrimWhitespace,
             stderr_trim_whitespace: TrimWhitespace,
             stdio_limit: bool,
             producer: bool,
-            _: u8 = 0,
+            cwd: bool,
+            captured_stdout: bool,
+            captured_stderr: bool,
+            environ_map: bool,
+            _: u4 = 0,
+        };
+
+        pub const Flags2 = packed struct(u32) {
+            expect_stderr_exact: bool,
+            expect_stdout_exact: bool,
+            expect_stderr_match: bool,
+            expect_stdout_match: bool,
+            expect_term: bool,
+            expect_term_status: ExpectTermStatus,
+            _: u25 = 0,
         };
     };
 
@@ -1395,17 +1441,37 @@ pub const Deps = struct {
     };
 };
 
+pub const EnvironMap = struct {
+    keys: StringList,
+    values: StringList,
+
+    pub const Index = IndexType(@This());
+};
+
 /// Points into `extra`, where the first element is count of strings, following
 /// elements is `String` per count.
 ///
 /// Stored identically to `Deps`.
+pub const StringList = enum(u32) {
+    _,
+
+    pub fn slice(this: @This(), c: *const Configuration) []const String {
+        const len = c.extra[@intFromEnum(this)];
+        return @ptrCast(c.extra[@intFromEnum(this) + 1 ..][0..len]);
+    }
+};
+
 pub const OptionalStringList = enum(u32) {
     none = max_u32,
     _,
 
-    pub fn slice(osl: OptionalStringList, c: *const Configuration) ?[]const String {
-        const len = c.extra[@intFromEnum(osl)];
-        return @ptrCast(c.extra[@intFromEnum(osl) + 1 ..][0..len]);
+    pub fn unwrap(this: @This()) ?StringList {
+        if (this == .none) return null;
+        return @enumFromInt(@intFromEnum(this));
+    }
+
+    pub fn slice(this: @This(), c: *const Configuration) ?[]const String {
+        return (unwrap(this) orelse return null).slice(c);
     }
 };
 
@@ -1497,6 +1563,13 @@ pub const String = enum(u32) {
         const start_slice = c.string_bytes[@intFromEnum(index)..];
         return start_slice[0..std.mem.indexOfScalar(u8, start_slice, 0).? :0];
     }
+};
+
+/// Arbitrary sequence of bytes that may contain null bytes.
+pub const Bytes = extern struct {
+    /// Points into `string_bytes`.
+    index: u32,
+    len: u32,
 };
 
 pub const DefaultingBool = enum(u2) {
@@ -2359,7 +2432,11 @@ pub const Storage = enum {
                         },
                     },
                 },
-                .@"extern" => comptime unreachable,
+                .@"extern" => {
+                    const n = @divExact(@sizeOf(Field), @sizeOf(u32));
+                    defer i.* += n;
+                    return @bitCast(buffer[i.*..][0..n].*);
+                },
             },
             else => comptime unreachable,
         }
@@ -2404,7 +2481,7 @@ pub const Storage = enum {
                         inline else => |v| extraFieldLen(v),
                     },
                 },
-                .@"extern" => comptime unreachable,
+                .@"extern" => @divExact(@sizeOf(Field), @sizeOf(u32)),
             },
             else => @compileError("bad type: " ++ @typeName(Field)),
         };
@@ -2520,12 +2597,26 @@ pub const Storage = enum {
                         },
                     },
                 },
-                .@"extern" => comptime unreachable,
+                .@"extern" => {
+                    const n = @divExact(@sizeOf(Field), @sizeOf(u32));
+                    buffer[i..][0..n].* = @bitCast(value);
+                    return n;
+                },
             },
             else => @compileError("bad field type: " ++ @typeName(Field)),
         }
     }
 };
+
+fn IndexType(comptime T: type) type {
+    return enum(u32) {
+        _,
+
+        pub fn get(this: @This(), c: *const Configuration) T {
+            return extraData(c, T, @intFromEnum(this));
+        }
+    };
+}
 
 pub fn extraData(c: *const Configuration, comptime T: type, index: usize) T {
     var i: usize = index;
