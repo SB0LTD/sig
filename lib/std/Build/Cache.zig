@@ -189,10 +189,13 @@ pub const File = struct {
 pub const HashHelper = struct {
     hasher: Hasher = hasher_init,
 
-    /// Record a slice of bytes as a dependency of the process being cached.
     pub fn addBytes(hh: *HashHelper, bytes: []const u8) void {
         hh.hasher.update(mem.asBytes(&bytes.len));
         hh.hasher.update(bytes);
+    }
+
+    pub fn addBytesZ(hh: *HashHelper, bytes: [:0]const u8) void {
+        hh.hasher.update(mem.absorbSentinel(u8, 0, bytes));
     }
 
     pub fn addOptionalBytes(hh: *HashHelper, optional_bytes: ?[]const u8) void {

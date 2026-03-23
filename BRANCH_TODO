@@ -18,5 +18,6 @@
 * link_eh_frame_hdr should be DefaultingBool
 * make --foo, --no-foo CLI args uniform (make them -f args instead)
 * install steps should provide generated files for installed things, then delete the run step hack
+  - but artifact install steps also add paths for dyn libs on windows
 
 

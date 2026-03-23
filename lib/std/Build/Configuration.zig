@@ -561,8 +561,10 @@ pub const Step = extern struct {
 
             pub const Tag = enum(u3) {
                 artifact,
+                /// `path` contains the file.
                 path_file,
                 path_directory,
+                /// `prefix` contains the string.
                 string,
                 file_content,
                 output_file,

@@ -203,7 +203,7 @@ fn fuzzWorkerRun(fuzz: *Fuzz, run: Configuration.Step.Index) void {
     const graph = owner.graph;
     const io = graph.io;
 
-    run.rerunInFuzzMode(fuzz, fuzz.prog_node) catch |err| switch (err) {
+    run.rerunInFuzzMode(run, fuzz, fuzz.prog_node) catch |err| switch (err) {
         error.MakeFailed => {
             var buf: [256]u8 = undefined;
             const stderr = io.lockStderr(&buf, graph.stderr_mode) catch |e| switch (e) {

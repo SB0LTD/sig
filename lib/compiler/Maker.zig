@@ -35,6 +35,7 @@ install_paths: InstallPaths,
 scanned_config: *const ScannedConfig,
 steps: []Step,
 generated_files: []Path,
+run_args: ?[]const []const u8,
 
 available_rss: usize,
 max_rss_is_default: bool,
@@ -534,6 +535,7 @@ pub fn main(init: process.Init.Minimal) !void {
         },
         .steps = try arena.alloc(Step, scanned_config.configuration.steps.len),
         .generated_files = try arena.alloc(Path, scanned_config.configuration.generated_files_len),
+        .run_args = run_args,
 
         .available_rss = max_rss,
         .max_rss_is_default = false,
