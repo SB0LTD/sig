@@ -206,32 +206,6 @@ fn swab(noalias src_ptr: *const anyopaque, noalias dest_ptr: *anyopaque, n: isiz
     }
 }
 
-test swab {
-    var a: [4]u8 = undefined;
-    @memset(a[0..], '\x00');
-    swab("abcd", &a, 4);
-    try std.testing.expectEqualSlices(u8, "badc", &a);
-
-    // Partial copy
-    @memset(a[0..], '\x00');
-    swab("abcd", &a, 2);
-    try std.testing.expectEqualSlices(u8, "ba\x00\x00", &a);
-
-    // n < 1
-    @memset(a[0..], '\x00');
-    swab("abcd", &a, 0);
-    try std.testing.expectEqualSlices(u8, "\x00" ** 4, &a);
-    swab("abcd", &a, -1);
-    try std.testing.expectEqualSlices(u8, "\x00" ** 4, &a);
-
-    // Odd n
-    @memset(a[0..], '\x00');
-    swab("abcd", &a, 1);
-    try std.testing.expectEqualSlices(u8, "\x00" ** 4, &a);
-    swab("abcd", &a, 3);
-    try std.testing.expectEqualSlices(u8, "ba\x00\x00", &a);
-}
-
 fn close(fd: std.c.fd_t) callconv(.c) c_int {
     const signed: isize = @bitCast(linux.close(fd));
     if (signed < 0) {

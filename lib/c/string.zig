@@ -290,10 +290,3 @@ fn mempcpy(noalias dst: *anyopaque, noalias src: *const anyopaque, len: usize) c
     @memcpy(dst_bytes[0..len], src_bytes[0..len]);
     return dst_bytes + len;
 }
-
-test strncmp {
-    try std.testing.expect(strncmp(@ptrCast("a"), @ptrCast("b"), 1) < 0);
-    try std.testing.expect(strncmp(@ptrCast("a"), @ptrCast("c"), 1) < 0);
-    try std.testing.expect(strncmp(@ptrCast("b"), @ptrCast("a"), 1) > 0);
-    try std.testing.expect(strncmp(@ptrCast("\xff"), @ptrCast("\x02"), 1) > 0);
-}

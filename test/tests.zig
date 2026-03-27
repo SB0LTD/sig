@@ -18,7 +18,7 @@ pub const DebuggerContext = @import("src/Debugger.zig");
 pub const LlvmIrContext = @import("src/LlvmIr.zig");
 pub const LibcContext = @import("src/Libc.zig");
 
-const TestTarget = struct {
+const ModuleTestTarget = struct {
     linkage: ?std.builtin.LinkMode = null,
     target: std.Target.Query = .{},
     optimize_mode: std.builtin.OptimizeMode = .Debug,
@@ -36,33 +36,14 @@ const TestTarget = struct {
     // invocation. This could be because of a slow backend, requiring a newer LLVM version, being
     // too niche, etc.
     extra_target: bool = false,
-
-    pub fn supportsModule(
-        self: *const TestTarget,
-        target: *const std.Build.ResolvedTarget,
-        name: []const u8,
-    ) bool {
-        if (mem.eql(u8, name, "zigc")) {
-            if (target.result.isMuslLibC()) return self.linkage == .static or (self.linkage == null and !target.query.isNative());
-            if (target.result.isMinGW()) return true;
-            if (target.result.isWasiLibC()) return true;
-            return false;
-        }
-        if (mem.eql(u8, name, "std")) {
-            if (target.result.cpu.arch.isSpirV()) return false;
-            return true;
-        }
-
-        return true;
-    }
 };
 
-const test_targets = blk: {
+const module_test_targets = blk: {
     // getBaselineCpuFeatures calls populateDependencies which has a O(N ^ 2) algorithm
     // (where N is roughly 160, which technically makes it O(1), but it adds up to a
     // lot of branches)
     @setEvalBranchQuota(80_000);
-    break :blk [_]TestTarget{
+    break :blk [_]ModuleTestTarget{
         // Native Targets
 
         .{}, // 0 index must be all defaults
@@ -2475,24 +2456,21 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     const step = b.step(b.fmt("test-{s}", .{options.name}), options.desc);
 
     if (options.test_only) |test_only| {
-        const test_target: TestTarget = switch (test_only) {
-            .default => test_targets[0],
+        const test_target: ModuleTestTarget = switch (test_only) {
+            .default => module_test_targets[0],
             .fuzz => |optimize| .{
                 .optimize_mode = optimize,
                 .use_llvm = true,
             },
         };
         const resolved_target = b.resolveTargetQuery(test_target.target);
-
-        if (test_target.supportsModule(&resolved_target, options.name)) {
-            const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
-            addOneModuleTest(b, step, test_target, &resolved_target, triple_txt, options);
-        }
+        const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
+        addOneModuleTest(b, step, test_target, &resolved_target, triple_txt, options);
 
         return step;
     }
 
-    for_targets: for (test_targets) |test_target| {
+    for_targets: for (module_test_targets) |test_target| {
         if (test_target.skip_modules.len > 0) {
             for (test_target.skip_modules) |skip_mod| {
                 if (std.mem.eql(u8, options.name, skip_mod)) continue :for_targets;
@@ -2501,14 +2479,19 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
 
-        if (!test_target.supportsModule(&resolved_target, options.name)) continue;
-
         if (!options.test_extra_targets and test_target.extra_target) continue;
 
         if (options.skip_non_native and !test_target.target.isNative())
             continue;
 
         const target = &resolved_target.result;
+
+        if (std.mem.eql(u8, options.name, "libc")) {
+            // The libc API tests obviously need to link libc. So for test
+            // target entries where we wouldn't link libc by default, skip the
+            // libc API tests.
+            if (test_target.link_libc == null and !std.os.targetRequiresLibC(target)) continue;
+        }
 
         if (options.skip_spirv and target.cpu.arch.isSpirV()) continue;
         if (options.skip_wasm and target.cpu.arch.isWasm()) continue;
@@ -2544,8 +2527,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (!would_use_llvm and target.cpu.arch == .aarch64) {
             // TODO get std tests passing for the aarch64 self-hosted backend.
             if (mem.eql(u8, options.name, "std")) continue;
-            // TODO get zigc tests passing for the aarch64 self-hosted backend.
-            if (mem.eql(u8, options.name, "zigc")) continue;
         }
 
         const want_this_mode = for (options.optimize_modes) |m| {
@@ -2561,7 +2542,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 fn addOneModuleTest(
     b: *std.Build,
     step: *Step,
-    test_target: TestTarget,
+    test_target: ModuleTestTarget,
     resolved_target: *const std.Build.ResolvedTarget,
     triple_txt: []const u8,
     options: ModuleTestOptions,
@@ -2598,11 +2579,11 @@ fn addOneModuleTest(
     });
     these_tests.linkage = test_target.linkage;
     // https://codeberg.org/ziglang/zig/issues/31701
-    if (!(mem.eql(u8, options.name, "compiler-rt") or mem.eql(u8, options.name, "zigc"))) {
+    if (!(mem.eql(u8, options.name, "compiler-rt") or mem.eql(u8, options.name, "libc"))) {
         if (options.no_builtin) these_tests.root_module.no_builtin = true;
     }
     // https://codeberg.org/ziglang/zig/issues/31702
-    if (mem.eql(u8, options.name, "compiler-rt") or mem.eql(u8, options.name, "zigc")) {
+    if (mem.eql(u8, options.name, "compiler-rt") or mem.eql(u8, options.name, "libc")) {
         these_tests.root_module.stack_protector = false;
     }
     if (options.build_options) |build_options| {
@@ -2992,7 +2973,7 @@ pub fn addLlvmIrTests(b: *std.Build, options: LlvmIrContext.Options) ?*Step {
     return step;
 }
 
-const libc_targets: []const std.Target.Query = &.{
+const libc_test_nsz_targets: []const std.Target.Query = &.{
     .{
         .cpu_arch = .arm,
         .os_tag = .linux,
@@ -3155,8 +3136,8 @@ const libc_targets: []const std.Target.Query = &.{
     },
 };
 
-pub fn addLibcTests(b: *std.Build, options: LibcContext.Options) ?*Step {
-    const step = b.step("test-libc", "Run libc-test test cases");
+pub fn addLibcTestNszTests(b: *std.Build, options: LibcContext.Options) ?*Step {
+    const step = b.step("test-libc-nsz", "Run external libc-test test cases");
     const opt_libc_test_path = b.option(std.Build.LazyPath, "libc-test-path", "path to libc-test source directory");
     if (opt_libc_test_path) |libc_test_path| {
         var context: LibcContext = .{
@@ -3168,7 +3149,7 @@ pub fn addLibcTests(b: *std.Build, options: LibcContext.Options) ?*Step {
 
         libc.addCases(&context);
 
-        for (libc_targets) |target_query| {
+        for (libc_test_nsz_targets) |target_query| {
             const target = b.resolveTargetQuery(target_query);
             context.addTarget(target);
         }

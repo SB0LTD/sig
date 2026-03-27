@@ -11102,13 +11102,60 @@ pub const ioctl = switch (native_os) {
     else => private.ioctl,
 };
 
+pub extern "c" fn bzero(s: *anyopaque, n: usize) void;
+
+pub extern "c" fn swab(noalias from: *const anyopaque, noalias to: *anyopaque, n: isize) void;
+
+pub extern "c" fn strncmp(a: [*:0]const c_char, b: [*:0]const c_char, max: usize) c_int;
+pub extern "c" fn strcasecmp(a: [*:0]const c_char, b: [*:0]const c_char) c_int;
+pub extern "c" fn strncasecmp(a: [*:0]const c_char, b: [*:0]const c_char, max: usize) c_int;
+
+pub extern "c" fn ffs(i: c_int) c_int;
+pub extern "c" fn ffsl(i: c_long) c_long;
+pub extern "c" fn ffsll(i: c_longlong) c_longlong;
+
+pub extern "c" fn erand48(xsubi: *[3]c_ushort) f64;
+pub extern "c" fn jrand48(xsubi: *[3]c_ushort) c_long;
+pub extern "c" fn nrand48(xsubi: *[3]c_ushort) c_long;
+
+pub extern "c" fn insque(element: *anyopaque, pred: ?*anyopaque) void;
+pub extern "c" fn remque(element: *anyopaque) void;
+
+pub extern "c" fn imaxabs(a: intmax_t) intmax_t;
+pub extern "c" fn imaxdiv(a: intmax_t, b: intmax_t) imaxdiv_t;
+
+pub extern "c" fn abs(a: c_int) c_int;
+pub extern "c" fn labs(a: c_long) c_long;
+pub extern "c" fn llabs(a: c_longlong) c_longlong;
+
+pub extern "c" fn div(a: c_int, b: c_int) div_t;
+pub extern "c" fn ldiv(a: c_long, b: c_long) ldiv_t;
+pub extern "c" fn lldiv(a: c_longlong, b: c_longlong) lldiv_t;
+
+pub extern "c" fn atoi(str: [*:0]const c_char) c_int;
+pub extern "c" fn atol(str: [*:0]const c_char) c_long;
+pub extern "c" fn atoll(str: [*:0]const c_char) c_longlong;
+
+pub extern "c" fn bsearch(
+    key: *const anyopaque,
+    base: *const anyopaque,
+    n: usize,
+    size: usize,
+    compare: *const fn (a: *const anyopaque, b: *const anyopaque) callconv(.c) c_int,
+) ?*anyopaque;
+
 // Math
-pub extern "c" fn atan(x: f64) callconv(.c) f64;
-pub extern "c" fn copysign(x: f64, y: f64) callconv(.c) f64;
-pub extern "c" fn fdim(x: f64, y: f64) callconv(.c) f64;
-pub extern "c" fn frexp(x: f64, e: *c_int) callconv(.c) f64;
-pub extern "c" fn hypot(x: f64, y: f64) callconv(.c) f64;
-pub extern "c" fn modf(x: f64, iptr: *f64) callconv(.c) f64;
+pub extern "c" fn atan(x: f64) f64;
+pub extern "c" fn copysign(x: f64, y: f64) f64;
+pub extern "c" fn fdim(x: f64, y: f64) f64;
+pub extern "c" fn frexp(x: f64, e: *c_int) f64;
+pub extern "c" fn hypot(x: f64, y: f64) f64;
+pub extern "c" fn modff(x: f32, iptr: *f32) f32;
+pub extern "c" fn modf(x: f64, iptr: *f64) f64;
+pub extern "c" fn modfl(x: c_longdouble, iptr: *c_longdouble) c_longdouble;
+pub extern "c" fn rintf(x: f32) f32;
+pub extern "c" fn rint(x: f64) f64;
+pub extern "c" fn rintl(x: c_longdouble) c_longdouble;
 
 // OS-specific bits. These are protected from being used on the wrong OS by
 // comptime assertions inside each OS-specific file.
