@@ -480,7 +480,8 @@ pub fn main(init: std.process.Init) !void {
 
     // Parse args from argv iterator — no allocator needed.
     var options = SyncOptions{};
-    var args_iter = init.minimal.args;
+    var args_iter = std.process.Args.Iterator.init(init.minimal.args);
+    _ = args_iter.next(); // skip argv[0] (program name)
     while (args_iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "--remote")) {
             if (args_iter.next()) |val| options.remote = val;
