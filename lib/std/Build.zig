@@ -727,7 +727,7 @@ pub fn resolveInstallPrefix(b: *Build, install_prefix: ?[]const u8, dir_list: Di
         b.install_path = b.pathJoin(&.{ dest_dir, b.install_prefix });
     } else {
         b.install_prefix = install_prefix orelse
-            (b.build_root.join(b.allocator, &.{"zig-out"}) catch @panic("unhandled error"));
+            (b.build_root.join(b.allocator, &.{"sig-out"}) catch @panic("unhandled error")); // [sig] Default output directory is sig-out instead of zig-out
         b.install_path = b.install_prefix;
     }
 

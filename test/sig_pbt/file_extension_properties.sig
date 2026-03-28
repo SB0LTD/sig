@@ -298,6 +298,65 @@ test "Property 4: per-file mode independence — .sig errors and .zig warnings w
 }
 
 // ---------------------------------------------------------------------------
+// Feature: sig-file-extension, Property 7: .sig.zon is parsed as ZON
+//
+// **Validates: Requirements 9.1, 9.2, 9.3**
+// ---------------------------------------------------------------------------
+
+/// Mirrors the Zcu.File.modeFromPath logic from src/Zcu.zig.
+/// Used for property testing since Zcu is not available as a test import.
+/// [sig] .zon is checked first, so .sig.zon files are correctly parsed as ZON (not as .sig source).
+const AstMode = enum { zig, zon };
+fn modeFromPath(path: []const u8) ?AstMode {
+    if (std.mem.endsWith(u8, path, ".zon")) {
+        return .zon;
+    } else if (std.mem.endsWith(u8, path, ".zig") or std.mem.endsWith(u8, path, ".sig")) {
+        return .zig;
+    } else {
+        return null;
+    }
+}
+
+test "Property 7: .sig.zon files are parsed as ZON, not as .sig source" {
+    const S = struct {
+        fn run(random: std.Random) anyerror!void {
+            var buf: [128]u8 = undefined;
+
+            // Generate a random path with .sig.zon extension
+            const sig_zon_path = genFilePath(random, &buf, ".sig.zon");
+
+            // modeFromPath must return .zon for .sig.zon paths
+            const mode = modeFromPath(sig_zon_path);
+            try std.testing.expect(mode != null);
+            try std.testing.expectEqual(AstMode.zon, mode.?);
+
+            // hasSigExtension must return false — .sig.zon is a ZON file, not a Sig source file
+            try std.testing.expect(!sig_integration.hasSigExtension(sig_zon_path));
+
+            // Also verify plain .zon still works
+            var buf2: [128]u8 = undefined;
+            const zon_path = genFilePath(random, &buf2, ".zon");
+            const zon_mode = modeFromPath(zon_path);
+            try std.testing.expect(zon_mode != null);
+            try std.testing.expectEqual(AstMode.zon, zon_mode.?);
+            try std.testing.expect(!sig_integration.hasSigExtension(zon_path));
+
+            // Verify .sig still returns .zig mode (not .zon)
+            var buf3: [128]u8 = undefined;
+            const sig_path = genFilePath(random, &buf3, ".sig");
+            const sig_mode = modeFromPath(sig_path);
+            try std.testing.expect(sig_mode != null);
+            try std.testing.expectEqual(AstMode.zig, sig_mode.?);
+            try std.testing.expect(sig_integration.hasSigExtension(sig_path));
+        }
+    };
+    harness.property(
+        ".sig.zon files are parsed as ZON, not as .sig source",
+        S.run,
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Feature: sig-file-extension, Property 5: Sig annotation presence and diagnostic completeness
 //
 // **Validates: Requirements 6.1, 6.2, 6.3, 6.4**

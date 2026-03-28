@@ -12,6 +12,7 @@
 .zig-cache/
 .kiro/
 zig-out/
+sig-out/
 /release/
 /debug/
 /build/

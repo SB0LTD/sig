@@ -825,18 +825,24 @@ pub fn computedPackageHash(f: *const Fetch) Package.Hash {
 fn checkBuildFileExistence(f: *Fetch) RunError!void {
     const io = f.job_queue.io;
     const eb = &f.error_bundle;
-    if (f.package_root.access(io, Package.build_zig_basename, .{})) |_| {
+    // [sig] Try build.sig first, fall back to build.zig
+    if (f.package_root.access(io, Package.build_sig_basename, .{})) |_| {
         f.has_build_zig = true;
-    } else |err| switch (err) {
-        error.FileNotFound => {},
-        else => |e| {
-            try eb.addRootErrorMessage(.{
-                .msg = try eb.printString("unable to access '{f}{s}': {t}", .{
-                    f.package_root, Package.build_zig_basename, e,
-                }),
-            });
-            return error.FetchFailed;
-        },
+    } else |_| {
+        // [sig] build.sig not found, try build.zig
+        if (f.package_root.access(io, Package.build_zig_basename, .{})) |_| {
+            f.has_build_zig = true;
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| {
+                try eb.addRootErrorMessage(.{
+                    .msg = try eb.printString("unable to access '{f}{s}': {t}", .{
+                        f.package_root, Package.build_zig_basename, e,
+                    }),
+                });
+                return error.FetchFailed;
+            },
+        }
     }
 }
 
@@ -845,23 +851,48 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     const io = f.job_queue.io;
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
-    const manifest_path = try pkg_root.join(arena, Manifest.basename);
 
+    // [sig] Try build.sig.zon first, fall back to build.zig.zon
+    const sig_manifest_path = try pkg_root.join(arena, Manifest.sig_basename);
     Manifest.load(
         io,
         arena,
-        manifest_path,
+        sig_manifest_path,
         &f.manifest_ast,
         eb,
         &f.manifest,
         f.allow_missing_paths_field,
     ) catch |err| switch (err) {
-        error.FileNotFound => return,
+        error.FileNotFound => {
+            // [sig] build.sig.zon not found, fall back to build.zig.zon
+            const manifest_path = try pkg_root.join(arena, Manifest.basename);
+            Manifest.load(
+                io,
+                arena,
+                manifest_path,
+                &f.manifest_ast,
+                eb,
+                &f.manifest,
+                f.allow_missing_paths_field,
+            ) catch |err2| switch (err2) {
+                error.FileNotFound => return,
+                error.Canceled => |e| return e,
+                error.ErrorsBundled => return error.FetchFailed,
+                else => |e| {
+                    try eb.addRootErrorMessage(.{
+                        .msg = try eb.printString("unable to load package manifest '{f}': {t}", .{ manifest_path, e }),
+                    });
+                    return error.FetchFailed;
+                },
+            };
+            f.have_manifest = true;
+            return;
+        },
         error.Canceled => |e| return e,
         error.ErrorsBundled => return error.FetchFailed,
         else => |e| {
             try eb.addRootErrorMessage(.{
-                .msg = try eb.printString("unable to load package manifest '{f}': {t}", .{ manifest_path, e }),
+                .msg = try eb.printString("unable to load package manifest '{f}': {t}", .{ sig_manifest_path, e }),
             });
             return error.FetchFailed;
         },
@@ -1736,7 +1767,9 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
                 )),
             };
 
-            if (std.mem.eql(u8, entry_pkg_path, Package.build_zig_basename))
+            // [sig] Check for build.sig first, then build.zig
+            if (std.mem.eql(u8, entry_pkg_path, Package.build_sig_basename) or
+                std.mem.eql(u8, entry_pkg_path, Package.build_zig_basename))
                 f.has_build_zig = true;
 
             const fs_path = try arena.dupe(u8, entry.path);

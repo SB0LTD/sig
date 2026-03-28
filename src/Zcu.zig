@@ -1041,6 +1041,7 @@ pub const File = struct {
     }
 
     pub fn modeFromPath(path: []const u8) ?Ast.Mode {
+        // [sig] .zon is checked first, so .sig.zon files are correctly parsed as ZON (not as .sig source).
         if (std.mem.endsWith(u8, path, ".zon")) {
             return .zon;
         } else if (std.mem.endsWith(u8, path, ".zig") or std.mem.endsWith(u8, path, ".sig")) {

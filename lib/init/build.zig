@@ -85,7 +85,7 @@ pub fn build(b: *std.Build) void {
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
-    // step). By default the install prefix is `zig-out/` but can be overridden
+    // step). By default the install prefix is `sig-out/` but can be overridden
     // by passing `--prefix` or `-p`.
     b.installArtifact(exe);
 

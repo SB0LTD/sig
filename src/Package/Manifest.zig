@@ -12,6 +12,7 @@ const Package = @import("../Package.zig");
 
 pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
+pub const sig_basename = "build.sig.zon"; // [sig]
 pub const max_name_len = 32;
 pub const max_version_len = 32;
 

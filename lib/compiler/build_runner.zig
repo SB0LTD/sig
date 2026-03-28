@@ -1612,7 +1612,7 @@ fn printUsage(b: *std.Build, w: *Writer) !void {
         \\  -h, --help                   Print this help and exit
         \\  -l, --list-steps             Print available steps
         \\
-        \\  -p, --prefix [path]          Where to install files (default: zig-out)
+        \\  -p, --prefix [path]          Where to install files (default: sig-out)
         \\  --prefix-lib-dir [path]      Where to install libraries
         \\  --prefix-exe-dir [path]      Where to install executables
         \\  --prefix-include-dir [path]  Where to install C header files

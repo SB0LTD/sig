@@ -4810,6 +4810,7 @@ const usage_init =
     \\
     \\Options:
     \\  -m, --minimal          Use minimal init template
+    \\  -z, --zig              Generate build.zig / build.zig.zon instead of build.sig / build.sig.zon
     \\  -h, --help             Print this help and exit
     \\
     \\
@@ -4819,6 +4820,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
     dev.check(.init_command);
 
     var template: enum { example, minimal } = .example;
+    var use_sig = true; // [sig] Default to build.sig / build.sig.zon; --zig opts out
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -4826,6 +4828,8 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-m") or mem.eql(u8, arg, "--minimal")) {
                     template = .minimal;
+                } else if (mem.eql(u8, arg, "-z") or mem.eql(u8, arg, "--zig")) {
+                    use_sig = false; // [sig] Opt out to build.zig / build.zig.zon
                 } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                     try Io.File.stdout().writeStreamingAll(io, usage_init);
                     return cleanExit(io);
@@ -4845,39 +4849,51 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
     const rng: std.Random.IoSource = .{ .io = io };
     const fingerprint: Package.Fingerprint = .generate(rng.interface(), sanitized_root_name);
 
+    // [sig] Select build file and manifest basenames based on --sig flag
+    const build_basename = if (use_sig) Package.build_sig_basename else Package.build_zig_basename;
+    const manifest_basename = if (use_sig) Package.Manifest.sig_basename else Package.Manifest.basename;
+
     switch (template) {
         .example => {
             var templates = findTemplates(gpa, arena, io);
             defer templates.deinit(io);
 
             const s = fs.path.sep_str;
-            const template_paths = [_][]const u8{
+            // [sig] Template sources are always the .zig versions from lib/init/;
+            // output paths use the selected basenames.
+            const template_sources = [_][]const u8{
                 Package.build_zig_basename,
                 Package.Manifest.basename,
                 "src" ++ s ++ "main.zig",
                 "src" ++ s ++ "root.zig",
             };
+            const output_paths = [_][]const u8{
+                build_basename,
+                manifest_basename,
+                "src" ++ s ++ "main.zig",
+                "src" ++ s ++ "root.zig",
+            };
             var ok_count: usize = 0;
 
-            for (template_paths) |template_path| {
-                if (templates.write(arena, io, Io.Dir.cwd(), sanitized_root_name, template_path, fingerprint)) |_| {
-                    std.log.info("created {s}", .{template_path});
+            for (template_sources, output_paths) |template_source, output_path| {
+                if (templates.writeAs(arena, io, Io.Dir.cwd(), sanitized_root_name, template_source, output_path, fingerprint)) |_| {
+                    std.log.info("created {s}", .{output_path});
                     ok_count += 1;
                 } else |err| switch (err) {
                     error.PathAlreadyExists => std.log.info("preserving already existing file: {s}", .{
-                        template_path,
+                        output_path,
                     }),
-                    else => std.log.err("unable to write {s}: {s}\n", .{ template_path, @errorName(err) }),
+                    else => std.log.err("unable to write {s}: {s}\n", .{ output_path, @errorName(err) }),
                 }
             }
 
-            if (ok_count == template_paths.len) {
+            if (ok_count == output_paths.len) {
                 std.log.info("see `zig build --help` for a menu of options", .{});
             }
             return cleanExit(io);
         },
         .minimal => {
-            writeSimpleTemplateFile(io, Package.Manifest.basename,
+            writeSimpleTemplateFile(io, manifest_basename, // [sig]
                 \\.{{
                 \\    .name = .{s},
                 \\    .version = "0.0.1",
@@ -4891,10 +4907,10 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
                 build_options.version,
                 fingerprint.int(),
             }) catch |err| switch (err) {
-                else => fatal("failed to create '{s}': {s}", .{ Package.Manifest.basename, @errorName(err) }),
-                error.PathAlreadyExists => fatal("refusing to overwrite '{s}'", .{Package.Manifest.basename}),
+                else => fatal("failed to create '{s}': {s}", .{ manifest_basename, @errorName(err) }),
+                error.PathAlreadyExists => fatal("refusing to overwrite '{s}'", .{manifest_basename}),
             };
-            writeSimpleTemplateFile(io, Package.build_zig_basename,
+            writeSimpleTemplateFile(io, build_basename, // [sig]
                 \\const std = @import("std");
                 \\
                 \\pub fn build(b: *std.Build) void {{
@@ -4902,15 +4918,15 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
                 \\}}
                 \\
             , .{}) catch |err| switch (err) {
-                else => fatal("failed to create '{s}': {s}", .{ Package.build_zig_basename, @errorName(err) }),
-                // `build.zig` already existing is okay: the user has just used `zig init` to set up
-                // their `build.zig.zon` *after* writing their `build.zig`. So this one isn't fatal.
+                else => fatal("failed to create '{s}': {s}", .{ build_basename, @errorName(err) }),
+                // Build file already existing is okay: the user has just used `zig init` to set up
+                // their manifest *after* writing their build file. So this one isn't fatal.
                 error.PathAlreadyExists => {
-                    std.log.info("successfully populated '{s}', preserving existing '{s}'", .{ Package.Manifest.basename, Package.build_zig_basename });
+                    std.log.info("successfully populated '{s}', preserving existing '{s}'", .{ manifest_basename, build_basename }); // [sig]
                     return cleanExit(io);
                 },
             };
-            std.log.info("successfully populated '{s}' and '{s}'", .{ Package.Manifest.basename, Package.build_zig_basename });
+            std.log.info("successfully populated '{s}' and '{s}'", .{ manifest_basename, build_basename }); // [sig]
             return cleanExit(io);
         },
     }
@@ -7029,10 +7045,10 @@ const usage_fetch =
     \\  -h, --help                    Print this help and exit
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
     \\  --debug-hash                  Print verbose hash information to stdout
-    \\  --save                        Add the fetched package to build.zig.zon
-    \\  --save=[name]                 Add the fetched package to build.zig.zon as name
-    \\  --save-exact                  Add the fetched package to build.zig.zon, storing the URL verbatim
-    \\  --save-exact=[name]           Add the fetched package to build.zig.zon as name, storing the URL verbatim
+    \\  --save                        Add the fetched package to build.sig.zon or build.zig.zon
+    \\  --save=[name]                 Add the fetched package to build.sig.zon or build.zig.zon as name
+    \\  --save-exact                  Add the fetched package to build.sig.zon or build.zig.zon, storing the URL verbatim
+    \\  --save-exact=[name]           Add the fetched package to build.sig.zon or build.zig.zon as name, storing the URL verbatim
     \\
 ;
 
@@ -7196,14 +7212,14 @@ fn cmdFetch(
         .yes, .exact => |name| name: {
             if (name) |n| break :name n;
             if (!fetch.have_manifest)
-                fatal("unable to determine name; fetched package has no build.zig.zon file", .{});
+                fatal("unable to determine name; fetched package has no build.sig.zon or build.zig.zon file", .{}); // [sig]
             break :name fetch.manifest.name;
         },
     };
 
     // The name to use in case the manifest file needs to be created now.
     const init_root_name = fs.path.basename(build_root.directory.path orelse cwd_path);
-    var manifest, var ast = try loadManifest(gpa, arena, io, .{
+    var manifest, var ast, const manifest_basename = try loadManifest(gpa, arena, io, .{
         .root_name = try sanitizeExampleName(arena, init_root_name),
         .dir = build_root.directory.handle,
         .color = color,
@@ -7319,8 +7335,8 @@ fn cmdFetch(
     try ast.render(gpa, &aw.writer, fixups);
     const rendered = aw.written();
 
-    build_root.directory.handle.writeFile(io, .{ .sub_path = Package.Manifest.basename, .data = rendered }) catch |err| {
-        fatal("unable to write {s} file: {t}", .{ Package.Manifest.basename, err });
+    build_root.directory.handle.writeFile(io, .{ .sub_path = manifest_basename, .data = rendered }) catch |err| { // [sig]
+        fatal("unable to write {s} file: {t}", .{ manifest_basename, err });
     };
 
     return cleanExit(io);
@@ -7436,9 +7452,25 @@ fn findBuildRoot(arena: Allocator, io: Io, options: FindBuildRootOptions) !Build
             .cleanup_build_dir = null,
         };
     }
-    // Search up parent directories until we find build.zig.
+    // Search up parent directories until we find build.sig or build.zig. // [sig]
     var dirname: []const u8 = cwd_path;
     while (true) {
+        // [sig] Try build.sig first, then fall back to build.zig
+        const sig_path = try fs.path.join(arena, &[_][]const u8{ dirname, Package.build_sig_basename }); // [sig]
+        if (Io.Dir.cwd().access(io, sig_path, .{})) |_| { // [sig]
+            const dir = Io.Dir.cwd().openDir(io, dirname, .{}) catch |err| { // [sig]
+                fatal("unable to open directory while searching for build file, '{s}': {s}", .{ dirname, @errorName(err) }); // [sig]
+            }; // [sig]
+            return .{ // [sig]
+                .build_zig_basename = Package.build_sig_basename, // [sig]
+                .directory = .{ // [sig]
+                    .path = dirname, // [sig]
+                    .handle = dir, // [sig]
+                }, // [sig]
+                .cleanup_build_dir = dir, // [sig]
+            }; // [sig]
+        } else |_| {} // [sig]
+
         const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
         if (Io.Dir.cwd().access(io, joined_path, .{})) |_| {
             const dir = Io.Dir.cwd().openDir(io, dirname, .{}) catch |err| {
@@ -7479,20 +7511,26 @@ fn loadManifest(
     arena: Allocator,
     io: Io,
     options: LoadManifestOptions,
-) !struct { Package.Manifest, Ast } {
+) !struct { Package.Manifest, Ast, []const u8 } {
     const rng: std.Random.IoSource = .{ .io = io };
+
+    // [sig] Try build.sig.zon first, fall back to build.zig.zon
+    const manifest_basename = if (options.dir.access(io, Package.Manifest.sig_basename, .{})) |_|
+        Package.Manifest.sig_basename
+    else |_|
+        Package.Manifest.basename;
 
     const manifest_bytes = while (true) {
         break options.dir.readFileAllocOptions(
             io,
-            Package.Manifest.basename,
+            manifest_basename,
             arena,
             .limited(Package.Manifest.max_bytes),
             .@"1",
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
-                writeSimpleTemplateFile(io, Package.Manifest.basename,
+                writeSimpleTemplateFile(io, manifest_basename,
                     \\.{{
                     \\    .name = .{s},
                     \\    .version = "{s}",
@@ -7505,18 +7543,18 @@ fn loadManifest(
                     build_options.version,
                     Package.Fingerprint.generate(rng.interface(), options.root_name).int(),
                 }) catch |e| {
-                    fatal("unable to write {s}: {t}", .{ Package.Manifest.basename, e });
+                    fatal("unable to write {s}: {t}", .{ manifest_basename, e });
                 };
                 continue;
             },
-            else => |e| fatal("unable to load {s}: {t}", .{ Package.Manifest.basename, e }),
+            else => |e| fatal("unable to load {s}: {t}", .{ manifest_basename, e }),
         };
     };
     var ast = try Ast.parse(gpa, manifest_bytes, .zon);
     errdefer ast.deinit(gpa);
 
     if (ast.errors.len > 0) {
-        try std.zig.printAstErrorsToStderr(gpa, io, ast, Package.Manifest.basename, options.color);
+        try std.zig.printAstErrorsToStderr(gpa, io, ast, manifest_basename, options.color);
         process.exit(2);
     }
 
@@ -7528,7 +7566,7 @@ fn loadManifest(
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
 
-        const src_path = try wip_errors.addString(Package.Manifest.basename);
+        const src_path = try wip_errors.addString(manifest_basename);
         try manifest.copyErrorsIntoBundle(ast, src_path, &wip_errors);
 
         var error_bundle = try wip_errors.toOwnedBundle("");
@@ -7537,7 +7575,7 @@ fn loadManifest(
 
         process.exit(2);
     }
-    return .{ manifest, ast };
+    return .{ manifest, ast, manifest_basename };
 }
 
 const Templates = struct {
@@ -7599,6 +7637,60 @@ const Templates = struct {
 
         return out_dir.writeFile(io, .{
             .sub_path = template_path,
+            .data = templates.buffer.items,
+            .flags = .{ .exclusive = true },
+        });
+    }
+
+    // [sig] Write a template file, reading from `source_path` in the template directory
+    // but writing to `out_path` in the output directory. This allows `--sig` to reuse
+    // the .zig templates while generating .sig output files.
+    fn writeAs(
+        templates: *Templates,
+        arena: Allocator,
+        io: Io,
+        out_dir: Io.Dir,
+        root_name: []const u8,
+        source_path: []const u8,
+        out_path: []const u8,
+        fingerprint: Package.Fingerprint,
+    ) !void {
+        if (fs.path.dirname(out_path)) |dirname| {
+            out_dir.createDirPath(io, dirname) catch |err| {
+                fatal("unable to make path '{s}': {t}", .{ dirname, err });
+            };
+        }
+
+        const max_bytes = 10 * 1024 * 1024;
+        const contents = templates.dir.readFileAlloc(io, source_path, arena, .limited(max_bytes)) catch |err| {
+            fatal("unable to read template file '{s}': {t}", .{ source_path, err });
+        };
+        templates.buffer.clearRetainingCapacity();
+        try templates.buffer.ensureUnusedCapacity(contents.len);
+        var i: usize = 0;
+        while (i < contents.len) {
+            if (contents[i] == '_' or contents[i] == '.') {
+                if (std.mem.startsWith(u8, contents[i + 1 ..], "NAME")) {
+                    try templates.buffer.appendSlice(root_name);
+                    i += "_NAME".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i + 1 ..], "FINGERPRINT")) {
+                    try templates.buffer.print("0x{x}", .{fingerprint.int()});
+                    i += "_FINGERPRINT".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i + 1 ..], "ZIGVER")) {
+                    try templates.buffer.appendSlice(build_options.version);
+                    i += "_ZIGVER".len;
+                    continue;
+                }
+            }
+
+            try templates.buffer.append(contents[i]);
+            i += 1;
+        }
+
+        return out_dir.writeFile(io, .{
+            .sub_path = out_path,
             .data = templates.buffer.items,
             .flags = .{ .exclusive = true },
         });
