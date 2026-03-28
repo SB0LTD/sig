@@ -23,6 +23,7 @@ env:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-linux
@@ -64,7 +65,9 @@ jobs:
           zig build \
             -Dtarget="${ZIG_TARGET}" \
             -Doptimize=ReleaseSafe \
-            --prefix "sig-${VERSION}-${TARGET}"
+            --prefix "sig-${VERSION}-${TARGET}" \
+            --maxrss 0
+        timeout-minutes: 120
 
       - name: Package tarball (Linux/macOS)
         if: matrix.ext == 'tar.xz'
