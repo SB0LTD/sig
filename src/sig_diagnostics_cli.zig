@@ -20,18 +20,21 @@ pub fn parseMode(value: []const u8) Mode {
 
 /// Runs diagnostics on a single source string and writes formatted output.
 /// Returns the number of diagnostics emitted.
+/// Per-file mode resolution: .sig files always get strict mode regardless of global_mode.
 pub fn runDiagnostics(
     gpa: std.mem.Allocator,
     w: *Writer,
     source: []const u8,
     file_path: []const u8,
-    mode: Mode,
+    global_mode: Mode,
 ) !usize {
-    const entries = try sig_diag.analyzeSource(gpa, source, file_path, mode);
+    // Per-file mode resolution: .sig files always get strict mode
+    const effective_mode: Mode = if (std.mem.endsWith(u8, file_path, ".sig")) .strict else global_mode;
+    const entries = try sig_diag.analyzeSource(gpa, source, file_path, effective_mode);
     defer sig_diag.freeEntries(gpa, entries);
 
     for (entries) |entry| {
-        const msg = try sig_diag.formatDiagnostic(gpa, entry, mode);
+        const msg = try sig_diag.formatDiagnostic(gpa, entry, effective_mode);
         defer gpa.free(msg);
         try w.writeAll(msg);
         try w.writeAll("\n");
@@ -77,19 +80,26 @@ pub fn main(init: std.process.Init) !void {
     const stdout = &stdout_writer.interface;
 
     var total_diagnostics: usize = 0;
+    var has_errors = false;
 
     for (file_paths.items) |path| {
         const source = readFileToString(arena, io, path) catch |err| {
             std.debug.print("sig-diagnostics: cannot read '{s}': {}\n", .{ path, err });
             continue;
         };
-        total_diagnostics += try runDiagnostics(arena, stdout, source, path, mode);
+        const count = try runDiagnostics(arena, stdout, source, path, mode);
+        total_diagnostics += count;
+        // Track whether any file produced error-level diagnostics
+        if (count > 0) {
+            const effective_mode: Mode = if (std.mem.endsWith(u8, path, ".sig")) .strict else mode;
+            if (effective_mode == .strict) has_errors = true;
+        }
     }
 
     try stdout.flush();
 
-    // In strict mode, return non-zero if any diagnostics found
-    if (mode == .strict and total_diagnostics > 0) {
+    // Exit non-zero if any errors were produced (strict mode globally or .sig files)
+    if (has_errors) {
         std.process.exit(@intFromEnum(ExitCode.diagnostics_found));
     }
 }

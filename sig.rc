@@ -1,0 +1,32 @@
+#define SIG_ICON 1
+
+SIG_ICON ICON "sig.ico"
+
+1 VERSIONINFO
+ FILEVERSION 0,16,0,0
+ PRODUCTVERSION 0,16,0,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904e4"
+        BEGIN
+            VALUE "CompanyName", "Sig"
+            VALUE "FileDescription", "Sig Compiler — Strict Zig"
+            VALUE "FileVersion", "0.16.0.0"
+            VALUE "InternalName", "sig.exe"
+            VALUE "LegalCopyright", "Sig Contributors"
+            VALUE "OriginalFilename", "sig.exe"
+            VALUE "ProductName", "Sig"
+            VALUE "ProductVersion", "0.16.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1252
+    END
+END

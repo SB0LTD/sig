@@ -368,7 +368,8 @@ fn mainArgs(
         return stdout_writer.interface.flush();
     } else if (mem.eql(u8, cmd, "version")) {
         dev.check(.version_command);
-        try Io.File.stdout().writeStreamingAll(io, build_options.version ++ "\n");
+        // [sig] Print Sig version alongside upstream Zig version.
+        try Io.File.stdout().writeStreamingAll(io, "sig " ++ build_options.sig_version ++ " (zig " ++ build_options.version ++ ")\n");
         return;
     } else if (mem.eql(u8, cmd, "env")) {
         dev.check(.env_command);

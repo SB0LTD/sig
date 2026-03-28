@@ -11,6 +11,7 @@ const tests = @import("test/tests.zig");
 const DevEnv = @import("src/dev.zig").Env;
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 16, .patch = 0 };
+const sig_version = "0.0.1-dev"; // [sig] Sig layer version — bump on Sig-specific releases
 const stack_size = 46 * 1024 * 1024;
 
 const IoMode = enum { threaded, evented };
@@ -310,6 +311,7 @@ pub fn build(b: *std.Build) !void {
     };
     const version = try b.allocator.dupeZ(u8, version_slice);
     exe_options.addOption([:0]const u8, "version", version);
+    exe_options.addOption([:0]const u8, "sig_version", sig_version); // [sig]
 
     if (enable_llvm) {
         const cmake_cfg = if (static_llvm) null else blk: {
@@ -686,8 +688,9 @@ pub fn build(b: *std.Build) !void {
     const sig_parse_mod = b.path("lib/sig/parse.zig");
     const sig_errors_mod = b.path("lib/sig/errors.zig");
     const sig_diagnostics_mod = b.path("src/sig_diagnostics.zig");
-    const sig_sync_mod = b.path("tools/sig_sync/main.zig");
-    const sig_readme_mod = b.path("tools/sig_readme/main.zig");
+    const sig_diagnostics_integration_mod = b.path("src/sig_diagnostics_integration.zig");
+    const sig_sync_mod = b.path("tools/sig_sync/main.sig");
+    const sig_readme_mod = b.path("tools/sig_readme/main.sig");
     const sig_http_mod = b.path("lib/sig/http.zig");
     const sig_fs_mod = b.path("lib/sig/fs.zig");
     const sig_compress_mod = b.path("lib/sig/compress.zig");
@@ -696,27 +699,28 @@ pub fn build(b: *std.Build) !void {
     const sig_zon_mod = b.path("lib/sig/zon.zig");
     const sig_uri_mod = b.path("lib/sig/uri.zig");
     const sig_json_mod = b.path("lib/sig/json.zig");
-    const sig_harness_mod = b.path("test/sig_pbt/harness.zig");
+    const sig_harness_mod = b.path("test/sig_pbt/harness.sig");
 
     // ── test-sig step ────────────────────────────────────────────────────
     const sig_test_step = b.step("test-sig", "Run Sig property and unit tests");
 
     // Property-based test files
     const sig_pbt_files = [_][]const u8{
-        "test/sig_pbt/harness.zig",
-        "test/sig_pbt/fmt_properties.zig",
-        "test/sig_pbt/io_properties.zig",
-        "test/sig_pbt/container_properties.zig",
-        "test/sig_pbt/string_properties.zig",
-        "test/sig_pbt/parse_properties.zig",
-        "test/sig_pbt/api_contract_properties.zig",
-        "test/sig_pbt/diagnostics_properties.zig",
-        "test/sig_pbt/sync_properties.zig",
-        "test/sig_pbt/http_properties.zig",
-        "test/sig_pbt/fs_properties.zig",
-        "test/sig_pbt/extended_container_properties.zig",
-        "test/sig_pbt/compress_properties.zig",
-        "test/sig_pbt/format_parser_properties.zig",
+        "test/sig_pbt/harness.sig",
+        "test/sig_pbt/fmt_properties.sig",
+        "test/sig_pbt/io_properties.sig",
+        "test/sig_pbt/container_properties.sig",
+        "test/sig_pbt/string_properties.sig",
+        "test/sig_pbt/parse_properties.sig",
+        "test/sig_pbt/api_contract_properties.sig",
+        "test/sig_pbt/diagnostics_properties.sig",
+        "test/sig_pbt/sync_properties.sig",
+        "test/sig_pbt/http_properties.sig",
+        "test/sig_pbt/fs_properties.sig",
+        "test/sig_pbt/extended_container_properties.sig",
+        "test/sig_pbt/compress_properties.sig",
+        "test/sig_pbt/format_parser_properties.sig",
+        "test/sig_pbt/file_extension_properties.sig",
     };
 
     for (sig_pbt_files) |pbt_file| {
@@ -736,6 +740,7 @@ pub fn build(b: *std.Build) !void {
             .sig_parse = sig_parse_mod,
             .errors = sig_errors_mod,
             .sig_diagnostics = sig_diagnostics_mod,
+            .sig_diagnostics_integration = sig_diagnostics_integration_mod,
             .sig_sync = sig_sync_mod,
             .sig_http = sig_http_mod,
             .sig_fs = sig_fs_mod,
@@ -752,22 +757,23 @@ pub fn build(b: *std.Build) !void {
 
     // Unit test files
     const sig_unit_files = [_][]const u8{
-        "test/sig_unit/fmt_test.zig",
-        "test/sig_unit/io_test.zig",
-        "test/sig_unit/containers_test.zig",
-        "test/sig_unit/string_test.zig",
-        "test/sig_unit/parse_test.zig",
-        "test/sig_unit/errors_test.zig",
-        "test/sig_unit/diagnostics_test.zig",
-        "test/sig_unit/sync_test.zig",
-        "test/sig_unit/compat_test.zig",
-        "test/sig_unit/readme_test.zig",
-        "test/sig_unit/bench_test.zig",
-        "test/sig_unit/http_test.zig",
-        "test/sig_unit/fs_test.zig",
-        "test/sig_unit/extended_containers_test.zig",
-        "test/sig_unit/compress_test.zig",
-        "test/sig_unit/format_parsers_test.zig",
+        "test/sig_unit/fmt_test.sig",
+        "test/sig_unit/io_test.sig",
+        "test/sig_unit/containers_test.sig",
+        "test/sig_unit/string_test.sig",
+        "test/sig_unit/parse_test.sig",
+        "test/sig_unit/errors_test.sig",
+        "test/sig_unit/diagnostics_test.sig",
+        "test/sig_unit/sync_test.sig",
+        "test/sig_unit/compat_test.sig",
+        "test/sig_unit/readme_test.sig",
+        "test/sig_unit/bench_test.sig",
+        "test/sig_unit/http_test.sig",
+        "test/sig_unit/fs_test.sig",
+        "test/sig_unit/extended_containers_test.sig",
+        "test/sig_unit/compress_test.sig",
+        "test/sig_unit/format_parsers_test.sig",
+        "test/sig_unit/file_extension_test.sig",
     };
 
     for (sig_unit_files) |unit_file| {
@@ -787,6 +793,7 @@ pub fn build(b: *std.Build) !void {
             .sig_parse = sig_parse_mod,
             .errors = sig_errors_mod,
             .sig_diagnostics = sig_diagnostics_mod,
+            .sig_diagnostics_integration = sig_diagnostics_integration_mod,
             .sig_sync = sig_sync_mod,
             .sig_readme = sig_readme_mod,
             .sig_http = sig_http_mod,
@@ -805,9 +812,9 @@ pub fn build(b: *std.Build) !void {
     const sig_bench_step = b.step("bench-sig", "Run Sig benchmark suite");
 
     const sig_bench_files = [_][]const u8{
-        "test/sig_bench/fmt_bench.zig",
-        "test/sig_bench/io_bench.zig",
-        "test/sig_bench/containers_bench.zig",
+        "test/sig_bench/fmt_bench.sig",
+        "test/sig_bench/io_bench.sig",
+        "test/sig_bench/containers_bench.sig",
     };
 
     for (sig_bench_files) |bench_file| {
@@ -830,7 +837,7 @@ pub fn build(b: *std.Build) !void {
     const sync_exe = b.addExecutable(.{
         .name = "sig_sync",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/sig_sync/main.zig"),
+            .root_source_file = b.path("tools/sig_sync/main.sig"),
             .target = target,
             .optimize = optimize,
         }),
@@ -842,7 +849,7 @@ pub fn build(b: *std.Build) !void {
     const coverage_exe = b.addExecutable(.{
         .name = "sig_coverage",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/sig_coverage/main.zig"),
+            .root_source_file = b.path("tools/sig_coverage/main.sig"),
             .target = target,
             .optimize = optimize,
         }),
@@ -864,6 +871,7 @@ const SigImportPaths = struct {
     sig_parse: ?std.Build.LazyPath = null,
     errors: ?std.Build.LazyPath = null,
     sig_diagnostics: ?std.Build.LazyPath = null,
+    sig_diagnostics_integration: ?std.Build.LazyPath = null,
     sig_sync: ?std.Build.LazyPath = null,
     sig_readme: ?std.Build.LazyPath = null,
     sig_http: ?std.Build.LazyPath = null,
@@ -905,6 +913,20 @@ fn addSigImports(mod: *std.Build.Module, paths: SigImportPaths) void {
             mod.addImport(entry[0], b.createModule(.{
                 .root_source_file = path,
             }));
+        }
+    }
+    // sig_diagnostics_integration depends on sig_diagnostics at compile time,
+    // so wire it as a nested module with its own dependency.
+    if (paths.sig_diagnostics_integration) |integration_path| {
+        if (paths.sig_diagnostics) |diag_path| {
+            const diag_mod = b.createModule(.{
+                .root_source_file = diag_path,
+            });
+            const integration_mod = b.createModule(.{
+                .root_source_file = integration_path,
+            });
+            integration_mod.addImport("sig_diagnostics", diag_mod);
+            mod.addImport("sig_diagnostics_integration", integration_mod);
         }
     }
 }
@@ -1009,11 +1031,16 @@ fn addCompilerMod(b: *std.Build, options: AddCompilerModOptions) *std.Build.Modu
 
 fn addCompilerStep(b: *std.Build, options: AddCompilerModOptions) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
-        .name = "zig",
+        .name = "sig", // [sig] Renamed from "zig"
         .max_rss = 8_700_000_000,
         .root_module = addCompilerMod(b, options),
     });
     exe.stack_size = stack_size;
+
+    // [sig] Embed Sig icon and version info on Windows.
+    exe.root_module.addWin32ResourceFile(.{
+        .file = b.path("sig.rc"),
+    });
 
     // Must match the condition in CMakeLists.txt.
     const function_data_sections = options.target.result.cpu.arch.isArm() or options.target.result.cpu.arch.isPowerPC();

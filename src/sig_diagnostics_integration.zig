@@ -17,7 +17,7 @@ pub const DiagnosticsResult = struct {
     entries: []sig_diag.DiagnosticEntry,
     total_warnings: usize,
     total_errors: usize,
-    mode: Mode,
+    global_mode: Mode,
     allocator: std.mem.Allocator,
 
     pub fn deinit(self: *DiagnosticsResult) void {
@@ -40,18 +40,34 @@ pub fn parseMode(value: []const u8) Mode {
     return .default;
 }
 
+/// Checks whether a file path ends with the ".sig" extension.
+pub fn hasSigExtension(file_path: []const u8) bool {
+    return std.mem.endsWith(u8, file_path, ".sig");
+}
+
+/// Resolves the diagnostic mode for a source file based on its extension
+/// and the global mode configuration.
+/// - .sig files always get strict mode regardless of global_mode
+/// - .zig files use the global_mode as-is
+/// - Other extensions use the global_mode as-is
+pub fn resolveFileMode(file_path: []const u8, global_mode: Mode) Mode {
+    if (hasSigExtension(file_path)) return .strict;
+    return global_mode;
+}
+
 /// Runs diagnostics on a single source file.
 /// Caller owns the returned result and must call `deinit` on it.
 pub fn analyzeFile(
     gpa: std.mem.Allocator,
     file_path: []const u8,
     source: []const u8,
-    mode: Mode,
+    global_mode: Mode,
 ) !DiagnosticsResult {
-    const entries = try sig_diag.analyzeSource(gpa, source, file_path, mode);
+    const effective_mode = resolveFileMode(file_path, global_mode);
+    const entries = try sig_diag.analyzeSource(gpa, source, file_path, effective_mode);
     var warnings: usize = 0;
     var errors: usize = 0;
-    switch (mode) {
+    switch (effective_mode) {
         .default => warnings = entries.len,
         .strict => errors = entries.len,
     }
@@ -59,17 +75,18 @@ pub fn analyzeFile(
         .entries = entries,
         .total_warnings = warnings,
         .total_errors = errors,
-        .mode = mode,
+        .global_mode = global_mode,
         .allocator = gpa,
     };
 }
 
 /// Runs diagnostics on multiple source files read from disk.
 /// Returns a combined result. Caller owns the result and must call `deinit`.
+/// Each file's diagnostic mode is resolved per-file based on its extension.
 pub fn analyzeFiles(
     gpa: std.mem.Allocator,
     file_paths: []const []const u8,
-    mode: Mode,
+    global_mode: Mode,
 ) !DiagnosticsResult {
     var all_entries: std.ArrayList(DiagnosticEntry) = .empty;
     errdefer {
@@ -79,6 +96,9 @@ pub fn analyzeFiles(
         all_entries.deinit(gpa);
     }
 
+    var total_warnings: usize = 0;
+    var total_errors: usize = 0;
+
     for (file_paths) |path| {
         const source = std.fs.cwd().readFileAlloc(gpa, path, 10 * 1024 * 1024) catch |err| {
             std.debug.print("sig-diagnostics: cannot read '{s}': {}\n", .{ path, err });
@@ -86,24 +106,23 @@ pub fn analyzeFiles(
         };
         defer gpa.free(source);
 
-        const entries = try sig_diag.analyzeSource(gpa, source, path, mode);
+        const effective_mode = resolveFileMode(path, global_mode);
+        const entries = try sig_diag.analyzeSource(gpa, source, path, effective_mode);
+        switch (effective_mode) {
+            .default => total_warnings += entries.len,
+            .strict => total_errors += entries.len,
+        }
         try all_entries.appendSlice(gpa, entries);
         // Free the slice container but not the entries themselves (now owned by all_entries).
         gpa.free(entries);
     }
 
     const owned = try all_entries.toOwnedSlice(gpa);
-    var warnings: usize = 0;
-    var errors: usize = 0;
-    switch (mode) {
-        .default => warnings = owned.len,
-        .strict => errors = owned.len,
-    }
     return .{
         .entries = owned,
-        .total_warnings = warnings,
-        .total_errors = errors,
-        .mode = mode,
+        .total_warnings = total_warnings,
+        .total_errors = total_errors,
+        .global_mode = global_mode,
         .allocator = gpa,
     };
 }
@@ -116,7 +135,7 @@ pub fn emitDiagnostics(
     writer: *std.Io.Writer,
 ) !usize {
     for (result.entries) |entry| {
-        const msg = try sig_diag.formatDiagnostic(gpa, entry, result.mode);
+        const msg = try sig_diag.formatDiagnostic(gpa, entry, result.global_mode);
         defer gpa.free(msg);
         try writer.print("{s}\n", .{msg});
     }
@@ -125,7 +144,7 @@ pub fn emitDiagnostics(
 
 /// Determines the appropriate exit code based on the diagnostics result.
 pub fn exitCodeForResult(result: DiagnosticsResult) ExitCode {
-    if (result.mode == .strict and result.total_errors > 0) return .diagnostics_found;
+    if (result.global_mode == .strict and result.total_errors > 0) return .diagnostics_found;
     return .success;
 }
 

@@ -174,22 +174,34 @@ pub fn formatDiagnostic(gpa: std.mem.Allocator, entry: DiagnosticEntry, mode: Mo
         },
     );
 
+    var result: []u8 = base;
+
     if (entry.call_path) |cp| {
         // Append call path: " (via foo -> bar -> baz)"
         var path_buf: std.ArrayList(u8) = .empty;
         defer path_buf.deinit(gpa);
-        try path_buf.appendSlice(gpa, base);
-        gpa.free(base);
+        try path_buf.appendSlice(gpa, result);
+        gpa.free(result);
         try path_buf.appendSlice(gpa, " (via ");
         for (cp, 0..) |segment, idx| {
             if (idx > 0) try path_buf.appendSlice(gpa, " -> ");
             try path_buf.appendSlice(gpa, segment);
         }
         try path_buf.appendSlice(gpa, ")");
-        return path_buf.toOwnedSlice(gpa);
+        result = try path_buf.toOwnedSlice(gpa);
     }
 
-    return base;
+    // Append .sig annotation when the source file has a .sig extension and mode is strict.
+    if (mode == .strict and std.mem.endsWith(u8, entry.file_path, ".sig")) {
+        var ann_buf: std.ArrayList(u8) = .empty;
+        defer ann_buf.deinit(gpa);
+        try ann_buf.appendSlice(gpa, result);
+        gpa.free(result);
+        try ann_buf.appendSlice(gpa, " (.sig file: strict mode enforced)");
+        result = try ann_buf.toOwnedSlice(gpa);
+    }
+
+    return result;
 }
 
 // ──────────────────────────────────────────────

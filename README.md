@@ -98,6 +98,13 @@ cd sig
 zig build
 ```
 
+The output binary is `sig.exe` (or `sig` on Linux/macOS). It's a drop-in replacement for `zig` with Sig's diagnostics layer on top.
+
+```
+$ sig version
+sig 0.0.1-dev (zig 0.16.0-dev.3036+aed7a6e1f)
+```
+
 Prerequisites: CMake, a system C/C++ toolchain, LLVM 21.x. See the [Zig getting started guide](https://ziglang.org/learn/getting-started/) for details.
 
 ### Quick Example
@@ -140,6 +147,31 @@ pub fn main() !void {
 | Runtime resizing | ⚠️ Non-canonical | `list.ensureTotalCapacity(n)` |
 
 Non-canonical patterns compile but produce diagnostics. In `strict` mode, they become compile errors.
+
+## The `.sig` File Extension
+
+Sig introduces `.sig` as a source file extension. A `.sig` file is syntactically identical to a `.zig` file — same grammar, same parser, same compilation pipeline — but the extension itself implies strict mode. All allocator usage diagnostics in a `.sig` file are compile errors, no flags needed.
+
+This is analogous to `.js` vs `.ts`: the file extension is the contract.
+
+```
+src/core.sig:42:5: error: direct allocation in 'init' (.sig file: strict mode enforced)
+```
+
+| File | Allocator usage | Behavior |
+|---|---|---|
+| `foo.zig` | `allocator.alloc(...)` | Warning (default) or error (`--sig-mode=strict`) |
+| `foo.sig` | `allocator.alloc(...)` | Always a compile error |
+
+`.sig` and `.zig` files interoperate freely via `@import`. Each file gets its own diagnostic mode based on its extension. You can adopt strict mode incrementally, one file at a time.
+
+## Versioning
+
+Sig follows its own semver (`0.0.1-dev`) while tracking the upstream Zig version it's built on. The `sig version` command shows both:
+
+```
+sig 0.0.1-dev (zig 0.16.0-dev.3036+aed7a6e1f)
+```
 
 ## Error Model
 
