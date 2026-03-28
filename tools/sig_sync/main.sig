@@ -221,7 +221,7 @@ const SigError = sig.SigError;
 // ── Git Helpers (fixed buffers, no allocator) ────────────────────────────
 
 const GitResult = struct {
-    exit_code: u8,
+    exit_code: u8 = 0,
     stdout_buf: [GIT_BUF_SIZE]u8 = undefined,
     stdout_len: usize = 0,
 
