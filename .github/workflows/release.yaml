@@ -75,10 +75,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Zig (bootstrap compiler)
-        uses: goto-bus-stop/setup-zig@v2
+      - name: Install Sig compiler  # [sig] Self-hosting: use setup-sig to bootstrap
+        uses: ./tools/setup-sig
         with:
-          version: master
+          version: latest
 
       - name: Build release binary
         shell: bash
@@ -93,7 +93,7 @@ jobs:
           esac
 
           echo "Building for ${ZIG_TARGET}..."
-          zig build \
+          sig build \
             -Dtarget="${ZIG_TARGET}" \
             -Doptimize=ReleaseSafe \
             --prefix "sig-${VERSION}-${TARGET}" \
