@@ -33,10 +33,10 @@ jobs:
             os: ubuntu-latest
             ext: tar.xz
           - target: aarch64-macos
-            os: macos-latest
+            os: ubuntu-latest
             ext: tar.xz
           - target: x86_64-windows
-            os: windows-latest
+            os: ubuntu-latest
             ext: zip
     runs-on: ${{ matrix.os }}
     steps:
