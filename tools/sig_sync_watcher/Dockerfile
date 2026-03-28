@@ -1,10 +1,13 @@
 FROM alpine:3.19 AS builder
 
-# Install Zig
+# Install Sig compiler from GitHub releases
 RUN apk add --no-cache curl xz
-ARG ZIG_VERSION=0.16.0-dev.3006+94355f192
-RUN curl -L https://ziglang.org/builds/zig-linux-x86_64-${ZIG_VERSION}.tar.xz | tar -xJ -C /opt
-ENV PATH="/opt/zig-linux-x86_64-${ZIG_VERSION}:$PATH"
+ARG SIG_VERSION=latest
+RUN DOWNLOAD_URL=$(curl -s https://api.github.com/repos/ShadovvBeast/sig/releases/${SIG_VERSION} \
+    | grep -o '"browser_download_url": *"[^"]*x86_64-linux[^"]*\.tar\.xz"' \
+    | head -1 | cut -d'"' -f4) && \
+    curl -L "$DOWNLOAD_URL" | tar -xJ -C /opt && \
+    ln -s /opt/sig-*/bin/sig /usr/local/bin/sig
 
 WORKDIR /app
 
@@ -12,8 +15,8 @@ WORKDIR /app
 COPY lib/sig/ lib/sig/
 COPY tools/sig_sync_watcher/main.sig tools/sig_sync_watcher/main.sig
 
-# Build static binary — .sig files are syntactically identical to .zig
-RUN zig build-exe tools/sig_sync_watcher/main.sig \
+# Build static binary
+RUN sig build-exe tools/sig_sync_watcher/main.sig \
     --mod sig::lib/sig/sig.zig \
     --deps sig \
     -target x86_64-linux-musl -OReleaseSafe \

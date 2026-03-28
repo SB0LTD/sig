@@ -18,6 +18,7 @@ SERVICE_NAME="sig-sync-watcher"
 SA_EMAIL="sig-sync-watcher@${PROJECT_ID}.iam.gserviceaccount.com"
 GITHUB_REPO="ShadovvBeast/sig"
 SCHEDULER_JOB="sig-sync-poll"
+CUSTOM_DOMAIN="sync.sig.best"
 
 echo "==> Building and deploying to Cloud Run"
 echo "    Project: $PROJECT_ID"
@@ -49,6 +50,18 @@ SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" \
 
 echo "==> Service deployed at: $SERVICE_URL"
 
+# Map custom domain
+echo "==> Mapping custom domain: $CUSTOM_DOMAIN"
+gcloud run domain-mappings create \
+  --service="$SERVICE_NAME" \
+  --domain="$CUSTOM_DOMAIN" \
+  --project="$PROJECT_ID" \
+  --region="$REGION" \
+  --quiet 2>/dev/null || echo "  Domain mapping already exists"
+
+# Use custom domain for scheduler (HTTPS, Cloud Run handles TLS)
+SCHEDULER_URL="https://${CUSTOM_DOMAIN}"
+
 # Create Cloud Scheduler jobs (2 jobs offset by 30s for ~30s polling)
 echo "==> Setting up Cloud Scheduler"
 
@@ -65,7 +78,7 @@ for OFFSET in 0 30; do
     --project="$PROJECT_ID" \
     --location="$REGION" \
     --schedule="* * * * *" \
-    --uri="${SERVICE_URL}/check" \
+    --uri="${SCHEDULER_URL}/check" \
     --http-method=GET \
     --oidc-service-account-email="$SA_EMAIL" \
     --oidc-token-audience="$SERVICE_URL" \
@@ -77,7 +90,7 @@ done
 
 echo ""
 echo "==> Deployment complete!"
-echo "    Service:   $SERVICE_URL"
+echo "    Service:   $CUSTOM_DOMAIN (Cloud Run: $SERVICE_URL)"
 echo "    Polling:   Every ~30 seconds"
 echo "    RSS feed:  https://codeberg.org/ziglang/zig/rss/branch/master"
 echo "    Dispatch:  https://api.github.com/repos/$GITHUB_REPO/dispatches"
