@@ -481,13 +481,13 @@ pub fn main(init: std.process.Init) !void {
     // Parse args from argv iterator — no allocator needed.
     var options = SyncOptions{};
     var args_iter = init.minimal.args;
-    while (args_iter.next(io)) |arg| {
+    while (args_iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "--remote")) {
-            if (args_iter.next(io)) |val| options.remote = val;
+            if (args_iter.next()) |val| options.remote = val;
         } else if (std.mem.eql(u8, arg, "--branch")) {
-            if (args_iter.next(io)) |val| options.branch = val;
+            if (args_iter.next()) |val| options.branch = val;
         } else if (std.mem.eql(u8, arg, "--manifest")) {
-            if (args_iter.next(io)) |val| options.manifest_path = val;
+            if (args_iter.next()) |val| options.manifest_path = val;
         } else if (std.mem.eql(u8, arg, "--dry-run")) {
             options.dry_run = true;
         }
@@ -495,7 +495,8 @@ pub fn main(init: std.process.Init) !void {
 
     const manifest = try runSync(io, options);
 
-    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
+    var write_buf: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &write_buf);
     const w = &stdout_writer.interface;
     var buf: [256]u8 = undefined;
     const summary = sig_fmt.formatInto(&buf, "Sync complete. {d} entries in manifest.\n", .{manifest.entry_count}) catch "Sync complete.\n";
