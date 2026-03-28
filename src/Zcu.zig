@@ -1043,7 +1043,8 @@ pub const File = struct {
     pub fn modeFromPath(path: []const u8) ?Ast.Mode {
         if (std.mem.endsWith(u8, path, ".zon")) {
             return .zon;
-        } else if (std.mem.endsWith(u8, path, ".zig")) {
+        } else if (std.mem.endsWith(u8, path, ".zig") or std.mem.endsWith(u8, path, ".sig")) {
+            // [sig] .sig files are syntactically identical to .zig — same parser, same semantics.
             return .zig;
         } else {
             return null;
