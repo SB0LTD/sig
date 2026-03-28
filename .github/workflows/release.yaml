@@ -80,10 +80,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Sig compiler  # [sig] Self-hosting: use setup-sig to bootstrap
+      - name: Install Sig compiler  # [sig] Self-hosting: use setup-sig, fall back to zig for bootstrap
+        id: install-sig
         uses: ./tools/setup-sig
         with:
           version: latest
+        continue-on-error: true
+
+      - name: Bootstrap fallback — install upstream Zig if no Sig release exists yet
+        if: steps.install-sig.outcome == 'failure'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
 
       - name: Build release binary
         shell: bash
@@ -97,8 +105,14 @@ jobs:
             x86_64-windows)  ZIG_TARGET="x86_64-windows" ;;
           esac
 
-          echo "Building for ${ZIG_TARGET}..."
-          sig build \
+          # Use sig if available, otherwise zig (bootstrap only)
+          if command -v sig &>/dev/null; then
+            COMPILER=sig
+          else
+            COMPILER=zig
+          fi
+          echo "Building for ${ZIG_TARGET} with ${COMPILER}..."
+          $COMPILER build \
             -Dtarget="${ZIG_TARGET}" \
             -Doptimize=ReleaseSafe \
             --prefix "sig-${VERSION}-${TARGET}" \
