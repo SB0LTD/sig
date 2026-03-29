@@ -11,7 +11,7 @@ const tests = @import("test/tests.zig");
 const DevEnv = @import("src/dev.zig").Env;
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 16, .patch = 0 };
-const sig_version = "0.0.2"; // [sig] Sig layer version — bump on Sig-specific releases
+const sig_version = "0.0.3"; // [sig] Sig layer version — bump on Sig-specific releases
 const stack_size = 46 * 1024 * 1024;
 
 const IoMode = enum { threaded, evented };
