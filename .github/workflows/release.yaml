@@ -91,7 +91,7 @@ jobs:
         if: steps.install-sig.outcome == 'failure'
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0-dev.3006+94355f192
+          version: 0.16.0-dev.3013+abd131e33
 
       - name: Build release binary
         shell: bash

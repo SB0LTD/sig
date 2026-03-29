@@ -680,11 +680,21 @@ pub fn build(b: *std.Build) !void {
     const sig_mode = b.option(enum { default, strict }, "sig-mode", "Sig diagnostic mode") orelse .default;
     _ = sig_mode;
 
-    // Collect all tool extras for test imports
+    // Collect all tool extras AND tool mains for test imports
     var all_tool_extras: [MAX_TOOLS * MAX_TOOL_EXTRAS]?DiscoveredModule = .{null} ** (MAX_TOOLS * MAX_TOOL_EXTRAS);
     var all_extras_count: usize = 0;
+    var all_tool_mains: [MAX_TOOLS]?DiscoveredModule = .{null} ** MAX_TOOLS;
+    var all_mains_count: usize = 0;
     for (sig_tools) |maybe_tool| {
         const tool = maybe_tool orelse continue;
+        // Add tool main as an import (e.g., sig_sync from tools/sig_sync/main.sig)
+        if (all_mains_count < all_tool_mains.len) {
+            all_tool_mains[all_mains_count] = .{
+                .name = tool.dir_name, // e.g., "sig_sync"
+                .path = tool.main_path,
+            };
+            all_mains_count += 1;
+        }
         for (tool.extra_sources[0..tool.extra_count]) |maybe_extra| {
             const extra = maybe_extra orelse continue;
             if (all_extras_count >= all_tool_extras.len) {
@@ -731,6 +741,7 @@ pub fn build(b: *std.Build) !void {
         addSigImports(b, t.root_module, &sig_modules, .{
             .include_harness = true,
             .tool_extras = all_tool_extras[0..all_extras_count],
+            .tool_mains = all_tool_mains[0..all_mains_count],
         });
         sig_test_step.dependOn(&b.addRunArtifact(t).step);
     }
@@ -746,8 +757,9 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         addSigImports(b, t.root_module, &sig_modules, .{
-            .include_harness = false,
+            .include_harness = true, // Some unit tests (compat_test) also use harness
             .tool_extras = all_tool_extras[0..all_extras_count],
+            .tool_mains = all_tool_mains[0..all_mains_count],
         });
         sig_test_step.dependOn(&b.addRunArtifact(t).step);
     }
@@ -917,9 +929,16 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerModOptions) *std.Build.Ste
     exe.stack_size = stack_size;
 
     // [sig] Embed Sig icon and version info on Windows.
-    exe.root_module.addWin32ResourceFile(.{
-        .file = b.path("sig.rc"),
-    });
+    // Guard: win32 resource compilation is not available during cmake bootstrap (zig2).
+    if (options.target.result.os.tag == .windows) {
+        if (b.option(bool, "no-win32-res", "Skip win32 resource embedding (used during bootstrap)") orelse false) {
+            // Skip — bootstrap mode
+        } else {
+            exe.root_module.addWin32ResourceFile(.{
+                .file = b.path("sig.rc"),
+            });
+        }
+    }
 
     const function_data_sections = options.target.result.cpu.arch.isArm() or options.target.result.cpu.arch.isPowerPC();
 
@@ -996,7 +1015,15 @@ fn addCmakeCfgOptionsToExe(
                 mod.link_libcpp = true;
             },
             .windows => {
-                if (target_result.abi != .msvc) mod.link_libcpp = true;
+                if (target_result.abi != .msvc) {
+                    // [sig] On MinGW, link system libstdc++ and GCC runtime libs since
+                    // LLVM/Clang/LLD were built with GCC's libstdc++.
+                    addCxxKnownPath(b, cfg, exe, b.fmt("lib{s}.a", .{cfg.system_libcxx}), null, false) catch {
+                        mod.link_libcpp = true;
+                    };
+                    addCxxKnownPath(b, cfg, exe, "libgcc_eh.a", null, false) catch {};
+                    addCxxKnownPath(b, cfg, exe, "libgcc.a", null, false) catch {};
+                }
             },
             .freebsd => {
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
@@ -1644,7 +1671,16 @@ fn discoverSigModules(b: *std.Build) [MAX_MODULES]?DiscoveredModule {
         if (entry.kind != .file) continue;
         if (!mem.endsWith(u8, entry.name, ".zig")) continue;
 
-        const name = std.fs.path.stem(entry.name);
+        const stem = std.fs.path.stem(entry.name);
+        // Preserve backward-compatible import names:
+        // sig, fmt, containers, errors keep their raw name;
+        // everything else gets a "sig_" prefix (e.g., io.zig → sig_io)
+        const no_prefix = &[_][]const u8{ "sig", "fmt", "containers", "errors" };
+        var needs_prefix = true;
+        for (no_prefix) |np| {
+            if (mem.eql(u8, stem, np)) { needs_prefix = false; break; }
+        }
+        const name = if (needs_prefix) b.fmt("sig_{s}", .{stem}) else b.fmt("{s}", .{stem});
         if (count >= MAX_MODULES) {
             std.debug.panic("sig-build-system: too many modules in lib/sig/ (max {d}). Increase MAX_MODULES.", .{MAX_MODULES});
         }
@@ -1700,7 +1736,7 @@ fn discoverFiles(b: *std.Build, dir_path: []const u8, suffix: []const u8, ext: [
         if (!mem.endsWith(u8, name_without_ext, suffix)) continue;
 
         // Derive name by stripping the extension
-        const name = std.fs.path.stem(entry.name);
+        const name = b.fmt("{s}", .{std.fs.path.stem(entry.name)});
         if (count >= MAX_FILES) {
             std.debug.panic("sig-build-system: too many files in {s} (max {d}). Increase MAX_FILES.", .{ dir_path, MAX_FILES });
         }
@@ -1808,7 +1844,9 @@ fn discoverSigTools(b: *std.Build) [MAX_TOOLS]?DiscoveredTool {
 }
 
 /// Wire all discovered modules as imports onto the given module.
-/// Replaces the old SigImportPaths struct with dynamic discovery.
+/// Wire all discovered modules as imports onto the given module.
+/// For lib/sig modules, wires shared dependencies (errors.zig) to avoid
+/// "file exists in multiple modules" errors from relative imports.
 fn addSigImports(
     b: *std.Build,
     mod: *std.Build.Module,
@@ -1816,14 +1854,55 @@ fn addSigImports(
     options: struct {
         include_harness: bool = false,
         tool_extras: []const ?DiscoveredModule = &.{},
+        tool_mains: []const ?DiscoveredModule = &.{},
     },
 ) void {
-    // Wire each discovered module as an import
+    // First pass: create the shared errors module (used by relative imports in lib/sig/)
+    var errors_mod_instance: ?*std.Build.Module = null;
     for (modules) |maybe_mod| {
         const m = maybe_mod orelse continue;
-        mod.addImport(m.name, b.createModule(.{
-            .root_source_file = m.path,
-        }));
+        if (mem.eql(u8, m.name, "errors")) {
+            errors_mod_instance = b.createModule(.{ .root_source_file = m.path });
+            break;
+        }
+    }
+
+    // Second pass: create all modules, wiring errors as a dependency on lib/sig modules
+    var diag_mod_instance: ?*std.Build.Module = null;
+    var sig_mod_instance: ?*std.Build.Module = null;
+
+    for (modules) |maybe_mod| {
+        const m = maybe_mod orelse continue;
+        const created = b.createModule(.{ .root_source_file = m.path });
+
+        // Wire errors.zig as a named import so relative @import("errors.zig") resolves
+        // to the shared instance instead of creating a duplicate
+        if (errors_mod_instance) |errors_mod| {
+            if (!mem.eql(u8, m.name, "errors")) {
+                created.addImport("errors.zig", errors_mod);
+            }
+        }
+
+        mod.addImport(m.name, created);
+
+        if (mem.eql(u8, m.name, "sig_diagnostics")) diag_mod_instance = created;
+        if (mem.eql(u8, m.name, "sig")) sig_mod_instance = created;
+    }
+
+    // Wire sig_diagnostics as a nested dependency on sig_diagnostics_integration
+    if (diag_mod_instance) |diag_created| {
+        for (modules) |maybe_mod| {
+            const m = maybe_mod orelse continue;
+            if (mem.eql(u8, m.name, "sig_diagnostics_integration")) {
+                const integration_created = b.createModule(.{ .root_source_file = m.path });
+                integration_created.addImport("sig_diagnostics", diag_created);
+                if (errors_mod_instance) |errors_mod| {
+                    integration_created.addImport("errors.zig", errors_mod);
+                }
+                mod.addImport("sig_diagnostics_integration", integration_created);
+                break;
+            }
+        }
     }
 
     // Wire harness import for PBT tests
@@ -1833,35 +1912,22 @@ fn addSigImports(
         }));
     }
 
+    // Wire tool main files as imports (e.g., sig_sync, sig_readme)
+    // Tool mains need the 'sig' import wired on them
+    for (options.tool_mains) |maybe_main| {
+        const tm = maybe_main orelse continue;
+        const tool_mod = b.createModule(.{ .root_source_file = tm.path });
+        if (sig_mod_instance) |sig_created| {
+            tool_mod.addImport("sig", sig_created);
+        }
+        mod.addImport(tm.name, tool_mod);
+    }
+
     // Wire tool extras as additional imports
     for (options.tool_extras) |maybe_extra| {
         const extra = maybe_extra orelse continue;
         mod.addImport(extra.name, b.createModule(.{
             .root_source_file = extra.path,
         }));
-    }
-
-    // Wire sig_diagnostics as a nested dependency on sig_diagnostics_integration
-    var diag_path: ?std.Build.LazyPath = null;
-    var integration_path: ?std.Build.LazyPath = null;
-    for (modules) |maybe_mod| {
-        const m = maybe_mod orelse continue;
-        if (mem.eql(u8, m.name, "sig_diagnostics")) {
-            diag_path = m.path;
-        } else if (mem.eql(u8, m.name, "sig_diagnostics_integration")) {
-            integration_path = m.path;
-        }
-    }
-    if (integration_path) |int_path| {
-        if (diag_path) |d_path| {
-            const diag_mod = b.createModule(.{
-                .root_source_file = d_path,
-            });
-            const integration_mod = b.createModule(.{
-                .root_source_file = int_path,
-            });
-            integration_mod.addImport("sig_diagnostics", diag_mod);
-            mod.addImport("sig_diagnostics_integration", integration_mod);
-        }
     }
 }
