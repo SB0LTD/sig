@@ -4,7 +4,7 @@
 // manifest shall contain one SyncEntry per processed commit with a valid
 // 40-character hex commit hash and a status of integrated, conflict, or
 // skipped. Non-conflicting commits shall have status integrated. Conflicting
-// commits shall have status conflict with a non-empty conflicting_files list.
+// commits shall have status conflict with a non-empty conflict_count.
 //
 // **Validates: Requirements 10.2, 10.3, 10.4**
 
@@ -16,305 +16,179 @@ const SyncEntry = sig_sync.SyncEntry;
 const SyncManifest = sig_sync.SyncManifest;
 
 // ---------------------------------------------------------------------------
-// Generators
+// Generators (zero allocators)
 // ---------------------------------------------------------------------------
 
 const hex_chars = "0123456789abcdef";
 
-/// Generate a random 40-character hex commit hash.
 fn genCommitHash(random: std.Random, buf: *[40]u8) void {
     for (buf) |*c| {
         c.* = hex_chars[random.uintAtMost(usize, hex_chars.len - 1)];
     }
 }
 
-/// Returns true if `hash` is exactly 40 hex characters.
 fn isValidCommitHash(hash: []const u8) bool {
     if (hash.len != 40) return false;
     for (hash) |c| {
-        if (!isHexChar(c)) return false;
+        if (!((c >= '0' and c <= '9') or (c >= 'a' and c <= 'f') or (c >= 'A' and c <= 'F'))) return false;
     }
     return true;
 }
 
-fn isHexChar(c: u8) bool {
-    return (c >= '0' and c <= '9') or (c >= 'a' and c <= 'f') or (c >= 'A' and c <= 'F');
-}
-
-/// Generate a random SyncEntry.Status.
 fn genStatus(random: std.Random) SyncEntry.Status {
-    return switch (random.uintAtMost(u8, 2)) {
+    return switch (random.uintAtMost(u8, 3)) {
         0 => .integrated,
         1 => .conflict,
         2 => .skipped,
+        3 => .ai_resolved,
         else => unreachable,
     };
 }
 
-/// Generate a random list of conflicting file paths.
-fn genConflictingFiles(random: std.Random, allocator: std.mem.Allocator) ![]const []const u8 {
-    const count = 1 + random.uintAtMost(usize, 4); // 1..5 files
-    const files = try allocator.alloc([]const u8, count);
-    const path_pool = [_][]const u8{
-        "lib/sig/fmt.zig",
-        "src/main.zig",
-        "lib/sig/io.zig",
-        "tools/sig_sync/main.zig",
-        "lib/sig/containers.zig",
-        "src/Compilation.zig",
-        "lib/sig/string.zig",
-    };
-    for (files) |*f| {
-        f.* = path_pool[random.uintAtMost(usize, path_pool.len - 1)];
+const path_pool = [_][]const u8{
+    "lib/sig/fmt.zig",
+    "src/main.zig",
+    "lib/sig/io.zig",
+    "tools/sig_sync/main.zig",
+    "lib/sig/containers.zig",
+};
+
+fn genSyncEntry(random: std.Random) SyncEntry {
+    var entry = SyncEntry{};
+    var hash_buf: [40]u8 = undefined;
+    genCommitHash(random, &hash_buf);
+    entry.setCommit(&hash_buf);
+    entry.timestamp = random.int(i64) & 0x7FFFFFFF;
+    entry.status = genStatus(random);
+    if (entry.status == .conflict or entry.status == .ai_resolved) {
+        const count = 1 + random.uintAtMost(usize, 3);
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            entry.addConflictFile(path_pool[random.uintAtMost(usize, path_pool.len - 1)]);
+        }
     }
-    return files;
-}
-
-/// Generate a random SyncEntry with proper invariants:
-/// - conflict entries have non-empty conflicting_files
-/// - non-conflict entries have null conflicting_files
-fn genSyncEntry(random: std.Random, allocator: std.mem.Allocator, hash_buf: *[40]u8) !SyncEntry {
-    genCommitHash(random, hash_buf);
-    const status = genStatus(random);
-    const timestamp = random.int(i64) & 0x7FFFFFFF; // positive timestamp
-
-    const conflicting_files: ?[]const []const u8 = switch (status) {
-        .conflict => try genConflictingFiles(random, allocator),
-        .integrated, .skipped => null,
-    };
-
-    return SyncEntry{
-        .upstream_commit = hash_buf,
-        .timestamp = timestamp,
-        .status = status,
-        .conflicting_files = conflicting_files,
-    };
+    return entry;
 }
 
 // ---------------------------------------------------------------------------
 // Property 15: Sync manifest integrity
 // ---------------------------------------------------------------------------
 
-test "Property 15: serialize-parse round trip preserves one entry per commit" {
+test "Property 15: serialize-parse round trip preserves entry count" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
-            const gpa = std.testing.allocator;
-
-            // Generate 1..8 random entries
             const entry_count = 1 + random.uintAtMost(usize, 7);
-            var entries = try gpa.alloc(SyncEntry, entry_count);
-            defer gpa.free(entries);
+            var manifest = SyncManifest{};
+            var first_hash: [40]u8 = undefined;
+            genCommitHash(random, &first_hash);
+            manifest.setLastCommit(&first_hash);
+            manifest.last_integration_timestamp = random.int(i64) & 0x7FFFFFFF;
 
-            // We need stable storage for the hash strings
-            var hash_bufs = try gpa.alloc([40]u8, entry_count);
-            defer gpa.free(hash_bufs);
-
-            // Track allocated conflicting_files for cleanup
-            var conflict_allocs = try gpa.alloc(?[]const []const u8, entry_count);
-            defer gpa.free(conflict_allocs);
-
-            for (0..entry_count) |i| {
-                entries[i] = try genSyncEntry(random, gpa, &hash_bufs[i]);
-                conflict_allocs[i] = entries[i].conflicting_files;
-            }
-            defer {
-                for (conflict_allocs) |maybe_files| {
-                    if (maybe_files) |files| {
-                        gpa.free(files);
-                    }
-                }
+            var i: usize = 0;
+            while (i < entry_count) : (i += 1) {
+                manifest.addEntry(genSyncEntry(random));
             }
 
-            // Build manifest
-            const manifest = SyncManifest{
-                .last_integrated_commit = &hash_bufs[0],
-                .last_integration_timestamp = entries[0].timestamp,
-                .entries = entries,
-            };
-
-            // Serialize to JSON
-            const json = try sig_sync.serializeManifest(gpa, manifest);
-            defer gpa.free(json);
-
-            // Parse back
-            const parsed_result = try sig_sync.parseManifestOwned(gpa, json);
-            defer parsed_result.deinit();
-            const parsed = parsed_result.value;
-
-            // Verify: one entry per commit
-            try std.testing.expectEqual(entry_count, parsed.entries.len);
+            var buf: [32768]u8 = undefined;
+            const json = try sig_sync.serializeManifest(&manifest, &buf);
+            const parsed = sig_sync.parseManifest(json);
+            try std.testing.expectEqual(entry_count, parsed.entry_count);
         }
     };
-    harness.property(
-        "serialize-parse round trip preserves one entry per commit",
-        S.run,
-    );
+    harness.property("serialize-parse round trip preserves entry count", S.run);
 }
 
 test "Property 15: every entry has a valid 40-char hex commit hash" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
-            const gpa = std.testing.allocator;
-
             const entry_count = 1 + random.uintAtMost(usize, 7);
-            var entries = try gpa.alloc(SyncEntry, entry_count);
-            defer gpa.free(entries);
+            var manifest = SyncManifest{};
+            var first_hash: [40]u8 = undefined;
+            genCommitHash(random, &first_hash);
+            manifest.setLastCommit(&first_hash);
+            manifest.last_integration_timestamp = random.int(i64) & 0x7FFFFFFF;
 
-            var hash_bufs = try gpa.alloc([40]u8, entry_count);
-            defer gpa.free(hash_bufs);
-
-            var conflict_allocs = try gpa.alloc(?[]const []const u8, entry_count);
-            defer gpa.free(conflict_allocs);
-
-            for (0..entry_count) |i| {
-                entries[i] = try genSyncEntry(random, gpa, &hash_bufs[i]);
-                conflict_allocs[i] = entries[i].conflicting_files;
-            }
-            defer {
-                for (conflict_allocs) |maybe_files| {
-                    if (maybe_files) |files| {
-                        gpa.free(files);
-                    }
-                }
+            var i: usize = 0;
+            while (i < entry_count) : (i += 1) {
+                manifest.addEntry(genSyncEntry(random));
             }
 
-            const manifest = SyncManifest{
-                .last_integrated_commit = &hash_bufs[0],
-                .last_integration_timestamp = entries[0].timestamp,
-                .entries = entries,
-            };
+            var buf: [32768]u8 = undefined;
+            const json = try sig_sync.serializeManifest(&manifest, &buf);
+            const parsed = sig_sync.parseManifest(json);
 
-            const json = try sig_sync.serializeManifest(gpa, manifest);
-            defer gpa.free(json);
-
-            const parsed_result = try sig_sync.parseManifestOwned(gpa, json);
-            defer parsed_result.deinit();
-            const parsed = parsed_result.value;
-
-            // Verify: each entry has a valid 40-char hex commit hash
-            for (parsed.entries) |entry| {
-                try std.testing.expect(isValidCommitHash(entry.upstream_commit));
+            var j: usize = 0;
+            while (j < parsed.entry_count) : (j += 1) {
+                try std.testing.expect(isValidCommitHash(parsed.entries[j].commit()));
             }
         }
     };
-    harness.property(
-        "every entry has a valid 40-char hex commit hash",
-        S.run,
-    );
+    harness.property("every entry has a valid 40-char hex commit hash", S.run);
 }
 
-test "Property 15: status is one of integrated, conflict, or skipped" {
+test "Property 15: status is one of integrated, conflict, skipped, or ai_resolved" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
-            const gpa = std.testing.allocator;
-
             const entry_count = 1 + random.uintAtMost(usize, 7);
-            var entries = try gpa.alloc(SyncEntry, entry_count);
-            defer gpa.free(entries);
+            var manifest = SyncManifest{};
+            var first_hash: [40]u8 = undefined;
+            genCommitHash(random, &first_hash);
+            manifest.setLastCommit(&first_hash);
+            manifest.last_integration_timestamp = random.int(i64) & 0x7FFFFFFF;
 
-            var hash_bufs = try gpa.alloc([40]u8, entry_count);
-            defer gpa.free(hash_bufs);
-
-            var conflict_allocs = try gpa.alloc(?[]const []const u8, entry_count);
-            defer gpa.free(conflict_allocs);
-
-            for (0..entry_count) |i| {
-                entries[i] = try genSyncEntry(random, gpa, &hash_bufs[i]);
-                conflict_allocs[i] = entries[i].conflicting_files;
-            }
-            defer {
-                for (conflict_allocs) |maybe_files| {
-                    if (maybe_files) |files| {
-                        gpa.free(files);
-                    }
-                }
+            var i: usize = 0;
+            while (i < entry_count) : (i += 1) {
+                manifest.addEntry(genSyncEntry(random));
             }
 
-            const manifest = SyncManifest{
-                .last_integrated_commit = &hash_bufs[0],
-                .last_integration_timestamp = entries[0].timestamp,
-                .entries = entries,
-            };
+            var buf: [32768]u8 = undefined;
+            const json = try sig_sync.serializeManifest(&manifest, &buf);
+            const parsed = sig_sync.parseManifest(json);
 
-            const json = try sig_sync.serializeManifest(gpa, manifest);
-            defer gpa.free(json);
-
-            const parsed_result = try sig_sync.parseManifestOwned(gpa, json);
-            defer parsed_result.deinit();
-            const parsed = parsed_result.value;
-
-            // Verify: status is one of the three valid values
-            for (parsed.entries) |entry| {
-                const valid = entry.status == .integrated or
-                    entry.status == .conflict or
-                    entry.status == .skipped;
+            var j: usize = 0;
+            while (j < parsed.entry_count) : (j += 1) {
+                const valid = parsed.entries[j].status == .integrated or
+                    parsed.entries[j].status == .conflict or
+                    parsed.entries[j].status == .skipped or
+                    parsed.entries[j].status == .ai_resolved;
                 try std.testing.expect(valid);
             }
         }
     };
-    harness.property(
-        "status is one of integrated, conflict, or skipped",
-        S.run,
-    );
+    harness.property("status is one of integrated, conflict, skipped, or ai_resolved", S.run);
 }
 
-test "Property 15: conflict entries have non-empty conflicting_files, others have null" {
+test "Property 15: conflict entries have non-zero conflict_count, others have zero" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
-            const gpa = std.testing.allocator;
-
             const entry_count = 1 + random.uintAtMost(usize, 7);
-            var entries = try gpa.alloc(SyncEntry, entry_count);
-            defer gpa.free(entries);
+            var manifest = SyncManifest{};
+            var first_hash: [40]u8 = undefined;
+            genCommitHash(random, &first_hash);
+            manifest.setLastCommit(&first_hash);
+            manifest.last_integration_timestamp = random.int(i64) & 0x7FFFFFFF;
 
-            var hash_bufs = try gpa.alloc([40]u8, entry_count);
-            defer gpa.free(hash_bufs);
-
-            var conflict_allocs = try gpa.alloc(?[]const []const u8, entry_count);
-            defer gpa.free(conflict_allocs);
-
-            for (0..entry_count) |i| {
-                entries[i] = try genSyncEntry(random, gpa, &hash_bufs[i]);
-                conflict_allocs[i] = entries[i].conflicting_files;
-            }
-            defer {
-                for (conflict_allocs) |maybe_files| {
-                    if (maybe_files) |files| {
-                        gpa.free(files);
-                    }
-                }
+            var i: usize = 0;
+            while (i < entry_count) : (i += 1) {
+                manifest.addEntry(genSyncEntry(random));
             }
 
-            const manifest = SyncManifest{
-                .last_integrated_commit = &hash_bufs[0],
-                .last_integration_timestamp = entries[0].timestamp,
-                .entries = entries,
-            };
+            var buf: [32768]u8 = undefined;
+            const json = try sig_sync.serializeManifest(&manifest, &buf);
+            const parsed = sig_sync.parseManifest(json);
 
-            const json = try sig_sync.serializeManifest(gpa, manifest);
-            defer gpa.free(json);
-
-            const parsed_result = try sig_sync.parseManifestOwned(gpa, json);
-            defer parsed_result.deinit();
-            const parsed = parsed_result.value;
-
-            for (parsed.entries) |entry| {
-                switch (entry.status) {
-                    .conflict => {
-                        // Conflict entries must have non-empty conflicting_files
-                        try std.testing.expect(entry.conflicting_files != null);
-                        try std.testing.expect(entry.conflicting_files.?.len > 0);
+            var j: usize = 0;
+            while (j < parsed.entry_count) : (j += 1) {
+                switch (parsed.entries[j].status) {
+                    .conflict, .ai_resolved => {
+                        try std.testing.expect(parsed.entries[j].conflict_count > 0);
                     },
                     .integrated, .skipped => {
-                        // Non-conflict entries must have null conflicting_files
-                        try std.testing.expect(entry.conflicting_files == null);
+                        try std.testing.expectEqual(@as(usize, 0), parsed.entries[j].conflict_count);
                     },
                 }
             }
         }
     };
-    harness.property(
-        "conflict entries have non-empty conflicting_files, others have null",
-        S.run,
-    );
+    harness.property("conflict entries have non-zero conflict_count, others have zero", S.run);
 }

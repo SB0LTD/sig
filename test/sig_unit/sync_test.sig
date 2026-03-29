@@ -25,45 +25,37 @@ test "parseManifest with known single integrated entry" {
         \\  ]
         \\}
     ;
-    const parsed = try sig_sync.parseManifestOwned(testing.allocator, json);
-    defer parsed.deinit();
-    const m = parsed.value;
+    const m = sig_sync.parseManifest(json);
 
-    try testing.expectEqualStrings("deadbeef1234567890abcdef1234567890abcdef", m.last_integrated_commit);
+    try testing.expectEqualStrings("deadbeef1234567890abcdef1234567890abcdef", m.lastCommit());
     try testing.expectEqual(@as(i64, 1710000000), m.last_integration_timestamp);
-    try testing.expectEqual(@as(usize, 1), m.entries.len);
-    try testing.expectEqualStrings("deadbeef1234567890abcdef1234567890abcdef", m.entries[0].upstream_commit);
+    try testing.expectEqual(@as(usize, 1), m.entry_count);
+    try testing.expectEqualStrings("deadbeef1234567890abcdef1234567890abcdef", m.entries[0].commit());
     try testing.expectEqual(SyncEntry.Status.integrated, m.entries[0].status);
-    try testing.expect(m.entries[0].conflicting_files == null);
+    try testing.expectEqual(@as(usize, 0), m.entries[0].conflict_count);
 }
 
 test "serializeManifest produces valid JSON that round-trips" {
-    const allocator = testing.allocator;
-    const original = SyncManifest{
-        .last_integrated_commit = "aabbccdd00112233445566778899aabbccddeeff",
-        .last_integration_timestamp = 1720000000,
-        .entries = &.{
-            .{
-                .upstream_commit = "aabbccdd00112233445566778899aabbccddeeff",
-                .timestamp = 1720000000,
-                .status = .integrated,
-                .conflicting_files = null,
-            },
-        },
-    };
+    var original = SyncManifest{};
+    original.setLastCommit("aabbccdd00112233445566778899aabbccddeeff");
+    original.last_integration_timestamp = 1720000000;
+    var entry = SyncEntry{};
+    entry.setCommit("aabbccdd00112233445566778899aabbccddeeff");
+    entry.timestamp = 1720000000;
+    entry.status = .integrated;
+    original.addEntry(entry);
 
-    const json = try sig_sync.serializeManifest(allocator, original);
-    defer allocator.free(json);
+    var buf: [8192]u8 = undefined;
+    const json = try sig_sync.serializeManifest(&original, &buf);
 
-    const parsed = try sig_sync.parseManifestOwned(allocator, json);
-    defer parsed.deinit();
-    const m = parsed.value;
+    const m = sig_sync.parseManifest(json);
 
-    try testing.expectEqualStrings("aabbccdd00112233445566778899aabbccddeeff", m.last_integrated_commit);
+    try testing.expectEqualStrings("aabbccdd00112233445566778899aabbccddeeff", m.lastCommit());
     try testing.expectEqual(@as(i64, 1720000000), m.last_integration_timestamp);
-    try testing.expectEqual(@as(usize, 1), m.entries.len);
+    try testing.expectEqual(@as(usize, 1), m.entry_count);
     try testing.expectEqual(SyncEntry.Status.integrated, m.entries[0].status);
 }
+
 
 // ── Conflict Detection ──────────────────────────────────────────────────
 
@@ -82,20 +74,17 @@ test "conflict entry has non-empty conflicting_files list" {
         \\  ]
         \\}
     ;
-    const parsed = try sig_sync.parseManifestOwned(testing.allocator, json);
-    defer parsed.deinit();
-    const entry = parsed.value.entries[0];
+    const m = sig_sync.parseManifest(json);
+    const entry = m.entries[0];
 
     try testing.expectEqual(SyncEntry.Status.conflict, entry.status);
-    try testing.expect(entry.conflicting_files != null);
-    const files = entry.conflicting_files.?;
-    try testing.expectEqual(@as(usize, 3), files.len);
-    try testing.expectEqualStrings("lib/sig/fmt.zig", files[0]);
-    try testing.expectEqualStrings("src/main.zig", files[1]);
-    try testing.expectEqualStrings("build.zig", files[2]);
+    try testing.expectEqual(@as(usize, 3), entry.conflict_count);
+    try testing.expectEqualStrings("lib/sig/fmt.zig", entry.conflictFile(0));
+    try testing.expectEqualStrings("src/main.zig", entry.conflictFile(1));
+    try testing.expectEqualStrings("build.zig", entry.conflictFile(2));
 }
 
-test "integrated entry has null conflicting_files" {
+test "integrated entry has zero conflict_count" {
     const json =
         \\{
         \\  "last_integrated_commit": "aaaa000000000000000000000000000000000000",
@@ -110,210 +99,183 @@ test "integrated entry has null conflicting_files" {
         \\  ]
         \\}
     ;
-    const parsed = try sig_sync.parseManifestOwned(testing.allocator, json);
-    defer parsed.deinit();
-    const entry = parsed.value.entries[0];
+    const m = sig_sync.parseManifest(json);
+    const entry = m.entries[0];
 
     try testing.expectEqual(SyncEntry.Status.integrated, entry.status);
-    try testing.expect(entry.conflicting_files == null);
+    try testing.expectEqual(@as(usize, 0), entry.conflict_count);
 }
 
 test "conflict entry round-trips through serialize/parse with files preserved" {
-    const allocator = testing.allocator;
-    const files: []const []const u8 = &.{ "lib/sig/io.zig", "tools/sig_sync/main.zig" };
-    const manifest = SyncManifest{
-        .last_integrated_commit = "cccccccccccccccccccccccccccccccccccccccc",
-        .last_integration_timestamp = 1700005000,
-        .entries = &.{
-            .{
-                .upstream_commit = "dddddddddddddddddddddddddddddddddddddddd"[0..40],
-                .timestamp = 1700005000,
-                .status = .conflict,
-                .conflicting_files = files,
-            },
-        },
-    };
+    var manifest = SyncManifest{};
+    manifest.setLastCommit("cccccccccccccccccccccccccccccccccccccccc");
+    manifest.last_integration_timestamp = 1700005000;
+    var entry = SyncEntry{};
+    entry.setCommit("dddddddddddddddddddddddddddddddddddddd");
+    entry.timestamp = 1700005000;
+    entry.status = .conflict;
+    entry.addConflictFile("lib/sig/io.zig");
+    entry.addConflictFile("tools/sig_sync/main.zig");
+    manifest.addEntry(entry);
 
-    const json = try sig_sync.serializeManifest(allocator, manifest);
-    defer allocator.free(json);
+    var buf: [8192]u8 = undefined;
+    const json = try sig_sync.serializeManifest(&manifest, &buf);
 
-    const parsed = try sig_sync.parseManifestOwned(allocator, json);
-    defer parsed.deinit();
-    const entry = parsed.value.entries[0];
+    const parsed = sig_sync.parseManifest(json);
+    const pe = parsed.entries[0];
 
-    try testing.expectEqual(SyncEntry.Status.conflict, entry.status);
-    try testing.expect(entry.conflicting_files != null);
-    const parsed_files = entry.conflicting_files.?;
-    try testing.expectEqual(@as(usize, 2), parsed_files.len);
-    try testing.expectEqualStrings("lib/sig/io.zig", parsed_files[0]);
-    try testing.expectEqualStrings("tools/sig_sync/main.zig", parsed_files[1]);
+    try testing.expectEqual(SyncEntry.Status.conflict, pe.status);
+    try testing.expectEqual(@as(usize, 2), pe.conflict_count);
+    try testing.expectEqualStrings("lib/sig/io.zig", pe.conflictFile(0));
+    try testing.expectEqualStrings("tools/sig_sync/main.zig", pe.conflictFile(1));
 }
+
 
 // ── Entry Recording — all fields preserved ──────────────────────────────
 
 test "all SyncEntry fields preserved through serialize/parse round trip" {
-    const allocator = testing.allocator;
-    const files: []const []const u8 = &.{"src/Compilation.zig"};
-    const manifest = SyncManifest{
-        .last_integrated_commit = "abcdef0123456789abcdef0123456789abcdef01",
-        .last_integration_timestamp = 1699999999,
-        .entries = &.{
-            .{
-                .upstream_commit = "1234567890abcdef1234567890abcdef12345678",
-                .timestamp = 1699999000,
-                .status = .integrated,
-                .conflicting_files = null,
-            },
-            .{
-                .upstream_commit = "abcdef0123456789abcdef0123456789abcdef01",
-                .timestamp = 1699999500,
-                .status = .conflict,
-                .conflicting_files = files,
-            },
-            .{
-                .upstream_commit = "fedcba9876543210fedcba9876543210fedcba98",
-                .timestamp = 1699999999,
-                .status = .skipped,
-                .conflicting_files = null,
-            },
-        },
-    };
-
-    const json = try sig_sync.serializeManifest(allocator, manifest);
-    defer allocator.free(json);
-
-    const parsed = try sig_sync.parseManifestOwned(allocator, json);
-    defer parsed.deinit();
-    const m = parsed.value;
-
-    // Top-level fields
-    try testing.expectEqualStrings("abcdef0123456789abcdef0123456789abcdef01", m.last_integrated_commit);
-    try testing.expectEqual(@as(i64, 1699999999), m.last_integration_timestamp);
-    try testing.expectEqual(@as(usize, 3), m.entries.len);
+    var manifest = SyncManifest{};
+    manifest.setLastCommit("abcdef0123456789abcdef0123456789abcdef01");
+    manifest.last_integration_timestamp = 1699999999;
 
     // Entry 0: integrated
-    try testing.expectEqualStrings("1234567890abcdef1234567890abcdef12345678", m.entries[0].upstream_commit);
-    try testing.expectEqual(@as(i64, 1699999000), m.entries[0].timestamp);
-    try testing.expectEqual(SyncEntry.Status.integrated, m.entries[0].status);
-    try testing.expect(m.entries[0].conflicting_files == null);
+    var e0 = SyncEntry{};
+    e0.setCommit("1234567890abcdef1234567890abcdef12345678");
+    e0.timestamp = 1699999000;
+    e0.status = .integrated;
+    manifest.addEntry(e0);
 
-    // Entry 1: conflict
-    try testing.expectEqualStrings("abcdef0123456789abcdef0123456789abcdef01", m.entries[1].upstream_commit);
-    try testing.expectEqual(@as(i64, 1699999500), m.entries[1].timestamp);
-    try testing.expectEqual(SyncEntry.Status.conflict, m.entries[1].status);
-    try testing.expect(m.entries[1].conflicting_files != null);
-    try testing.expectEqual(@as(usize, 1), m.entries[1].conflicting_files.?.len);
-    try testing.expectEqualStrings("src/Compilation.zig", m.entries[1].conflicting_files.?[0]);
+    // Entry 1: conflict with file
+    var e1 = SyncEntry{};
+    e1.setCommit("abcdef0123456789abcdef0123456789abcdef01");
+    e1.timestamp = 1699999500;
+    e1.status = .conflict;
+    e1.addConflictFile("src/Compilation.zig");
+    manifest.addEntry(e1);
 
     // Entry 2: skipped
-    try testing.expectEqualStrings("fedcba9876543210fedcba9876543210fedcba98", m.entries[2].upstream_commit);
+    var e2 = SyncEntry{};
+    e2.setCommit("fedcba9876543210fedcba9876543210fedcba98");
+    e2.timestamp = 1699999999;
+    e2.status = .skipped;
+    manifest.addEntry(e2);
+
+    var buf: [16384]u8 = undefined;
+    const json = try sig_sync.serializeManifest(&manifest, &buf);
+
+    const m = sig_sync.parseManifest(json);
+
+    // Top-level fields
+    try testing.expectEqualStrings("abcdef0123456789abcdef0123456789abcdef01", m.lastCommit());
+    try testing.expectEqual(@as(i64, 1699999999), m.last_integration_timestamp);
+    try testing.expectEqual(@as(usize, 3), m.entry_count);
+
+    // Entry 0: integrated
+    try testing.expectEqualStrings("1234567890abcdef1234567890abcdef12345678", m.entries[0].commit());
+    try testing.expectEqual(@as(i64, 1699999000), m.entries[0].timestamp);
+    try testing.expectEqual(SyncEntry.Status.integrated, m.entries[0].status);
+    try testing.expectEqual(@as(usize, 0), m.entries[0].conflict_count);
+
+    // Entry 1: conflict
+    try testing.expectEqualStrings("abcdef0123456789abcdef0123456789abcdef01", m.entries[1].commit());
+    try testing.expectEqual(@as(i64, 1699999500), m.entries[1].timestamp);
+    try testing.expectEqual(SyncEntry.Status.conflict, m.entries[1].status);
+    try testing.expectEqual(@as(usize, 1), m.entries[1].conflict_count);
+    try testing.expectEqualStrings("src/Compilation.zig", m.entries[1].conflictFile(0));
+
+    // Entry 2: skipped
+    try testing.expectEqualStrings("fedcba9876543210fedcba9876543210fedcba98", m.entries[2].commit());
     try testing.expectEqual(@as(i64, 1699999999), m.entries[2].timestamp);
     try testing.expectEqual(SyncEntry.Status.skipped, m.entries[2].status);
-    try testing.expect(m.entries[2].conflicting_files == null);
+    try testing.expectEqual(@as(usize, 0), m.entries[2].conflict_count);
 }
+
 
 // ── Edge Cases ──────────────────────────────────────────────────────────
 
 test "empty manifest parses to defaults" {
-    const m = try sig_sync.parseManifest(testing.allocator, "");
-    try testing.expectEqualStrings("", m.last_integrated_commit);
+    const m = sig_sync.parseManifest("");
+    try testing.expectEqualStrings("", m.lastCommit());
     try testing.expectEqual(@as(i64, 0), m.last_integration_timestamp);
-    try testing.expectEqual(@as(usize, 0), m.entries.len);
+    try testing.expectEqual(@as(usize, 0), m.entry_count);
 }
 
 test "empty manifest serializes and round-trips" {
-    const allocator = testing.allocator;
-    const manifest = SyncManifest{};
+    var manifest = SyncManifest{};
 
-    const json = try sig_sync.serializeManifest(allocator, manifest);
-    defer allocator.free(json);
+    var buf: [8192]u8 = undefined;
+    const json = try sig_sync.serializeManifest(&manifest, &buf);
 
-    const parsed = try sig_sync.parseManifestOwned(allocator, json);
-    defer parsed.deinit();
-    const m = parsed.value;
+    const m = sig_sync.parseManifest(json);
 
-    try testing.expectEqualStrings("", m.last_integrated_commit);
+    try testing.expectEqualStrings("", m.lastCommit());
     try testing.expectEqual(@as(i64, 0), m.last_integration_timestamp);
-    try testing.expectEqual(@as(usize, 0), m.entries.len);
+    try testing.expectEqual(@as(usize, 0), m.entry_count);
 }
 
 test "single entry manifest round-trips correctly" {
-    const allocator = testing.allocator;
-    const manifest = SyncManifest{
-        .last_integrated_commit = "0000000000000000000000000000000000000001",
-        .last_integration_timestamp = 1,
-        .entries = &.{
-            .{
-                .upstream_commit = "0000000000000000000000000000000000000001",
-                .timestamp = 1,
-                .status = .skipped,
-                .conflicting_files = null,
-            },
-        },
-    };
+    var manifest = SyncManifest{};
+    manifest.setLastCommit("0000000000000000000000000000000000000001");
+    manifest.last_integration_timestamp = 1;
+    var entry = SyncEntry{};
+    entry.setCommit("0000000000000000000000000000000000000001");
+    entry.timestamp = 1;
+    entry.status = .skipped;
+    manifest.addEntry(entry);
 
-    const json = try sig_sync.serializeManifest(allocator, manifest);
-    defer allocator.free(json);
+    var buf: [8192]u8 = undefined;
+    const json = try sig_sync.serializeManifest(&manifest, &buf);
 
-    const parsed = try sig_sync.parseManifestOwned(allocator, json);
-    defer parsed.deinit();
+    const parsed = sig_sync.parseManifest(json);
 
-    try testing.expectEqual(@as(usize, 1), parsed.value.entries.len);
-    try testing.expectEqual(SyncEntry.Status.skipped, parsed.value.entries[0].status);
+    try testing.expectEqual(@as(usize, 1), parsed.entry_count);
+    try testing.expectEqual(SyncEntry.Status.skipped, parsed.entries[0].status);
 }
 
 test "many entries manifest round-trips preserving count" {
-    const allocator = testing.allocator;
-    var entries_buf: [10]SyncEntry = undefined;
-    for (&entries_buf, 0..) |*e, i| {
-        e.* = .{
-            .upstream_commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            .timestamp = @as(i64, @intCast(i)) * 1000,
-            .status = if (i % 3 == 0) .integrated else if (i % 3 == 1) .conflict else .skipped,
-            .conflicting_files = if (i % 3 == 1) @as([]const []const u8, &.{"file.zig"}) else null,
-        };
+    var manifest = SyncManifest{};
+    manifest.setLastCommit("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    manifest.last_integration_timestamp = 9000;
+
+    var i: usize = 0;
+    while (i < 10) : (i += 1) {
+        var entry = SyncEntry{};
+        entry.setCommit("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        entry.timestamp = @as(i64, @intCast(i)) * 1000;
+        entry.status = if (i % 3 == 0) .integrated else if (i % 3 == 1) .conflict else .skipped;
+        if (i % 3 == 1) {
+            entry.addConflictFile("file.zig");
+        }
+        manifest.addEntry(entry);
     }
 
-    const manifest = SyncManifest{
-        .last_integrated_commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        .last_integration_timestamp = 9000,
-        .entries = &entries_buf,
-    };
+    var buf: [32768]u8 = undefined;
+    const json = try sig_sync.serializeManifest(&manifest, &buf);
 
-    const json = try sig_sync.serializeManifest(allocator, manifest);
-    defer allocator.free(json);
+    const parsed = sig_sync.parseManifest(json);
 
-    const parsed = try sig_sync.parseManifestOwned(allocator, json);
-    defer parsed.deinit();
-
-    try testing.expectEqual(@as(usize, 10), parsed.value.entries.len);
+    try testing.expectEqual(@as(usize, 10), parsed.entry_count);
 }
 
 test "large commit hash (all f's) round-trips" {
-    const allocator = testing.allocator;
-    const big_hash = "ffffffffffffffffffffffffffffffffffffffff";
-    const manifest = SyncManifest{
-        .last_integrated_commit = big_hash,
-        .last_integration_timestamp = 2147483647,
-        .entries = &.{
-            .{
-                .upstream_commit = big_hash,
-                .timestamp = 2147483647,
-                .status = .integrated,
-                .conflicting_files = null,
-            },
-        },
-    };
+    var manifest = SyncManifest{};
+    manifest.setLastCommit("ffffffffffffffffffffffffffffffffffffffff");
+    manifest.last_integration_timestamp = 2147483647;
+    var entry = SyncEntry{};
+    entry.setCommit("ffffffffffffffffffffffffffffffffffffffff");
+    entry.timestamp = 2147483647;
+    entry.status = .integrated;
+    manifest.addEntry(entry);
 
-    const json = try sig_sync.serializeManifest(allocator, manifest);
-    defer allocator.free(json);
+    var buf: [8192]u8 = undefined;
+    const json = try sig_sync.serializeManifest(&manifest, &buf);
 
-    const parsed = try sig_sync.parseManifestOwned(allocator, json);
-    defer parsed.deinit();
+    const parsed = sig_sync.parseManifest(json);
 
-    try testing.expectEqualStrings(big_hash, parsed.value.last_integrated_commit);
-    try testing.expectEqualStrings(big_hash, parsed.value.entries[0].upstream_commit);
+    try testing.expectEqualStrings("ffffffffffffffffffffffffffffffffffffffff", parsed.lastCommit());
+    try testing.expectEqualStrings("ffffffffffffffffffffffffffffffffffffffff", parsed.entries[0].commit());
 }
+
 
 // ── Mixed Statuses ──────────────────────────────────────────────────────
 
@@ -344,41 +306,33 @@ test "multiple entries with mixed statuses preserve all fields" {
         \\  ]
         \\}
     ;
-    const parsed = try sig_sync.parseManifestOwned(testing.allocator, json);
-    defer parsed.deinit();
-    const m = parsed.value;
+    const m = sig_sync.parseManifest(json);
 
-    try testing.expectEqual(@as(usize, 3), m.entries.len);
+    try testing.expectEqual(@as(usize, 3), m.entry_count);
     try testing.expectEqual(SyncEntry.Status.integrated, m.entries[0].status);
     try testing.expectEqual(SyncEntry.Status.conflict, m.entries[1].status);
     try testing.expectEqual(SyncEntry.Status.skipped, m.entries[2].status);
 
     // Only the conflict entry has files
-    try testing.expect(m.entries[0].conflicting_files == null);
-    try testing.expect(m.entries[1].conflicting_files != null);
-    try testing.expectEqual(@as(usize, 1), m.entries[1].conflicting_files.?.len);
-    try testing.expect(m.entries[2].conflicting_files == null);
+    try testing.expectEqual(@as(usize, 0), m.entries[0].conflict_count);
+    try testing.expectEqual(@as(usize, 1), m.entries[1].conflict_count);
+    try testing.expectEqual(@as(usize, 0), m.entries[2].conflict_count);
 }
 
 // ── JSON Structure Verification ─────────────────────────────────────────
 
 test "serialized manifest JSON contains expected top-level keys" {
-    const allocator = testing.allocator;
-    const manifest = SyncManifest{
-        .last_integrated_commit = "0123456789abcdef0123456789abcdef01234567",
-        .last_integration_timestamp = 1700000000,
-        .entries = &.{
-            .{
-                .upstream_commit = "0123456789abcdef0123456789abcdef01234567",
-                .timestamp = 1700000000,
-                .status = .integrated,
-                .conflicting_files = null,
-            },
-        },
-    };
+    var manifest = SyncManifest{};
+    manifest.setLastCommit("0123456789abcdef0123456789abcdef01234567");
+    manifest.last_integration_timestamp = 1700000000;
+    var entry = SyncEntry{};
+    entry.setCommit("0123456789abcdef0123456789abcdef01234567");
+    entry.timestamp = 1700000000;
+    entry.status = .integrated;
+    manifest.addEntry(entry);
 
-    const json = try sig_sync.serializeManifest(allocator, manifest);
-    defer allocator.free(json);
+    var buf: [8192]u8 = undefined;
+    const json = try sig_sync.serializeManifest(&manifest, &buf);
 
     // Verify expected JSON keys are present
     try testing.expect(std.mem.indexOf(u8, json, "\"last_integrated_commit\"") != null);
@@ -391,20 +345,31 @@ test "serialized manifest JSON contains expected top-level keys" {
 }
 
 test "serialized manifest contains status string values not enum integers" {
-    const allocator = testing.allocator;
-    const files: []const []const u8 = &.{"a.zig"};
-    const manifest = SyncManifest{
-        .last_integrated_commit = "0000000000000000000000000000000000000000",
-        .last_integration_timestamp = 0,
-        .entries = &.{
-            .{ .upstream_commit = "1111111111111111111111111111111111111111", .timestamp = 1, .status = .integrated, .conflicting_files = null },
-            .{ .upstream_commit = "2222222222222222222222222222222222222222", .timestamp = 2, .status = .conflict, .conflicting_files = files },
-            .{ .upstream_commit = "3333333333333333333333333333333333333333", .timestamp = 3, .status = .skipped, .conflicting_files = null },
-        },
-    };
+    var manifest = SyncManifest{};
+    manifest.setLastCommit("0000000000000000000000000000000000000000");
+    manifest.last_integration_timestamp = 0;
 
-    const json = try sig_sync.serializeManifest(allocator, manifest);
-    defer allocator.free(json);
+    var e0 = SyncEntry{};
+    e0.setCommit("1111111111111111111111111111111111111111");
+    e0.timestamp = 1;
+    e0.status = .integrated;
+    manifest.addEntry(e0);
+
+    var e1 = SyncEntry{};
+    e1.setCommit("2222222222222222222222222222222222222222");
+    e1.timestamp = 2;
+    e1.status = .conflict;
+    e1.addConflictFile("a.zig");
+    manifest.addEntry(e1);
+
+    var e2 = SyncEntry{};
+    e2.setCommit("3333333333333333333333333333333333333333");
+    e2.timestamp = 3;
+    e2.status = .skipped;
+    manifest.addEntry(e2);
+
+    var buf: [16384]u8 = undefined;
+    const json = try sig_sync.serializeManifest(&manifest, &buf);
 
     // Status values are serialized as human-readable strings
     try testing.expect(std.mem.indexOf(u8, json, "\"integrated\"") != null);
@@ -413,7 +378,7 @@ test "serialized manifest contains status string values not enum integers" {
 }
 
 test "invalid JSON input returns default manifest" {
-    const m = try sig_sync.parseManifest(testing.allocator, "{invalid json!!}");
-    try testing.expectEqual(@as(usize, 0), m.entries.len);
-    try testing.expectEqualStrings("", m.last_integrated_commit);
+    const m = sig_sync.parseManifest("{invalid json!!}");
+    try testing.expectEqual(@as(usize, 0), m.entry_count);
+    try testing.expectEqualStrings("", m.lastCommit());
 }

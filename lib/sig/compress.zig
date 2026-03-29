@@ -119,7 +119,7 @@ fn compressImpl(comptime format: Format, input: []const u8, output: []u8) SigErr
         &out_writer,
         &window_buf,
         container,
-        .{},
+        std.compress.flate.Compress.Options.level_6,
     ) catch return error.BufferTooSmall;
     // Write uncompressed data to the compressor's writer.
     compressor.writer.writeAll(input) catch return error.BufferTooSmall;
