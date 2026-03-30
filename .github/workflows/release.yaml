@@ -59,10 +59,12 @@ jobs:
           mkdir build && cd build
           cmake .. -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="/usr/lib/llvm-21" \
+            -DCMAKE_PREFIX_PATH="/usr/lib/llvm-21;/usr" \
             -DCMAKE_INSTALL_PREFIX="$PWD/../bootstrap-sig" \
             -DZIG_TARGET_TRIPLE="x86_64-linux-musl" \
-            -DZIG_TARGET_MCPU=baseline
+            -DZIG_TARGET_MCPU=baseline \
+            -DZIG_STATIC_ZLIB=ON \
+            -DZIG_STATIC_ZSTD=ON
           ninja install -j$(nproc)
           cd ..
           bootstrap-sig/bin/sig version
