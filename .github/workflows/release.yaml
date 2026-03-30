@@ -90,24 +90,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Sig compiler  # [sig] Self-hosting: use setup-sig, fall back to zig for bootstrap
-        id: install-sig
+      - name: Install Sig compiler
         uses: ./tools/setup-sig
         with:
           version: latest
-        continue-on-error: true
-
-      - name: Bootstrap fallback — install upstream Zig if no Sig release exists yet
-        if: steps.install-sig.outcome == 'failure'
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0-dev.3013+abd131e33
 
       - name: Build release binary
         shell: bash
         run: |
           TARGET="${{ matrix.target }}"
-          # Map matrix target to zig target triple
           case "$TARGET" in
             x86_64-linux)    ZIG_TARGET="x86_64-linux-musl" ;;
             aarch64-linux)   ZIG_TARGET="aarch64-linux-musl" ;;
@@ -115,14 +106,8 @@ jobs:
             x86_64-windows)  ZIG_TARGET="x86_64-windows" ;;
           esac
 
-          # Use sig if available, otherwise zig (bootstrap only)
-          if command -v sig &>/dev/null; then
-            COMPILER=sig
-          else
-            COMPILER=zig
-          fi
-          echo "Building for ${ZIG_TARGET} with ${COMPILER}..."
-          $COMPILER build \
+          echo "Building for ${ZIG_TARGET} with sig..."
+          sig build \
             -Dtarget="${ZIG_TARGET}" \
             -Doptimize=ReleaseSafe \
             --prefix "sig-${VERSION}-${TARGET}" \
@@ -145,29 +130,21 @@ jobs:
           Compress-Archive -Path "sig-${env:VERSION}-${{ matrix.target }}" -DestinationPath $archive
           "ARCHIVE=$archive" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
 
-      - name: Verify identical output  # [sig] Regression gate: sig build must match zig build
-        if: matrix.target == 'x86_64-linux'  # Run on one target to avoid doubling build time
-        shell: bash
-        run: |
-          if command -v sig &>/dev/null; then
-            sig build --verify-identical \
-              -Dtarget=x86_64-linux-musl \
-              -Doptimize=ReleaseSafe
-          else
-            echo "::warning::sig not available, skipping verify-identical"
-          fi
-        timeout-minutes: 60
-
-      - name: Benchmark build performance  # [sig] Track build performance trends
+      - name: Verify identical output
         if: matrix.target == 'x86_64-linux'
         shell: bash
         run: |
-          if command -v sig &>/dev/null; then
-            mkdir -p benchmark-results
-            sig build --benchmark | tee benchmark-results/release-benchmark.txt
-          else
-            echo "::warning::sig not available, skipping benchmark"
-          fi
+          sig build --verify-identical \
+            -Dtarget=x86_64-linux-musl \
+            -Doptimize=ReleaseSafe
+        timeout-minutes: 60
+
+      - name: Benchmark build performance
+        if: matrix.target == 'x86_64-linux'
+        shell: bash
+        run: |
+          mkdir -p benchmark-results
+          sig build --benchmark | tee benchmark-results/release-benchmark.txt
         timeout-minutes: 30
 
       - name: Upload benchmark results
