@@ -1,9 +1,4 @@
 # [sig] Release pipeline — bootstrap + LLVM cross-compile for all 4 platforms
-#
-# Architecture:
-#   bootstrap: Resolve version + fast Debug build of sig (no lib, no langref)
-#   build:     4-way matrix using bootstrap binary + LLVM 19 for ReleaseSafe
-#   release:   Collect artifacts, checksums, publish GitHub release
 name: release
 
 on:
@@ -34,7 +29,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Resolve version
         id: version
         run: |
@@ -61,25 +55,15 @@ jobs:
           VERSION="${SIG_VER}+zig${ZIG_VER}.${SIG_HASH}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Resolved: sig=${SIG_VER}, zig=${ZIG_VER}, hash=${SIG_HASH}, full=${VERSION}"
-
       - name: Install Sig compiler
         uses: ./tools/setup-sig
         with:
           version: latest
-
       - name: Build bootstrap sig binary (Debug, minimal)
         run: |
-          echo "Bootstrap: building fast Debug sig binary..."
-          sig build \
-            -Doptimize=Debug \
-            -Dno-lib \
-            -Dno-langref \
-            --prefix bootstrap-sig \
-            --maxrss 0
-          ls -la bootstrap-sig/bin/
+          sig build -Doptimize=Debug -Dno-lib -Dno-langref --prefix bootstrap-sig --maxrss 0
           bootstrap-sig/bin/sig version
         timeout-minutes: 30
-
       - name: Upload bootstrap compiler
         uses: actions/upload-artifact@v4
         with:
@@ -111,31 +95,38 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Download bootstrap compiler
         uses: actions/download-artifact@v4
         with:
           name: bootstrap-sig
           path: bootstrap-sig
-
       - name: Install bootstrap sig on PATH
         run: |
           chmod +x bootstrap-sig/bin/sig
           echo "$PWD/bootstrap-sig/bin" >> "$GITHUB_PATH"
-          bootstrap-sig/bin/sig version
-
-      - name: Install LLVM 21
+      - name: Install LLVM 21 and dependencies
         run: |
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
           echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm-21.list
           sudo apt-get update -qq
-          sudo apt-get install -y -qq llvm-21-dev lld-21 libclang-21-dev liblld-21-dev libz-dev libzstd-dev
-          echo "LLVM_PREFIX=/usr/lib/llvm-21" >> "$GITHUB_ENV"
+          sudo apt-get install -y -qq llvm-21-dev lld-21 libclang-21-dev liblld-21-dev zlib1g-dev libzstd-dev
+          echo "--- Debug: checking library availability ---"
+          ls /usr/lib/llvm-21/lib/libLLVM*.a 2>/dev/null | head -3 || echo "No LLVM static libs"
+          ls /usr/lib/x86_64-linux-gnu/libz.* 2>/dev/null || echo "No libz"
+          ls /usr/lib/x86_64-linux-gnu/libzstd.* 2>/dev/null || echo "No libzstd"
+          echo "--- Symlinking system libs into LLVM prefix ---"
+          for lib in libz.a libz.so libzstd.a libzstd.so; do
+            src="/usr/lib/x86_64-linux-gnu/$lib"
+            if [ -e "$src" ]; then
+              sudo ln -sf "$src" "/usr/lib/llvm-21/lib/$lib"
+              echo "OK: $lib"
+            else
+              echo "MISSING: $src"
+            fi
+          done
         timeout-minutes: 10
-
       - name: Build sig for ${{ matrix.target }}
         run: |
-          echo "Building ${{ matrix.zig_target }} with LLVM 21 (ReleaseSafe)..."
           sig build \
             -Dtarget=${{ matrix.zig_target }} \
             -Doptimize=ReleaseSafe \
@@ -143,35 +134,22 @@ jobs:
             -Dstatic-llvm \
             -Dno-lib \
             -Dno-langref \
-            --search-prefix "$LLVM_PREFIX" \
-            --search-prefix /usr \
+            --search-prefix /usr/lib/llvm-21 \
             --prefix "sig-${VERSION}-${{ matrix.target }}" \
             --maxrss 0
         timeout-minutes: 120
-
       - name: Install lib files
         run: |
-          sig build \
-            -Dlib-files-only \
-            --prefix "sig-${VERSION}-${{ matrix.target }}" \
-            --maxrss 0
+          sig build -Dlib-files-only --prefix "sig-${VERSION}-${{ matrix.target }}" --maxrss 0
         timeout-minutes: 10
-
-      - name: Run side-by-side benchmarks
+      - name: Run benchmarks
         if: matrix.target == 'x86_64-linux'
         run: |
-          echo "Running sig build --benchmark (side-by-side comparison)..."
           mkdir -p benchmark-results
-          # Use the freshly-built release binary for benchmarks
           SIG_BIN="sig-${VERSION}-x86_64-linux/bin/sig"
-          if [ -x "$SIG_BIN" ]; then
-            "$SIG_BIN" build --benchmark 2>&1 | tee benchmark-results/release-benchmark.txt
-          else
-            sig build --benchmark 2>&1 | tee benchmark-results/release-benchmark.txt
-          fi
+          [ -x "$SIG_BIN" ] && "$SIG_BIN" build --benchmark 2>&1 | tee benchmark-results/release-benchmark.txt || true
         timeout-minutes: 30
         continue-on-error: true
-
       - name: Upload benchmark results
         if: matrix.target == 'x86_64-linux'
         uses: actions/upload-artifact@v4
@@ -179,27 +157,20 @@ jobs:
           name: benchmark-results
           path: benchmark-results/
           if-no-files-found: ignore
-
       - name: Package tarball
         if: matrix.ext == 'tar.xz'
         run: |
           ARCHIVE="sig-${VERSION}-${{ matrix.target }}.tar.xz"
           tar -cJf "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
-
       - name: Package zip
         if: matrix.ext == 'zip'
         run: |
           ARCHIVE="sig-${VERSION}-${{ matrix.target }}.zip"
-          cd "sig-${VERSION}-${{ matrix.target }}"
-          zip -r "../${ARCHIVE}" .
-          cd ..
+          cd "sig-${VERSION}-${{ matrix.target }}" && zip -r "../${ARCHIVE}" . && cd ..
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
-
       - name: Generate checksum
-        run: |
-          sha256sum "${{ env.ARCHIVE }}" > "${{ env.ARCHIVE }}.sha256"
-
+        run: sha256sum "${{ env.ARCHIVE }}" > "${{ env.ARCHIVE }}.sha256"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -215,42 +186,29 @@ jobs:
       VERSION: ${{ needs.bootstrap.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           pattern: sig-*
           merge-multiple: true
-
       - name: Combine checksums
-        run: |
-          cd artifacts
-          cat *.sha256 > sha256sums.txt
-          echo "=== sha256sums.txt ==="
-          cat sha256sums.txt
-
+        run: cd artifacts && cat *.sha256 > sha256sums.txt && cat sha256sums.txt
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd artifacts
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="sig-${VERSION}"
-            TITLE="Sig ${VERSION}"
+            TAG="sig-${VERSION}"; TITLE="Sig ${VERSION}"
             PRERELEASE="${{ inputs.prerelease == 'true' && '--prerelease' || '' }}"
           else
-            TAG="sig-${VERSION}"
-            TITLE="Sig ${VERSION}"
-            PRERELEASE="--prerelease"
+            TAG="sig-${VERSION}"; TITLE="Sig ${VERSION}"; PRERELEASE="--prerelease"
           fi
-
-          gh release create "${TAG}" \
-            --title "${TITLE}" \
+          gh release create "${TAG}" --title "${TITLE}" \
             --notes "Sig ${VERSION} — Strict Zig compiler release.
 
           ## Downloads
-
           | Platform | Archive |
           |---|---|
           | Linux x86_64 | \`sig-${VERSION}-x86_64-linux.tar.xz\` |
@@ -258,8 +216,5 @@ jobs:
           | macOS aarch64 | \`sig-${VERSION}-aarch64-macos.tar.xz\` |
           | Windows x86_64 | \`sig-${VERSION}-x86_64-windows.zip\` |
 
-          All release binaries built with LLVM 21 (ReleaseSafe).
-
-          Checksums are in \`sha256sums.txt\`." \
-            ${PRERELEASE} \
-            sig-*.tar.xz sig-*.zip sha256sums.txt
+          All binaries built with LLVM 21 (ReleaseSafe). Checksums in sha256sums.txt." \
+            ${PRERELEASE} sig-*.tar.xz sig-*.zip sha256sums.txt
