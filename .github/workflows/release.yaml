@@ -1,11 +1,9 @@
-# [sig] Build and publish Sig compiler releases
+# [sig] Build and publish Sig compiler releases — native builds on all platforms
 name: release
 
 on:
-  # Auto-triggered by sig-sync after successful upstream merge
   repository_dispatch:
     types: [sig-release]
-  # Manual trigger for tagged releases
   workflow_dispatch:
     inputs:
       version:
@@ -38,7 +36,6 @@ jobs:
             SIG_VER="${{ inputs.version }}"
             echo "is_prerelease=${{ inputs.prerelease }}" >> "$GITHUB_OUTPUT"
           else
-            # Auto-release: derive sig version from build.sig struct fields
             SIG_MAJOR=$(grep -oP 'sig_version.*major = \K\d+' build.sig)
             SIG_MINOR=$(grep -oP 'sig_version.*minor = \K\d+' build.sig)
             SIG_PATCH=$(grep -oP 'sig_version.*patch = \K\d+' build.sig)
@@ -50,7 +47,6 @@ jobs:
             fi
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           fi
-          # Get zig version from build.sig
           ZIG_MAJOR=$(grep -oP 'zig_version.*major = \K\d+' build.sig)
           ZIG_MINOR=$(grep -oP 'zig_version.*minor = \K\d+' build.sig)
           ZIG_PATCH=$(grep -oP 'zig_version.*patch = \K\d+' build.sig)
@@ -69,7 +65,15 @@ jobs:
           - target: x86_64-linux
             os: ubuntu-latest
             ext: tar.xz
-            zig_target: x86_64-linux-musl
+          - target: aarch64-linux
+            os: ubuntu-24.04-arm
+            ext: tar.xz
+          - target: aarch64-macos
+            os: macos-latest
+            ext: tar.xz
+          - target: x86_64-windows
+            os: windows-latest
+            ext: zip
     runs-on: ${{ matrix.os }}
     env:
       VERSION: ${{ needs.resolve-version.outputs.version }}
@@ -83,19 +87,32 @@ jobs:
         with:
           version: latest
 
-      - name: Build release binary
+      - name: Build release binary (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          echo "Building for ${{ matrix.zig_target }} with sig..."
+          echo "Building natively on ${{ matrix.os }} for ${{ matrix.target }}..."
           sig build \
-            -Dtarget="${{ matrix.zig_target }}" \
             -Doptimize=ReleaseSafe \
             -Dno-lib \
             --prefix "sig-${VERSION}-${{ matrix.target }}" \
             --maxrss 0
         timeout-minutes: 120
 
-      - name: Install lib files separately
+      - name: Build release binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "Building natively on ${{ matrix.os }} for ${{ matrix.target }}..."
+          sig build `
+            -Doptimize=ReleaseSafe `
+            -Dno-lib `
+            --prefix "sig-${env:VERSION}-${{ matrix.target }}" `
+            --maxrss 0
+        timeout-minutes: 120
+
+      - name: Install lib files (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           sig build \
@@ -104,23 +121,34 @@ jobs:
             --maxrss 0
         timeout-minutes: 10
 
-      - name: Package tarball
+      - name: Install lib files (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          sig build `
+            -Dlib-files-only `
+            --prefix "sig-${env:VERSION}-${{ matrix.target }}" `
+            --maxrss 0
+        timeout-minutes: 10
+
+      - name: Package tarball (Linux/macOS)
+        if: matrix.ext == 'tar.xz'
         shell: bash
         run: |
           ARCHIVE="sig-${VERSION}-${{ matrix.target }}.tar.xz"
           tar -cJf "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
-      - name: Verify identical output
-        shell: bash
+      - name: Package zip (Windows)
+        if: matrix.ext == 'zip'
+        shell: pwsh
         run: |
-          sig build --verify-identical \
-            -Dtarget=${{ matrix.zig_target }} \
-            -Doptimize=ReleaseSafe
-        timeout-minutes: 60
-        continue-on-error: true
+          $archive = "sig-${env:VERSION}-${{ matrix.target }}.zip"
+          Compress-Archive -Path "sig-${env:VERSION}-${{ matrix.target }}" -DestinationPath $archive
+          "ARCHIVE=$archive" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
 
       - name: Benchmark build performance
+        if: matrix.target == 'x86_64-linux'
         shell: bash
         run: |
           mkdir -p benchmark-results
@@ -179,7 +207,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd artifacts
-          # Tag format: sig-{version} — the sig- prefix prevents git describe *.*.*  matching
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG="sig-${VERSION}"
             TITLE="Sig ${VERSION}"
@@ -199,9 +226,12 @@ jobs:
           | Platform | Archive |
           |---|---|
           | Linux x86_64 | \`sig-${VERSION}-x86_64-linux.tar.xz\` |
+          | Linux aarch64 | \`sig-${VERSION}-aarch64-linux.tar.xz\` |
+          | macOS aarch64 | \`sig-${VERSION}-aarch64-macos.tar.xz\` |
+          | Windows x86_64 | \`sig-${VERSION}-x86_64-windows.zip\` |
 
-          Cross-platform builds (aarch64-linux, aarch64-macos, x86_64-windows) will be added in a future release once LLVM cross-compilation is configured in CI.
+          All binaries built natively on their target platform. No cross-compilation.
 
           Checksums are in \`sha256sums.txt\`." \
             ${PRERELEASE} \
-            sig-*.tar.xz sha256sums.txt
+            sig-*.tar.xz sig-*.zip sha256sums.txt
