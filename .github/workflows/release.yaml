@@ -144,6 +144,7 @@ jobs:
             -Dno-lib \
             -Dno-langref \
             --search-prefix "$LLVM_PREFIX" \
+            --search-prefix /usr \
             --prefix "sig-${VERSION}-${{ matrix.target }}" \
             --maxrss 0
         timeout-minutes: 120
