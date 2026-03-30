@@ -11,7 +11,7 @@ const tests = @import("test/tests.zig");
 const DevEnv = @import("src/dev.zig").Env;
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 16, .patch = 0 };
-const sig_version = "0.0.2"; // [sig] Sig layer version — bump on Sig-specific releases
+const sig_version = "0.0.3-dev"; // [sig] Keep in sync with build.sig sig_version
 const stack_size = 46 * 1024 * 1024;
 
 const IoMode = enum { threaded, evented };
@@ -1678,7 +1678,10 @@ fn discoverSigModules(b: *std.Build) [MAX_MODULES]?DiscoveredModule {
         const no_prefix = &[_][]const u8{ "sig", "fmt", "containers", "errors" };
         var needs_prefix = true;
         for (no_prefix) |np| {
-            if (mem.eql(u8, stem, np)) { needs_prefix = false; break; }
+            if (mem.eql(u8, stem, np)) {
+                needs_prefix = false;
+                break;
+            }
         }
         const name = if (needs_prefix) b.fmt("sig_{s}", .{stem}) else b.fmt("{s}", .{stem});
         if (count >= MAX_MODULES) {

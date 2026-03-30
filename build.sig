@@ -11,6 +11,16 @@
 ///   - run-sig-*:   Run individual Sig tools (sig_sync, sig_readme, etc.)
 ///   - sig:         Compile the Sig compiler binary
 ///   - install-lib: Install lib/ files to output directory
+
+// ── Version metadata ────────────────────────────────────────────────────
+// These constants are read by CI workflows (grep) to resolve release versions.
+// Keep the format exactly as-is — the grep patterns depend on it.
+//
+// sig_version: Sig layer version, bumped on Sig-specific releases.
+// zig_version: Upstream Zig version this Sig build tracks. Must match build.zig.
+const sig_version = .{ .major = 0, .minor = 0, .patch = 3, .pre = "dev" };
+const zig_version = .{ .major = 0, .minor = 16, .patch = 0 };
+
 const std = @import("std");
 const sig = @import("sig");
 const sig_build = @import("sig_build");
