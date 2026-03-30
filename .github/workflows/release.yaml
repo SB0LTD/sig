@@ -1,4 +1,5 @@
-# [sig] Release pipeline — cmake bootstrap + LLVM builds for all 4 platforms
+# [sig] Release pipeline — build LLVM from source, then build sig for all 4 platforms
+# This is a one-time bootstrap. Once 0.0.3 ships, future releases use the new build system.
 name: release
 
 on:
@@ -28,6 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Resolve version
         id: version
         run: |
@@ -46,32 +48,54 @@ jobs:
           VERSION="${SIG_VER}+zig${ZIG_MAJOR}.${ZIG_MINOR}.${ZIG_PATCH}.$(git rev-parse --short=7 HEAD)"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Download pre-built LLVM+Clang+LLD
+      - name: Install build dependencies
         run: |
-          LLVM_TARBALL="zig+llvm+lld+clang-x86_64-linux-musl-0.16.0-dev.104+689461e31"
-          LLVM_URL="https://ziglang.org/deps/${LLVM_TARBALL}.tar.xz"
-          echo "Downloading ${LLVM_URL}..."
-          curl -fsSL "${LLVM_URL}" | tar -xJ -C "$HOME"
-          echo "LLVM_PREFIX=$HOME/${LLVM_TARBALL}" >> "$GITHUB_ENV"
-          ls "$HOME/${LLVM_TARBALL}/bin/" | head -5
-        timeout-minutes: 15
-
-      - name: Install build tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build python3 zlib1g-dev libzstd-dev
         timeout-minutes: 5
+
+      - name: Build LLVM 21 from source
+        run: |
+          LLVM_VERSION="llvmorg-21.0.0"
+          echo "Cloning LLVM ${LLVM_VERSION}..."
+          git clone --depth 1 --branch "${LLVM_VERSION}" https://github.com/llvm/llvm-project.git llvm-src
+
+          echo "Building LLVM+Clang+LLD with all targets..."
+          cmake -S llvm-src/llvm -B llvm-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$HOME/llvm-21" \
+            -DLLVM_ENABLE_PROJECTS="clang;lld" \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SystemZ;VE;WebAssembly;X86;XCore" \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="M68k;Xtensa;ARC;CSKY;SPIRV" \
+            -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_ZLIB=FORCE_ON \
+            -DLLVM_ENABLE_ZSTD=FORCE_ON \
+            -DLLVM_STATIC_LINK_CXX_STDLIB=ON \
+            -DLLVM_USE_STATIC_ZSTD=ON \
+            -DCLANG_ENABLE_ARCMT=OFF \
+            -DCLANG_ENABLE_STATIC_ANALYZER=ON \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            -DLLVM_ENABLE_OCAMLDOC=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF
+          ninja -C llvm-build install -j$(nproc)
+          echo "LLVM installed to $HOME/llvm-21"
+          ls "$HOME/llvm-21/lib/" | head -5
+        timeout-minutes: 120
 
       - name: Build sig with cmake
         run: |
           mkdir build && cd build
           cmake .. -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$LLVM_PREFIX" \
+            -DCMAKE_PREFIX_PATH="$HOME/llvm-21" \
             -DCMAKE_INSTALL_PREFIX="$PWD/../bootstrap-sig" \
             -DZIG_TARGET_TRIPLE="x86_64-linux-musl" \
             -DZIG_TARGET_MCPU=baseline \
             -DZIG_STATIC=ON \
-            -DZIG_NO_LIB=ON \
-            -GNinja
+            -DZIG_NO_LIB=ON
           ninja install -j$(nproc)
           cd ..
           bootstrap-sig/bin/sig version
@@ -82,6 +106,17 @@ jobs:
         with:
           name: bootstrap-sig
           path: bootstrap-sig/
+
+      # Also upload LLVM for the build stage so we don't rebuild it 4 times
+      - name: Package LLVM prefix
+        run: tar -cJf llvm-21-prefix.tar.xz -C "$HOME" llvm-21
+        timeout-minutes: 10
+
+      - name: Upload LLVM prefix
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-21-prefix
+          path: llvm-21-prefix.tar.xz
 
   build:
     needs: bootstrap
@@ -108,22 +143,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Download bootstrap compiler
         uses: actions/download-artifact@v4
         with:
           name: bootstrap-sig
           path: bootstrap-sig
-      - name: Install bootstrap sig
+
+      - name: Download LLVM prefix
+        uses: actions/download-artifact@v4
+        with:
+          name: llvm-21-prefix
+
+      - name: Install bootstrap sig and LLVM
         run: |
           chmod +x bootstrap-sig/bin/sig
           echo "$PWD/bootstrap-sig/bin" >> "$GITHUB_PATH"
-
-      - name: Download pre-built LLVM+Clang+LLD
-        run: |
-          LLVM_TARBALL="zig+llvm+lld+clang-x86_64-linux-musl-0.16.0-dev.104+689461e31"
-          curl -fsSL "https://ziglang.org/deps/${LLVM_TARBALL}.tar.xz" | tar -xJ -C "$HOME"
-          echo "LLVM_PREFIX=$HOME/${LLVM_TARBALL}" >> "$GITHUB_ENV"
-        timeout-minutes: 15
+          tar -xJf llvm-21-prefix.tar.xz -C "$HOME"
+          echo "LLVM_PREFIX=$HOME/llvm-21" >> "$GITHUB_ENV"
 
       - name: Build sig for ${{ matrix.target }}
         run: |
@@ -215,5 +252,5 @@ jobs:
           | macOS aarch64 | \`sig-${VERSION}-aarch64-macos.tar.xz\` |
           | Windows x86_64 | \`sig-${VERSION}-x86_64-windows.zip\` |
 
-          Built with LLVM 21. Checksums in sha256sums.txt." \
+          Built with LLVM 21 (ReleaseSafe). Checksums in sha256sums.txt." \
             ${PRERELEASE} sig-*.tar.xz sig-*.zip sha256sums.txt
