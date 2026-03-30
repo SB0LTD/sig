@@ -1,6 +1,9 @@
-# [sig] Build and publish Sig compiler releases — all 4 platforms
-# Stage 1: Build x86_64-linux natively (self-hosted backend)
-# Stage 2: Use stage 1 binary + LLVM to cross-compile aarch64-linux, aarch64-macos, x86_64-windows
+# [sig] Release pipeline — bootstrap + LLVM cross-compile for all 4 platforms
+#
+# Architecture:
+#   bootstrap: Resolve version + fast Debug build of sig (no lib, no langref)
+#   build:     4-way matrix using bootstrap binary + LLVM 19 for ReleaseSafe
+#   release:   Collect artifacts, checksums, publish GitHub release
 name: release
 
 on:
@@ -22,7 +25,7 @@ permissions:
   contents: write
 
 jobs:
-  resolve-version:
+  bootstrap:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -31,6 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Resolve version
         id: version
         run: |
@@ -58,83 +62,39 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Resolved: sig=${SIG_VER}, zig=${ZIG_VER}, hash=${SIG_HASH}, full=${VERSION}"
 
-  # ── Stage 1: Build x86_64-linux natively ─────────────────────────────
-  # The self-hosted backend works for x86_64. This produces the compiler
-  # binary we'll use in stage 2 for cross-compilation.
-  build-native:
-    needs: resolve-version
-    runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.resolve-version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Install Sig compiler
         uses: ./tools/setup-sig
         with:
           version: latest
 
-      - name: Build x86_64-linux natively
+      - name: Build bootstrap sig binary (Debug, minimal)
         run: |
-          echo "Stage 1: Building x86_64-linux natively..."
+          echo "Bootstrap: building fast Debug sig binary..."
           sig build \
-            -Doptimize=ReleaseSafe \
+            -Doptimize=Debug \
             -Dno-lib \
             -Dno-langref \
-            --prefix "sig-${VERSION}-x86_64-linux" \
+            --prefix bootstrap-sig \
             --maxrss 0
-        timeout-minutes: 120
-
-      - name: Install lib files
-        run: |
-          sig build \
-            -Dlib-files-only \
-            --prefix "sig-${VERSION}-x86_64-linux" \
-            --maxrss 0
-        timeout-minutes: 10
-
-      - name: Package x86_64-linux tarball
-        run: |
-          tar -cJf "sig-${VERSION}-x86_64-linux.tar.xz" "sig-${VERSION}-x86_64-linux"
-
-      - name: Upload x86_64-linux artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sig-x86_64-linux
-          path: sig-${{ env.VERSION }}-x86_64-linux.tar.xz
-
-      # Also upload the raw binary for stage 2 cross-compilation
-      - name: Upload stage 1 compiler for cross-compilation
-        uses: actions/upload-artifact@v4
-        with:
-          name: sig-stage1-compiler
-          path: sig-${{ env.VERSION }}-x86_64-linux/
-
-      - name: Benchmark build performance
-        run: |
-          mkdir -p benchmark-results
-          sig build --benchmark | tee benchmark-results/release-benchmark.txt
+          ls -la bootstrap-sig/bin/
+          bootstrap-sig/bin/sig version
         timeout-minutes: 30
-        continue-on-error: true
 
-      - name: Upload benchmark results
+      - name: Upload bootstrap compiler
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-release
-          path: benchmark-results/
-          if-no-files-found: ignore
+          name: bootstrap-sig
+          path: bootstrap-sig/
 
-  # ── Stage 2: Cross-compile other targets using stage 1 + LLVM ────────
-  # The self-hosted aarch64/wasm backends have codegen bugs. We use the
-  # freshly-built x86_64-linux sig binary with LLVM to cross-compile.
-  build-cross:
-    needs: [resolve-version, build-native]
+  build:
+    needs: bootstrap
     strategy:
       fail-fast: false
       matrix:
         include:
+          - target: x86_64-linux
+            zig_target: x86_64-linux-musl
+            ext: tar.xz
           - target: aarch64-linux
             zig_target: aarch64-linux-musl
             ext: tar.xz
@@ -146,24 +106,23 @@ jobs:
             ext: zip
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ needs.resolve-version.outputs.version }}
+      VERSION: ${{ needs.bootstrap.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Download stage 1 compiler
+      - name: Download bootstrap compiler
         uses: actions/download-artifact@v4
         with:
-          name: sig-stage1-compiler
-          path: stage1-sig
+          name: bootstrap-sig
+          path: bootstrap-sig
 
-      - name: Install stage 1 sig on PATH
+      - name: Install bootstrap sig on PATH
         run: |
-          chmod +x stage1-sig/bin/sig
-          echo "$PWD/stage1-sig/bin" >> "$GITHUB_PATH"
-          # Verify it works
-          stage1-sig/bin/sig version
+          chmod +x bootstrap-sig/bin/sig
+          echo "$PWD/bootstrap-sig/bin" >> "$GITHUB_PATH"
+          bootstrap-sig/bin/sig version
 
       - name: Install LLVM 19
         run: |
@@ -171,12 +130,11 @@ jobs:
           echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
           sudo apt-get update -qq
           sudo apt-get install -y -qq llvm-19-dev lld-19 libclang-19-dev liblld-19-dev
-          echo "LLVM 19 installed"
         timeout-minutes: 10
 
-      - name: Cross-compile for ${{ matrix.target }}
+      - name: Build sig for ${{ matrix.target }}
         run: |
-          echo "Stage 2: Cross-compiling for ${{ matrix.zig_target }} with LLVM..."
+          echo "Building ${{ matrix.zig_target }} with LLVM (ReleaseSafe)..."
           sig build \
             -Dtarget=${{ matrix.zig_target }} \
             -Doptimize=ReleaseSafe \
@@ -196,14 +154,14 @@ jobs:
             --maxrss 0
         timeout-minutes: 10
 
-      - name: Package tarball (Linux/macOS)
+      - name: Package tarball
         if: matrix.ext == 'tar.xz'
         run: |
           ARCHIVE="sig-${VERSION}-${{ matrix.target }}.tar.xz"
           tar -cJf "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
-      - name: Package zip (Windows)
+      - name: Package zip
         if: matrix.ext == 'zip'
         run: |
           ARCHIVE="sig-${VERSION}-${{ matrix.target }}.zip"
@@ -212,18 +170,23 @@ jobs:
           cd ..
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
+      - name: Generate checksum
+        run: |
+          sha256sum "${{ env.ARCHIVE }}" > "${{ env.ARCHIVE }}.sha256"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: sig-${{ matrix.target }}
-          path: ${{ env.ARCHIVE }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
 
-  # ── Release: collect all artifacts and publish ───────────────────────
   release:
-    needs: [resolve-version, build-native, build-cross]
+    needs: [bootstrap, build]
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ needs.resolve-version.outputs.version }}
+      VERSION: ${{ needs.bootstrap.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -234,10 +197,10 @@ jobs:
           pattern: sig-*
           merge-multiple: true
 
-      - name: Generate checksums
+      - name: Combine checksums
         run: |
           cd artifacts
-          sha256sum sig-*.tar.xz sig-*.zip 2>/dev/null > sha256sums.txt || true
+          cat *.sha256 > sha256sums.txt
           echo "=== sha256sums.txt ==="
           cat sha256sums.txt
 
@@ -269,7 +232,7 @@ jobs:
           | macOS aarch64 | \`sig-${VERSION}-aarch64-macos.tar.xz\` |
           | Windows x86_64 | \`sig-${VERSION}-x86_64-windows.zip\` |
 
-          x86_64-linux built natively. Other targets cross-compiled with LLVM.
+          All release binaries built with LLVM 19 (ReleaseSafe).
 
           Checksums are in \`sha256sums.txt\`." \
             ${PRERELEASE} \
