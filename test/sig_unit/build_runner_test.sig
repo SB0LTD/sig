@@ -676,18 +676,38 @@ fn buildCompileCommand(cmd: *Command_Buffer, opts: Compile_Options) SigError!voi
     }
 
     try cmd.addArg("build-exe");
-    try cmd.addArg(opts.source_path);
 
+    // --dep for each import (before -Mroot=)
     for (opts.imports) |imp| {
-        try cmd.addArg("--mod");
+        const name_slice = imp.name[0..imp.name_len];
+        try cmd.addArg("--dep");
+        try cmd.addArg(name_slice);
+    }
+
+    // -Mroot=<source_path>
+    {
+        var root_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const root_prefix = "-Mroot=";
+        const src_path = opts.source_path;
+        if (root_prefix.len + src_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+        @memcpy(root_buf[0..root_prefix.len], root_prefix);
+        @memcpy(root_buf[root_prefix.len..][0..src_path.len], src_path);
+        try cmd.addArg(root_buf[0 .. root_prefix.len + src_path.len]);
+    }
+
+    // -Mname=path for each import
+    for (opts.imports) |imp| {
         var mod_buf: [PATH_BUF_SIZE]u8 = undefined;
         const name_slice = imp.name[0..imp.name_len];
         const path_slice = imp.path[0..imp.path_len];
-        const total = name_slice.len + 1 + path_slice.len;
+        const prefix_len = 2 + name_slice.len + 1; // "-M" + name + "="
+        const total = prefix_len + path_slice.len;
         if (total > PATH_BUF_SIZE) return error.BufferTooSmall;
-        @memcpy(mod_buf[0..name_slice.len], name_slice);
-        mod_buf[name_slice.len] = ':';
-        @memcpy(mod_buf[name_slice.len + 1 ..][0..path_slice.len], path_slice);
+        mod_buf[0] = '-';
+        mod_buf[1] = 'M';
+        @memcpy(mod_buf[2..][0..name_slice.len], name_slice);
+        mod_buf[2 + name_slice.len] = '=';
+        @memcpy(mod_buf[prefix_len..][0..path_slice.len], path_slice);
         try cmd.addArg(mod_buf[0..total]);
     }
 
@@ -1256,7 +1276,7 @@ test "buildCompileCommand: with target triple adds -target flag" {
     try testing.expectEqualSlices(u8, "myapp", cmd.getArg(10));
 }
 
-test "buildCompileCommand: with imports adds --mod flags" {
+test "buildCompileCommand: with imports adds --dep and -M flags" {
     var cmd: Command_Buffer = .{};
 
     var imp: Import_Entry = .{};
@@ -1279,19 +1299,20 @@ test "buildCompileCommand: with imports adds --mod flags" {
 
     try buildCompileCommand(&cmd, opts);
 
-    // Expected: sig build-exe src/main.sig --mod sig:lib/sig/sig.zig -O Debug --cache-dir .cache --name app
-    try testing.expectEqual(@as(usize, 11), cmd.arg_count);
+    // Expected: sig build-exe --dep sig -Mroot=src/main.sig -Msig=lib/sig/sig.zig -O Debug --cache-dir .cache --name app
+    try testing.expectEqual(@as(usize, 12), cmd.arg_count);
     try testing.expectEqualSlices(u8, "sig", cmd.getArg(0));
     try testing.expectEqualSlices(u8, "build-exe", cmd.getArg(1));
-    try testing.expectEqualSlices(u8, "src/main.sig", cmd.getArg(2));
-    try testing.expectEqualSlices(u8, "--mod", cmd.getArg(3));
-    try testing.expectEqualSlices(u8, "sig:lib/sig/sig.zig", cmd.getArg(4));
-    try testing.expectEqualSlices(u8, "-O", cmd.getArg(5));
-    try testing.expectEqualSlices(u8, "Debug", cmd.getArg(6));
-    try testing.expectEqualSlices(u8, "--cache-dir", cmd.getArg(7));
-    try testing.expectEqualSlices(u8, ".cache", cmd.getArg(8));
-    try testing.expectEqualSlices(u8, "--name", cmd.getArg(9));
-    try testing.expectEqualSlices(u8, "app", cmd.getArg(10));
+    try testing.expectEqualSlices(u8, "--dep", cmd.getArg(2));
+    try testing.expectEqualSlices(u8, "sig", cmd.getArg(3));
+    try testing.expectEqualSlices(u8, "-Mroot=src/main.sig", cmd.getArg(4));
+    try testing.expectEqualSlices(u8, "-Msig=lib/sig/sig.zig", cmd.getArg(5));
+    try testing.expectEqualSlices(u8, "-O", cmd.getArg(6));
+    try testing.expectEqualSlices(u8, "Debug", cmd.getArg(7));
+    try testing.expectEqualSlices(u8, "--cache-dir", cmd.getArg(8));
+    try testing.expectEqualSlices(u8, ".cache", cmd.getArg(9));
+    try testing.expectEqualSlices(u8, "--name", cmd.getArg(10));
+    try testing.expectEqualSlices(u8, "app", cmd.getArg(11));
 }
 
 // ═══════════════════════════════════════════════════════════════════════

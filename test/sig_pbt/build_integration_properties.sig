@@ -334,30 +334,30 @@ test "Property 4: exclusion filter matches expected set for random filenames" {
 //
 // **Validates: Requirements 6.1, 6.2, 6.3, 6.4**
 
-test "Property 5: --mod flags contain correct module prefixes and paths" {
+test "Property 5: -M flags contain correct module prefixes and paths" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
             // Generate random lib_dir and build_root paths
             var lib_buf: [100]u8 = undefined;
             const lib_dir = genPathStr(random, &lib_buf, 100);
 
-            // Construct expected --mod flag values
-            // sig:<lib_dir>/sig/sig.zig
+            // Construct expected -Mname=path flag values
+            // -Msig=<lib_dir>/sig/sig.zig
             var sig_mod_buf: [256]u8 = undefined;
-            const sig_mod = std.fmt.bufPrint(&sig_mod_buf, "sig:{s}/sig/sig.zig", .{lib_dir}) catch return;
+            const sig_mod = std.fmt.bufPrint(&sig_mod_buf, "-Msig={s}/sig/sig.zig", .{lib_dir}) catch return;
 
-            // sig_build:<lib_dir>/../tools/sig_build/main.sig
+            // -Msig_build=<lib_dir>/../tools/sig_build/main.sig
             var sb_mod_buf: [256]u8 = undefined;
-            const sb_mod = std.fmt.bufPrint(&sb_mod_buf, "sig_build:{s}/../tools/sig_build/main.sig", .{lib_dir}) catch return;
+            const sb_mod = std.fmt.bufPrint(&sb_mod_buf, "-Msig_build={s}/../tools/sig_build/main.sig", .{lib_dir}) catch return;
 
-            // std:<lib_dir>/std/std.zig
+            // -Mstd=<lib_dir>/std/std.zig
             var std_mod_buf: [256]u8 = undefined;
-            const std_mod = std.fmt.bufPrint(&std_mod_buf, "std:{s}/std/std.zig", .{lib_dir}) catch return;
+            const std_mod = std.fmt.bufPrint(&std_mod_buf, "-Mstd={s}/std/std.zig", .{lib_dir}) catch return;
 
-            // Verify each --mod flag starts with the correct prefix
-            try std.testing.expect(mem.startsWith(u8, sig_mod, "sig:"));
-            try std.testing.expect(mem.startsWith(u8, sb_mod, "sig_build:"));
-            try std.testing.expect(mem.startsWith(u8, std_mod, "std:"));
+            // Verify each -M flag starts with the correct prefix
+            try std.testing.expect(mem.startsWith(u8, sig_mod, "-Msig="));
+            try std.testing.expect(mem.startsWith(u8, sb_mod, "-Msig_build="));
+            try std.testing.expect(mem.startsWith(u8, std_mod, "-Mstd="));
 
             // Verify each contains the lib_dir
             try std.testing.expect(mem.indexOf(u8, sig_mod, lib_dir) != null);
@@ -371,7 +371,7 @@ test "Property 5: --mod flags contain correct module prefixes and paths" {
         }
     };
     harness.property(
-        "--mod flags contain correct module prefixes and paths",
+        "-M flags contain correct module prefixes and paths",
         S.run,
     );
 }

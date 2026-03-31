@@ -1148,7 +1148,7 @@ pub const Compile_Options = struct {
     cache_dir: []const u8,
     optimize: Optimize_Mode,
     target: ?*const Target_Triple,
-    /// Module imports: each entry is a name→path pair to pass as --mod flags.
+    /// Module imports: each entry is a name→path pair to pass as -Mname=path flags.
     imports: []const Import_Entry,
     /// Path to the sig/zig compiler binary. If empty, uses "sig" (found via PATH).
     compiler_path: []const u8,
@@ -1157,8 +1157,10 @@ pub const Compile_Options = struct {
 /// Populate a Command_Buffer with the flags for a compile step, mirroring
 /// the flags that `std.Build` would produce:
 ///
-///   <compiler> build-exe <source_path>
-///       --mod <name>:<path>       (for each import)
+///   <compiler> build-exe
+///       --dep <name>              (for each import, before -Mroot=)
+///       -Mroot=<source_path>
+///       -M<name>=<path>           (for each import)
 ///       -O <optimize_mode>
 ///       -target <target_triple>
 ///       --cache-dir <cache_dir>
@@ -1175,21 +1177,43 @@ pub fn buildCompileCommand(cmd: *Command_Buffer, opts: Compile_Options) SigError
     // Sub-command.
     try cmd.addArg("build-exe");
 
-    // Source file.
-    try cmd.addArg(opts.source_path);
-
-    // Module imports: --mod name:path
+    // Module imports: --dep name (before root) then -Mname=path
+    // Zig 0.16 uses -M/--dep syntax: --dep flags declare dependencies for the
+    // NEXT -M module. Leaf modules (-Mname=path with no preceding --dep) have
+    // no deps. Root module deps must come before -Mroot=.
+    //
+    // First pass: emit --dep for each import (these apply to the root module,
+    // which is the source_path passed to build-exe as -Mroot=).
     for (opts.imports) |imp| {
-        try cmd.addArg("--mod");
-        // Format "name:path" into a temporary stack buffer.
+        const name_slice = imp.name[0..imp.name_len];
+        try cmd.addArg("--dep");
+        try cmd.addArg(name_slice);
+    }
+
+    // Emit -Mroot=<source_path> (the root module that uses the deps above).
+    {
+        var root_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const root_prefix = "-Mroot=";
+        const src_path = opts.source_path;
+        if (root_prefix.len + src_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+        @memcpy(root_buf[0..root_prefix.len], root_prefix);
+        @memcpy(root_buf[root_prefix.len..][0..src_path.len], src_path);
+        try cmd.addArg(root_buf[0 .. root_prefix.len + src_path.len]);
+    }
+
+    // Second pass: emit -Mname=path for each import (leaf modules, no deps).
+    for (opts.imports) |imp| {
         var mod_buf: [PATH_BUF_SIZE]u8 = undefined;
         const name_slice = imp.name[0..imp.name_len];
         const path_slice = imp.path[0..imp.path_len];
-        const total = name_slice.len + 1 + path_slice.len; // name:path
+        const prefix_len = 2 + name_slice.len + 1; // "-M" + name + "="
+        const total = prefix_len + path_slice.len;
         if (total > PATH_BUF_SIZE) return error.BufferTooSmall;
-        @memcpy(mod_buf[0..name_slice.len], name_slice);
-        mod_buf[name_slice.len] = ':';
-        @memcpy(mod_buf[name_slice.len + 1 ..][0..path_slice.len], path_slice);
+        mod_buf[0] = '-';
+        mod_buf[1] = 'M';
+        @memcpy(mod_buf[2..][0..name_slice.len], name_slice);
+        mod_buf[2 + name_slice.len] = '=';
+        @memcpy(mod_buf[prefix_len..][0..path_slice.len], path_slice);
         try cmd.addArg(mod_buf[0..total]);
     }
 
@@ -2325,8 +2349,8 @@ pub fn runBenchmark(
 /// the resulting binary against the currently running (bootstrapped) binary.
 ///
 /// Flow:
-///   1. Invoke `sig build-exe tools/sig_build/main.sig --mod sig:lib/sig/sig.zig
-///      --name sig-build-verify -femit-bin=.sig-cache/sig-build-verify`
+///   1. Invoke `sig build-exe --dep sig -Mroot=tools/sig_build/main.sig
+///      -Msig=lib/sig/sig.zig --name sig-build-verify -femit-bin=.sig-cache/sig-build-verify`
 ///   2. Compute content hash of the original binary (at `original_binary_path`)
 ///   3. Compute content hash of the rebuilt binary (.sig-cache/sig-build-verify)
 ///   4. Compare hashes and report PASS/FAIL
@@ -2357,9 +2381,10 @@ pub fn verifySelfHosting(
     }
 
     cmd.addArg("build-exe") catch return false;
-    cmd.addArg("tools/sig_build/main.sig") catch return false;
-    cmd.addArg("--mod") catch return false;
-    cmd.addArg("sig:lib/sig/sig.zig") catch return false;
+    cmd.addArg("--dep") catch return false;
+    cmd.addArg("sig") catch return false;
+    cmd.addArg("-Mroot=tools/sig_build/main.sig") catch return false;
+    cmd.addArg("-Msig=lib/sig/sig.zig") catch return false;
     cmd.addArg("--name") catch return false;
     cmd.addArg("sig-build-verify") catch return false;
     cmd.addArg("-femit-bin=.sig-cache/sig-build-verify") catch return false;
@@ -2529,11 +2554,13 @@ pub fn reportCapacityError(io: std.Io, registry_name: []const u8, current: usize
 /// creates a Build_Context, calls build.sig's build function, and runs the
 /// scheduler. This is the two-stage compilation approach:
 ///
-///   sig build-exe build_host.sig \
-///       --mod build:<build_file_path>       (user's build.sig)
-///       --mod sig_build:<main.sig>          (build runner module)
-///       --mod sig:<sig.zig>                 (sig standard library)
-///       --mod std:<std.zig>                 (zig standard library)
+///   sig build-exe \
+///       --dep build --dep sig_build --dep sig --dep std \
+///       -Mroot=<build_host.sig> \
+///       --dep sig --dep std -Msig_build=<main.sig> \
+///       --dep sig_build -Mbuild=<build_file_path> \
+///       -Msig=<sig.zig> \
+///       -Mstd=<std.zig>
 ///
 /// Returns the path to the compiled host binary on success.
 /// On failure, prints diagnostics and calls fatal() (does not return).
@@ -2587,10 +2614,10 @@ fn compileBuildSig(
         fatal(io, "failed to construct emit path", .{});
     };
 
-    // ── Construct --mod flag values (name:path) ─────────────────────────
+    // ── Construct -Mname=path flag values ──────────────────────────────
     // build:<build_file_path> (user's build.sig)
     var build_mod_flag_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const build_prefix = "build:";
+    const build_prefix = "-Mbuild=";
     if (build_prefix.len + build_file_path.len > PATH_BUF_SIZE) fatal(io, "build module flag too long", .{});
     @memcpy(build_mod_flag_buf[0..build_prefix.len], build_prefix);
     @memcpy(build_mod_flag_buf[build_prefix.len..][0..build_file_path.len], build_file_path);
@@ -2598,7 +2625,7 @@ fn compileBuildSig(
 
     // sig:path
     var sig_mod_flag_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const sig_prefix = "sig:";
+    const sig_prefix = "-Msig=";
     if (sig_prefix.len + sig_mod_path.len > PATH_BUF_SIZE) fatal(io, "sig module flag too long", .{});
     @memcpy(sig_mod_flag_buf[0..sig_prefix.len], sig_prefix);
     @memcpy(sig_mod_flag_buf[sig_prefix.len..][0..sig_mod_path.len], sig_mod_path);
@@ -2606,7 +2633,7 @@ fn compileBuildSig(
 
     // sig_build:path
     var sig_build_mod_flag_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const sig_build_prefix = "sig_build:";
+    const sig_build_prefix = "-Msig_build=";
     if (sig_build_prefix.len + sig_build_mod_path.len > PATH_BUF_SIZE) fatal(io, "sig_build module flag too long", .{});
     @memcpy(sig_build_mod_flag_buf[0..sig_build_prefix.len], sig_build_prefix);
     @memcpy(sig_build_mod_flag_buf[sig_build_prefix.len..][0..sig_build_mod_path.len], sig_build_mod_path);
@@ -2614,7 +2641,7 @@ fn compileBuildSig(
 
     // std:path
     var std_mod_flag_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const std_prefix = "std:";
+    const std_prefix = "-Mstd=";
     if (std_prefix.len + std_mod_path.len > PATH_BUF_SIZE) fatal(io, "std module flag too long", .{});
     @memcpy(std_mod_flag_buf[0..std_prefix.len], std_prefix);
     @memcpy(std_mod_flag_buf[std_prefix.len..][0..std_mod_path.len], std_mod_path);
@@ -2628,19 +2655,47 @@ fn compileBuildSig(
     @memcpy(emit_flag_buf[emit_prefix.len..][0..emit_path.len], emit_path);
     const emit_flag = emit_flag_buf[0 .. emit_prefix.len + emit_path.len];
 
+    // ── Construct -Mroot=<host_src_path> flag ───────────────────────────
+    var root_mod_flag_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const root_prefix = "-Mroot=";
+    if (root_prefix.len + host_src_path.len > PATH_BUF_SIZE) fatal(io, "root module flag too long", .{});
+    @memcpy(root_mod_flag_buf[0..root_prefix.len], root_prefix);
+    @memcpy(root_mod_flag_buf[root_prefix.len..][0..host_src_path.len], host_src_path);
+    const root_mod_flag = root_mod_flag_buf[0 .. root_prefix.len + host_src_path.len];
+
     // ── Build command ───────────────────────────────────────────────────
+    // Zig 0.16 module syntax: --dep flags declare dependencies for the NEXT
+    // -M module. The dependency graph is:
+    //   root (build_host.sig) imports: build, sig_build, sig, std
+    //   sig_build (main.sig)  imports: sig, std
+    //   build (build.sig)     imports: sig_build
+    //   sig, std              are leaf modules (no deps)
     var cmd: Command_Buffer = .{};
 
     cmd.addArg(compiler_path) catch fatal(io, "compiler path too long for command buffer", .{});
     cmd.addArg("build-exe") catch fatal(io, "failed to add build-exe arg", .{});
-    cmd.addArg(host_src_path) catch fatal(io, "build host path too long for command buffer", .{});
-    cmd.addArg("--mod") catch fatal(io, "failed to add --mod arg", .{});
-    cmd.addArg(build_mod_flag) catch fatal(io, "build mod flag too long for command buffer", .{});
-    cmd.addArg("--mod") catch fatal(io, "failed to add --mod arg", .{});
-    cmd.addArg(sig_mod_flag) catch fatal(io, "sig mod flag too long for command buffer", .{});
-    cmd.addArg("--mod") catch fatal(io, "failed to add --mod arg", .{});
+    // Root module deps (build, sig_build, sig, std) — must come before -Mroot=
+    cmd.addArg("--dep") catch fatal(io, "failed to add --dep arg", .{});
+    cmd.addArg("build") catch fatal(io, "failed to add dep name", .{});
+    cmd.addArg("--dep") catch fatal(io, "failed to add --dep arg", .{});
+    cmd.addArg("sig_build") catch fatal(io, "failed to add dep name", .{});
+    cmd.addArg("--dep") catch fatal(io, "failed to add --dep arg", .{});
+    cmd.addArg("sig") catch fatal(io, "failed to add dep name", .{});
+    cmd.addArg("--dep") catch fatal(io, "failed to add --dep arg", .{});
+    cmd.addArg("std") catch fatal(io, "failed to add dep name", .{});
+    cmd.addArg(root_mod_flag) catch fatal(io, "root mod flag too long for command buffer", .{});
+    // sig_build deps (sig, std) — must come before -Msig_build=
+    cmd.addArg("--dep") catch fatal(io, "failed to add --dep arg", .{});
+    cmd.addArg("sig") catch fatal(io, "failed to add dep name", .{});
+    cmd.addArg("--dep") catch fatal(io, "failed to add --dep arg", .{});
+    cmd.addArg("std") catch fatal(io, "failed to add dep name", .{});
     cmd.addArg(sig_build_mod_flag) catch fatal(io, "sig_build mod flag too long for command buffer", .{});
-    cmd.addArg("--mod") catch fatal(io, "failed to add --mod arg", .{});
+    // build deps (sig_build) — must come before -Mbuild=
+    cmd.addArg("--dep") catch fatal(io, "failed to add --dep arg", .{});
+    cmd.addArg("sig_build") catch fatal(io, "failed to add dep name", .{});
+    cmd.addArg(build_mod_flag) catch fatal(io, "build mod flag too long for command buffer", .{});
+    // Leaf modules (no deps)
+    cmd.addArg(sig_mod_flag) catch fatal(io, "sig mod flag too long for command buffer", .{});
     cmd.addArg(std_mod_flag) catch fatal(io, "std mod flag too long for command buffer", .{});
     cmd.addArg("--cache-dir") catch fatal(io, "failed to add --cache-dir arg", .{});
     cmd.addArg(local_cache_dir) catch fatal(io, "local cache dir too long for command buffer", .{});
@@ -2651,7 +2706,7 @@ fn compileBuildSig(
     cmd.addArg(emit_flag) catch fatal(io, "emit flag too long for command buffer", .{});
 
     if (verbose) {
-        printMsg(io, "compiling build host: {s} build-exe {s} --mod build:{s}", .{ compiler_path, host_src_path, build_file_path });
+        printMsg(io, "compiling build host: {s} build-exe -Mroot={s} -Mbuild={s}", .{ compiler_path, host_src_path, build_file_path });
     }
 
     // ── Execute compilation ─────────────────────────────────────────────
@@ -2827,7 +2882,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // ── 4. Compile build host ──────────────────────────────────────────
-    // The build host is build_host.sig compiled with --mod build:<build.sig>.
+    // The build host is build_host.sig compiled with -Mbuild=<build.sig>.
     // It handles everything: creates Build_Context, calls build.sig's build(),
     // validates steps, runs the scheduler, and exits.
     const build_host_binary = compileBuildSig(io, build_file_path, &runner_args, config.verbose);

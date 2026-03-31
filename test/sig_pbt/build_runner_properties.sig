@@ -723,18 +723,38 @@ fn buildCompileCommand(cmd: *Command_Buffer, opts: Compile_Options) SigError!voi
     }
 
     try cmd.addArg("build-exe");
-    try cmd.addArg(opts.source_path);
 
+    // --dep for each import (before -Mroot=)
     for (opts.imports) |imp| {
-        try cmd.addArg("--mod");
+        const name_slice = imp.name[0..imp.name_len];
+        try cmd.addArg("--dep");
+        try cmd.addArg(name_slice);
+    }
+
+    // -Mroot=<source_path>
+    {
+        var root_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const root_prefix = "-Mroot=";
+        const src_path = opts.source_path;
+        if (root_prefix.len + src_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+        @memcpy(root_buf[0..root_prefix.len], root_prefix);
+        @memcpy(root_buf[root_prefix.len..][0..src_path.len], src_path);
+        try cmd.addArg(root_buf[0 .. root_prefix.len + src_path.len]);
+    }
+
+    // -Mname=path for each import
+    for (opts.imports) |imp| {
         var mod_buf: [PATH_BUF_SIZE]u8 = undefined;
         const name_slice = imp.name[0..imp.name_len];
         const path_slice = imp.path[0..imp.path_len];
-        const total = name_slice.len + 1 + path_slice.len;
+        const prefix_len = 2 + name_slice.len + 1; // "-M" + name + "="
+        const total = prefix_len + path_slice.len;
         if (total > PATH_BUF_SIZE) return error.BufferTooSmall;
-        @memcpy(mod_buf[0..name_slice.len], name_slice);
-        mod_buf[name_slice.len] = ':';
-        @memcpy(mod_buf[name_slice.len + 1 ..][0..path_slice.len], path_slice);
+        mod_buf[0] = '-';
+        mod_buf[1] = 'M';
+        @memcpy(mod_buf[2..][0..name_slice.len], name_slice);
+        mod_buf[2 + name_slice.len] = '=';
+        @memcpy(mod_buf[prefix_len..][0..path_slice.len], path_slice);
         try cmd.addArg(mod_buf[0..total]);
     }
 

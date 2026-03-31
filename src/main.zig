@@ -5020,21 +5020,27 @@ fn sigBuildDelegate(
     const emit_flag = sigConcat(&emit_flag_buf, &.{ "-femit-bin=", runner_bin });
 
     var sig_mod_flag_buf: [std.Io.Dir.max_path_bytes + 8]u8 = undefined;
-    const sig_mod_flag = sigConcat(&sig_mod_flag_buf, &.{ "sig:", sig_mod_path });
+    const sig_mod_flag = sigConcat(&sig_mod_flag_buf, &.{ "-Msig=", sig_mod_path });
 
     var std_mod_flag_buf: [std.Io.Dir.max_path_bytes + 8]u8 = undefined;
-    const std_mod_flag = sigConcat(&std_mod_flag_buf, &.{ "std:", std_mod_path });
+    const std_mod_flag = sigConcat(&std_mod_flag_buf, &.{ "-Mstd=", std_mod_path });
+
+    var root_mod_flag_buf: [std.Io.Dir.max_path_bytes + 8]u8 = undefined;
+    const root_mod_flag = sigConcat(&root_mod_flag_buf, &.{ "-Mroot=", runner_src });
 
     // 5. Compile the build runner via child process: sig build-exe
     //    This re-invokes the sig compiler itself, which handles all the
     //    allocator-heavy compilation internally in its own process.
+    //    Module syntax: --dep name (before -Mroot=) then -Mname=path
     const compile_argv = [_][]const u8{
         opts.self_exe_path,
         "build-exe",
-        runner_src,
-        "--mod",
+        "--dep",
+        "sig",
+        "--dep",
+        "std",
+        root_mod_flag,
         sig_mod_flag,
-        "--mod",
         std_mod_flag,
         "--cache-dir",
         opts.local_cache_dir,

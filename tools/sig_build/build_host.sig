@@ -2,10 +2,11 @@
 ///
 /// This is the entry point for executing a user's build.sig. The build runner
 /// (main.sig) compiles this file with:
-///   --mod build:<path/to/build.sig>
-///   --mod sig_build:<path/to/main.sig>
-///   --mod sig:<path/to/sig.zig>
-///   --mod std:<path/to/std.zig>
+///   --dep build --dep sig_build --dep sig --dep std -Mroot=<this file>
+///   --dep sig --dep std -Msig_build=<path/to/main.sig>
+///   --dep sig_build -Mbuild=<path/to/build.sig>
+///   -Msig=<path/to/sig.zig>
+///   -Mstd=<path/to/std.zig>
 ///
 /// The host creates a Build_Context, calls build.sig's build function,
 /// validates requested steps, and runs the scheduler.
