@@ -69,10 +69,10 @@ jobs:
 
       - name: Download bootstrap sig compiler
         run: |
+          mkdir -p /tmp/bootstrap-sig
           curl -fsSL "$BOOTSTRAP_URL" | tar -xz -C /tmp/bootstrap-sig
           chmod +x /tmp/bootstrap-sig/bin/sig
           echo "/tmp/bootstrap-sig/bin" >> "$GITHUB_PATH"
-          /tmp/bootstrap-sig/bin/sig version
 
       - name: Build sig for ${{ matrix.target }}
         run: |
