@@ -20,8 +20,8 @@ permissions:
   contents: write
 
 env:
-  # 0.0.3 release includes FileExt.sig + sigBuildDelegate — used to bootstrap 0.0.4
-  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/sig-0.0.3-dev%2Bzig0.16.0.0637de8/sig-0.0.3-dev%2Bzig0.16.0.0637de8-x86_64-linux.tar.xz
+  # 0.0.4-dev has FileExt.sig + sigBuildDelegate — bootstraps the new sig build system
+  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/sig-0.0.4-dev%2Bzig0.16.0.64e7531/sig-0.0.4-dev%2Bzig0.16.0.64e7531-x86_64-linux.tar.xz
 
 jobs:
   build:
