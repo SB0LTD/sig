@@ -94,10 +94,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$HOME/llvm-21" \
             -DCMAKE_INSTALL_PREFIX="$PWD/../bootstrap-sig" \
-            -DZIG_TARGET_TRIPLE="x86_64-linux-musl" \
             -DZIG_TARGET_MCPU=baseline \
-            -DZIG_STATIC=ON \
-            -DZIG_NO_LIB=ON \
             -DZIG_USE_LLVM_CONFIG=ON
           ninja install -j$(nproc)
           cd ..
