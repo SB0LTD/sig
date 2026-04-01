@@ -77,9 +77,14 @@ jobs:
           echo "/tmp/bootstrap-sig/bin" >> "$GITHUB_PATH"
           /tmp/bootstrap-sig/bin/sig version
 
+      # Use --build-file build.zig for CI cross-compilation.
+      # The bootstrap's sigBuildDelegate has a compiler bug when compiling
+      # the build runner (integer overflow in codegen for large structs).
+      # The output binary still has sigBuildDelegate for end-user use.
       - name: Build sig for ${{ matrix.target }}
         run: |
           sig build \
+            --build-file build.zig \
             --zig-lib-dir lib \
             -Dtarget=${{ matrix.zig_target }} \
             -Doptimize=ReleaseSafe \
@@ -90,7 +95,7 @@ jobs:
         timeout-minutes: 120
 
       - name: Install lib files
-        run: sig build --zig-lib-dir lib -Dlib-files-only --prefix "sig-${VERSION}-${{ matrix.target }}" --maxrss 0
+        run: sig build --build-file build.zig --zig-lib-dir lib -Dlib-files-only --prefix "sig-${VERSION}-${{ matrix.target }}" --maxrss 0
         timeout-minutes: 10
 
       - name: Package tarball
