@@ -79,6 +79,8 @@ jobs:
       - name: Build bootstrap sig compiler via cmake
         run: |
           export PATH="/tmp/llvm-21/bin:$PATH"
+          # Hide build.sig during cmake so zig2 uses build.zig for stage3
+          mv build.sig build.sig.bak
           mkdir build && cd build
           cmake .. -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -87,6 +89,8 @@ jobs:
             -DZIG_USE_LLVM_CONFIG=ON
           ninja install -j$(nproc)
           cd ..
+          # Restore build.sig
+          mv build.sig.bak build.sig
           chmod +x bootstrap-sig/bin/sig
           echo "$PWD/bootstrap-sig/bin" >> "$GITHUB_PATH"
           bootstrap-sig/bin/sig version
