@@ -5069,23 +5069,79 @@ noinline fn sigBuildDelegate(
 
     // 6. Build argument vector for the runner using fixed-capacity stack array.
     //    Layout: [runner_bin, self_exe, zig_lib, build_root, local_cache, global_cache, user_args...]
+    //    Filter child_argv (raw cmdBuild args) to only pass what the sig runner understands:
+    //    step names, -D flags, -j, --verbose, --benchmark, --verify-identical, --self-test.
+    //    Skip compiler-internal flags: --build-file, --zig-lib-dir, --cache-dir,
+    //    --global-cache-dir, --build-runner, --seed, -Z, --color, --fetch, --fork=,
+    //    --system, --debug-*, --verbose-*, -freference-trace, --maxrss, --prefix.
     const fixed_args = 6;
     const max_runner_argv = fixed_args + 256;
     var runner_argv_buf: [max_runner_argv][]const u8 = .{&.{}} ** max_runner_argv;
-    const total_args = fixed_args + opts.child_argv.len;
-    if (total_args > max_runner_argv) {
-        fatal("too many build arguments ({d}), maximum is {d}", .{ opts.child_argv.len, max_runner_argv - fixed_args });
-    }
     runner_argv_buf[0] = runner_bin;
     runner_argv_buf[1] = opts.self_exe_path;
     runner_argv_buf[2] = opts.zig_lib_dir;
     runner_argv_buf[3] = opts.build_root_path;
     runner_argv_buf[4] = opts.local_cache_dir;
     runner_argv_buf[5] = opts.global_cache_dir;
-    for (opts.child_argv, 0..) |arg, i| {
-        runner_argv_buf[fixed_args + i] = arg;
+    var user_arg_count: usize = 0;
+    {
+        var i: usize = 0;
+        while (i < opts.child_argv.len) : (i += 1) {
+            const arg = opts.child_argv[i];
+            // Skip flags consumed by cmdBuild (not for the sig runner)
+            if (mem.eql(u8, arg, "--build-file") or
+                mem.eql(u8, arg, "--zig-lib-dir") or
+                mem.eql(u8, arg, "--cache-dir") or
+                mem.eql(u8, arg, "--global-cache-dir") or
+                mem.eql(u8, arg, "--build-runner") or
+                mem.eql(u8, arg, "--seed") or
+                mem.eql(u8, arg, "--color") or
+                mem.eql(u8, arg, "--system") or
+                mem.eql(u8, arg, "--debug-log") or
+                mem.eql(u8, arg, "--debug-target") or
+                mem.eql(u8, arg, "--debug-libc") or
+                mem.eql(u8, arg, "--prefix") or
+                mem.eql(u8, arg, "--maxrss"))
+            {
+                i += 1; // skip the flag AND its value
+                continue;
+            }
+            // Skip flags with no value
+            if (mem.eql(u8, arg, "--fetch") or
+                mem.eql(u8, arg, "--debug-compile-errors") or
+                mem.eql(u8, arg, "--verbose-link") or
+                mem.eql(u8, arg, "--verbose-cc") or
+                mem.eql(u8, arg, "--verbose-air") or
+                mem.eql(u8, arg, "--verbose-intern-pool") or
+                mem.eql(u8, arg, "--verbose-generic-instances") or
+                mem.eql(u8, arg, "--verbose-llvm-ir") or
+                mem.eql(u8, arg, "--verbose-cimport") or
+                mem.eql(u8, arg, "--verbose-llvm-cpu-features") or
+                mem.eql(u8, arg, "-fno-reference-trace") or
+                mem.startsWith(u8, arg, "--fork=") or
+                mem.startsWith(u8, arg, "--fetch=") or
+                mem.startsWith(u8, arg, "--seed=") or
+                mem.startsWith(u8, arg, "--verbose-llvm-ir=") or
+                mem.startsWith(u8, arg, "--verbose-llvm-bc=") or
+                mem.startsWith(u8, arg, "-freference-trace") or
+                (arg.len >= 2 and arg[0] == '-' and arg[1] == 'Z'))
+            {
+                continue;
+            }
+            // -j is handled: convert to sig runner format
+            if (mem.startsWith(u8, arg, "-j")) {
+                if (fixed_args + user_arg_count >= max_runner_argv) break;
+                runner_argv_buf[fixed_args + user_arg_count] = arg;
+                user_arg_count += 1;
+                continue;
+            }
+            // Pass through: step names, -D flags, --verbose, --benchmark, --verify-identical, --self-test, --
+            if (fixed_args + user_arg_count >= max_runner_argv) break;
+            runner_argv_buf[fixed_args + user_arg_count] = arg;
+            user_arg_count += 1;
+        }
     }
-    const runner_argv = runner_argv_buf[0..total_args];
+    const runner_argv = runner_argv_buf[0 .. fixed_args + user_arg_count];
 
     // 7. Spawn runner and propagate exit code
     switch (sigSpawnAndWait(io, runner_argv)) {
@@ -5464,7 +5520,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
             .local_cache_dir = local_cache_dir,
             .global_cache_dir = global_cache_dir,
             .self_exe_path = self_exe_path,
-            .child_argv = child_argv.items,
+            .child_argv = args,
         });
     }
 
