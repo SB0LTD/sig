@@ -159,13 +159,34 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
     _ = try ctx.addStep("bench-sig", "Run Sig benchmark suite", &noopStep);
 
     // ── Build runner self-hosting step ───────────────────────────────
-    _ = try ctx.addCompileStep(.{
-        .source_path = "tools/sig_build/main.sig",
-        .output_name = "build-runner",
-        .cache_dir = ctx.cache_dir[0..ctx.cache_dir_len],
-        .optimize = .Debug,
-        .target = null,
-        .imports = &.{},
-        .compiler_path = "",
-    });
+    {
+        // Wire sig and std imports for the build runner compilation.
+        var sig_import: sig_build.Import_Entry = .{};
+        const sig_name = "sig";
+        const sig_path = "lib/sig/sig.zig";
+        @memcpy(sig_import.name[0..sig_name.len], sig_name);
+        sig_import.name_len = sig_name.len;
+        @memcpy(sig_import.path[0..sig_path.len], sig_path);
+        sig_import.path_len = sig_path.len;
+
+        var std_import: sig_build.Import_Entry = .{};
+        const std_name = "std";
+        const std_path = "lib/std/std.zig";
+        @memcpy(std_import.name[0..std_name.len], std_name);
+        std_import.name_len = std_name.len;
+        @memcpy(std_import.path[0..std_path.len], std_path);
+        std_import.path_len = std_path.len;
+
+        const imports = [_]sig_build.Import_Entry{ sig_import, std_import };
+
+        _ = try ctx.addCompileStep(.{
+            .source_path = "tools/sig_build/main.sig",
+            .output_name = "build-runner",
+            .cache_dir = ctx.cache_dir[0..ctx.cache_dir_len],
+            .optimize = .Debug,
+            .target = null,
+            .imports = &imports,
+            .compiler_path = "",
+        });
+    }
 }
