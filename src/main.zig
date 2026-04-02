@@ -4990,9 +4990,9 @@ noinline fn sigBuildDelegate(
     opts: SigBuildDelegateOptions,
 ) void {
     // 1. Locate tools/sig_build/main.sig relative to zig lib dir (stack buffer)
-    // Use 4096-byte buffers instead of max_path_bytes to avoid stack overflow
-    // on Windows where max_path_bytes is 32767.
-    const path_buf_size = 4096;
+    // Use small buffers to minimize stack frame size. sigBuildDelegate must not
+    // blow the stack when combined with cmdBuild's frame.
+    const path_buf_size = 512;
     var runner_src_buf: [path_buf_size]u8 = undefined;
     const runner_src = sigJoinPath(&runner_src_buf, &.{
         opts.zig_lib_dir, "..", "tools", "sig_build", "main.sig",
