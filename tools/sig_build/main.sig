@@ -2993,11 +2993,14 @@ pub fn main(init: std.process.Init) !void {
     var runner_args: Runner_Args = .{};
     var config: Cli_Config = .{};
 
-    // Access raw argv vector. On POSIX this is []const [*:0]const u8.
-    // On Windows, Args.Iterator requires an allocator; we use init.gpa
-    // for the iterator only (OS-level argv decoding, not Sig logic).
-    var args_it = try init.minimal.args.iterateAllocator(init.gpa);
-    defer args_it.deinit();
+    // Access raw argv. On POSIX this is zero-copy (no allocator).
+    // On Windows, we use init.gpa for UTF-16→UTF-8 decoding only.
+    const use_allocator = @import("builtin").os.tag == .windows;
+    var args_it = if (use_allocator)
+        try init.minimal.args.iterateAllocator(init.gpa)
+    else
+        init.minimal.args.iterate();
+    defer if (use_allocator) args_it.deinit();
 
     // Count total args to validate we have at least 6.
     var arg_count: usize = 0;

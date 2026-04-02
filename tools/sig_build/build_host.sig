@@ -26,8 +26,12 @@ pub fn main(init: std.process.Init) !void {
     var runner_args: sig_build.Runner_Args = .{};
     var config: sig_build.Cli_Config = .{};
 
-    var args_it = try init.minimal.args.iterateAllocator(init.gpa);
-    defer args_it.deinit();
+    const use_allocator = @import("builtin").os.tag == .windows;
+    var args_it = if (use_allocator)
+        try init.minimal.args.iterateAllocator(init.gpa)
+    else
+        init.minimal.args.iterate();
+    defer if (use_allocator) args_it.deinit();
 
     var arg_count: usize = 0;
 
