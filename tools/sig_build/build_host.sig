@@ -112,6 +112,14 @@ pub fn main(init: std.process.Init) !void {
                 @memcpy(config.self_test_compiler[0..value.len], value);
                 config.self_test_compiler_len = value.len;
             }
+        } else if (std.mem.eql(u8, arg, "--prefix")) {
+            if (args_it.next()) |value| {
+                if (value.len > sig_build.PATH_BUF_SIZE) sig_build.fatal(io, "--prefix path too long", .{});
+                @memcpy(config.install_prefix[0..value.len], value);
+                config.install_prefix_len = value.len;
+            } else {
+                sig_build.fatal(io, "--prefix requires a path argument", .{});
+            }
         } else if (arg.len >= 2 and arg[0] == '-' and arg[1] == '-') {
             sig_build.fatal(io, "unknown option: '{s}'", .{arg});
         } else {
@@ -131,8 +139,11 @@ pub fn main(init: std.process.Init) !void {
     @memcpy(ctx.cache_dir[0..cache_dir.len], cache_dir);
     ctx.cache_dir_len = cache_dir.len;
 
-    // Install prefix: build_root/zig-out
-    {
+    // Install prefix: --prefix override or build_root/zig-out
+    if (config.install_prefix_len > 0) {
+        @memcpy(ctx.install_prefix[0..config.install_prefix_len], config.install_prefix[0..config.install_prefix_len]);
+        ctx.install_prefix_len = config.install_prefix_len;
+    } else {
         var prefix_buf: [sig_build.PATH_BUF_SIZE]u8 = undefined;
         const prefix_segs = [_][]const u8{ build_root, "zig-out" };
         const prefix = sig_fs.joinPath(&prefix_buf, &prefix_segs) catch {
@@ -144,6 +155,13 @@ pub fn main(init: std.process.Init) !void {
 
     ctx.options = config.options;
     ctx.io_ctx = io;
+
+    // Set compiler path from runner args so step functions can invoke the compiler.
+    {
+        const cp = runner_args.compiler_path[0..runner_args.compiler_path_len];
+        @memcpy(ctx.compiler_path[0..cp.len], cp);
+        ctx.compiler_path_len = cp.len;
+    }
 
     if (sig_build.getOption(sig_build.Optimize_Mode, &ctx.options, "optimize")) |mode| {
         ctx.optimize = mode;
@@ -236,6 +254,8 @@ pub fn main(init: std.process.Init) !void {
         4;
 
     var pool: sig_build.Thread_Pool = .{};
+    pool.build_ctx = &ctx;
+    pool.compiler_path = runner_args.compiler_path[0..runner_args.compiler_path_len];
     pool.init(thread_count, io);
     defer pool.deinit();
 

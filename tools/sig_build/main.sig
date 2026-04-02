@@ -53,9 +53,18 @@ pub const Module_Handle = u16;
 
 pub const Step_State = enum { pending, ready, running, succeeded, failed, skipped };
 
-/// Placeholder — will be expanded in task 1.11.
+/// Context passed to step functions during execution. Contains everything
+/// a step needs to do its work: the step handle, a read-only pointer to
+/// the Build_Context (for paths, options, target), an I/O context for
+/// file operations and process spawning, and the compiler binary path.
 pub const Step_Context = struct {
     step_handle: Step_Handle,
+    /// Pointer to the Build_Context (read-only access for paths, options, compiler path).
+    build_ctx: *Build_Context = undefined,
+    /// I/O context for file operations and process spawning.
+    io: std.Io = undefined,
+    /// Path to the sig compiler binary (for invoking build-exe, test, etc.).
+    compiler_path: []const u8 = "",
 };
 
 pub const StepFn = *const fn (*Step_Context) SigError!void;
@@ -1342,6 +1351,12 @@ pub const Thread_Pool = struct {
     shutdown: bool = false,
     active_count: usize = 0,
     io: std.Io = undefined,
+    /// Pointer to the Build_Context — set once before scheduling starts.
+    /// Workers read this (read-only) when constructing Step_Context.
+    build_ctx: ?*Build_Context = null,
+    /// Path to the sig compiler binary — set once before scheduling starts.
+    /// Stored as a slice into the Runner_Args buffer (stable lifetime).
+    compiler_path: []const u8 = "",
 
     // Per-step completion tracking: workers write results here under the mutex.
     completed_steps: [MAX_WORK_QUEUE]Completion_Result = undefined,
@@ -1477,14 +1492,23 @@ pub const Thread_Pool = struct {
             var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
             var stderr_len: usize = 0;
             var exit_code: u8 = 0;
-            var ctx = Step_Context{ .step_handle = item.step_handle };
+            // build_ctx is always set by build_host.sig before scheduling starts.
+            // For noop steps that don't access build_ctx, the undefined default is safe.
+            var ctx = Step_Context{
+                .step_handle = item.step_handle,
+                .io = pool.io,
+                .compiler_path = pool.compiler_path,
+            };
+            if (pool.build_ctx) |bctx| {
+                ctx.build_ctx = bctx;
+            }
             const succeeded = if (item.step_fn(&ctx)) |_| true else |_| blk: {
                 exit_code = 1; // Default non-zero exit code for failed steps.
                 break :blk false;
             };
 
-            // For now, output_len and stderr_len stay 0 — actual capture will be
-            // wired when Step_Context gets stdout/stderr redirection in task 1.11.
+            // Output and stderr capture is handled by the step functions
+            // themselves via the Step_Context's I/O context.
             _ = &output_buf;
             _ = &output_len;
             _ = &stderr_buf;
@@ -1672,8 +1696,8 @@ fn processCompletions(
             if (results[i].output_len > 0) {
                 // Write the step's buffered output to stdout in one shot.
                 const output = results[i].output_buf[0..results[i].output_len];
-                _ = output;
-                // Actual write will be wired when Step_Context gets I/O in task 1.11.
+                const stdout = std.Io.File.stdout();
+                stdout.writeStreamingAll(io, output) catch {};
             }
         } else {
             entry.state = .failed;
@@ -1762,6 +1786,10 @@ pub const Build_Context = struct {
     /// I/O context for file system operations (directory listing, file probing).
     /// Set by the build runner before calling build.sig's build function.
     io_ctx: std.Io = undefined,
+    /// Path to the sig compiler binary. Set from Runner_Args.compiler_path
+    /// before calling build.sig's build function.
+    compiler_path: [PATH_BUF_SIZE]u8 = undefined,
+    compiler_path_len: usize = 0,
 
     // --- Public API (called by build.sig) ---
 
@@ -1872,28 +1900,247 @@ pub const Build_Context = struct {
 
     /// Step function for compile steps. Reconstructs the compile command
     /// from the step entry's metadata and executes it.
+    ///
+    /// The step entry's `desc` field stores the source_path (set by addCompileStep).
+    /// The step entry's `name` field stores the output binary name.
+    ///
+    /// For the sig compiler itself (src/main.zig), compilation requires LLVM,
+    /// build_options, and other complex setup that only build.zig handles.
+    /// In that case, we delegate to `sig build --build-file build.zig`.
+    /// For all other sources, we use direct `build-exe` invocation.
     fn compileStepFn(ctx: *Step_Context) SigError!void {
-        // Compile steps are executed by the scheduler which reconstructs
-        // the Command_Buffer from Compile_Options stored in the registry.
-        // This stub acknowledges the step; actual command dispatch happens
-        // in the scheduler loop via buildCompileCommand + runCommand.
-        _ = ctx;
+        const build_ctx = ctx.build_ctx;
+        const io = ctx.io;
+        const handle: usize = ctx.step_handle;
+        const entry = &build_ctx.steps.entries[handle];
+
+        const source_path = entry.desc[0..entry.desc_len];
+        const output_name = entry.name[0..entry.name_len];
+        const cache_dir = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
+        const install_prefix = build_ctx.install_prefix[0..build_ctx.install_prefix_len];
+
+        // Determine compiler path: use ctx.compiler_path if set, else "sig".
+        const compiler = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
+
+        // Check if this is the sig compiler compilation (src/main.zig).
+        // The compiler needs LLVM, build_options, etc. — delegate to build.zig.
+        const is_compiler_build = std.mem.eql(u8, source_path, "src/main.zig");
+
+        if (is_compiler_build) {
+            // Delegate to build.zig via `sig build --build-file build.zig`.
+            var cmd: Command_Buffer = .{};
+            try cmd.addArg(compiler);
+            try cmd.addArg("build");
+            try cmd.addArg("--build-file");
+            try cmd.addArg("build.zig");
+
+            // Forward -Doptimize
+            {
+                var opt_buf: [64]u8 = undefined;
+                const opt_prefix = "-Doptimize=";
+                const opt_val = switch (build_ctx.optimize) {
+                    .Debug => "Debug",
+                    .ReleaseSafe => "ReleaseSafe",
+                    .ReleaseFast => "ReleaseFast",
+                    .ReleaseSmall => "ReleaseSmall",
+                };
+                @memcpy(opt_buf[0..opt_prefix.len], opt_prefix);
+                @memcpy(opt_buf[opt_prefix.len..][0..opt_val.len], opt_val);
+                try cmd.addArg(opt_buf[0 .. opt_prefix.len + opt_val.len]);
+            }
+
+            // Forward -Dtarget if set.
+            if (build_ctx.target.arch_len > 0) {
+                var target_buf: [PATH_BUF_SIZE]u8 = undefined;
+                var triple_buf: [PATH_BUF_SIZE]u8 = undefined;
+                const triple_str = try build_ctx.target.format(&triple_buf);
+                const target_prefix = "-Dtarget=";
+                if (target_prefix.len + triple_str.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+                @memcpy(target_buf[0..target_prefix.len], target_prefix);
+                @memcpy(target_buf[target_prefix.len..][0..triple_str.len], triple_str);
+                try cmd.addArg(target_buf[0 .. target_prefix.len + triple_str.len]);
+            }
+
+            // Forward relevant -D options from the build context.
+            // Check for common options that build.zig needs.
+            const forward_opts = [_][]const u8{
+                "no-lib", "no-langref", "lib-files-only", "no-bin",
+                "static-llvm", "enable-llvm", "strip", "single-threaded",
+            };
+            for (forward_opts) |opt_name| {
+                if (build_ctx.options.getValue(opt_name)) |val| {
+                    var fwd_buf: [PATH_BUF_SIZE]u8 = undefined;
+                    const d_prefix = "-D";
+                    const eq = "=";
+                    const total = d_prefix.len + opt_name.len + eq.len + val.len;
+                    if (total <= PATH_BUF_SIZE) {
+                        @memcpy(fwd_buf[0..d_prefix.len], d_prefix);
+                        @memcpy(fwd_buf[d_prefix.len..][0..opt_name.len], opt_name);
+                        @memcpy(fwd_buf[d_prefix.len + opt_name.len ..][0..eq.len], eq);
+                        @memcpy(fwd_buf[d_prefix.len + opt_name.len + eq.len ..][0..val.len], val);
+                        cmd.addArg(fwd_buf[0..total]) catch continue;
+                    }
+                }
+            }
+
+            // Forward cache dir.
+            try cmd.addArg("--cache-dir");
+            try cmd.addArg(cache_dir);
+
+            // Forward install prefix.
+            try cmd.addArg("--prefix");
+            try cmd.addArg(install_prefix);
+
+            // Set cwd to build root.
+            const build_root = build_ctx.build_root[0..build_ctx.build_root_len];
+            if (build_root.len > 0) {
+                try cmd.setCwd(build_root);
+            }
+
+            var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
+            var stderr_len: usize = 0;
+            const exit_code = try runCommand(&cmd, &stderr_buf, &stderr_len, io);
+            if (exit_code != 0) return error.BufferTooSmall;
+        } else {
+            // Direct build-exe invocation for non-compiler sources.
+            var cmd: Command_Buffer = .{};
+
+            // Gather imports from the module registry for this step's source.
+            // The step's imports were registered in the module registry by addCompileStep.
+            var imports_buf: [MAX_IMPORTS_PER_MODULE]Import_Entry = undefined;
+            var import_count: usize = 0;
+
+            // Look through registered modules for imports that were wired
+            // by addCompileStep. The convention is that addCompileStep registers
+            // each import as a module in the registry.
+            for (build_ctx.modules.entries[0..build_ctx.modules.count]) |mod_entry| {
+                if (import_count >= MAX_IMPORTS_PER_MODULE) break;
+                imports_buf[import_count] = .{};
+                @memcpy(imports_buf[import_count].name[0..mod_entry.name_len], mod_entry.name[0..mod_entry.name_len]);
+                imports_buf[import_count].name_len = mod_entry.name_len;
+                @memcpy(imports_buf[import_count].path[0..mod_entry.source_path_len], mod_entry.source_path[0..mod_entry.source_path_len]);
+                imports_buf[import_count].path_len = mod_entry.source_path_len;
+                import_count += 1;
+            }
+
+            try buildCompileCommand(&cmd, .{
+                .source_path = source_path,
+                .output_name = output_name,
+                .cache_dir = cache_dir,
+                .optimize = build_ctx.optimize,
+                .target = if (build_ctx.target.arch_len > 0) &build_ctx.target else null,
+                .imports = imports_buf[0..import_count],
+                .compiler_path = compiler,
+            });
+
+            // Add -femit-bin=<prefix>/bin/<output_name> flag.
+            {
+                var emit_buf: [PATH_BUF_SIZE]u8 = undefined;
+                const emit_prefix = "-femit-bin=";
+                var emit_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+                const emit_segs = [_][]const u8{ install_prefix, "bin", output_name };
+                const emit_path = sig_fs.joinPath(&emit_path_buf, &emit_segs) catch return error.BufferTooSmall;
+                if (emit_prefix.len + emit_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+                @memcpy(emit_buf[0..emit_prefix.len], emit_prefix);
+                @memcpy(emit_buf[emit_prefix.len..][0..emit_path.len], emit_path);
+                try cmd.addArg(emit_buf[0 .. emit_prefix.len + emit_path.len]);
+            }
+
+            // Add --zig-lib-dir if we can derive it from the compiler path.
+            // The zig lib dir is typically alongside the compiler binary.
+
+            var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
+            var stderr_len: usize = 0;
+            const exit_code = try runCommand(&cmd, &stderr_buf, &stderr_len, io);
+            if (exit_code != 0) return error.BufferTooSmall;
+        }
     }
 
     /// Step function for test steps. Compiles and runs the test binary.
+    ///
+    /// The step entry's `desc` field stores the source_path (set by addTestStep).
+    /// Uses the `test` subcommand instead of `build-exe`.
     fn testStepFn(ctx: *Step_Context) SigError!void {
-        // Test steps are executed by the scheduler which builds the test
-        // command and runs the resulting binary. This stub acknowledges
-        // the step; actual dispatch happens in the scheduler loop.
-        _ = ctx;
+        const build_ctx = ctx.build_ctx;
+        const io = ctx.io;
+        const handle: usize = ctx.step_handle;
+        const entry = &build_ctx.steps.entries[handle];
+
+        const source_path = entry.desc[0..entry.desc_len];
+        const cache_dir = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
+        const compiler = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
+
+        var cmd: Command_Buffer = .{};
+        try cmd.addArg(compiler);
+        try cmd.addArg("test");
+
+        // Emit --dep flags first (before the root module / source file).
+        for (build_ctx.modules.entries[0..build_ctx.modules.count]) |mod_entry| {
+            const name_slice = mod_entry.name[0..mod_entry.name_len];
+            try cmd.addArg("--dep");
+            try cmd.addArg(name_slice);
+        }
+
+        // Source path as positional argument (root module).
+        try cmd.addArg(source_path);
+
+        // Emit -Mname=path for each module (leaf modules, after root).
+        for (build_ctx.modules.entries[0..build_ctx.modules.count]) |mod_entry| {
+            const name_slice = mod_entry.name[0..mod_entry.name_len];
+            const path_slice = mod_entry.source_path[0..mod_entry.source_path_len];
+
+            var mod_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const prefix_len = 2 + name_slice.len + 1; // "-M" + name + "="
+            const total = prefix_len + path_slice.len;
+            if (total > PATH_BUF_SIZE) return error.BufferTooSmall;
+            mod_buf[0] = '-';
+            mod_buf[1] = 'M';
+            @memcpy(mod_buf[2..][0..name_slice.len], name_slice);
+            mod_buf[2 + name_slice.len] = '=';
+            @memcpy(mod_buf[prefix_len..][0..path_slice.len], path_slice);
+            try cmd.addArg(mod_buf[0..total]);
+        }
+
+        // Cache directory.
+        try cmd.addArg("--cache-dir");
+        try cmd.addArg(cache_dir);
+
+        var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
+        var stderr_len: usize = 0;
+        const exit_code = try runCommand(&cmd, &stderr_buf, &stderr_len, io);
+        if (exit_code != 0) return error.BufferTooSmall;
     }
 
     /// Step function for install steps. Copies files from source to dest.
+    ///
+    /// The step entry's `desc` field stores the source directory path
+    /// (set by addInstallStep). The destination is derived from the
+    /// install prefix and the step's dest_dir.
     fn installStepFn(ctx: *Step_Context) SigError!void {
-        // Install steps are executed by the scheduler which calls
-        // installFiles with the source and destination directories.
-        // This stub acknowledges the step.
-        _ = ctx;
+        const build_ctx = ctx.build_ctx;
+        const io = ctx.io;
+        const handle: usize = ctx.step_handle;
+        const entry = &build_ctx.steps.entries[handle];
+
+        // The desc field stores the source directory.
+        const source_dir = entry.desc[0..entry.desc_len];
+
+        // The step name is "install-<dest_dir>", so extract dest_dir from the name.
+        const name = entry.name[0..entry.name_len];
+        const install_prefix_str = "install-";
+        const dest_suffix = if (name.len > install_prefix_str.len and
+            std.mem.eql(u8, name[0..install_prefix_str.len], install_prefix_str))
+            name[install_prefix_str.len..]
+        else
+            name;
+
+        // Build the full destination path: <install_prefix>/<dest_dir>
+        const install_prefix = build_ctx.install_prefix[0..build_ctx.install_prefix_len];
+        var dest_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const dest_segs = [_][]const u8{ install_prefix, dest_suffix };
+        const dest_path = sig_fs.joinPath(&dest_path_buf, &dest_segs) catch return error.BufferTooSmall;
+
+        _ = try installFiles(io, source_dir, dest_path);
     }
 };
 
@@ -2477,6 +2724,9 @@ pub const Cli_Config = struct {
     /// Path to the compiler binary for self-test rebuild (defaults to "sig").
     self_test_compiler: [PATH_BUF_SIZE]u8 = undefined,
     self_test_compiler_len: usize = 0,
+    /// --prefix override for install directory.
+    install_prefix: [PATH_BUF_SIZE]u8 = undefined,
+    install_prefix_len: usize = 0,
 };
 
 /// Default build file name.
