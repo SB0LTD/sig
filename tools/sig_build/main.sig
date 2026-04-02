@@ -3097,6 +3097,11 @@ pub fn main(init: std.process.Init) !void {
                     @memcpy(config.self_test_compiler[0..value.len], value);
                     config.self_test_compiler_len = value.len;
                 }
+            } else if (std.mem.eql(u8, arg, "--prefix") or
+                std.mem.eql(u8, arg, "--maxrss"))
+            {
+                // Options handled by the build host — skip the flag and its value.
+                _ = args_it.next();
             } else {
                 fatal(io, "unknown option: '{s}'", .{arg});
             }
