@@ -3404,12 +3404,12 @@ pub fn main(init: std.process.Init) !void {
             {
                 // Store --prefix for forwarding to build host.
                 if (std.mem.eql(u8, arg, "--prefix")) {
-                    if (args_it.next()) |value| {
+                    if (args_it.next() catch null) |value| {
                         if (value.len <= PATH_BUF_SIZE) {
                             @memcpy(config.install_prefix[0..value.len], value);
                             config.install_prefix_len = value.len;
                         }
-                    } else |_| {}
+                    }
                 } else {
                     // --maxrss: skip the value
                     _ = args_it.next() catch {};
