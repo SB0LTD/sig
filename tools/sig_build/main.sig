@@ -2046,6 +2046,9 @@ pub const Build_Context = struct {
     /// Sig version string from build.sig's sig_version_string constant.
     sig_version: [64]u8 = undefined,
     sig_version_len: usize = 0,
+    /// Zig lib directory path (for --zig-lib-dir when invoking the compiler).
+    zig_lib_dir: [PATH_BUF_SIZE]u8 = undefined,
+    zig_lib_dir_len: usize = 0,
 
     // --- Public API (called by build.sig) ---
 
@@ -2301,8 +2304,11 @@ pub const Build_Context = struct {
             try cmd.appendArg("--cache-dir");
             try cmd.appendArg(cache_dir);
 
-            // Zig lib directory: --zig-lib-dir (derived from compiler path).
-            // The zig lib dir is typically alongside the compiler binary.
+            // Zig lib directory: --zig-lib-dir
+            if (build_ctx.zig_lib_dir_len > 0) {
+                try cmd.appendArg("--zig-lib-dir");
+                try cmd.appendArg(build_ctx.zig_lib_dir[0..build_ctx.zig_lib_dir_len]);
+            }
 
             // LLVM linking flags: when have_llvm is true, forward static LLVM
             // library flags and platform-specific system libraries.

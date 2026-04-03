@@ -165,6 +165,13 @@ pub fn main(init: std.process.Init) !void {
         ctx.compiler_path_len = cp.len;
     }
 
+    // Set zig lib dir from runner args so step functions can pass --zig-lib-dir.
+    {
+        const ld = runner_args.zig_lib_dir[0..runner_args.zig_lib_dir_len];
+        @memcpy(ctx.zig_lib_dir[0..ld.len], ld);
+        ctx.zig_lib_dir_len = ld.len;
+    }
+
     if (sig_build.getOption(sig_build.Optimize_Mode, &ctx.options, "optimize")) |mode| {
         ctx.optimize = mode;
     }
