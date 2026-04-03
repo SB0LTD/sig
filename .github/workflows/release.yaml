@@ -24,8 +24,8 @@ permissions:
   contents: write
 
 env:
-  LLVM_URL: https://github.com/SB0LTD/sig/releases/download/llvm-21/llvm-21-x86_64-linux.tar.xz
-  # BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/sig-latest/sig-x86_64-linux.tar.xz
+  # LLVM_URL: https://github.com/SB0LTD/sig/releases/download/llvm-21/llvm-21-x86_64-linux.tar.xz
+  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/sig-0.0.4%2Bzig0.16.0.4174eca/sig-0.0.4%2Bzig0.16.0.4174eca-x86_64-linux.tar.xz
 
 jobs:
   build:
@@ -88,11 +88,12 @@ jobs:
       - name: Download pre-built sig
         if: env.MODE == 'bootstrap'
         run: |
+          mkdir -p /tmp/bootstrap-sig
           curl -fsSL "$BOOTSTRAP_URL" -o /tmp/sig.tar.xz
-          tar -xJf /tmp/sig.tar.xz -C /tmp
-          chmod +x /tmp/sig-*/bin/sig
-          echo "/tmp/sig-*/bin" >> "$GITHUB_PATH"
-          /tmp/sig-*/bin/sig version
+          tar -xJf /tmp/sig.tar.xz -C /tmp/bootstrap-sig --strip-components=1
+          chmod +x /tmp/bootstrap-sig/bin/sig
+          echo "/tmp/bootstrap-sig/bin" >> "$GITHUB_PATH"
+          /tmp/bootstrap-sig/bin/sig version
 
       # ============================================================
       # Slow path: cmake bootstrap from LLVM
@@ -205,7 +206,7 @@ jobs:
         run: |
           cd artifacts
           cat *.sha256 > sha256sums.txt
-          PRERELEASE="${{ (github.event_name == 'workflow_dispatch' && inputs.prerelease == 'true') && '--prerelease' || '--prerelease' }}"
+          PRERELEASE="${{ (github.event_name == 'workflow_dispatch' && inputs.prerelease == 'true') && '--prerelease' || '' }}"
           gh release create "sig-${VERSION}" --title "Sig ${VERSION}" \
             --notes "Sig ${VERSION} — built with the zero-allocator sig build system
 
