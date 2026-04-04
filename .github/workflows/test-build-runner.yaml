@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 env:
-  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-x86_64-linux.tar.gz
+  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v3/bootstrap-sig-x86_64-linux.tar.gz
 
 jobs:
   test:
