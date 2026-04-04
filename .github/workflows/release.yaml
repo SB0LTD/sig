@@ -25,7 +25,7 @@ permissions:
 
 env:
   # LLVM_URL: https://github.com/SB0LTD/sig/releases/download/llvm-21/llvm-21-x86_64-linux.tar.xz
-  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v3/bootstrap-sig-x86_64-linux.tar.gz
+  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-x86_64-linux.tar.gz
 
 jobs:
   build:
@@ -148,8 +148,7 @@ jobs:
             -Dno-langref \
             -Dskip-tests \
             --prefix "sig-${VERSION}-${{ matrix.target }}" \
-            --maxrss 0 \
-            --verbose || true
+            --maxrss 0 || true
           # List what was produced
           echo "=== Output directory contents ==="
           find "sig-${VERSION}-${{ matrix.target }}" -type f 2>/dev/null || echo "(directory not found)"
