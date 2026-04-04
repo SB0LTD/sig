@@ -1555,6 +1555,10 @@ pub fn installFiles(
     var entries_buf: [256]sig_fs.DirEntry = undefined;
     const entries = sig_fs.listDir(io_ctx, src_dir_path, &entries_buf) catch return error.BufferTooSmall;
 
+    // Ensure destination directory exists.
+    const cwd: std.Io.Dir = .cwd();
+    cwd.createDirPath(io_ctx, dst_dir_path) catch {};
+
     var installed: usize = 0;
     for (entries) |*entry| {
         const name = entry.name();
@@ -1571,12 +1575,14 @@ pub fn installFiles(
         const dst_segs = [_][]const u8{ dst_dir_path, name };
         const dst_path = sig_fs.joinPath(&dst_path_buf, &dst_segs) catch continue;
 
-        // Read source file and write to destination.
-        var file_buf: [OUTPUT_BUF_SIZE]u8 = undefined;
-        const content = sig_fs.readFile(io_ctx, src_path, &file_buf) catch continue;
-        sig_fs.writeFile(io_ctx, dst_path, content) catch continue;
-
-        installed += 1;
+        if (entry.kind == .directory) {
+            // Recurse into subdirectory.
+            installed += installFiles(io_ctx, src_path, dst_path) catch 0;
+        } else {
+            // Copy file using chunked streaming (handles any file size).
+            sig_fs.copyFile(io_ctx, src_path, dst_path) catch continue;
+            installed += 1;
+        }
     }
 
     return installed;

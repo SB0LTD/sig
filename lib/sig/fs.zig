@@ -49,6 +49,24 @@ pub fn writeFile(io: std.Io, path: []const u8, data: []const u8) SigError!void {
     file.writeStreamingAll(io, data) catch return error.BufferTooSmall;
 }
 
+/// Copy a file from src_path to dst_path using a fixed-size chunk buffer.
+/// Handles files of any size without requiring the whole file in memory.
+pub fn copyFile(io: std.Io, src_path: []const u8, dst_path: []const u8) SigError!void {
+    const cwd: std.Io.Dir = .cwd();
+    var src = cwd.openFile(io, src_path, .{}) catch return error.BufferTooSmall;
+    defer src.close(io);
+    var dst = cwd.createFile(io, dst_path, .{}) catch return error.BufferTooSmall;
+    defer dst.close(io);
+
+    var chunk: [8192]u8 = undefined;
+    var reader = src.reader(io, &.{});
+    while (true) {
+        const n = reader.interface.readSliceShort(&chunk) catch break;
+        if (n == 0) break;
+        dst.writeStreamingAll(io, chunk[0..n]) catch return error.BufferTooSmall;
+    }
+}
+
 /// Join path segments into a caller-provided buffer using the platform separator.
 /// Returns the joined path slice, or `BufferTooSmall` if the buffer is insufficient.
 pub fn joinPath(buf: []u8, segments: []const []const u8) SigError![]u8 {
