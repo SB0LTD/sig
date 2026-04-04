@@ -1,0 +1,14 @@
+# Branch protection rules for default branch (master)
+# Sync with GitHub via CLI: gh api repos/{owner}/{repo}/branches/master/protection
+name: master
+protection:
+  required_status_checks:
+    strict: true
+    contexts:
+      - release
+  required_pull_request_reviews:
+    dismiss_stale_reviews: true
+    require_code_owner_reviews: false
+  enforce_admins: true
+  allow_deletions: false
+  allow_force_pushes: false

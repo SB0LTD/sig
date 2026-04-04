@@ -5102,7 +5102,7 @@ noinline fn sigBuildDelegate(
                 mem.eql(u8, arg, "--debug-libc") or
                 mem.eql(u8, arg, "--maxrss"))
             {
-                i += 1; // skip the flag AND its value
+                if (i + 1 < opts.child_argv.len) i += 1; // skip the flag AND its value
                 continue;
             }
             // Skip flags with no value

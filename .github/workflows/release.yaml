@@ -85,6 +85,14 @@ jobs:
       # ============================================================
       # Fast path: download pre-built sig binary
       # ============================================================
+      - name: Cache bootstrap binary
+        if: env.MODE == 'bootstrap'
+        uses: actions/cache@v4
+        with:
+          path: /tmp/bootstrap-sig
+          key: bootstrap-sig-${{ hashFiles('.github/workflows/release.yaml') }}
+          restore-keys: bootstrap-sig-
+
       - name: Download pre-built sig
         if: env.MODE == 'bootstrap'
         run: |
