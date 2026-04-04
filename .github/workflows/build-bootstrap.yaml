@@ -47,11 +47,48 @@ jobs:
           /tmp/bootstrap-sig/bin/sig version
           echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
 
+      - name: Generate build_options.zig
+        run: |
+          mkdir -p .zig-cache
+          # Resolve version string from build.sig
+          SIG_VER=$(grep -oE 'sig_version_string = "[^"]+"' build.sig | grep -oE '"[^"]+"' | tr -d '"')
+          ZIG_VER="${{ env.ZIG_VER }}"
+          GIT_SHORT=$(git rev-parse --short=7 HEAD)
+          VERSION_STR="${SIG_VER}+zig0.16.0.${GIT_SHORT}"
+          cat > .zig-cache/build_options.zig <<EOF
+          pub const mem_leak_frames: u32 = 0;
+          pub const skip_non_native: bool = false;
+          pub const have_llvm: bool = false;
+          pub const llvm_has_m68k: bool = false;
+          pub const llvm_has_csky: bool = false;
+          pub const llvm_has_arc: bool = false;
+          pub const llvm_has_xtensa: bool = false;
+          pub const debug_gpa: bool = false;
+          pub const version: [:0]const u8 = "${VERSION_STR}";
+          pub const sig_version: [:0]const u8 = "${SIG_VER}";
+          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 1, .patch = 0, .pre = "dev", .build = "" };
+          pub const enable_debug_extensions: bool = false;
+          pub const enable_logging: bool = false;
+          pub const enable_link_snapshots: bool = false;
+          pub const enable_tracy: bool = false;
+          pub const enable_tracy_callstack: bool = false;
+          pub const enable_tracy_allocation: bool = false;
+          pub const tracy_callstack_depth: u32 = 10;
+          pub const value_tracing: bool = false;
+          pub const @"src.dev.Env" = enum (u4) { bootstrap = 0, core = 1, full = 2, c_source = 3, ast_gen = 4, sema = 5, @"aarch64-linux" = 6, cbe = 7, @"powerpc-linux" = 8, @"riscv64-linux" = 9, spirv = 10, wasm = 11, @"x86_64-linux" = 12 };
+          pub const dev: @"src.dev.Env" = .full;
+          pub const @"build.IoMode" = enum (u1) { threaded = 0, evented = 1 };
+          pub const io_mode: @"build.IoMode" = .threaded;
+          pub const @"build.ValueInterpretMode" = enum (u1) { direct = 0, by_name = 1 };
+          pub const value_interpret_mode: @"build.ValueInterpretMode" = .direct;
+          EOF
+
       - name: Build x86_64-linux
         run: |
           mkdir -p bootstrap-sig-x86_64-linux/bin
           sig build-exe \
             -Mroot=src/main.zig \
+            -Mbuild_options=.zig-cache/build_options.zig \
             --zig-lib-dir "$ZIG_LIB_DIR" \
             --cache-dir .zig-cache \
             --global-cache-dir .zig-cache \
@@ -85,7 +122,7 @@ jobs:
   # These were produced by the release.yaml pipeline (which used zig once).
   # From here on, sig builds sig — no zig needed.
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
         with:
@@ -122,11 +159,46 @@ jobs:
           echo "SIG_BIN=$SIG" >> "$GITHUB_ENV"
           echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
 
+      - name: Generate build_options.zig
+        run: |
+          mkdir -p .zig-cache
+          SIG_VER=$(grep -oE 'sig_version_string = "[^"]+"' build.sig | grep -oE '"[^"]+"' | tr -d '"')
+          GIT_SHORT=$(git rev-parse --short=7 HEAD)
+          VERSION_STR="${SIG_VER}+zig0.16.0.${GIT_SHORT}"
+          cat > .zig-cache/build_options.zig <<EOF
+          pub const mem_leak_frames: u32 = 0;
+          pub const skip_non_native: bool = false;
+          pub const have_llvm: bool = false;
+          pub const llvm_has_m68k: bool = false;
+          pub const llvm_has_csky: bool = false;
+          pub const llvm_has_arc: bool = false;
+          pub const llvm_has_xtensa: bool = false;
+          pub const debug_gpa: bool = false;
+          pub const version: [:0]const u8 = "${VERSION_STR}";
+          pub const sig_version: [:0]const u8 = "${SIG_VER}";
+          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 1, .patch = 0, .pre = "dev", .build = "" };
+          pub const enable_debug_extensions: bool = false;
+          pub const enable_logging: bool = false;
+          pub const enable_link_snapshots: bool = false;
+          pub const enable_tracy: bool = false;
+          pub const enable_tracy_callstack: bool = false;
+          pub const enable_tracy_allocation: bool = false;
+          pub const tracy_callstack_depth: u32 = 10;
+          pub const value_tracing: bool = false;
+          pub const @"src.dev.Env" = enum (u4) { bootstrap = 0, core = 1, full = 2, c_source = 3, ast_gen = 4, sema = 5, @"aarch64-linux" = 6, cbe = 7, @"powerpc-linux" = 8, @"riscv64-linux" = 9, spirv = 10, wasm = 11, @"x86_64-linux" = 12 };
+          pub const dev: @"src.dev.Env" = .full;
+          pub const @"build.IoMode" = enum (u1) { threaded = 0, evented = 1 };
+          pub const io_mode: @"build.IoMode" = .threaded;
+          pub const @"build.ValueInterpretMode" = enum (u1) { direct = 0, by_name = 1 };
+          pub const value_interpret_mode: @"build.ValueInterpretMode" = .direct;
+          EOF
+
       - name: Build aarch64-macos bootstrap
         run: |
           mkdir -p bootstrap-sig-aarch64-macos/bin
           "$SIG_BIN" build-exe \
             -Mroot=src/main.zig \
+            -Mbuild_options=.zig-cache/build_options.zig \
             --zig-lib-dir "$ZIG_LIB_DIR" \
             --cache-dir .zig-cache \
             --global-cache-dir .zig-cache \
