@@ -1,6 +1,4 @@
 # Build and publish fresh bootstrap compiler binaries.
-# Linux job: uses existing bootstrap to self-host build.
-# macOS job: cross-compiled from Linux bootstrap (no Zig needed).
 name: build-bootstrap
 
 on:
@@ -21,6 +19,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Cache zig-cache
+        uses: actions/cache@v4
+        with:
+          path: .zig-cache
+          key: zig-cache-bootstrap-${{ github.sha }}
+          restore-keys: zig-cache-bootstrap-
+
       - name: Download bootstrap
         run: |
           mkdir -p /tmp/bootstrap-sig
@@ -29,40 +34,36 @@ jobs:
           chmod +x /tmp/bootstrap-sig/bin/sig
           echo "/tmp/bootstrap-sig/bin" >> "$GITHUB_PATH"
           /tmp/bootstrap-sig/bin/sig version
-          echo "REPO_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
           echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
 
       - name: Build x86_64-linux bootstrap
         run: |
           sig build \
-            --zig-lib-dir "$REPO_LIB_DIR" \
+            --zig-lib-dir "$ZIG_LIB_DIR" \
             -Dtarget=x86_64-linux-musl \
             -Doptimize=ReleaseSafe \
             -Dno-langref \
             -Dskip-tests \
             --prefix bootstrap-sig-x86_64-linux \
-            --maxrss 0 \
-            --verbose
-        timeout-minutes: 120
+            -j$(nproc)
+        timeout-minutes: 60
 
       - name: Build aarch64-macos bootstrap (cross from Linux)
         run: |
           sig build \
-            --zig-lib-dir "$REPO_LIB_DIR" \
+            --zig-lib-dir "$ZIG_LIB_DIR" \
             -Dtarget=aarch64-macos \
             -Doptimize=ReleaseSafe \
             -Dno-langref \
             -Dskip-tests \
             --prefix bootstrap-sig-aarch64-macos \
-            --maxrss 0
-        timeout-minutes: 120
+            -j$(nproc)
+        timeout-minutes: 60
 
       - name: Verify and package
         run: |
-          echo "=== x86_64-linux ==="
-          file bootstrap-sig-x86_64-linux/bin/sig
-          echo "=== aarch64-macos ==="
-          file bootstrap-sig-aarch64-macos/bin/sig
+          echo "=== x86_64-linux ===" && file bootstrap-sig-x86_64-linux/bin/sig
+          echo "=== aarch64-macos ===" && file bootstrap-sig-aarch64-macos/bin/sig
           tar -czf bootstrap-sig-x86_64-linux.tar.gz -C bootstrap-sig-x86_64-linux .
           tar -czf bootstrap-sig-aarch64-macos.tar.gz -C bootstrap-sig-aarch64-macos .
 

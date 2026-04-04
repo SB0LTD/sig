@@ -61,6 +61,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Cache zig-cache
+        uses: actions/cache@v4
+        with:
+          path: .zig-cache
+          key: zig-cache-${{ matrix.target }}-${{ github.sha }}
+          restore-keys: zig-cache-${{ matrix.target }}-
+
       - name: Resolve version and detect mode
         id: version
         run: |
@@ -110,7 +117,6 @@ jobs:
           chmod +x /tmp/bootstrap-sig/bin/sig
           echo "/tmp/bootstrap-sig/bin" >> "$GITHUB_PATH"
           /tmp/bootstrap-sig/bin/sig version
-          echo "REPO_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
           echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
 
       # ============================================================
@@ -151,14 +157,14 @@ jobs:
       - name: Build sig for ${{ matrix.target }}
         run: |
           sig build \
-            --zig-lib-dir "$REPO_LIB_DIR" \
+            --zig-lib-dir "$ZIG_LIB_DIR" \
             -Dtarget=${{ matrix.zig_target }} \
             -Doptimize=ReleaseSafe \
             -Dno-lib \
             -Dno-langref \
             -Dskip-tests \
             --prefix "sig-${VERSION}-${{ matrix.target }}" \
-            --maxrss 0 || true
+            -j$(nproc) || true
           # List what was produced
           echo "=== Output directory contents ==="
           find "sig-${VERSION}-${{ matrix.target }}" -type f 2>/dev/null || echo "(directory not found)"
