@@ -1,8 +1,8 @@
-# [sig] Adaptive release pipeline — bootstrap (fast) or cmake (slow)
+# [sig] Release pipeline — cmake bootstrap from pre-built LLVM, then cross-compile
 #
-# Set ONE of these env vars, comment out the other:
-#   BOOTSTRAP_URL → downloads a pre-built sig binary (fast path)
-#   LLVM_URL      → cmake bootstrap from LLVM (slow path)
+# Strategy: build a bootstrap sig binary via cmake + LLVM on Linux,
+# then use it to cross-compile for all targets via `sig build-exe` directly.
+# This bypasses build.sig entirely — no sig_build module needed.
 name: release
 
 on:
@@ -11,49 +11,26 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 0.0.4)'
+        description: 'Release version (e.g. 0.1.0-dev)'
         required: true
         type: string
       prerelease:
         description: 'Mark as pre-release'
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:
   contents: write
 
 env:
-  # LLVM_URL: https://github.com/SB0LTD/sig/releases/download/llvm-21/llvm-21-x86_64-linux.tar.xz
-  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-x86_64-linux.tar.gz
+  LLVM_URL: https://github.com/SB0LTD/sig/releases/download/llvm-21/llvm-21-x86_64-linux.tar.xz
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-linux
-            zig_target: x86_64-linux-musl
-            ext: tar.xz
-            runner: ubuntu-latest
-            bootstrap_url: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-x86_64-linux.tar.gz
-          - target: aarch64-linux
-            zig_target: aarch64-linux-musl
-            ext: tar.xz
-            runner: ubuntu-latest
-            bootstrap_url: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-x86_64-linux.tar.gz
-          - target: aarch64-macos
-            zig_target: aarch64-macos
-            ext: tar.xz
-            runner: macos-latest
-            bootstrap_url: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-aarch64-macos.tar.gz
-          - target: x86_64-windows
-            zig_target: x86_64-windows
-            ext: zip
-            runner: ubuntu-latest
-            bootstrap_url: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-x86_64-linux.tar.gz
-    runs-on: ${{ matrix.runner }}
+  # Step 1: Build a bootstrap sig binary via cmake + LLVM on Linux.
+  # This produces a native x86_64-linux sig binary that can cross-compile.
+  bootstrap:
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -61,26 +38,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Cache zig-cache
-        uses: actions/cache@v4
-        with:
-          path: .zig-cache
-          key: zig-cache-${{ matrix.target }}-${{ github.sha }}
-          restore-keys: zig-cache-${{ matrix.target }}-
-
-      - name: Resolve version and detect mode
+      - name: Resolve version
         id: version
         run: |
-          # --- Detect pipeline mode ---
-          if [ -n "$BOOTSTRAP_URL" ]; then
-            echo "MODE=bootstrap" >> "$GITHUB_ENV"
-            echo "mode=bootstrap" >> "$GITHUB_OUTPUT"
-          else
-            echo "MODE=cmake" >> "$GITHUB_ENV"
-            echo "mode=cmake" >> "$GITHUB_OUTPUT"
-          fi
-
-          # --- Resolve sig version ---
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             SIG_VER="${{ inputs.version }}"
           else
@@ -96,145 +56,180 @@ jobs:
           VERSION="${SIG_VER}+zig${ZIG_MAJOR}.${ZIG_MINOR}.${ZIG_PATCH}.$(git rev-parse --short=7 HEAD)"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "==> Version: ${VERSION}"
 
-      # ============================================================
-      # Fast path: download pre-built sig binary
-      # ============================================================
-      - name: Cache bootstrap binary
-        if: env.MODE == 'bootstrap'
+      - name: Cache LLVM
         uses: actions/cache@v4
         with:
-          path: /tmp/bootstrap-sig
-          key: bootstrap-sig-${{ hashFiles('.github/workflows/release.yaml') }}
-          restore-keys: bootstrap-sig-
+          path: /tmp/llvm-21
+          key: llvm-21-x86_64-linux-${{ hashFiles('.github/workflows/release.yaml') }}
+          restore-keys: llvm-21-x86_64-linux-
 
-      - name: Download pre-built sig
-        if: env.MODE == 'bootstrap'
-        run: |
-          mkdir -p /tmp/bootstrap-sig
-          curl -fsSL "${{ matrix.bootstrap_url }}" -o /tmp/bootstrap-sig.tar
-          tar -xf /tmp/bootstrap-sig.tar -C /tmp/bootstrap-sig
-          chmod +x /tmp/bootstrap-sig/bin/sig
-          echo "/tmp/bootstrap-sig/bin" >> "$GITHUB_PATH"
-          /tmp/bootstrap-sig/bin/sig version
-          echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
-
-      # ============================================================
-      # Slow path: cmake bootstrap from LLVM
-      # ============================================================
       - name: Install build dependencies
-        if: env.MODE == 'cmake'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev
 
       - name: Download pre-built LLVM 21
-        if: env.MODE == 'cmake'
         run: |
-          curl -fsSL "$LLVM_URL" -o /tmp/llvm.tar.xz
-          tar -xJf /tmp/llvm.tar.xz -C /tmp
+          if [ ! -d /tmp/llvm-21 ]; then
+            curl -fsSL "$LLVM_URL" -o /tmp/llvm.tar.xz
+            tar -xJf /tmp/llvm.tar.xz -C /tmp
+          fi
+          echo "LLVM ready: $(ls /tmp/llvm-21/bin/llvm-config 2>/dev/null && echo OK || echo MISSING)"
 
       - name: Build bootstrap via cmake
-        if: env.MODE == 'cmake'
         run: |
           export PATH="/tmp/llvm-21/bin:$PATH"
+          # Temporarily hide build.sig so cmake doesn't get confused
           mv build.sig build.sig.bak
-          mkdir build && cd build
+          mkdir -p build && cd build
           cmake .. -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="/tmp/llvm-21" \
-            -DCMAKE_INSTALL_PREFIX="$PWD/../bootstrap-sig" \
+            -DCMAKE_INSTALL_PREFIX="$PWD/../bootstrap" \
             -DZIG_USE_LLVM_CONFIG=ON
           ninja install -j$(getconf _NPROCESSORS_ONLN)
           cd ..
           mv build.sig.bak build.sig
-          chmod +x bootstrap-sig/bin/sig
-          echo "$PWD/bootstrap-sig/bin" >> "$GITHUB_PATH"
-          bootstrap-sig/bin/sig version
+          echo "==> Bootstrap built:"
+          ./bootstrap/bin/sig version
         timeout-minutes: 60
 
-      # ============================================================
-      # Both paths converge here
-      # ============================================================
+      - name: Upload bootstrap artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-sig
+          path: bootstrap/
+          retention-days: 1
+
+
+  # Step 2: Use the bootstrap to cross-compile sig for all targets.
+  # All jobs run on ubuntu-latest using the bootstrap binary.
+  # Cross-compilation via `sig build-exe` directly (bypasses build.sig).
+  build:
+    needs: bootstrap
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            zig_target: x86_64-linux-musl
+            ext: tar.xz
+          - target: aarch64-linux
+            zig_target: aarch64-linux-musl
+            ext: tar.xz
+          - target: aarch64-macos
+            zig_target: aarch64-macos
+            ext: tar.xz
+          - target: x86_64-windows
+            zig_target: x86_64-windows
+            ext: zip
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.bootstrap.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache zig-cache
+        uses: actions/cache@v4
+        with:
+          path: .zig-cache
+          key: zig-cache-${{ matrix.target }}-${{ github.sha }}
+          restore-keys: zig-cache-${{ matrix.target }}-
+
+      - name: Download bootstrap
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-sig
+          path: /tmp/bootstrap
+
+      - name: Setup bootstrap
+        run: |
+          chmod +x /tmp/bootstrap/bin/sig
+          echo "/tmp/bootstrap/bin" >> "$GITHUB_PATH"
+          /tmp/bootstrap/bin/sig version
+
+      - name: Generate build_options.zig
+        run: |
+          mkdir -p .zig-cache
+          cat > .zig-cache/build_options.zig << 'EOF'
+          pub const version_string = "${{ env.VERSION }}";
+          pub const have_llvm = false;
+          pub const enable_logging = false;
+          pub const enable_tracy = false;
+          EOF
+
+      - name: Determine output binary name
+        id: binname
+        run: |
+          if [ "${{ matrix.target }}" = "x86_64-windows" ]; then
+            echo "bin=sig.exe" >> "$GITHUB_OUTPUT"
+          else
+            echo "bin=sig" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build sig for ${{ matrix.target }}
         run: |
-          sig build \
-            --zig-lib-dir "$ZIG_LIB_DIR" \
-            -Dtarget=${{ matrix.zig_target }} \
-            -Doptimize=ReleaseSafe \
-            -Dno-lib \
-            -Dno-langref \
-            -Dskip-tests \
-            --prefix "sig-${VERSION}-${{ matrix.target }}" \
+          OUT_DIR="sig-${VERSION}-${{ matrix.target }}"
+          mkdir -p "${OUT_DIR}/bin"
+
+          sig build-exe \
+            --dep build_options --dep aro \
+            -Mroot=src/main.zig \
+            -Mbuild_options=.zig-cache/build_options.zig \
+            -Maro=lib/compiler/aro/aro.zig \
+            -O ReleaseSafe \
+            -target ${{ matrix.zig_target }} \
+            -femit-bin="${OUT_DIR}/bin/${{ steps.binname.outputs.bin }}" \
+            --cache-dir .zig-cache \
+            --zig-lib-dir "$(pwd)/lib" \
             -j$(getconf _NPROCESSORS_ONLN)
-          # List what was produced
-          echo "=== Output directory contents ==="
-          find "sig-${VERSION}-${{ matrix.target }}" -type f 2>/dev/null || echo "(directory not found)"
+
+          echo "=== Output ==="
+          ls -la "${OUT_DIR}/bin/"
         timeout-minutes: 120
 
       - name: Install lib files
         run: |
-          mkdir -p "sig-${VERSION}-${{ matrix.target }}/lib/zig"
-          cp -r lib/. "sig-${VERSION}-${{ matrix.target }}/lib/zig/"
-        timeout-minutes: 5
+          OUT_DIR="sig-${VERSION}-${{ matrix.target }}"
+          mkdir -p "${OUT_DIR}/lib/zig"
+          cp -r lib/. "${OUT_DIR}/lib/zig/"
 
       - name: Verify binary format
         run: |
-          BIN_DIR="sig-${VERSION}-${{ matrix.target }}/bin"
+          BIN="sig-${VERSION}-${{ matrix.target }}/bin/${{ steps.binname.outputs.bin }}"
+          if [ ! -f "$BIN" ]; then
+            echo "ERROR: Binary not found: $BIN"
+            exit 1
+          fi
           if [ "${{ matrix.target }}" = "x86_64-windows" ]; then
-            BIN_FILE="${BIN_DIR}/sig.exe"
-            if [ ! -f "$BIN_FILE" ]; then
-              echo "ERROR: Windows binary sig.exe not found in ${BIN_DIR}"
-              ls -la "$BIN_DIR" 2>/dev/null || echo "(bin dir missing)"
-              exit 1
-            fi
-            # Verify it's a PE executable (starts with MZ = 4d5a)
-            MAGIC=$(od -A n -t x1 -N 2 "$BIN_FILE" | tr -d ' ')
+            MAGIC=$(od -A n -t x1 -N 2 "$BIN" | tr -d ' ')
             if [ "$MAGIC" != "4d5a" ]; then
-              echo "ERROR: sig.exe is not a PE executable (magic: $MAGIC)"
-              exit 1
-            fi
-          else
-            BIN_FILE="${BIN_DIR}/sig"
-            if [ ! -f "$BIN_FILE" ]; then
-              echo "ERROR: Binary not found in ${BIN_DIR}"
-              ls -la "$BIN_DIR" 2>/dev/null || echo "(bin dir missing)"
+              echo "ERROR: Not a PE executable (magic: $MAGIC)"
               exit 1
             fi
           fi
-          echo "Binary verified: $(ls -la "$BIN_FILE")"
+          echo "Binary verified: $(ls -la "$BIN")"
 
       - name: Package tarball
         if: matrix.ext == 'tar.xz'
         run: |
-          if [ -d "sig-${VERSION}-${{ matrix.target }}" ]; then
-            ARCHIVE="sig-${VERSION}-${{ matrix.target }}.tar.xz"
-            tar -cJf "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
-            echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
-          else
-            echo "No output directory — skipping packaging"
-          fi
+          ARCHIVE="sig-${VERSION}-${{ matrix.target }}.tar.xz"
+          tar -cJf "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
       - name: Package zip
         if: matrix.ext == 'zip'
         run: |
-          if [ -d "sig-${VERSION}-${{ matrix.target }}" ]; then
-            ARCHIVE="sig-${VERSION}-${{ matrix.target }}.zip"
-            cd "sig-${VERSION}-${{ matrix.target }}" && zip -r "../${ARCHIVE}" . && cd ..
-            echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
-          else
-            echo "No output directory — skipping packaging"
-          fi
+          ARCHIVE="sig-${VERSION}-${{ matrix.target }}.zip"
+          cd "sig-${VERSION}-${{ matrix.target }}" && zip -r "../${ARCHIVE}" . && cd ..
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
       - name: Generate checksum
-        if: env.ARCHIVE != ''
-        run: |
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "${{ env.ARCHIVE }}" > "${{ env.ARCHIVE }}.sha256"
-          else
-            shasum -a 256 "${{ env.ARCHIVE }}" > "${{ env.ARCHIVE }}.sha256"
-          fi
+        run: sha256sum "${{ env.ARCHIVE }}" > "${{ env.ARCHIVE }}.sha256"
 
       - name: Upload artifact
-        if: env.ARCHIVE != ''
         uses: actions/upload-artifact@v4
         with:
           name: sig-${{ matrix.target }}
@@ -242,29 +237,51 @@ jobs:
             ${{ env.ARCHIVE }}
             ${{ env.ARCHIVE }}.sha256
 
+
+  # Step 3: Create the GitHub release with all artifacts.
   release:
-    if: always()
-    needs: build
+    needs: [bootstrap, build]
+    if: always() && needs.build.result != 'cancelled'
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ needs.build.outputs.version }}
+      VERSION: ${{ needs.bootstrap.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           pattern: sig-*
           merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/ 2>/dev/null || echo "No artifacts directory"
+
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd artifacts
-          cat *.sha256 > sha256sums.txt
+          cd artifacts || { echo "No artifacts to release"; exit 1; }
+
+          # Combine checksums
+          cat *.sha256 > sha256sums.txt 2>/dev/null || true
+
           PRERELEASE="${{ (github.event_name == 'workflow_dispatch' && inputs.prerelease == 'true') && '--prerelease' || '' }}"
+
+          # Collect available archives
+          ARCHIVES=""
+          for f in sig-*.tar.xz sig-*.zip; do
+            [ -f "$f" ] && ARCHIVES="$ARCHIVES $f"
+          done
+
+          if [ -z "$ARCHIVES" ]; then
+            echo "ERROR: No archives found to release"
+            exit 1
+          fi
+
           gh release create "sig-${VERSION}" --title "Sig ${VERSION}" \
-            --notes "Sig ${VERSION} — built with the zero-allocator sig build system
+            --notes "Sig ${VERSION} — built via cmake + LLVM bootstrap
 
           | Platform | Archive |
           |---|---|
@@ -273,5 +290,5 @@ jobs:
           | macOS aarch64 | \`sig-${VERSION}-aarch64-macos.tar.xz\` |
           | Windows x86_64 | \`sig-${VERSION}-x86_64-windows.zip\` |
 
-          Built by the sig build runner. No std.Build. Checksums in sha256sums.txt." \
-            ${PRERELEASE} sig-*.tar.xz sig-*.zip sha256sums.txt
+          Checksums in sha256sums.txt." \
+            ${PRERELEASE} $ARCHIVES sha256sums.txt
