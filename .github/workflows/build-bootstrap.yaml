@@ -1,6 +1,6 @@
 # Build and publish fresh bootstrap compiler binaries.
-# build-linux  → x86_64-linux  (ubuntu-latest, native)
-# build-macos  → aarch64-macos (macos-14, native Apple Silicon)
+# build-linux  → x86_64-linux  (ubuntu-latest)
+# build-macos  → aarch64-macos (macos-14, Apple Silicon)
 name: build-bootstrap
 
 on:
@@ -32,86 +32,46 @@ jobs:
           key: zig-cache-bootstrap-linux-${{ github.sha }}
           restore-keys: zig-cache-bootstrap-linux-
 
-      - name: Download bootstrap sig (x86_64-linux, latest release)
+      - name: Download latest x86_64-linux sig release
         run: |
           DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases" \
             | python3 -c "
           import sys, json
           for r in json.load(sys.stdin):
-            if isinstance(r, dict):
-              for a in r.get('assets', []):
-                n = a['name']
-                if 'x86_64-linux' in n and n.endswith('.tar.xz') and 'bootstrap' not in n:
-                  print(a['browser_download_url'])
-                  exit(0)
+            if not isinstance(r, dict): continue
+            for a in r.get('assets', []):
+              n = a['name']
+              if 'x86_64-linux' in n and n.endswith('.tar.xz') and 'bootstrap' not in n:
+                print(a['browser_download_url'])
+                exit(0)
           exit(1)
           ")
           echo "Bootstrap: $DOWNLOAD_URL"
           mkdir -p /tmp/bootstrap-sig
-          curl -fsSL "$DOWNLOAD_URL" -o /tmp/bootstrap-sig.tar.xz
-          tar -xJf /tmp/bootstrap-sig.tar.xz -C /tmp/bootstrap-sig
+          curl -fsSL "$DOWNLOAD_URL" -o /tmp/bootstrap.tar.xz
+          tar -xJf /tmp/bootstrap.tar.xz -C /tmp/bootstrap-sig
           SIG=$(find /tmp/bootstrap-sig -name "sig" -not -type d | head -1)
           chmod +x "$SIG"
+          SIG_DIR=$(dirname "$SIG")
+          echo "$SIG_DIR" >> "$GITHUB_PATH"
           "$SIG" version
-          echo "$SIG" >> "$GITHUB_PATH"
-          ln -sf "$SIG" /usr/local/bin/sig
           echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
-
-      - name: Generate build_options.zig
-        run: |
-          mkdir -p .zig-cache
-          SIG_VER=$(grep -oE 'sig_version_string = "[^"]+"' build.sig | grep -oE '"[^"]+"' | tr -d '"')
-          GIT_SHORT=$(git rev-parse --short=7 HEAD)
-          OUT=.zig-cache/build_options.zig
-          printf 'pub const mem_leak_frames: u32 = 0;\n' > "$OUT"
-          printf 'pub const skip_non_native: bool = false;\n' >> "$OUT"
-          printf 'pub const have_llvm: bool = false;\n' >> "$OUT"
-          printf 'pub const llvm_has_m68k: bool = false;\n' >> "$OUT"
-          printf 'pub const llvm_has_csky: bool = false;\n' >> "$OUT"
-          printf 'pub const llvm_has_arc: bool = false;\n' >> "$OUT"
-          printf 'pub const llvm_has_xtensa: bool = false;\n' >> "$OUT"
-          printf 'pub const debug_gpa: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_debug_extensions: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_logging: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_link_snapshots: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_tracy: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_tracy_callstack: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_tracy_allocation: bool = false;\n' >> "$OUT"
-          printf 'pub const tracy_callstack_depth: u32 = 10;\n' >> "$OUT"
-          printf 'pub const value_tracing: bool = false;\n' >> "$OUT"
-          printf 'pub const @"src.dev.Env" = enum (u4) { bootstrap = 0, core = 1, full = 2, c_source = 3, ast_gen = 4, sema = 5, @"aarch64-linux" = 6, cbe = 7, @"powerpc-linux" = 8, @"riscv64-linux" = 9, spirv = 10, wasm = 11, @"x86_64-linux" = 12 };\n' >> "$OUT"
-          printf 'pub const dev: @"src.dev.Env" = .full;\n' >> "$OUT"
-          printf 'pub const @"build.IoMode" = enum (u1) { threaded = 0, evented = 1 };\n' >> "$OUT"
-          printf 'pub const io_mode: @"build.IoMode" = .threaded;\n' >> "$OUT"
-          printf 'pub const @"build.ValueInterpretMode" = enum (u1) { direct = 0, by_name = 1 };\n' >> "$OUT"
-          printf 'pub const value_interpret_mode: @"build.ValueInterpretMode" = .direct;\n' >> "$OUT"
-          printf "pub const version: [:0]const u8 = \"${SIG_VER}+zig0.16.0.${GIT_SHORT}\";\n" >> "$OUT"
-          printf "pub const sig_version: [:0]const u8 = \"${SIG_VER}\";\n" >> "$OUT"
-          printf 'pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 1, .patch = 0, .pre = "dev", .build = "" };\n' >> "$OUT"
-          cat "$OUT"
 
       - name: Build x86_64-linux
         run: |
-          mkdir -p bootstrap-sig-x86_64-linux/bin
-          SIG=$(find /tmp/bootstrap-sig -name "sig" -not -type d | head -1)
-          "$SIG" build-exe \
-            --dep build_options \
-            --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.zig-cache/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
+          sig build \
             --zig-lib-dir "$ZIG_LIB_DIR" \
-            --cache-dir .zig-cache \
-            --global-cache-dir .zig-cache \
-            -target x86_64-linux-musl \
-            -O ReleaseSafe \
-            -femit-bin=bootstrap-sig-x86_64-linux/bin/sig
-        timeout-minutes: 60
+            -Dtarget=x86_64-linux-musl \
+            -Doptimize=ReleaseSafe \
+            -Dno-lib \
+            -Dno-langref \
+            -Dskip-tests \
+            --prefix bootstrap-sig-x86_64-linux
+        timeout-minutes: 120
 
       - name: Verify and package
         run: |
           file bootstrap-sig-x86_64-linux/bin/sig
-          bootstrap-sig-x86_64-linux/bin/sig version
           tar -czf bootstrap-sig-x86_64-linux.tar.gz -C bootstrap-sig-x86_64-linux .
 
       - name: Publish
@@ -139,82 +99,41 @@ jobs:
           key: zig-cache-bootstrap-macos-${{ github.sha }}
           restore-keys: zig-cache-bootstrap-macos-
 
-      - name: Download bootstrap sig (aarch64-macos from latest release)
+      - name: Download latest aarch64-macos sig release
         run: |
           DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases" \
             | python3 -c "
           import sys, json
           for r in json.load(sys.stdin):
+            if not isinstance(r, dict): continue
             for a in r.get('assets', []):
               n = a['name']
-              if 'aarch64-macos' in n and (n.endswith('.tar.xz') or n.endswith('.tar.gz')):
+              if 'aarch64-macos' in n and n.endswith('.tar.xz') and 'bootstrap' not in n:
                 print(a['browser_download_url'])
                 exit(0)
           exit(1)
           ")
-          echo "Using bootstrap: $DOWNLOAD_URL"
+          echo "Bootstrap: $DOWNLOAD_URL"
           mkdir -p /tmp/bootstrap-sig
-          curl -fsSL "$DOWNLOAD_URL" -o /tmp/bootstrap-sig.tar
-          if echo "$DOWNLOAD_URL" | grep -q '.tar.xz'; then
-            tar -xJf /tmp/bootstrap-sig.tar -C /tmp/bootstrap-sig
-          else
-            tar -xzf /tmp/bootstrap-sig.tar -C /tmp/bootstrap-sig
-          fi
+          curl -fsSL "$DOWNLOAD_URL" -o /tmp/bootstrap.tar.xz
+          tar -xJf /tmp/bootstrap.tar.xz -C /tmp/bootstrap-sig
           SIG=$(find /tmp/bootstrap-sig -name "sig" -not -type d | head -1)
           chmod +x "$SIG"
           "$SIG" version
           echo "SIG_BIN=$SIG" >> "$GITHUB_ENV"
           echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
 
-      - name: Generate build_options.zig
-        run: |
-          mkdir -p .zig-cache
-          SIG_VER=$(grep -oE 'sig_version_string = "[^"]+"' build.sig | grep -oE '"[^"]+"' | tr -d '"')
-          GIT_SHORT=$(git rev-parse --short=7 HEAD)
-          OUT=.zig-cache/build_options.zig
-          printf 'pub const mem_leak_frames: u32 = 0;\n' > "$OUT"
-          printf 'pub const skip_non_native: bool = false;\n' >> "$OUT"
-          printf 'pub const have_llvm: bool = false;\n' >> "$OUT"
-          printf 'pub const llvm_has_m68k: bool = false;\n' >> "$OUT"
-          printf 'pub const llvm_has_csky: bool = false;\n' >> "$OUT"
-          printf 'pub const llvm_has_arc: bool = false;\n' >> "$OUT"
-          printf 'pub const llvm_has_xtensa: bool = false;\n' >> "$OUT"
-          printf 'pub const debug_gpa: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_debug_extensions: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_logging: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_link_snapshots: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_tracy: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_tracy_callstack: bool = false;\n' >> "$OUT"
-          printf 'pub const enable_tracy_allocation: bool = false;\n' >> "$OUT"
-          printf 'pub const tracy_callstack_depth: u32 = 10;\n' >> "$OUT"
-          printf 'pub const value_tracing: bool = false;\n' >> "$OUT"
-          printf 'pub const @"src.dev.Env" = enum (u4) { bootstrap = 0, core = 1, full = 2, c_source = 3, ast_gen = 4, sema = 5, @"aarch64-linux" = 6, cbe = 7, @"powerpc-linux" = 8, @"riscv64-linux" = 9, spirv = 10, wasm = 11, @"x86_64-linux" = 12 };\n' >> "$OUT"
-          printf 'pub const dev: @"src.dev.Env" = .full;\n' >> "$OUT"
-          printf 'pub const @"build.IoMode" = enum (u1) { threaded = 0, evented = 1 };\n' >> "$OUT"
-          printf 'pub const io_mode: @"build.IoMode" = .threaded;\n' >> "$OUT"
-          printf 'pub const @"build.ValueInterpretMode" = enum (u1) { direct = 0, by_name = 1 };\n' >> "$OUT"
-          printf 'pub const value_interpret_mode: @"build.ValueInterpretMode" = .direct;\n' >> "$OUT"
-          printf "pub const version: [:0]const u8 = \"${SIG_VER}+zig0.16.0.${GIT_SHORT}\";\n" >> "$OUT"
-          printf "pub const sig_version: [:0]const u8 = \"${SIG_VER}\";\n" >> "$OUT"
-          printf 'pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 1, .patch = 0, .pre = "dev", .build = "" };\n' >> "$OUT"
-          cat "$OUT"
-
       - name: Build aarch64-macos
         run: |
-          mkdir -p bootstrap-sig-aarch64-macos/bin
-          "$SIG_BIN" build-exe \
-            --dep build_options \
-            --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.zig-cache/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
+          "$SIG_BIN" build \
             --zig-lib-dir "$ZIG_LIB_DIR" \
-            --cache-dir .zig-cache \
-            --global-cache-dir .zig-cache \
-            -target aarch64-macos \
-            -O ReleaseSafe \
-            -femit-bin=bootstrap-sig-aarch64-macos/bin/sig
-        timeout-minutes: 60
+            -Dtarget=aarch64-macos \
+            -Doptimize=ReleaseSafe \
+            -Dno-lib \
+            -Dno-langref \
+            -Dskip-tests \
+            --prefix bootstrap-sig-aarch64-macos
+        timeout-minutes: 120
 
       - name: Verify and package
         run: |
