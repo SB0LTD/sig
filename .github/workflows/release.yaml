@@ -164,19 +164,43 @@ jobs:
             -Dno-langref \
             -Dskip-tests \
             --prefix "sig-${VERSION}-${{ matrix.target }}" \
-            -j$(nproc) || true
+            -j$(nproc)
           # List what was produced
           echo "=== Output directory contents ==="
           find "sig-${VERSION}-${{ matrix.target }}" -type f 2>/dev/null || echo "(directory not found)"
         timeout-minutes: 120
-        continue-on-error: true
 
       - name: Install lib files
         run: |
           mkdir -p "sig-${VERSION}-${{ matrix.target }}/lib/zig"
           cp -r lib/. "sig-${VERSION}-${{ matrix.target }}/lib/zig/"
         timeout-minutes: 5
-        continue-on-error: true
+
+      - name: Verify binary format
+        run: |
+          BIN_DIR="sig-${VERSION}-${{ matrix.target }}/bin"
+          if [ "${{ matrix.target }}" = "x86_64-windows" ]; then
+            BIN_FILE="${BIN_DIR}/sig.exe"
+            if [ ! -f "$BIN_FILE" ]; then
+              echo "ERROR: Windows binary sig.exe not found in ${BIN_DIR}"
+              ls -la "$BIN_DIR" 2>/dev/null || echo "(bin dir missing)"
+              exit 1
+            fi
+            # Verify it's a PE executable (starts with MZ)
+            MAGIC=$(xxd -l 2 -p "$BIN_FILE")
+            if [ "$MAGIC" != "4d5a" ]; then
+              echo "ERROR: sig.exe is not a PE executable (magic: $MAGIC)"
+              exit 1
+            fi
+          else
+            BIN_FILE="${BIN_DIR}/sig"
+            if [ ! -f "$BIN_FILE" ]; then
+              echo "ERROR: Binary not found in ${BIN_DIR}"
+              ls -la "$BIN_DIR" 2>/dev/null || echo "(bin dir missing)"
+              exit 1
+            fi
+          fi
+          echo "Binary verified: $(ls -la "$BIN_FILE")"
 
       - name: Package tarball
         if: matrix.ext == 'tar.xz'

@@ -466,6 +466,32 @@ pub fn pathStem(buf: *[NAME_BUF_SIZE]u8, path: []const u8) SigError![]const u8 {
     return buf[0..stem.len];
 }
 
+/// Resolve the output binary filename, appending ".exe" when the target OS
+/// is Windows. When cross-compiling with an explicit -femit-bin path, the
+/// Zig compiler uses the path verbatim — it does NOT auto-append .exe.
+/// This helper ensures the correct platform suffix is applied.
+///
+/// Returns a slice into `buf` containing e.g. "sig.exe" or "sig".
+fn resolveOutputBinName(buf: *[NAME_BUF_SIZE]u8, base_name: []const u8, target: ?*const Target_Triple) []const u8 {
+    const is_windows = if (target) |t|
+        (t.os_len >= 7 and std.mem.eql(u8, t.os[0..7], "windows"))
+    else
+        (builtin.os.tag == .windows);
+
+    if (is_windows) {
+        const exe_suffix = ".exe";
+        const total = base_name.len + exe_suffix.len;
+        if (total <= NAME_BUF_SIZE) {
+            @memcpy(buf[0..base_name.len], base_name);
+            @memcpy(buf[base_name.len..][0..exe_suffix.len], exe_suffix);
+            return buf[0..total];
+        }
+    }
+    // Non-Windows or buffer overflow fallback: return name as-is.
+    @memcpy(buf[0..base_name.len], base_name);
+    return buf[0..base_name.len];
+}
+
 // ── Target and optimization ──────────────────────────────────────────────
 
 pub const Optimize_Mode = enum { Debug, ReleaseSafe, ReleaseFast, ReleaseSmall };
@@ -2299,7 +2325,8 @@ pub const Build_Context = struct {
                 try cmd.appendArg("--strip");
             }
 
-            // Output binary: -femit-bin=<prefix>/bin/sig
+            // Output binary: -femit-bin=<prefix>/bin/sig[.exe]
+            // Append .exe suffix when cross-compiling for Windows.
             // Create the output directory first (the compiler doesn't create parent dirs).
             {
                 var bin_dir_buf: [PATH_BUF_SIZE]u8 = undefined;
@@ -2309,10 +2336,14 @@ pub const Build_Context = struct {
                 cwd.createDirPath(io, bin_dir) catch {};
             }
             {
+                // Resolve binary filename: append .exe when targeting Windows.
+                var bin_name_buf: [NAME_BUF_SIZE]u8 = undefined;
+                const bin_name = resolveOutputBinName(&bin_name_buf, output_name, if (build_ctx.target.arch_len > 0) &build_ctx.target else null);
+
                 var emit_buf: [PATH_BUF_SIZE]u8 = undefined;
                 const emit_prefix = "-femit-bin=";
                 var emit_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-                const emit_segs = [_][]const u8{ install_prefix, "bin", output_name };
+                const emit_segs = [_][]const u8{ install_prefix, "bin", bin_name };
                 const emit_path = sig_fs.joinPath(&emit_path_buf, &emit_segs) catch return error.BufferTooSmall;
                 if (emit_prefix.len + emit_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
                 @memcpy(emit_buf[0..emit_prefix.len], emit_prefix);
@@ -2390,7 +2421,7 @@ pub const Build_Context = struct {
                 .compiler_path = compiler,
             });
 
-            // Add -femit-bin=<prefix>/bin/<output_name> flag.
+            // Add -femit-bin=<prefix>/bin/<output_name>[.exe] flag.
             // Create the output directory first.
             {
                 var bin_dir_buf: [PATH_BUF_SIZE]u8 = undefined;
@@ -2400,10 +2431,14 @@ pub const Build_Context = struct {
                 cwd.createDirPath(io, bin_dir) catch {};
             }
             {
+                // Resolve binary filename: append .exe when targeting Windows.
+                var bin_name_buf: [NAME_BUF_SIZE]u8 = undefined;
+                const bin_name = resolveOutputBinName(&bin_name_buf, output_name, if (build_ctx.target.arch_len > 0) &build_ctx.target else null);
+
                 var emit_buf: [PATH_BUF_SIZE]u8 = undefined;
                 const emit_prefix = "-femit-bin=";
                 var emit_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-                const emit_segs = [_][]const u8{ install_prefix, "bin", output_name };
+                const emit_segs = [_][]const u8{ install_prefix, "bin", bin_name };
                 const emit_path = sig_fs.joinPath(&emit_path_buf, &emit_segs) catch return error.BufferTooSmall;
                 if (emit_prefix.len + emit_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
                 @memcpy(emit_buf[0..emit_prefix.len], emit_prefix);
