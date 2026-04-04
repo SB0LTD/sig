@@ -84,15 +84,15 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             SIG_VER="${{ inputs.version }}"
           else
-            SIG_MAJOR=$(grep -oP 'sig_version.*major = \K\d+' build.sig)
-            SIG_MINOR=$(grep -oP 'sig_version.*minor = \K\d+' build.sig)
-            SIG_PATCH=$(grep -oP 'sig_version.*patch = \K\d+' build.sig)
-            SIG_PRE=$(grep -oP 'sig_version.*pre = "\K[^"]+' build.sig || true)
+            SIG_MAJOR=$(sed -n 's/.*sig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
+            SIG_MINOR=$(sed -n 's/.*sig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
+            SIG_PATCH=$(sed -n 's/.*sig_version.*patch = \([0-9]*\).*/\1/p' build.sig | head -1)
+            SIG_PRE=$(sed -n 's/.*sig_version.*pre = "\([^"]*\)".*/\1/p' build.sig | head -1)
             [ -n "$SIG_PRE" ] && SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}-${SIG_PRE}" || SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}"
           fi
-          ZIG_MAJOR=$(grep -oP 'zig_version.*major = \K\d+' build.sig)
-          ZIG_MINOR=$(grep -oP 'zig_version.*minor = \K\d+' build.sig)
-          ZIG_PATCH=$(grep -oP 'zig_version.*patch = \K\d+' build.sig)
+          ZIG_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
+          ZIG_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
+          ZIG_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' build.sig | head -1)
           VERSION="${SIG_VER}+zig${ZIG_MAJOR}.${ZIG_MINOR}.${ZIG_PATCH}.$(git rev-parse --short=7 HEAD)"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
