@@ -25,7 +25,7 @@ permissions:
 
 env:
   # LLVM_URL: https://github.com/SB0LTD/sig/releases/download/llvm-21/llvm-21-x86_64-linux.tar.xz
-  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/sig-0.1.0-dev%2Bzig0.16.0.afaa4cd/sig-0.1.0-dev%2Bzig0.16.0.afaa4cd-x86_64-linux.tar.xz
+  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v1/bootstrap-sig-x86_64-linux.tar.gz
 
 jobs:
   build:
@@ -97,8 +97,8 @@ jobs:
         if: env.MODE == 'bootstrap'
         run: |
           mkdir -p /tmp/bootstrap-sig
-          curl -fsSL "$BOOTSTRAP_URL" -o /tmp/sig.tar.xz
-          tar -xJf /tmp/sig.tar.xz -C /tmp/bootstrap-sig --strip-components=1
+          curl -fsSL "$BOOTSTRAP_URL" -o /tmp/bootstrap-sig.tar
+          tar -xf /tmp/bootstrap-sig.tar -C /tmp/bootstrap-sig
           chmod +x /tmp/bootstrap-sig/bin/sig
           echo "/tmp/bootstrap-sig/bin" >> "$GITHUB_PATH"
           /tmp/bootstrap-sig/bin/sig version

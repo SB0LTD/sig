@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 env:
-  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/sig-0.1.0-dev%2Bzig0.16.0.afaa4cd/sig-0.1.0-dev%2Bzig0.16.0.afaa4cd-x86_64-linux.tar.xz
+  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v1/bootstrap-sig-x86_64-linux.tar.gz
 
 jobs:
   test:
@@ -15,8 +15,8 @@ jobs:
       - name: Download bootstrap
         run: |
           mkdir -p /tmp/bs
-          curl -fsSL "$BOOTSTRAP_URL" -o /tmp/bs.tar.xz
-          tar -xJf /tmp/bs.tar.xz -C /tmp/bs --strip-components=1
+          curl -fsSL "$BOOTSTRAP_URL" -o /tmp/bs.tar
+          tar -xf /tmp/bs.tar -C /tmp/bs
           chmod +x /tmp/bs/bin/sig
           /tmp/bs/bin/sig version
 
