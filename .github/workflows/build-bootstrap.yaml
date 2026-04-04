@@ -1,8 +1,6 @@
 # Build and publish fresh bootstrap compiler binaries.
-# Two jobs run in parallel:
-#   build-linux  → x86_64-linux (native, ubuntu-latest)
-#   build-macos  → aarch64-macos (native, macos-latest)
-# Both upload to the same release tag.
+# build-linux  → x86_64-linux  (ubuntu-latest, native)
+# build-macos  → aarch64-macos (macos-14, native Apple Silicon)
 name: build-bootstrap
 
 on:
@@ -11,16 +9,15 @@ on:
       version:
         description: 'Bootstrap release tag (e.g. bootstrap-sig-v3)'
         required: false
-        default: 'bootstrap-sig-v2'
+        default: 'bootstrap-sig-v3'
 
 permissions:
   contents: write
 
 env:
-  VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v2' }}
+  VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v3' }}
 
 jobs:
-  # ── Linux: build x86_64-linux natively ──────────────────────────────────
   build-linux:
     runs-on: ubuntu-latest
     env:
@@ -37,7 +34,7 @@ jobs:
           key: zig-cache-bootstrap-linux-${{ github.sha }}
           restore-keys: zig-cache-bootstrap-linux-
 
-      - name: Download bootstrap sig (x86_64-linux)
+      - name: Download bootstrap sig
         run: |
           mkdir -p /tmp/bootstrap-sig
           curl -fsSL "$BOOTSTRAP_URL" -o /tmp/bootstrap-sig.tar
@@ -50,12 +47,9 @@ jobs:
       - name: Generate build_options.zig
         run: |
           mkdir -p .zig-cache
-          # Resolve version string from build.sig
           SIG_VER=$(grep -oE 'sig_version_string = "[^"]+"' build.sig | grep -oE '"[^"]+"' | tr -d '"')
-          ZIG_VER="${{ env.ZIG_VER }}"
           GIT_SHORT=$(git rev-parse --short=7 HEAD)
-          VERSION_STR="${SIG_VER}+zig0.16.0.${GIT_SHORT}"
-          cat > .zig-cache/build_options.zig <<EOF
+          cat > .zig-cache/build_options.zig << 'ZIGEOF'
           pub const mem_leak_frames: u32 = 0;
           pub const skip_non_native: bool = false;
           pub const have_llvm: bool = false;
@@ -64,9 +58,6 @@ jobs:
           pub const llvm_has_arc: bool = false;
           pub const llvm_has_xtensa: bool = false;
           pub const debug_gpa: bool = false;
-          pub const version: [:0]const u8 = "${VERSION_STR}";
-          pub const sig_version: [:0]const u8 = "${SIG_VER}";
-          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 1, .patch = 0, .pre = "dev", .build = "" };
           pub const enable_debug_extensions: bool = false;
           pub const enable_logging: bool = false;
           pub const enable_link_snapshots: bool = false;
@@ -81,12 +72,21 @@ jobs:
           pub const io_mode: @"build.IoMode" = .threaded;
           pub const @"build.ValueInterpretMode" = enum (u1) { direct = 0, by_name = 1 };
           pub const value_interpret_mode: @"build.ValueInterpretMode" = .direct;
-          EOF
+          ZIGEOF
+          # Patch in dynamic values
+          sed -i "s|__VERSION__|${SIG_VER}+zig0.16.0.${GIT_SHORT}|g" .zig-cache/build_options.zig
+          sed -i "s|__SIG_VER__|${SIG_VER}|g" .zig-cache/build_options.zig
+          # Add version lines (sed can't easily add new lines, append them)
+          echo "pub const version: [:0]const u8 = \"${SIG_VER}+zig0.16.0.${GIT_SHORT}\";" >> .zig-cache/build_options.zig
+          echo "pub const sig_version: [:0]const u8 = \"${SIG_VER}\";" >> .zig-cache/build_options.zig
+          echo "pub const semver: @import(\"std\").SemanticVersion = .{ .major = 0, .minor = 1, .patch = 0, .pre = \"dev\", .build = \"\" };" >> .zig-cache/build_options.zig
+          cat .zig-cache/build_options.zig
 
       - name: Build x86_64-linux
         run: |
           mkdir -p bootstrap-sig-x86_64-linux/bin
           sig build-exe \
+            --dep build_options \
             -Mroot=src/main.zig \
             -Mbuild_options=.zig-cache/build_options.zig \
             --zig-lib-dir "$ZIG_LIB_DIR" \
@@ -117,12 +117,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${VERSION}" bootstrap-sig-x86_64-linux.tar.gz --clobber
 
-  # ── macOS: build aarch64-macos natively ─────────────────────────────────
-  # Bootstrap source: the most recent aarch64-macos release binary.
-  # These were produced by the release.yaml pipeline (which used zig once).
-  # From here on, sig builds sig — no zig needed.
   build-macos:
     runs-on: macos-14
+    env:
+      # Real arm64 Mach-O bootstrap — uploaded from local Mac
+      BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-aarch64-macos.tar.gz
     steps:
       - uses: actions/checkout@v4
         with:
@@ -135,28 +134,14 @@ jobs:
           key: zig-cache-bootstrap-macos-${{ github.sha }}
           restore-keys: zig-cache-bootstrap-macos-
 
-      - name: Find and download latest aarch64-macos sig release binary
+      - name: Download bootstrap sig
         run: |
-          # Walk releases newest-first, grab the first aarch64-macos .tar.xz asset
-          DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases" \
-            | python3 -c "
-          import sys, json
-          for r in json.load(sys.stdin):
-              for a in r.get('assets', []):
-                  n = a['name']
-                  if 'aarch64-macos' in n and n.endswith('.tar.xz'):
-                      print(a['browser_download_url'])
-                      exit(0)
-          exit(1)
-          ")
-          echo "Bootstrap URL: $DOWNLOAD_URL"
-          mkdir -p /tmp/sig-bootstrap
-          curl -fsSL "$DOWNLOAD_URL" -o /tmp/sig-bootstrap.tar.xz
-          tar -xJf /tmp/sig-bootstrap.tar.xz -C /tmp/sig-bootstrap
-          SIG=$(find /tmp/sig-bootstrap -name "sig" -not -type d | head -1)
-          chmod +x "$SIG"
-          "$SIG" version
-          echo "SIG_BIN=$SIG" >> "$GITHUB_ENV"
+          mkdir -p /tmp/bootstrap-sig
+          curl -fsSL "$BOOTSTRAP_URL" -o /tmp/bootstrap-sig.tar
+          tar -xf /tmp/bootstrap-sig.tar -C /tmp/bootstrap-sig
+          chmod +x /tmp/bootstrap-sig/bin/sig
+          /tmp/bootstrap-sig/bin/sig version
+          echo "SIG_BIN=/tmp/bootstrap-sig/bin/sig" >> "$GITHUB_ENV"
           echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
 
       - name: Generate build_options.zig
@@ -164,8 +149,7 @@ jobs:
           mkdir -p .zig-cache
           SIG_VER=$(grep -oE 'sig_version_string = "[^"]+"' build.sig | grep -oE '"[^"]+"' | tr -d '"')
           GIT_SHORT=$(git rev-parse --short=7 HEAD)
-          VERSION_STR="${SIG_VER}+zig0.16.0.${GIT_SHORT}"
-          cat > .zig-cache/build_options.zig <<EOF
+          cat > .zig-cache/build_options.zig << 'ZIGEOF'
           pub const mem_leak_frames: u32 = 0;
           pub const skip_non_native: bool = false;
           pub const have_llvm: bool = false;
@@ -174,9 +158,6 @@ jobs:
           pub const llvm_has_arc: bool = false;
           pub const llvm_has_xtensa: bool = false;
           pub const debug_gpa: bool = false;
-          pub const version: [:0]const u8 = "${VERSION_STR}";
-          pub const sig_version: [:0]const u8 = "${SIG_VER}";
-          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 1, .patch = 0, .pre = "dev", .build = "" };
           pub const enable_debug_extensions: bool = false;
           pub const enable_logging: bool = false;
           pub const enable_link_snapshots: bool = false;
@@ -191,12 +172,17 @@ jobs:
           pub const io_mode: @"build.IoMode" = .threaded;
           pub const @"build.ValueInterpretMode" = enum (u1) { direct = 0, by_name = 1 };
           pub const value_interpret_mode: @"build.ValueInterpretMode" = .direct;
-          EOF
+          ZIGEOF
+          echo "pub const version: [:0]const u8 = \"${SIG_VER}+zig0.16.0.${GIT_SHORT}\";" >> .zig-cache/build_options.zig
+          echo "pub const sig_version: [:0]const u8 = \"${SIG_VER}\";" >> .zig-cache/build_options.zig
+          echo "pub const semver: @import(\"std\").SemanticVersion = .{ .major = 0, .minor = 1, .patch = 0, .pre = \"dev\", .build = \"\" };" >> .zig-cache/build_options.zig
+          cat .zig-cache/build_options.zig
 
-      - name: Build aarch64-macos bootstrap
+      - name: Build aarch64-macos
         run: |
           mkdir -p bootstrap-sig-aarch64-macos/bin
           "$SIG_BIN" build-exe \
+            --dep build_options \
             -Mroot=src/main.zig \
             -Mbuild_options=.zig-cache/build_options.zig \
             --zig-lib-dir "$ZIG_LIB_DIR" \
