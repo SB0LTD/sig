@@ -3330,6 +3330,10 @@ fn compileBuildSig(
 
     if (verbose) {
         printMsg(io, "compiling build host: {s} build-exe -Mroot={s} -Mbuild={s}", .{ compiler_path, host_src_path, build_file_path });
+        printMsg(io, "  zig_lib_dir: {s}", .{zig_lib_dir});
+        for (0..cmd.arg_count) |ci| {
+            printMsg(io, "  host_arg[{d}]: {s}", .{ ci, cmd.getArg(ci) });
+        }
     }
 
     // ── Execute compilation ─────────────────────────────────────────────

@@ -40,7 +40,8 @@ jobs:
             -Dno-langref \
             -Dskip-tests \
             --prefix bootstrap-sig-x86_64-linux \
-            --maxrss 0
+            --maxrss 0 \
+            --verbose
         timeout-minutes: 120
 
       - name: Build aarch64-macos bootstrap (cross from Linux)
