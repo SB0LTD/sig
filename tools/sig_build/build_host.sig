@@ -186,6 +186,7 @@ pub fn main(init: std.process.Init) !void {
         sig_build.printMsg(io, "zig lib:    {s}", .{runner_args.zig_lib_dir[0..runner_args.zig_lib_dir_len]});
         sig_build.printMsg(io, "build root: {s}", .{build_root});
         sig_build.printMsg(io, "cache dir:  {s}", .{cache_dir});
+        sig_build.printMsg(io, "prefix:     {s}", .{ctx.install_prefix[0..ctx.install_prefix_len]});
     }
 
     // ── 3. Call build.sig's build function ──────────────────────────────
