@@ -16,73 +16,65 @@ jobs:
           - runner: ubuntu-latest
             zig_target: x86_64-linux-musl
             artifact: bootstrap-sig-x86_64-linux
-            bootstrap_url: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-x86_64-linux.tar.gz
           - runner: macos-latest
             zig_target: aarch64-macos
             artifact: bootstrap-sig-aarch64-macos
-            bootstrap_url: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-x86_64-linux.tar.gz
     runs-on: ${{ matrix.runner }}
     env:
       VERSION: bootstrap-sig-v2
+      LINUX_BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-x86_64-linux.tar.gz
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Download bootstrap compiler (Linux)
+      - name: Bootstrap (Linux — download existing sig binary)
         if: runner.os == 'Linux'
         run: |
           mkdir -p /tmp/bootstrap-sig
-          curl -fsSL "${{ matrix.bootstrap_url }}" -o /tmp/bootstrap-sig.tar
+          curl -fsSL "$LINUX_BOOTSTRAP_URL" -o /tmp/bootstrap-sig.tar
           tar -xf /tmp/bootstrap-sig.tar -C /tmp/bootstrap-sig
           chmod +x /tmp/bootstrap-sig/bin/sig
           echo "/tmp/bootstrap-sig/bin" >> "$GITHUB_PATH"
           /tmp/bootstrap-sig/bin/sig version
 
-      - name: Download bootstrap compiler (macOS — use existing release if available)
+      - name: Bootstrap (macOS — download Zig 0.16 and build via build.zig)
         if: runner.os == 'macOS'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p /tmp/bootstrap-sig
-          # Try to download existing aarch64-macos bootstrap first
-          if curl -fsSL "https://github.com/SB0LTD/sig/releases/download/${VERSION}/bootstrap-sig-aarch64-macos.tar.gz" \
-              -o /tmp/bootstrap-sig.tar 2>/dev/null; then
-            tar -xf /tmp/bootstrap-sig.tar -C /tmp/bootstrap-sig
-            chmod +x /tmp/bootstrap-sig/bin/sig
-            echo "/tmp/bootstrap-sig/bin" >> "$GITHUB_PATH"
-            /tmp/bootstrap-sig/bin/sig version
-          else
-            # Fall back: cross-compile from Linux bootstrap via brew zig
-            brew install zig || true
-            ZIG=$(which zig)
-            echo "Using system zig: $($ZIG version)"
-            # Build sig using zig directly
-            $ZIG build \
-              --build-file build.zig \
-              --zig-lib-dir lib \
-              -Dtarget=aarch64-macos \
-              -Doptimize=ReleaseSafe \
-              -Dno-langref \
-              --prefix "${{ matrix.artifact }}" \
-              --maxrss 0
-            $ZIG build \
-              --build-file build.zig \
-              --zig-lib-dir lib \
-              -Dlib-files-only \
-              --prefix "${{ matrix.artifact }}" \
-              --maxrss 0
-            test -f "${{ matrix.artifact }}/bin/sig"
-            file "${{ matrix.artifact }}/bin/sig"
-            tar -czf "${{ matrix.artifact }}.tar.gz" -C "${{ matrix.artifact }}" .
-            gh release view "${VERSION}" >/dev/null 2>&1 || \
-              gh release create "${VERSION}" \
-                --title "Bootstrap Sig Compiler v2" \
-                --notes "Bootstrap compiler binaries built from current master." \
-                --prerelease
-            gh release upload "${VERSION}" "${{ matrix.artifact }}.tar.gz" --clobber
-            exit 0
-          fi
+          # Download Zig 0.16.0 for macOS aarch64
+          mkdir -p /tmp/zig-bootstrap
+          curl -fsSL "https://ziglang.org/builds/zig-macos-aarch64-0.16.0.tar.xz" -o /tmp/zig.tar.xz
+          tar -xJf /tmp/zig.tar.xz -C /tmp/zig-bootstrap --strip-components=1
+          ZIG=/tmp/zig-bootstrap/zig
+          echo "Using zig: $($ZIG version)"
+          # Build sig using build.zig (standard Zig build system)
+          $ZIG build \
+            --build-file build.zig \
+            --zig-lib-dir lib \
+            -Dtarget=aarch64-macos \
+            -Doptimize=ReleaseSafe \
+            -Dno-langref \
+            --prefix "${{ matrix.artifact }}" \
+            --maxrss 0
+          $ZIG build \
+            --build-file build.zig \
+            --zig-lib-dir lib \
+            -Dlib-files-only \
+            --prefix "${{ matrix.artifact }}" \
+            --maxrss 0
+          test -f "${{ matrix.artifact }}/bin/sig"
+          file "${{ matrix.artifact }}/bin/sig"
+          tar -czf "${{ matrix.artifact }}.tar.gz" -C "${{ matrix.artifact }}" .
+          gh release view "${VERSION}" >/dev/null 2>&1 || \
+            gh release create "${VERSION}" \
+              --title "Bootstrap Sig Compiler v2" \
+              --notes "Bootstrap compiler binaries built from current master." \
+              --prerelease
+          gh release upload "${VERSION}" "${{ matrix.artifact }}.tar.gz" --clobber
 
-      - name: Build fresh bootstrap from current source
+      - name: Build sig bootstrap (Linux)
         if: runner.os == 'Linux'
         run: |
           sig build \
@@ -100,31 +92,15 @@ jobs:
             --maxrss 0
         timeout-minutes: 120
 
-      - name: Build fresh bootstrap from current source (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          sig build \
-            --zig-lib-dir lib \
-            -Dtarget=${{ matrix.zig_target }} \
-            -Doptimize=ReleaseSafe \
-            -Dno-langref \
-            -Dskip-tests \
-            --prefix "${{ matrix.artifact }}" \
-            --maxrss 0
-          sig build \
-            --zig-lib-dir lib \
-            -Dlib-files-only \
-            --prefix "${{ matrix.artifact }}" \
-            --maxrss 0
-        timeout-minutes: 120
-
-      - name: Verify and package
+      - name: Verify and package (Linux)
+        if: runner.os == 'Linux'
         run: |
           test -f "${{ matrix.artifact }}/bin/sig"
           file "${{ matrix.artifact }}/bin/sig"
           tar -czf "${{ matrix.artifact }}.tar.gz" -C "${{ matrix.artifact }}" .
 
-      - name: Publish bootstrap release
+      - name: Publish (Linux)
+        if: runner.os == 'Linux'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
