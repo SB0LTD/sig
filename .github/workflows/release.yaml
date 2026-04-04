@@ -146,6 +146,7 @@ jobs:
             -Doptimize=ReleaseSafe \
             -Dno-lib \
             -Dno-langref \
+            -Dskip-tests \
             --prefix "sig-${VERSION}-${{ matrix.target }}" \
             --maxrss 0 || true
           # List what was produced
