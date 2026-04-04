@@ -234,6 +234,60 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
+    // ── 5b. Filter graph to requested steps (+ transitive deps) ─────────
+    // If specific steps were requested, mark all unreachable steps as skipped
+    // so the scheduler never runs them. If no steps were requested, default
+    // to running only the "install" step (and its transitive deps).
+    {
+        // Determine the root set: requested steps, or "install" by default.
+        var roots: [32]sig_build.Step_Handle = undefined;
+        var roots_len: usize = 0;
+
+        if (requested.len > 0) {
+            for (requested) |step_name| {
+                if (ctx.steps.findByName(step_name)) |h| {
+                    roots[roots_len] = h;
+                    roots_len += 1;
+                }
+            }
+        } else {
+            // Default: run "install" if it exists, otherwise run all steps.
+            if (ctx.steps.findByName("install")) |h| {
+                roots[roots_len] = h;
+                roots_len += 1;
+            }
+        }
+
+        // If we have a root set, compute reachable steps via BFS and pre-skip the rest.
+        if (roots_len > 0) {
+            var reachable: containers.BoundedBitSet(sig_build.MAX_STEPS) = .{};
+            var queue: containers.BoundedDeque(sig_build.Step_Handle, sig_build.MAX_STEPS) = .{};
+
+            for (roots[0..roots_len]) |root| {
+                reachable.set(root) catch {};
+                queue.pushBack(root) catch {};
+            }
+
+            while (queue.popFront()) |node| {
+                const node_idx: usize = node;
+                // Walk transitive dependencies (edges in the graph).
+                for (graph.adj[node_idx][0..graph.adj_counts[node_idx]]) |dep| {
+                    if (!reachable.isSet(dep)) {
+                        reachable.set(dep) catch {};
+                        queue.pushBack(dep) catch {};
+                    }
+                }
+            }
+
+            // Pre-mark unreachable steps as skipped so the scheduler ignores them.
+            for (0..ctx.steps.count) |i| {
+                if (!reachable.isSet(i)) {
+                    ctx.steps.entries[i].state = .skipped;
+                }
+            }
+        }
+    }
+
     // ── 6. Topological sort ─────────────────────────────────────────────
     var topo_buf: [sig_build.MAX_STEPS]sig_build.Step_Handle = undefined;
     _ = graph.topologicalSort(&topo_buf) catch {

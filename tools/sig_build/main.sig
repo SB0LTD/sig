@@ -1834,6 +1834,15 @@ pub fn runScheduler(
     // Merge completed + failed + skipped into a single "done" set for readySet queries.
     var done_bits: containers.BoundedBitSet(MAX_STEPS) = .{};
 
+    // Pre-populate done_bits for any steps already marked skipped (e.g. by step filtering).
+    for (0..registry.count) |i| {
+        if (registry.entries[i].state == .skipped) {
+            skipped_bits.set(i) catch {};
+            done_bits.set(i) catch {};
+            summary.skipped += 1;
+        }
+    }
+
     while (true) {
         // 1. Compute the ready set: steps not done and with all deps in done_bits.
         var ready_buf: [MAX_STEPS]Step_Handle = undefined;
