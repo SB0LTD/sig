@@ -224,7 +224,7 @@ jobs:
         shell: bash
         run: |
           ARCHIVE="sig-${VERSION}-${{ matrix.target }}.zip"
-          cd "sig-${VERSION}-${{ matrix.target }}" && zip -r "../${ARCHIVE}" . && cd ..
+          7z a -tzip "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
       - name: Checksum
