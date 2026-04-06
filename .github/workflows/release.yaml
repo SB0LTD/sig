@@ -69,58 +69,13 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
-      - name: Download sig
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Determine which platform binary to download for the runner
-          case "${{ matrix.target }}" in
-            x86_64-linux|aarch64-linux)
-              ASSET_PATTERN="x86_64-linux"
-              ARCHIVE_EXT=".tar.xz"
-              ;;
-            aarch64-macos)
-              ASSET_PATTERN="aarch64-macos"
-              ARCHIVE_EXT=".tar.xz"
-              ;;
-            x86_64-windows)
-              ASSET_PATTERN="x86_64-windows"
-              ARCHIVE_EXT=".zip"
-              ;;
-          esac
-          DOWNLOAD_URL=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases" \
-            | ASSET_PATTERN="${ASSET_PATTERN}" ARCHIVE_EXT="${ARCHIVE_EXT}" python3 -c "
-          import sys, json, os
-          pat = os.environ['ASSET_PATTERN']
-          ext = os.environ['ARCHIVE_EXT']
-          data = json.load(sys.stdin)
-          if isinstance(data, dict) and 'message' in data:
-            print('API error: ' + data['message'], file=sys.stderr)
-            exit(1)
-          for r in data:
-            if not isinstance(r, dict): continue
-            for a in r.get('assets', []):
-              n = a['name']
-              if pat in n and n.endswith(ext) and 'bootstrap' not in n:
-                print(a['browser_download_url'])
-                exit(0)
-          print('No matching asset for ' + pat + ext, file=sys.stderr)
-          exit(1)
-          ")
-          echo "Downloading sig: $DOWNLOAD_URL"
-          mkdir -p /tmp/bootstrap-sig
-          curl -fsSL "$DOWNLOAD_URL" -o /tmp/bootstrap-sig/archive
-          case "${ARCHIVE_EXT}" in
-            .tar.xz) tar -xJf /tmp/bootstrap-sig/archive -C /tmp/bootstrap-sig ;;
-            .zip)    unzip -o /tmp/bootstrap-sig/archive -d /tmp/bootstrap-sig ;;
-          esac
-          SIG=$(find /tmp/bootstrap-sig \( -name "sig" -o -name "sig.exe" \) -type f | grep -v "\.sig$" | head -1)
-          chmod +x "$SIG"
-          SIG_DIR=$(dirname "$SIG")
-          echo "$SIG_DIR" >> "$GITHUB_PATH"
-          echo "sig binary: $SIG"
+      # --- TRANSITIONAL: Use zig for 0.1.1 bootstrap ---
+      # Once 0.1.1 is released, replace this with "Download sig" step
+      # that downloads the 0.1.1 binary for self-hosting bootstrap.
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
 
       # --- Install LLVM 21.x dev packages ---
       - name: Install LLVM 21.x (Ubuntu)
@@ -198,7 +153,7 @@ jobs:
         run: |
           mkdir -p .sig-cache/bootstrap
           BIN="sig"; [ "${{ matrix.target }}" = "x86_64-windows" ] && BIN="sig.exe"
-          sig build-exe \
+          zig build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=.sig-cache/build_options.sig \
