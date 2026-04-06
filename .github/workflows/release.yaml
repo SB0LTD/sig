@@ -120,7 +120,7 @@ jobs:
           chmod +x "$SIG"
           SIG_DIR=$(dirname "$SIG")
           echo "$SIG_DIR" >> "$GITHUB_PATH"
-          "$SIG" version
+          echo "sig binary: $SIG"
 
       # --- Install LLVM 21.x dev packages ---
       - name: Install LLVM 21.x (Ubuntu)
