@@ -207,7 +207,7 @@ jobs:
             -Dstatic-llvm \
             ${LLVM_PREFIX_ARG} \
             -Doptimize=ReleaseSafe \
-            -femit-bin="${OUT}/bin/${BIN}"
+            --prefix "${OUT}"
           echo "LLVM-enabled sig built successfully"
           ls -la "${OUT}/bin/"
         timeout-minutes: 120
