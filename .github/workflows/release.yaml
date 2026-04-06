@@ -71,6 +71,8 @@ jobs:
 
       - name: Download sig
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Determine which platform binary to download for the runner
           case "${{ matrix.target }}" in
@@ -87,16 +89,22 @@ jobs:
               ARCHIVE_EXT=".zip"
               ;;
           esac
-          DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases" \
+          DOWNLOAD_URL=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" \
             | python3 -c "
           import sys, json
-          for r in json.load(sys.stdin):
+          data = json.load(sys.stdin)
+          if isinstance(data, dict) and 'message' in data:
+            print('API error: ' + data['message'], file=sys.stderr)
+            exit(1)
+          for r in data:
             if not isinstance(r, dict): continue
             for a in r.get('assets', []):
               n = a['name']
               if '${ASSET_PATTERN}' in n and n.endswith('${ARCHIVE_EXT}') and 'bootstrap' not in n:
                 print(a['browser_download_url'])
                 exit(0)
+          print('No matching asset for ${ASSET_PATTERN}${ARCHIVE_EXT}', file=sys.stderr)
           exit(1)
           ")
           echo "Downloading sig: $DOWNLOAD_URL"
