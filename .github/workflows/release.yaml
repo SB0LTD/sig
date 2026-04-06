@@ -91,8 +91,10 @@ jobs:
           esac
           DOWNLOAD_URL=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
             "https://api.github.com/repos/${{ github.repository }}/releases" \
-            | python3 -c "
-          import sys, json
+            | ASSET_PATTERN="${ASSET_PATTERN}" ARCHIVE_EXT="${ARCHIVE_EXT}" python3 -c "
+          import sys, json, os
+          pat = os.environ['ASSET_PATTERN']
+          ext = os.environ['ARCHIVE_EXT']
           data = json.load(sys.stdin)
           if isinstance(data, dict) and 'message' in data:
             print('API error: ' + data['message'], file=sys.stderr)
@@ -101,10 +103,10 @@ jobs:
             if not isinstance(r, dict): continue
             for a in r.get('assets', []):
               n = a['name']
-              if '${ASSET_PATTERN}' in n and n.endswith('${ARCHIVE_EXT}') and 'bootstrap' not in n:
+              if pat in n and n.endswith(ext) and 'bootstrap' not in n:
                 print(a['browser_download_url'])
                 exit(0)
-          print('No matching asset for ${ASSET_PATTERN}${ARCHIVE_EXT}', file=sys.stderr)
+          print('No matching asset for ' + pat + ext, file=sys.stderr)
           exit(1)
           ")
           echo "Downloading sig: $DOWNLOAD_URL"
@@ -114,7 +116,7 @@ jobs:
             .tar.xz) tar -xJf /tmp/bootstrap-sig/archive -C /tmp/bootstrap-sig ;;
             .zip)    unzip -o /tmp/bootstrap-sig/archive -d /tmp/bootstrap-sig ;;
           esac
-          SIG=$(find /tmp/bootstrap-sig -name "sig" -o -name "sig.exe" | grep -v "\.sig$" | head -1)
+          SIG=$(find /tmp/bootstrap-sig \( -name "sig" -o -name "sig.exe" \) -type f | grep -v "\.sig$" | head -1)
           chmod +x "$SIG"
           SIG_DIR=$(dirname "$SIG")
           echo "$SIG_DIR" >> "$GITHUB_PATH"
