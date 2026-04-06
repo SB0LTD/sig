@@ -74,6 +74,8 @@ jobs:
       # that downloads the 0.1.1 binary for self-hosting bootstrap.
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0-dev.3091+557caecaa
 
       # --- Install LLVM 21.x dev packages ---
       - name: Install LLVM 21.x (Ubuntu)
