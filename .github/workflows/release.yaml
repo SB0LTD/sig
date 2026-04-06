@@ -121,12 +121,13 @@ jobs:
           key: sig-cache-${{ matrix.target }}-${{ github.sha }}
           restore-keys: sig-cache-${{ matrix.target }}-
 
-      # --- Stage 1: Bootstrap sig without LLVM (direct sig build-exe) ---
-      - name: Write build_options.sig (bootstrap)
+      # --- Stage 1: Bootstrap sig without LLVM (direct zig build-exe) ---
+      # TRANSITIONAL: zig bootstrap uses .zig extension since zig doesn't know .sig
+      - name: Write build_options.zig (bootstrap)
         shell: bash
         run: |
           mkdir -p .sig-cache
-          cat > .sig-cache/build_options.sig << 'ENDOPTS'
+          cat > .sig-cache/build_options.zig <<'EOF'
           pub const have_llvm = false;
           pub const llvm_has_m68k = false;
           pub const llvm_has_csky = false;
@@ -146,7 +147,7 @@ jobs:
           pub const value_interpret_mode = .direct;
           pub const sig_version: [:0]const u8 = "0.1.1";
           pub const mem_leak_frames = 4;
-          ENDOPTS
+          EOF
 
       - name: Bootstrap sig (stage 1 — no LLVM)
         shell: bash
@@ -156,7 +157,7 @@ jobs:
           zig build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
-            -Mbuild_options=.sig-cache/build_options.sig \
+            -Mbuild_options=.sig-cache/build_options.zig \
             -Maro=lib/compiler/aro/aro.zig \
             -O ReleaseSafe \
             -femit-bin=".sig-cache/bootstrap/${BIN}" \
