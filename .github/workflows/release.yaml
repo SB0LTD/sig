@@ -202,6 +202,7 @@ jobs:
 
           # Use bootstrapped sig to rebuild itself with LLVM enabled
           "${BOOTSTRAP}" build \
+            --zig-lib-dir lib \
             -Denable-llvm \
             -Dstatic-llvm \
             ${LLVM_PREFIX_ARG} \
