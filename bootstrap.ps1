@@ -9,7 +9,7 @@
 #
 # Environment variables:
 #   SIG_COMPILER  — Path to the sig compiler binary (default: auto-detect)
-#   SIG_OUT_DIR   — Output directory for the binary (default: zig-out\bin)
+#   SIG_OUT_DIR   — Output directory for the binary (default: sig-out\bin)
 
 $ErrorActionPreference = 'Stop'
 
@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Stop'
 
 $SOURCE   = "tools/sig_build/main.sig"
 $MOD_PATH = "lib/sig/sig.zig"
-$OUT_DIR  = if ($env:SIG_OUT_DIR) { $env:SIG_OUT_DIR } else { "zig-out\bin" }
+$OUT_DIR  = if ($env:SIG_OUT_DIR) { $env:SIG_OUT_DIR } else { "sig-out\bin" }
 $OUT_NAME = "sig-build"
 $OUT_PATH = "$OUT_DIR\$OUT_NAME.exe"
 

@@ -37,7 +37,7 @@ const result = try sig.fmt.formatInto(&buf, "{s}: {d} items", .{ name, count });
 
 Same hardware, same inputs, same compiler backend. Sig's capacity-first APIs vs Zig's allocator-based equivalents.
 
-> Run `zig build bench-sig` to regenerate these tables with data from your machine. The numbers below are projected estimates — real benchmark data will replace them once the benchmark suite runs end-to-end.
+> Run `sig build bench-sig` to regenerate these tables with data from your machine. The numbers below are projected estimates — real benchmark data will replace them once the benchmark suite runs end-to-end.
 
 ### Formatting
 
@@ -129,14 +129,14 @@ A Spoon is a close derivative that stays continuously synchronized with its upst
 | Sync target | 99.99% automatic integration |
 | Schedule | Every 6 hours via CI |
 
-> Sync runs automatically on a schedule. You can also trigger it manually with `zig build run-sig-sync` or via the Forgejo workflow dispatch.
+> Sync runs automatically on a schedule. You can also trigger it manually via the Forgejo workflow dispatch.
 
 ## Getting Started
 
 ```bash
 git clone https://github.com/sig-lang/sig.git
 cd sig
-zig build
+sig build
 ```
 
 The output binary is `sig.exe` (or `sig` on Linux/macOS). It's a drop-in replacement for `zig` with Sig's diagnostics layer on top.
@@ -146,7 +146,7 @@ $ sig version
 sig 0.0.1-dev (zig 0.16.0-dev.3036+aed7a6e1f)
 ```
 
-Prerequisites: CMake, a system C/C++ toolchain, LLVM 21.x. See the [Zig getting started guide](https://ziglang.org/learn/getting-started/) for details.
+Prerequisites: a system C/C++ toolchain, LLVM 21.x. See the [Zig getting started guide](https://ziglang.org/learn/getting-started/) for details.
 
 ### Quick Example
 
@@ -232,7 +232,7 @@ These are standard Zig error unions — handle them with `try`, `catch`, or `ore
 1. Check the issue tracker for open items.
 2. All Sig APIs must follow the capacity-first model — no `Allocator` parameters in public interfaces.
 3. Property-based tests are required for new `Sig_Std` modules.
-4. Run `zig build test-sig` before submitting.
+4. Run `sig build test-sig` before submitting.
 
 See the upstream [Zig contributing guide](https://codeberg.org/ziglang/zig#contributing) for general guidelines.
 

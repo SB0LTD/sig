@@ -105,8 +105,6 @@ pub fn main(init: std.process.Init) !void {
             config.verbose = true;
         } else if (std.mem.eql(u8, arg, "--benchmark")) {
             config.benchmark = true;
-        } else if (std.mem.eql(u8, arg, "--verify-identical")) {
-            config.verify_identical = true;
         } else if (std.mem.eql(u8, arg, "--self-test") or std.mem.startsWith(u8, arg, "--self-test=")) {
             config.self_test = true;
             if (sig_build.parseLongOptionValue(arg)) |value| {
@@ -141,13 +139,13 @@ pub fn main(init: std.process.Init) !void {
     @memcpy(ctx.cache_dir[0..cache_dir.len], cache_dir);
     ctx.cache_dir_len = cache_dir.len;
 
-    // Install prefix: --prefix override or build_root/zig-out
+    // Install prefix: --prefix override or build_root/sig-out
     if (config.install_prefix_len > 0) {
         @memcpy(ctx.install_prefix[0..config.install_prefix_len], config.install_prefix[0..config.install_prefix_len]);
         ctx.install_prefix_len = config.install_prefix_len;
     } else {
         var prefix_buf: [sig_build.PATH_BUF_SIZE]u8 = undefined;
-        const prefix_segs = [_][]const u8{ build_root, "zig-out" };
+        const prefix_segs = [_][]const u8{ build_root, "sig-out" };
         const prefix = sig_fs.joinPath(&prefix_buf, &prefix_segs) catch {
             sig_build.fatal(io, "failed to construct install prefix path", .{});
         };
@@ -307,6 +305,10 @@ pub fn main(init: std.process.Init) !void {
     var cache: sig_build.Cache_Map = .{};
     cache.load(io, cache_file_path);
 
+    // Wire cache pointer into Build_Context so step functions (e.g. compileCppFile)
+    // can perform content-hash-based cache lookups and updates.
+    ctx.cache = &cache;
+
     if (config.verbose) {
         sig_build.printMsg(io, "cache loaded: {d} entries", .{cache.count});
     }
@@ -343,13 +345,7 @@ pub fn main(init: std.process.Init) !void {
     sig_build.printSummary(io, &summary);
 
     if (config.benchmark) {
-        sig_build.runBenchmark(io, build_root, &config, sig_elapsed_ns, &summary);
-    }
-
-    if (config.verify_identical) {
-        if (!sig_build.verifyIdentical(io, build_root, &config)) {
-            sig_process.exit(1);
-        }
+        sig_build.runBenchmark(io, sig_elapsed_ns, &summary);
     }
 
     if (config.self_test) {

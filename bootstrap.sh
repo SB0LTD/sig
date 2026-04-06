@@ -10,7 +10,7 @@
 #
 # Environment variables:
 #   SIG_COMPILER  — Path to the sig compiler binary (default: auto-detect on PATH)
-#   SIG_OUT_DIR   — Output directory for the binary (default: zig-out/bin)
+#   SIG_OUT_DIR   — Output directory for the binary (default: sig-out/bin)
 
 set -e
 
@@ -18,7 +18,7 @@ set -e
 
 SOURCE="tools/sig_build/main.sig"
 MOD_PATH="lib/sig/sig.zig"
-OUT_DIR="${SIG_OUT_DIR:-zig-out/bin}"
+OUT_DIR="${SIG_OUT_DIR:-sig-out/bin}"
 OUT_NAME="sig-build"
 OUT_PATH="${OUT_DIR}/${OUT_NAME}"
 

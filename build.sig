@@ -13,8 +13,8 @@ const std = @import("std"); // Only for std.SemanticVersion
 // sig_version struct is the source of truth; sig_version_string is derived.
 // Grep patterns: sig_version.*major = \K\d+, sig_version.*minor = \K\d+, etc.
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 16, .patch = 0 };
-const sig_version = .{ .major = 0, .minor = 1, .patch = 0, .pre = "dev" };
-const sig_version_string = "0.1.0-dev";
+const sig_version = .{ .major = 0, .minor = 1, .patch = 1, .pre = "" };
+const sig_version_string = "0.1.1";
 
 // ── Step function stubs ──────────────────────────────────────────────────
 // Placeholder step functions for steps whose execution logic will be wired
@@ -48,7 +48,9 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
 
     // Compiler feature flags
     const static_llvm = ctx.option(bool, "static-llvm", "Disable integration with system-installed LLVM, Clang, LLD, and libc++") orelse false;
-    _ = ctx.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse static_llvm;
+    const enable_llvm = ctx.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse static_llvm;
+    _ = ctx.option([]const u8, "llvm-prefix", "Path to LLVM installation prefix");
+    _ = ctx.option([]const u8, "cpp-compiler", "Path to C++ compiler executable");
     _ = ctx.option(bool, "strip", "Omit debug information");
     _ = ctx.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
 
@@ -101,6 +103,55 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         });
     }
 
+    // ── LLVM pipeline (conditional) ──────────────────────────────────
+    if (enable_llvm) {
+        // Discovery steps: find C++ compiler, then find LLVM 21.x
+        const discover_cpp = try ctx.addStep("discover:cpp-compiler", "Find C++ compiler", &sig_build.discoverCppCompiler);
+        const discover_llvm = try ctx.addStep("discover:llvm", "Find LLVM 21.x", &sig_build.discoverLlvm);
+        try ctx.addDependency(discover_llvm, discover_cpp);
+
+        // 5 parallel C++ compile steps — all depend on LLVM discovery
+        const cpp_sources = [_]struct { path: []const u8, name: []const u8 }{
+            .{ .path = "src/zig_llvm.cpp", .name = "zig_llvm" },
+            .{ .path = "src/zig_llvm-ar.cpp", .name = "zig_llvm-ar" },
+            .{ .path = "src/zig_clang_driver.cpp", .name = "zig_clang_driver" },
+            .{ .path = "src/zig_clang_cc1_main.cpp", .name = "zig_clang_cc1_main" },
+            .{ .path = "src/zig_clang_cc1as_main.cpp", .name = "zig_clang_cc1as_main" },
+        };
+
+        var cpp_handles: [5]sig_build.Step_Handle = undefined;
+        for (cpp_sources, 0..) |src, i| {
+            cpp_handles[i] = try ctx.addCppCompileStep(.{
+                .source_path = src.path,
+                .output_name = src.name,
+                .include_dirs = &.{},
+                .extra_flags = &.{},
+                .extra_defs = &.{},
+            });
+            try ctx.addDependency(cpp_handles[i], discover_llvm);
+        }
+
+        // Archive step: bundle all 5 .o files into libzigcpp.a
+        const archive = try ctx.addArchiveStep(.{
+            .object_handles = &cpp_handles,
+            .output_name = "zigcpp",
+        });
+
+        // Config step: generate config.zig with have_llvm = true
+        const config = try ctx.addStep("config:sig", "Generate config.sig", &sig_build.generateConfig);
+
+        // Wire sig compile step to depend on archive + config
+        _ = try ctx.addLlvmLinkStep(.{
+            .zigcpp_handle = archive,
+            .config_handle = config,
+            .lib_dirs = &.{},
+            .llvm_libs = &.{},
+            .clang_libs = &.{},
+            .lld_libs = &.{},
+            .system_libs = &.{},
+        });
+    }
+
     // ── Lib installation step ────────────────────────────────────────
     // Exclusion filtering is handled at execution time by the install step
     // function (task 1.11). The exclusion list is documented here for reference:
@@ -111,7 +162,7 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
     if (!skip_lib) {
         _ = try ctx.addInstallStep(.{
             .source_dir = "lib",
-            .dest_dir = "lib/zig",
+            .dest_dir = "lib/sig",
         });
     }
 

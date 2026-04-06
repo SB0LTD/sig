@@ -1,4 +1,4 @@
-# This file is for zig-specific build artifacts.
+# This file is for sig-specific build artifacts.
 # If you have OS-specific or editor-specific files to ignore,
 # such as *.swp or .DS_Store, put those in your global
 # ~/.gitignore and put this in your ~/.gitconfig:
@@ -9,9 +9,8 @@
 # Cheers!
 # -andrewrk
 
-.zig-cache/
+.sig-cache/
 .kiro/
-zig-out/
 sig-out/
 /release/
 /debug/

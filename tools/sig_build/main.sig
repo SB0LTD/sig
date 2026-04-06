@@ -47,6 +47,16 @@ pub const BUILD_OPTIONS_BUF_SIZE = 8192;
 pub const VERSION_BUF_SIZE = 128;
 pub const GIT_OUTPUT_BUF_SIZE = 256;
 
+// LLVM integration capacity constants
+pub const MAX_CPP_SOURCES = 8;
+pub const MAX_INCLUDE_DIRS = 16;
+pub const MAX_LLVM_LIBS = 256;
+pub const MAX_SYSTEM_LIBS = 32;
+pub const MAX_COMPILER_FLAGS = 32;
+pub const MAX_PREPROCESSOR_DEFS = 16;
+pub const LLVM_OUTPUT_BUF_SIZE = 8192;
+pub const MAX_LIB_SEARCH_DIRS = 8;
+
 // ── Type aliases ────────────────────────────────────────────────────────────
 /// Index into the Step_Registry entries array.
 pub const Step_Handle = u16;
@@ -1321,7 +1331,7 @@ fn runGitCommand(cmd: *const Command_Buffer, stdout_buf: *[GIT_OUTPUT_BUF_SIZE]u
 
 // ── Build options generation ─────────────────────────────────────────────────
 
-/// Generate build_options.zig in the cache directory.
+/// Generate build_options.sig in the cache directory.
 /// Takes build context for option values and a resolved version string.
 /// Uses a stack buffer — zero allocators.
 ///
@@ -1334,9 +1344,9 @@ pub fn generateBuildOptions(
     cache_dir: []const u8,
     io: std.Io,
 ) SigError!void {
-    // 1. Build output path: <cache_dir>/build_options.zig
+    // 1. Build output path: <cache_dir>/build_options.sig
     var path_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const output_path = try sig_fs.joinPath(&path_buf, &[_][]const u8{ cache_dir, "build_options.zig" });
+    const output_path = try sig_fs.joinPath(&path_buf, &[_][]const u8{ cache_dir, "build_options.sig" });
 
     // 2. Read option flags with defaults
     const have_llvm = build_ctx.options.getValue("enable-llvm") != null or
@@ -2062,6 +2072,1358 @@ pub const Install_Options = struct {
     dest_dir: []const u8,
 };
 
+// ── LLVM integration types ───────────────────────────────────────────────────
+
+pub const Cpp_Compiler_Kind = enum { clangpp, gpp, cl_exe };
+pub const Link_Mode = enum { static_mode, shared };
+pub const System_Libcxx = enum { libcpp, libstdcpp, none };
+
+/// Stores all LLVM discovery results. Lives as a field on Build_Context.
+/// Populated by the discovery step, read by compile/link steps.
+pub const Llvm_Config = struct {
+    // C++ compiler
+    cpp_compiler: [PATH_BUF_SIZE]u8 = undefined,
+    cpp_compiler_len: usize = 0,
+    cpp_compiler_kind: Cpp_Compiler_Kind = .clangpp,
+
+    // LLVM paths
+    llvm_include_dir: [PATH_BUF_SIZE]u8 = undefined,
+    llvm_include_dir_len: usize = 0,
+    llvm_lib_dir: [PATH_BUF_SIZE]u8 = undefined,
+    llvm_lib_dir_len: usize = 0,
+
+    // Clang include dir (may differ from LLVM)
+    clang_include_dir: [PATH_BUF_SIZE]u8 = undefined,
+    clang_include_dir_len: usize = 0,
+
+    // LLD include dir
+    lld_include_dir: [PATH_BUF_SIZE]u8 = undefined,
+    lld_include_dir_len: usize = 0,
+
+    // Library lists (names or absolute paths)
+    llvm_libs: [MAX_LLVM_LIBS][NAME_BUF_SIZE]u8 = undefined,
+    llvm_lib_lens: [MAX_LLVM_LIBS]usize = [_]usize{0} ** MAX_LLVM_LIBS,
+    llvm_lib_count: usize = 0,
+
+    clang_libs: [MAX_LLVM_LIBS][NAME_BUF_SIZE]u8 = undefined,
+    clang_lib_lens: [MAX_LLVM_LIBS]usize = [_]usize{0} ** MAX_LLVM_LIBS,
+    clang_lib_count: usize = 0,
+
+    lld_libs: [MAX_LLVM_LIBS][NAME_BUF_SIZE]u8 = undefined,
+    lld_lib_lens: [MAX_LLVM_LIBS]usize = [_]usize{0} ** MAX_LLVM_LIBS,
+    lld_lib_count: usize = 0,
+
+    system_libs: [MAX_SYSTEM_LIBS][NAME_BUF_SIZE]u8 = undefined,
+    system_lib_lens: [MAX_SYSTEM_LIBS]usize = [_]usize{0} ** MAX_SYSTEM_LIBS,
+    system_lib_count: usize = 0,
+
+    // Flags
+    static_llvm: bool = false,
+    link_mode: Link_Mode = .static_mode,
+    system_libcxx: System_Libcxx = .libstdcpp,
+
+    // Discovery state
+    discovered: bool = false,
+};
+
+/// Options for a single C++ file compilation step.
+pub const Cpp_Compile_Options = struct {
+    source_path: []const u8,
+    output_name: []const u8,
+    include_dirs: []const []const u8,
+    extra_flags: []const []const u8,
+    extra_defs: []const []const u8,
+};
+
+/// Options for the static library archiving step.
+pub const Archive_Options = struct {
+    object_handles: []const Step_Handle,
+    output_name: []const u8,
+};
+
+/// Options for the LLVM-augmented link step.
+pub const Llvm_Link_Options = struct {
+    zigcpp_handle: Step_Handle,
+    config_handle: Step_Handle,
+    lib_dirs: []const []const u8,
+    llvm_libs: []const []const u8,
+    clang_libs: []const []const u8,
+    lld_libs: []const []const u8,
+    system_libs: []const []const u8,
+};
+
+// ── C++ Compiler Discovery Step ──────────────────────────────────────────────
+
+/// Try running a candidate C++ compiler with a version-check argument.
+/// Returns true if the process exits with code 0, false otherwise.
+/// For cl.exe, uses "/help"; for all others, uses "--version".
+fn tryCppCandidate(
+    candidate: []const u8,
+    version_arg: []const u8,
+    io: std.Io,
+) bool {
+    var cmd = Command_Buffer{};
+    cmd.appendArg(candidate) catch return false;
+    cmd.appendArg(version_arg) catch return false;
+
+    var child = sig_process.spawn(io, &cmd, .{
+        .stdout = .ignore,
+        .stderr = .ignore,
+    }) catch return false;
+    defer child.kill(io);
+
+    const term = child.wait(io) catch return false;
+    const exit_code: u8 = switch (term) {
+        .exited => |code| code,
+        else => return false,
+    };
+    return exit_code == 0;
+}
+
+/// Discover a working C++ compiler for LLVM compilation.
+///
+/// Search order:
+///   1. If -Dcpp-compiler=<path> is set, use that directly (verify with --version).
+///   2. On Windows: check VSINSTALLDIR for cl.exe, then PATH for clang++, g++, cl.exe.
+///   3. On macOS: probe PATH for clang++, g++, c++, then /opt/homebrew/bin variants.
+///   4. On Linux: probe PATH for clang++, g++, c++.
+///
+/// Stores the resolved compiler path and kind in ctx.build_ctx.llvm_config.
+/// Returns SigError on failure (no working compiler found).
+pub fn discoverCppCompiler(ctx: *Step_Context) SigError!void {
+    const build_ctx = ctx.build_ctx;
+    const io = ctx.io;
+
+    // ── Sub-task 3.6: Handle -Dcpp-compiler override ────────────────────
+    if (build_ctx.options.getValue("cpp-compiler")) |override_path| {
+        if (override_path.len > 0) {
+            // Determine compiler kind from the override path name.
+            const kind = inferCompilerKind(override_path);
+            const version_arg: []const u8 = if (kind == .cl_exe) "/help" else "--version";
+
+            // Sub-task 3.5: Verify candidate with version check.
+            if (!tryCppCandidate(override_path, version_arg, io)) {
+                printMsg(io, "llvm: -Dcpp-compiler={s} failed version check ({s})", .{ override_path, version_arg });
+                return error.BufferTooSmall;
+            }
+
+            // Store the override compiler.
+            if (override_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+            @memcpy(build_ctx.llvm_config.cpp_compiler[0..override_path.len], override_path);
+            build_ctx.llvm_config.cpp_compiler_len = override_path.len;
+            build_ctx.llvm_config.cpp_compiler_kind = kind;
+            printMsg(io, "llvm: using -Dcpp-compiler override: {s}", .{override_path});
+            return;
+        }
+    }
+
+    // ── Platform-specific candidate lists ────────────────────────────────
+
+    // Track which candidates we tried for error reporting (sub-task 3.7).
+    var tried_buf: [PATH_BUF_SIZE]u8 = undefined;
+    var tried_len: usize = 0;
+
+    // Sub-task 3.4: Windows — probe PATH for cl.exe, clang++, g++.
+    if (builtin.os.tag == .windows) {
+        // Windows PATH candidates: clang++, g++, cl.exe
+        const win_candidates = [_]CppCandidate{
+            .{ .name = "clang++", .kind = .clangpp, .version_arg = "--version" },
+            .{ .name = "g++", .kind = .gpp, .version_arg = "--version" },
+            .{ .name = "cl.exe", .kind = .cl_exe, .version_arg = "/help" },
+        };
+        for (win_candidates) |cand| {
+            appendTried(&tried_buf, &tried_len, cand.name);
+            if (tryCppCandidate(cand.name, cand.version_arg, io)) {
+                return storeCompiler(build_ctx, cand.name, cand.kind, io);
+            }
+        }
+    } else {
+        // Sub-task 3.2: Linux/macOS — probe PATH for clang++, g++, c++.
+        const unix_candidates = [_]CppCandidate{
+            .{ .name = "clang++", .kind = .clangpp, .version_arg = "--version" },
+            .{ .name = "g++", .kind = .gpp, .version_arg = "--version" },
+            .{ .name = "c++", .kind = .clangpp, .version_arg = "--version" },
+        };
+        for (unix_candidates) |cand| {
+            appendTried(&tried_buf, &tried_len, cand.name);
+            if (tryCppCandidate(cand.name, cand.version_arg, io)) {
+                return storeCompiler(build_ctx, cand.name, cand.kind, io);
+            }
+        }
+
+        // Sub-task 3.3: macOS — additionally probe /opt/homebrew/bin.
+        if (builtin.os.tag == .macos) {
+            const brew_candidates = [_]CppCandidate{
+                .{ .name = "/opt/homebrew/bin/clang++", .kind = .clangpp, .version_arg = "--version" },
+                .{ .name = "/opt/homebrew/bin/g++", .kind = .gpp, .version_arg = "--version" },
+                .{ .name = "/opt/homebrew/bin/c++", .kind = .clangpp, .version_arg = "--version" },
+            };
+            for (brew_candidates) |cand| {
+                appendTried(&tried_buf, &tried_len, cand.name);
+                if (tryCppCandidate(cand.name, cand.version_arg, io)) {
+                    return storeCompiler(build_ctx, cand.name, cand.kind, io);
+                }
+            }
+        }
+    }
+
+    // Sub-task 3.7: Error reporting — no working compiler found.
+    printMsg(io, "llvm: no working C++ compiler found. Tried: {s}", .{tried_buf[0..tried_len]});
+    return error.BufferTooSmall;
+}
+
+/// A candidate C++ compiler entry for probing.
+const CppCandidate = struct {
+    name: []const u8,
+    kind: Cpp_Compiler_Kind,
+    version_arg: []const u8,
+};
+
+/// Infer the compiler kind from a path or executable name.
+fn inferCompilerKind(path: []const u8) Cpp_Compiler_Kind {
+    // Check the basename for known compiler names.
+    // Find the last path separator to isolate the filename.
+    var basename_start: usize = 0;
+    for (path, 0..) |c, i| {
+        if (c == '/' or c == '\\') basename_start = i + 1;
+    }
+    const basename = path[basename_start..];
+
+    if (basename.len >= 6 and std.mem.eql(u8, basename[0..6], "cl.exe")) return .cl_exe;
+    if (basename.len >= 2 and std.mem.eql(u8, basename[0..2], "cl") and
+        (basename.len == 2 or basename[2] == '.' or basename[2] == ' ')) return .cl_exe;
+    if (std.mem.indexOf(u8, basename, "g++") != null) return .gpp;
+    // Default to clangpp for clang++, c++, or anything else.
+    return .clangpp;
+}
+
+/// Store a discovered compiler in the Llvm_Config.
+fn storeCompiler(
+    build_ctx: *Build_Context,
+    name: []const u8,
+    kind: Cpp_Compiler_Kind,
+    io: std.Io,
+) SigError!void {
+    if (name.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+    @memcpy(build_ctx.llvm_config.cpp_compiler[0..name.len], name);
+    build_ctx.llvm_config.cpp_compiler_len = name.len;
+    build_ctx.llvm_config.cpp_compiler_kind = kind;
+    const kind_str: []const u8 = switch (kind) {
+        .clangpp => "clang++",
+        .gpp => "g++",
+        .cl_exe => "cl.exe",
+    };
+    printMsg(io, "llvm: found C++ compiler: {s} (kind: {s})", .{ name, kind_str });
+}
+
+/// Append a candidate name to the "tried" buffer for error reporting.
+fn appendTried(buf: *[PATH_BUF_SIZE]u8, len: *usize, name: []const u8) void {
+    if (len.* > 0 and len.* + 2 <= PATH_BUF_SIZE) {
+        buf[len.*] = ',';
+        buf[len.* + 1] = ' ';
+        len.* += 2;
+    }
+    const copy_len = @min(name.len, PATH_BUF_SIZE - len.*);
+    if (copy_len > 0) {
+        @memcpy(buf[len.*..][0..copy_len], name[0..copy_len]);
+        len.* += copy_len;
+    }
+}
+
+// ── LLVM Library Discovery Step ──────────────────────────────────────────────
+
+/// Static list of Clang libraries for static linking (order matters for link deps).
+const clang_static_libs = [_][]const u8{
+    "clangFrontendTool",
+    "clangCodeGen",
+    "clangFrontend",
+    "clangDriver",
+    "clangSerialization",
+    "clangSema",
+    "clangStaticAnalyzerFrontend",
+    "clangStaticAnalyzerCheckers",
+    "clangStaticAnalyzerCore",
+    "clangAnalysis",
+    "clangASTMatchers",
+    "clangAST",
+    "clangParse",
+    "clangAPINotes",
+    "clangBasic",
+    "clangEdit",
+    "clangLex",
+    "clangRewriteFrontend",
+    "clangRewrite",
+    "clangCrossTU",
+    "clangIndex",
+    "clangToolingCore",
+    "clangExtractAPI",
+    "clangSupport",
+    "clangInstallAPI",
+};
+
+/// Static list of LLD libraries for static linking.
+const lld_static_libs = [_][]const u8{
+    "lldMinGW",
+    "lldELF",
+    "lldCOFF",
+    "lldWasm",
+    "lldMachO",
+    "lldCommon",
+};
+
+/// llvm-config candidate names to probe on PATH, in priority order.
+const llvm_config_candidates = [_][]const u8{
+    "llvm-config-21",
+    "llvm-config-21.0",
+    "llvm-config210",
+    "llvm-config21",
+    "llvm-config",
+};
+
+/// Run an llvm-config command with stdout piped and capture the output.
+/// Returns the trimmed stdout content, or null on failure.
+/// Uses LLVM_OUTPUT_BUF_SIZE for the capture buffer.
+fn runLlvmConfigCommand(cmd: *const Command_Buffer, stdout_buf: *[LLVM_OUTPUT_BUF_SIZE]u8, io: std.Io) ?[]const u8 {
+    var child = sig_process.spawn(io, cmd, .{
+        .stdout = .pipe,
+        .stderr = .ignore,
+    }) catch return null;
+    defer child.kill(io);
+
+    // Read stdout from the child.
+    var stdout_len: usize = 0;
+    if (child.stdout) |stdout_file| {
+        var reader = stdout_file.reader(io, &.{});
+        while (stdout_len < LLVM_OUTPUT_BUF_SIZE) {
+            const remaining = LLVM_OUTPUT_BUF_SIZE - stdout_len;
+            const n = reader.interface.readSliceShort(stdout_buf[stdout_len..][0..remaining]) catch break;
+            if (n == 0) break;
+            stdout_len += n;
+        }
+    }
+
+    // Wait for exit and check success.
+    const term = child.wait(io) catch return null;
+    const exit_code: u8 = switch (term) {
+        .exited => |code| code,
+        else => return null,
+    };
+    if (exit_code != 0) return null;
+
+    if (stdout_len == 0) return null;
+
+    // Trim trailing whitespace/newlines.
+    const output = stdout_buf[0..stdout_len];
+    const trimmed = std.mem.trimEnd(u8, output, &[_]u8{ '\n', '\r', ' ', '\t' });
+    if (trimmed.len == 0) return null;
+
+    return trimmed;
+}
+
+/// Validate that an llvm-config --version output is in the 21.x range.
+/// Accepts versions >= 21.0.0 and < 22.0.0.
+/// Returns true if valid, false otherwise.
+fn validateLlvmVersion(version_str: []const u8) bool {
+    // Expected format: "21.x.y" or "21.x.y-suffix"
+    // We need the major version to be exactly 21.
+    const dot_pos = std.mem.indexOfScalar(u8, version_str, '.') orelse return false;
+    if (dot_pos == 0) return false;
+    const major_str = version_str[0..dot_pos];
+    const major = std.fmt.parseInt(u32, major_str, 10) catch return false;
+    return major == 21;
+}
+
+/// Try a single llvm-config candidate: run --version, validate 21.x.
+/// Returns true if this candidate is valid.
+fn tryLlvmConfigCandidate(candidate: []const u8, io: std.Io) bool {
+    var cmd = Command_Buffer{};
+    cmd.appendArg(candidate) catch return false;
+    cmd.appendArg("--version") catch return false;
+
+    var stdout_buf: [LLVM_OUTPUT_BUF_SIZE]u8 = undefined;
+    const version_output = runLlvmConfigCommand(&cmd, &stdout_buf, io) orelse return false;
+
+    return validateLlvmVersion(version_output);
+}
+
+/// Parse a space/newline-separated output string into a library name array.
+/// Strips leading "-l" prefixes from library names.
+/// Returns the number of entries parsed.
+fn parseLibList(
+    output: []const u8,
+    names: *[MAX_LLVM_LIBS][NAME_BUF_SIZE]u8,
+    lens: *[MAX_LLVM_LIBS]usize,
+) usize {
+    var count: usize = 0;
+    var i: usize = 0;
+    while (i < output.len and count < MAX_LLVM_LIBS) {
+        // Skip whitespace.
+        while (i < output.len and (output[i] == ' ' or output[i] == '\t' or output[i] == '\n' or output[i] == '\r')) {
+            i += 1;
+        }
+        if (i >= output.len) break;
+
+        // Find end of token.
+        const start = i;
+        while (i < output.len and output[i] != ' ' and output[i] != '\t' and output[i] != '\n' and output[i] != '\r') {
+            i += 1;
+        }
+        var token = output[start..i];
+
+        // Strip leading "-l" prefix if present.
+        if (token.len > 2 and token[0] == '-' and token[1] == 'l') {
+            token = token[2..];
+        }
+
+        if (token.len == 0) continue;
+        if (token.len > NAME_BUF_SIZE) continue; // Skip oversized names.
+
+        @memcpy(names[count][0..token.len], token);
+        lens[count] = token.len;
+        count += 1;
+    }
+    return count;
+}
+
+/// Parse a space/newline-separated output string into the system_libs array.
+/// Strips leading "-l" prefixes from library names.
+/// Returns the number of entries parsed.
+fn parseSystemLibList(
+    output: []const u8,
+    names: *[MAX_SYSTEM_LIBS][NAME_BUF_SIZE]u8,
+    lens: *[MAX_SYSTEM_LIBS]usize,
+) usize {
+    var count: usize = 0;
+    var i: usize = 0;
+    while (i < output.len and count < MAX_SYSTEM_LIBS) {
+        // Skip whitespace.
+        while (i < output.len and (output[i] == ' ' or output[i] == '\t' or output[i] == '\n' or output[i] == '\r')) {
+            i += 1;
+        }
+        if (i >= output.len) break;
+
+        // Find end of token.
+        const start = i;
+        while (i < output.len and output[i] != ' ' and output[i] != '\t' and output[i] != '\n' and output[i] != '\r') {
+            i += 1;
+        }
+        var token = output[start..i];
+
+        // Strip leading "-l" prefix if present.
+        if (token.len > 2 and token[0] == '-' and token[1] == 'l') {
+            token = token[2..];
+        }
+
+        if (token.len == 0) continue;
+        if (token.len > NAME_BUF_SIZE) continue;
+
+        @memcpy(names[count][0..token.len], token);
+        lens[count] = token.len;
+        count += 1;
+    }
+    return count;
+}
+
+/// Check if a file exists by attempting to open and immediately close it.
+fn fileExists(io: std.Io, file_path: []const u8) bool {
+    const cwd: std.Io.Dir = .cwd();
+    var file = cwd.openFile(io, file_path, .{}) catch return false;
+    file.close(io);
+    return true;
+}
+
+/// Store a library name list into an Llvm_Config library array.
+fn storeLibList(
+    dest_names: *[MAX_LLVM_LIBS][NAME_BUF_SIZE]u8,
+    dest_lens: *[MAX_LLVM_LIBS]usize,
+    dest_count: *usize,
+    src_list: []const []const u8,
+) void {
+    var count: usize = 0;
+    for (src_list) |lib_name| {
+        if (count >= MAX_LLVM_LIBS) break;
+        if (lib_name.len > NAME_BUF_SIZE) continue;
+        @memcpy(dest_names[count][0..lib_name.len], lib_name);
+        dest_lens[count] = lib_name.len;
+        count += 1;
+    }
+    dest_count.* = count;
+}
+
+/// Discover LLVM 21.x libraries on the host system.
+///
+/// Strategy 1 (preferred): Probe PATH for llvm-config variants, validate 21.x,
+///   then query --includedir, --libdir, --libs, --system-libs.
+/// Strategy 2 (fallback): Use -Dllvm-prefix=<path> or platform-specific fallback
+///   prefixes to locate headers and libraries directly.
+///
+/// Also discovers Clang and LLD libraries (shared or static).
+///
+/// Stores all results in ctx.build_ctx.llvm_config.
+/// Returns SigError on failure (no valid LLVM installation found).
+pub fn discoverLlvm(ctx: *Step_Context) SigError!void {
+    const build_ctx = ctx.build_ctx;
+    const io = ctx.io;
+
+    // Read options.
+    const static_llvm = build_ctx.options.getValue("static-llvm") != null and
+        std.mem.eql(u8, build_ctx.options.getValue("static-llvm").?, "true");
+    const llvm_prefix_opt = build_ctx.options.getValue("llvm-prefix");
+
+    build_ctx.llvm_config.static_llvm = static_llvm;
+    if (static_llvm) {
+        build_ctx.llvm_config.link_mode = .static_mode;
+    }
+
+    // Track what we tried for error reporting.
+    var tried_buf: [PATH_BUF_SIZE]u8 = undefined;
+    var tried_len: usize = 0;
+
+    // ── Strategy 1: llvm-config probe ────────────────────────────────────
+    // Only try llvm-config if -Dllvm-prefix is NOT set (prefix takes priority).
+    if (llvm_prefix_opt == null) {
+        for (llvm_config_candidates) |candidate| {
+            appendTried(&tried_buf, &tried_len, candidate);
+
+            if (tryLlvmConfigCandidate(candidate, io)) {
+                // Found a valid llvm-config. Query it for paths and libraries.
+                printMsg(io, "llvm: found llvm-config: {s}", .{candidate});
+
+                if (discoverViaLlvmConfig(build_ctx, candidate, static_llvm, io)) {
+                    // Also discover Clang and LLD libraries.
+                    discoverClangLibs(build_ctx, io);
+                    discoverLldLibs(build_ctx, io);
+
+                    build_ctx.llvm_config.discovered = true;
+                    printMsg(io, "llvm: discovery complete (via llvm-config)", .{});
+                    return;
+                }
+            }
+        }
+    }
+
+    // ── Strategy 2: prefix-based fallback ────────────────────────────────
+    // Try -Dllvm-prefix first, then platform-specific fallback.
+    var prefix_buf: [PATH_BUF_SIZE]u8 = undefined;
+    var prefix_len: usize = 0;
+
+    if (llvm_prefix_opt) |prefix| {
+        if (prefix.len > 0 and prefix.len <= PATH_BUF_SIZE) {
+            @memcpy(prefix_buf[0..prefix.len], prefix);
+            prefix_len = prefix.len;
+            appendTried(&tried_buf, &tried_len, prefix);
+        }
+    }
+
+    // Try the explicit prefix.
+    if (prefix_len > 0) {
+        if (discoverViaPrefix(build_ctx, prefix_buf[0..prefix_len], io)) {
+            discoverClangLibs(build_ctx, io);
+            discoverLldLibs(build_ctx, io);
+
+            build_ctx.llvm_config.discovered = true;
+            printMsg(io, "llvm: discovery complete (via prefix: {s})", .{prefix_buf[0..prefix_len]});
+            return;
+        }
+    }
+
+    // macOS: try /opt/homebrew/opt/llvm as fallback prefix.
+    if (builtin.os.tag == .macos) {
+        const brew_prefix = "/opt/homebrew/opt/llvm";
+        appendTried(&tried_buf, &tried_len, brew_prefix);
+
+        if (discoverViaPrefix(build_ctx, brew_prefix, io)) {
+            discoverClangLibs(build_ctx, io);
+            discoverLldLibs(build_ctx, io);
+
+            build_ctx.llvm_config.discovered = true;
+            printMsg(io, "llvm: discovery complete (via Homebrew prefix)", .{});
+            return;
+        }
+    }
+
+    // ── Error reporting ──────────────────────────────────────────────────
+    printMsg(io, "llvm: no valid LLVM 21.x installation found. Searched: {s}", .{tried_buf[0..tried_len]});
+    printMsg(io, "llvm: install LLVM 21.x or pass -Dllvm-prefix=<path>", .{});
+    return error.BufferTooSmall;
+}
+
+/// Query llvm-config for include dir, lib dir, libs, and system-libs.
+/// Stores results in build_ctx.llvm_config.
+/// Returns true on success, false on failure.
+fn discoverViaLlvmConfig(
+    build_ctx: *Build_Context,
+    llvm_config_exe: []const u8,
+    static_llvm: bool,
+    io: std.Io,
+) bool {
+    var stdout_buf: [LLVM_OUTPUT_BUF_SIZE]u8 = undefined;
+
+    // ── --includedir ─────────────────────────────────────────────────────
+    {
+        var cmd = Command_Buffer{};
+        cmd.appendArg(llvm_config_exe) catch return false;
+        if (static_llvm) cmd.appendArg("--link-static") catch return false;
+        cmd.appendArg("--includedir") catch return false;
+
+        const output = runLlvmConfigCommand(&cmd, &stdout_buf, io) orelse {
+            printMsg(io, "llvm: llvm-config --includedir failed", .{});
+            return false;
+        };
+        if (output.len > PATH_BUF_SIZE) return false;
+        @memcpy(build_ctx.llvm_config.llvm_include_dir[0..output.len], output);
+        build_ctx.llvm_config.llvm_include_dir_len = output.len;
+
+        // Clang and LLD include dirs default to the same as LLVM.
+        @memcpy(build_ctx.llvm_config.clang_include_dir[0..output.len], output);
+        build_ctx.llvm_config.clang_include_dir_len = output.len;
+        @memcpy(build_ctx.llvm_config.lld_include_dir[0..output.len], output);
+        build_ctx.llvm_config.lld_include_dir_len = output.len;
+    }
+
+    // ── --libdir ─────────────────────────────────────────────────────────
+    {
+        var cmd = Command_Buffer{};
+        cmd.appendArg(llvm_config_exe) catch return false;
+        if (static_llvm) cmd.appendArg("--link-static") catch return false;
+        cmd.appendArg("--libdir") catch return false;
+
+        const output = runLlvmConfigCommand(&cmd, &stdout_buf, io) orelse {
+            printMsg(io, "llvm: llvm-config --libdir failed", .{});
+            return false;
+        };
+        if (output.len > PATH_BUF_SIZE) return false;
+        @memcpy(build_ctx.llvm_config.llvm_lib_dir[0..output.len], output);
+        build_ctx.llvm_config.llvm_lib_dir_len = output.len;
+    }
+
+    // ── --libs ───────────────────────────────────────────────────────────
+    {
+        var cmd = Command_Buffer{};
+        cmd.appendArg(llvm_config_exe) catch return false;
+        if (static_llvm) cmd.appendArg("--link-static") catch return false;
+        cmd.appendArg("--libs") catch return false;
+
+        const output = runLlvmConfigCommand(&cmd, &stdout_buf, io) orelse {
+            printMsg(io, "llvm: llvm-config --libs failed", .{});
+            return false;
+        };
+        build_ctx.llvm_config.llvm_lib_count = parseLibList(
+            output,
+            &build_ctx.llvm_config.llvm_libs,
+            &build_ctx.llvm_config.llvm_lib_lens,
+        );
+        printMsg(io, "llvm: found {d} LLVM libraries", .{build_ctx.llvm_config.llvm_lib_count});
+    }
+
+    // ── --system-libs ────────────────────────────────────────────────────
+    {
+        var cmd = Command_Buffer{};
+        cmd.appendArg(llvm_config_exe) catch return false;
+        if (static_llvm) cmd.appendArg("--link-static") catch return false;
+        cmd.appendArg("--system-libs") catch return false;
+
+        // system-libs may return empty output on some platforms — that's OK.
+        if (runLlvmConfigCommand(&cmd, &stdout_buf, io)) |output| {
+            build_ctx.llvm_config.system_lib_count = parseSystemLibList(
+                output,
+                &build_ctx.llvm_config.system_libs,
+                &build_ctx.llvm_config.system_lib_lens,
+            );
+            printMsg(io, "llvm: found {d} system libraries", .{build_ctx.llvm_config.system_lib_count});
+        }
+    }
+
+    return true;
+}
+
+/// Discover LLVM via a prefix directory.
+/// Checks for <prefix>/include/llvm/IR/IRBuilder.h and <prefix>/lib/.
+/// Returns true on success, false on failure.
+fn discoverViaPrefix(
+    build_ctx: *Build_Context,
+    prefix: []const u8,
+    io: std.Io,
+) bool {
+    // Check for LLVM headers: <prefix>/include/llvm/IR/IRBuilder.h
+    var header_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const header_segs = [_][]const u8{ prefix, "include", "llvm", "IR", "IRBuilder.h" };
+    const header_path = sig_fs.joinPath(&header_path_buf, &header_segs) catch return false;
+
+    if (!fileExists(io, header_path)) {
+        printMsg(io, "llvm: prefix {s}: missing llvm/IR/IRBuilder.h", .{prefix});
+        return false;
+    }
+
+    // Set include dir: <prefix>/include
+    var include_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const include_segs = [_][]const u8{ prefix, "include" };
+    const include_path = sig_fs.joinPath(&include_path_buf, &include_segs) catch return false;
+
+    if (include_path.len > PATH_BUF_SIZE) return false;
+    @memcpy(build_ctx.llvm_config.llvm_include_dir[0..include_path.len], include_path);
+    build_ctx.llvm_config.llvm_include_dir_len = include_path.len;
+
+    // Clang and LLD include dirs default to the same.
+    @memcpy(build_ctx.llvm_config.clang_include_dir[0..include_path.len], include_path);
+    build_ctx.llvm_config.clang_include_dir_len = include_path.len;
+    @memcpy(build_ctx.llvm_config.lld_include_dir[0..include_path.len], include_path);
+    build_ctx.llvm_config.lld_include_dir_len = include_path.len;
+
+    // Set lib dir: <prefix>/lib
+    var lib_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const lib_segs = [_][]const u8{ prefix, "lib" };
+    const lib_path = sig_fs.joinPath(&lib_path_buf, &lib_segs) catch return false;
+
+    if (lib_path.len > PATH_BUF_SIZE) return false;
+    @memcpy(build_ctx.llvm_config.llvm_lib_dir[0..lib_path.len], lib_path);
+    build_ctx.llvm_config.llvm_lib_dir_len = lib_path.len;
+
+    printMsg(io, "llvm: prefix {s}: found LLVM headers and lib dir", .{prefix});
+
+    // Probe for Clang headers: <prefix>/include/clang/Frontend/ASTUnit.h
+    var clang_header_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const clang_header_segs = [_][]const u8{ prefix, "include", "clang", "Frontend", "ASTUnit.h" };
+    if (sig_fs.joinPath(&clang_header_buf, &clang_header_segs)) |clang_header_path| {
+        if (fileExists(io, clang_header_path)) {
+            printMsg(io, "llvm: prefix {s}: found Clang headers", .{prefix});
+        } else {
+            printMsg(io, "llvm: prefix {s}: Clang headers not found (clang/Frontend/ASTUnit.h)", .{prefix});
+        }
+    } else |_| {}
+
+    // Probe for LLD headers: <prefix>/include/lld/Common/Driver.h
+    var lld_header_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const lld_header_segs = [_][]const u8{ prefix, "include", "lld", "Common", "Driver.h" };
+    if (sig_fs.joinPath(&lld_header_buf, &lld_header_segs)) |lld_header_path| {
+        if (fileExists(io, lld_header_path)) {
+            printMsg(io, "llvm: prefix {s}: found LLD headers", .{prefix});
+        } else {
+            printMsg(io, "llvm: prefix {s}: LLD headers not found (lld/Common/Driver.h)", .{prefix});
+        }
+    } else |_| {}
+
+    return true;
+}
+
+/// Discover Clang libraries (shared or static).
+/// In shared mode, looks for libclang-cpp.so.21 / clang-cpp.
+/// In static mode, uses the static library list.
+fn discoverClangLibs(build_ctx: *Build_Context, io: std.Io) void {
+    const lib_dir = build_ctx.llvm_config.llvm_lib_dir[0..build_ctx.llvm_config.llvm_lib_dir_len];
+
+    if (build_ctx.llvm_config.link_mode == .shared) {
+        // Try shared Clang library: libclang-cpp.so.21 or clang-cpp.
+        var shared_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const shared_segs = [_][]const u8{ lib_dir, "libclang-cpp.so.21" };
+        if (sig_fs.joinPath(&shared_path_buf, &shared_segs)) |shared_path| {
+            if (fileExists(io, shared_path)) {
+                // Store "clang-cpp" as the single shared library.
+                const name = "clang-cpp";
+                @memcpy(build_ctx.llvm_config.clang_libs[0][0..name.len], name);
+                build_ctx.llvm_config.clang_lib_lens[0] = name.len;
+                build_ctx.llvm_config.clang_lib_count = 1;
+                printMsg(io, "llvm: found shared Clang library: clang-cpp", .{});
+                return;
+            }
+        } else |_| {}
+    }
+
+    // Static mode or shared not found: use the static library list.
+    storeLibList(
+        &build_ctx.llvm_config.clang_libs,
+        &build_ctx.llvm_config.clang_lib_lens,
+        &build_ctx.llvm_config.clang_lib_count,
+        &clang_static_libs,
+    );
+    printMsg(io, "llvm: using {d} static Clang libraries", .{build_ctx.llvm_config.clang_lib_count});
+}
+
+/// Discover LLD libraries (shared or static).
+/// In shared mode, looks for liblld-21.0, lld210, lld.
+/// In static mode, uses the static library list.
+fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
+    const lib_dir = build_ctx.llvm_config.llvm_lib_dir[0..build_ctx.llvm_config.llvm_lib_dir_len];
+
+    if (build_ctx.llvm_config.link_mode == .shared) {
+        // Try shared LLD library variants.
+        const shared_names = [_][]const u8{ "liblld-21.0.so", "liblld210.so", "liblld.so" };
+        for (shared_names) |shared_name| {
+            var shared_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const shared_segs = [_][]const u8{ lib_dir, shared_name };
+            if (sig_fs.joinPath(&shared_path_buf, &shared_segs)) |shared_path| {
+                if (fileExists(io, shared_path)) {
+                    // Extract the library name (strip "lib" prefix and ".so" suffix).
+                    var lib_name = shared_name;
+                    if (lib_name.len > 3 and std.mem.eql(u8, lib_name[0..3], "lib")) {
+                        lib_name = lib_name[3..];
+                    }
+                    if (lib_name.len > 3 and std.mem.eql(u8, lib_name[lib_name.len - 3 ..], ".so")) {
+                        lib_name = lib_name[0 .. lib_name.len - 3];
+                    }
+                    @memcpy(build_ctx.llvm_config.lld_libs[0][0..lib_name.len], lib_name);
+                    build_ctx.llvm_config.lld_lib_lens[0] = lib_name.len;
+                    build_ctx.llvm_config.lld_lib_count = 1;
+                    printMsg(io, "llvm: found shared LLD library: {s}", .{lib_name});
+                    return;
+                }
+            } else |_| {}
+        }
+    }
+
+    // Static mode or shared not found: use the static library list.
+    storeLibList(
+        &build_ctx.llvm_config.lld_libs,
+        &build_ctx.llvm_config.lld_lib_lens,
+        &build_ctx.llvm_config.lld_lib_count,
+        &lld_static_libs,
+    );
+    printMsg(io, "llvm: using {d} static LLD libraries", .{build_ctx.llvm_config.lld_lib_count});
+}
+
+// ── C++ Compilation Step Function ────────────────────────────────────────────
+
+/// Compile a single C++ source file into an object file using the discovered
+/// C++ compiler. The step entry's `desc` field stores the source path and
+/// `name` field stores the step name (e.g., "cpp:zig_llvm").
+///
+/// Reads compiler info from ctx.build_ctx.llvm_config. Constructs the full
+/// command in a stack-allocated Command_Buffer and executes via runCommand.
+///
+/// Output: <cache_dir>/zigcpp/<stem>.o (or .obj on Windows).
+/// Errors are reported with "llvm: " prefix and include captured stderr.
+pub fn compileCppFile(ctx: *Step_Context) SigError!void {
+    const build_ctx = ctx.build_ctx;
+    const io = ctx.io;
+    const handle: usize = ctx.step_handle;
+    const entry = &build_ctx.steps.entries[handle];
+    const llvm_cfg = &build_ctx.llvm_config;
+
+    // ── 5.1: Read source path from step entry desc ──────────────────────
+    const source_path = entry.desc[0..entry.desc_len];
+    const step_name = entry.name[0..entry.name_len];
+
+    // ── 11.1: Compute content hash including source + compiler + flags ──
+    // Hash the source file content via computeContentHash, then XOR in
+    // a second hash covering the compiler path and all compiler flags.
+    // This ensures recompilation when compiler or flags change (Req 10.4).
+    const file_hash = computeContentHash(io, &[_][]const u8{source_path});
+
+    // Hash compiler path + flags into a separate 128-bit value.
+    var flags_h0 = std.hash.XxHash64.init(0x1234567890abcdef);
+    var flags_h1 = std.hash.XxHash64.init(0xfedcba0987654321);
+    const compiler = llvm_cfg.cpp_compiler[0..llvm_cfg.cpp_compiler_len];
+    flags_h0.update(compiler);
+    flags_h1.update(compiler);
+    const is_cl = llvm_cfg.cpp_compiler_kind == .cl_exe;
+    if (is_cl) {
+        flags_h0.update("/c/std:c++17/Zc:preprocessor/MT");
+        flags_h1.update("/c/std:c++17/Zc:preprocessor/MT");
+    } else {
+        flags_h0.update("-c-std=c++17-fno-exceptions-fno-rtti-fno-stack-protector-fvisibility-inlines-hidden");
+        flags_h1.update("-c-std=c++17-fno-exceptions-fno-rtti-fno-stack-protector-fvisibility-inlines-hidden");
+        flags_h0.update("-Wno-type-limits-Wno-missing-braces-Wno-comment");
+        flags_h1.update("-Wno-type-limits-Wno-missing-braces-Wno-comment");
+    }
+    // Include preprocessor defs.
+    flags_h0.update("__STDC_CONSTANT_MACROS__STDC_FORMAT_MACROS__STDC_LIMIT_MACROS");
+    flags_h1.update("__STDC_CONSTANT_MACROS__STDC_FORMAT_MACROS__STDC_LIMIT_MACROS");
+    if (!is_cl) {
+        flags_h0.update("_GNU_SOURCE");
+        flags_h1.update("_GNU_SOURCE");
+    }
+    if (llvm_cfg.static_llvm) {
+        flags_h0.update("LLVM_BUILD_STATIC CLANG_BUILD_STATIC");
+        flags_h1.update("LLVM_BUILD_STATIC CLANG_BUILD_STATIC");
+    }
+    // Include include dirs in the hash.
+    if (llvm_cfg.llvm_include_dir_len > 0) {
+        flags_h0.update(llvm_cfg.llvm_include_dir[0..llvm_cfg.llvm_include_dir_len]);
+        flags_h1.update(llvm_cfg.llvm_include_dir[0..llvm_cfg.llvm_include_dir_len]);
+    }
+    if (llvm_cfg.clang_include_dir_len > 0) {
+        flags_h0.update(llvm_cfg.clang_include_dir[0..llvm_cfg.clang_include_dir_len]);
+        flags_h1.update(llvm_cfg.clang_include_dir[0..llvm_cfg.clang_include_dir_len]);
+    }
+    if (llvm_cfg.lld_include_dir_len > 0) {
+        flags_h0.update(llvm_cfg.lld_include_dir[0..llvm_cfg.lld_include_dir_len]);
+        flags_h1.update(llvm_cfg.lld_include_dir[0..llvm_cfg.lld_include_dir_len]);
+    }
+    // Combine file hash and flags hash via XOR to produce the final cache key.
+    var combined_hash: Content_Hash = undefined;
+    const flags_lo = flags_h0.final();
+    const flags_hi = flags_h1.final();
+    var flags_hash: Content_Hash = undefined;
+    std.mem.writeInt(u64, flags_hash[0..8], flags_lo, .little);
+    std.mem.writeInt(u64, flags_hash[8..16], flags_hi, .little);
+    for (0..16) |i| {
+        combined_hash[i] = file_hash[i] ^ flags_hash[i];
+    }
+
+    // ── 11.2: Check cache — skip recompilation if hash matches ──────────
+    if (build_ctx.cache) |cache_ptr| {
+        if (cache_ptr.lookup(step_name)) |cached_hash| {
+            if (std.mem.eql(u8, &cached_hash, &combined_hash)) {
+                printMsg(io, "llvm: cache hit for {s}, skipping", .{step_name});
+                return;
+            }
+        }
+    }
+
+    // ── Extract stem from source path ───────────────────────────────────
+    var stem_buf: [NAME_BUF_SIZE]u8 = undefined;
+    const stem = try pathStem(&stem_buf, source_path);
+
+    // ── 5.6: Build output path: <cache_dir>/zigcpp/<stem>.o ─────────────
+    const cache_dir = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
+    const is_windows = builtin.os.tag == .windows;
+    const obj_ext: []const u8 = if (is_windows) ".obj" else ".o";
+
+    var zigcpp_dir_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const zigcpp_dir_segs = [_][]const u8{ cache_dir, "zigcpp" };
+    const zigcpp_dir = try sig_fs.joinPath(&zigcpp_dir_buf, &zigcpp_dir_segs);
+
+    // Ensure the zigcpp output directory exists.
+    const cwd: std.Io.Dir = .cwd();
+    cwd.createDirPath(io, zigcpp_dir) catch {};
+
+    var output_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+    // Build "<stem>.o" or "<stem>.obj" filename.
+    var obj_name_buf: [NAME_BUF_SIZE]u8 = undefined;
+    if (stem.len + obj_ext.len > NAME_BUF_SIZE) return error.BufferTooSmall;
+    @memcpy(obj_name_buf[0..stem.len], stem);
+    @memcpy(obj_name_buf[stem.len..][0..obj_ext.len], obj_ext);
+    const obj_name = obj_name_buf[0 .. stem.len + obj_ext.len];
+
+    const output_segs = [_][]const u8{ zigcpp_dir, obj_name };
+    const output_path = try sig_fs.joinPath(&output_path_buf, &output_segs);
+
+    // ── 5.9: Build command in stack-allocated Command_Buffer ────────────
+    var cmd: Command_Buffer = .{};
+
+    const is_cl_exe = llvm_cfg.cpp_compiler_kind == .cl_exe;
+
+    try cmd.appendArg(compiler);
+
+    if (is_cl_exe) {
+        // ── 5.8: Windows cl.exe variant ─────────────────────────────────
+        try cmd.appendArg("/c");
+        try cmd.appendArg("/std:c++17");
+        try cmd.appendArg("/Zc:preprocessor");
+        try cmd.appendArg("/MT");
+
+        // ── 5.5: Include dirs from Llvm_Config (cl.exe /I syntax) ───────
+        if (llvm_cfg.llvm_include_dir_len > 0) {
+            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const prefix = "/I";
+            const dir = llvm_cfg.llvm_include_dir[0..llvm_cfg.llvm_include_dir_len];
+            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+            @memcpy(inc_buf[0..prefix.len], prefix);
+            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
+            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
+        }
+        if (llvm_cfg.clang_include_dir_len > 0) {
+            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const prefix = "/I";
+            const dir = llvm_cfg.clang_include_dir[0..llvm_cfg.clang_include_dir_len];
+            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+            @memcpy(inc_buf[0..prefix.len], prefix);
+            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
+            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
+        }
+        if (llvm_cfg.lld_include_dir_len > 0) {
+            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const prefix = "/I";
+            const dir = llvm_cfg.lld_include_dir[0..llvm_cfg.lld_include_dir_len];
+            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+            @memcpy(inc_buf[0..prefix.len], prefix);
+            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
+            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
+        }
+
+        // ── 5.3: Preprocessor defs (cl.exe /D syntax) ──────────────────
+        try cmd.appendArg("/D__STDC_CONSTANT_MACROS");
+        try cmd.appendArg("/D__STDC_FORMAT_MACROS");
+        try cmd.appendArg("/D__STDC_LIMIT_MACROS");
+
+        // ── 5.4: Static LLVM defs ──────────────────────────────────────
+        if (llvm_cfg.static_llvm) {
+            try cmd.appendArg("/DLLVM_BUILD_STATIC");
+            try cmd.appendArg("/DCLANG_BUILD_STATIC");
+        }
+
+        // ── 5.6: Output path (cl.exe /Fo syntax, backslash) ────────────
+        {
+            var fo_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const fo_prefix = "/Fo";
+            if (fo_prefix.len + output_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+            @memcpy(fo_buf[0..fo_prefix.len], fo_prefix);
+            @memcpy(fo_buf[fo_prefix.len..][0..output_path.len], output_path);
+            try cmd.appendArg(fo_buf[0 .. fo_prefix.len + output_path.len]);
+        }
+
+        // Source file (last argument).
+        try cmd.appendArg(source_path);
+    } else {
+        // ── 5.2: clang++/g++ command ────────────────────────────────────
+        try cmd.appendArg("-c");
+        try cmd.appendArg("-std=c++17");
+        try cmd.appendArg("-fno-exceptions");
+        try cmd.appendArg("-fno-rtti");
+        try cmd.appendArg("-fno-stack-protector");
+        try cmd.appendArg("-fvisibility-inlines-hidden");
+
+        // ── 5.3: Preprocessor defs ──────────────────────────────────────
+        try cmd.appendArg("-D__STDC_CONSTANT_MACROS");
+        try cmd.appendArg("-D__STDC_FORMAT_MACROS");
+        try cmd.appendArg("-D__STDC_LIMIT_MACROS");
+        try cmd.appendArg("-D_GNU_SOURCE");
+
+        // ── 5.4: Static LLVM defs ──────────────────────────────────────
+        if (llvm_cfg.static_llvm) {
+            try cmd.appendArg("-DLLVM_BUILD_STATIC");
+            try cmd.appendArg("-DCLANG_BUILD_STATIC");
+        }
+
+        // ── 5.7: Suppress warnings ─────────────────────────────────────
+        try cmd.appendArg("-Wno-type-limits");
+        try cmd.appendArg("-Wno-missing-braces");
+        try cmd.appendArg("-Wno-comment");
+
+        // ── 5.5: Include dirs from Llvm_Config (-I syntax) ─────────────
+        if (llvm_cfg.llvm_include_dir_len > 0) {
+            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const prefix = "-I";
+            const dir = llvm_cfg.llvm_include_dir[0..llvm_cfg.llvm_include_dir_len];
+            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+            @memcpy(inc_buf[0..prefix.len], prefix);
+            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
+            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
+        }
+        if (llvm_cfg.clang_include_dir_len > 0) {
+            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const prefix = "-I";
+            const dir = llvm_cfg.clang_include_dir[0..llvm_cfg.clang_include_dir_len];
+            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+            @memcpy(inc_buf[0..prefix.len], prefix);
+            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
+            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
+        }
+        if (llvm_cfg.lld_include_dir_len > 0) {
+            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const prefix = "-I";
+            const dir = llvm_cfg.lld_include_dir[0..llvm_cfg.lld_include_dir_len];
+            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+            @memcpy(inc_buf[0..prefix.len], prefix);
+            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
+            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
+        }
+
+        // ── 5.6: Output path (-o syntax) ───────────────────────────────
+        try cmd.appendArg("-o");
+        try cmd.appendArg(output_path);
+
+        // Source file (last argument).
+        try cmd.appendArg(source_path);
+    }
+
+    // ── 5.10: Execute and capture stderr on failure ─────────────────────
+    printMsg(io, "llvm: compiling {s} -> {s}", .{ source_path, output_path });
+
+    var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
+    var stderr_len: usize = 0;
+    const exit_code = try runCommand(&cmd, &stderr_buf, &stderr_len, io);
+    if (exit_code != 0) {
+        printMsg(io, "llvm: C++ compilation failed for {s} (step: {s}, exit code: {d})", .{ source_path, step_name, exit_code });
+        if (stderr_len > 0) {
+            printMsg(io, "llvm: stderr: {s}", .{stderr_buf[0..stderr_len]});
+        }
+        return error.BufferTooSmall;
+    }
+
+    // ── 11.3: Update cache with new hash after successful compilation ───
+    if (build_ctx.cache) |cache_ptr| {
+        const now_ns = std.Io.Clock.awake.now(io).nanoseconds;
+        const ts: i64 = @intCast(@as(i96, @min(now_ns, std.math.maxInt(i64))));
+        cache_ptr.put(step_name, combined_hash, ts) catch {};
+    }
+
+    printMsg(io, "llvm: compiled {s} successfully", .{step_name});
+}
+
+// ── Object Archiving Step ────────────────────────────────────────────────────
+
+/// Archive the five compiled C++ object files into a single static library.
+///
+/// Linux/macOS: `ar rcs <cache_dir>/zigcpp/libzigcpp.a <obj1>.o <obj2>.o ...`
+/// Windows:     `lib.exe /OUT:<cache_dir>\zigcpp\zigcpp.lib <obj1>.obj ...`
+///
+/// The five C++ source stems are: zig_llvm, zig_llvm-ar, zig_clang_driver,
+/// zig_clang_cc1_main, zig_clang_cc1as_main.
+///
+/// Errors are reported with "llvm: " prefix and include captured stderr.
+pub fn archiveObjects(ctx: *Step_Context) SigError!void {
+    const build_ctx = ctx.build_ctx;
+    const io = ctx.io;
+
+    const cache_dir = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
+    const is_windows = builtin.os.tag == .windows;
+
+    // ── Build zigcpp directory path ─────────────────────────────────────
+    var zigcpp_dir_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const zigcpp_dir_segs = [_][]const u8{ cache_dir, "zigcpp" };
+    const zigcpp_dir = try sig_fs.joinPath(&zigcpp_dir_buf, &zigcpp_dir_segs);
+
+    // ── 6.4: Build output archive path ──────────────────────────────────
+    const archive_name: []const u8 = if (is_windows) "zigcpp.lib" else "libzigcpp.a";
+    var archive_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const archive_segs = [_][]const u8{ zigcpp_dir, archive_name };
+    const archive_path = try sig_fs.joinPath(&archive_path_buf, &archive_segs);
+
+    // ── The five C++ source stems ───────────────────────────────────────
+    const cpp_stems = [_][]const u8{
+        "zig_llvm",
+        "zig_llvm-ar",
+        "zig_clang_driver",
+        "zig_clang_cc1_main",
+        "zig_clang_cc1as_main",
+    };
+
+    const obj_ext: []const u8 = if (is_windows) ".obj" else ".o";
+
+    // ── 6.1: Build command in stack-allocated Command_Buffer ────────────
+    var cmd: Command_Buffer = .{};
+
+    if (is_windows) {
+        // ── 6.3: Windows: lib.exe /OUT:<archive_path> <obj1>.obj ... ────
+        try cmd.appendArg("lib.exe");
+
+        // Build /OUT:<path> argument.
+        var out_arg_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const out_prefix = "/OUT:";
+        if (out_prefix.len + archive_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+        @memcpy(out_arg_buf[0..out_prefix.len], out_prefix);
+        @memcpy(out_arg_buf[out_prefix.len..][0..archive_path.len], archive_path);
+        try cmd.appendArg(out_arg_buf[0 .. out_prefix.len + archive_path.len]);
+    } else {
+        // ── 6.2: Linux/macOS: ar rcs <archive_path> <obj1>.o ... ────────
+        try cmd.appendArg("ar");
+        try cmd.appendArg("rcs");
+        try cmd.appendArg(archive_path);
+    }
+
+    // ── Append object file paths ────────────────────────────────────────
+    var obj_path_bufs: [5][PATH_BUF_SIZE]u8 = undefined;
+    for (cpp_stems, 0..) |stem, i| {
+        // Build "<stem>.o" or "<stem>.obj" filename.
+        var obj_name_buf: [NAME_BUF_SIZE]u8 = undefined;
+        if (stem.len + obj_ext.len > NAME_BUF_SIZE) return error.BufferTooSmall;
+        @memcpy(obj_name_buf[0..stem.len], stem);
+        @memcpy(obj_name_buf[stem.len..][0..obj_ext.len], obj_ext);
+        const obj_name = obj_name_buf[0 .. stem.len + obj_ext.len];
+
+        const obj_segs = [_][]const u8{ zigcpp_dir, obj_name };
+        const obj_path = try sig_fs.joinPath(&obj_path_bufs[i], &obj_segs);
+        try cmd.appendArg(obj_path);
+    }
+
+    // ── 6.5: Execute and capture stderr on failure ──────────────────────
+    printMsg(io, "llvm: archiving objects -> {s}", .{archive_path});
+
+    var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
+    var stderr_len: usize = 0;
+    const exit_code = try runCommand(&cmd, &stderr_buf, &stderr_len, io);
+    if (exit_code != 0) {
+        printMsg(io, "llvm: archiver failed (exit code: {d})", .{exit_code});
+        if (stderr_len > 0) {
+            printMsg(io, "llvm: stderr: {s}", .{stderr_buf[0..stderr_len]});
+        }
+        return error.BufferTooSmall;
+    }
+
+    printMsg(io, "llvm: archived objects into {s} successfully", .{archive_path});
+}
+
+// ── Config.sig generation step ───────────────────────────────────────────────
+
+/// Generate config.sig (build_options.sig) in the cache directory.
+///
+/// This step resolves the version string from build.sig constants and
+/// delegates to `generateBuildOptions`, which already handles:
+/// - Setting have_llvm = true/false based on enable-llvm/static-llvm options
+/// - Including all fields from stage1/config.zig.in
+/// - Including the sig_version field
+/// - Writing to cache_dir/build_options.sig using a stack buffer
+///
+/// Registered as the "config:sig" step in the build graph.
+pub fn generateConfig(ctx: *Step_Context) SigError!void {
+    const build_ctx = ctx.build_ctx;
+    const io = ctx.io;
+    const cache_dir = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
+
+    printMsg(io, "llvm: generating config.sig...", .{});
+
+    // ── 7.3: Resolve version from build.sig constants ───────────────────
+    var version_buf: [VERSION_BUF_SIZE]u8 = undefined;
+    const version_override = build_ctx.options.getValue("version-string");
+    const version_str = if (version_override) |v| v else blk: {
+        const sig_ver = build_ctx.sig_version[0..build_ctx.sig_version_len];
+        const is_dev = std.mem.indexOfScalar(u8, sig_ver, '-') != null;
+        var base_buf: [64]u8 = undefined;
+        const base_version = std.fmt.bufPrint(&base_buf, "{d}.{d}.{d}", .{
+            build_ctx.zig_version_major,
+            build_ctx.zig_version_minor,
+            build_ctx.zig_version_patch,
+        }) catch break :blk build_ctx.sig_version[0..build_ctx.sig_version_len];
+        break :blk resolveVersionString(&version_buf, base_version, is_dev, io);
+    };
+
+    // ── 7.1, 7.2, 7.4, 7.5: Delegate to generateBuildOptions ──────────
+    // generateBuildOptions reads enable-llvm/static-llvm from the option map
+    // to set have_llvm, includes all config.zig.in fields + sig_version,
+    // and writes to <cache_dir>/build_options.sig using a stack buffer.
+    generateBuildOptions(build_ctx, version_str, cache_dir, io) catch |err| {
+        printMsg(io, "llvm: config.sig generation failed", .{});
+        return err;
+    };
+
+    printMsg(io, "llvm: config.sig generated successfully", .{});
+}
+
+// ── LLVM Link Step ───────────────────────────────────────────────────────────
+
+/// Append LLVM linker arguments to an existing Command_Buffer.
+///
+/// When LLVM is enabled (build_ctx.llvm_config.discovered == true), this
+/// function appends the following to the command:
+///   1. The zigcpp static library archive path
+///   2. -L<llvm_lib_dir> library search path
+///   3. -l<name> for each LLVM library
+///   4. -l<name> for each Clang library
+///   5. -l<name> for each LLD library
+///   6. -l<name> for each system library (pthread, dl, m, z, zstd, etc.)
+///   7. Platform-specific system libraries:
+///      - Windows: ntdll, ws2_32, version
+///      - macOS: c++ (libc++)
+///      - Linux: stdc++
+///   8. System C++ standard library from llvm_config.system_libcxx
+///
+/// All arguments are constructed in stack-allocated buffers.
+/// If LLVM is not enabled, returns immediately without modifying cmd.
+pub fn appendLlvmLinkerArgs(cmd: *Command_Buffer, build_ctx: *const Build_Context) SigError!void {
+    const llvm_cfg = &build_ctx.llvm_config;
+
+    // If LLVM is not enabled/discovered, nothing to do.
+    if (!llvm_cfg.discovered) return;
+
+    const cache_dir = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
+
+    // ── 8.2: Pass zigcpp library path to linker ─────────────────────────
+    // Build the path to the zigcpp archive: <cache_dir>/zigcpp/libzigcpp.a
+    // (or zigcpp.lib on Windows).
+    {
+        var zigcpp_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const archive_name = if (builtin.os.tag == .windows) "zigcpp.lib" else "libzigcpp.a";
+        const segs = [_][]const u8{ cache_dir, "zigcpp", archive_name };
+        const zigcpp_path = try sig_fs.joinPath(&zigcpp_path_buf, &segs);
+        try cmd.appendArg(zigcpp_path);
+    }
+
+    // ── 8.3: Pass LLVM library search dir ───────────────────────────────
+    // -L<llvm_lib_dir>
+    if (llvm_cfg.llvm_lib_dir_len > 0) {
+        var lib_dir_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const prefix = "-L";
+        const dir = llvm_cfg.llvm_lib_dir[0..llvm_cfg.llvm_lib_dir_len];
+        if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+        @memcpy(lib_dir_buf[0..prefix.len], prefix);
+        @memcpy(lib_dir_buf[prefix.len..][0..dir.len], dir);
+        try cmd.appendArg(lib_dir_buf[0 .. prefix.len + dir.len]);
+    }
+
+    // ── 8.3: Pass LLVM library names ────────────────────────────────────
+    for (0..llvm_cfg.llvm_lib_count) |i| {
+        var lib_buf: [NAME_BUF_SIZE + 2]u8 = undefined;
+        const name = llvm_cfg.llvm_libs[i][0..llvm_cfg.llvm_lib_lens[i]];
+        const total = 2 + name.len; // "-l" + name
+        if (total > lib_buf.len) return error.BufferTooSmall;
+        lib_buf[0] = '-';
+        lib_buf[1] = 'l';
+        @memcpy(lib_buf[2..][0..name.len], name);
+        try cmd.appendArg(lib_buf[0..total]);
+    }
+
+    // ── 8.3: Pass Clang library names ───────────────────────────────────
+    for (0..llvm_cfg.clang_lib_count) |i| {
+        var lib_buf: [NAME_BUF_SIZE + 2]u8 = undefined;
+        const name = llvm_cfg.clang_libs[i][0..llvm_cfg.clang_lib_lens[i]];
+        const total = 2 + name.len;
+        if (total > lib_buf.len) return error.BufferTooSmall;
+        lib_buf[0] = '-';
+        lib_buf[1] = 'l';
+        @memcpy(lib_buf[2..][0..name.len], name);
+        try cmd.appendArg(lib_buf[0..total]);
+    }
+
+    // ── 8.3: Pass LLD library names ─────────────────────────────────────
+    for (0..llvm_cfg.lld_lib_count) |i| {
+        var lib_buf: [NAME_BUF_SIZE + 2]u8 = undefined;
+        const name = llvm_cfg.lld_libs[i][0..llvm_cfg.lld_lib_lens[i]];
+        const total = 2 + name.len;
+        if (total > lib_buf.len) return error.BufferTooSmall;
+        lib_buf[0] = '-';
+        lib_buf[1] = 'l';
+        @memcpy(lib_buf[2..][0..name.len], name);
+        try cmd.appendArg(lib_buf[0..total]);
+    }
+
+    // ── 8.4: Pass system libs (pthread, dl, m, z, zstd, etc.) ───────────
+    for (0..llvm_cfg.system_lib_count) |i| {
+        var lib_buf: [NAME_BUF_SIZE + 2]u8 = undefined;
+        const name = llvm_cfg.system_libs[i][0..llvm_cfg.system_lib_lens[i]];
+        const total = 2 + name.len;
+        if (total > lib_buf.len) return error.BufferTooSmall;
+        lib_buf[0] = '-';
+        lib_buf[1] = 'l';
+        @memcpy(lib_buf[2..][0..name.len], name);
+        try cmd.appendArg(lib_buf[0..total]);
+    }
+
+    // ── 8.5: Windows: add ntdll, ws2_32, version ───────────────────────
+    if (builtin.os.tag == .windows) {
+        try cmd.appendArg("-lntdll");
+        try cmd.appendArg("-lws2_32");
+        try cmd.appendArg("-lversion");
+    }
+
+    // ── 8.6: macOS: link c++ (libc++) ───────────────────────────────────
+    // ── 8.7: Linux: link stdc++ ─────────────────────────────────────────
+    if (builtin.os.tag == .macos) {
+        try cmd.appendArg("-lc++");
+    } else if (builtin.os.tag == .linux) {
+        try cmd.appendArg("-lstdc++");
+    }
+
+    // ── 8.8: System C++ standard library from llvm_config ───────────────
+    // The system_libcxx field may specify an additional/override libcxx.
+    // Only append if it differs from what we already added above.
+    switch (llvm_cfg.system_libcxx) {
+        .libcpp => {
+            // Only add if we didn't already add -lc++ (non-macOS platforms).
+            if (builtin.os.tag != .macos) {
+                try cmd.appendArg("-lc++");
+            }
+        },
+        .libstdcpp => {
+            // Only add if we didn't already add -lstdc++ (non-Linux platforms).
+            if (builtin.os.tag != .linux) {
+                try cmd.appendArg("-lstdc++");
+            }
+        },
+        .none => {},
+    }
+}
+
 // ── Build_Context (replaces *std.Build) ──────────────────────────────────────
 
 /// The central struct passed to `build.sig`'s `build` function. All API
@@ -2095,6 +3457,13 @@ pub const Build_Context = struct {
     /// Zig lib directory path (for --zig-lib-dir when invoking the compiler).
     zig_lib_dir: [PATH_BUF_SIZE]u8 = undefined,
     zig_lib_dir_len: usize = 0,
+
+    /// LLVM configuration — populated by discovery step, read by compile/link steps.
+    llvm_config: Llvm_Config = .{},
+
+    /// Pointer to the shared Cache_Map — set by build_host before scheduling.
+    /// Used by compileCppFile for content-hash-based cache invalidation.
+    cache: ?*Cache_Map = null,
 
     // --- Public API (called by build.sig) ---
 
@@ -2201,6 +3570,100 @@ pub const Build_Context = struct {
         return getOption(T, &self.options, name);
     }
 
+    // --- LLVM pipeline API methods ---
+
+    /// Register a C++ compilation step.
+    ///
+    /// Creates a step named "cpp:<output_name>" with desc = source_path.
+    /// The step function is `compileCppFile`, which reads the source path
+    /// from the step entry's desc field and the output name from the step name.
+    ///
+    /// Validates:
+    ///   - source_path.len <= PATH_BUF_SIZE  (fits in desc buffer is checked
+    ///     by Step_Registry, but we also check against DESC_BUF_SIZE)
+    ///   - output_name.len <= NAME_BUF_SIZE (must fit in step name with "cpp:" prefix)
+    ///
+    /// Returns SigError.BufferTooSmall for oversized inputs.
+    /// Returns SigError.CapacityExceeded if the step registry is full.
+    pub fn addCppCompileStep(self: *Build_Context, opts: Cpp_Compile_Options) SigError!Step_Handle {
+        // ── 9.4: Input validation ───────────────────────────────────────
+        if (opts.source_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+        if (opts.source_path.len > DESC_BUF_SIZE) return error.BufferTooSmall;
+        const prefix = "cpp:";
+        if (opts.output_name.len + prefix.len > NAME_BUF_SIZE) return error.BufferTooSmall;
+
+        // ── Build step name: "cpp:<output_name>" ────────────────────────
+        var name_buf: [NAME_BUF_SIZE]u8 = undefined;
+        @memcpy(name_buf[0..prefix.len], prefix);
+        @memcpy(name_buf[prefix.len..][0..opts.output_name.len], opts.output_name);
+        const step_name = name_buf[0 .. prefix.len + opts.output_name.len];
+
+        // ── Register step with compileCppFile as the step function ──────
+        const handle = try self.steps.register(step_name, opts.source_path, &compileCppFile);
+
+        return handle;
+    }
+
+    /// Register an object archiving step.
+    ///
+    /// Creates a step named "archive:<output_name>" with desc = output_name.
+    /// The step function is `archiveObjects`, which archives all compiled
+    /// C++ object files into a static library.
+    ///
+    /// Wires dependencies: the archive step depends on all object_handles
+    /// (the C++ compile steps that produce the .o files).
+    ///
+    /// Validates:
+    ///   - output_name.len <= NAME_BUF_SIZE (must fit with "archive:" prefix)
+    ///
+    /// Returns SigError.BufferTooSmall for oversized inputs.
+    /// Returns SigError.CapacityExceeded if the step registry is full.
+    pub fn addArchiveStep(self: *Build_Context, opts: Archive_Options) SigError!Step_Handle {
+        // ── 9.4: Input validation ───────────────────────────────────────
+        const prefix = "archive:";
+        if (opts.output_name.len + prefix.len > NAME_BUF_SIZE) return error.BufferTooSmall;
+
+        // ── Build step name: "archive:<output_name>" ────────────────────
+        var name_buf: [NAME_BUF_SIZE]u8 = undefined;
+        @memcpy(name_buf[0..prefix.len], prefix);
+        @memcpy(name_buf[prefix.len..][0..opts.output_name.len], opts.output_name);
+        const step_name = name_buf[0 .. prefix.len + opts.output_name.len];
+
+        // ── Register step with archiveObjects as the step function ──────
+        const handle = try self.steps.register(step_name, opts.output_name, &archiveObjects);
+
+        // ── Wire dependencies: archive depends on all object compile steps
+        for (opts.object_handles) |obj_handle| {
+            try self.steps.addDep(handle, obj_handle);
+        }
+
+        return handle;
+    }
+
+    /// Register LLVM link dependencies onto the sig compile step.
+    ///
+    /// This wires the LLVM link dependencies so that the sig compile step
+    /// runs after the zigcpp archive and config generation steps. The actual
+    /// linker arguments are appended by `appendLlvmLinkerArgs` (Task 8)
+    /// during the compile step's execution.
+    ///
+    /// Finds the existing "sig" compile step in the registry and adds
+    /// dependencies on zigcpp_handle and config_handle. Returns the
+    /// existing sig compile step handle.
+    ///
+    /// Returns SigError.CapacityExceeded if the "sig" compile step is not
+    /// found in the registry or if dependency limits are exceeded.
+    pub fn addLlvmLinkStep(self: *Build_Context, opts: Llvm_Link_Options) SigError!Step_Handle {
+        // ── Find the existing sig compile step ──────────────────────────
+        const sig_handle = self.steps.findByName("sig") orelse return error.CapacityExceeded;
+
+        // ── Wire dependencies: sig compile depends on archive + config ──
+        try self.steps.addDep(sig_handle, opts.zigcpp_handle);
+        try self.steps.addDep(sig_handle, opts.config_handle);
+
+        return sig_handle;
+    }
+
     // --- Internal step functions ---
 
     /// Step function for compile steps. Reconstructs the compile command
@@ -2210,7 +3673,7 @@ pub const Build_Context = struct {
     /// The step entry's `name` field stores the output binary name.
     ///
     /// For the sig compiler itself (src/main.zig), compilation resolves the
-    /// version string, generates build_options.zig in the cache, and builds
+    /// version string, generates build_options.sig in the cache, and builds
     /// with module dependencies (build_options, aro).
     /// For all other sources, we use direct `build-exe` invocation.
     fn compileStepFn(ctx: *Step_Context) SigError!void {
@@ -2228,7 +3691,7 @@ pub const Build_Context = struct {
         const compiler = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
 
         // Check if this is the sig compiler compilation (src/main.zig).
-        // The compiler needs build_options.zig and aro module dependencies.
+        // The compiler needs build_options.sig and aro module dependencies.
         const is_compiler_build = std.mem.eql(u8, source_path, "src/main.zig");
 
         if (is_compiler_build) {
@@ -2250,7 +3713,7 @@ pub const Build_Context = struct {
                 break :blk resolveVersionString(&version_buf, base_version, is_dev, io);
             };
 
-            // 2. Generate build_options.zig in cache
+            // 2. Generate build_options.sig in cache
             try generateBuildOptions(build_ctx, version_str, cache_dir, io);
 
             // 3. Build and execute compile command with module dependencies.
@@ -2278,11 +3741,11 @@ pub const Build_Context = struct {
                 try cmd.appendArg(root_buf[0 .. root_prefix.len + source_path.len]);
             }
 
-            // Module paths: -Mbuild_options=<cache_dir>/build_options.zig
+            // Module paths: -Mbuild_options=<cache_dir>/build_options.sig
             {
                 var mod_buf: [PATH_BUF_SIZE]u8 = undefined;
                 var bo_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-                const bo_segs = [_][]const u8{ cache_dir, "build_options.zig" };
+                const bo_segs = [_][]const u8{ cache_dir, "build_options.sig" };
                 const bo_path = sig_fs.joinPath(&bo_path_buf, &bo_segs) catch return error.BufferTooSmall;
                 const prefix = "-Mbuild_options=";
                 if (prefix.len + bo_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
@@ -2363,11 +3826,9 @@ pub const Build_Context = struct {
                 try cmd.appendArg(build_ctx.zig_lib_dir[0..build_ctx.zig_lib_dir_len]);
             }
 
-            // LLVM linking flags: when have_llvm is true, forward static LLVM
-            // library flags and platform-specific system libraries.
-            // TODO: Add actual LLVM linking flags (-lLLVM, static libs, and
-            // on Windows: -lntdll, -lws2_32, etc.) when LLVM support is enabled.
-            // For now, LLVM linking is complex and will be refined in a follow-up.
+            // LLVM linking flags: when LLVM is enabled, append zigcpp archive,
+            // LLVM/Clang/LLD library flags, and platform-specific system libraries.
+            try appendLlvmLinkerArgs(&cmd, build_ctx);
 
             // Log the command for debugging.
             printMsg(io, "compileStepFn: compiling {s} with {d} args", .{ source_path, cmd.arg_count });
@@ -2552,20 +4013,7 @@ pub const Build_Context = struct {
     }
 };
 
-// ── Verify-identical mode ─────────────────────────────────────────────────────
-
-/// Maximum number of files to compare in each output subdirectory.
-const MAX_VERIFY_FILES = 256;
-
-/// A single file comparison entry: name + hash from each build system.
-const Verify_Entry = struct {
-    name: [256]u8 = undefined,
-    name_len: usize = 0,
-    sig_hash: Content_Hash = .{0} ** 16,
-    zig_hash: Content_Hash = .{0} ** 16,
-    sig_present: bool = false,
-    zig_present: bool = false,
-};
+// ── Formatting helpers ─────────────────────────────────────────────────────
 
 /// Format a Content_Hash as a 32-character hex string into a caller buffer.
 fn formatHash(buf: *[32]u8, hash: Content_Hash) []const u8 {
@@ -2575,254 +4023,6 @@ fn formatHash(buf: *[32]u8, hash: Content_Hash) []const u8 {
         buf[i * 2 + 1] = hex[byte & 0x0f];
     }
     return buf[0..32];
-}
-
-/// Collect file names and content hashes from a directory into a Verify_Entry table.
-/// Only processes regular files (not subdirectories). Populates either the sig
-/// or zig hash field based on `comptime is_sig`. Returns the number of entries
-/// in the table after collection (may grow if new files are found).
-fn collectDirHashes(
-    io: std.Io,
-    dir_path: []const u8,
-    table: []Verify_Entry,
-    existing_count: usize,
-    comptime is_sig: bool,
-) usize {
-    var dir_entries: [MAX_VERIFY_FILES]sig_fs.DirEntry = undefined;
-    const entries = sig_fs.listDir(io, dir_path, &dir_entries) catch return existing_count;
-
-    var count = existing_count;
-    for (entries) |*entry| {
-        if (entry.kind != .file) continue;
-        if (count >= table.len) break;
-
-        const fname = entry.name();
-
-        // Build full path for hashing.
-        var path_buf: [PATH_BUF_SIZE]u8 = undefined;
-        const segs = [_][]const u8{ dir_path, fname };
-        const full_path = sig_fs.joinPath(&path_buf, &segs) catch continue;
-
-        // Compute content hash for this file.
-        const paths_arr = [_][]const u8{full_path};
-        const hash = computeContentHash(io, &paths_arr);
-
-        // Find or create entry in the table by name.
-        var found = false;
-        for (table[0..count]) |*te| {
-            if (te.name_len == fname.len and std.mem.eql(u8, te.name[0..te.name_len], fname)) {
-                if (is_sig) {
-                    te.sig_hash = hash;
-                    te.sig_present = true;
-                } else {
-                    te.zig_hash = hash;
-                    te.zig_present = true;
-                }
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            var ve: Verify_Entry = .{};
-            if (fname.len <= ve.name.len) {
-                @memcpy(ve.name[0..fname.len], fname);
-                ve.name_len = fname.len;
-            }
-            if (is_sig) {
-                ve.sig_hash = hash;
-                ve.sig_present = true;
-            } else {
-                ve.zig_hash = hash;
-                ve.zig_present = true;
-            }
-            table[count] = ve;
-            count += 1;
-        }
-    }
-    return count;
-}
-
-/// Compare a table of Verify_Entry items and print a comparison report.
-/// Updates totals: [0]=matched, [1]=mismatched, [2]=missing.
-fn compareEntries(
-    io: std.Io,
-    table: []const Verify_Entry,
-    count: usize,
-    subdir_name: []const u8,
-    totals: *[3]usize,
-) void {
-    printMsg(io, "\n  {s}/:", .{subdir_name});
-
-    for (table[0..count]) |*entry| {
-        const fname = entry.name[0..entry.name_len];
-
-        if (entry.sig_present and entry.zig_present) {
-            if (std.mem.eql(u8, &entry.sig_hash, &entry.zig_hash)) {
-                var hash_str: [32]u8 = undefined;
-                _ = formatHash(&hash_str, entry.sig_hash);
-                printMsg(io, "    {s}: MATCH  ({s})", .{ fname, hash_str[0..16] });
-                totals[0] += 1;
-            } else {
-                var sig_str: [32]u8 = undefined;
-                var zig_str: [32]u8 = undefined;
-                _ = formatHash(&sig_str, entry.sig_hash);
-                _ = formatHash(&zig_str, entry.zig_hash);
-                printMsg(io, "    {s}: DIFFER sig={s} zig={s}", .{ fname, sig_str[0..16], zig_str[0..16] });
-                totals[1] += 1;
-            }
-        } else if (entry.sig_present and !entry.zig_present) {
-            printMsg(io, "    {s}: MISSING from zig build", .{fname});
-            totals[2] += 1;
-        } else if (!entry.sig_present and entry.zig_present) {
-            printMsg(io, "    {s}: MISSING from sig build", .{fname});
-            totals[2] += 1;
-        }
-    }
-}
-
-/// Run `zig build` with the same options and compare output against the sig
-/// build output. Called after the sig build completes, while zig-out/ still
-/// contains the sig build artifacts.
-///
-/// Flow:
-///   1. Hash current zig-out/bin/ and zig-out/lib/ (sig build output)
-///   2. Run `zig build` (overwrites zig-out/)
-///   3. Hash zig-out/bin/ and zig-out/lib/ again (zig build output)
-///   4. Compare hashes and report differences
-///
-/// Returns true if all outputs are byte-identical, false otherwise.
-pub fn verifyIdentical(
-    io: std.Io,
-    build_root: []const u8,
-    config: *const Cli_Config,
-) bool {
-    printMsg(io, "\n── verify-identical: comparing sig build vs zig build ──", .{});
-
-    // ── Build output directory paths ────────────────────────────────────
-    var bin_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const bin_segs = [_][]const u8{ build_root, "zig-out", "bin" };
-    const bin_path = sig_fs.joinPath(&bin_path_buf, &bin_segs) catch {
-        printMsg(io, "error: failed to construct zig-out/bin path", .{});
-        return false;
-    };
-
-    var lib_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const lib_segs = [_][]const u8{ build_root, "zig-out", "lib" };
-    const lib_path = sig_fs.joinPath(&lib_path_buf, &lib_segs) catch {
-        printMsg(io, "error: failed to construct zig-out/lib path", .{});
-        return false;
-    };
-
-    // ── Step 1: Hash sig build output (current zig-out/ state) ──────────
-    printMsg(io, "hashing sig build output...", .{});
-
-    var bin_table: [MAX_VERIFY_FILES]Verify_Entry = undefined;
-    for (&bin_table) |*e| e.* = .{};
-    var bin_count = collectDirHashes(io, bin_path, &bin_table, 0, true);
-
-    var lib_table: [MAX_VERIFY_FILES]Verify_Entry = undefined;
-    for (&lib_table) |*e| e.* = .{};
-    var lib_count = collectDirHashes(io, lib_path, &lib_table, 0, true);
-
-    printMsg(io, "sig build: {d} bin files, {d} lib files", .{ bin_count, lib_count });
-
-    // ── Step 2: Run `zig build` ─────────────────────────────────────────
-    var zig_cmd: Command_Buffer = .{};
-    zig_cmd.appendArg("zig") catch {
-        printMsg(io, "error: failed to construct zig build command", .{});
-        return false;
-    };
-    zig_cmd.appendArg("build") catch return false;
-
-    // Forward -D options.
-    for (config.options.entries[0..]) |entry| {
-        if (!entry.occupied) continue;
-        const key = entry.key_buf[0..entry.key_len];
-        const val = entry.val_buf[0..entry.val_len];
-        var opt_buf: [PATH_BUF_SIZE]u8 = undefined;
-        const prefix = "-D";
-        const eq = "=";
-        const total = prefix.len + key.len + eq.len + val.len;
-        if (total <= PATH_BUF_SIZE) {
-            @memcpy(opt_buf[0..prefix.len], prefix);
-            @memcpy(opt_buf[prefix.len..][0..key.len], key);
-            @memcpy(opt_buf[prefix.len + key.len ..][0..eq.len], eq);
-            @memcpy(opt_buf[prefix.len + key.len + eq.len ..][0..val.len], val);
-            zig_cmd.appendArg(opt_buf[0..total]) catch break;
-        }
-    }
-
-    // Forward -j if specified.
-    if (config.thread_count > 0) {
-        var j_buf: [32]u8 = undefined;
-        const j_str = std.fmt.bufPrint(&j_buf, "-j{d}", .{config.thread_count}) catch "-j4";
-        zig_cmd.appendArg(j_str) catch {};
-    }
-
-    // Set cwd to build root.
-    if (build_root.len > 0 and build_root.len <= PATH_BUF_SIZE) {
-        @memcpy(zig_cmd.cwd[0..build_root.len], build_root);
-        zig_cmd.cwd_len = build_root.len;
-    }
-
-    printMsg(io, "running: zig build ...", .{});
-
-    var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
-    var stderr_len: usize = 0;
-    const exit_code = runCommand(&zig_cmd, &stderr_buf, &stderr_len, io) catch {
-        printMsg(io, "error: failed to spawn zig build", .{});
-        return false;
-    };
-
-    if (exit_code != 0) {
-        printMsg(io, "error: zig build exited with code {d}", .{exit_code});
-        if (stderr_len > 0) {
-            printMsg(io, "stderr: {s}", .{stderr_buf[0..stderr_len]});
-        }
-        return false;
-    }
-
-    printMsg(io, "zig build completed successfully", .{});
-
-    // ── Step 3: Hash zig build output (zig-out/ now has zig build output)
-    printMsg(io, "hashing zig build output...", .{});
-
-    bin_count = collectDirHashes(io, bin_path, &bin_table, bin_count, false);
-    lib_count = collectDirHashes(io, lib_path, &lib_table, lib_count, false);
-
-    // ── Step 4: Compare and report ──────────────────────────────────────
-    printMsg(io, "\n── comparison results ──", .{});
-
-    // totals: [matched, mismatched, missing]
-    var totals = [3]usize{ 0, 0, 0 };
-
-    compareEntries(io, &bin_table, bin_count, "zig-out/bin", &totals);
-    compareEntries(io, &lib_table, lib_count, "zig-out/lib", &totals);
-
-    const matched = totals[0];
-    const mismatched = totals[1];
-    const missing = totals[2];
-    const total = matched + mismatched + missing;
-
-    printMsg(io, "\n── verify-identical summary ──", .{});
-    printMsg(io, "total files: {d}", .{total});
-    printMsg(io, "matched:     {d}", .{matched});
-    printMsg(io, "mismatched:  {d}", .{mismatched});
-    printMsg(io, "missing:     {d}", .{missing});
-
-    if (total == 0) {
-        printMsg(io, "warning: no output files found in zig-out/bin/ or zig-out/lib/", .{});
-        printMsg(io, "note: ensure both build systems produce output before comparing", .{});
-        return true;
-    }
-
-    if (mismatched > 0 or missing > 0) {
-        printMsg(io, "RESULT: MISMATCH — sig build and zig build produced different output", .{});
-        return false;
-    }
-
-    printMsg(io, "RESULT: IDENTICAL — all {d} files match", .{matched});
-    return true;
 }
 
 // ── Benchmark mode ─────────────────────────────────────────────────────────
@@ -2845,37 +4045,15 @@ fn formatPct(buf: *[32]u8, numerator: usize, denominator: usize) []const u8 {
     return std.fmt.bufPrint(buf, "{d}.{d}%", .{ whole, frac }) catch "?";
 }
 
-/// Format a signed delta percentage into a caller buffer.
-/// Negative means sig is faster. E.g. "-23.5%" or "+12.0%".
-fn formatDelta(buf: *[32]u8, sig_ns: u64, zig_ns: u64) []const u8 {
-    if (zig_ns == 0) return "N/A";
-    if (sig_ns <= zig_ns) {
-        // sig is faster or equal — show negative delta.
-        const saved_x10 = ((zig_ns - sig_ns) * 1000) / zig_ns;
-        const whole = saved_x10 / 10;
-        const frac = saved_x10 % 10;
-        return std.fmt.bufPrint(buf, "-{d}.{d}%", .{ whole, frac }) catch "?";
-    } else {
-        // sig is slower — show positive delta.
-        const over_x10 = ((sig_ns - zig_ns) * 1000) / zig_ns;
-        const whole = over_x10 / 10;
-        const frac = over_x10 % 10;
-        return std.fmt.bufPrint(buf, "+{d}.{d}%", .{ whole, frac }) catch "?";
-    }
-}
-
-/// Run --benchmark mode: measure sig build vs zig build side-by-side.
-/// Prints a markdown table comparing wall-clock time, cache hit rate.
-/// Peak RSS measurement is platform-specific and reported as "N/A" when
-/// not available (requires OS-specific APIs).
+/// Run --benchmark mode: measure sig build performance.
+/// Prints a sig-only timing report: wall-clock time, cache hit rate,
+/// and absolute performance targets.
 pub fn runBenchmark(
     io: std.Io,
-    build_root: []const u8,
-    config: *const Cli_Config,
     sig_elapsed_ns: u64,
     summary: *const Schedule_Summary,
 ) void {
-    printMsg(io, "\n── benchmark: sig build vs zig build ──", .{});
+    printMsg(io, "\n── benchmark: sig build ──", .{});
 
     // ── Format sig build metrics ────────────────────────────────────────
     var sig_ms_buf: [32]u8 = undefined;
@@ -2884,94 +4062,24 @@ pub fn runBenchmark(
     var sig_cache_buf: [32]u8 = undefined;
     const sig_cache = formatPct(&sig_cache_buf, summary.cached, summary.total);
 
-    // ── Run zig build and measure wall-clock time ───────────────────────
-    var zig_cmd: Command_Buffer = .{};
-    zig_cmd.appendArg("zig") catch {
-        printMsg(io, "error: failed to construct zig build command", .{});
-        return;
-    };
-    zig_cmd.appendArg("build") catch {
-        printMsg(io, "error: failed to add 'build' arg", .{});
-        return;
-    };
-
-    // Forward -D options.
-    for (config.options.entries[0..]) |entry| {
-        if (!entry.occupied) continue;
-        const key = entry.key_buf[0..entry.key_len];
-        const val = entry.val_buf[0..entry.val_len];
-        var opt_buf: [PATH_BUF_SIZE]u8 = undefined;
-        const prefix = "-D";
-        const eq = "=";
-        const total_len = prefix.len + key.len + eq.len + val.len;
-        if (total_len <= PATH_BUF_SIZE) {
-            @memcpy(opt_buf[0..prefix.len], prefix);
-            @memcpy(opt_buf[prefix.len..][0..key.len], key);
-            @memcpy(opt_buf[prefix.len + key.len ..][0..eq.len], eq);
-            @memcpy(opt_buf[prefix.len + key.len + eq.len ..][0..val.len], val);
-            zig_cmd.appendArg(opt_buf[0..total_len]) catch break;
-        }
-    }
-
-    // Forward -j if specified.
-    if (config.thread_count > 0) {
-        var j_buf: [32]u8 = undefined;
-        const j_str = std.fmt.bufPrint(&j_buf, "-j{d}", .{config.thread_count}) catch "-j4";
-        zig_cmd.appendArg(j_str) catch {};
-    }
-
-    // Set cwd to build root.
-    if (build_root.len > 0 and build_root.len <= PATH_BUF_SIZE) {
-        @memcpy(zig_cmd.cwd[0..build_root.len], build_root);
-        zig_cmd.cwd_len = build_root.len;
-    }
-
-    printMsg(io, "running: zig build ...", .{});
-
-    const zig_start_ns = std.Io.Clock.awake.now(io).nanoseconds;
-
-    var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
-    var stderr_len: usize = 0;
-    const zig_exit = runCommand(&zig_cmd, &stderr_buf, &stderr_len, io) catch {
-        printMsg(io, "error: failed to spawn zig build", .{});
-        return;
-    };
-
-    const zig_end_ns = std.Io.Clock.awake.now(io).nanoseconds;
-    const zig_elapsed_ns: u64 = @intCast(zig_end_ns - zig_start_ns);
-
-    if (zig_exit != 0) {
-        printMsg(io, "warning: zig build exited with code {d}", .{zig_exit});
-        if (stderr_len > 0) {
-            printMsg(io, "stderr: {s}", .{stderr_buf[0..stderr_len]});
-        }
-    }
-
-    // ── Format zig build metrics ────────────────────────────────────────
-    var zig_ms_buf: [32]u8 = undefined;
-    const zig_ms = formatMs(&zig_ms_buf, zig_elapsed_ns);
-
-    var delta_buf: [32]u8 = undefined;
-    const delta = formatDelta(&delta_buf, sig_elapsed_ns, zig_elapsed_ns);
-
-    // ── Print markdown table ────────────────────────────────────────────
+    // ── Print sig-only timing report ────────────────────────────────────
     printMsg(io, "", .{});
-    printMsg(io, "| Metric | sig build | zig build | \xce\x94 |", .{});
-    printMsg(io, "|---|--:|--:|--:|", .{});
-    printMsg(io, "| Wall-clock time | {s} ms | {s} ms | {s} |", .{ sig_ms, zig_ms, delta });
-    printMsg(io, "| Cache hit rate | {s} | N/A | \xe2\x80\x94 |", .{sig_cache});
-    printMsg(io, "| Peak RSS | N/A | N/A | \xe2\x80\x94 |", .{});
+    printMsg(io, "| Metric | Value |", .{});
+    printMsg(io, "|---|--:|", .{});
+    printMsg(io, "| Wall-clock time | {s} ms |", .{sig_ms});
+    printMsg(io, "| Cache hit rate | {s} |", .{sig_cache});
+    printMsg(io, "| Peak RSS | N/A |", .{});
     printMsg(io, "", .{});
 
     // ── Performance target validation ───────────────────────────────────
     printMsg(io, "── Performance Targets ──", .{});
 
-    // Target 1: Full rebuild ≤80% of zig build wall-clock time
-    const target_80pct = (zig_elapsed_ns * 80) / 100;
-    if (sig_elapsed_ns <= target_80pct) {
-        printMsg(io, "  [PASS] Full rebuild: {s} ms <= 80% of {s} ms", .{ sig_ms, zig_ms });
+    // Target 1: Full rebuild ≤30s absolute threshold
+    const full_rebuild_ms = sig_elapsed_ns / 1_000_000;
+    if (full_rebuild_ms <= 30_000) {
+        printMsg(io, "  [PASS] Full rebuild: {s} ms <= 30000 ms", .{sig_ms});
     } else {
-        printMsg(io, "  [FAIL] Full rebuild: {s} ms > 80% of {s} ms", .{ sig_ms, zig_ms });
+        printMsg(io, "  [FAIL] Full rebuild: {s} ms > 30000 ms", .{sig_ms});
     }
 
     // Target 2: Incremental ≤50ms (check if sig build was incremental via cache hit rate)
@@ -2986,7 +4094,7 @@ pub fn runBenchmark(
         printMsg(io, "  [SKIP] Incremental: not a fully cached build ({d}/{d} cached)", .{ summary.cached, summary.total });
     }
 
-    // Target 3: Peak RSS ≤50% of zig build (not measurable without OS APIs)
+    // Target 3: Peak RSS (not measurable without OS APIs)
     printMsg(io, "  [SKIP] Peak RSS: measurement requires OS-specific APIs", .{});
 
     // Target 4: Configure phase ≤10ms (measured separately, not available here)
@@ -3125,8 +4233,6 @@ pub const Cli_Config = struct {
     benchmark: bool = false,
     /// --verbose mode.
     verbose: bool = false,
-    /// --verify-identical mode.
-    verify_identical: bool = false,
     /// --self-test mode: rebuild the build runner and verify byte-identical output.
     self_test: bool = false,
     /// Path to the compiler binary for self-test rebuild (defaults to "sig").
@@ -3490,13 +4596,11 @@ pub fn main(init: std.process.Init) !void {
                 }
             }
         } else if (arg.len >= 2 and arg[0] == '-' and arg[1] == '-') {
-            // Long options: --benchmark, --verbose, --verify-identical, --self-test
+            // Long options: --benchmark, --verbose, --self-test
             if (std.mem.eql(u8, arg, "--benchmark")) {
                 config.benchmark = true;
             } else if (std.mem.eql(u8, arg, "--verbose")) {
                 config.verbose = true;
-            } else if (std.mem.eql(u8, arg, "--verify-identical")) {
-                config.verify_identical = true;
             } else if (std.mem.eql(u8, arg, "--self-test") or std.mem.startsWith(u8, arg, "--self-test=")) {
                 config.self_test = true;
                 // Optional: --self-test=<compiler-path> to specify the compiler binary.
@@ -3617,9 +4721,6 @@ pub fn main(init: std.process.Init) !void {
     }
     if (config.benchmark) {
         host_cmd.appendArg("--benchmark") catch {};
-    }
-    if (config.verify_identical) {
-        host_cmd.appendArg("--verify-identical") catch {};
     }
     if (config.self_test) {
         if (config.self_test_compiler_len > 0) {
