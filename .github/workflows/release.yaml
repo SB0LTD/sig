@@ -20,8 +20,8 @@ permissions:
   contents: write
 
 env:
-  LLVM_VERSION: "22"
-  LLVM_FULL_VERSION: "22.1.0"
+  LLVM_VERSION: "21"
+  LLVM_FULL_VERSION: "21.1.8"
 
 jobs:
   build:
@@ -362,5 +362,5 @@ jobs:
           [ -z "$ARCHIVES" ] && echo "No archives" && exit 1
           gh release delete "sig-${VERSION}" --yes 2>/dev/null || true
           gh release create "sig-${VERSION}" --title "Sig ${VERSION}" \
-            --notes "Sig ${VERSION} — LLVM 22 upgrade" \
+            --notes "Sig ${VERSION}" \
             ${PRERELEASE} $ARCHIVES sha256sums.txt

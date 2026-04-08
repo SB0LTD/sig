@@ -194,7 +194,7 @@ fn writeGettingStarted(w: *std.Io.Writer) std.Io.Writer.Error!void {
         \\zig build
         \\```
         \\
-        \\Prerequisites: CMake, a system C/C++ toolchain, LLVM 22.x. See the [Zig getting started guide](https://ziglang.org/learn/getting-started/) for details.
+        \\Prerequisites: CMake, a system C/C++ toolchain, LLVM 21.x. See the [Zig getting started guide](https://ziglang.org/learn/getting-started/) for details.
         \\
         \\### Quick Example
         \\
