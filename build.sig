@@ -13,8 +13,8 @@ const std = @import("std"); // Only for std.SemanticVersion
 // sig_version struct is the source of truth; sig_version_string is derived.
 // Grep patterns: sig_version.*major = \K\d+, sig_version.*minor = \K\d+, etc.
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 16, .patch = 0 };
-const sig_version = .{ .major = 0, .minor = 1, .patch = 1, .pre = "" };
-const sig_version_string = "0.1.1";
+const sig_version = .{ .major = 0, .minor = 1, .patch = 2, .pre = "" };
+const sig_version_string = "0.1.2";
 
 // ── Step function stubs ──────────────────────────────────────────────────
 // Placeholder step functions for steps whose execution logic will be wired
@@ -105,9 +105,9 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
 
     // ── LLVM pipeline (conditional) ──────────────────────────────────
     if (enable_llvm) {
-        // Discovery steps: find C++ compiler, then find LLVM 21.x
+        // Discovery steps: find C++ compiler, then find LLVM 22.x
         const discover_cpp = try ctx.addStep("discover:cpp-compiler", "Find C++ compiler", &sig_build.discoverCppCompiler);
-        const discover_llvm = try ctx.addStep("discover:llvm", "Find LLVM 21.x", &sig_build.discoverLlvm);
+        const discover_llvm = try ctx.addStep("discover:llvm", "Find LLVM 22.x", &sig_build.discoverLlvm);
         try ctx.addDependency(discover_llvm, discover_cpp);
 
         // 5 parallel C++ compile steps — all depend on LLVM discovery

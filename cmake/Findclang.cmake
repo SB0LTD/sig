@@ -17,10 +17,10 @@ find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
 if(${LLVM_LINK_MODE} STREQUAL "shared")
   find_library(CLANG_LIBRARIES
     NAMES
-      libclang-cpp.so.21
-      libclang-cpp.so.21.1
-      clang-cpp-21.0
-      clang-cpp210
+      libclang-cpp.so.22
+      libclang-cpp.so.22.1
+      clang-cpp-22.0
+      clang-cpp220
       clang-cpp
     NAMES_PER_DIR
     HINTS "${LLVM_LIBDIRS}"

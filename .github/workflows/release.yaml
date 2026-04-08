@@ -19,6 +19,10 @@ on:
 permissions:
   contents: write
 
+env:
+  LLVM_VERSION: "22"
+  LLVM_FULL_VERSION: "22.1.0"
+
 jobs:
   build:
     strategy:
@@ -69,24 +73,22 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
-      # --- TRANSITIONAL: Use zig for 0.1.1 bootstrap ---
-      # Once 0.1.1 is released, replace this with "Download sig" step
-      # that downloads the 0.1.1 binary for self-hosting bootstrap.
+      # --- TRANSITIONAL: Use zig for bootstrap ---
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0-dev.3091+557caecaa
 
-      # --- Cache (restore before install to skip redundant downloads) ---
+      # --- Cache (restore before install to avoid redundant downloads) ---
       - name: Cache LLVM packages
         uses: actions/cache@v4
         with:
           path: |
-            /usr/lib/llvm-21
-            /opt/homebrew/opt/llvm@21
+            /usr/lib/llvm-${{ env.LLVM_VERSION }}
+            /opt/homebrew/opt/llvm@${{ env.LLVM_VERSION }}
             C:\Program Files\LLVM
-          key: llvm-21-${{ matrix.target }}-${{ runner.os }}
-          restore-keys: llvm-21-${{ matrix.target }}-
+          key: llvm-${{ env.LLVM_FULL_VERSION }}-${{ matrix.target }}-${{ runner.os }}
+          restore-keys: llvm-${{ env.LLVM_VERSION }}-${{ matrix.target }}-
 
       - name: Cache sig-cache and zigcpp objects
         uses: actions/cache@v4
@@ -97,44 +99,50 @@ jobs:
           key: sig-cache-${{ matrix.target }}-${{ github.sha }}
           restore-keys: sig-cache-${{ matrix.target }}-
 
-      # --- Install LLVM 21.x dev packages ---
-      - name: Install LLVM 21.x (Ubuntu)
+      # --- Install LLVM dev packages ---
+      - name: Install LLVM (Ubuntu)
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ -d "/usr/lib/llvm-21" ] && [ -f "/usr/lib/llvm-21/bin/llvm-config" ]; then
-            echo "LLVM 21 already present from cache, skipping install"
+          if [ -d "/usr/lib/llvm-${LLVM_VERSION}" ] && [ -f "/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config" ]; then
+            echo "LLVM ${LLVM_VERSION} already present from cache, skipping install"
           else
             wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
             CODENAME=$(lsb_release -cs)
-            echo "deb http://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-21 main" | sudo tee /etc/apt/sources.list.d/llvm-21.list
+            echo "deb http://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${LLVM_VERSION} main" \
+              | sudo tee /etc/apt/sources.list.d/llvm-${LLVM_VERSION}.list
             sudo apt-get update -y
-            sudo apt-get install -y llvm-21-dev libclang-21-dev liblld-21-dev
+            sudo apt-get install -y llvm-${LLVM_VERSION}-dev libclang-${LLVM_VERSION}-dev liblld-${LLVM_VERSION}-dev
           fi
 
-      - name: Install LLVM 21.x (macOS)
+      - name: Install LLVM (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          if [ -d "/opt/homebrew/opt/llvm@21" ] && [ -f "/opt/homebrew/opt/llvm@21/bin/llvm-config" ]; then
-            echo "LLVM 21 already present from cache, skipping install"
+          if [ -d "/opt/homebrew/opt/llvm@${LLVM_VERSION}" ] && [ -f "/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin/llvm-config" ]; then
+            echo "LLVM ${LLVM_VERSION} already present from cache, skipping install"
           else
-            brew install llvm@21
+            brew install llvm@${LLVM_VERSION}
           fi
 
-      - name: Install LLVM 21.x (Windows)
+      - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          if (Test-Path "C:\Program Files\LLVM\bin\llvm-config.exe") {
+          $llvmDir = "C:\Program Files\LLVM"
+          if (Test-Path "$llvmDir\bin\llvm-config.exe") {
             Write-Host "LLVM already present from cache, skipping install"
           } else {
-            choco install llvm --version=21.0.0 --allow-downgrade -y
+            # Download official LLVM release from GitHub (Chocolatey may not have the exact version)
+            $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_FULL_VERSION }}/LLVM-${{ env.LLVM_FULL_VERSION }}-win64.exe"
+            Write-Host "Downloading LLVM from $url"
+            Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\llvm-installer.exe" -UseBasicParsing
+            Start-Process -Wait -FilePath "$env:TEMP\llvm-installer.exe" -ArgumentList "/S", "/D=$llvmDir"
+            Remove-Item "$env:TEMP\llvm-installer.exe" -ErrorAction SilentlyContinue
           }
-          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "$llvmDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       # --- Stage 1: Bootstrap sig without LLVM (direct zig build-exe) ---
-      # TRANSITIONAL: zig bootstrap uses .zig extension since zig doesn't know .sig
       - name: Write build_options.zig (bootstrap)
         shell: bash
         run: |
@@ -157,7 +165,7 @@ jobs:
           pub const dev = .full;
           pub const io_mode: enum { threaded, evented } = .threaded;
           pub const value_interpret_mode = .direct;
-          pub const sig_version: [:0]const u8 = "0.1.1";
+          pub const sig_version: [:0]const u8 = "0.1.2";
           pub const mem_leak_frames = 4;
           EOF
 
@@ -202,8 +210,8 @@ jobs:
           LLVM_PREFIX_ARG=""
           case "${{ runner.os }}" in
             macOS)
-              if [ -d "/opt/homebrew/opt/llvm@21" ]; then
-                LLVM_PREFIX_ARG="-Dllvm-prefix=/opt/homebrew/opt/llvm@21"
+              if [ -d "/opt/homebrew/opt/llvm@${LLVM_VERSION}" ]; then
+                LLVM_PREFIX_ARG="-Dllvm-prefix=/opt/homebrew/opt/llvm@${LLVM_VERSION}"
               elif [ -d "/opt/homebrew/opt/llvm" ]; then
                 LLVM_PREFIX_ARG="-Dllvm-prefix=/opt/homebrew/opt/llvm"
               fi
@@ -214,8 +222,8 @@ jobs:
               fi
               ;;
             Linux)
-              if [ -d "/usr/lib/llvm-21" ]; then
-                LLVM_PREFIX_ARG="-Dllvm-prefix=/usr/lib/llvm-21"
+              if [ -d "/usr/lib/llvm-${LLVM_VERSION}" ]; then
+                LLVM_PREFIX_ARG="-Dllvm-prefix=/usr/lib/llvm-${LLVM_VERSION}"
               fi
               ;;
           esac
@@ -258,29 +266,22 @@ jobs:
       - name: Verify have_llvm=true
         shell: bash
         run: |
-          # Check the generated config files in the cache for have_llvm = true
           FOUND=false
           for f in .sig-cache/config.sig .sig-cache/build_options.sig .sig-cache/config.zig .sig-cache/build_options.zig; do
-            if [ -f "$f" ]; then
-              if grep -q 'have_llvm = true' "$f"; then
-                echo "VERIFIED: $f contains have_llvm = true"
-                FOUND=true
-                break
-              fi
+            if [ -f "$f" ] && grep -q 'have_llvm = true' "$f" 2>/dev/null; then
+              echo "VERIFIED: $f contains have_llvm = true"
+              FOUND=true; break
             fi
           done
-          # Also search recursively in .sig-cache for any config file
           if [ "$FOUND" = "false" ]; then
             CONFIG_FILE=$(find .sig-cache -maxdepth 3 \( -name 'config.*' -o -name 'build_options.*' \) -type f 2>/dev/null | head -20)
             for f in $CONFIG_FILE; do
               if grep -q 'have_llvm = true' "$f" 2>/dev/null; then
                 echo "VERIFIED: $f contains have_llvm = true"
-                FOUND=true
-                break
+                FOUND=true; break
               fi
             done
           fi
-          # Also check the binary itself for the embedded string
           BIN="sig"; [ "${{ matrix.target }}" = "x86_64-windows" ] && BIN="sig.exe"
           FILE="sig-${VERSION}-${{ matrix.target }}/bin/${BIN}"
           if command -v strings &>/dev/null; then
@@ -291,9 +292,7 @@ jobs:
           fi
           if [ "$FOUND" = "false" ]; then
             echo "WARNING: Could not verify have_llvm=true in build output"
-            echo "Checking cache directory contents:"
-            find .sig-cache -maxdepth 3 -name '*.sig' -o -name '*.zig' -type f 2>/dev/null | head -20
-            echo "Proceeding anyway — LLVM flags were passed to the build"
+            echo "Proceeding — LLVM flags were passed to the build"
           fi
 
       - name: Package tarball
@@ -320,8 +319,8 @@ jobs:
           elif command -v shasum &>/dev/null; then
             shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
           else
-            # Windows fallback using certutil
-            certutil -hashfile "${ARCHIVE}" SHA256 | head -2 | tail -1 | tr -d ' ' | awk -v f="${ARCHIVE}" '{print $1 "  " f}' > "${ARCHIVE}.sha256"
+            certutil -hashfile "${ARCHIVE}" SHA256 | head -2 | tail -1 | tr -d ' ' \
+              | awk -v f="${ARCHIVE}" '{print $1 "  " f}' > "${ARCHIVE}.sha256"
           fi
 
       - name: Upload
@@ -363,5 +362,5 @@ jobs:
           [ -z "$ARCHIVES" ] && echo "No archives" && exit 1
           gh release delete "sig-${VERSION}" --yes 2>/dev/null || true
           gh release create "sig-${VERSION}" --title "Sig ${VERSION}" \
-            --notes "Sig ${VERSION}" \
+            --notes "Sig ${VERSION} — LLVM 22 upgrade" \
             ${PRERELEASE} $ARCHIVES sha256sums.txt

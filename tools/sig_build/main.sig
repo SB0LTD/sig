@@ -2373,10 +2373,10 @@ const lld_static_libs = [_][]const u8{
 
 /// llvm-config candidate names to probe on PATH, in priority order.
 const llvm_config_candidates = [_][]const u8{
-    "llvm-config-21",
-    "llvm-config-21.0",
-    "llvm-config210",
-    "llvm-config21",
+    "llvm-config-22",
+    "llvm-config-22.0",
+    "llvm-config220",
+    "llvm-config22",
     "llvm-config",
 };
 
@@ -2420,20 +2420,20 @@ fn runLlvmConfigCommand(cmd: *const Command_Buffer, stdout_buf: *[LLVM_OUTPUT_BU
     return trimmed;
 }
 
-/// Validate that an llvm-config --version output is in the 21.x range.
-/// Accepts versions >= 21.0.0 and < 22.0.0.
+/// Validate that an llvm-config --version output is in the 22.x range.
+/// Accepts versions >= 22.0.0 and < 23.0.0.
 /// Returns true if valid, false otherwise.
 fn validateLlvmVersion(version_str: []const u8) bool {
-    // Expected format: "21.x.y" or "21.x.y-suffix"
-    // We need the major version to be exactly 21.
+    // Expected format: "22.x.y" or "22.x.y-suffix"
+    // We need the major version to be exactly 22.
     const dot_pos = std.mem.indexOfScalar(u8, version_str, '.') orelse return false;
     if (dot_pos == 0) return false;
     const major_str = version_str[0..dot_pos];
     const major = std.fmt.parseInt(u32, major_str, 10) catch return false;
-    return major == 21;
+    return major == 22;
 }
 
-/// Try a single llvm-config candidate: run --version, validate 21.x.
+/// Try a single llvm-config candidate: run --version, validate 22.x.
 /// Returns true if this candidate is valid.
 fn tryLlvmConfigCandidate(candidate: []const u8, io: std.Io) bool {
     var cmd = Command_Buffer{};
@@ -2550,9 +2550,9 @@ fn storeLibList(
     dest_count.* = count;
 }
 
-/// Discover LLVM 21.x libraries on the host system.
+/// Discover LLVM 22.x libraries on the host system.
 ///
-/// Strategy 1 (preferred): Probe PATH for llvm-config variants, validate 21.x,
+/// Strategy 1 (preferred): Probe PATH for llvm-config variants, validate 22.x,
 ///   then query --includedir, --libdir, --libs, --system-libs.
 /// Strategy 2 (fallback): Use -Dllvm-prefix=<path> or platform-specific fallback
 ///   prefixes to locate headers and libraries directly.
@@ -2643,8 +2643,8 @@ pub fn discoverLlvm(ctx: *Step_Context) SigError!void {
     }
 
     // ── Error reporting ──────────────────────────────────────────────────
-    printMsg(io, "llvm: no valid LLVM 21.x installation found. Searched: {s}", .{tried_buf[0..tried_len]});
-    printMsg(io, "llvm: install LLVM 21.x or pass -Dllvm-prefix=<path>", .{});
+    printMsg(io, "llvm: no valid LLVM 22.x installation found. Searched: {s}", .{tried_buf[0..tried_len]});
+    printMsg(io, "llvm: install LLVM 22.x or pass -Dllvm-prefix=<path>", .{});
     return error.BufferTooSmall;
 }
 

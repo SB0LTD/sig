@@ -1,4 +1,4 @@
-# [sig] Build LLVM 21 and upload as a reusable artifact
+# [sig] Build LLVM 22 and upload as a reusable artifact
 name: build-llvm
 
 on:
@@ -18,12 +18,12 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq cmake ninja-build python3 zlib1g-dev libzstd-dev
 
-      - name: Build LLVM 21
+      - name: Build LLVM 22
         run: |
-          git clone --depth 1 --branch llvmorg-21.1.2 https://github.com/llvm/llvm-project.git llvm-src
+          git clone --depth 1 --branch llvmorg-22.1.0 https://github.com/llvm/llvm-project.git llvm-src
           cmake -S llvm-src/llvm -B llvm-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$PWD/llvm-21" \
+            -DCMAKE_INSTALL_PREFIX="$PWD/llvm-22" \
             -DLLVM_ENABLE_PROJECTS="clang;lld" \
             -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SystemZ;VE;WebAssembly;X86;XCore" \
             -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="M68k;Xtensa;ARC;CSKY;SPIRV" \
@@ -45,13 +45,13 @@ jobs:
         timeout-minutes: 120
 
       - name: Package LLVM
-        run: tar -cJf llvm-21-x86_64-linux.tar.xz llvm-21/
+        run: tar -cJf llvm-22-x86_64-linux.tar.xz llvm-22/
 
       - name: Upload to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create llvm-21 --title "LLVM 21 (build artifact)" \
-            --notes "Pre-built LLVM 21.1.2 with Clang + LLD for x86_64-linux. Used as bootstrap dependency for sig releases." \
+          gh release create llvm-22 --title "LLVM 22 (build artifact)" \
+            --notes "Pre-built LLVM 22.1.0 with Clang + LLD for x86_64-linux. Used as bootstrap dependency for sig releases." \
             --prerelease \
-            llvm-21-x86_64-linux.tar.xz
+            llvm-22-x86_64-linux.tar.xz
