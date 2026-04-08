@@ -76,30 +76,34 @@ jobs:
       # --- Download bootstrap sig from previous release ---
       - name: Download bootstrap sig
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Determine the host architecture for the bootstrap compiler.
           # The bootstrap runs on the *runner*, not the target — e.g. aarch64-linux
           # target runs on ubuntu-latest (x86_64), so we need x86_64-linux sig.
-          case "${{ matrix.runner }}" in
-            ubuntu-latest)  HOST_ARCH="x86_64-linux"  ; ARCHIVE_EXT=".tar.xz" ;;
-            macos-latest)   HOST_ARCH="aarch64-macos"  ; ARCHIVE_EXT=".tar.xz" ;;
-            windows-latest) HOST_ARCH="x86_64-windows" ; ARCHIVE_EXT=".zip"    ;;
-            *) echo "ERROR: Unknown runner ${{ matrix.runner }}"; exit 1 ;;
+          case "${{ runner.os }}" in
+            Linux)   HOST_ARCH="x86_64-linux"  ; ARCHIVE_EXT=".tar.xz" ;;
+            macOS)   HOST_ARCH="aarch64-macos"  ; ARCHIVE_EXT=".tar.xz" ;;
+            Windows) HOST_ARCH="x86_64-windows" ; ARCHIVE_EXT=".zip"    ;;
+            *) echo "ERROR: Unknown runner OS ${{ runner.os }}"; exit 1 ;;
           esac
 
-          DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases" \
+          # Use gh CLI (authenticated) to avoid GitHub API rate limits
+          DOWNLOAD_URL=$(gh api repos/${{ github.repository }}/releases --paginate \
             | python3 -c "
           import sys, json
           host = '${HOST_ARCH}'
           ext  = '${ARCHIVE_EXT}'
-          for r in json.load(sys.stdin):
+          releases = json.load(sys.stdin)
+          if not isinstance(releases, list): releases = [releases]
+          for r in releases:
             if not isinstance(r, dict): continue
             for a in r.get('assets', []):
               n = a['name']
               if host in n and n.endswith(ext) and 'bootstrap' not in n:
                 print(a['browser_download_url'])
                 exit(0)
-          print('', file=sys.stderr)
           exit(1)
           ") || {
             echo "ERROR: No sig release found with ${HOST_ARCH} archive."
@@ -223,12 +227,15 @@ jobs:
           mkdir -p .sig-cache/bootstrap
           BIN="sig"; [ "${{ matrix.target }}" = "x86_64-windows" ] && BIN="sig.exe"
 
-          # Windows needs an explicit large stack size (default 1MB is too small
-          # for the self-hosted compiler). Linux/macOS default to 8MB+ via
-          # thread_stack_size in main.zig, but the PE header needs it set.
+          # The self-hosted compiler has deep recursion in Sema analysis.
+          # Linux/macOS: raise stack limit. Windows: pass --stack flag.
+          if [ "${{ runner.os }}" != "Windows" ]; then
+            ulimit -s unlimited 2>/dev/null || ulimit -s 65536 2>/dev/null || true
+          fi
+
           STACK_ARG=""
           if [ "${{ matrix.target }}" = "x86_64-windows" ]; then
-            STACK_ARG="--stack 67108864"
+            STACK_ARG="--stack 134217728"
           fi
 
           sig build-exe \
