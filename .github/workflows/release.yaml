@@ -123,11 +123,13 @@ jobs:
             tar -xJf /tmp/bootstrap.tar.xz -C /tmp/bootstrap-sig
           fi
 
-          SIG=$(find /tmp/bootstrap-sig -name "sig" -o -name "sig.exe" | head -1)
+          SIG=$(find /tmp/bootstrap-sig -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
           [ -z "$SIG" ] && echo "ERROR: sig binary not found in archive" && exit 1
           chmod +x "$SIG"
           SIG_DIR=$(dirname "$SIG")
           echo "$SIG_DIR" >> "$GITHUB_PATH"
+          # Also export the full path for immediate use in this and subsequent steps
+          echo "BOOTSTRAP_SIG=$SIG" >> "$GITHUB_ENV"
           "$SIG" version || true
           echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
 
@@ -238,7 +240,10 @@ jobs:
             STACK_ARG="--stack 134217728"
           fi
 
-          sig build-exe \
+          # Use BOOTSTRAP_SIG env var (full path) — more reliable than PATH
+          SIG_CMD="${BOOTSTRAP_SIG:-sig}"
+
+          "${SIG_CMD}" build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=.sig-cache/build_options.zig \
