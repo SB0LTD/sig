@@ -30,6 +30,7 @@
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/OptBisect.h>
+#include <llvm/Support/IntegerInclusiveInterval.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
@@ -438,7 +439,10 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
 }
 
 void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit) {
-    auto *opt_bisect = new OptBisect(limit);
+    auto *opt_bisect = new OptBisect();
+    IntegerInclusiveIntervalUtils::IntervalList intervals;
+    intervals.push_back({0, limit});
+    opt_bisect->setIntervals(std::move(intervals));
     unwrap(context_ref)->setOptPassGate(*opt_bisect);
 }
 

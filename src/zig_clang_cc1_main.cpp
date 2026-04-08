@@ -18,6 +18,7 @@
 #include "clang/Config/config.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Options/Options.h"
+#include "clang/Options/OptionUtils.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
@@ -269,10 +270,10 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   if (Clang->getHeaderSearchOpts().UseBuiltinIncludes &&
       Clang->getHeaderSearchOpts().ResourceDir.empty())
     Clang->getHeaderSearchOpts().ResourceDir =
-      CompilerInvocation::GetResourcesPath(Argv0, MainAddr);
+      clang::GetResourcesPath(Argv0, MainAddr);
 
   // Create the actual diagnostics engine.
-  Clang->createDiagnostics(*llvm::vfs::getRealFileSystem());
+  Clang->createDiagnostics();
   if (!Clang->hasDiagnostics())
     return 1;
 
@@ -319,8 +320,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
     // options are stored in the compiler invocation and we can recreate the VFS
     // from the compiler invocation.
     if (!Clang->hasFileManager())
-      Clang->createFileManager(createVFSFromCompilerInvocation(
-          Clang->getInvocation(), Clang->getDiagnostics()));
+      Clang->createFileManager();
 
     if (auto profilerOutput = Clang->createOutputFile(
             Clang->getFrontendOpts().TimeTracePath, /*Binary=*/false,
