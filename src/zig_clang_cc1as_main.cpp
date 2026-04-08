@@ -14,7 +14,7 @@
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Driver/DriverDiagnostic.h"
-#include "clang/Driver/Options.h"
+#include "clang/Options/Options.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Frontend/Utils.h"
@@ -60,7 +60,7 @@
 #include <system_error>
 using namespace clang;
 using namespace clang::driver;
-using namespace clang::driver::options;
+using namespace clang::options;
 using namespace llvm;
 using namespace llvm::opt;
 
@@ -680,7 +680,7 @@ int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
         llvm::outs(), "clang -cc1as [options] file...",
         "Clang Integrated Assembler", /*ShowHidden=*/false,
         /*ShowAllAliases=*/false,
-        llvm::opt::Visibility(driver::options::CC1AsOption));
+        llvm::opt::Visibility(options::CC1AsOption));
 
     return 0;
   }

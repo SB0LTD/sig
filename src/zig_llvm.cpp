@@ -438,9 +438,8 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
 }
 
 void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit) {
-    static OptBisect opt_bisect;
-    opt_bisect.setLimit(limit);
-    unwrap(context_ref)->setOptPassGate(opt_bisect);
+    auto *opt_bisect = new OptBisect(limit);
+    unwrap(context_ref)->setOptPassGate(*opt_bisect);
 }
 
 struct ZigDiagnosticHandler : public DiagnosticHandler {

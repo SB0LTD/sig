@@ -146,7 +146,7 @@ $ sig version
 sig 0.0.1-dev (zig 0.16.0-dev.3036+aed7a6e1f)
 ```
 
-Prerequisites: a system C/C++ toolchain, LLVM 21.x. See the [Zig getting started guide](https://ziglang.org/learn/getting-started/) for details.
+Prerequisites: a system C/C++ toolchain, LLVM 22.x. See the [Zig getting started guide](https://ziglang.org/learn/getting-started/) for details.
 
 ### Quick Example
 
