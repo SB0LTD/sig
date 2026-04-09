@@ -167,7 +167,7 @@ jobs:
             echo "LLVM ${LLVM_VERSION} already present from cache, skipping install"
           else
             # Use official LLVM release archive (apt.llvm.org ships dev snapshots with different headers)
-            ARCHIVE="clang+llvm-${LLVM_FULL_VERSION}-x86_64-linux-gnu-ubuntu-24.04.tar.xz"
+            ARCHIVE="LLVM-${LLVM_FULL_VERSION}-Linux-X64.tar.xz"
             URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_FULL_VERSION}/${ARCHIVE}"
             echo "Downloading LLVM from ${URL}"
             curl -fsSL "${URL}" -o /tmp/llvm.tar.xz
