@@ -208,6 +208,30 @@ jobs:
           fi
           echo "${LLVM_DIR}/bin" >> "$GITHUB_PATH"
 
+      # --- Debug: verify LLVM headers ---
+      - name: Debug LLVM headers
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          LLVM_PREFIX="/usr/lib/llvm-${LLVM_VERSION}"
+          echo "=== LLVM version ==="
+          "${LLVM_PREFIX}/bin/llvm-config" --version 2>/dev/null || echo "llvm-config not found"
+          echo "=== StringMap.h template declaration ==="
+          grep -n "template.*class StringMap" "${LLVM_PREFIX}/include/llvm/ADT/StringMap.h" 2>/dev/null || echo "StringMap.h not found"
+          echo "=== Host.h forward declaration ==="
+          grep -n "StringMap" "${LLVM_PREFIX}/include/llvm/TargetParser/Host.h" 2>/dev/null || echo "Host.h not found"
+          echo "=== clang/Options/Options.h exists? ==="
+          ls -la "${LLVM_PREFIX}/include/clang/Options/Options.h" 2>/dev/null || echo "clang/Options/Options.h NOT FOUND"
+          echo "=== clang/Options/Options.h namespace ==="
+          grep -n "namespace" "${LLVM_PREFIX}/include/clang/Options/Options.h" 2>/dev/null || echo "no namespace found"
+          echo "=== clang/Driver/Options.h exists? ==="
+          ls -la "${LLVM_PREFIX}/include/clang/Driver/Options.h" 2>/dev/null || echo "clang/Driver/Options.h NOT FOUND"
+          echo "=== System LLVM check ==="
+          dpkg -l 2>/dev/null | grep -i llvm | grep -i dev || echo "no system llvm-dev packages"
+          which llvm-config 2>/dev/null && llvm-config --version 2>/dev/null || echo "no system llvm-config"
+          echo "=== Include search paths ==="
+          echo | c++ -xc++ -E -v - 2>&1 | grep -A20 "search starts here" || true
+
       # --- Stage 1: Bootstrap sig without LLVM (sig build-exe) ---
       - name: Write build_options.zig (bootstrap)
         shell: bash

@@ -34,6 +34,7 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/WithColor.h"
+#include "llvm/Support/AllocatorBase.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/Triple.h"
@@ -694,7 +695,7 @@ static void performReadOperation(ArchiveOperation Operation,
     fail("extracting from a thin archive is not supported");
 
   bool Filter = !Members.empty();
-  StringMap<int> MemberCount;
+  StringMap<int, MallocAllocator> MemberCount;
   {
     Error Err = Error::success();
     for (auto &C : OldArchive->children(Err)) {
@@ -846,7 +847,7 @@ static InsertAction computeInsertAction(ArchiveOperation Operation,
                                         const object::Archive::Child &Member,
                                         StringRef Name,
                                         std::vector<StringRef>::iterator &Pos,
-                                        StringMap<int> &MemberCount) {
+                                        StringMap<int, MallocAllocator> &MemberCount) {
   if (!isValidInBitMode(Member))
     return IA_AddOldMember;
 
@@ -913,7 +914,7 @@ computeNewArchiveMembers(ArchiveOperation Operation,
   int InsertPos = -1;
   if (OldArchive) {
     Error Err = Error::success();
-    StringMap<int> MemberCount;
+    StringMap<int, MallocAllocator> MemberCount;
     for (auto &Child : OldArchive->children(Err)) {
       int Pos = Ret.size();
       Expected<StringRef> NameOrErr = Child.getName();
