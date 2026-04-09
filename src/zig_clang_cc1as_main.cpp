@@ -59,7 +59,6 @@
 #include <optional>
 #include <system_error>
 using namespace clang;
-using namespace clang::driver;
 using namespace clang::options;
 using namespace llvm;
 using namespace llvm::opt;
