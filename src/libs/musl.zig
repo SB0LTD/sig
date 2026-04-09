@@ -1758,8 +1758,6 @@ const src_files = [_][]const u8{
     "musl/src/time/wcsftime.c",
     "musl/src/time/__year_to_secs.c",
     "musl/src/unistd/alarm.c",
-    "musl/src/unistd/dup2.c",
-    "musl/src/unistd/dup3.c",
     "musl/src/unistd/faccessat.c",
     "musl/src/unistd/fchdir.c",
     "musl/src/unistd/fchown.c",
