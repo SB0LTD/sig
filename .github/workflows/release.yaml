@@ -126,6 +126,10 @@ jobs:
           SIG=$(find /tmp/bootstrap-sig -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
           [ -z "$SIG" ] && echo "ERROR: sig binary not found in archive" && exit 1
           chmod +x "$SIG"
+          # macOS: remove Gatekeeper quarantine attribute
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            xattr -dr com.apple.quarantine "$SIG" 2>/dev/null || true
+          fi
           SIG_DIR=$(dirname "$SIG")
           echo "$SIG_DIR" >> "$GITHUB_PATH"
           # Also export the full path for immediate use in this and subsequent steps
@@ -140,7 +144,7 @@ jobs:
           path: |
             /usr/lib/llvm-${{ env.LLVM_VERSION }}
             /opt/homebrew/opt/llvm@${{ env.LLVM_VERSION }}
-            C:\Program Files\LLVM
+            C:/llvm-${{ env.LLVM_VERSION }}
           key: llvm-${{ env.LLVM_FULL_VERSION }}-${{ matrix.target }}-${{ runner.os }}
           restore-keys: llvm-${{ env.LLVM_VERSION }}-${{ matrix.target }}-
 
@@ -153,20 +157,25 @@ jobs:
           key: sig-cache-${{ matrix.target }}-${{ github.sha }}
           restore-keys: sig-cache-${{ matrix.target }}-
 
-      # --- Install LLVM dev packages ---
+      # --- Install LLVM dev packages (official release archives) ---
       - name: Install LLVM (Ubuntu)
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ -d "/usr/lib/llvm-${LLVM_VERSION}" ] && [ -f "/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config" ]; then
+          LLVM_PREFIX="/usr/lib/llvm-${LLVM_VERSION}"
+          if [ -d "${LLVM_PREFIX}" ] && [ -f "${LLVM_PREFIX}/bin/llvm-config" ]; then
             echo "LLVM ${LLVM_VERSION} already present from cache, skipping install"
           else
-            wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-            CODENAME=$(lsb_release -cs)
-            echo "deb http://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${LLVM_VERSION} main" \
-              | sudo tee /etc/apt/sources.list.d/llvm-${LLVM_VERSION}.list
-            sudo apt-get update -y
-            sudo apt-get install -y llvm-${LLVM_VERSION}-dev libclang-${LLVM_VERSION}-dev liblld-${LLVM_VERSION}-dev
+            # Use official LLVM release archive (apt.llvm.org ships dev snapshots with different headers)
+            ARCHIVE="clang+llvm-${LLVM_FULL_VERSION}-x86_64-linux-gnu-ubuntu-24.04.tar.xz"
+            URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_FULL_VERSION}/${ARCHIVE}"
+            echo "Downloading LLVM from ${URL}"
+            curl -fsSL "${URL}" -o /tmp/llvm.tar.xz
+            sudo mkdir -p "${LLVM_PREFIX}"
+            sudo tar -xJf /tmp/llvm.tar.xz -C "${LLVM_PREFIX}" --strip-components=1
+            rm /tmp/llvm.tar.xz
+            echo "LLVM ${LLVM_FULL_VERSION} installed to ${LLVM_PREFIX}"
+            "${LLVM_PREFIX}/bin/llvm-config" --version
           fi
 
       - name: Install LLVM (macOS)
@@ -181,20 +190,23 @@ jobs:
 
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: bash
         run: |
-          $llvmDir = "C:\Program Files\LLVM"
-          if (Test-Path "$llvmDir\bin\llvm-config.exe") {
-            Write-Host "LLVM already present from cache, skipping install"
-          } else {
-            # Download official LLVM release from GitHub (Chocolatey may not have the exact version)
-            $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_FULL_VERSION }}/LLVM-${{ env.LLVM_FULL_VERSION }}-win64.exe"
-            Write-Host "Downloading LLVM from $url"
-            Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\llvm-installer.exe" -UseBasicParsing
-            Start-Process -Wait -FilePath "$env:TEMP\llvm-installer.exe" -ArgumentList "/S", "/D=$llvmDir"
-            Remove-Item "$env:TEMP\llvm-installer.exe" -ErrorAction SilentlyContinue
-          }
-          echo "$llvmDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          LLVM_DIR="C:/llvm-${LLVM_VERSION}"
+          if [ -d "${LLVM_DIR}" ] && [ -f "${LLVM_DIR}/bin/llvm-config.exe" ]; then
+            echo "LLVM already present from cache, skipping install"
+          else
+            # Use clang+llvm archive (includes C++ dev headers, unlike the LLVM-*.exe installer)
+            ARCHIVE="clang+llvm-${LLVM_FULL_VERSION}-x86_64-pc-windows-msvc.tar.xz"
+            URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_FULL_VERSION}/${ARCHIVE}"
+            echo "Downloading LLVM from ${URL}"
+            curl -fsSL "${URL}" -o /tmp/llvm.tar.xz
+            mkdir -p "${LLVM_DIR}"
+            tar -xJf /tmp/llvm.tar.xz -C "${LLVM_DIR}" --strip-components=1
+            rm /tmp/llvm.tar.xz
+            echo "LLVM ${LLVM_FULL_VERSION} installed to ${LLVM_DIR}"
+          fi
+          echo "${LLVM_DIR}/bin" >> "$GITHUB_PATH"
 
       # --- Stage 1: Bootstrap sig without LLVM (sig build-exe) ---
       - name: Write build_options.zig (bootstrap)
@@ -277,8 +289,8 @@ jobs:
               fi
               ;;
             Windows)
-              if [ -d "/c/Program Files/LLVM" ]; then
-                LLVM_PREFIX_ARG="-Dllvm-prefix=C:/Program Files/LLVM"
+              if [ -d "C:/llvm-${LLVM_VERSION}" ]; then
+                LLVM_PREFIX_ARG="-Dllvm-prefix=C:/llvm-${LLVM_VERSION}"
               fi
               ;;
             Linux)
