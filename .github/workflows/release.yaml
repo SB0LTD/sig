@@ -1,4 +1,4 @@
-# [sig] Release pipeline — LLVM-enabled builds via two-stage bootstrap
+# [sig] Release pipeline — LLVM-enabled builds using bootstrap sig
 name: release
 
 on:
@@ -126,9 +126,11 @@ jobs:
           SIG=$(find /tmp/bootstrap-sig -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
           [ -z "$SIG" ] && echo "ERROR: sig binary not found in archive" && exit 1
           chmod +x "$SIG"
-          # macOS: remove Gatekeeper quarantine attribute
+          # macOS: remove Gatekeeper quarantine from entire extracted tree
           if [ "${{ runner.os }}" = "macOS" ]; then
-            xattr -dr com.apple.quarantine "$SIG" 2>/dev/null || true
+            xattr -cr /tmp/bootstrap-sig 2>/dev/null || true
+            # Also try codesign ad-hoc if xattr alone doesn't work
+            codesign --force --sign - "$SIG" 2>/dev/null || true
           fi
           SIG_DIR=$(dirname "$SIG")
           echo "$SIG_DIR" >> "$GITHUB_PATH"
@@ -208,75 +210,24 @@ jobs:
           fi
           echo "${LLVM_DIR}/bin" >> "$GITHUB_PATH"
 
-      # --- Stage 1: Bootstrap sig without LLVM (sig build-exe) ---
-      - name: Write build_options.zig (bootstrap)
-        shell: bash
-        run: |
-          mkdir -p .sig-cache
-          cat > .sig-cache/build_options.zig <<'EOF'
-          pub const have_llvm = false;
-          pub const llvm_has_m68k = false;
-          pub const llvm_has_csky = false;
-          pub const llvm_has_arc = false;
-          pub const llvm_has_xtensa = false;
-          pub const version: [:0]const u8 = "0.16.0-dev";
-          pub const semver = @import("std").SemanticVersion.parse(version) catch unreachable;
-          pub const enable_debug_extensions = false;
-          pub const enable_logging = false;
-          pub const enable_link_snapshots = false;
-          pub const enable_tracy = false;
-          pub const value_tracing = false;
-          pub const skip_non_native = false;
-          pub const debug_gpa = false;
-          pub const dev = .full;
-          pub const io_mode: enum { threaded, evented } = .threaded;
-          pub const value_interpret_mode = .direct;
-          pub const sig_version: [:0]const u8 = "0.1.2";
-          pub const mem_leak_frames = 4;
-          EOF
-
-      - name: Bootstrap sig (stage 1 — no LLVM)
-        shell: bash
-        run: |
-          mkdir -p .sig-cache/bootstrap
-          BIN="sig"; [ "${{ matrix.target }}" = "x86_64-windows" ] && BIN="sig.exe"
-
-          # The self-hosted compiler has deep recursion in Sema analysis.
-          # Linux/macOS: raise stack limit. Windows: pass --stack flag.
-          if [ "${{ runner.os }}" != "Windows" ]; then
-            ulimit -s unlimited 2>/dev/null || ulimit -s 65536 2>/dev/null || true
-          fi
-
-          STACK_ARG=""
-          if [ "${{ matrix.target }}" = "x86_64-windows" ]; then
-            STACK_ARG="--stack 134217728"
-          fi
-
-          # Use BOOTSTRAP_SIG env var (full path) — more reliable than PATH
-          SIG_CMD="${BOOTSTRAP_SIG:-sig}"
-
-          "${SIG_CMD}" build-exe \
-            --dep build_options --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.sig-cache/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
-            -O ReleaseSafe \
-            -femit-bin=".sig-cache/bootstrap/${BIN}" \
-            --cache-dir .sig-cache \
-            --zig-lib-dir lib \
-            ${STACK_ARG}
-          echo "Bootstrap sig built successfully"
-          ls -la ".sig-cache/bootstrap/"
-        timeout-minutes: 60
-
-      # --- Stage 2: Rebuild sig with LLVM using bootstrapped sig ---
-      - name: Build sig with LLVM (stage 2)
+      # --- Build sig with LLVM using bootstrap sig directly ---
+      # The bootstrap sig (from previous release) has LLVM 21 backend for fast
+      # code generation. It invokes the system C++ compiler (g++/clang++) to
+      # compile the C++ LLVM interface files against LLVM 22 headers.
+      # No intermediate stage 1 build needed.
+      - name: Build sig with LLVM
         shell: bash
         run: |
           OUT="sig-${VERSION}-${{ matrix.target }}"
           mkdir -p "${OUT}/bin"
-          BIN="sig"; [ "${{ matrix.target }}" = "x86_64-windows" ] && BIN="sig.exe"
-          BOOTSTRAP=".sig-cache/bootstrap/${BIN}"
+
+          # Use the downloaded bootstrap sig directly
+          SIG_CMD="${BOOTSTRAP_SIG:-sig}"
+
+          # Raise stack limit on Linux/macOS
+          if [ "${{ runner.os }}" != "Windows" ]; then
+            ulimit -s unlimited 2>/dev/null || ulimit -s 65536 2>/dev/null || true
+          fi
 
           # Determine -Dllvm-prefix per platform
           LLVM_PREFIX_ARG=""
@@ -300,8 +251,8 @@ jobs:
               ;;
           esac
 
-          # Use bootstrapped sig to rebuild itself with LLVM enabled
-          "${BOOTSTRAP}" build \
+          # Build sig with LLVM enabled using bootstrap compiler
+          "${SIG_CMD}" build \
             --zig-lib-dir lib \
             -Denable-llvm \
             -Dstatic-llvm \
@@ -313,7 +264,7 @@ jobs:
             --prefix "${OUT}"
           echo "LLVM-enabled sig built successfully"
           ls -la "${OUT}/bin/"
-        timeout-minutes: 240
+        timeout-minutes: 120
 
       - name: Install lib
         shell: bash
