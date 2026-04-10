@@ -1,126 +1,166 @@
-# Build LLVM-enabled bootstrap sig compiler binaries.
+# Build LLVM-enabled bootstrap sig compiler binaries using cmake + ninja.
 # Requires: pre-built LLVM 22 from build-llvm.yaml (release tag: llvm-22)
 #
 # Chain: build-llvm → build-bootstrap → release
-#   1. build-llvm.yaml builds LLVM 22 from source
-#   2. This workflow uses zig + pre-built LLVM 22 to produce sig WITH LLVM
-#   3. release.yaml uses the LLVM-enabled bootstrap to build the final release
+#   1. build-llvm.yaml builds LLVM 22 from source (one-time)
+#   2. This workflow uses zig + cmake + pre-built LLVM 22 to produce sig WITH LLVM
+#   3. release.yaml uses the LLVM-enabled bootstrap sig to build final release (self-sustained)
 name: build-bootstrap
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Bootstrap release tag (e.g. bootstrap-sig-v4)'
+        description: 'Bootstrap release tag (e.g. bootstrap-sig-v5)'
         required: false
-        default: 'bootstrap-sig-v4'
+        default: 'bootstrap-sig-v5'
 
 permissions:
   contents: write
 
 env:
-  VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v4' }}
+  VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v5' }}
   LLVM_VERSION: "22"
+  LLVM_FULL_VERSION: "22.1.3"
+  ZIG_VERSION: "0.14.1"
 
 jobs:
+  # ── Linux x86_64 ─────────────────────────────────────────────────────────
   build-linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Install build deps
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build
+
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0-dev.3091+557caecaa
+          version: ${{ env.ZIG_VERSION }}
 
       - name: Download pre-built LLVM 22
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LLVM_PREFIX="$PWD/llvm-22"
           gh release download llvm-22 --pattern "llvm-22-x86_64-linux.tar.xz" --dir /tmp
-          mkdir -p "${LLVM_PREFIX}"
-          tar -xJf /tmp/llvm-22-x86_64-linux.tar.xz -C "${LLVM_PREFIX}" --strip-components=1
-          echo "LLVM_PREFIX=${LLVM_PREFIX}" >> "$GITHUB_ENV"
-          "${LLVM_PREFIX}/bin/llvm-config" --version
+          mkdir -p "$PWD/llvm-22"
+          tar -xJf /tmp/llvm-22-x86_64-linux.tar.xz -C "$PWD/llvm-22" --strip-components=1
+          rm /tmp/llvm-22-x86_64-linux.tar.xz
+          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
+          "$PWD/llvm-22/bin/llvm-config" --version
 
-      - name: Write build_options.zig
+      - name: Build sig with cmake + ninja
         run: |
-          mkdir -p .sig-cache
-          cat > .sig-cache/build_options.zig <<'OPTS'
-          pub const have_llvm = false;
-          pub const llvm_has_m68k = false;
-          pub const llvm_has_csky = false;
-          pub const llvm_has_arc = false;
-          pub const llvm_has_xtensa = false;
-          pub const version: [:0]const u8 = "0.16.0-dev";
-          pub const semver = @import("std").SemanticVersion.parse(version) catch unreachable;
-          pub const enable_debug_extensions = false;
-          pub const enable_logging = false;
-          pub const enable_link_snapshots = false;
-          pub const enable_tracy = false;
-          pub const value_tracing = false;
-          pub const skip_non_native = false;
-          pub const debug_gpa = false;
-          pub const dev = .full;
-          pub const io_mode: enum { threaded, evented } = .threaded;
-          pub const value_interpret_mode = .direct;
-          pub const sig_version: [:0]const u8 = "0.1.2";
-          pub const mem_leak_frames = 4;
-          OPTS
+          TARGET="x86_64-linux-musl"
+          MCPU="baseline"
 
-      - name: Stage 1 — zig build-exe (sig without LLVM)
-        run: |
-          mkdir -p .sig-cache/stage1
-          ulimit -s unlimited 2>/dev/null || true
-          zig build-exe \
-            --dep build_options --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.sig-cache/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
-            -O ReleaseSafe \
-            -femit-bin=".sig-cache/stage1/sig" \
-            --cache-dir .sig-cache \
-            --zig-lib-dir lib
-          chmod +x .sig-cache/stage1/sig
-          echo "Stage 1 built"
-          file .sig-cache/stage1/sig
-        timeout-minutes: 30
+          export CC="zig cc -target $TARGET -mcpu=$MCPU"
+          export CXX="zig c++ -target $TARGET -mcpu=$MCPU"
 
-      - name: Stage 2 — sig build with LLVM 22
-        run: |
-          ulimit -s unlimited 2>/dev/null || true
-          .sig-cache/stage1/sig build \
-            --zig-lib-dir lib \
-            -Denable-llvm \
-            -Dstatic-llvm \
-            -Dllvm-prefix="${LLVM_PREFIX}" \
-            -Doptimize=ReleaseSafe \
-            -Dtarget=x86_64-linux-musl \
-            -Dno-lib \
-            -Dno-langref \
-            -Dskip-tests \
-            --prefix bootstrap-sig-x86_64-linux
-          echo "Stage 2 built"
-          file bootstrap-sig-x86_64-linux/bin/sig
-        timeout-minutes: 120
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
+            -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DZIG_TARGET_TRIPLE="$TARGET" \
+            -DZIG_TARGET_MCPU="$MCPU" \
+            -DZIG_STATIC=ON \
+            -DZIG_NO_LIB=ON \
+            -GNinja \
+            -DCMAKE_C_LINKER_DEPFILE_SUPPORTED=FALSE \
+            -DCMAKE_CXX_LINKER_DEPFILE_SUPPORTED=FALSE
+
+          unset CC CXX
+          ninja install -j$(nproc)
+
+          echo "Bootstrap built:"
+          file stage3/bin/zig
+          stage3/bin/zig version
 
       - name: Package and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # The cmake build produces 'zig' — copy as 'sig' too for compatibility
+          cp build/stage3/bin/zig build/stage3/bin/sig
+          mkdir -p bootstrap-sig-x86_64-linux/bin
+          cp build/stage3/bin/zig bootstrap-sig-x86_64-linux/bin/sig
+          cp build/stage3/bin/zig bootstrap-sig-x86_64-linux/bin/zig
+
           tar -czf bootstrap-sig-x86_64-linux.tar.gz -C bootstrap-sig-x86_64-linux .
           gh release view "${VERSION}" >/dev/null 2>&1 || \
             gh release create "${VERSION}" \
-              --title "Bootstrap Sig Compiler ${VERSION} (LLVM-enabled)" \
-              --notes "Bootstrap compiler binaries with LLVM 22 backend. Used for sig release builds." \
+              --title "Bootstrap Sig Compiler ${VERSION}" \
+              --notes "LLVM-enabled bootstrap sig built with cmake+ninja+zig. Self-sustained release builds use this." \
               --prerelease
           gh release upload "${VERSION}" bootstrap-sig-x86_64-linux.tar.gz --clobber
 
+  # ── macOS aarch64 ────────────────────────────────────────────────────────
   build-macos:
     runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build deps
+        run: brew install cmake ninja llvm@${LLVM_VERSION}
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Build sig with cmake + ninja
+        run: |
+          TARGET="aarch64-macos-none"
+          MCPU="baseline"
+          LLVM_PREFIX="/opt/homebrew/opt/llvm@${LLVM_VERSION}"
+
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
+            -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="zig;cc;-target;$TARGET;-mcpu=$MCPU" \
+            -DCMAKE_CXX_COMPILER="zig;c++;-target;$TARGET;-mcpu=$MCPU" \
+            -DZIG_TARGET_TRIPLE="$TARGET" \
+            -DZIG_TARGET_MCPU="$MCPU" \
+            -DZIG_STATIC=ON \
+            -DZIG_NO_LIB=ON \
+            -GNinja
+
+          ninja install -j$(sysctl -n hw.ncpu)
+
+          echo "Bootstrap built:"
+          file stage3/bin/zig
+          stage3/bin/zig version
+
+      - name: Package and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p bootstrap-sig-aarch64-macos/bin
+          cp build/stage3/bin/zig bootstrap-sig-aarch64-macos/bin/sig
+          cp build/stage3/bin/zig bootstrap-sig-aarch64-macos/bin/zig
+
+          tar -czf bootstrap-sig-aarch64-macos.tar.gz -C bootstrap-sig-aarch64-macos .
+          gh release view "${VERSION}" >/dev/null 2>&1 || \
+            gh release create "${VERSION}" \
+              --title "Bootstrap Sig Compiler ${VERSION}" \
+              --notes "LLVM-enabled bootstrap sig built with cmake+ninja+zig. Self-sustained release builds use this." \
+              --prerelease
+          gh release upload "${VERSION}" bootstrap-sig-aarch64-macos.tar.gz --clobber
+
+  # ── Windows x86_64 ──────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
@@ -129,82 +169,64 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0-dev.3091+557caecaa
+          version: ${{ env.ZIG_VERSION }}
 
-      - name: Install LLVM 22 via Homebrew
-        run: |
-          brew install llvm@${LLVM_VERSION}
-          echo "LLVM_PREFIX=/opt/homebrew/opt/llvm@${LLVM_VERSION}" >> "$GITHUB_ENV"
+      - name: Install ninja
+        shell: bash
+        run: choco install ninja -y
 
-      - name: Write build_options.zig
+      - name: Download LLVM 22
+        shell: bash
         run: |
-          mkdir -p .sig-cache
-          cat > .sig-cache/build_options.zig <<'OPTS'
-          pub const have_llvm = false;
-          pub const llvm_has_m68k = false;
-          pub const llvm_has_csky = false;
-          pub const llvm_has_arc = false;
-          pub const llvm_has_xtensa = false;
-          pub const version: [:0]const u8 = "0.16.0-dev";
-          pub const semver = @import("std").SemanticVersion.parse(version) catch unreachable;
-          pub const enable_debug_extensions = false;
-          pub const enable_logging = false;
-          pub const enable_link_snapshots = false;
-          pub const enable_tracy = false;
-          pub const value_tracing = false;
-          pub const skip_non_native = false;
-          pub const debug_gpa = false;
-          pub const dev = .full;
-          pub const io_mode: enum { threaded, evented } = .threaded;
-          pub const value_interpret_mode = .direct;
-          pub const sig_version: [:0]const u8 = "0.1.2";
-          pub const mem_leak_frames = 4;
-          OPTS
+          ARCHIVE="clang+llvm-${LLVM_FULL_VERSION}-x86_64-pc-windows-msvc.tar.xz"
+          URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_FULL_VERSION}/${ARCHIVE}"
+          echo "Downloading ${URL}..."
+          curl -fsSL "${URL}" -o /tmp/llvm.tar.xz
+          mkdir -p "C:/llvm-22"
+          tar -xJf /tmp/llvm.tar.xz -C "C:/llvm-22" --strip-components=1
+          rm /tmp/llvm.tar.xz
+          echo "LLVM_PREFIX=C:/llvm-22" >> "$GITHUB_ENV"
 
-      - name: Stage 1 — zig build-exe (sig without LLVM)
+      - name: Build sig with cmake + ninja
+        shell: bash
         run: |
-          mkdir -p .sig-cache/stage1
-          ulimit -s unlimited 2>/dev/null || true
-          zig build-exe \
-            --dep build_options --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.sig-cache/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
-            -O ReleaseSafe \
-            -femit-bin=".sig-cache/stage1/sig" \
-            --cache-dir .sig-cache \
-            --zig-lib-dir lib
-          chmod +x .sig-cache/stage1/sig
-          echo "Stage 1 built"
-          file .sig-cache/stage1/sig
-        timeout-minutes: 30
+          TARGET="x86_64-windows-gnu"
+          MCPU="baseline"
+          ZIG_BIN=$(which zig)
 
-      - name: Stage 2 — sig build with LLVM 22
-        run: |
-          ulimit -s unlimited 2>/dev/null || true
-          .sig-cache/stage1/sig build \
-            --zig-lib-dir lib \
-            -Denable-llvm \
-            -Dstatic-llvm \
-            -Dllvm-prefix="${LLVM_PREFIX}" \
-            -Doptimize=ReleaseSafe \
-            -Dtarget=aarch64-macos \
-            -Dno-lib \
-            -Dno-langref \
-            -Dskip-tests \
-            --prefix bootstrap-sig-aarch64-macos
-          echo "Stage 2 built"
-          file bootstrap-sig-aarch64-macos/bin/sig
-        timeout-minutes: 120
+          mkdir build && cd build
+          cmake .. \
+            -GNinja \
+            -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
+            -DCMAKE_PREFIX_PATH="$(echo ${LLVM_PREFIX} | sed 's|\\|/|g')" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="$(echo ${ZIG_BIN} | sed 's|\\|/|g');cc;-target;$TARGET;-mcpu=$MCPU" \
+            -DCMAKE_CXX_COMPILER="$(echo ${ZIG_BIN} | sed 's|\\|/|g');c++;-target;$TARGET;-mcpu=$MCPU" \
+            -DCMAKE_AR="$(echo ${ZIG_BIN} | sed 's|\\|/|g')" \
+            -DZIG_AR_WORKAROUND=ON \
+            -DZIG_TARGET_TRIPLE="$TARGET" \
+            -DZIG_TARGET_MCPU="$MCPU" \
+            -DZIG_STATIC=ON \
+            -DZIG_NO_LIB=ON
+
+          ninja install -j$NUMBER_OF_PROCESSORS
+
+          echo "Bootstrap built:"
+          file stage3/bin/zig.exe
 
       - name: Package and publish
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tar -czf bootstrap-sig-aarch64-macos.tar.gz -C bootstrap-sig-aarch64-macos .
+          mkdir -p bootstrap-sig-x86_64-windows/bin
+          cp build/stage3/bin/zig.exe bootstrap-sig-x86_64-windows/bin/sig.exe
+          cp build/stage3/bin/zig.exe bootstrap-sig-x86_64-windows/bin/zig.exe
+
+          tar -czf bootstrap-sig-x86_64-windows.tar.gz -C bootstrap-sig-x86_64-windows .
           gh release view "${VERSION}" >/dev/null 2>&1 || \
             gh release create "${VERSION}" \
-              --title "Bootstrap Sig Compiler ${VERSION} (LLVM-enabled)" \
-              --notes "Bootstrap compiler binaries with LLVM 22 backend. Used for sig release builds." \
+              --title "Bootstrap Sig Compiler ${VERSION}" \
+              --notes "LLVM-enabled bootstrap sig built with cmake+ninja+zig. Self-sustained release builds use this." \
               --prerelease
-          gh release upload "${VERSION}" bootstrap-sig-aarch64-macos.tar.gz --clobber
+          gh release upload "${VERSION}" bootstrap-sig-x86_64-windows.tar.gz --clobber

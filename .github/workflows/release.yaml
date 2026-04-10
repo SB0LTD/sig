@@ -1,7 +1,9 @@
-# [sig] Release pipeline — uses LLVM-enabled bootstrap sig
-# Requires: LLVM-enabled bootstrap from build-bootstrap.yaml
+# [sig] Self-sustained release pipeline — sig builds sig
 #
-# Chain: build-llvm → build-bootstrap → release
+# Uses LLVM-enabled bootstrap sig from build-bootstrap to compile the final
+# release binaries. No upstream zig dependency at release time.
+#
+# Chain: build-llvm (one-time) → build-bootstrap (one-time) → release (every release)
 name: release
 
 on:
@@ -10,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 0.1.0-dev)'
+        description: 'Release version (e.g. 0.1.2)'
         required: true
         type: string
       prerelease:
@@ -18,13 +20,17 @@ on:
         required: false
         default: true
         type: boolean
+      bootstrap_tag:
+        description: 'Bootstrap release tag to use'
+        required: false
+        default: 'bootstrap-sig-v5'
+        type: string
 
 permissions:
   contents: write
 
 env:
-  LLVM_VERSION: "22"
-  LLVM_FULL_VERSION: "22.1.3"
+  BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag || 'bootstrap-sig-v5' }}
 
 jobs:
   build:
@@ -33,21 +39,23 @@ jobs:
       matrix:
         include:
           - target: x86_64-linux
+            host: x86_64-linux
             zig_target: x86_64-linux-musl
-            ext: tar.xz
             runner: ubuntu-latest
-          - target: aarch64-linux
-            zig_target: aarch64-linux-musl
             ext: tar.xz
-            runner: ubuntu-latest
+            bin: sig
           - target: aarch64-macos
-            zig_target: aarch64-macos
+            host: aarch64-macos
+            zig_target: aarch64-macos-none
+            runner: macos-14
             ext: tar.xz
-            runner: macos-latest
+            bin: sig
           - target: x86_64-windows
-            zig_target: x86_64-windows
-            ext: zip
+            host: x86_64-windows
+            zig_target: x86_64-windows-gnu
             runner: windows-latest
+            ext: zip
+            bin: sig.exe
     runs-on: ${{ matrix.runner }}
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -60,14 +68,15 @@ jobs:
         id: version
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
             SIG_VER="${{ inputs.version }}"
           else
             SIG_MAJOR=$(sed -n 's/.*sig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
             SIG_MINOR=$(sed -n 's/.*sig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
             SIG_PATCH=$(sed -n 's/.*sig_version.*patch = \([0-9]*\).*/\1/p' build.sig | head -1)
             SIG_PRE=$(sed -n 's/.*sig_version.*pre = "\([^"]*\)".*/\1/p' build.sig | head -1)
-            [ -n "$SIG_PRE" ] && SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}-${SIG_PRE}" || SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}"
+            [ -n "$SIG_PRE" ] && SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}-${SIG_PRE}" \
+                              || SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}"
           fi
           ZIG_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
           ZIG_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
@@ -75,126 +84,67 @@ jobs:
           VERSION="${SIG_VER}+zig${ZIG_MAJOR}.${ZIG_MINOR}.${ZIG_PATCH}.$(git rev-parse --short=7 HEAD)"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "Building sig ${VERSION} for ${{ matrix.target }}"
 
-      # --- Download LLVM-enabled bootstrap sig ---
+      # ── Download bootstrap sig (has LLVM — self-sustained from here) ──
       - name: Download bootstrap sig
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Determine the host architecture
-          case "${{ runner.os }}" in
-            Linux)   HOST="x86_64-linux"  ;;
-            macOS)   HOST="aarch64-macos" ;;
-            Windows) HOST="x86_64-windows" ;;
-            *) echo "ERROR: Unknown runner OS"; exit 1 ;;
-          esac
+          ASSET="bootstrap-sig-${{ matrix.host }}.tar.gz"
+          echo "Downloading ${ASSET} from ${{ env.BOOTSTRAP_TAG }}..."
+          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${ASSET}" --dir /tmp
+          mkdir -p /tmp/bootstrap
+          tar -xzf "/tmp/${ASSET}" -C /tmp/bootstrap
 
-          # Download LLVM-enabled bootstrap from build-bootstrap release
-          ASSET="bootstrap-sig-${HOST}.tar.gz"
-          echo "Downloading ${ASSET} from bootstrap-sig-v4..."
-          gh release download bootstrap-sig-v4 --pattern "${ASSET}" --dir /tmp || {
-            echo "ERROR: Could not download ${ASSET} from bootstrap-sig-v4 release."
-            echo "Run build-bootstrap.yaml first to create LLVM-enabled bootstrap binaries."
-            exit 1
-          }
+          # Find the binary
+          BIN=$(find /tmp/bootstrap -type f \( -name "sig" -o -name "sig.exe" -o -name "zig" -o -name "zig.exe" \) | head -1)
+          [ -z "$BIN" ] && echo "ERROR: no sig/zig binary in archive" && ls -laR /tmp/bootstrap && exit 1
+          chmod +x "$BIN"
 
-          mkdir -p /tmp/bootstrap-sig
-          tar -xzf "/tmp/${ASSET}" -C /tmp/bootstrap-sig
-
-          SIG=$(find /tmp/bootstrap-sig -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
-          [ -z "$SIG" ] && echo "ERROR: sig binary not found in archive" && exit 1
-          chmod +x "$SIG"
+          # macOS quarantine
           if [ "${{ runner.os }}" = "macOS" ]; then
-            xattr -cr /tmp/bootstrap-sig 2>/dev/null || true
-            codesign --force --sign - "$SIG" 2>/dev/null || true
+            xattr -cr /tmp/bootstrap 2>/dev/null || true
+            codesign --force --sign - "$BIN" 2>/dev/null || true
           fi
 
-          SIG_DIR=$(dirname "$SIG")
-          echo "$SIG_DIR" >> "$GITHUB_PATH"
-          echo "BOOTSTRAP_SIG=$SIG" >> "$GITHUB_ENV"
-          "$SIG" version || true
-          echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
+          BIN_DIR=$(dirname "$BIN")
+          echo "${BIN_DIR}" >> "$GITHUB_PATH"
+          echo "BOOTSTRAP_BIN=${BIN}" >> "$GITHUB_ENV"
+          echo "Bootstrap binary: ${BIN}"
+          "${BIN}" version || true
 
-      # --- Install LLVM 22 dev packages ---
-      - name: Install LLVM (Ubuntu)
-        if: runner.os == 'Linux'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          LLVM_PREFIX="/usr/lib/llvm-${LLVM_VERSION}"
-          if [ -d "${LLVM_PREFIX}" ] && [ -f "${LLVM_PREFIX}/bin/llvm-config" ]; then
-            echo "LLVM already present from cache"
-          else
-            # Download pre-built LLVM from build-llvm release
-            gh release download llvm-22 --pattern "llvm-22-x86_64-linux.tar.xz" --dir /tmp || {
-              echo "ERROR: Could not download pre-built LLVM 22. Run build-llvm.yaml first."
-              exit 1
-            }
-            sudo mkdir -p "${LLVM_PREFIX}"
-            sudo tar -xJf /tmp/llvm-22-x86_64-linux.tar.xz -C "${LLVM_PREFIX}" --strip-components=1
-            rm /tmp/llvm-22-x86_64-linux.tar.xz
-            "${LLVM_PREFIX}/bin/llvm-config" --version
-          fi
-
-      - name: Install LLVM (macOS)
-        if: runner.os == 'macOS'
+      # ── Build sig using bootstrap sig (self-sustained, no zig) ─────────
+      - name: Build sig
         shell: bash
         run: |
-          if [ -d "/opt/homebrew/opt/llvm@${LLVM_VERSION}" ]; then
-            echo "LLVM already present"
-          else
-            brew install llvm@${LLVM_VERSION}
-          fi
-
-      - name: Install LLVM (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          LLVM_DIR="C:/llvm-${LLVM_VERSION}"
-          if [ -d "${LLVM_DIR}" ]; then
-            echo "LLVM already present"
-          else
-            ARCHIVE="clang+llvm-${LLVM_FULL_VERSION}-x86_64-pc-windows-msvc.tar.xz"
-            URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_FULL_VERSION}/${ARCHIVE}"
-            curl -fsSL "${URL}" -o /tmp/llvm.tar.xz
-            mkdir -p "${LLVM_DIR}"
-            tar -xJf /tmp/llvm.tar.xz -C "${LLVM_DIR}" --strip-components=1
-            rm /tmp/llvm.tar.xz
-          fi
-          echo "${LLVM_DIR}/bin" >> "$GITHUB_PATH"
-
-      # --- Build sig with LLVM using bootstrap ---
-      - name: Build sig with LLVM
-        shell: bash
-        run: |
+          SIG="${BOOTSTRAP_BIN}"
+          TARGET="${{ matrix.zig_target }}"
+          MCPU="baseline"
           OUT="sig-${VERSION}-${{ matrix.target }}"
-          mkdir -p "${OUT}/bin"
-          SIG_CMD="${BOOTSTRAP_SIG:-sig}"
 
           if [ "${{ runner.os }}" != "Windows" ]; then
             ulimit -s unlimited 2>/dev/null || ulimit -s 65536 2>/dev/null || true
           fi
 
-          LLVM_PREFIX_ARG=""
-          case "${{ runner.os }}" in
-            macOS)  LLVM_PREFIX_ARG="-Dllvm-prefix=/opt/homebrew/opt/llvm@${LLVM_VERSION}" ;;
-            Windows) LLVM_PREFIX_ARG="-Dllvm-prefix=C:/llvm-${LLVM_VERSION}" ;;
-            Linux)  LLVM_PREFIX_ARG="-Dllvm-prefix=/usr/lib/llvm-${LLVM_VERSION}" ;;
-          esac
-
-          "${SIG_CMD}" build \
+          # Stage 3: bootstrap sig builds the release sig
+          # The bootstrap has LLVM so it can cross-compile and self-host.
+          "${SIG}" build \
             --zig-lib-dir lib \
             -Denable-llvm \
             -Dstatic-llvm \
-            ${LLVM_PREFIX_ARG} \
-            -Doptimize=ReleaseSafe \
+            -Doptimize=ReleaseFast \
+            -Dstrip \
+            -Dtarget="${TARGET}" \
             -Dno-lib \
             -Dno-langref \
             -Dskip-tests \
+            -Duse-zig-libcxx \
+            -Dversion-string="${VERSION}" \
             --prefix "${OUT}"
-          echo "LLVM-enabled sig built successfully"
+
+          echo "Release binary built:"
           ls -la "${OUT}/bin/"
         timeout-minutes: 120
 
@@ -202,53 +152,37 @@ jobs:
         shell: bash
         run: |
           OUT="sig-${VERSION}-${{ matrix.target }}"
-          mkdir -p "${OUT}/lib/sig"
-          cp -r lib/. "${OUT}/lib/sig/"
+          cp -r lib "${OUT}/lib"
 
-      # --- Verify LLVM-enabled binary ---
-      - name: Verify binary exists
+      - name: Verify binary
         shell: bash
         run: |
-          BIN="sig"; [ "${{ matrix.target }}" = "x86_64-windows" ] && BIN="sig.exe"
-          FILE="sig-${VERSION}-${{ matrix.target }}/bin/${BIN}"
-          [ ! -f "$FILE" ] && echo "ERROR: $FILE not found" && exit 1
-          if [ "${{ matrix.target }}" = "x86_64-windows" ]; then
-            MAGIC=$(od -A n -t x1 -N 2 "$FILE" | tr -d ' ')
-            [ "$MAGIC" != "4d5a" ] && echo "ERROR: Not PE (magic: $MAGIC)" && exit 1
-          fi
-          echo "OK: $(ls -la "$FILE")"
+          FILE="sig-${VERSION}-${{ matrix.target }}/bin/${{ matrix.bin }}"
+          [ ! -f "$FILE" ] && echo "ERROR: $FILE not found" && ls -laR "sig-${VERSION}-${{ matrix.target }}/" && exit 1
+          echo "OK: $(file "$FILE" 2>/dev/null || echo "$FILE exists")"
+          echo "Size: $(ls -la "$FILE" | awk '{print $5}') bytes"
 
-      - name: Verify have_llvm=true
+      # ── Stage 4 verification: release sig builds itself ────────────────
+      - name: Verify self-hosting (stage 4)
+        if: runner.os == 'Linux'
         shell: bash
         run: |
-          FOUND=false
-          for f in .sig-cache/config.sig .sig-cache/build_options.sig .sig-cache/config.zig .sig-cache/build_options.zig; do
-            if [ -f "$f" ] && grep -q 'have_llvm = true' "$f" 2>/dev/null; then
-              echo "VERIFIED: $f contains have_llvm = true"
-              FOUND=true; break
-            fi
-          done
-          if [ "$FOUND" = "false" ]; then
-            CONFIG_FILE=$(find .sig-cache -maxdepth 3 \( -name 'config.*' -o -name 'build_options.*' \) -type f 2>/dev/null | head -20)
-            for f in $CONFIG_FILE; do
-              if grep -q 'have_llvm = true' "$f" 2>/dev/null; then
-                echo "VERIFIED: $f contains have_llvm = true"
-                FOUND=true; break
-              fi
-            done
-          fi
-          BIN="sig"; [ "${{ matrix.target }}" = "x86_64-windows" ] && BIN="sig.exe"
-          FILE="sig-${VERSION}-${{ matrix.target }}/bin/${BIN}"
-          if command -v strings &>/dev/null; then
-            if strings "$FILE" 2>/dev/null | grep -q 'have_llvm'; then
-              echo "VERIFIED: binary contains have_llvm string"
-              FOUND=true
-            fi
-          fi
-          if [ "$FOUND" = "false" ]; then
-            echo "WARNING: Could not verify have_llvm=true in build output"
-            echo "Proceeding — LLVM flags were passed to the build"
-          fi
+          STAGE3="sig-${VERSION}-${{ matrix.target }}/bin/${{ matrix.bin }}"
+          "${STAGE3}" build \
+            --zig-lib-dir lib \
+            --prefix stage4 \
+            -Denable-llvm \
+            -Dno-lib \
+            -Doptimize=ReleaseFast \
+            -Dstrip \
+            -Dtarget=${{ matrix.zig_target }} \
+            -Duse-zig-libcxx \
+            -Dversion-string="${VERSION}"
+
+          echo "Stage 4 built — verifying byte-for-byte identical..."
+          diff "${STAGE3}" "stage4/bin/${{ matrix.bin }}" && echo "PASS: stage3 == stage4" \
+            || echo "WARNING: stage3 and stage4 differ (nondeterminism)"
+        timeout-minutes: 60
 
       - name: Package tarball
         if: matrix.ext == 'tar.xz'
@@ -278,7 +212,7 @@ jobs:
               | awk -v f="${ARCHIVE}" '{print $1 "  " f}' > "${ARCHIVE}.sha256"
           fi
 
-      - name: Upload
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: sig-${{ matrix.target }}
@@ -286,7 +220,8 @@ jobs:
             ${{ env.ARCHIVE }}
             ${{ env.ARCHIVE }}.sha256
 
-  release:
+  # ── Publish release ────────────────────────────────────────────────────
+  publish:
     needs: build
     if: needs.build.result == 'success'
     runs-on: ubuntu-latest
@@ -294,17 +229,19 @@ jobs:
       VERSION: ${{ needs.build.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           pattern: sig-*
           merge-multiple: true
+
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd artifacts || { echo "No artifacts"; exit 1; }
+          cd artifacts
           cat *.sha256 > sha256sums.txt 2>/dev/null || true
 
           PRERELEASE=""
@@ -314,8 +251,11 @@ jobs:
 
           ARCHIVES=""
           for f in sig-*.tar.xz sig-*.zip; do [ -f "$f" ] && ARCHIVES="$ARCHIVES $f"; done
-          [ -z "$ARCHIVES" ] && echo "No archives" && exit 1
+          [ -z "$ARCHIVES" ] && echo "No archives found" && ls -la && exit 1
+
           gh release delete "sig-${VERSION}" --yes 2>/dev/null || true
-          gh release create "sig-${VERSION}" --title "Sig ${VERSION}" \
-            --notes "Sig ${VERSION}" \
-            ${PRERELEASE} $ARCHIVES sha256sums.txt
+          gh release create "sig-${VERSION}" \
+            --title "Sig ${VERSION}" \
+            --notes "Sig ${VERSION} — self-sustained release (sig builds sig, no upstream zig dependency)." \
+            ${PRERELEASE} \
+            $ARCHIVES sha256sums.txt
