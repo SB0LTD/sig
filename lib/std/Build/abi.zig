@@ -235,7 +235,8 @@ pub const fuzz = struct {
         max: u64,
         weight: u64,
 
-        fn intFromValue(x: anytype) u64 {
+        /// `inline` to propogate comptimeness
+        inline fn intFromValue(x: anytype) u64 {
             const T = @TypeOf(x);
             return switch (@typeInfo(T)) {
                 .comptime_int => x,
@@ -269,11 +270,13 @@ pub const fuzz = struct {
             };
         }
 
-        pub fn value(T: type, x: T, weight: u64) Weight {
+        /// `inline` to propogate comptimeness
+        pub inline fn value(T: type, x: T, weight: u64) Weight {
             return .{ .min = intFromValue(x), .max = intFromValue(x), .weight = weight };
         }
 
-        pub fn rangeAtMost(T: type, at_least: T, at_most: T, weight: u64) Weight {
+        /// `inline` to propogate comptimeness
+        pub inline fn rangeAtMost(T: type, at_least: T, at_most: T, weight: u64) Weight {
             std.debug.assert(intFromValue(at_least) <= intFromValue(at_most));
             return .{
                 .min = intFromValue(at_least),
@@ -282,7 +285,8 @@ pub const fuzz = struct {
             };
         }
 
-        pub fn rangeLessThan(T: type, at_least: T, less_than: T, weight: u64) Weight {
+        /// `inline` to propogate comptimeness
+        pub inline fn rangeLessThan(T: type, at_least: T, less_than: T, weight: u64) Weight {
             std.debug.assert(intFromValue(at_least) < intFromValue(less_than));
             return .{
                 .min = intFromValue(at_least),
