@@ -55,37 +55,26 @@ jobs:
 
       - name: Build sig with cmake + ninja
         run: |
-          TARGET="x86_64-linux-musl"
-          MCPU="baseline"
-
-          export CC="zig cc -target $TARGET -mcpu=$MCPU"
-          export CXX="zig c++ -target $TARGET -mcpu=$MCPU"
-
-          # Find static zlib and zstd for cmake (x86_64 specifically, avoid Android NDK libs)
+          # Find static zlib and zstd (x86_64 specifically, avoid Android NDK libs)
           ZLIB_PATH=$(find /usr/lib/x86_64-linux-gnu -name 'libz.a' 2>/dev/null | head -1)
           ZSTD_PATH=$(find /usr/lib/x86_64-linux-gnu -name 'libzstd.a' 2>/dev/null | head -1)
           [ -z "$ZLIB_PATH" ] && ZLIB_PATH=$(dpkg -L zlib1g-dev 2>/dev/null | grep 'libz\.a' | head -1)
           [ -z "$ZSTD_PATH" ] && ZSTD_PATH=$(dpkg -L libzstd-dev 2>/dev/null | grep 'libzstd\.a' | head -1)
-          echo "ZLIB: ${ZLIB_PATH}"
-          echo "ZSTD: ${ZSTD_PATH}"
+          echo "ZLIB: ${ZLIB_PATH}  ZSTD: ${ZSTD_PATH}"
 
+          # Use system compiler (gcc/g++) — must match LLVM's C++ ABI (libstdc++).
+          # zig c++ uses libc++ which is ABI-incompatible with the pre-built LLVM 22.
           mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
             -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DZIG_TARGET_TRIPLE="$TARGET" \
-            -DZIG_TARGET_MCPU="$MCPU" \
-            -DZIG_STATIC=ON \
-            -DZIG_NO_LIB=ON \
             -DZIG_USE_LLVM_CONFIG=ON \
+            -DZIG_NO_LIB=ON \
             -DZLIB="${ZLIB_PATH}" \
             -DZSTD="${ZSTD_PATH}" \
-            -GNinja \
-            -DCMAKE_C_LINKER_DEPFILE_SUPPORTED=FALSE \
-            -DCMAKE_CXX_LINKER_DEPFILE_SUPPORTED=FALSE
+            -GNinja
 
-          unset CC CXX
           ninja install -j$(nproc)
 
           echo "Bootstrap built:"
@@ -129,11 +118,7 @@ jobs:
 
       - name: Build sig with cmake + ninja
         run: |
-          TARGET="aarch64-macos-none"
-          MCPU="baseline"
           LLVM_PREFIX="/opt/homebrew/opt/llvm@${LLVM_VERSION}"
-
-          # Ensure llvm-config is on PATH
           export PATH="${LLVM_PREFIX}/bin:$PATH"
 
           mkdir build && cd build
@@ -141,14 +126,11 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
             -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER="zig;cc;-target;$TARGET;-mcpu=$MCPU" \
-            -DCMAKE_CXX_COMPILER="zig;c++;-target;$TARGET;-mcpu=$MCPU" \
-            -DZIG_TARGET_TRIPLE="$TARGET" \
-            -DZIG_TARGET_MCPU="$MCPU" \
-            -DZIG_STATIC=ON \
-            -DZIG_NO_LIB=ON \
             -DZIG_USE_LLVM_CONFIG=ON \
+            -DZIG_NO_LIB=ON \
             -GNinja
+
+          ninja install -j$(sysctl -n hw.ncpu)
 
           ninja install -j$(sysctl -n hw.ncpu)
 
@@ -205,9 +187,7 @@ jobs:
       - name: Build sig with cmake + ninja
         shell: pwsh
         run: |
-          $TARGET = "x86_64-windows-gnu"
-          $MCPU = "baseline"
-          $ZIG = (Get-Command zig).Source
+          $env:PATH = "C:\llvm-22\bin;$env:PATH"
 
           New-Item -Path 'build' -ItemType Directory
           Set-Location -Path 'build'
@@ -215,15 +195,9 @@ jobs:
           cmake .. `
             -GNinja `
             -DCMAKE_INSTALL_PREFIX="stage3" `
-            -DCMAKE_PREFIX_PATH="$($env:LLVM_PREFIX -Replace '\\', '/')" `
+            -DCMAKE_PREFIX_PATH="C:/llvm-22" `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_C_COMPILER="$($ZIG -Replace '\\', '/');cc;-target;$TARGET;-mcpu=$MCPU" `
-            -DCMAKE_CXX_COMPILER="$($ZIG -Replace '\\', '/');c++;-target;$TARGET;-mcpu=$MCPU" `
-            -DCMAKE_AR="$($ZIG -Replace '\\', '/')" `
-            -DZIG_AR_WORKAROUND=ON `
-            -DZIG_TARGET_TRIPLE="$TARGET" `
-            -DZIG_TARGET_MCPU="$MCPU" `
-            -DZIG_STATIC=ON `
+            -DZIG_USE_LLVM_CONFIG=ON `
             -DZIG_NO_LIB=ON
 
           ninja install
