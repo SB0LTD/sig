@@ -22,7 +22,7 @@ env:
   VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v5' }}
   LLVM_VERSION: "22"
   LLVM_FULL_VERSION: "22.1.3"
-  ZIG_VERSION: "0.14.1"
+  ZIG_VERSION: "0.16.0-dev.3091+557caecaa"
 
 jobs:
   # ── Linux x86_64 ─────────────────────────────────────────────────────────
