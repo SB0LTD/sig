@@ -35,7 +35,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install build deps
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
@@ -70,6 +70,7 @@ jobs:
             -DZIG_TARGET_MCPU="$MCPU" \
             -DZIG_STATIC=ON \
             -DZIG_NO_LIB=ON \
+            -DZIG_USE_LLVM_CONFIG=ON \
             -GNinja \
             -DCMAKE_C_LINKER_DEPFILE_SUPPORTED=FALSE \
             -DCMAKE_CXX_LINKER_DEPFILE_SUPPORTED=FALSE
@@ -109,7 +110,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install build deps
-        run: brew install cmake ninja llvm@${LLVM_VERSION}
+        run: brew install cmake ninja llvm@${LLVM_VERSION} zstd
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
@@ -122,6 +123,9 @@ jobs:
           MCPU="baseline"
           LLVM_PREFIX="/opt/homebrew/opt/llvm@${LLVM_VERSION}"
 
+          # Ensure llvm-config is on PATH
+          export PATH="${LLVM_PREFIX}/bin:$PATH"
+
           mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
@@ -133,6 +137,7 @@ jobs:
             -DZIG_TARGET_MCPU="$MCPU" \
             -DZIG_STATIC=ON \
             -DZIG_NO_LIB=ON \
+            -DZIG_USE_LLVM_CONFIG=ON \
             -GNinja
 
           ninja install -j$(sysctl -n hw.ncpu)
@@ -188,31 +193,32 @@ jobs:
           echo "LLVM_PREFIX=C:/llvm-22" >> "$GITHUB_ENV"
 
       - name: Build sig with cmake + ninja
-        shell: bash
+        shell: pwsh
         run: |
-          TARGET="x86_64-windows-gnu"
-          MCPU="baseline"
-          ZIG_BIN=$(which zig)
+          $TARGET = "x86_64-windows-gnu"
+          $MCPU = "baseline"
+          $ZIG = (Get-Command zig).Source
 
-          mkdir build && cd build
-          cmake .. \
-            -GNinja \
-            -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
-            -DCMAKE_PREFIX_PATH="$(echo ${LLVM_PREFIX} | sed 's|\\|/|g')" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER="$(echo ${ZIG_BIN} | sed 's|\\|/|g');cc;-target;$TARGET;-mcpu=$MCPU" \
-            -DCMAKE_CXX_COMPILER="$(echo ${ZIG_BIN} | sed 's|\\|/|g');c++;-target;$TARGET;-mcpu=$MCPU" \
-            -DCMAKE_AR="$(echo ${ZIG_BIN} | sed 's|\\|/|g')" \
-            -DZIG_AR_WORKAROUND=ON \
-            -DZIG_TARGET_TRIPLE="$TARGET" \
-            -DZIG_TARGET_MCPU="$MCPU" \
-            -DZIG_STATIC=ON \
+          New-Item -Path 'build' -ItemType Directory
+          Set-Location -Path 'build'
+
+          cmake .. `
+            -GNinja `
+            -DCMAKE_INSTALL_PREFIX="stage3" `
+            -DCMAKE_PREFIX_PATH="$($env:LLVM_PREFIX -Replace '\\', '/')" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER="$($ZIG -Replace '\\', '/');cc;-target;$TARGET;-mcpu=$MCPU" `
+            -DCMAKE_CXX_COMPILER="$($ZIG -Replace '\\', '/');c++;-target;$TARGET;-mcpu=$MCPU" `
+            -DCMAKE_AR="$($ZIG -Replace '\\', '/')" `
+            -DZIG_AR_WORKAROUND=ON `
+            -DZIG_TARGET_TRIPLE="$TARGET" `
+            -DZIG_TARGET_MCPU="$MCPU" `
+            -DZIG_STATIC=ON `
             -DZIG_NO_LIB=ON
 
-          ninja install -j$NUMBER_OF_PROCESSORS
-
-          echo "Bootstrap built:"
-          file stage3/bin/zig.exe
+          ninja install
+          Write-Output "Bootstrap built:"
+          Get-Item stage3\bin\zig.exe
 
       - name: Package and publish
         shell: bash
