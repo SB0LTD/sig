@@ -7944,58 +7944,60 @@ TestDecl <- KEYWORD_test (STRINGLITERALSINGLE / IDENTIFIER)? Block
 ComptimeDecl <- KEYWORD_comptime Block
 
 Decl
-    <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
+    <- (KEYWORD_export / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
+     / KEYWORD_extern STRINGLITERALSINGLE? FnProto SEMICOLON
      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? GlobalVarDecl
 
-FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
+FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr !ExprSuffix
 
 VarDeclProto <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? AddrSpace? LinkSection?
 
 GlobalVarDecl <- VarDeclProto (EQUAL Expr)? SEMICOLON
 
-ContainerField <- doc_comment? KEYWORD_comptime? !KEYWORD_fn (IDENTIFIER COLON)? TypeExpr ByteAlign? (EQUAL Expr)?
+ContainerField <- doc_comment? (KEYWORD_comptime / !KEYWORD_comptime) !KEYWORD_fn (IDENTIFIER COLON / !(IDENTIFIER COLON))? TypeExpr ByteAlign? (EQUAL Expr)?
 
 # *** Block Level ***
-Statement
-    <- KEYWORD_comptime ComptimeStatement
-     / KEYWORD_nosuspend BlockExprStatement
-     / KEYWORD_suspend BlockExprStatement
+BlockStatement
+    <- Statement
      / KEYWORD_defer BlockExprStatement
      / KEYWORD_errdefer Payload? BlockExprStatement
-     / IfStatement
-     / LabeledStatement
-     / VarDeclExprStatement
+     / !ExprStatement (KEYWORD_comptime !BlockExpr)? VarAssignStatement
 
-ComptimeStatement
-    <- BlockExpr
-     / VarDeclExprStatement
+Statement
+    <- ExprStatement
+     / KEYWORD_suspend BlockExprStatement
+     / !ExprStatement (KEYWORD_comptime !BlockExpr)? AssignExpr SEMICOLON
+
+ExprStatement
+    <- IfStatement
+     / LabeledStatement
+     / KEYWORD_nosuspend BlockExprStatement
+     / KEYWORD_comptime BlockExpr
 
 IfStatement
     <- IfPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
-     / IfPrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
+     / IfPrefix !BlockExpr AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
 
 LabeledStatement <- BlockLabel? (Block / LoopStatement / SwitchExpr)
 
 LoopStatement <- KEYWORD_inline? (ForStatement / WhileStatement)
 
 ForStatement
-    <- ForPrefix BlockExpr ( KEYWORD_else Statement )?
-     / ForPrefix AssignExpr ( SEMICOLON / KEYWORD_else Statement )
+    <- ForPrefix BlockExpr ( KEYWORD_else Statement / !KEYWORD_else )
+     / ForPrefix !BlockExpr AssignExpr ( SEMICOLON / KEYWORD_else Statement )
 
 WhileStatement
     <- WhilePrefix BlockExpr ( KEYWORD_else Payload? Statement )?
-     / WhilePrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
+     / WhilePrefix !BlockExpr AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
 
 BlockExprStatement
     <- BlockExpr
-     / AssignExpr SEMICOLON
+     / !BlockExpr AssignExpr SEMICOLON
 
 BlockExpr <- BlockLabel? Block
 
-# An expression, assignment, or any destructure, as a statement.
-VarDeclExprStatement
-    <- VarDeclProto (COMMA (VarDeclProto / Expr))* EQUAL Expr SEMICOLON
-     / Expr (AssignOp Expr / (COMMA (VarDeclProto / Expr))+ EQUAL Expr)? SEMICOLON
+# An assignment or a destructure whose LHS are all lvalue expressions or variable declarations.
+VarAssignStatement <- (VarDeclProto / Expr) (COMMA (VarDeclProto / Expr))* EQUAL Expr SEMICOLON
 
 # *** Expression Level ***
 
@@ -8025,25 +8027,25 @@ PrefixExpr <- PrefixOp* PrimaryExpr
 PrimaryExpr
     <- AsmExpr
      / IfExpr
-     / KEYWORD_break BreakLabel? Expr?
-     / KEYWORD_comptime Expr
-     / KEYWORD_nosuspend Expr
-     / KEYWORD_continue BreakLabel? Expr?
-     / KEYWORD_resume Expr
-     / KEYWORD_return Expr?
+     / KEYWORD_break (BreakLabel / !BreakLabel) (Expr !ExprSuffix / !SinglePtrTypeStart)
+     / KEYWORD_comptime Expr !ExprSuffix
+     / KEYWORD_nosuspend Expr !ExprSuffix
+     / KEYWORD_continue (BreakLabel / !BreakLabel) (Expr !ExprSuffix / !SinglePtrTypeStart)
+     / KEYWORD_resume Expr !ExprSuffix
+     / KEYWORD_return (Expr !ExprSuffix / !SinglePtrTypeStart)
      / BlockLabel? LoopExpr
      / Block
      / CurlySuffixExpr
 
-IfExpr <- IfPrefix Expr (KEYWORD_else Payload? Expr)?
+IfExpr <- IfPrefix Expr (KEYWORD_else Payload? Expr)? !ExprSuffix
 
-Block <- LBRACE Statement* RBRACE
+Block <- LBRACE BlockStatement* RBRACE
 
 LoopExpr <- KEYWORD_inline? (ForExpr / WhileExpr)
 
-ForExpr <- ForPrefix Expr (KEYWORD_else Expr)?
+ForExpr <- ForPrefix Expr (KEYWORD_else Expr / !KEYWORD_else) !ExprSuffix
 
-WhileExpr <- WhilePrefix Expr (KEYWORD_else Payload? Expr)?
+WhileExpr <- WhilePrefix Expr (KEYWORD_else Payload? Expr)? !ExprSuffix
 
 CurlySuffixExpr <- TypeExpr InitList?
 
@@ -8070,10 +8072,10 @@ PrimaryTypeExpr
      / FnProto
      / GroupedExpr
      / LabeledTypeExpr
-     / IDENTIFIER
+     / IDENTIFIER !(COLON LabelableExpr)
      / IfTypeExpr
      / INTEGER
-     / KEYWORD_comptime TypeExpr
+     / KEYWORD_comptime TypeExpr !ExprSuffix
      / KEYWORD_error DOT IDENTIFIER
      / KEYWORD_anyframe
      / KEYWORD_unreachable
@@ -8085,7 +8087,7 @@ ErrorSetDecl <- KEYWORD_error LBRACE IdentifierList RBRACE
 
 GroupedExpr <- LPAREN Expr RPAREN
 
-IfTypeExpr <- IfPrefix TypeExpr (KEYWORD_else Payload? TypeExpr)?
+IfTypeExpr <- IfPrefix TypeExpr (KEYWORD_else Payload? TypeExpr)? !ExprSuffix
 
 LabeledTypeExpr
     <- BlockLabel Block
@@ -8094,9 +8096,9 @@ LabeledTypeExpr
 
 LoopTypeExpr <- KEYWORD_inline? (ForTypeExpr / WhileTypeExpr)
 
-ForTypeExpr <- ForPrefix TypeExpr (KEYWORD_else TypeExpr)?
+ForTypeExpr <- ForPrefix TypeExpr (KEYWORD_else TypeExpr / !KEYWORD_else) !ExprSuffix
 
-WhileTypeExpr <- WhilePrefix TypeExpr (KEYWORD_else Payload? TypeExpr)?
+WhileTypeExpr <- WhilePrefix TypeExpr (KEYWORD_else Payload? TypeExpr)? !ExprSuffix
 
 SwitchExpr <- KEYWORD_switch LPAREN Expr RPAREN LBRACE SwitchProngList RBRACE
 
@@ -8105,11 +8107,11 @@ AsmExpr <- KEYWORD_asm KEYWORD_volatile? LPAREN Expr AsmOutput? RPAREN
 
 AsmOutput <- COLON AsmOutputList AsmInput?
 
-AsmOutputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN (MINUSRARROW TypeExpr / IDENTIFIER) RPAREN
+AsmOutputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERALSINGLE LPAREN (MINUSRARROW TypeExpr / IDENTIFIER) RPAREN
 
 AsmInput <- COLON AsmInputList AsmClobbers?
 
-AsmInputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN Expr RPAREN
+AsmInputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERALSINGLE LPAREN Expr RPAREN
 
 AsmClobbers <- COLON Expr
 
@@ -8129,9 +8131,7 @@ AddrSpace <- KEYWORD_addrspace LPAREN Expr RPAREN
 # Fn specific
 CallConv <- KEYWORD_callconv LPAREN Expr RPAREN
 
-ParamDecl
-    <- doc_comment? (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
-     / DOT3
+ParamDecl <- doc_comment? (KEYWORD_noalias / KEYWORD_comptime / !KEYWORD_comptime) (IDENTIFIER COLON / !(IDENTIFIER_COLON)) ParamType
 
 ParamType
     <- KEYWORD_anytype
@@ -8237,8 +8237,8 @@ PrefixOp
 PrefixTypeOp
     <- QUESTIONMARK
      / KEYWORD_anyframe MINUSRARROW
-     / SliceTypeStart (ByteAlign / AddrSpace / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
-     / PtrTypeStart (AddrSpace / KEYWORD_align LPAREN Expr (COLON Expr COLON Expr)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+     / (ManyPtrTypeStart / SliceTypeStart) KEYWORD_allowzero? ByteAlign? AddrSpace? KEYWORD_const? KEYWORD_volatile?
+     / SinglePtrTypeStart KEYWORD_allowzero? BitAlign? AddrSpace? KEYWORD_const? KEYWORD_volatile?
      / ArrayTypeStart
 
 SuffixOp
@@ -8249,15 +8249,31 @@ SuffixOp
 
 FnCallArguments <- LPAREN ExprList RPAREN
 
+ExprSuffix
+    <- KEYWORD_or
+     / KEYWORD_and
+     / CompareOp
+     / BitwiseOp
+     / BitShiftOp
+     / AdditionOp
+     / MultiplyOp
+     / EXCLAMATIONMARK
+     / SuffixOp
+     / FnCallArguments
+
+LabelableExpr
+    <- Block
+     / SwitchExpr
+     / LoopExpr
+
 # Ptr specific
 SliceTypeStart <- LBRACKET (COLON Expr)? RBRACKET
 
-PtrTypeStart
-    <- ASTERISK
-     / ASTERISK2
-     / LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
+SinglePtrTypeStart <- ASTERISK / ASTERISK2
 
-ArrayTypeStart <- LBRACKET Expr (COLON Expr)? RBRACKET
+ManyPtrTypeStart <- LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
+
+ArrayTypeStart <- LBRACKET Expr !(ASTERISK / ASTERISK2) (COLON Expr)? RBRACKET
 
 # ContainerDecl specific
 ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
@@ -8266,10 +8282,12 @@ ContainerDeclType
     <- KEYWORD_struct (LPAREN Expr RPAREN)?
      / KEYWORD_opaque
      / KEYWORD_enum (LPAREN Expr RPAREN)?
-     / KEYWORD_union (LPAREN (KEYWORD_enum (LPAREN Expr RPAREN)? / Expr) RPAREN)?
+     / KEYWORD_union (LPAREN (KEYWORD_enum (LPAREN Expr RPAREN)? / !KEYWORD_enum Expr) RPAREN)?
 
 # Alignment
 ByteAlign <- KEYWORD_align LPAREN Expr RPAREN
+
+BitAlign <- KEYWORD_align LPAREN Expr (COLON Expr COLON Expr)? RPAREN
 
 # Lists
 IdentifierList <- (doc_comment? IDENTIFIER COMMA)* (doc_comment? IDENTIFIER)?
@@ -8280,7 +8298,7 @@ AsmOutputList <- (AsmOutputItem COMMA)* AsmOutputItem?
 
 AsmInputList <- (AsmInputItem COMMA)* AsmInputItem?
 
-ParamDeclList <- (ParamDecl COMMA)* ParamDecl?
+ParamDeclList <- (ParamDecl COMMA)* (ParamDecl / DOT3 COMMA?)?
 
 ExprList <- (Expr COMMA)* Expr?
 
@@ -8337,6 +8355,7 @@ multibyte_utf8 <-
      / oxC2_oxDF ox80_oxBF
 
 non_control_ascii <- [\040-\176]
+non_control_utf8 <- [\040-\377]
 
 char_escape
     <- "\\x" hex hex
@@ -8352,10 +8371,10 @@ string_char
      / char_escape
      / ![\\"\n] non_control_ascii
 
-container_doc_comment <- ('//!' [^\n]* [ \n]* skip)+
-doc_comment <- ('///' [^\n]* [ \n]* skip)+
-line_comment <- '//' ![!/][^\n]* / '////' [^\n]*
-line_string <- ('\\\\' [^\n]* [ \n]*)+
+container_doc_comment <- ('//!' non_control_utf8* [ \n]* skip)+
+doc_comment <- ('///' non_control_utf8* [ \n]* skip)+
+line_comment <- '//' ![!/] non_control_utf8* / '////' non_control_utf8*
+line_string <- '\\\\' non_control_utf8* [ \n]*
 skip <- ([ \n] / line_comment)*
 
 CHAR_LITERAL <- ['] char_char ['] skip

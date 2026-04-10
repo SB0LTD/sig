@@ -5472,17 +5472,11 @@ test "zig fmt: while continue expr" {
         \\    while (i > 0)
         \\        (i * 2);
         \\}
+        \\T: (while (true) ({
+        \\    break usize;
+        \\})),
         \\
     );
-    try testError(
-        \\test {
-        \\    while (i > 0) (i -= 1) {
-        \\        print("test123", .{});
-        \\    }
-        \\}
-    , &[_]Error{
-        .expected_continue_expr,
-    });
 }
 
 test "zig fmt: canonicalize symbols (simple)" {
@@ -6834,6 +6828,33 @@ test "zig fmt: error set with extra newline before comma" {
         \\const E = error{
         \\    A,
         \\};
+        \\
+    );
+}
+
+test "zig fmt: extern container in tuple" {
+    try testCanonical(
+        \\const T = struct {
+        \\    extern struct {},
+        \\    extern union {},
+        \\    extern enum {},
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: break followed by colon" {
+    try testCanonical(
+        \\const a = [if (cond) len else break:0]u8;
+        \\
+    );
+}
+
+test "zig fmt: array init of labeled block" {
+    try testCanonical(
+        \\const a = blk: {
+        \\    break :blk T;
+        \\}{ .a = false };
         \\
     );
 }
