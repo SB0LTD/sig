@@ -61,9 +61,11 @@ jobs:
           export CC="zig cc -target $TARGET -mcpu=$MCPU"
           export CXX="zig c++ -target $TARGET -mcpu=$MCPU"
 
-          # Find static zlib and zstd for cmake
-          ZLIB_PATH=$(find /usr -name 'libz.a' 2>/dev/null | head -1)
-          ZSTD_PATH=$(find /usr -name 'libzstd.a' 2>/dev/null | head -1)
+          # Find static zlib and zstd for cmake (x86_64 specifically, avoid Android NDK libs)
+          ZLIB_PATH=$(find /usr/lib/x86_64-linux-gnu -name 'libz.a' 2>/dev/null | head -1)
+          ZSTD_PATH=$(find /usr/lib/x86_64-linux-gnu -name 'libzstd.a' 2>/dev/null | head -1)
+          [ -z "$ZLIB_PATH" ] && ZLIB_PATH=$(dpkg -L zlib1g-dev 2>/dev/null | grep 'libz\.a' | head -1)
+          [ -z "$ZSTD_PATH" ] && ZSTD_PATH=$(dpkg -L libzstd-dev 2>/dev/null | grep 'libzstd\.a' | head -1)
           echo "ZLIB: ${ZLIB_PATH}"
           echo "ZSTD: ${ZSTD_PATH}"
 
