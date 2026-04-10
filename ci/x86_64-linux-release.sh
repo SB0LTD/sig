@@ -19,6 +19,18 @@ export PATH="$HOME/deps/wasmtime-v42.0.1-x86_64-linux:$HOME/deps/qemu-linux-x86_
 export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 
+# ccache: persistent C++ compile cache across runs (speeds up LLVM rebuild)
+export CCACHE_DIR="${HOME}/.cache/ccache-zig-x86_64-linux-release"
+export CCACHE_MAXSIZE="5G"
+export CCACHE_COMPRESS="1"
+if command -v ccache >/dev/null 2>&1; then
+  export CC="ccache $ZIG cc -target $TARGET -mcpu=$MCPU"
+  export CXX="ccache $ZIG c++ -target $TARGET -mcpu=$MCPU"
+else
+  export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+  export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+fi
+
 # Test building from source without LLVM.
 cc -o bootstrap bootstrap.c
 ./bootstrap
@@ -27,9 +39,6 @@ cc -o bootstrap bootstrap.c
 
 mkdir build-release
 cd build-release
-
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
@@ -92,10 +101,16 @@ stage3-release/bin/zig build update-zig1
 mkdir ../build-new
 cd ../build-new
 
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+if command -v ccache >/dev/null 2>&1; then
+  export CC="ccache $ZIG cc -target $TARGET -mcpu=$MCPU"
+  export CXX="ccache $ZIG c++ -target $TARGET -mcpu=$MCPU"
+else
+  export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+  export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+fi
 
 cmake .. \
+  -DCMAKE_INSTALL_PREFIX="stage3" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
   -DZIG_TARGET_TRIPLE="$TARGET" \

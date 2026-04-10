@@ -7,8 +7,7 @@ on:
       - master
   workflow_dispatch:
 
-# This cancels older workflow runs on pull requests while ensuring that there
-# are no concurrency limits on pushes and manual workflow dispatches.
+# Cancel in-progress runs on PRs; no limit on pushes/dispatches.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -16,300 +15,149 @@ concurrency:
 permissions:
   contents: read
 
+# ── Tier 1: runs on every PR + push ─────────────────────────────────────────
+# Fast, native-arch jobs that give signal quickly.
+
 jobs:
-  aarch64-freebsd-debug:
-    runs-on: [self-hosted, aarch64-freebsd]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/aarch64-freebsd-debug.sh
-        timeout-minutes: 300
-  aarch64-freebsd-release:
-    runs-on: [self-hosted, aarch64-freebsd]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/aarch64-freebsd-release.sh
-        timeout-minutes: 240
-
-  aarch64-linux-debug:
-    runs-on: [self-hosted, aarch64-linux]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/aarch64-linux-debug.sh
-        timeout-minutes: 240
-  aarch64-linux-release:
-    runs-on: [self-hosted, aarch64-linux]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/aarch64-linux-release.sh
-        timeout-minutes: 120
-
-  aarch64-netbsd-debug:
-    runs-on: [self-hosted, aarch64-netbsd]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/aarch64-netbsd-debug.sh
-        timeout-minutes: 300
-  aarch64-netbsd-release:
-    runs-on: [self-hosted, aarch64-netbsd]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/aarch64-netbsd-release.sh
-        timeout-minutes: 240
-
-  aarch64-macos-debug:
-    runs-on: [self-hosted, aarch64-macos]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/aarch64-macos-debug.sh
-        timeout-minutes: 180
-  aarch64-macos-release:
-    runs-on: [self-hosted, aarch64-macos]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/aarch64-macos-release.sh
-        timeout-minutes: 120
-
-  loongarch64-linux-debug:
-    runs-on: [self-hosted, loongarch64-linux]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/loongarch64-linux-debug.sh
-        timeout-minutes: 240
-  loongarch64-linux-release:
-    runs-on: [self-hosted, loongarch64-linux]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/loongarch64-linux-release.sh
-        timeout-minutes: 180
-
-  powerpc64le-linux-debug:
-    runs-on: [self-hosted, powerpc64le-linux]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/powerpc64le-linux-debug.sh
-        timeout-minutes: 360
-  powerpc64le-linux-release:
-    runs-on: [self-hosted, powerpc64le-linux]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/powerpc64le-linux-release.sh
-        timeout-minutes: 240
-
-  riscv64-linux-debug:
-    if: github.event_name != 'pull_request'
-    runs-on: [self-hosted, riscv64-linux]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/riscv64-linux-debug.sh
-        timeout-minutes: 720
-  riscv64-linux-release:
-    if: github.event_name != 'pull_request'
-    runs-on: [self-hosted, riscv64-linux]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/riscv64-linux-release.sh
-        timeout-minutes: 600
-
-  s390x-linux-debug:
-    runs-on: [self-hosted, s390x-linux]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/s390x-linux-debug.sh
-        timeout-minutes: 360
-  s390x-linux-release:
-    runs-on: [self-hosted, s390x-linux]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/s390x-linux-release.sh
-        timeout-minutes: 300
-
-  x86_64-freebsd-debug:
-    runs-on: [self-hosted, x86_64-freebsd]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/x86_64-freebsd-debug.sh
-        timeout-minutes: 120
-  x86_64-freebsd-release:
-    runs-on: [self-hosted, x86_64-freebsd]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/x86_64-freebsd-release.sh
-        timeout-minutes: 120
-
   x86_64-linux-debug:
     runs-on: [self-hosted, x86_64-linux]
     steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
         with:
           fetch-depth: 0
+      - name: ccache
+        uses: https://codeberg.org/ziglang/ccache-action@v1
+        with:
+          key: x86_64-linux-debug
+        continue-on-error: true
       - name: Build and Test
         run: sh ci/x86_64-linux-debug.sh
         timeout-minutes: 180
-  x86_64-linux-debug-llvm:
-    runs-on: [self-hosted, x86_64-linux]
-    steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
-        with:
-          fetch-depth: 0
-      - name: Build and Test
-        run: sh ci/x86_64-linux-debug-llvm.sh
-        timeout-minutes: 360
+
   x86_64-linux-release:
     runs-on: [self-hosted, x86_64-linux]
     steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
         with:
           fetch-depth: 0
+      - name: ccache
+        uses: https://codeberg.org/ziglang/ccache-action@v1
+        with:
+          key: x86_64-linux-release
+        continue-on-error: true
       - name: Build and Test
         run: sh ci/x86_64-linux-release.sh
         timeout-minutes: 360
 
-  x86_64-netbsd-debug:
-    runs-on: [self-hosted, x86_64-netbsd]
+  x86_64-linux-debug-llvm:
+    runs-on: [self-hosted, x86_64-linux]
     steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
         with:
           fetch-depth: 0
+      - name: ccache
+        uses: https://codeberg.org/ziglang/ccache-action@v1
+        with:
+          key: x86_64-linux-debug-llvm
+        continue-on-error: true
       - name: Build and Test
-        run: sh ci/x86_64-netbsd-debug.sh
-        timeout-minutes: 120
-  x86_64-netbsd-release:
-    runs-on: [self-hosted, x86_64-netbsd]
+        run: sh ci/x86_64-linux-debug-llvm.sh
+        timeout-minutes: 360
+
+  aarch64-linux-debug:
+    runs-on: [self-hosted, aarch64-linux]
     steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
         with:
           fetch-depth: 0
+      - name: ccache
+        uses: https://codeberg.org/ziglang/ccache-action@v1
+        with:
+          key: aarch64-linux-debug
+        continue-on-error: true
       - name: Build and Test
-        run: sh ci/x86_64-netbsd-release.sh
+        run: sh ci/aarch64-linux-debug.sh
+        timeout-minutes: 240
+
+  aarch64-linux-release:
+    runs-on: [self-hosted, aarch64-linux]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: ccache
+        uses: https://codeberg.org/ziglang/ccache-action@v1
+        with:
+          key: aarch64-linux-release
+        continue-on-error: true
+      - name: Build and Test
+        run: sh ci/aarch64-linux-release.sh
         timeout-minutes: 120
 
-  x86_64-openbsd-debug:
-    runs-on: [self-hosted, x86_64-openbsd]
+  aarch64-macos-debug:
+    runs-on: [self-hosted, aarch64-macos]
     steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
         with:
           fetch-depth: 0
+      - name: ccache
+        uses: https://codeberg.org/ziglang/ccache-action@v1
+        with:
+          key: aarch64-macos-debug
+        continue-on-error: true
       - name: Build and Test
-        run: sh ci/x86_64-openbsd-debug.sh
-        timeout-minutes: 120
-  x86_64-openbsd-release:
-    runs-on: [self-hosted, x86_64-openbsd]
+        run: sh ci/aarch64-macos-debug.sh
+        timeout-minutes: 180
+
+  aarch64-macos-release:
+    runs-on: [self-hosted, aarch64-macos]
     steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
         with:
           fetch-depth: 0
+      - name: ccache
+        uses: https://codeberg.org/ziglang/ccache-action@v1
+        with:
+          key: aarch64-macos-release
+        continue-on-error: true
       - name: Build and Test
-        run: sh ci/x86_64-openbsd-release.sh
+        run: sh ci/aarch64-macos-release.sh
         timeout-minutes: 120
 
   x86_64-windows-debug:
     runs-on: [self-hosted, x86_64-windows]
     steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
         with:
           fetch-depth: 0
       - name: Build and Test
         run: ci/x86_64-windows-debug.ps1
         timeout-minutes: 180
+
   x86_64-windows-release:
     runs-on: [self-hosted, x86_64-windows]
     steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
         with:
           fetch-depth: 0
       - name: Build and Test
         run: ci/x86_64-windows-release.ps1
         timeout-minutes: 180
 
-  # [sig] Sig tests — test, verify, benchmark
+  # [sig] Sig-specific tests — bootstrap sig first, then test/verify/benchmark
   sig-tests:
     runs-on: [self-hosted, x86_64-linux]
     steps:
-      - name: Checkout
-        uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
         with:
           fetch-depth: 0
+
+      - name: Bootstrap sig build runner
+        run: sh bootstrap.sh
+        timeout-minutes: 10
+
+      - name: Add sig-out/bin to PATH
+        run: echo "$PWD/sig-out/bin" >> $GITHUB_PATH
 
       - name: Run Sig tests
         run: sig build test-sig
@@ -335,3 +183,196 @@ jobs:
           name: sig-benchmark-results
           path: benchmark-results/
           if-no-files-found: ignore
+
+# ── Tier 2: BSD targets — every PR + push ───────────────────────────────────
+
+  x86_64-freebsd-debug:
+    runs-on: [self-hosted, x86_64-freebsd]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-freebsd-debug.sh
+        timeout-minutes: 120
+
+  x86_64-freebsd-release:
+    runs-on: [self-hosted, x86_64-freebsd]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-freebsd-release.sh
+        timeout-minutes: 120
+
+  x86_64-netbsd-debug:
+    runs-on: [self-hosted, x86_64-netbsd]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-netbsd-debug.sh
+        timeout-minutes: 120
+
+  x86_64-netbsd-release:
+    runs-on: [self-hosted, x86_64-netbsd]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-netbsd-release.sh
+        timeout-minutes: 120
+
+  x86_64-openbsd-debug:
+    runs-on: [self-hosted, x86_64-openbsd]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-openbsd-debug.sh
+        timeout-minutes: 120
+
+  x86_64-openbsd-release:
+    runs-on: [self-hosted, x86_64-openbsd]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-openbsd-release.sh
+        timeout-minutes: 120
+
+  aarch64-freebsd-debug:
+    runs-on: [self-hosted, aarch64-freebsd]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/aarch64-freebsd-debug.sh
+        timeout-minutes: 300
+
+  aarch64-freebsd-release:
+    runs-on: [self-hosted, aarch64-freebsd]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/aarch64-freebsd-release.sh
+        timeout-minutes: 240
+
+  aarch64-netbsd-debug:
+    runs-on: [self-hosted, aarch64-netbsd]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/aarch64-netbsd-debug.sh
+        timeout-minutes: 300
+
+  aarch64-netbsd-release:
+    runs-on: [self-hosted, aarch64-netbsd]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/aarch64-netbsd-release.sh
+        timeout-minutes: 240
+
+# ── Tier 3: exotic arches — push/dispatch only, skip PRs ────────────────────
+# These machines are slow. Don't block PR feedback on them.
+
+  loongarch64-linux-debug:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, loongarch64-linux]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/loongarch64-linux-debug.sh
+        timeout-minutes: 240
+
+  loongarch64-linux-release:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, loongarch64-linux]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/loongarch64-linux-release.sh
+        timeout-minutes: 180
+
+  powerpc64le-linux-debug:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, powerpc64le-linux]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/powerpc64le-linux-debug.sh
+        timeout-minutes: 360
+
+  powerpc64le-linux-release:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, powerpc64le-linux]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/powerpc64le-linux-release.sh
+        timeout-minutes: 240
+
+  s390x-linux-debug:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, s390x-linux]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/s390x-linux-debug.sh
+        timeout-minutes: 360
+
+  s390x-linux-release:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, s390x-linux]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/s390x-linux-release.sh
+        timeout-minutes: 300
+
+  riscv64-linux-debug:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, riscv64-linux]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/riscv64-linux-debug.sh
+        timeout-minutes: 720
+
+  riscv64-linux-release:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, riscv64-linux]
+    steps:
+      - uses: https://codeberg.org/ziglang/checkout@19af6bac491e2534a4687a50ee84fa7f13258d28
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/riscv64-linux-release.sh
+        timeout-minutes: 600

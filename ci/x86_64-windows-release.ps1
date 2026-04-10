@@ -95,10 +95,10 @@ stage3-release\bin\zig.exe test `
   ..\test\behavior.zig
 CheckLastExitCode
 
-Import-Module "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+Import-Module "C:\Program Files (x86)\Microsoft Visual Studio\17\BuildTools\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
 CheckLastExitCode
 
-Enter-VsDevShell -VsInstallPath "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools" `
+Enter-VsDevShell -VsInstallPath "C:\Program Files (x86)\Microsoft Visual Studio\17\BuildTools" `
   -DevCmdArguments '-arch=x64 -no_logo' `
   -StartInPath $(Get-Location)
 CheckLastExitCode
