@@ -12,6 +12,7 @@ const Alignment = std.mem.Alignment;
 pub const ArenaAllocator = @import("heap/ArenaAllocator.zig");
 pub const SmpAllocator = @import("heap/SmpAllocator.zig");
 pub const FixedBufferAllocator = @import("heap/FixedBufferAllocator.zig");
+pub const StackFirstAllocator = @import("heap/StackFirstAllocator.zig");
 pub const PageAllocator = @import("heap/PageAllocator.zig");
 pub const WasmAllocator = if (builtin.single_threaded) BrkAllocator else @compileError("unimplemented");
 pub const BrkAllocator = @import("heap/BrkAllocator.zig");
