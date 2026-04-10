@@ -61,6 +61,12 @@ jobs:
           export CC="zig cc -target $TARGET -mcpu=$MCPU"
           export CXX="zig c++ -target $TARGET -mcpu=$MCPU"
 
+          # Find static zlib and zstd for cmake
+          ZLIB_PATH=$(find /usr -name 'libz.a' 2>/dev/null | head -1)
+          ZSTD_PATH=$(find /usr -name 'libzstd.a' 2>/dev/null | head -1)
+          echo "ZLIB: ${ZLIB_PATH}"
+          echo "ZSTD: ${ZSTD_PATH}"
+
           mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
@@ -71,6 +77,8 @@ jobs:
             -DZIG_STATIC=ON \
             -DZIG_NO_LIB=ON \
             -DZIG_USE_LLVM_CONFIG=ON \
+            -DZLIB="${ZLIB_PATH}" \
+            -DZSTD="${ZSTD_PATH}" \
             -GNinja \
             -DCMAKE_C_LINKER_DEPFILE_SUPPORTED=FALSE \
             -DCMAKE_CXX_LINKER_DEPFILE_SUPPORTED=FALSE
