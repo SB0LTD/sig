@@ -73,72 +73,6 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
-      # --- Download bootstrap sig from previous release ---
-      - name: Download bootstrap sig
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Determine the host architecture for the bootstrap compiler.
-          # The bootstrap runs on the *runner*, not the target — e.g. aarch64-linux
-          # target runs on ubuntu-latest (x86_64), so we need x86_64-linux sig.
-          case "${{ runner.os }}" in
-            Linux)   HOST_ARCH="x86_64-linux"  ; ARCHIVE_EXT=".tar.xz" ;;
-            macOS)   HOST_ARCH="aarch64-macos"  ; ARCHIVE_EXT=".tar.xz" ;;
-            Windows) HOST_ARCH="x86_64-windows" ; ARCHIVE_EXT=".zip"    ;;
-            *) echo "ERROR: Unknown runner OS ${{ runner.os }}"; exit 1 ;;
-          esac
-
-          # Use gh CLI (authenticated) to avoid GitHub API rate limits
-          DOWNLOAD_URL=$(gh api repos/${{ github.repository }}/releases --paginate \
-            | python3 -c "
-          import sys, json
-          host = '${HOST_ARCH}'
-          ext  = '${ARCHIVE_EXT}'
-          releases = json.load(sys.stdin)
-          if not isinstance(releases, list): releases = [releases]
-          for r in releases:
-            if not isinstance(r, dict): continue
-            for a in r.get('assets', []):
-              n = a['name']
-              if host in n and n.endswith(ext) and 'bootstrap' not in n:
-                print(a['browser_download_url'])
-                exit(0)
-          exit(1)
-          ") || {
-            echo "ERROR: No sig release found with ${HOST_ARCH} archive."
-            echo "Expected asset matching: *${HOST_ARCH}*${ARCHIVE_EXT}"
-            echo "Check that a previous sig release exists with binaries for this platform."
-            exit 1
-          }
-
-          echo "Bootstrap download: $DOWNLOAD_URL"
-          mkdir -p /tmp/bootstrap-sig
-
-          if [ "$ARCHIVE_EXT" = ".zip" ]; then
-            curl -fsSL "$DOWNLOAD_URL" -o /tmp/bootstrap.zip
-            unzip -q /tmp/bootstrap.zip -d /tmp/bootstrap-sig
-          else
-            curl -fsSL "$DOWNLOAD_URL" -o /tmp/bootstrap.tar.xz
-            tar -xJf /tmp/bootstrap.tar.xz -C /tmp/bootstrap-sig
-          fi
-
-          SIG=$(find /tmp/bootstrap-sig -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
-          [ -z "$SIG" ] && echo "ERROR: sig binary not found in archive" && exit 1
-          chmod +x "$SIG"
-          # macOS: remove Gatekeeper quarantine from entire extracted tree
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            xattr -cr /tmp/bootstrap-sig 2>/dev/null || true
-            # Also try codesign ad-hoc if xattr alone doesn't work
-            codesign --force --sign - "$SIG" 2>/dev/null || true
-          fi
-          SIG_DIR=$(dirname "$SIG")
-          echo "$SIG_DIR" >> "$GITHUB_PATH"
-          # Also export the full path for immediate use in this and subsequent steps
-          echo "BOOTSTRAP_SIG=$SIG" >> "$GITHUB_ENV"
-          "$SIG" version || true
-          echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
-
       # --- Cache (restore before install to avoid redundant downloads) ---
       - name: Cache LLVM packages
         uses: actions/cache@v4
@@ -210,19 +144,67 @@ jobs:
           fi
           echo "${LLVM_DIR}/bin" >> "$GITHUB_PATH"
 
-      # --- Build sig with LLVM using bootstrap sig directly ---
-      # The bootstrap sig (from previous release) has LLVM 21 backend for fast
-      # code generation. It invokes the system C++ compiler (g++/clang++) to
-      # compile the C++ LLVM interface files against LLVM 22 headers.
-      # No intermediate stage 1 build needed.
-      - name: Build sig with LLVM
+      # --- Build sig with LLVM (two-stage via upstream zig) ---
+      # Stage 1: zig build-exe produces a sig binary without LLVM (fast — zig has LLVM backend)
+      # Stage 2: that sig binary rebuilds itself with LLVM 22 (fast — stage 1 has LLVM codegen)
+      # Once sig releases include LLVM, we can drop the zig dependency.
+      - name: Setup Zig (stage 1 bootstrap)
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0-dev.3091+557caecaa
+
+      - name: Write build_options.zig (stage 1)
+        shell: bash
+        run: |
+          mkdir -p .sig-cache
+          cat > .sig-cache/build_options.zig <<'EOF'
+          pub const have_llvm = false;
+          pub const llvm_has_m68k = false;
+          pub const llvm_has_csky = false;
+          pub const llvm_has_arc = false;
+          pub const llvm_has_xtensa = false;
+          pub const version: [:0]const u8 = "0.16.0-dev";
+          pub const semver = @import("std").SemanticVersion.parse(version) catch unreachable;
+          pub const enable_debug_extensions = false;
+          pub const enable_logging = false;
+          pub const enable_link_snapshots = false;
+          pub const enable_tracy = false;
+          pub const value_tracing = false;
+          pub const skip_non_native = false;
+          pub const debug_gpa = false;
+          pub const dev = .full;
+          pub const io_mode: enum { threaded, evented } = .threaded;
+          pub const value_interpret_mode = .direct;
+          pub const sig_version: [:0]const u8 = "0.1.2";
+          pub const mem_leak_frames = 4;
+          EOF
+
+      - name: Bootstrap sig (stage 1 — zig build-exe, no LLVM)
+        shell: bash
+        run: |
+          mkdir -p .sig-cache/bootstrap
+          BIN="sig"; [ "${{ matrix.target }}" = "x86_64-windows" ] && BIN="sig.exe"
+
+          zig build-exe \
+            --dep build_options --dep aro \
+            -Mroot=src/main.zig \
+            -Mbuild_options=.sig-cache/build_options.zig \
+            -Maro=lib/compiler/aro/aro.zig \
+            -O ReleaseSafe \
+            -femit-bin=".sig-cache/bootstrap/${BIN}" \
+            --cache-dir .sig-cache \
+            --zig-lib-dir lib
+          echo "Stage 1 sig built successfully"
+          ls -la ".sig-cache/bootstrap/"
+        timeout-minutes: 30
+
+      - name: Build sig with LLVM (stage 2)
         shell: bash
         run: |
           OUT="sig-${VERSION}-${{ matrix.target }}"
           mkdir -p "${OUT}/bin"
-
-          # Use the downloaded bootstrap sig directly
-          SIG_CMD="${BOOTSTRAP_SIG:-sig}"
+          BIN="sig"; [ "${{ matrix.target }}" = "x86_64-windows" ] && BIN="sig.exe"
+          BOOTSTRAP=".sig-cache/bootstrap/${BIN}"
 
           # Raise stack limit on Linux/macOS
           if [ "${{ runner.os }}" != "Windows" ]; then
@@ -251,8 +233,8 @@ jobs:
               ;;
           esac
 
-          # Build sig with LLVM enabled using bootstrap compiler
-          "${SIG_CMD}" build \
+          # Stage 2: use stage 1 sig to rebuild with LLVM
+          "${BOOTSTRAP}" build \
             --zig-lib-dir lib \
             -Denable-llvm \
             -Dstatic-llvm \
