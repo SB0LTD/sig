@@ -6871,6 +6871,16 @@ test "zig fmt: nested asm indentation" {
     );
 }
 
+test "zig fmt: asm with zig fmt on" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const A = asm("a" // zig fmt: on
+        \\    : [_] "" (_),
+        \\);
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}

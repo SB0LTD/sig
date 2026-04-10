@@ -3326,6 +3326,7 @@ fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
             // Write with the canonical single space.
             try ais.underlying_writer.writeAll("// zig fmt: on\n");
             ais.disabled_offset = null;
+            ais.resetLine();
         } else if (ais.disabled_offset == null and mem.eql(u8, comment_content, "zig fmt: off")) {
             // Write with the canonical single space.
             try ais.writeAll("// zig fmt: off\n");
