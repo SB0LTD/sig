@@ -2756,8 +2756,47 @@ fn renderAsm(
         try renderToken(r, asm_node.ast.asm_token + 1, .none); // lparen
     }
 
+    const render_colons: [3]?Ast.TokenIndex = colons: {
+        var colons: [3]Ast.TokenIndex = undefined;
+        var render: u2 = 0;
+
+        const rparen = asm_node.ast.rparen;
+        filled: {
+            colons[0] = tree.lastToken(asm_node.ast.template) + 1;
+            if (colons[0] == rparen) break :filled;
+
+            if (asm_node.outputs.len != 0) {
+                colons[1] = tree.lastToken(asm_node.outputs[asm_node.outputs.len - 1]) + 1;
+                colons[1] += @intFromBool(tree.tokenTag(colons[1]) == .comma);
+                render = 1;
+            } else {
+                colons[1] = colons[0] + 1;
+                if (hasComment(tree, colons[0], colons[1])) render = 1;
+            }
+            if (colons[1] == rparen) break :filled;
+
+            // Next colon is not checked for here since it cannot present without clobbers
+            if (asm_node.inputs.len != 0) {
+                render = 2;
+            } else {
+                const colon_or_rparen = colons[1] + 1;
+                if (hasComment(tree, colons[1], colon_or_rparen)) render = 2;
+            }
+
+            if (asm_node.ast.clobbers.unwrap()) |clobbers| {
+                colons[2] = tree.firstToken(clobbers) - 1;
+                render = 3;
+            }
+        }
+
+        var opt_colons: [3]?Ast.TokenIndex = @splat(null);
+        for (0..render) |i| opt_colons[i] = colons[i];
+        break :colons opt_colons;
+    };
+
+    try ais.forcePushIndent(.normal);
+
     if (asm_node.ast.items.len == 0) {
-        try ais.forcePushIndent(.normal);
         if (asm_node.ast.clobbers.unwrap()) |clobbers| {
             // asm ("foo" ::: clobbers)
             try renderExpression(r, asm_node.ast.template, .space);
@@ -2771,13 +2810,14 @@ fn renderAsm(
             return renderToken(r, asm_node.ast.rparen, space); // rparen
         }
 
-        // asm ("foo")
-        try renderExpression(r, asm_node.ast.template, .none);
-        ais.popIndent();
-        return renderToken(r, asm_node.ast.rparen, space); // rparen
+        if (render_colons[0] == null) {
+            // asm ("foo")
+            try renderExpression(r, asm_node.ast.template, .none);
+            ais.popIndent();
+            return renderToken(r, asm_node.ast.rparen, space); // rparen
+        }
     }
 
-    try ais.forcePushIndent(.normal);
     try renderExpression(r, asm_node.ast.template, .newline);
     ais.forceLastIndent(); // Might have been dedented by a multiline string literal
     assert(ais.current_line_empty);
@@ -2785,86 +2825,62 @@ fn renderAsm(
     const prev_indent_delta = ais.indent_delta; // May be part of another asm expression
     // so indent_delta can't be unconditionally used
     ais.setIndentDelta(asm_indent_delta);
-    const colon1 = tree.lastToken(asm_node.ast.template) + 1;
 
-    const colon2 = if (asm_node.outputs.len == 0) colon2: {
-        try renderToken(r, colon1, .newline); // :
-        break :colon2 colon1 + 1;
-    } else colon2: {
-        try renderToken(r, colon1, .space); // :
+    rendered: {
+        if (render_colons[0]) |colon1| {
+            if (asm_node.outputs.len != 0) {
+                try renderToken(r, colon1, .space);
+                try ais.forcePushIndent(.normal);
 
-        try ais.forcePushIndent(.normal);
-        for (asm_node.outputs, 0..) |asm_output, i| {
-            if (i + 1 < asm_node.outputs.len) {
-                const next_asm_output = asm_node.outputs[i + 1];
-                try renderAsmOutput(r, asm_output, .none);
+                const final = asm_node.outputs.len - 1;
+                for (asm_node.outputs[0..final], 0..) |asm_output, i| {
+                    try renderAsmOutput(r, asm_output, .none);
 
-                const comma = tree.firstToken(next_asm_output) - 1;
-                try renderToken(r, comma, .newline); // ,
-                try renderExtraNewlineToken(r, tree.firstToken(next_asm_output));
-            } else if (asm_node.inputs.len == 0 and asm_node.ast.clobbers == .none) {
+                    const next_start = tree.firstToken(asm_node.outputs[i + 1]);
+                    try renderToken(r, next_start - 1, .newline); // ,
+                    try renderExtraNewlineToken(r, next_start);
+                }
+
                 try ais.pushSpace(.comma);
-                try renderAsmOutput(r, asm_output, .comma);
+                try renderAsmOutput(r, asm_node.outputs[final], .comma);
                 ais.popSpace();
                 ais.popIndent();
-                ais.setIndentDelta(indent_delta);
-                ais.popIndent();
-                return renderToken(r, asm_node.ast.rparen, space); // rparen
             } else {
-                try ais.pushSpace(.comma);
-                try renderAsmOutput(r, asm_output, .comma);
-                ais.popSpace();
-                const comma_or_colon = tree.lastToken(asm_output) + 1;
-                ais.popIndent();
-                break :colon2 switch (tree.tokenTag(comma_or_colon)) {
-                    .comma => comma_or_colon + 1,
-                    else => comma_or_colon,
-                };
+                try renderToken(r, colon1, .newline);
             }
         } else unreachable;
-    };
 
-    const colon3 = if (asm_node.inputs.len == 0) colon3: {
-        try renderToken(r, colon2, .newline); // :
-        break :colon3 colon2 + 1;
-    } else colon3: {
-        try renderToken(r, colon2, .space); // :
-        try ais.forcePushIndent(.normal);
-        for (asm_node.inputs, 0..) |asm_input, i| {
-            if (i + 1 < asm_node.inputs.len) {
-                const next_asm_input = asm_node.inputs[i + 1];
-                try renderAsmInput(r, asm_input, .none);
+        if (render_colons[1]) |colon2| {
+            if (asm_node.inputs.len != 0) {
+                try renderToken(r, colon2, .space);
+                try ais.forcePushIndent(.normal);
 
-                const first_token = tree.firstToken(next_asm_input);
-                try renderToken(r, first_token - 1, .newline); // ,
-                try renderExtraNewlineToken(r, first_token);
-            } else if (asm_node.ast.clobbers == .none) {
+                const final = asm_node.inputs.len - 1;
+                for (asm_node.inputs[0..final], 0..) |asm_input, i| {
+                    try renderAsmInput(r, asm_input, .none);
+
+                    const next_start = tree.firstToken(asm_node.inputs[i + 1]);
+                    try renderToken(r, next_start - 1, .newline); // ,
+                    try renderExtraNewlineToken(r, next_start);
+                }
+
                 try ais.pushSpace(.comma);
-                try renderAsmInput(r, asm_input, .comma);
+                try renderAsmInput(r, asm_node.inputs[final], .comma);
                 ais.popSpace();
                 ais.popIndent();
-                ais.setIndentDelta(indent_delta);
-                ais.popIndent();
-                return renderToken(r, asm_node.ast.rparen, space); // rparen
             } else {
-                try ais.pushSpace(.comma);
-                try renderAsmInput(r, asm_input, .comma);
-                ais.popSpace();
-                const comma_or_colon = tree.lastToken(asm_input) + 1;
-                ais.popIndent();
-                break :colon3 switch (tree.tokenTag(comma_or_colon)) {
-                    .comma => comma_or_colon + 1,
-                    else => comma_or_colon,
-                };
+                try renderToken(r, colon2, .newline);
             }
-        }
-        unreachable;
-    };
+        } else break :rendered;
 
-    try renderToken(r, colon3, .maybe_space); // :
-    const clobbers = asm_node.ast.clobbers.unwrap().?;
-    try renderExpression(r, clobbers, .none);
-    ais.forceLastIndent(); // Might have been dedented by a multiline string literal
+        if (render_colons[2]) |colon3| {
+            const clobbers = asm_node.ast.clobbers.unwrap().?;
+            try renderToken(r, colon3, .maybe_space);
+            try renderExpression(r, clobbers, .none);
+            ais.forceLastIndent(); // Might have been dedented by a multiline string literal
+        }
+    }
+
     ais.setIndentDelta(prev_indent_delta);
     ais.popIndent();
     return renderToken(r, asm_node.ast.rparen, space); // rparen

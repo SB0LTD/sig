@@ -6892,6 +6892,23 @@ test "zig fmt: array init with multiline string literal with fmt on/off" {
     );
 }
 
+test "zig fmt: render extra colons with comments" {
+    try testCanonical(
+        \\const a = asm (""
+        \\    : // testing
+        \\);
+        \\const b = asm (""
+        \\    : // testing
+        \\    : // testing
+        \\);
+        \\const c = asm (""
+        \\    :
+        \\    : // testing
+        \\);
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
