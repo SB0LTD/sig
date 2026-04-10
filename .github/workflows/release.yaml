@@ -1,4 +1,7 @@
-# [sig] Release pipeline — LLVM-enabled builds using bootstrap sig
+# [sig] Release pipeline — uses LLVM-enabled bootstrap sig
+# Requires: LLVM-enabled bootstrap from build-bootstrap.yaml
+#
+# Chain: build-llvm → build-bootstrap → release
 name: release
 
 on:
@@ -73,44 +76,65 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
-      # --- Cache (restore before install to avoid redundant downloads) ---
-      - name: Cache LLVM packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            /usr/lib/llvm-${{ env.LLVM_VERSION }}
-            /opt/homebrew/opt/llvm@${{ env.LLVM_VERSION }}
-            C:/llvm-${{ env.LLVM_VERSION }}
-          key: llvm-${{ env.LLVM_FULL_VERSION }}-${{ matrix.target }}-${{ runner.os }}
-          restore-keys: llvm-${{ env.LLVM_VERSION }}-${{ matrix.target }}-
+      # --- Download LLVM-enabled bootstrap sig ---
+      - name: Download bootstrap sig
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Determine the host architecture
+          case "${{ runner.os }}" in
+            Linux)   HOST="x86_64-linux"  ;;
+            macOS)   HOST="aarch64-macos" ;;
+            Windows) HOST="x86_64-windows" ;;
+            *) echo "ERROR: Unknown runner OS"; exit 1 ;;
+          esac
 
-      - name: Cache sig-cache and zigcpp objects
-        uses: actions/cache@v4
-        with:
-          path: |
-            .sig-cache
-            .sig-cache/zigcpp
-          key: sig-cache-${{ matrix.target }}-${{ github.sha }}
-          restore-keys: sig-cache-${{ matrix.target }}-
+          # Download LLVM-enabled bootstrap from build-bootstrap release
+          ASSET="bootstrap-sig-${HOST}.tar.gz"
+          echo "Downloading ${ASSET} from bootstrap-sig-v4..."
+          gh release download bootstrap-sig-v4 --pattern "${ASSET}" --dir /tmp || {
+            echo "ERROR: Could not download ${ASSET} from bootstrap-sig-v4 release."
+            echo "Run build-bootstrap.yaml first to create LLVM-enabled bootstrap binaries."
+            exit 1
+          }
 
-      # --- Install LLVM dev packages (official release archives) ---
+          mkdir -p /tmp/bootstrap-sig
+          tar -xzf "/tmp/${ASSET}" -C /tmp/bootstrap-sig
+
+          SIG=$(find /tmp/bootstrap-sig -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
+          [ -z "$SIG" ] && echo "ERROR: sig binary not found in archive" && exit 1
+          chmod +x "$SIG"
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            xattr -cr /tmp/bootstrap-sig 2>/dev/null || true
+            codesign --force --sign - "$SIG" 2>/dev/null || true
+          fi
+
+          SIG_DIR=$(dirname "$SIG")
+          echo "$SIG_DIR" >> "$GITHUB_PATH"
+          echo "BOOTSTRAP_SIG=$SIG" >> "$GITHUB_ENV"
+          "$SIG" version || true
+          echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
+
+      # --- Install LLVM 22 dev packages ---
       - name: Install LLVM (Ubuntu)
         if: runner.os == 'Linux'
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           LLVM_PREFIX="/usr/lib/llvm-${LLVM_VERSION}"
           if [ -d "${LLVM_PREFIX}" ] && [ -f "${LLVM_PREFIX}/bin/llvm-config" ]; then
-            echo "LLVM ${LLVM_VERSION} already present from cache, skipping install"
+            echo "LLVM already present from cache"
           else
-            # Use official LLVM release archive (apt.llvm.org ships dev snapshots with different headers)
-            ARCHIVE="LLVM-${LLVM_FULL_VERSION}-Linux-X64.tar.xz"
-            URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_FULL_VERSION}/${ARCHIVE}"
-            echo "Downloading LLVM from ${URL}"
-            curl -fsSL "${URL}" -o /tmp/llvm.tar.xz
+            # Download pre-built LLVM from build-llvm release
+            gh release download llvm-22 --pattern "llvm-22-x86_64-linux.tar.xz" --dir /tmp || {
+              echo "ERROR: Could not download pre-built LLVM 22. Run build-llvm.yaml first."
+              exit 1
+            }
             sudo mkdir -p "${LLVM_PREFIX}"
-            sudo tar -xJf /tmp/llvm.tar.xz -C "${LLVM_PREFIX}" --strip-components=1
-            rm /tmp/llvm.tar.xz
-            echo "LLVM ${LLVM_FULL_VERSION} installed to ${LLVM_PREFIX}"
+            sudo tar -xJf /tmp/llvm-22-x86_64-linux.tar.xz -C "${LLVM_PREFIX}" --strip-components=1
+            rm /tmp/llvm-22-x86_64-linux.tar.xz
             "${LLVM_PREFIX}/bin/llvm-config" --version
           fi
 
@@ -118,8 +142,8 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          if [ -d "/opt/homebrew/opt/llvm@${LLVM_VERSION}" ] && [ -f "/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin/llvm-config" ]; then
-            echo "LLVM ${LLVM_VERSION} already present from cache, skipping install"
+          if [ -d "/opt/homebrew/opt/llvm@${LLVM_VERSION}" ]; then
+            echo "LLVM already present"
           else
             brew install llvm@${LLVM_VERSION}
           fi
@@ -129,112 +153,38 @@ jobs:
         shell: bash
         run: |
           LLVM_DIR="C:/llvm-${LLVM_VERSION}"
-          if [ -d "${LLVM_DIR}" ] && [ -f "${LLVM_DIR}/bin/llvm-config.exe" ]; then
-            echo "LLVM already present from cache, skipping install"
+          if [ -d "${LLVM_DIR}" ]; then
+            echo "LLVM already present"
           else
-            # Use clang+llvm archive (includes C++ dev headers, unlike the LLVM-*.exe installer)
             ARCHIVE="clang+llvm-${LLVM_FULL_VERSION}-x86_64-pc-windows-msvc.tar.xz"
             URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_FULL_VERSION}/${ARCHIVE}"
-            echo "Downloading LLVM from ${URL}"
             curl -fsSL "${URL}" -o /tmp/llvm.tar.xz
             mkdir -p "${LLVM_DIR}"
             tar -xJf /tmp/llvm.tar.xz -C "${LLVM_DIR}" --strip-components=1
             rm /tmp/llvm.tar.xz
-            echo "LLVM ${LLVM_FULL_VERSION} installed to ${LLVM_DIR}"
           fi
           echo "${LLVM_DIR}/bin" >> "$GITHUB_PATH"
 
-      # --- Build sig with LLVM (two-stage via upstream zig) ---
-      # Stage 1: zig build-exe produces a sig binary without LLVM (fast — zig has LLVM backend)
-      # Stage 2: that sig binary rebuilds itself with LLVM 22 (fast — stage 1 has LLVM codegen)
-      # Once sig releases include LLVM, we can drop the zig dependency.
-      - name: Setup Zig (stage 1 bootstrap)
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0-dev.3091+557caecaa
-
-      - name: Write build_options.zig (stage 1)
-        shell: bash
-        run: |
-          mkdir -p .sig-cache
-          cat > .sig-cache/build_options.zig <<'EOF'
-          pub const have_llvm = false;
-          pub const llvm_has_m68k = false;
-          pub const llvm_has_csky = false;
-          pub const llvm_has_arc = false;
-          pub const llvm_has_xtensa = false;
-          pub const version: [:0]const u8 = "0.16.0-dev";
-          pub const semver = @import("std").SemanticVersion.parse(version) catch unreachable;
-          pub const enable_debug_extensions = false;
-          pub const enable_logging = false;
-          pub const enable_link_snapshots = false;
-          pub const enable_tracy = false;
-          pub const value_tracing = false;
-          pub const skip_non_native = false;
-          pub const debug_gpa = false;
-          pub const dev = .full;
-          pub const io_mode: enum { threaded, evented } = .threaded;
-          pub const value_interpret_mode = .direct;
-          pub const sig_version: [:0]const u8 = "0.1.2";
-          pub const mem_leak_frames = 4;
-          EOF
-
-      - name: Bootstrap sig (stage 1 — zig build-exe, no LLVM)
-        shell: bash
-        run: |
-          mkdir -p .sig-cache/bootstrap
-          BIN="sig"; [ "${{ matrix.target }}" = "x86_64-windows" ] && BIN="sig.exe"
-
-          zig build-exe \
-            --dep build_options --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.sig-cache/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
-            -O ReleaseSafe \
-            -femit-bin=".sig-cache/bootstrap/${BIN}" \
-            --cache-dir .sig-cache \
-            --zig-lib-dir lib
-          echo "Stage 1 sig built successfully"
-          ls -la ".sig-cache/bootstrap/"
-        timeout-minutes: 30
-
-      - name: Build sig with LLVM (stage 2)
+      # --- Build sig with LLVM using bootstrap ---
+      - name: Build sig with LLVM
         shell: bash
         run: |
           OUT="sig-${VERSION}-${{ matrix.target }}"
           mkdir -p "${OUT}/bin"
-          BIN="sig"; [ "${{ matrix.target }}" = "x86_64-windows" ] && BIN="sig.exe"
-          BOOTSTRAP=".sig-cache/bootstrap/${BIN}"
+          SIG_CMD="${BOOTSTRAP_SIG:-sig}"
 
-          # Raise stack limit on Linux/macOS
           if [ "${{ runner.os }}" != "Windows" ]; then
             ulimit -s unlimited 2>/dev/null || ulimit -s 65536 2>/dev/null || true
           fi
 
-          # Determine -Dllvm-prefix per platform
           LLVM_PREFIX_ARG=""
           case "${{ runner.os }}" in
-            macOS)
-              if [ -d "/opt/homebrew/opt/llvm@${LLVM_VERSION}" ]; then
-                LLVM_PREFIX_ARG="-Dllvm-prefix=/opt/homebrew/opt/llvm@${LLVM_VERSION}"
-              elif [ -d "/opt/homebrew/opt/llvm" ]; then
-                LLVM_PREFIX_ARG="-Dllvm-prefix=/opt/homebrew/opt/llvm"
-              fi
-              ;;
-            Windows)
-              if [ -d "C:/llvm-${LLVM_VERSION}" ]; then
-                LLVM_PREFIX_ARG="-Dllvm-prefix=C:/llvm-${LLVM_VERSION}"
-              fi
-              ;;
-            Linux)
-              if [ -d "/usr/lib/llvm-${LLVM_VERSION}" ]; then
-                LLVM_PREFIX_ARG="-Dllvm-prefix=/usr/lib/llvm-${LLVM_VERSION}"
-              fi
-              ;;
+            macOS)  LLVM_PREFIX_ARG="-Dllvm-prefix=/opt/homebrew/opt/llvm@${LLVM_VERSION}" ;;
+            Windows) LLVM_PREFIX_ARG="-Dllvm-prefix=C:/llvm-${LLVM_VERSION}" ;;
+            Linux)  LLVM_PREFIX_ARG="-Dllvm-prefix=/usr/lib/llvm-${LLVM_VERSION}" ;;
           esac
 
-          # Stage 2: use stage 1 sig to rebuild with LLVM
-          "${BOOTSTRAP}" build \
+          "${SIG_CMD}" build \
             --zig-lib-dir lib \
             -Denable-llvm \
             -Dstatic-llvm \

@@ -1,21 +1,26 @@
-# Build and publish fresh bootstrap compiler binaries.
-# build-linux  → x86_64-linux  (ubuntu-latest)
-# build-macos  → aarch64-macos (macos-14, Apple Silicon)
+# Build LLVM-enabled bootstrap sig compiler binaries.
+# Requires: pre-built LLVM 22 from build-llvm.yaml (release tag: llvm-22)
+#
+# Chain: build-llvm → build-bootstrap → release
+#   1. build-llvm.yaml builds LLVM 22 from source
+#   2. This workflow uses zig + pre-built LLVM 22 to produce sig WITH LLVM
+#   3. release.yaml uses the LLVM-enabled bootstrap to build the final release
 name: build-bootstrap
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Bootstrap release tag (e.g. bootstrap-sig-v3)'
+        description: 'Bootstrap release tag (e.g. bootstrap-sig-v4)'
         required: false
-        default: 'bootstrap-sig-v3'
+        default: 'bootstrap-sig-v4'
 
 permissions:
   contents: write
 
 env:
-  VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v3' }}
+  VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v4' }}
+  LLVM_VERSION: "22"
 
 jobs:
   build-linux:
@@ -25,63 +30,92 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Cache zig-cache
-        uses: actions/cache@v4
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
         with:
-          path: .zig-cache
-          key: zig-cache-bootstrap-linux-${{ github.sha }}
-          restore-keys: zig-cache-bootstrap-linux-
+          version: 0.16.0-dev.3091+557caecaa
 
-      - name: Download latest x86_64-linux sig release
+      - name: Download pre-built LLVM 22
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases" \
-            | python3 -c "
-          import sys, json
-          for r in json.load(sys.stdin):
-            if not isinstance(r, dict): continue
-            for a in r.get('assets', []):
-              n = a['name']
-              if 'x86_64-linux' in n and n.endswith('.tar.xz') and 'bootstrap' not in n:
-                print(a['browser_download_url'])
-                exit(0)
-          exit(1)
-          ")
-          echo "Bootstrap: $DOWNLOAD_URL"
-          mkdir -p /tmp/bootstrap-sig
-          curl -fsSL "$DOWNLOAD_URL" -o /tmp/bootstrap.tar.xz
-          tar -xJf /tmp/bootstrap.tar.xz -C /tmp/bootstrap-sig
-          SIG=$(find /tmp/bootstrap-sig -name "sig" -not -type d | head -1)
-          chmod +x "$SIG"
-          SIG_DIR=$(dirname "$SIG")
-          echo "$SIG_DIR" >> "$GITHUB_PATH"
-          "$SIG" version
-          echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
+          LLVM_PREFIX="$PWD/llvm-22"
+          gh release download llvm-22 --pattern "llvm-22-x86_64-linux.tar.xz" --dir /tmp
+          mkdir -p "${LLVM_PREFIX}"
+          tar -xJf /tmp/llvm-22-x86_64-linux.tar.xz -C "${LLVM_PREFIX}" --strip-components=1
+          echo "LLVM_PREFIX=${LLVM_PREFIX}" >> "$GITHUB_ENV"
+          "${LLVM_PREFIX}/bin/llvm-config" --version
 
-      - name: Build x86_64-linux
+      - name: Write build_options.zig
         run: |
-          sig build \
-            --zig-lib-dir "$ZIG_LIB_DIR" \
-            -Dtarget=x86_64-linux-musl \
+          mkdir -p .sig-cache
+          cat > .sig-cache/build_options.zig <<'OPTS'
+          pub const have_llvm = false;
+          pub const llvm_has_m68k = false;
+          pub const llvm_has_csky = false;
+          pub const llvm_has_arc = false;
+          pub const llvm_has_xtensa = false;
+          pub const version: [:0]const u8 = "0.16.0-dev";
+          pub const semver = @import("std").SemanticVersion.parse(version) catch unreachable;
+          pub const enable_debug_extensions = false;
+          pub const enable_logging = false;
+          pub const enable_link_snapshots = false;
+          pub const enable_tracy = false;
+          pub const value_tracing = false;
+          pub const skip_non_native = false;
+          pub const debug_gpa = false;
+          pub const dev = .full;
+          pub const io_mode: enum { threaded, evented } = .threaded;
+          pub const value_interpret_mode = .direct;
+          pub const sig_version: [:0]const u8 = "0.1.2";
+          pub const mem_leak_frames = 4;
+          OPTS
+
+      - name: Stage 1 — zig build-exe (sig without LLVM)
+        run: |
+          mkdir -p .sig-cache/stage1
+          ulimit -s unlimited 2>/dev/null || true
+          zig build-exe \
+            --dep build_options --dep aro \
+            -Mroot=src/main.zig \
+            -Mbuild_options=.sig-cache/build_options.zig \
+            -Maro=lib/compiler/aro/aro.zig \
+            -O ReleaseSafe \
+            -femit-bin=".sig-cache/stage1/sig" \
+            --cache-dir .sig-cache \
+            --zig-lib-dir lib
+          chmod +x .sig-cache/stage1/sig
+          echo "Stage 1 built"
+          file .sig-cache/stage1/sig
+        timeout-minutes: 30
+
+      - name: Stage 2 — sig build with LLVM 22
+        run: |
+          ulimit -s unlimited 2>/dev/null || true
+          .sig-cache/stage1/sig build \
+            --zig-lib-dir lib \
+            -Denable-llvm \
+            -Dstatic-llvm \
+            -Dllvm-prefix="${LLVM_PREFIX}" \
             -Doptimize=ReleaseSafe \
+            -Dtarget=x86_64-linux-musl \
             -Dno-lib \
             -Dno-langref \
             -Dskip-tests \
             --prefix bootstrap-sig-x86_64-linux
+          echo "Stage 2 built"
+          file bootstrap-sig-x86_64-linux/bin/sig
         timeout-minutes: 120
 
-      - name: Verify and package
-        run: |
-          file bootstrap-sig-x86_64-linux/bin/sig
-          tar -czf bootstrap-sig-x86_64-linux.tar.gz -C bootstrap-sig-x86_64-linux .
-
-      - name: Publish
+      - name: Package and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          tar -czf bootstrap-sig-x86_64-linux.tar.gz -C bootstrap-sig-x86_64-linux .
           gh release view "${VERSION}" >/dev/null 2>&1 || \
             gh release create "${VERSION}" \
-              --title "Bootstrap Sig Compiler ${VERSION}" \
-              --notes "Bootstrap compiler binaries — sig builds sig, no zig required." \
+              --title "Bootstrap Sig Compiler ${VERSION} (LLVM-enabled)" \
+              --notes "Bootstrap compiler binaries with LLVM 22 backend. Used for sig release builds." \
               --prerelease
           gh release upload "${VERSION}" bootstrap-sig-x86_64-linux.tar.gz --clobber
 
@@ -92,62 +126,85 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Cache zig-cache
-        uses: actions/cache@v4
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
         with:
-          path: .zig-cache
-          key: zig-cache-bootstrap-macos-${{ github.sha }}
-          restore-keys: zig-cache-bootstrap-macos-
+          version: 0.16.0-dev.3091+557caecaa
 
-      - name: Download latest aarch64-macos sig release
+      - name: Install LLVM 22 via Homebrew
         run: |
-          DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases" \
-            | python3 -c "
-          import sys, json
-          for r in json.load(sys.stdin):
-            if not isinstance(r, dict): continue
-            for a in r.get('assets', []):
-              n = a['name']
-              if 'aarch64-macos' in n and n.endswith('.tar.xz') and 'bootstrap' not in n:
-                print(a['browser_download_url'])
-                exit(0)
-          exit(1)
-          ")
-          echo "Bootstrap: $DOWNLOAD_URL"
-          mkdir -p /tmp/bootstrap-sig
-          curl -fsSL "$DOWNLOAD_URL" -o /tmp/bootstrap.tar.xz
-          tar -xJf /tmp/bootstrap.tar.xz -C /tmp/bootstrap-sig
-          SIG=$(find /tmp/bootstrap-sig -name "sig" -not -type d | head -1)
-          chmod +x "$SIG"
-          "$SIG" version
-          echo "SIG_BIN=$SIG" >> "$GITHUB_ENV"
-          echo "ZIG_LIB_DIR=$(pwd)/lib" >> "$GITHUB_ENV"
+          brew install llvm@${LLVM_VERSION}
+          echo "LLVM_PREFIX=/opt/homebrew/opt/llvm@${LLVM_VERSION}" >> "$GITHUB_ENV"
 
-      - name: Build aarch64-macos
+      - name: Write build_options.zig
         run: |
-          "$SIG_BIN" build \
-            --zig-lib-dir "$ZIG_LIB_DIR" \
-            -Dtarget=aarch64-macos \
+          mkdir -p .sig-cache
+          cat > .sig-cache/build_options.zig <<'OPTS'
+          pub const have_llvm = false;
+          pub const llvm_has_m68k = false;
+          pub const llvm_has_csky = false;
+          pub const llvm_has_arc = false;
+          pub const llvm_has_xtensa = false;
+          pub const version: [:0]const u8 = "0.16.0-dev";
+          pub const semver = @import("std").SemanticVersion.parse(version) catch unreachable;
+          pub const enable_debug_extensions = false;
+          pub const enable_logging = false;
+          pub const enable_link_snapshots = false;
+          pub const enable_tracy = false;
+          pub const value_tracing = false;
+          pub const skip_non_native = false;
+          pub const debug_gpa = false;
+          pub const dev = .full;
+          pub const io_mode: enum { threaded, evented } = .threaded;
+          pub const value_interpret_mode = .direct;
+          pub const sig_version: [:0]const u8 = "0.1.2";
+          pub const mem_leak_frames = 4;
+          OPTS
+
+      - name: Stage 1 — zig build-exe (sig without LLVM)
+        run: |
+          mkdir -p .sig-cache/stage1
+          ulimit -s unlimited 2>/dev/null || true
+          zig build-exe \
+            --dep build_options --dep aro \
+            -Mroot=src/main.zig \
+            -Mbuild_options=.sig-cache/build_options.zig \
+            -Maro=lib/compiler/aro/aro.zig \
+            -O ReleaseSafe \
+            -femit-bin=".sig-cache/stage1/sig" \
+            --cache-dir .sig-cache \
+            --zig-lib-dir lib
+          chmod +x .sig-cache/stage1/sig
+          echo "Stage 1 built"
+          file .sig-cache/stage1/sig
+        timeout-minutes: 30
+
+      - name: Stage 2 — sig build with LLVM 22
+        run: |
+          ulimit -s unlimited 2>/dev/null || true
+          .sig-cache/stage1/sig build \
+            --zig-lib-dir lib \
+            -Denable-llvm \
+            -Dstatic-llvm \
+            -Dllvm-prefix="${LLVM_PREFIX}" \
             -Doptimize=ReleaseSafe \
+            -Dtarget=aarch64-macos \
             -Dno-lib \
             -Dno-langref \
             -Dskip-tests \
             --prefix bootstrap-sig-aarch64-macos
+          echo "Stage 2 built"
+          file bootstrap-sig-aarch64-macos/bin/sig
         timeout-minutes: 120
 
-      - name: Verify and package
-        run: |
-          file bootstrap-sig-aarch64-macos/bin/sig
-          bootstrap-sig-aarch64-macos/bin/sig version
-          tar -czf bootstrap-sig-aarch64-macos.tar.gz -C bootstrap-sig-aarch64-macos .
-
-      - name: Publish
+      - name: Package and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          tar -czf bootstrap-sig-aarch64-macos.tar.gz -C bootstrap-sig-aarch64-macos .
           gh release view "${VERSION}" >/dev/null 2>&1 || \
             gh release create "${VERSION}" \
-              --title "Bootstrap Sig Compiler ${VERSION}" \
-              --notes "Bootstrap compiler binaries — sig builds sig, no zig required." \
+              --title "Bootstrap Sig Compiler ${VERSION} (LLVM-enabled)" \
+              --notes "Bootstrap compiler binaries with LLVM 22 backend. Used for sig release builds." \
               --prerelease
           gh release upload "${VERSION}" bootstrap-sig-aarch64-macos.tar.gz --clobber
