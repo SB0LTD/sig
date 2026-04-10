@@ -6133,6 +6133,16 @@ test "zig fmt: do not canonicalize invalid cast builtins" {
     );
 }
 
+test "zig fmt: canonicalize cast builtins at file start" {
+    try testTransform(
+        \\@alignCast(@ptrCast(a)),
+        \\
+    ,
+        \\@ptrCast(@alignCast(a)),
+        \\
+    );
+}
+
 test "zig fmt: extern addrspace in struct" {
     try testCanonical(
         \\const namespace = struct {
@@ -6905,6 +6915,17 @@ test "zig fmt: render extra colons with comments" {
         \\    :
         \\    : // testing
         \\);
+        \\
+    );
+}
+
+test "zig fmt: cast builtins are not reordered with comments" {
+    try testCanonical(
+        \\const a = @volatileCast(@constCast( // ...
+        \\    @alignCast(@ptrCast(a))));
+        \\
+        \\const b = @alignCast(@ptrCast( // zig fmt: off
+        \\    c));
         \\
     );
 }

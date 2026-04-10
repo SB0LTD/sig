@@ -800,34 +800,47 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             canonicalize: {
                 if (params.len != 1) break :canonicalize;
 
-                const CastKind = enum {
+                const CastKind = enum(u8) {
                     ptrCast,
                     alignCast,
                     addrSpaceCast,
                     constCast,
                     volatileCast,
                 };
-                const kind = meta.stringToEnum(CastKind, tree.tokenSlice(builtin_token)[1..]) orelse break :canonicalize;
+                const kind = meta.stringToEnum(
+                    CastKind,
+                    tree.tokenSlice(builtin_token)[1..],
+                ) orelse break :canonicalize;
 
                 var cast_map = std.EnumMap(CastKind, Ast.TokenIndex).init(.{});
                 cast_map.put(kind, builtin_token);
 
                 var casts_before: usize = 0;
-                if (builtin_token >= 2) {
-                    var prev_builtin_token = builtin_token - 2;
-                    while (tree.tokenTag(prev_builtin_token) == .builtin) : (prev_builtin_token -= 2) {
-                        const prev_kind = meta.stringToEnum(CastKind, tree.tokenSlice(prev_builtin_token)[1..]) orelse break;
-                        if (cast_map.contains(prev_kind)) break :canonicalize;
-                        cast_map.put(prev_kind, prev_builtin_token);
-                        casts_before += 1;
-                    }
+                var prev_builtin_token = builtin_token;
+                while (prev_builtin_token >= 2) {
+                    prev_builtin_token -= 2;
+                    if (tree.tokenTag(prev_builtin_token) != .builtin) break;
+                    const builtin_name = tree.tokenSlice(prev_builtin_token)[1..];
+                    const prev_kind = meta.stringToEnum(CastKind, builtin_name) orelse break;
+                    if (cast_map.contains(prev_kind)) break :canonicalize;
+                    // This must be checked after so that cast builtins as arguments to other
+                    // builtins containing comments are reordered.
+                    if (hasComment(tree, prev_builtin_token, prev_builtin_token + 2))
+                        break :canonicalize;
+                    cast_map.put(prev_kind, prev_builtin_token);
+                    casts_before += 1;
                 }
 
                 var next_builtin_token = builtin_token + 2;
-                while (tree.tokenTag(next_builtin_token) == .builtin) : (next_builtin_token += 2) {
-                    const next_kind = meta.stringToEnum(CastKind, tree.tokenSlice(next_builtin_token)[1..]) orelse break;
+                while (true) {
+                    if (hasComment(tree, next_builtin_token - 2, next_builtin_token))
+                        break :canonicalize;
+                    if (tree.tokenTag(next_builtin_token) != .builtin) break;
+                    const builtin_name = tree.tokenSlice(next_builtin_token)[1..];
+                    const next_kind = meta.stringToEnum(CastKind, builtin_name) orelse break;
                     if (cast_map.contains(next_kind)) break :canonicalize;
                     cast_map.put(next_kind, next_builtin_token);
+                    next_builtin_token += 2;
                 }
 
                 var it = cast_map.iterator();
