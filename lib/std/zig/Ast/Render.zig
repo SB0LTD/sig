@@ -1799,7 +1799,7 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
                     break;
                 },
                 .keyword_noalias, .keyword_comptime => {
-                    try renderToken(r, last_param_token, .space);
+                    try renderToken(r, last_param_token, .maybe_space);
                     last_param_token += 1;
                 },
                 .identifier => {},
@@ -1850,7 +1850,7 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
                     break;
                 },
                 .keyword_noalias, .keyword_comptime => {
-                    try renderToken(r, last_param_token, .space);
+                    try renderToken(r, last_param_token, .maybe_space);
                     last_param_token += 1;
                 },
                 .identifier => {},
@@ -1868,7 +1868,7 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
             {
                 try renderIdentifier(r, last_param_token, .none, .preserve_when_shadowing); // name
                 last_param_token += 1;
-                try renderToken(r, last_param_token, .space); // :
+                try renderToken(r, last_param_token, .maybe_space); // :
                 last_param_token += 1;
             }
             if (tree.tokenTag(last_param_token) == .keyword_anytype) {
