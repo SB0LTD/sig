@@ -758,7 +758,8 @@ fn fuzzMultiThreaded(fuzz_init: FuzzContext.Init, smith: *std.testing.Smith) any
                 n_allocs += 1;
                 ctx.allocs[alloc_index].common.len = .free;
                 group.concurrent(io, FuzzContext.doOneAlloc, .{
-                    &ctx, nextLen(smith),
+                    &ctx,
+                    nextLen(smith),
                     smith.valueRangeAtMost(
                         Alignment,
                         .@"1",
