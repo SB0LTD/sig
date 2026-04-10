@@ -54,7 +54,17 @@ jobs:
       - name: Build and run sig-sync
         if: steps.check.outputs.skip != 'true'
         run: |
-          sig build run-sig-sync --zig-lib-dir lib -- --remote upstream-zig --branch master
+          # Compile sig_sync tool directly (run-sig-sync step is not yet in build.sig)
+          sig build-exe \
+            --dep sig --dep std \
+            -Mroot=tools/sig_sync/main.sig \
+            -Msig=lib/sig/sig.zig \
+            -Mstd=lib/std/std.zig \
+            --zig-lib-dir lib \
+            --cache-dir .zig-cache \
+            --global-cache-dir .zig-cache \
+            -femit-bin=.zig-cache/sig_sync
+          .zig-cache/sig_sync --remote upstream-zig --branch master
         timeout-minutes: 30
 
       - name: Push to GitHub (ShadovvBeast/sig master)
