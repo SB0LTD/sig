@@ -6930,6 +6930,35 @@ test "zig fmt: cast builtins are not reordered with comments" {
     );
 }
 
+test "zig fmt: inner over-indented if expressions becoming multiline" {
+    try testTransform(
+        \\const a = (b or
+        \\c) and [if (d) {}]T; // If the if-statement is kept on the same line it becomes multiline
+        \\const a = (b or
+        \\c)[if (d) {}]; // If the if-statement is kept on the same line it becomes multiline
+        \\const a = .{a, b, (c or
+        \\d), if (d) {}, e, f, g,};
+        \\
+    ,
+        \\const a = (b or
+        \\    c) and [
+        \\    if (d) {}
+        \\]T; // If the if-statement is kept on the same line it becomes multiline
+        \\const a = (b or
+        \\    c)[
+        \\    if (d) {}
+        \\]; // If the if-statement is kept on the same line it becomes multiline
+        \\const a = .{
+        \\    a,         b,
+        \\    (c or
+        \\        d),
+        \\    if (d) {}, e,
+        \\    f,         g,
+        \\};
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
