@@ -338,8 +338,15 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             try ais.maybeInsertNewline();
 
             const first_tok, const last_tok = tree.nodeData(node).token_and_token;
-            for (first_tok..last_tok + 1) |i| {
+            for (first_tok..last_tok) |i| {
                 try renderToken(r, @intCast(i), .newline);
+            }
+            if (space != .skip) {
+                try renderToken(r, last_tok, .newline);
+            } else {
+                try renderToken(r, last_tok, .skip);
+                try ais.insertNewline(); // A newline is part of the token, so it still needs
+                // rendered here.
             }
 
             const next_token = last_tok + 1;

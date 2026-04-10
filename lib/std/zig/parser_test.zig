@@ -6881,6 +6881,17 @@ test "zig fmt: asm with zig fmt on" {
     );
 }
 
+test "zig fmt: array init with multiline string literal with fmt on/off" {
+    try testCanonical(
+        \\const array = .{
+        \\    \\
+        \\    // zig fmt: on
+        \\    // zig fmt: off
+        \\};
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
