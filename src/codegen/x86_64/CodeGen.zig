@@ -170801,6 +170801,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     else => |e| return e,
                 };
                 try ops[0].toSlicePtr(cg);
+                try ops[1].toSlicePtr(cg);
                 cg.select(&.{}, &.{}, &ops, switch (air_tag) {
                     else => unreachable,
                     inline .memcpy, .memmove => |symbol| comptime &.{.{
