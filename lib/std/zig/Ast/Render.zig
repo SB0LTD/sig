@@ -2775,6 +2775,8 @@ fn renderAsm(
     ais.forceLastIndent(); // Might have been dedented by a multiline string literal
     assert(ais.current_line_empty);
 
+    const prev_indent_delta = ais.indent_delta; // May be part of another asm expression
+    // so indent_delta can't be unconditionally used
     ais.setIndentDelta(asm_indent_delta);
     const colon1 = tree.lastToken(asm_node.ast.template) + 1;
 
@@ -2856,7 +2858,7 @@ fn renderAsm(
     const clobbers = asm_node.ast.clobbers.unwrap().?;
     try renderExpression(r, clobbers, .none);
     ais.forceLastIndent(); // Might have been dedented by a multiline string literal
-    ais.setIndentDelta(indent_delta);
+    ais.setIndentDelta(prev_indent_delta);
     ais.popIndent();
     return renderToken(r, asm_node.ast.rparen, space); // rparen
 }

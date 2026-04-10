@@ -6859,6 +6859,18 @@ test "zig fmt: array init of labeled block" {
     );
 }
 
+test "zig fmt: nested asm indentation" {
+    try testCanonical(
+        \\const A = asm (""
+        \\    : [_] "" (_),
+        \\    :
+        \\    : asm (""
+        \\      : [_] "" (_),
+        \\    ));
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
