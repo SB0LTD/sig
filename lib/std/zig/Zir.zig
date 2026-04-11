@@ -2009,6 +2009,26 @@ pub const Inst = struct {
         /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
         shl_with_overflow,
+        /// Explicit rounding cast.
+        /// `operand` is payload index to `Bin`.
+        /// `small` is unused.
+        round_cast,
+        /// Explicit floor cast.
+        /// `operand` is payload index to `Bin`.
+        /// `small` is unused.
+        floor_cast,
+        /// Explicit ceil cast.
+        /// `operand` is payload index to `Bin`.
+        /// `small` is unused.
+        ceil_cast,
+        /// Explicit trunc cast.
+        /// `operand` is payload index to `Bin`.
+        /// `small` is unused.
+        trunc_cast,
+        /// Returns the type for the operand of a rounding op.
+        /// `operand` is `UnNode`.
+        /// `small` is unused.
+        round_op_ty,
         /// `operand` is payload index to `UnNode`.
         c_undef,
         /// `operand` is payload index to `UnNode`.
@@ -4344,6 +4364,10 @@ fn findTrackableInner(
                 .sub_with_overflow,
                 .mul_with_overflow,
                 .shl_with_overflow,
+                .round_cast,
+                .floor_cast,
+                .ceil_cast,
+                .trunc_cast,
                 .c_undef,
                 .c_include,
                 .c_define,
@@ -4385,6 +4409,7 @@ fn findTrackableInner(
                 .dbg_empty_stmt,
                 .astgen_error,
                 .float_op_result_ty,
+                .round_op_ty,
                 => return,
 
                 // `@TypeOf` has a body.

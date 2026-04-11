@@ -570,6 +570,7 @@ const Writer = struct {
             .float_op_result_ty,
             .reify_tuple,
             .reify_pointer_sentinel_ty,
+            .round_op_ty,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 try self.writeInstRef(stream, inst_data.operand);
@@ -584,6 +585,10 @@ const Writer = struct {
             .prefetch,
             .c_va_arg,
             .reify_enum_value_slice_ty,
+            .round_cast,
+            .floor_cast,
+            .ceil_cast,
+            .trunc_cast,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
                 try self.writeInstRef(stream, inst_data.lhs);
