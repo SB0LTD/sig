@@ -25,7 +25,7 @@ jobs:
           - os: windows-latest
             artifact: llvm-22-x86_64-windows.tar.xz
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 240
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
