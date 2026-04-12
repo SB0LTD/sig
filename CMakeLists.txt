@@ -528,8 +528,11 @@ target_include_directories(zigcpp PUBLIC
     ${LLD_INCLUDE_DIRS}
 )
 target_link_libraries(zigcpp PUBLIC
+    # List clang libs twice to resolve circular static lib dependencies
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
+    ${LLVM_LIBRARIES}
+    ${CLANG_LIBRARIES}
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
