@@ -132,8 +132,6 @@ jobs:
 
           ninja install -j$(sysctl -n hw.ncpu)
 
-          ninja install -j$(sysctl -n hw.ncpu)
-
           echo "Bootstrap built:"
           file stage3/bin/zig
           stage3/bin/zig version

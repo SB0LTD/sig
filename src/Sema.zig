@@ -20903,7 +20903,7 @@ fn zirRoundCast(
     };
 
     const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, builtin_name);
-    const operand = try sema.resolveInst(extra.rhs);
+    const operand = sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
 
     try sema.checkVectorizableBinaryOperands(block, operand_src, dest_ty, operand_ty, src, operand_src);
