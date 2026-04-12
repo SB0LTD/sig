@@ -102,7 +102,7 @@ jobs:
             -DLLVM_INCLUDE_DOCS=OFF
 
           ninja -C llvm-build install
-        timeout-minutes: 180
+        timeout-minutes: 340
 
       - name: Package
         shell: bash
