@@ -77,29 +77,21 @@ jobs:
             -DZSTD="${ZSTD_PATH}" \
             -GNinja
 
-          ninja -j$(nproc)
+          # Build only up to zig2 — that's the LLVM-enabled binary we need.
+          # Stage 3 (zig2 rebuilding itself) is unnecessary for bootstrap.
+          ninja zig2 -j$(nproc)
 
           echo "Bootstrap built:"
-          file build/stage3/bin/zig || file build/zig2
-          build/stage3/bin/zig version 2>/dev/null || build/zig2 version 2>/dev/null || echo "version check skipped"
+          file zig2
+          ./zig2 version 2>/dev/null || echo "version check skipped"
 
       - name: Package and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # The cmake build produces 'zig' in stage3 or 'zig2' in build/
-          BIN=""
-          if [ -f build/stage3/bin/zig ]; then
-            BIN="build/stage3/bin/zig"
-          elif [ -f build/zig2 ]; then
-            BIN="build/zig2"
-          else
-            echo "ERROR: no zig binary found"; exit 1
-          fi
-
           mkdir -p bootstrap-sig-x86_64-linux/bin
-          cp "$BIN" bootstrap-sig-x86_64-linux/bin/sig
-          cp "$BIN" bootstrap-sig-x86_64-linux/bin/zig
+          cp build/zig2 bootstrap-sig-x86_64-linux/bin/sig
+          cp build/zig2 bootstrap-sig-x86_64-linux/bin/zig
 
           tar -czf bootstrap-sig-x86_64-linux.tar.gz -C bootstrap-sig-x86_64-linux .
           gh release view "${VERSION}" >/dev/null 2>&1 || \
