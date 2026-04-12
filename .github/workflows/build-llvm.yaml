@@ -1,4 +1,5 @@
-# [sig] Build LLVM 22 and upload as a reusable artifact
+# [sig] Build LLVM 22 from source for all platforms and upload as reusable artifacts.
+# One-time setup — re-run only when upgrading LLVM version.
 name: build-llvm
 
 on:
@@ -7,23 +8,53 @@ on:
 permissions:
   contents: write
 
+env:
+  LLVM_TAG: "llvmorg-22.1.3"
+  RELEASE_TAG: "llvm-22"
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: llvm-22-x86_64-linux.tar.xz
+            cmake_extra: ""
+          - os: macos-14
+            artifact: llvm-22-aarch64-macos.tar.xz
+            cmake_extra: ""
+          - os: windows-latest
+            artifact: llvm-22-x86_64-windows.tar.xz
+            cmake_extra: "-DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq cmake ninja-build python3 zlib1g-dev libzstd-dev
+      - name: Install build deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build python3 zlib1g-dev libzstd-dev
 
-      - name: Build LLVM 22
+      - name: Install build deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja zstd
+
+      - name: Install build deps (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install ninja -y
+
+      - name: Clone LLVM
+        shell: bash
+        run: git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
+
+      - name: Build LLVM
+        shell: bash
         run: |
-          git clone --depth 1 --branch llvmorg-22.1.3 https://github.com/llvm/llvm-project.git llvm-src
           cmake -S llvm-src/llvm -B llvm-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$PWD/llvm-22" \
+            -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" \
             -DLLVM_ENABLE_PROJECTS="clang;lld" \
             -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SystemZ;VE;WebAssembly;X86;XCore" \
             -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="M68k;Xtensa;ARC;CSKY;SPIRV" \
@@ -40,18 +71,24 @@ jobs:
             -DLLVM_INCLUDE_TESTS=OFF \
             -DLLVM_INCLUDE_EXAMPLES=OFF \
             -DLLVM_INCLUDE_BENCHMARKS=OFF \
-            -DLLVM_INCLUDE_DOCS=OFF
-          ninja -C llvm-build install -j$(nproc)
-        timeout-minutes: 120
+            -DLLVM_INCLUDE_DOCS=OFF \
+            ${{ matrix.cmake_extra }}
 
-      - name: Package LLVM
-        run: tar -cJf llvm-22-x86_64-linux.tar.xz llvm-22/
+          ninja -C llvm-build install -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+        timeout-minutes: 180
+
+      - name: Package
+        shell: bash
+        run: tar -cJf "${{ matrix.artifact }}" llvm-install/
 
       - name: Upload to release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create llvm-22 --title "LLVM 22 (build artifact)" \
-            --notes "Pre-built LLVM 22.1.3 with Clang + LLD for x86_64-linux. Used as bootstrap dependency for sig releases." \
-            --prerelease \
-            llvm-22-x86_64-linux.tar.xz
+          gh release view "${{ env.RELEASE_TAG }}" >/dev/null 2>&1 || \
+            gh release create "${{ env.RELEASE_TAG }}" \
+              --title "LLVM 22 (build artifacts)" \
+              --notes "Pre-built LLVM 22.1.3 with Clang + LLD. Used as bootstrap dependency for sig releases." \
+              --prerelease
+          gh release upload "${{ env.RELEASE_TAG }}" "${{ matrix.artifact }}" --clobber
