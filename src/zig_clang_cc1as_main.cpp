@@ -416,7 +416,8 @@ static bool ExecuteAssemblerImpl(AssemblerInvocation &Opts,
                                  DiagnosticsEngine &Diags) {
   // Get the target specific parser.
   std::string Error;
-  const Target *TheTarget = TargetRegistry::lookupTarget(Opts.Triple, Error);
+  Triple TheTriple(Opts.Triple);
+  const Target *TheTarget = TargetRegistry::lookupTarget(TheTriple, Error);
   if (!TheTarget)
     return Diags.Report(diag::err_target_unknown_triple) << Opts.Triple;
 
@@ -437,7 +438,7 @@ static bool ExecuteAssemblerImpl(AssemblerInvocation &Opts,
   // it later.
   SrcMgr.setIncludeDirs(Opts.IncludePaths);
 
-  std::unique_ptr<MCRegisterInfo> MRI(TheTarget->createMCRegInfo(Opts.Triple));
+  std::unique_ptr<MCRegisterInfo> MRI(TheTarget->createMCRegInfo(TheTriple));
   assert(MRI && "Unable to create target register info!");
 
   MCTargetOptions MCOptions;
@@ -453,7 +454,7 @@ static bool ExecuteAssemblerImpl(AssemblerInvocation &Opts,
   MCOptions.AsSecureLogFile = Opts.AsSecureLogFile;
 
   std::unique_ptr<MCAsmInfo> MAI(
-      TheTarget->createMCAsmInfo(*MRI, Opts.Triple, MCOptions));
+      TheTarget->createMCAsmInfo(*MRI, TheTriple, MCOptions));
   assert(MAI && "Unable to create target asm info!");
 
   // Ensure MCAsmInfo initialization occurs before any use, otherwise sections
@@ -475,7 +476,7 @@ static bool ExecuteAssemblerImpl(AssemblerInvocation &Opts,
   std::string FS = llvm::join(Opts.Features, ",");
 
   std::unique_ptr<MCSubtargetInfo> STI(
-      TheTarget->createMCSubtargetInfo(Opts.Triple, Opts.CPU, FS));
+      TheTarget->createMCSubtargetInfo(TheTriple, Opts.CPU, FS));
   assert(STI && "Unable to create subtarget info!");
 
   MCContext Ctx(Triple(Opts.Triple), MAI.get(), MRI.get(), STI.get(), &SrcMgr,
