@@ -20,13 +20,10 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact: llvm-22-x86_64-linux.tar.xz
-            cmake_extra: ""
           - os: macos-14
             artifact: llvm-22-aarch64-macos.tar.xz
-            cmake_extra: ""
           - os: windows-latest
             artifact: llvm-22-x86_64-windows.tar.xz
-            cmake_extra: "-DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 240
     steps:
@@ -49,7 +46,8 @@ jobs:
         shell: bash
         run: git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
 
-      - name: Build LLVM
+      - name: Build LLVM (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           cmake -S llvm-src/llvm -B llvm-build -G Ninja \
@@ -71,10 +69,39 @@ jobs:
             -DLLVM_INCLUDE_TESTS=OFF \
             -DLLVM_INCLUDE_EXAMPLES=OFF \
             -DLLVM_INCLUDE_BENCHMARKS=OFF \
-            -DLLVM_INCLUDE_DOCS=OFF \
-            ${{ matrix.cmake_extra }}
-
+            -DLLVM_INCLUDE_DOCS=OFF
           ninja -C llvm-build install -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+        timeout-minutes: 180
+
+      - name: Build LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Find and activate MSVC environment
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments "-arch=amd64"
+
+          cmake -S llvm-src/llvm -B llvm-build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" `
+            -DLLVM_ENABLE_PROJECTS="clang;lld" `
+            -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SystemZ;VE;WebAssembly;X86;XCore" `
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="M68k;Xtensa;ARC;CSKY;SPIRV" `
+            -DLLVM_ENABLE_TERMINFO=OFF `
+            -DLLVM_ENABLE_LIBXML2=OFF `
+            -DLLVM_ENABLE_ZLIB=OFF `
+            -DLLVM_ENABLE_ZSTD=OFF `
+            -DCLANG_ENABLE_ARCMT=OFF `
+            -DCLANG_ENABLE_STATIC_ANALYZER=ON `
+            -DLLVM_ENABLE_BINDINGS=OFF `
+            -DLLVM_ENABLE_OCAMLDOC=OFF `
+            -DLLVM_INCLUDE_TESTS=OFF `
+            -DLLVM_INCLUDE_EXAMPLES=OFF `
+            -DLLVM_INCLUDE_BENCHMARKS=OFF `
+            -DLLVM_INCLUDE_DOCS=OFF
+
+          ninja -C llvm-build install
         timeout-minutes: 180
 
       - name: Package
