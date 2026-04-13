@@ -157,14 +157,11 @@ jobs:
             -Denable-llvm \
             -Dstatic-llvm \
             -Dllvm-prefix="${LLVM_PREFIX}" \
-            -Doptimize=ReleaseFast \
-            -Dstrip \
+            -Doptimize=ReleaseSafe \
             -Dtarget="${TARGET}" \
             -Dno-lib \
             -Dno-langref \
             -Dskip-tests \
-            -Duse-zig-libcxx \
-            -Dversion-string="${VERSION}" \
             --prefix "${OUT}"
 
           echo "Release binary built:"
@@ -196,11 +193,9 @@ jobs:
             --prefix stage4 \
             -Denable-llvm \
             -Dno-lib \
-            -Doptimize=ReleaseFast \
-            -Dstrip \
+            -Doptimize=ReleaseSafe \
             -Dtarget=${{ matrix.zig_target }} \
-            -Duse-zig-libcxx \
-            -Dversion-string="${VERSION}"
+            -Dskip-tests
 
           echo "Stage 4 built — verifying byte-for-byte identical..."
           diff "${STAGE3}" "stage4/bin/${{ matrix.bin }}" && echo "PASS: stage3 == stage4" \
