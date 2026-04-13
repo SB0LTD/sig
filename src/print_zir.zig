@@ -598,6 +598,17 @@ const Writer = struct {
                 try self.writeSrcNode(stream, inst_data.node);
             },
 
+            .round_op => {
+                const round_op: Zir.Inst.RoundOp = @enumFromInt(extended.small);
+                const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+                try stream.print("{s}, ", .{@tagName(round_op)});
+                try self.writeInstRef(stream, inst_data.lhs);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, inst_data.rhs);
+                try stream.writeAll(")) ");
+                try self.writeSrcNode(stream, inst_data.node);
+            },
+
             .reify_slice_arg_ty => {
                 const reify_slice_arg_info: Zir.Inst.ReifySliceArgInfo = @enumFromInt(extended.small);
                 const extra = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;

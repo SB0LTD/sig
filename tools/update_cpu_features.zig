@@ -2012,7 +2012,15 @@ fn processOneTarget(io: Io, job: Job) void {
                 std.debug.print("llvm-tblgen exited with code {d}\n", .{code});
                 std.process.exit(1);
             },
-            else => {
+            .signal => |sig| {
+                std.debug.print("llvm-tblgen terminated with signal {t}\n", .{sig});
+                std.process.exit(1);
+            },
+            .stopped => |sig| {
+                std.debug.print("llvm-tblgen stopped with signal {t}\n", .{sig});
+                std.process.exit(1);
+            },
+            .unknown => {
                 std.debug.print("llvm-tblgen crashed\n", .{});
                 std.process.exit(1);
             },

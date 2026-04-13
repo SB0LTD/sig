@@ -95,13 +95,14 @@ const normal_usage =
     \\  reduce           Minimize a bug report
     \\  translate-c      Convert C code to Zig code
     \\
-    \\  ar               Use Zig as a drop-in archiver
+    \\  ar               Combine object files into static archive
     \\  cc               Use Zig as a drop-in C compiler
     \\  c++              Use Zig as a drop-in C++ compiler
     \\  dlltool          Use Zig as a drop-in dlltool.exe
     \\  lib              Use Zig as a drop-in lib.exe
+    \\  objcopy          Manipulate executables and relocatables
+    \\  objdump          Print information about executables and relocatables
     \\  ranlib           Use Zig as a drop-in ranlib
-    \\  objcopy          Use Zig as a drop-in objcopy
     \\  rc               Use Zig as a drop-in rc.exe
     \\
     \\  env              Print lib path, std path, cache directory, and version
@@ -341,6 +342,11 @@ fn mainArgs(
         return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
             .cmd_name = "objcopy",
             .root_src_path = "objcopy.zig",
+        });
+    } else if (mem.eql(u8, cmd, "objdump")) {
+        return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
+            .cmd_name = "objdump",
+            .root_src_path = "objdump.zig",
         });
     } else if (mem.eql(u8, cmd, "fetch")) {
         return cmdFetch(gpa, arena, io, cmd_args, environ_map);
@@ -3529,10 +3535,6 @@ fn buildOutputType(
         fatal("--debug-incremental requires -fincremental", .{});
     }
 
-    if (incremental and create_module.resolved_options.use_llvm) {
-        warn("-fincremental is currently unsupported by the LLVM backend; crashes or miscompilations are likely", .{});
-    }
-
     const cache_mode: Compilation.CacheMode = b: {
         // Once incremental compilation is the default, we'll want some smarter logic here,
         // considering things like the backend in use and whether there's a ZCU.
@@ -4585,7 +4587,11 @@ fn runOrTest(
                     const cmd = try std.mem.join(arena, " ", argv.items);
                     fatal("the following command terminated with signal {t}:\n{s}", .{ sig, cmd });
                 },
-                else => {
+                .stopped => |sig| {
+                    const cmd = try std.mem.join(arena, " ", argv.items);
+                    fatal("the following command stopped with signal {t}:\n{s}", .{ sig, cmd });
+                },
+                .unknown => {
                     process.exit(1);
                 },
             }
@@ -4727,7 +4733,6 @@ fn cmdTranslateC(
     defer man.deinit();
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
-    man.hash.add(comp.config.c_frontend);
     Compilation.cache_helpers.hashCSource(&man, c_source_file) catch |err|
         fatal("unable to process '{s}': {t}", .{ c_source_file.src_path, err });
 
@@ -5945,7 +5950,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                 const cmd = try std.mem.join(arena, " ", child_argv.items);
                 fatal("the following build command terminated with signal {t}:\n{s}", .{ sig, cmd });
             },
-            else => {
+            .stopped => |sig| {
+                const cmd = try std.mem.join(arena, " ", child_argv.items);
+                fatal("the following build command stopped with signal {t}:\n{s}", .{ sig, cmd });
+            },
+            .unknown => {
                 const cmd = try std.mem.join(arena, " ", child_argv.items);
                 fatal("the following build command crashed:\n{s}", .{cmd});
             },
@@ -6247,7 +6256,11 @@ fn jitCmdInner(
             const cmd = try std.mem.join(arena, " ", child_argv.items);
             fatal("the following build command terminated with signal {t}:\n{s}", .{ sig, cmd });
         },
-        else => {
+        .stopped => |sig| {
+            const cmd = try std.mem.join(arena, " ", child_argv.items);
+            fatal("the following build command stopped with signal {t}:\n{s}", .{ sig, cmd });
+        },
+        .unknown => {
             const cmd = try std.mem.join(arena, " ", child_argv.items);
             fatal("the following build command crashed:\n{s}", .{cmd});
         },

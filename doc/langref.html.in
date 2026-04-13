@@ -319,6 +319,7 @@
           <a href="https://ziglang.org/documentation/0.13.0/">0.13.0</a> |
           <a href="https://ziglang.org/documentation/0.14.1/">0.14.1</a> |
           <a href="https://ziglang.org/documentation/0.15.2/">0.15.2</a> |
+          <a href="https://ziglang.org/documentation/0.16.0/">0.16.0</a> |
           master
         </nav>
         <nav aria-labelledby="table-of-contents">
@@ -3263,7 +3264,7 @@ fn createFoo(param: i32) !Foo {
       <ul>
         <li>Return an error from main</li>
         <li>An error makes its way to {#syntax#}catch unreachable{#endsyntax#} and you have not overridden the default panic handler</li>
-        <li>Use {#link|errorReturnTrace#} to access the current return trace. You can use {#syntax#}std.debug.dumpStackTrace{#endsyntax#} to print it. This function returns comptime-known {#link|null#} when building without error return tracing support.</li>
+        <li>Use {#link|errorReturnTrace#} to access the current return trace. You can use {#syntax#}std.debug.dumpErrorReturnTrace{#endsyntax#} to print it. This function returns comptime-known {#link|null#} when building without error return tracing support.</li>
       </ul>
       {#header_open|Implementation Details#}
       <p>
@@ -3582,12 +3583,10 @@ void do_a_thing(struct Foo *foo) {
       {#header_close#}
 
       {#header_open|Explicit Casts#}
-      <p>
-      Explicit casts are performed via {#link|Builtin Functions#}.
-      Some explicit casts are safe; some are not.
-      Some explicit casts perform language-level assertions; some do not.
-      Some explicit casts are no-ops at runtime; some are not.
-      </p>
+      <p>Explicit casts are performed via {#link|Builtin Functions#}.</p>
+      <p>Some explicit casts can violate type safety when used incorrectly.</p>
+      <p>Some explicit casts perform language-level assertions.</p>
+      <p>Some explicit casts are no-ops at runtime.</p>
       <ul>
           <li>{#link|@bitCast#} - change type but maintain bit representation</li>
           <li>{#link|@alignCast#} - make a pointer have more alignment</li>
@@ -3600,7 +3599,7 @@ void do_a_thing(struct Foo *foo) {
           <li>{#link|@intFromBool#} - convert true to 1 and false to 0</li>
           <li>{#link|@intFromEnum#} - obtain the integer tag value of an enum or tagged union</li>
           <li>{#link|@intFromError#} - obtain the integer value of an error code</li>
-          <li>{#link|@intFromFloat#} - obtain the integer part of a float value</li>
+          <li>{#link|@round#}, {#link|@floor#}, {#link|@ceil#}, {#link|@trunc#} - float to integer conversion</li>
           <li>{#link|@intFromPtr#} - obtain the address of a pointer</li>
           <li>{#link|@ptrFromInt#} - convert an address to a pointer</li>
           <li>{#link|@ptrCast#} - convert between pointer types</li>
@@ -4994,8 +4993,9 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@floatFromInt(int: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts an integer to the closest floating point representation. The return type is the inferred result type.
-			To convert the other way, use {#link|@intFromFloat#}. This operation is legal
-      for all values of all integer types.
+      To convert the other way, use {#link|@round#}, {#link|@floor#},
+      {#link|@ceil#}, or {#link|@trunc#}. This operation is legal for all
+      values of all integer types.
       </p>
       {#header_close#}
 
@@ -5135,14 +5135,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
 
       {#header_open|@intFromFloat#}
       <pre>{#syntax#}@intFromFloat(float: anytype) anytype{#endsyntax#}</pre>
-      <p>
-      Converts the integer part of a floating point number to the inferred result type.
-      </p>
-      <p>
-      If the integer part of the floating point number cannot fit in the destination type,
-      it invokes safety-checked {#link|Illegal Behavior#}.
-      </p>
-      {#see_also|@floatFromInt#}
+      <p>Deprecated. Equivalent to {#link|@trunc#}.</p>
+      {#see_also|@floatFromInt|@round|@floor|@ceil|@trunc#}
       {#header_close#}
 
       {#header_open|@intFromPtr#}
@@ -5721,47 +5715,51 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Supports {#link|Floats#}, {#link|Integers#} and {#link|Vectors#} of floats or integers.
       </p>
       {#header_close#}
+
       {#header_open|@floor#}
       <pre>{#syntax#}@floor(value: anytype) @TypeOf(value){#endsyntax#}</pre>
-      <p>
-      Returns the largest integral value not greater than the given floating point number.
-      Uses a dedicated hardware instruction when available.
-      </p>
-      <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats.
-      </p>
+      <p>Returns the largest integral value not greater than the given floating point number.
+      Uses a dedicated hardware instruction when available.</p>
+      <p>Supports {#link|Floats#} and {#link|Vectors#} of floats.</p>
+      <p>When the inferred result type is an {#link|integer|Integers#},
+      the integer part is extracted from the floored result. If that value
+      cannot fit in the destination type, it invokes safety-checked
+      {#link|Illegal Behavior#}.</p>
       {#header_close#}
+
       {#header_open|@ceil#}
       <pre>{#syntax#}@ceil(value: anytype) @TypeOf(value){#endsyntax#}</pre>
-      <p>
-      Returns the smallest integral value not less than the given floating point number.
-      Uses a dedicated hardware instruction when available.
-      </p>
-      <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats.
-      </p>
+      <p>Returns the smallest integral value not less than the given floating point number.
+      Uses a dedicated hardware instruction when available.</p>
+      <p>Supports {#link|Floats#} and {#link|Vectors#} of floats.</p>
+      <p>When the inferred result type is an {#link|integer|Integers#},
+      the integer part is extracted from the ceiled result. If that value
+      cannot fit in the destination type, it invokes safety-checked
+      {#link|Illegal Behavior#}.</p>
       {#header_close#}
+
       {#header_open|@trunc#}
       <pre>{#syntax#}@trunc(value: anytype) @TypeOf(value){#endsyntax#}</pre>
-      <p>
-      Rounds the given floating point number to an integer, towards zero.
-      Uses a dedicated hardware instruction when available.
-      </p>
-      <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats.
-      </p>
+      <p>Rounds the given floating point number to an integer, towards zero.
+      Uses a dedicated hardware instruction when available.</p>
+      <p>Supports {#link|Floats#} and {#link|Vectors#} of float parameters.</p>
+      <p>When the inferred result type is an {#link|integer|Integers#},
+      the integer part is extracted from the truncated result. If that value
+      cannot fit in the destination type, it invokes safety-checked
+      {#link|Illegal Behavior#}.</p>
       {#header_close#}
+
       {#header_open|@round#}
       <pre>{#syntax#}@round(value: anytype) @TypeOf(value){#endsyntax#}</pre>
-      <p>
-      Rounds the given floating point number to the nearest integer. If two integers are equally close, rounds away from zero.
-      Uses a dedicated hardware instruction when available.
-      </p>
+      <p>Rounds the given floating point number to the nearest integer. If two
+      integers are equally close, rounds away from zero. Uses a dedicated
+      hardware instruction when available.</p>
       {#code|test_round_builtin.zig#}
-
-      <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats.
-      </p>
+      <p>Supports {#link|Floats#} and {#link|Vectors#} of floats.</p>
+      <p>When the inferred result type is an {#link|integer|Integers#},
+      the integer part is extracted from the rounded result. If that value
+      cannot fit in the destination type, it invokes safety-checked
+      {#link|Illegal Behavior#}.</p>
       {#header_close#}
 
       {#header_open|@subWithOverflow#}

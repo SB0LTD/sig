@@ -424,6 +424,7 @@ pub fn main(init: process.Init.Minimal) !void {
                     fatal("unable to parse jobs count '{s}': {t}", .{ text, err });
                 if (n < 1) fatal("number of jobs must be at least 1", .{});
                 threaded.setAsyncLimit(.limited(n));
+                graph.max_jobs = n;
             } else if (mem.eql(u8, arg, "--")) {
                 builder.args = argsRest(args, arg_idx);
                 break;

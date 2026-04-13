@@ -121,7 +121,7 @@ test "resolve DNS" {
     // Resolve localhost, this should not fail.
     {
         const localhost_v4 = try net.IpAddress.parse("127.0.0.1", 80);
-        const localhost_v6 = try net.IpAddress.parse("::2", 80);
+        const localhost_v6 = try net.IpAddress.parse("::1", 80);
 
         var canonical_name_buffer: [net.HostName.max_len]u8 = undefined;
         var results_buffer: [32]net.HostName.LookupResult = undefined;
@@ -142,8 +142,10 @@ test "resolve DNS" {
                 if (address.eql(&localhost_v4) or address.eql(&localhost_v6))
                     addresses_found += 1;
             },
-            .canonical_name => |canonical_name| if (builtin.os.tag == .linux)
-                try testing.expectEqualStrings("localhost", canonical_name.bytes),
+            .canonical_name => |canonical_name| try testing.expectEqualStrings(
+                if (canonical_name.bytes[canonical_name.bytes.len - 1] == '.') "localhost." else "localhost",
+                canonical_name.bytes,
+            ),
         } else |err| switch (err) {
             error.Closed => {},
             error.Canceled => |e| return e,
@@ -179,6 +181,8 @@ test "resolve DNS" {
 }
 
 test "listen on a port, send bytes, receive bytes" {
+    if (true) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/31388
+
     const io = testing.io;
 
     // Try only the IPv4 variant as some CI builders have no IPv6 localhost

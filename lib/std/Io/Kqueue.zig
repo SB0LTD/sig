@@ -186,7 +186,7 @@ pub fn init(k: *Kqueue, gpa: Allocator, options: InitOptions) !void {
         .awaiter = null,
         .queue_next = null,
         .cancel_thread = null,
-        .awaiting_completions = .initEmpty(),
+        .awaiting_completions = .empty,
     };
     const main_thread = &k.threads.allocated[0];
     Thread.self = main_thread;
@@ -713,7 +713,7 @@ fn concurrent(
         .awaiter = null,
         .queue_next = null,
         .cancel_thread = null,
-        .awaiting_completions = .initEmpty(),
+        .awaiting_completions = .empty,
     };
     closure.* = .{
         .kqueue = k,

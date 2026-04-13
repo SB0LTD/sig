@@ -1133,7 +1133,16 @@ pub const Request = struct {
     pub fn receiveHead(r: *Request, redirect_buffer: []u8) ReceiveHeadError!Response {
         var aux_buf = redirect_buffer;
         while (true) {
-            const head_buffer = try r.reader.receiveHead();
+            // This while loop is for handling redirects, which means the request's
+            // connection may be different than the previous iteration. However, it
+            // is still guaranteed to be non-null with each iteration of this loop.
+            const connection = r.connection.?;
+
+            const head_buffer = r.reader.receiveHead() catch |err| {
+                // Failure here means the connection can no longer be reused.
+                connection.closing = true;
+                return err;
+            };
             const response: Response = .{
                 .request = r,
                 .head = Response.Head.parse(head_buffer) catch return error.HttpHeadersInvalid,
@@ -1146,11 +1155,6 @@ pub const Request = struct {
                 r.response_content_length = head.content_length;
                 return response; // we're not handling the 100-continue
             }
-
-            // This while loop is for handling redirects, which means the request's
-            // connection may be different than the previous iteration. However, it
-            // is still guaranteed to be non-null with each iteration of this loop.
-            const connection = r.connection.?;
 
             if (r.method == .CONNECT and head.status.class() == .success) {
                 // This connection is no longer doing HTTP.

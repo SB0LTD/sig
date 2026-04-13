@@ -358,14 +358,16 @@ fn alloc(ctx: *anyopaque, n: usize, alignment: Alignment, ret_addr: usize) ?[*]u
             const end_index = @atomicRmw(usize, &node.end_index, .Add, alignable, .acquire); // acquire any memory that may have been freed
             const aligned_index = alignedIndex(buf.ptr, end_index, alignment);
             assert(end_index + alignable >= aligned_index + n);
-            _ = @cmpxchgStrong(
-                usize,
-                &node.end_index,
-                end_index + alignable,
-                aligned_index + n,
-                .monotonic, // no need to release alignment padding; there's no one accessing it!
-                .monotonic,
-            );
+            if (end_index + alignable != aligned_index + n) {
+                _ = @cmpxchgStrong(
+                    usize,
+                    &node.end_index,
+                    end_index + alignable,
+                    aligned_index + n,
+                    .monotonic, // no need to release alignment padding; there's no one accessing it!
+                    .monotonic,
+                );
+            }
 
             if (aligned_index + n > buf.len) break :first_node .{ node, buf.len };
             return buf[aligned_index..][0..n].ptr;

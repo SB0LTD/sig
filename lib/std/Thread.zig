@@ -442,7 +442,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
                     @call(.auto, f, args) catch |err| {
                         std.debug.print("error: {s}\n", .{@errorName(err)});
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace);
+                            std.debug.dumpErrorReturnTrace(trace);
                         }
                     };
 
@@ -932,7 +932,7 @@ const WasiThreadImpl = struct {
                         @call(.auto, f, w.args) catch |err| {
                             std.debug.print("error: {s}\n", .{@errorName(err)});
                             if (@errorReturnTrace()) |trace| {
-                                std.debug.dumpStackTrace(trace);
+                                std.debug.dumpErrorReturnTrace(trace);
                             }
                         };
                     },
@@ -1147,6 +1147,11 @@ const LinuxThreadImpl = struct {
         /// Ported over from musl libc's pthread detached implementation:
         /// https://github.com/ifduyue/musl/search?q=__unmapself
         fn freeAndExit(self: *ThreadCompletion) noreturn {
+            // If we do not reset the child_tidptr to null here, the kernel would later write the
+            // value zero to that address, which is inside the block we're unmapping below, after
+            // our thread exits.  This can sometimes corrupt memory in other mmap blocks from
+            // unrelated concurrent threads.
+            _ = linux.set_tid_address(null);
             // If a signal were delivered between SYS_munmap and SYS_exit, any installed signal
             // handler would immediately segfault due to the stack being unmapped. To avoid this,
             // we need to mask all signals before entering the inline asm.
@@ -1484,7 +1489,7 @@ const LinuxThreadImpl = struct {
         }
 
         // Prepare the TLS segment and prepare a user_desc struct when needed on x86
-        var tls_ptr = linux.tls.prepareArea(mapped[tls_offset..]);
+        var tls_ptr = linux.tls.prepareArea(mapped[tls_offset..][0..linux.tls.area_desc.size]);
         var user_desc: if (target.cpu.arch == .x86) linux.user_desc else void = undefined;
         if (target.cpu.arch == .x86) {
             defer tls_ptr = @intFromPtr(&user_desc);

@@ -912,6 +912,7 @@ pub const Abi = enum {
             .windows => .gnu,
             .uefi => .msvc,
             .@"3ds" => .eabihf,
+            .psp => .eabihf,
             .vita => .eabihf,
             .wasi, .emscripten => .musl,
 
@@ -930,7 +931,6 @@ pub const Abi = enum {
             .tvos,
             .visionos,
             .watchos,
-            .psp,
             .ps3,
             .ps4,
             .ps5,
@@ -2035,7 +2035,8 @@ pub const Cpu = struct {
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
                 .loongarch64 => &loongarch.cpu.la64v1_0,
                 .m68k => &m68k.cpu.M68000,
-                .mips, .mipsel => switch (os.tag) {
+                .mips => &mips.cpu.mips32r2,
+                .mipsel => switch (os.tag) {
                     .psp => &mips.cpu.allegrex,
                     else => &mips.cpu.mips32r2,
                 },

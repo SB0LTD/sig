@@ -1584,6 +1584,11 @@ pub fn clone2(flags: u32, child_stack_ptr: usize) usize {
     return syscall2(.clone, flags, child_stack_ptr);
 }
 
+/// This call cannot fail, and the return value is the caller's thread id
+pub fn set_tid_address(tidptr: ?*pid_t) pid_t {
+    return @intCast(@as(u32, @truncate(syscall1(.set_tid_address, @intFromPtr(tidptr)))));
+}
+
 pub fn close(fd: fd_t) usize {
     return syscall1(.close, @as(usize, @bitCast(@as(isize, fd))));
 }
@@ -3878,8 +3883,8 @@ pub const W = struct {
     pub fn TERMSIG(s: u32) SIG {
         return @enumFromInt(s & 0x7f);
     }
-    pub fn STOPSIG(s: u32) u32 {
-        return EXITSTATUS(s);
+    pub fn STOPSIG(s: u32) SIG {
+        return @enumFromInt(EXITSTATUS(s));
     }
     pub fn IFEXITED(s: u32) bool {
         return (s & 0x7f) == 0;

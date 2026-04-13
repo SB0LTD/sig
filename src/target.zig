@@ -910,6 +910,7 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             .stage2_llvm,
             .stage2_x86_64,
             .stage2_riscv64,
+            .stage2_wasm,
             => true,
             else => false,
         },

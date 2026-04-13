@@ -1758,9 +1758,7 @@ test "open file with exclusive and shared nonblocking lock" {
 }
 
 test "open file with exclusive lock twice, make sure second lock waits" {
-    if (builtin.single_threaded) return error.SkipZigTest;
-
-    try testWithAllSupportedPathTypes(struct {
+    testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const io = ctx.io;
             const filename = try ctx.transformPath("file_lock_test.txt");
@@ -1781,8 +1779,8 @@ test "open file with exclusive lock twice, make sure second lock waits" {
             var started: Io.Event = .unset;
             var locked: Io.Event = .unset;
 
-            const t = try std.Thread.spawn(.{}, S.checkFn, .{ ctx, filename, &started, &locked });
-            defer t.join();
+            var t = try io.concurrent(S.checkFn, .{ ctx, filename, &started, &locked });
+            defer t.cancel(io) catch {};
 
             // Wait for the spawned thread to start trying to acquire the exclusive file lock.
             // Then wait a bit to make sure that can't acquire it since we currently hold the file lock.
@@ -1795,8 +1793,12 @@ test "open file with exclusive lock twice, make sure second lock waits" {
             // Release the file lock which should unlock the thread to lock it and set the locked event.
             file.close(io);
             try locked.wait(io);
+            try t.await(io);
         }
-    }.impl);
+    }.impl) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => return error.SkipZigTest,
+        else => |e| return e,
+    };
 }
 
 test "open file with exclusive nonblocking lock twice (absolute paths)" {

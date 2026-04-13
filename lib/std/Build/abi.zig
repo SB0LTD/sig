@@ -162,15 +162,39 @@ pub const fuzz = struct {
     pub extern fn fuzzer_init(cache_dir_path: Slice) void;
     /// `fuzzer_init` must be called first.
     pub extern fn fuzzer_coverage() Coverage;
-    /// `fuzzer_init` must be called first.
-    pub extern fn fuzzer_set_test(test_one: TestOne, unit_test_name: Slice) void;
-    /// `fuzzer_set_test` must be called first.
-    /// The callee owns the memory of bytes and must not free it until `fuzzer_main` returns
-    pub extern fn fuzzer_new_input(bytes: Slice) void;
-    /// `fuzzer_set_test` must be called first.
-    /// Resets the fuzzer's state to that of `fuzzer_init`.
-    pub extern fn fuzzer_main(limit_kind: LimitKind, amount: u64) void;
     pub extern fn fuzzer_unslide_address(addr: usize) usize;
+
+    /// Performs all the fuzzing work and selects tests to run
+    ///
+    /// `fuzzer_init` must be called first.
+    pub extern fn fuzzer_main(
+        n_tests: u32,
+        seed: u32,
+        limit_kind: LimitKind,
+        amount_or_instance: u64,
+    ) void;
+    pub extern fn runner_test_run(i: u32) void;
+    pub extern fn runner_test_name(i: u32) Slice;
+    // Since the runner owns the `std.zig.Server` instance, it also controls the
+    // concurrent Io instance so reads can be canceled. As such, the fuzzer has
+    // to call into the runner for any zig server / concurrent operation.
+    pub extern fn runner_start_input_poller() void;
+    pub extern fn runner_stop_input_poller() void;
+    /// Returns if cancelation has been indicated.
+    pub extern fn runner_futex_wait(*const u32, expected: u32) bool;
+    pub extern fn runner_futex_wake(*const u32, waiters: u32) void;
+    pub extern fn runner_broadcast_input(test_i: u32, bytes: Slice) void;
+    /// `fuzzer_main` must be called first.
+    ///
+    /// Called concurrently with `fuzzer_main`. Returns if cancelation has been indicated.
+    pub extern fn fuzzer_receive_input(test_i: u32, bytes: Slice) bool;
+
+    /// Must be called from inside a test function
+    pub extern fn fuzzer_set_test(test_one: TestOne) void;
+    /// Must be called from inside a test function where `fuzzer_set_test` has been called first.
+    pub extern fn fuzzer_new_input(bytes: Slice) void;
+    /// Must be called from inside a test function where `fuzzer_set_test` has been called first.
+    pub extern fn fuzzer_start_test() void;
 
     pub extern fn fuzzer_int(uid: Uid, weights: Weights) u64;
     pub extern fn fuzzer_eos(uid: Uid, weights: Weights) bool;
@@ -335,6 +359,14 @@ pub const fuzz = struct {
             const pcs_len = header.pcs_len;
             return header.headerEnd()[seenElemsLen(pcs_len)..][0..pcs_len];
         }
+    };
+
+    /// Fields are little-endian
+    pub const MmapInputHeader = extern struct {
+        pc_digest: u64 align(4), // aligned so header does not have padding
+        instance_id: u32,
+        test_i: u32,
+        len: u32,
     };
 
     /// WebSocket server->client.

@@ -3721,14 +3721,14 @@ pub const W = switch (native_os) {
         pub fn TERMSIG(x: u32) SIG {
             return @enumFromInt(status(x));
         }
-        pub fn STOPSIG(x: u32) u32 {
-            return x >> 8;
+        pub fn STOPSIG(x: u32) SIG {
+            return @enumFromInt(x >> 8);
         }
         pub fn IFEXITED(x: u32) bool {
             return status(x) == 0;
         }
         pub fn IFSTOPPED(x: u32) bool {
-            return status(x) == stopped and STOPSIG(x) != 0x13;
+            return status(x) == stopped and @as(u32, @intFromEnum(STOPSIG(x))) != 0x13;
         }
         pub fn IFSIGNALED(x: u32) bool {
             return status(x) != stopped and status(x) != 0;
@@ -3754,8 +3754,8 @@ pub const W = switch (native_os) {
         pub fn TERMSIG(s: u32) SIG {
             return @enumFromInt(s & 0x7f);
         }
-        pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
+        pub fn STOPSIG(s: u32) SIG {
+            return @enumFromInt(EXITSTATUS(s));
         }
         pub fn IFEXITED(s: u32) bool {
             return (s & 0x7f) == 0;
@@ -3782,8 +3782,8 @@ pub const W = switch (native_os) {
         pub fn TERMSIG(s: u32) SIG {
             return @enumFromInt(s & 0x7f);
         }
-        pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
+        pub fn STOPSIG(s: u32) SIG {
+            return @enumFromInt(EXITSTATUS(s));
         }
         pub fn IFEXITED(s: u32) bool {
             return (s & 0x7f) == 0;
@@ -3816,8 +3816,8 @@ pub const W = switch (native_os) {
         pub fn TERMSIG(s: u32) SIG {
             return @enumFromInt(s & 0x7f);
         }
-        pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
+        pub fn STOPSIG(s: u32) SIG {
+            return @enumFromInt(EXITSTATUS(s));
         }
         pub fn IFEXITED(s: u32) bool {
             return (s & 0x7f) == 0;
@@ -3850,8 +3850,8 @@ pub const W = switch (native_os) {
         pub fn TERMSIG(s: u32) SIG {
             return @enumFromInt(s & 0x7f);
         }
-        pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
+        pub fn STOPSIG(s: u32) SIG {
+            return @enumFromInt(EXITSTATUS(s));
         }
         pub fn IFEXITED(s: u32) bool {
             return (s & 0x7f) == 0;
@@ -3879,8 +3879,8 @@ pub const W = switch (native_os) {
             return @enumFromInt((s >> 8) & 0xff);
         }
 
-        pub fn STOPSIG(s: u32) u32 {
-            return (s >> 16) & 0xff;
+        pub fn STOPSIG(s: u32) SIG {
+            return @enumFromInt((s >> 16) & 0xff);
         }
 
         pub fn IFEXITED(s: u32) bool {
@@ -3906,8 +3906,8 @@ pub const W = switch (native_os) {
         pub fn TERMSIG(s: u32) SIG {
             return @enumFromInt(s & 0x7f);
         }
-        pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
+        pub fn STOPSIG(s: u32) SIG {
+            return @enumFromInt(EXITSTATUS(s));
         }
         pub fn IFEXITED(s: u32) bool {
             return (s & 0x7f) == 0;
@@ -3938,8 +3938,8 @@ pub const W = switch (native_os) {
             return @intCast((s & 0xff00) >> 8);
         }
 
-        pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
+        pub fn STOPSIG(s: u32) SIG {
+            return @enumFromInt(EXITSTATUS(s));
         }
 
         pub fn TERMSIG(s: u32) SIG {

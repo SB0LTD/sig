@@ -1671,20 +1671,23 @@ pub fn init(
 /// When initialized this way:
 /// * cancel requests have no effect.
 /// * `deinit` is safe, but unnecessary to call.
-pub const init_single_threaded: Threaded = .{
-    .allocator = .failing,
-    .stack_size = std.Thread.SpawnConfig.default_stack_size,
-    .async_limit = .nothing,
-    .cpu_count_error = null,
-    .concurrent_limit = .nothing,
-    .old_sig_io = undefined,
-    .old_sig_pipe = undefined,
-    .have_signal_handler = false,
-    .argv0 = .empty,
-    .environ_initialized = true,
-    .environ = .empty,
-    .worker_threads = .init(null),
-    .disable_memory_mapping = false,
+pub const init_single_threaded: Threaded = init: {
+    const env_block: process.Environ.Block = if (is_windows) .global else .empty;
+    break :init .{
+        .allocator = .failing,
+        .stack_size = std.Thread.SpawnConfig.default_stack_size,
+        .async_limit = .nothing,
+        .cpu_count_error = null,
+        .concurrent_limit = .nothing,
+        .old_sig_io = undefined,
+        .old_sig_pipe = undefined,
+        .have_signal_handler = false,
+        .argv0 = .empty,
+        .environ_initialized = env_block.isEmpty(),
+        .environ = .{ .process_environ = .{ .block = env_block } },
+        .worker_threads = .init(null),
+        .disable_memory_mapping = false,
+    };
 };
 
 var global_single_threaded_instance: Threaded = .init_single_threaded;
@@ -4290,6 +4293,7 @@ fn dirCreateFilePosix(
                         .AGAIN => return error.WouldBlock,
                         .TXTBSY => return error.FileBusy,
                         .NXIO => return error.NoDevice,
+                        .ROFS => return error.ReadOnlyFileSystem,
                         .ILSEQ => return error.BadPathName,
                         else => |err| return posix.unexpectedErrno(err),
                     }
@@ -4871,6 +4875,7 @@ fn dirOpenFilePosix(
                         .AGAIN => return error.WouldBlock,
                         .TXTBSY => return error.FileBusy,
                         .NXIO => return error.NoDevice,
+                        .ROFS => return error.ReadOnlyFileSystem,
                         .ILSEQ => return error.BadPathName,
                         else => |err| return posix.unexpectedErrno(err),
                     }
@@ -6088,12 +6093,19 @@ fn dirRealPathFileWindows(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8,
         }
     };
     defer windows.CloseHandle(h_file);
-    return realPathWindows(h_file, out_buffer);
+
+    // We can re-use the path buffer for the WTF-16 representation since
+    // we don't need the prefixed path anymore
+    return realPathWindowsBuf(h_file, out_buffer, &path_name_w.data);
 }
 
 fn realPathWindows(h_file: windows.HANDLE, out_buffer: []u8) File.RealPathError!usize {
     var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
-    const wide_slice = try GetFinalPathNameByHandle(h_file, .{}, &wide_buf);
+    return realPathWindowsBuf(h_file, out_buffer, &wide_buf);
+}
+
+fn realPathWindowsBuf(h_file: windows.HANDLE, out_buffer: []u8, wtf16_buffer: []u16) File.RealPathError!usize {
+    const wide_slice = try GetFinalPathNameByHandle(h_file, .{}, wtf16_buffer);
 
     const len = std.unicode.calcWtf8Len(wide_slice);
     if (len > out_buffer.len)
@@ -8718,13 +8730,6 @@ fn supportsAnsiEscapeCodes(file: File) Io.Cancelable!bool {
             .INVALID_HANDLE => return isCygwinPty(file),
             else => return false,
         }
-    }
-
-    if (native_os == .wasi) {
-        // WASI sanitizes stdout when fd is a tty so ANSI escape codes will not
-        // be interpreted as actual cursor commands, and stderr is always
-        // sanitized.
-        return false;
     }
 
     if (try isTty(file)) return true;
@@ -13008,6 +13013,7 @@ fn netReceiveOneWindows(
         .CANCELLED => unreachable,
         .INSUFFICIENT_RESOURCES => return error.SystemResources,
         .BUFFER_OVERFLOW => return error.MessageOversize,
+        .PORT_UNREACHABLE => return error.PortUnreachable,
         else => |status| return windows.unexpectedStatus(status),
     }
 }
@@ -13482,21 +13488,80 @@ fn netLookupFallible(
     const name = host_name.bytes;
     assert(name.len <= HostName.max_len);
 
-    if (is_windows) {
-        if (options.family == null) {
-            if (IpAddress.parseIp4(name, options.port)) |addr| {
-                if (copyCanon(options.canonical_name_buffer, name)) |canon| {
-                    try resolved.putAll(t_io, &.{
-                        .{ .address = addr },
-                        .{ .canonical_name = canon },
-                    });
-                } else {
-                    try resolved.putOne(t_io, .{ .address = addr });
-                }
-                return;
-            } else |_| {}
+    // On Linux, glibc provides getaddrinfo_a which is capable of supporting our semantics.
+    // However, musl's POSIX-compliant getaddrinfo is not, so we bypass it.
+
+    if (builtin.target.isGnuLibC()) {
+        // TODO use getaddrinfo_a / gai_cancel
+    }
+
+    if (native_os == .linux or is_windows) {
+        if (IpAddress.parseIp6(name, options.port)) |addr| {
+            if (options.family == .ip4) return error.UnknownHostName;
+            if (copyCanon(options.canonical_name_buffer, name)) |canon| {
+                try resolved.putAll(t_io, &.{
+                    .{ .address = addr },
+                    .{ .canonical_name = canon },
+                });
+            } else {
+                try resolved.putOne(t_io, .{ .address = addr });
+            }
+            return;
+        } else |_| {}
+
+        if (IpAddress.parseIp4(name, options.port)) |addr| {
+            if (options.family == .ip6) return error.UnknownHostName;
+            if (copyCanon(options.canonical_name_buffer, name)) |canon| {
+                try resolved.putAll(t_io, &.{
+                    .{ .address = addr },
+                    .{ .canonical_name = canon },
+                });
+            } else {
+                try resolved.putOne(t_io, .{ .address = addr });
+            }
+            return;
+        } else |_| {}
+
+        if (t.lookupHosts(host_name, resolved, options)) return else |err| switch (err) {
+            error.UnknownHostName => {},
+            else => |e| return e,
         }
 
+        // RFC 6761 Section 6.3.3
+        // Name resolution APIs and libraries SHOULD recognize
+        // localhost names as special and SHOULD always return the IP
+        // loopback address for address queries and negative responses
+        // for all other query types.
+
+        // Check for equal to "localhost(.)" or ends in ".localhost(.)"
+        const localhost = if (name[name.len - 1] == '.') "localhost." else "localhost";
+        if (std.mem.endsWith(u8, name, localhost) and
+            (name.len == localhost.len or name[name.len - localhost.len] == '.'))
+        {
+            var results_buffer: [3]HostName.LookupResult = undefined;
+            var results_index: usize = 0;
+            if (options.family != .ip4) {
+                results_buffer[results_index] = .{ .address = .{ .ip6 = .loopback(options.port) } };
+                results_index += 1;
+            }
+            if (options.family != .ip6) {
+                results_buffer[results_index] = .{ .address = .{ .ip4 = .loopback(options.port) } };
+                results_index += 1;
+            }
+            if (options.canonical_name_buffer) |buf| {
+                const canon_name = "localhost";
+                const canon_name_dest = buf[0..canon_name.len];
+                canon_name_dest.* = canon_name.*;
+                results_buffer[results_index] = .{ .canonical_name = .{ .bytes = canon_name_dest } };
+                results_index += 1;
+            }
+            try resolved.putAll(t_io, results_buffer[0..results_index]);
+            return;
+        }
+
+        if (native_os == .linux) return t.lookupDnsSearch(host_name, resolved, options);
+
+        comptime assert(is_windows);
         var DnsQueryEx = t.dl.DnsQueryEx.load(.acquire);
         //var DnsCancelQuery = t.dl.DnsCancelQuery.load(.acquire);
         var DnsFree = t.dl.DnsFree.load(.acquire);
@@ -13540,6 +13605,7 @@ fn netLookupFallible(
                 else => |status| return windows.unexpectedStatus(status),
             }
         }
+        try Thread.checkCancel();
         const current_thread = Thread.current;
         var lookup_dns: LookupDnsWindows = .{
             .threaded = t,
@@ -13562,124 +13628,69 @@ fn netLookupFallible(
             }
         ] = 0;
         //var cancel_token: windows.DNS.QUERY.CANCEL = undefined;
+        // Workaround various bugs by attempting a synchronous non-wire query first
         switch (DnsQueryEx.?(&.{
             .Version = 1,
             .QueryName = &host_name_w,
             .QueryType = if (options.family == .ip4) .A else .AAAA,
             .QueryOptions = .{
+                .NO_WIRE_QUERY = true,
+                .NO_HOSTS_FILE = true, // handled above
                 .ADDRCONFIG = true,
                 .DUAL_ADDR = options.family == null,
-                .MULTICAST_WAIT = true,
             },
-            .pQueryCompletionCallback = if (current_thread) |_| &LookupDnsWindows.completed else null,
-        }, &lookup_dns.results,
-            //&cancel_token,
-            null)) {
+        }, &lookup_dns.results, null)) {
+            .SUCCESS => try lookup_dns.completedFallible(),
             // We must wait for the APC routine.
-            .SUCCESS, .DNS_REQUEST_PENDING => |status| if (current_thread) |_| {
-                while (!@atomicLoad(bool, &lookup_dns.done, .acquire)) {
-                    // Once we get here we must not return from the function until the
-                    // operation completes, thereby releasing references to `host_name_w`,
-                    // `lookup_dns.results`, and `cancel_token`.
-                    const alertable_syscall = AlertableSyscall.start() catch |err| switch (err) {
-                        error.Canceled => |e| {
-                            //_ = DnsCancelQuery.?(&cancel_token);
-                            while (!@atomicLoad(bool, &lookup_dns.done, .acquire)) waitForApcOrAlert();
-                            return e;
-                        },
-                    };
-                    waitForApcOrAlert();
-                    alertable_syscall.finish();
-                }
-            } else switch (status) {
+            .DNS_REQUEST_PENDING => unreachable, // `pQueryCompletionCallback` was `null`
+            .DNS_ERROR_RECORD_DOES_NOT_EXIST => switch (DnsQueryEx.?(&.{
+                .Version = 1,
+                .QueryName = &host_name_w,
+                .QueryType = if (options.family == .ip4) .A else .AAAA,
+                .QueryOptions = .{
+                    .NO_HOSTS_FILE = true, // handled above
+                    .ADDRCONFIG = true,
+                    .DUAL_ADDR = options.family == null,
+                    .MULTICAST_WAIT = true,
+                },
+                .pQueryCompletionCallback = if (current_thread) |_| &LookupDnsWindows.completed else null,
+            }, &lookup_dns.results,
+                //&cancel_token,
+                null)) {
                 .SUCCESS => try lookup_dns.completedFallible(),
-                .DNS_REQUEST_PENDING => unreachable, // `pQueryCompletionCallback` was `null`
-                else => unreachable,
+                // We must wait for the APC routine.
+                .DNS_REQUEST_PENDING => {
+                    assert(current_thread != null); // `pQueryCompletionCallback` was `null`
+                    while (!@atomicLoad(bool, &lookup_dns.done, .acquire)) {
+                        // Once we get here we must not return from the function until the
+                        // operation completes, thereby releasing references to `host_name_w`,
+                        // `lookup_dns.results`, and `cancel_token`.
+                        const alertable_syscall = AlertableSyscall.start() catch |err| switch (err) {
+                            error.Canceled => |e| {
+                                //_ = DnsCancelQuery.?(&cancel_token);
+                                while (!@atomicLoad(bool, &lookup_dns.done, .acquire)) waitForApcOrAlert();
+                                return e;
+                            },
+                        };
+                        waitForApcOrAlert();
+                        alertable_syscall.finish();
+                    }
+                },
+                else => |status| lookup_dns.results.QueryStatus = status,
             },
             else => |status| lookup_dns.results.QueryStatus = status,
         }
         switch (lookup_dns.results.QueryStatus) {
             .SUCCESS => return,
             .DNS_REQUEST_PENDING => unreachable, // already handled
-            .INVALID_NAME, .DNS_INFO_NO_RECORDS => return error.UnknownHostName,
+            .INVALID_NAME,
+            .DNS_ERROR_RCODE_NAME_ERROR,
+            .DNS_INFO_NO_RECORDS,
+            .DNS_ERROR_INVALID_NAME_CHAR,
+            .DNS_ERROR_RECORD_DOES_NOT_EXIST,
+            => return error.UnknownHostName,
             else => |err| return windows.unexpectedError(err),
         }
-    }
-
-    // On Linux, glibc provides getaddrinfo_a which is capable of supporting our semantics.
-    // However, musl's POSIX-compliant getaddrinfo is not, so we bypass it.
-
-    if (builtin.target.isGnuLibC()) {
-        // TODO use getaddrinfo_a / gai_cancel
-    }
-
-    if (native_os == .linux) {
-        if (options.family != .ip4) {
-            if (IpAddress.parseIp6(name, options.port)) |addr| {
-                if (copyCanon(options.canonical_name_buffer, name)) |canon| {
-                    try resolved.putAll(t_io, &.{
-                        .{ .address = addr },
-                        .{ .canonical_name = canon },
-                    });
-                } else {
-                    try resolved.putOne(t_io, .{ .address = addr });
-                }
-                return;
-            } else |_| {}
-        }
-
-        if (options.family != .ip6) {
-            if (IpAddress.parseIp4(name, options.port)) |addr| {
-                if (copyCanon(options.canonical_name_buffer, name)) |canon| {
-                    try resolved.putAll(t_io, &.{
-                        .{ .address = addr },
-                        .{ .canonical_name = canon },
-                    });
-                } else {
-                    try resolved.putOne(t_io, .{ .address = addr });
-                }
-                return;
-            } else |_| {}
-        }
-
-        t.lookupHosts(host_name, resolved, options) catch |err| switch (err) {
-            error.UnknownHostName => {},
-            else => |e| return e,
-        };
-
-        // RFC 6761 Section 6.3.3
-        // Name resolution APIs and libraries SHOULD recognize
-        // localhost names as special and SHOULD always return the IP
-        // loopback address for address queries and negative responses
-        // for all other query types.
-
-        // Check for equal to "localhost(.)" or ends in ".localhost(.)"
-        const localhost = if (name[name.len - 1] == '.') "localhost." else "localhost";
-        if (std.mem.endsWith(u8, name, localhost) and
-            (name.len == localhost.len or name[name.len - localhost.len] == '.'))
-        {
-            var results_buffer: [3]HostName.LookupResult = undefined;
-            var results_index: usize = 0;
-            if (options.family != .ip4) {
-                results_buffer[results_index] = .{ .address = .{ .ip6 = .loopback(options.port) } };
-                results_index += 1;
-            }
-            if (options.family != .ip6) {
-                results_buffer[results_index] = .{ .address = .{ .ip4 = .loopback(options.port) } };
-                results_index += 1;
-            }
-            if (options.canonical_name_buffer) |buf| {
-                const canon_name = "localhost";
-                const canon_name_dest = buf[0..canon_name.len];
-                canon_name_dest.* = canon_name.*;
-                results_buffer[results_index] = .{ .canonical_name = .{ .bytes = canon_name_dest } };
-                results_index += 1;
-            }
-            try resolved.putAll(t_io, results_buffer[0..results_index]);
-            return;
-        }
-
-        return t.lookupDnsSearch(host_name, resolved, options);
     }
 
     if (native_os == .openbsd) {
@@ -14510,8 +14521,32 @@ fn lookupHosts(
     resolved: *Io.Queue(HostName.LookupResult),
     options: HostName.LookupOptions,
 ) !void {
-    const t_io = io(t);
-    const file = Dir.openFileAbsolute(t_io, "/etc/hosts", .{}) catch |err| switch (err) {
+    const path_w = if (is_windows) path_w: {
+        var path_w_buf: [windows.PATH_MAX_WIDE:0]u16 = undefined;
+        const system_dir = windows.getSystemDirectoryWtf16Le();
+        const suffix = [_]u16{
+            '\\', 'd', 'r', 'i', 'v', 'e', 'r', 's', '\\', 'e', 't', 'c', '\\', 'h', 'o', 's', 't', 's',
+        };
+        @memcpy(path_w_buf[0..system_dir.len], system_dir);
+        @memcpy(path_w_buf[system_dir.len..][0..suffix.len], &suffix);
+        path_w_buf[system_dir.len + suffix.len] = 0;
+        break :path_w wToPrefixedFileW(null, &path_w_buf, .{}) catch |err| switch (err) {
+            error.FileNotFound,
+            error.AccessDenied,
+            => return error.UnknownHostName,
+
+            error.Canceled => |e| return e,
+
+            else => {
+                // Here we could add more detailed diagnostics to the results queue.
+                return error.DetectingNetworkConfigurationFailed;
+            },
+        };
+    };
+    const file = (if (is_windows)
+        dirOpenFileWtf16(null, path_w.span(), .{})
+    else
+        dirOpenFile(t, .cwd(), "/etc/hosts", .{})) catch |err| switch (err) {
         error.FileNotFound,
         error.NotDir,
         error.AccessDenied,
@@ -14524,10 +14559,10 @@ fn lookupHosts(
             return error.DetectingNetworkConfigurationFailed;
         },
     };
-    defer file.close(t_io);
+    defer fileClose(t, &.{file});
 
     var line_buf: [512]u8 = undefined;
-    var file_reader = file.reader(t_io, &line_buf);
+    var file_reader = file.reader(t.io(), &line_buf);
     return t.lookupHostsReader(host_name, resolved, options, &file_reader.interface) catch |err| switch (err) {
         error.ReadFailed => switch (file_reader.err.?) {
             error.Canceled => |e| return e,
@@ -14567,14 +14602,17 @@ fn lookupHostsReader(
             error.EndOfStream => break,
         };
         reader.toss(@min(1, reader.bufferedLen()));
-        var split_it = std.mem.splitScalar(u8, line, '#');
+        var split_it = std.mem.splitScalar(u8, if (is_windows and std.mem.endsWith(u8, line, "\r"))
+            line[0 .. line.len - 1]
+        else
+            line, '#');
         const no_comment_line = split_it.first();
 
         var line_it = std.mem.tokenizeAny(u8, no_comment_line, " \t");
         const ip_text = line_it.next() orelse continue;
         var first_name_text: ?[]const u8 = null;
         while (line_it.next()) |name_text| {
-            if (std.mem.eql(u8, name_text, host_name.bytes)) {
+            if (std.ascii.eqlIgnoreCase(name_text, host_name.bytes)) {
                 if (first_name_text == null) first_name_text = name_text;
                 break;
             }
@@ -15239,7 +15277,7 @@ fn childWaitPosix(child: *process.Child) process.Child.WaitError!process.Child.T
                 return switch (code) {
                     .EXITED => .{ .exited = @truncate(status) },
                     .KILLED, .DUMPED => .{ .signal = @enumFromInt(status) },
-                    .TRAPPED, .STOPPED => .{ .stopped = status },
+                    .TRAPPED, .STOPPED => .{ .stopped = @enumFromInt(status) },
                     _, .CONTINUED => .{ .unknown = status },
                 };
             },

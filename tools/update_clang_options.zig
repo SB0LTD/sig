@@ -688,9 +688,17 @@ pub fn main(init: std.process.Init) !void {
 
     const json_text = switch (child_result.term) {
         .exited => |code| if (code == 0) child_result.stdout else {
-            fatal("llvm-tblgen exited with code {d}", .{code});
+            fatal("llvm-tblgen exited with code {d}\n", .{code});
         },
-        else => fatal("llvm-tblgen crashed", .{}),
+        .signal => |sig| {
+            fatal("llvm-tblgen terminated with signal {t}\n", .{sig});
+        },
+        .stopped => |sig| {
+            fatal("llvm-tblgen stopped with signal {d}\n", .{sig});
+        },
+        .unknown => {
+            fatal("llvm-tblgen crashed\n", .{});
+        },
     };
 
     const parsed = try json.parseFromSlice(json.Value, arena, json_text, .{});

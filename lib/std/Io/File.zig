@@ -202,6 +202,7 @@ pub const OpenError = error{
     NotDir,
     /// The path already exists and the `CREAT` and `EXCL` flags were provided.
     PathAlreadyExists,
+    ReadOnlyFileSystem,
     DeviceBusy,
     FileLocksUnsupported,
     /// One of these three things:
