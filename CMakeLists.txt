@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.15)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
@@ -528,8 +528,12 @@ target_include_directories(zigcpp PUBLIC
     ${LLD_INCLUDE_DIRS}
 )
 target_link_libraries(zigcpp PUBLIC
-    # RESCAN resolves circular dependencies between clang/lld/llvm static libs
-    "$<LINK_GROUP:RESCAN,${CLANG_LIBRARIES},${LLD_LIBRARIES},${LLVM_LIBRARIES}>"
+    ${CLANG_LIBRARIES}
+    ${LLD_LIBRARIES}
+    ${LLVM_LIBRARIES}
+    ${CLANG_LIBRARIES}
+    ${LLD_LIBRARIES}
+    ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 
