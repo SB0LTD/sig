@@ -427,8 +427,9 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
             });
 
             // For short initializers, track the names on the stack rather than going through gpa.
-            var sfba_state = std.heap.stackFallback(256, gpa);
-            const sfba = sfba_state.get();
+            var sfba_buf: [256]u8 = undefined;
+            var sfba_state: std.heap.StackFallbackAllocator = .init(&sfba_buf, gpa);
+            const sfba = sfba_state.allocator();
             var field_names: std.AutoHashMapUnmanaged(Zoir.NullTerminatedString, Ast.TokenIndex) = .empty;
             defer field_names.deinit(sfba);
 

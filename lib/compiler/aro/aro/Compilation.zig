@@ -1761,8 +1761,9 @@ fn addToSearchPath(comp: *Compilation, include: Include, verbose: bool) !void {
     try comp.search_path.append(comp.gpa, include);
 }
 fn removeDuplicateSearchPaths(comp: *Compilation, start: usize, verbose: bool) !void {
-    var sf = std.heap.stackFallback(1024, comp.gpa);
-    const allocator = sf.get();
+    var sf_buf: [1024]u8 = undefined;
+    var sf: std.heap.StackFallbackAllocator = .init(&sf_buf, comp.gpa);
+    const allocator = sf.allocator();
     var seen_includes: std.StringHashMapUnmanaged(void) = .empty;
     defer seen_includes.deinit(allocator);
     var seen_frameworks: std.StringHashMapUnmanaged(void) = .empty;
@@ -1976,8 +1977,9 @@ const FindInclude = struct {
     ) Allocator.Error!?Result {
         const comp = find.comp;
 
-        var stack_fallback = std.heap.stackFallback(path_buf_stack_limit, comp.gpa);
-        const sfa = stack_fallback.get();
+        var stack_fallback_buf: [path_buf_stack_limit]u8 = undefined;
+        var stack_fallback: std.heap.StackFallbackAllocator = .init(&stack_fallback_buf, comp.gpa);
+        const sfa = stack_fallback.allocator();
         const header_path = try std.fmt.allocPrint(sfa, format, args);
         defer sfa.free(header_path);
         find.comp.normalizePath(header_path);
@@ -2068,8 +2070,9 @@ pub fn findEmbed(
         }
     }
 
-    var stack_fallback = std.heap.stackFallback(path_buf_stack_limit, comp.gpa);
-    const sf_allocator = stack_fallback.get();
+    var stack_fallback_buf: [path_buf_stack_limit]u8 = undefined;
+    var stack_fallback: std.heap.StackFallbackAllocator = .init(&stack_fallback_buf, comp.gpa);
+    const sf_allocator = stack_fallback.allocator();
 
     switch (include_type) {
         .quotes, .cli => {

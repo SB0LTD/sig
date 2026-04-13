@@ -3605,11 +3605,9 @@ pub const Object = struct {
                             vals: [Builder.expected_fields_len]Builder.Constant,
                             fields: [Builder.expected_fields_len]Builder.Type,
                         };
-                        var stack align(@max(
-                            @alignOf(std.heap.StackFallbackAllocator(0)),
-                            @alignOf(ExpectedContents),
-                        )) = std.heap.stackFallback(@sizeOf(ExpectedContents), o.gpa);
-                        const allocator = stack.get();
+                        var stack_buf: ExpectedContents = undefined;
+                        var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), o.gpa);
+                        const allocator = stack.allocator();
                         const vals = try allocator.alloc(Builder.Constant, elems.len);
                         defer allocator.free(vals);
                         const fields = try allocator.alloc(Builder.Type, elems.len);
@@ -3636,11 +3634,9 @@ pub const Object = struct {
                             vals: [Builder.expected_fields_len]Builder.Constant,
                             fields: [Builder.expected_fields_len]Builder.Type,
                         };
-                        var stack align(@max(
-                            @alignOf(std.heap.StackFallbackAllocator(0)),
-                            @alignOf(ExpectedContents),
-                        )) = std.heap.stackFallback(@sizeOf(ExpectedContents), o.gpa);
-                        const allocator = stack.get();
+                        var stack_buf: ExpectedContents = undefined;
+                        var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), o.gpa);
+                        const allocator = stack.allocator();
                         const vals = try allocator.alloc(Builder.Constant, len_including_sentinel);
                         defer allocator.free(vals);
                         const fields = try allocator.alloc(Builder.Type, len_including_sentinel);
@@ -3668,11 +3664,9 @@ pub const Object = struct {
                     switch (aggregate.storage) {
                         .bytes, .elems => {
                             const ExpectedContents = [Builder.expected_fields_len]Builder.Constant;
-                            var stack align(@max(
-                                @alignOf(std.heap.StackFallbackAllocator(0)),
-                                @alignOf(ExpectedContents),
-                            )) = std.heap.stackFallback(@sizeOf(ExpectedContents), o.gpa);
-                            const allocator = stack.get();
+                            var stack_buf: ExpectedContents = undefined;
+                            var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), o.gpa);
+                            const allocator = stack.allocator();
                             const vals = try allocator.alloc(Builder.Constant, vector_type.len);
                             defer allocator.free(vals);
 
@@ -3701,11 +3695,9 @@ pub const Object = struct {
                         vals: [Builder.expected_fields_len]Builder.Constant,
                         fields: [Builder.expected_fields_len]Builder.Type,
                     };
-                    var stack align(@max(
-                        @alignOf(std.heap.StackFallbackAllocator(0)),
-                        @alignOf(ExpectedContents),
-                    )) = std.heap.stackFallback(@sizeOf(ExpectedContents), o.gpa);
-                    const allocator = stack.get();
+                    var stack_buf: ExpectedContents = undefined;
+                    var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), o.gpa);
+                    const allocator = stack.allocator();
                     const vals = try allocator.alloc(Builder.Constant, llvm_len);
                     defer allocator.free(vals);
                     const fields = try allocator.alloc(Builder.Type, llvm_len);
@@ -3779,11 +3771,9 @@ pub const Object = struct {
                         vals: [Builder.expected_fields_len]Builder.Constant,
                         fields: [Builder.expected_fields_len]Builder.Type,
                     };
-                    var stack align(@max(
-                        @alignOf(std.heap.StackFallbackAllocator(0)),
-                        @alignOf(ExpectedContents),
-                    )) = std.heap.stackFallback(@sizeOf(ExpectedContents), o.gpa);
-                    const allocator = stack.get();
+                    var stack_buf: ExpectedContents = undefined;
+                    var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), o.gpa);
+                    const allocator = stack.allocator();
                     const vals = try allocator.alloc(Builder.Constant, llvm_len);
                     defer allocator.free(vals);
                     const fields = try allocator.alloc(Builder.Type, llvm_len);

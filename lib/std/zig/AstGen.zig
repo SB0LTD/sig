@@ -1776,8 +1776,9 @@ fn structInitExpr(
     }
 
     {
-        var sfba = std.heap.stackFallback(256, astgen.arena);
-        const sfba_allocator = sfba.get();
+        var sfba_buf: [256]u8 = undefined;
+        var sfba: std.heap.StackFallbackAllocator = .init(&sfba_buf, astgen.arena);
+        const sfba_allocator = sfba.allocator();
 
         var duplicate_names: std.array_hash_map.Auto(Zir.NullTerminatedString, ArrayList(Ast.TokenIndex)) = .empty;
         try duplicate_names.ensureTotalCapacity(sfba_allocator, @intCast(struct_init.ast.fields.len));
@@ -8405,8 +8406,9 @@ fn tunnelThroughClosure(
     // Otherwise we need a tunnel. First, figure out the path of namespaces we
     // are tunneling through. This is usually only going to be one or two, so
     // use an SFBA to optimize for the common case.
-    var sfba = std.heap.stackFallback(@sizeOf(usize) * 2, astgen.arena);
-    var intermediate_tunnels = try sfba.get().alloc(*Scope.Namespace, num_tunnels - 1);
+    var sfba_buf: [2]usize = undefined;
+    var sfba: std.heap.StackFallbackAllocator = .init(@ptrCast(&sfba_buf), astgen.arena);
+    var intermediate_tunnels = try sfba.allocator().alloc(*Scope.Namespace, num_tunnels - 1);
 
     const root_ns = ns: {
         var i: usize = num_tunnels - 1;
@@ -12927,8 +12929,9 @@ fn scanContainer(
     };
 
     // The maps below are allocated into this SFBA to avoid using the GPA for small namespaces.
-    var sfba_state = std.heap.stackFallback(512, astgen.gpa);
-    const sfba = sfba_state.get();
+    var sfba_buf: [512]u8 = undefined;
+    var sfba_state: std.heap.StackFallbackAllocator = .init(&sfba_buf, astgen.gpa);
+    const sfba = sfba_state.allocator();
 
     var names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .empty;
     var test_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .empty;

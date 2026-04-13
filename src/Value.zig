@@ -882,8 +882,9 @@ pub fn fieldValue(val: Value, pt: Zcu.PerThread, index: usize) !Value {
                 else => unreachable,
             };
             // Avoid hitting gpa for accesses to small packed structs
-            var sfba_state = std.heap.stackFallback(128, zcu.comp.gpa);
-            const sfba = sfba_state.get();
+            var sfba_buf: [128]u8 = undefined;
+            var sfba_state: std.heap.StackFallbackAllocator = .init(&sfba_buf, zcu.comp.gpa);
+            const sfba = sfba_state.allocator();
             const buf = try sfba.alloc(u8, @intCast((ty.bitSize(zcu) + 7) / 8));
             defer sfba.free(buf);
             int_val.writeToPackedMemory(zcu, buf, 0) catch |err| switch (err) {

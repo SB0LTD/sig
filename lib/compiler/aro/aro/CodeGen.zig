@@ -54,8 +54,9 @@ return_label: Ir.Ref = undefined,
 compound_assign_dummy: ?Ir.Ref = null,
 
 fn fail(c: *CodeGen, comptime fmt: []const u8, args: anytype) error{ FatalError, OutOfMemory } {
-    var sf = std.heap.stackFallback(1024, c.comp.gpa);
-    const allocator = sf.get();
+    var sf_buf: [u8]1024 = undefined;
+    var sf: std.heap.StackFallbackAllocator = .init(&sf_buf, c.comp.gpa);
+    const allocator = sf.allocator();
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
 

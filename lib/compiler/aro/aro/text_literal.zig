@@ -315,8 +315,9 @@ pub const Parser = struct {
         if (p.errored) return;
         if (p.comp.diagnostics.effectiveKind(diagnostic) == .off) return;
 
-        var sf = std.heap.stackFallback(1024, p.comp.gpa);
-        var allocating: std.Io.Writer.Allocating = .init(sf.get());
+        var sf_buf: [1024]u8 = undefined;
+        var sf: std.heap.StackFallbackAllocator = .init(&sf_buf, p.comp.gpa);
+        var allocating: std.Io.Writer.Allocating = .init(sf.allocator());
         defer allocating.deinit();
 
         formatArgs(&allocating.writer, diagnostic.fmt, args) catch return error.OutOfMemory;

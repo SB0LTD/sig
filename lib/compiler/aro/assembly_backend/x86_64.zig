@@ -68,8 +68,9 @@ fn serializeFloat(comptime T: type, value: T, w: *std.Io.Writer) !void {
 pub fn todo(c: *AsmCodeGen, msg: []const u8, tok: Tree.TokenIndex) Error {
     const loc: Source.Location = c.tree.tokens.items(.loc)[tok];
 
-    var sf = std.heap.stackFallback(1024, c.comp.gpa);
-    const allocator = sf.get();
+    var sf_buf: [u8]1024 = undefined;
+    var sf: std.heap.StackFallbackAllocator = .init(&sf_buf, c.comp.gpa);
+    const allocator = sf.allocator();
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
 

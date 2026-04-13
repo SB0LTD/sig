@@ -1122,8 +1122,9 @@ fn scalarizeShuffleOneBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Erro
     //
     // So we must first compute `out_idxs` and `in_idxs`.
 
-    var sfba_state = std.heap.stackFallback(512, gpa);
-    const sfba = sfba_state.get();
+    var sfba_buf: [512]u8 = undefined;
+    var sfba_state: std.heap.StackFallbackAllocator = .init(&sfba_buf, gpa);
+    const sfba = sfba_state.allocator();
 
     const out_idxs_buf = try sfba.alloc(InternPool.Index, shuffle.mask.len);
     defer sfba.free(out_idxs_buf);
@@ -1212,8 +1213,9 @@ fn scalarizeShuffleTwoBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Erro
     //     %8 = br(%1, %7)
     //   })
 
-    var sfba_state = std.heap.stackFallback(512, gpa);
-    const sfba = sfba_state.get();
+    var sfba_buf: [512]u8 = undefined;
+    var sfba_state: std.heap.StackFallbackAllocator = .init(&sfba_buf, gpa);
+    const sfba = sfba_state.allocator();
 
     const out_idxs_buf = try sfba.alloc(InternPool.Index, shuffle.mask.len);
     defer sfba.free(out_idxs_buf);
@@ -2394,9 +2396,9 @@ fn packedStoreBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
                                 }).toRef(),
                                 .rhs = Air.internedToRef((keep_mask: {
                                     const ExpectedContents = [std.math.big.int.calcTwosCompLimbCount(256)]std.math.big.Limb;
-                                    var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
-                                        std.heap.stackFallback(@sizeOf(ExpectedContents), zcu.gpa);
-                                    const gpa = stack.get();
+                                    var buf: ExpectedContents = undefined;
+                                    var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&buf), zcu.gpa);
+                                    const gpa = stack.allocator();
 
                                     var mask_big_int: std.math.big.int.Mutable = .{
                                         .limbs = try gpa.alloc(
@@ -2489,8 +2491,9 @@ fn packedAggregateInitBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Erro
     const agg_ty = orig_ty_pl.ty.toType();
     const agg_field_count = agg_ty.structFieldCount(zcu);
 
-    var sfba_state = std.heap.stackFallback(@sizeOf([4 * 32 + 2]Air.Inst.Index), gpa);
-    const sfba = sfba_state.get();
+    var sfba_buf: [4 * 32 + 2]Air.Inst.Index = undefined;
+    var sfba_state: std.heap.StackFallbackAllocator = .init(@ptrCast(&sfba_buf), gpa);
+    const sfba = sfba_state.allocator();
 
     const inst_buf = try sfba.alloc(Air.Inst.Index, 4 * agg_field_count + 2);
     defer sfba.free(inst_buf);
