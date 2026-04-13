@@ -459,6 +459,7 @@ fn findNativeCrtDirPosix(self: *LibCInstallation, gpa: Allocator, io: Io, args: 
 
 fn findNativeGccDirHaiku(self: *LibCInstallation, gpa: Allocator, io: Io, args: FindNativeOptions) FindError!void {
     self.gcc_dir = try ccPrintFileName(gpa, io, .{
+        .environ_map = args.environ_map,
         .search_basename = "crtbeginS.o",
         .want_dirname = .only_dir,
         .verbose = args.verbose,
