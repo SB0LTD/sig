@@ -112,8 +112,30 @@ jobs:
           BIN_DIR=$(dirname "$BIN")
           echo "${BIN_DIR}" >> "$GITHUB_PATH"
           echo "BOOTSTRAP_BIN=${BIN}" >> "$GITHUB_ENV"
+
+          # zig2 needs lib/ next to its binary for internal operations
+          ln -sf "$(pwd)/lib" "${BIN_DIR}/../lib" 2>/dev/null || cp -r lib "${BIN_DIR}/../lib" 2>/dev/null || true
+
           echo "Bootstrap binary: ${BIN}"
           "${BIN}" version || true
+
+      # ── Download pre-built LLVM 22 for C++ compilation ──
+      - name: Download LLVM 22
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          case "${{ runner.os }}" in
+            Linux)   ASSET="llvm-22-x86_64-linux.tar.xz" ;;
+            macOS)   ASSET="llvm-22-aarch64-macos.tar.xz" ;;
+            Windows) ASSET="llvm-22-x86_64-windows.tar.xz" ;;
+          esac
+          echo "Downloading ${ASSET}..."
+          gh release download llvm-22 --pattern "${ASSET}" --dir /tmp
+          mkdir -p "$PWD/llvm-22"
+          tar -xJf "/tmp/${ASSET}" -C "$PWD/llvm-22" --strip-components=1
+          rm "/tmp/${ASSET}"
+          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
 
       # ── Build sig using bootstrap sig (self-sustained, no zig) ─────────
       - name: Build sig
@@ -134,6 +156,7 @@ jobs:
             --zig-lib-dir lib \
             -Denable-llvm \
             -Dstatic-llvm \
+            -Dllvm-prefix="${LLVM_PREFIX}" \
             -Doptimize=ReleaseFast \
             -Dstrip \
             -Dtarget="${TARGET}" \
