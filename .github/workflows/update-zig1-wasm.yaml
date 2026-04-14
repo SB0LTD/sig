@@ -62,11 +62,11 @@ jobs:
           pub const value_tracing = false;
           pub const skip_non_native = false;
           pub const debug_gpa = false;
-          pub const dev = .full;
+          pub const dev = .bootstrap;
           pub const io_mode: enum { threaded, evented } = .threaded;
-          pub const value_interpret_mode = .direct;
+          pub const value_interpret_mode = .by_name;
           pub const sig_version: [:0]const u8 = "0.1.2";
-          pub const mem_leak_frames = 4;
+          pub const mem_leak_frames = 0;
           EOF
 
           "${BOOTSTRAP}" build-exe \
@@ -78,13 +78,18 @@ jobs:
             -femit-bin="stage1/zig1.wasm" \
             --zig-lib-dir lib \
             -target wasm32-wasi \
+            -mcpu baseline-extended_const+nontrapping_bulk_memory_len0 \
             -fllvm \
             -fstrip \
             -fsingle-threaded
           
           # Shrink with wasm-opt (Binaryen) — typically 30-50% reduction
           echo "Before wasm-opt: $(du -h stage1/zig1.wasm | cut -f1)"
-          wasm-opt -Oz --strip-debug --strip-producers --zero-filled-memory \
+          wasm-opt -Oz \
+            --enable-bulk-memory \
+            --enable-mutable-globals \
+            --enable-nontrapping-float-to-int \
+            --enable-sign-ext \
             stage1/zig1.wasm -o stage1/zig1.wasm.opt
           mv stage1/zig1.wasm.opt stage1/zig1.wasm
           echo "After wasm-opt: $(du -h stage1/zig1.wasm | cut -f1)"
@@ -99,12 +104,22 @@ jobs:
             echo "WASM_TOO_LARGE=false" >> "$GITHUB_ENV"
           fi
 
-      - name: Commit to git
+      - name: Commit to git (with LFS if needed)
         run: |
+          SIZE_MB=$(du -m stage1/zig1.wasm | cut -f1)
+          echo "zig1.wasm size: ${SIZE_MB}MB"
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if [ "$SIZE_MB" -gt 90 ]; then
+            echo "Setting up Git LFS for large wasm..."
+            git lfs install
+            git lfs track "stage1/zig1.wasm"
+            git add .gitattributes
+          fi
+
           git add stage1/zig1.wasm
           git diff --cached --quiet && echo "No changes" && exit 0
-          SIZE_MB=$(du -m stage1/zig1.wasm | cut -f1)
           git commit -m "chore: regenerate zig1.wasm (${SIZE_MB}MB)"
           git push
