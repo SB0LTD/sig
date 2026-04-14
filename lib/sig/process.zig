@@ -581,8 +581,8 @@ pub fn runCommand(
     return switch (term) {
         .exited => |code| code,
         .signal => |sig| signalToExitCode(@as(u32, @intFromEnum(sig))),
-        .stopped => |code| signalToExitCode(@as(u32, code)),
-        .unknown => |code| signalToExitCode(@as(u32, code)),
+        .stopped => |sig| signalToExitCode(@as(u32, @intFromEnum(sig))),
+        .unknown => |sig| signalToExitCode(@as(u32, @intFromEnum(sig))),
     };
 }
 
