@@ -78,25 +78,12 @@ jobs:
             --zig-lib-dir lib \
             -target wasm32-wasi \
             -fstrip \
-            -fsingle-threaded 2>&1 || true
+            -fsingle-threaded
 
-          # Check if file was created
-          if [ ! -f stage1/zig1.wasm ]; then
-            echo "ERROR: zig1.wasm was not created — build failed"
-            echo "Trying with -ofmt=wasm explicitly..."
-            zig build-exe \
-              --dep build_options --dep aro \
-              -Mroot=src/main.zig \
-              -Mbuild_options=/tmp/build_options.zig \
-              -Maro=lib/compiler/aro/aro.zig \
-              -O ReleaseSmall \
-              -femit-bin="stage1/zig1.wasm" \
-              --zig-lib-dir lib \
-              -target wasm32-wasi \
-              -ofmt=wasm \
-              -fstrip \
-              -fsingle-threaded
-          fi
+          # Check what was produced
+          echo "=== Build output ==="
+          ls -la stage1/zig1.wasm || echo "File not created"
+          file stage1/zig1.wasm || true
           
           echo "zig1.wasm size: $(du -h stage1/zig1.wasm | cut -f1)"
 
