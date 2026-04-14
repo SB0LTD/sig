@@ -15,11 +15,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Sig
-        uses: ./tools/setup-sig
-        with:
-          version: latest
-          use-cache: false
+      - name: Download bootstrap sig
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download bootstrap-sig-v7 --pattern "bootstrap-sig-x86_64-linux.tar.gz" --dir /tmp
+          mkdir -p /tmp/bootstrap
+          tar -xzf /tmp/bootstrap-sig-x86_64-linux.tar.gz -C /tmp/bootstrap
+          BIN=$(find /tmp/bootstrap -type f \( -name "sig" -o -name "zig" -o -name "zig2" \) | head -1)
+          chmod +x "$BIN"
+          echo "SIG=$BIN" >> "$GITHUB_ENV"
+          ln -sf "$(pwd)/lib" "$(dirname $BIN)/../lib" 2>/dev/null || true
+          "$BIN" version || echo "version check skipped (dev build)"
 
       - name: Create build_options.zig
         run: |
@@ -53,10 +60,8 @@ jobs:
           rm -rf .zig-cache zig-cache zig-out
           rm -f stage1/zig1.wasm
 
-          sig version
-
-          echo "Building zig1.wasm with sig compiler..."
-          sig build-exe \
+          echo "Building zig1.wasm with bootstrap sig (has LLVM)..."
+          "${SIG}" build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=/tmp/build_options.zig \
@@ -65,7 +70,7 @@ jobs:
             -femit-bin="stage1/zig1.wasm" \
             --zig-lib-dir lib \
             -target wasm32-wasi \
-            -ofmt=wasm \
+            -fllvm \
             -fstrip \
             -fsingle-threaded
 
