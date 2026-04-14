@@ -123,8 +123,8 @@ A Spoon is a close derivative that stays continuously synchronized with its upst
 
 | | |
 |---|---|
-| Latest integrated upstream commit | [`a85495ca22`](https://codeberg.org/ziglang/zig/commit/a85495ca22e5410df00a59fe82fe480645ca3f85) |
-| Integration timestamp | 2026-03-24 |
+| Latest integrated upstream commit | [`7977ef80f9c`](https://codeberg.org/ziglang/zig/commit/7977ef80f9c) |
+| Integration timestamp | 2026-04-14 |
 | Upstream | [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) |
 | Sync target | 99.99% automatic integration |
 | Schedule | Every 6 hours via CI |
@@ -143,7 +143,7 @@ The output binary is `sig.exe` (or `sig` on Linux/macOS). It's a drop-in replace
 
 ```
 $ sig version
-sig 0.0.1-dev (zig 0.16.0-dev.3036+aed7a6e1f)
+sig 0.1.2 (zig 0.16.0-dev)
 ```
 
 Prerequisites: a system C/C++ toolchain, LLVM 22.x. See the [Zig getting started guide](https://ziglang.org/learn/getting-started/) for details.
@@ -208,10 +208,10 @@ src/core.sig:42:5: error: direct allocation in 'init' (.sig file: strict mode en
 
 ## Versioning
 
-Sig follows its own semver (`0.0.1-dev`) while tracking the upstream Zig version it's built on. The `sig version` command shows both:
+Sig follows its own semver (`0.1.2`) while tracking the upstream Zig version it's built on. The `sig version` command shows both:
 
 ```
-sig 0.0.1-dev (zig 0.16.0-dev.3036+aed7a6e1f)
+sig 0.1.2 (zig 0.16.0-dev)
 ```
 
 ## Error Model
