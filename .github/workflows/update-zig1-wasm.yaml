@@ -1,0 +1,59 @@
+# Regenerate stage1/zig1.wasm from current source using the bootstrap zig2.
+# Run this whenever sig source diverges from the zig1.wasm seed compiler.
+name: update-zig1-wasm
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  BOOTSTRAP_TAG: "bootstrap-sig-v5"
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download bootstrap zig2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${BOOTSTRAP_TAG}" --pattern "bootstrap-sig-x86_64-linux.tar.gz" --dir /tmp
+          mkdir -p /tmp/bootstrap
+          tar -xzf /tmp/bootstrap-sig-x86_64-linux.tar.gz -C /tmp/bootstrap
+          BIN=$(find /tmp/bootstrap -type f -name "zig" -o -name "zig2" | head -1)
+          chmod +x "$BIN"
+          echo "BOOTSTRAP=$BIN" >> "$GITHUB_ENV"
+          ln -sf "$(pwd)/lib" "$(dirname $BIN)/../lib" 2>/dev/null || true
+          "$BIN" version || echo "version check skipped"
+
+      - name: Regenerate zig1.wasm
+        run: |
+          ulimit -s unlimited 2>/dev/null || true
+          "${BOOTSTRAP}" build-exe \
+            --dep build_options --dep aro \
+            -Mroot=src/main.zig \
+            -Mbuild_options=stage1/build_options.zig \
+            -Maro=lib/compiler/aro/aro.zig \
+            -ofmt=wasm \
+            -O ReleaseSmall \
+            -femit-bin="stage1/zig1.wasm" \
+            --zig-lib-dir lib \
+            -target wasm32-wasi
+          echo "zig1.wasm regenerated:"
+          ls -la stage1/zig1.wasm
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add stage1/zig1.wasm
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "chore: regenerate zig1.wasm from current source"
+          git push
