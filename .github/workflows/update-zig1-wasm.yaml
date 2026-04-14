@@ -69,9 +69,20 @@ jobs:
             -femit-bin="stage1/zig1.wasm" \
             --zig-lib-dir lib \
             -target wasm32-wasi \
-            -fllvm
+            -fllvm \
+            -fstrip \
+            -fsingle-threaded
+          
+          # Strip further with wasm-strip if available
+          if command -v wasm-strip &>/dev/null; then
+            wasm-strip stage1/zig1.wasm
+          elif command -v llvm-strip &>/dev/null; then
+            llvm-strip stage1/zig1.wasm
+          fi
+
           echo "zig1.wasm regenerated:"
           ls -la stage1/zig1.wasm
+          echo "Size: $(du -h stage1/zig1.wasm | cut -f1)"
 
       - name: Commit and push
         run: |
