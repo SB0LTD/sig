@@ -184,6 +184,13 @@ if(ZIG_STATIC_LIBXML2)
     list(APPEND LLVM_LIBRARIES "${LIBXML2}")
 endif()
 
+# Windows: remove -lm (math is in CRT, no separate libm)
+if(WIN32)
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lm")
+    list(REMOVE_ITEM LLVM_LIBRARIES "m")
+    list(REMOVE_ITEM LLVM_LIBRARIES "m.lib")
+endif()
+
 find_package(Threads)
 
 set(ZIG_CONFIG_H_OUT "${PROJECT_BINARY_DIR}/config.h")

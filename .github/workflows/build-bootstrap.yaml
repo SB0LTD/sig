@@ -76,7 +76,8 @@ jobs:
           rm "/tmp/${{ matrix.llvm_asset }}"
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
 
-      - name: Build sig with cmake + ninja
+      - name: Build sig with cmake + ninja (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           export PATH="$PWD/llvm-22/bin:$PATH"
@@ -98,6 +99,31 @@ jobs:
 
           echo "Bootstrap built:"
           file ${{ matrix.bin }} || true
+
+      - name: Build sig with cmake + ninja (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments "-arch=amd64"
+
+          $env:PATH = "$PWD\llvm-22\bin;$env:PATH"
+          New-Item -Path 'build' -ItemType Directory | Out-Null
+          Set-Location -Path 'build'
+
+          cmake .. `
+            -DCMAKE_INSTALL_PREFIX="$PWD/stage3" `
+            -DCMAKE_PREFIX_PATH="$env:LLVM_PREFIX" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DZIG_USE_LLVM_CONFIG=ON `
+            -DZIG_NO_LIB=ON `
+            -DZIG_TARGET_TRIPLE="${{ matrix.target }}" `
+            -DZIG_TARGET_MCPU="baseline" `
+            -GNinja
+
+          ninja ${{ matrix.bin }}
+          Write-Host "Bootstrap built"
 
       - name: Package and publish
         shell: bash
