@@ -77,6 +77,7 @@ jobs:
             -ofmt=wasm \
             -fno-llvm \
             -fno-lld \
+            -fno-compiler-rt \
             -fstrip \
             -fsingle-threaded
 
