@@ -1789,7 +1789,7 @@ fn structInitExpr(
             const name_token = tree.firstToken(field) - 2;
             const name_index = try astgen.identAsString(name_token);
 
-            const gop = try duplicate_names.getOrPut(name_index);
+            const gop = try duplicate_names.getOrPut(sfba_allocator, name_index);
 
             if (gop.found_existing) {
                 try gop.value_ptr.append(sfba_allocator, name_token);
