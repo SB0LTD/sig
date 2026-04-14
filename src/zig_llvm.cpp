@@ -35,6 +35,8 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
 #include <llvm/MC/TargetRegistry.h>
+#include <llvm/MC/MCSubtargetInfo.h>
+#include <set>
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/StandardInstrumentations.h>
@@ -151,10 +153,48 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
         opt.EmulatedTLS = true;
     }
 
+    // Filter out CPU features that LLVM doesn't recognize for this target.
+    // This prevents "not a recognized feature" warnings when the host CPU
+    // reports features newer than what this LLVM version supports (e.g. amx-transpose).
+    std::string FilteredFeatures;
+    if (Features && Features[0]) {
+        const Target *TheTarget = reinterpret_cast<Target*>(T);
+        std::unique_ptr<MCSubtargetInfo> STI(
+            TheTarget->createMCSubtargetInfo(llvm::Triple(Triple), CPU, ""));
+        if (STI) {
+            // Build a set of known feature names
+            auto AllFeatures = STI->getAllProcessorFeatures();
+            std::set<std::string> KnownFeatures;
+            for (const auto &F : AllFeatures)
+                KnownFeatures.insert(std::string(F.Key));
+
+            llvm::StringRef FeatStr(Features);
+            llvm::SmallVector<llvm::StringRef, 32> Feats;
+            FeatStr.split(Feats, ',', -1, false);
+            bool first = true;
+            for (auto &F : Feats) {
+                auto Trimmed = F.trim();
+                if (Trimmed.empty()) continue;
+                // Extract the feature name (skip +/- prefix)
+                auto Name = Trimmed;
+                if (Name.starts_with("+") || Name.starts_with("-"))
+                    Name = Name.drop_front(1);
+                if (KnownFeatures.count(Name.str()) || Name.empty()) {
+                    if (!first) FilteredFeatures += ',';
+                    FilteredFeatures += Trimmed.str();
+                    first = false;
+                }
+                // Silently drop unrecognized features
+            }
+        } else {
+            FilteredFeatures = Features;
+        }
+    }
+
     TargetMachine *TM = reinterpret_cast<Target*>(T)->createTargetMachine(
         llvm::Triple(Triple),
         CPU,
-        Features,
+        FilteredFeatures.c_str(),
         opt,
         RM,
         CM,
