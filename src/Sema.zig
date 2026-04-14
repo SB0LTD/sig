@@ -7837,7 +7837,7 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
     }
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety()) {
-        const is_lt_len = try block.addUnOp(.cmp_lt_errors_len, operand);
+        const is_lt_len = try block.addUnOp(.cmp_lte_errors_len, operand);
         const zero_val = Air.internedToRef((try pt.intValue(err_int_ty, 0)).toIntern());
         const is_non_zero = try block.addBinOp(.cmp_neq, operand, zero_val);
         const ok = try block.addBinOp(.bool_and, is_lt_len, is_non_zero);
@@ -18901,7 +18901,7 @@ fn finishStructInit(
             var bit_offset: u16 = 0;
             for (field_inits) |field_init| {
                 const field_val = sema.resolveValue(field_init).?;
-                field_val.writeToPackedMemory(pt, buf, bit_offset) catch |err| switch (err) {
+                field_val.writeToPackedMemory(pt.zcu, buf, bit_offset) catch |err| switch (err) {
                     error.ReinterpretDeclRef => unreachable, // bitpack fields cannot be pointers
                     error.OutOfMemory => |e| return e,
                 };

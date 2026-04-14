@@ -37,6 +37,8 @@ pub const Uri = @import("Uri.zig");
 pub const ArrayHashMapUnmanaged = array_hash_map.Custom;
 /// Deprecated; use `array_hash_map.Auto`.
 pub const AutoArrayHashMapUnmanaged = array_hash_map.Auto;
+/// Managed auto array hash map (convenience alias).
+pub const AutoArrayHashMap = array_hash_map.Auto;
 /// Deprecated; use `array_hash_map.String`.
 pub const StringArrayHashMapUnmanaged = array_hash_map.String;
 
