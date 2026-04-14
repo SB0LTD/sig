@@ -1,0 +1,96 @@
+name: update-zig1-wasm
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Sig
+        uses: ./tools/setup-sig
+        with:
+          version: latest
+          use-cache: false
+
+      - name: Regenerate zig1.wasm
+        run: |
+          set -euo pipefail
+          ulimit -s unlimited 2>/dev/null || true
+
+          rm -rf .zig-cache zig-cache zig-out
+          rm -f stage1/zig1.wasm
+
+          sig version
+          echo "which sig: $(which sig)"
+
+          cat > /tmp/build_options.zig << 'ENDOPTS'
+pub const have_llvm = false;
+pub const llvm_has_m68k = false;
+pub const llvm_has_csky = false;
+pub const llvm_has_arc = false;
+pub const llvm_has_xtensa = false;
+pub const version: [:0]const u8 = "0.16.0-dev";
+pub const semver = @import("std").SemanticVersion.parse(version) catch unreachable;
+pub const enable_debug_extensions = false;
+pub const enable_logging = false;
+pub const enable_link_snapshots = false;
+pub const enable_tracy = false;
+pub const value_tracing = false;
+pub const skip_non_native = false;
+pub const debug_gpa = false;
+pub const dev = .bootstrap;
+pub const io_mode: enum { threaded, evented } = .threaded;
+pub const value_interpret_mode = .by_name;
+pub const sig_version: [:0]const u8 = "0.1.2";
+pub const mem_leak_frames = 0;
+ENDOPTS
+
+          echo "Building zig1.wasm with sig compiler..."
+          sig build-exe \
+            --dep build_options --dep aro \
+            -Mroot=src/main.zig \
+            -Mbuild_options=/tmp/build_options.zig \
+            -Maro=lib/compiler/aro/aro.zig \
+            -O ReleaseSmall \
+            -femit-bin="stage1/zig1.wasm" \
+            --zig-lib-dir lib \
+            -target wasm32-wasi \
+            -fstrip \
+            -fsingle-threaded
+
+          ls -la stage1/zig1.wasm
+          file stage1/zig1.wasm
+          MAGIC=$(xxd -l 4 -p stage1/zig1.wasm)
+          if [ "$MAGIC" != "0061736d" ]; then
+            echo "FATAL: not a wasm file (magic=$MAGIC)"
+            exit 1
+          fi
+          echo "OK: valid wasm — $(du -h stage1/zig1.wasm | cut -f1)"
+
+      - name: Commit
+        run: |
+          SIZE_MB=$(du -m stage1/zig1.wasm | cut -f1)
+          echo "zig1.wasm: ${SIZE_MB}MB"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if [ "$SIZE_MB" -gt 90 ]; then
+            git lfs install
+            git lfs track "stage1/zig1.wasm"
+            git add .gitattributes
+          fi
+
+          git add stage1/zig1.wasm
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "chore: regenerate zig1.wasm (${SIZE_MB}MB)"
+          git push
