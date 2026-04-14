@@ -28,6 +28,11 @@ endif()
 
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+# Suppress MSVC "secure CRT" warnings (fopen→fopen_s, strcpy→strcpy_s, etc.)
+if(WIN32)
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+endif()
+
 project(zig
   DESCRIPTION
     "Zig is a general-purpose programming language and toolchain for maintaining robust, optimal and reusable software"
