@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           ulimit -s unlimited 2>/dev/null || true
 
-          rm -rf .zig-cache zig-cache zig-out
+          rm -rf .zig-cache zig-cache zig-out ~/.cache/zig
           rm -f stage1/zig1.wasm
 
           echo "Building zig1.wasm with bootstrap sig (has LLVM)..."
