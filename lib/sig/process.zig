@@ -580,9 +580,9 @@ pub fn runCommand(
     const term = child.wait(io) catch return error.BufferTooSmall;
     return switch (term) {
         .exited => |code| code,
-        .signal => |sig| signalToExitCode(@intFromEnum(sig)),
-        .stopped => |code| signalToExitCode(code),
-        .unknown => |code| signalToExitCode(code),
+        .signal => |sig| signalToExitCode(@as(u32, @intFromEnum(sig))),
+        .stopped => |code| signalToExitCode(@as(u32, code)),
+        .unknown => |code| signalToExitCode(@as(u32, code)),
     };
 }
 
