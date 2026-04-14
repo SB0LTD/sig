@@ -2,15 +2,18 @@
 
 #include <stdarg.h>
 #include <stddef.h>
-#include <stdlib.h>
 
 /* Windows UCRT defines 'environ' as a macro expanding to (*__p__environ()),
-   which collides with struct fields named 'environ' in generated C code. */
+   which collides with struct fields named 'environ' in generated C code.
+   Include stdlib.h only on Windows to get the macro, then undef it. */
+#if defined(_WIN32) || defined(_MSC_VER)
+#include <stdlib.h>
 #ifdef environ
 #undef environ
 #endif
 #ifdef _environ
 #undef _environ
+#endif
 #endif
 
 #if defined(_MSC_VER)

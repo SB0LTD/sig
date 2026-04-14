@@ -128,36 +128,20 @@ jobs:
 
           # Compile zig1.c + compiler_rt.c to wasm
           # Use wasi-libc sysroot from zig's lib directory
-          echo "Step 3: Compiling to wasm32-wasi..."
+          echo "Step 3: Compiling to wasm32-wasip1..."
           $CLANG \
-            --target=wasm32-wasi \
-            --sysroot="$(pwd)/lib/libc/wasi" \
+            --target=wasm32-wasip1 \
             -std=c99 -Os \
+            -ffreestanding \
             -nostdlib \
             -I stage1 \
-            -D__wasi__ \
             -Wl,--no-entry \
             -Wl,--export-dynamic \
             -Wl,--allow-undefined \
             -Wl,--stack-first \
             -Wl,-z,stack-size=16777216 \
             -o stage1/zig1.wasm \
-            /tmp/zig1.c /tmp/compiler_rt.c \
-            || {
-              echo "Trying without sysroot..."
-              $CLANG \
-                --target=wasm32-unknown-wasi \
-                -std=c99 -Os \
-                -nostdlib \
-                -I stage1 \
-                -Wl,--no-entry \
-                -Wl,--export-dynamic \
-                -Wl,--allow-undefined \
-                -Wl,--stack-first \
-                -Wl,-z,stack-size=16777216 \
-                -o stage1/zig1.wasm \
-                /tmp/zig1.c /tmp/compiler_rt.c
-            }
+            /tmp/zig1.c /tmp/compiler_rt.c
 
           ls -la stage1/zig1.wasm
           file stage1/zig1.wasm
