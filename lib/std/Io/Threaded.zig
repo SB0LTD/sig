@@ -5345,7 +5345,7 @@ fn dirOpenDirHaiku(
                     .NOMEM => return error.SystemResources,
                     .NOTDIR => return error.NotDir,
                     .PERM => return error.PermissionDenied,
-                    .BUSY => return error.DeviceBusy,
+                    .BUSY => |err| return errnoBug(err),
                     else => |err| return posix.unexpectedErrno(err),
                 }
             },
@@ -9812,7 +9812,10 @@ fn fileReadPositionalPosix(file: File, data: []const []u8, offset: u64) File.Rea
     if (have_preadv) {
         const syscall: Syscall = try .start();
         while (true) {
-            const rc = preadv_sym(file.handle, dest.ptr, @intCast(dest.len), @bitCast(offset));
+            const rc = if (native_os == .haiku)
+                posix.system.readv_pos(file.handle, @bitCast(offset), dest.ptr, @intCast(dest.len))
+            else
+                preadv_sym(file.handle, dest.ptr, @intCast(dest.len), @bitCast(offset));
             switch (posix.errno(rc)) {
                 .SUCCESS => {
                     syscall.finish();
@@ -9846,7 +9849,7 @@ fn fileReadPositionalPosix(file: File, data: []const []u8, offset: u64) File.Rea
 
     const syscall: Syscall = try .start();
     while (true) {
-        const rc = posix.pread(file.handle, dest[0].ptr, @intCast(dest[0].len), @bitCast(offset));
+        const rc = pread_sym(file.handle, dest[0].base, @intCast(dest[0].len), @bitCast(offset));
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 syscall.finish();
@@ -10550,7 +10553,10 @@ fn fileWritePositional(
 
     const syscall: Syscall = try .start();
     while (true) {
-        const rc = pwritev_sym(file.handle, &iovecs, @intCast(iovlen), @bitCast(offset));
+        const rc = if (native_os == .haiku)
+            posix.system.writev_pos(file.handle, @bitCast(offset), &iovecs, @intCast(iovlen))
+        else
+            pwritev_sym(file.handle, &iovecs, @intCast(iovlen), @bitCast(offset));
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 syscall.finish();
@@ -14063,7 +14069,7 @@ pub fn posixSocketModeProtocol(family: posix.sa_family_t, mode: net.Socket.Mode,
             .dgram => posix.SOCK.DGRAM,
             .seqpacket => posix.SOCK.SEQPACKET,
             .raw => posix.SOCK.RAW,
-            .rdm => posix.SOCK.RDM,
+            .rdm => if (@hasDecl(posix.SOCK, "RDM")) posix.SOCK.RDM else return error.OptionUnsupported,
         },
         if (protocol) |p| @intFromEnum(p) else if (is_windows) switch (family) {
             posix.AF.UNIX => switch (mode) {
