@@ -297,6 +297,10 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     // windows.h
     .{ "max", {} },
     .{ "min", {} },
+
+    // Windows UCRT stdlib.h — 'environ' expands to (*__p__environ())
+    .{ "environ", {} },
+    .{ "_environ", {} },
 });
 
 fn isReservedIdent(ident: []const u8) bool {
