@@ -74,12 +74,18 @@ jobs:
             -fstrip \
             -fsingle-threaded
           
-          echo "Raw wasm size: $(du -h stage1/zig1.wasm | cut -f1)"
+          echo "zig1.wasm size: $(du -h stage1/zig1.wasm | cut -f1)"
+          # wasm2c reads raw wasm (expects \0asm magic) — do NOT compress.
+          # Git's own packfile compression handles storage efficiency.
 
-          # The cmake wasm2c tool expects zstd-compressed wasm
-          zstd -19 --rm stage1/zig1.wasm -o stage1/zig1.wasm.zst
-          mv stage1/zig1.wasm.zst stage1/zig1.wasm
-          echo "Compressed size: $(du -h stage1/zig1.wasm | cut -f1)"
+          # Validate output is actually wasm (magic: \0asm = 00 61 73 6d)
+          MAGIC=$(xxd -l 4 -p stage1/zig1.wasm)
+          if [ "$MAGIC" != "0061736d" ]; then
+            echo "ERROR: zig1.wasm is not a valid wasm file (magic: $MAGIC)"
+            file stage1/zig1.wasm || true
+            exit 1
+          fi
+          echo "Validated: zig1.wasm has correct wasm magic bytes"
 
       - name: Commit to git (with LFS if needed)
         run: |

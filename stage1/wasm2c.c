@@ -104,7 +104,7 @@ int main(int argc, char **argv) {
     if (InputStream_readByte(&in) != '\0' ||
         InputStream_readByte(&in) != 'a'  ||
         InputStream_readByte(&in) != 's'  ||
-        InputStream_readByte(&in) != 'm') panic("input is not a zstd-compressed wasm file");
+        InputStream_readByte(&in) != 'm') panic("input is not a valid wasm file (missing \\0asm magic)");
     if (InputStream_readLittle_u32(&in) != 1) panic("unsupported wasm version");
 
     FILE *out = fopen(argv[2], "wb");
