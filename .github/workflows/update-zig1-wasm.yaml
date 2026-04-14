@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: "bootstrap-sig-v5"
+  BOOTSTRAP_TAG: "bootstrap-sig-v6"
 
 jobs:
   regenerate:
