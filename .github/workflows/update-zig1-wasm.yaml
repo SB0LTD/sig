@@ -69,7 +69,7 @@ jobs:
             -femit-bin="stage1/zig1.wasm" \
             --zig-lib-dir lib \
             -target wasm32-wasi \
-            -fLLVM
+            -fllvm
           echo "zig1.wasm regenerated:"
           ls -la stage1/zig1.wasm
 
