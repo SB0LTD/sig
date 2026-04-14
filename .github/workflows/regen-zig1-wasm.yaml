@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   regenerate:
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -19,14 +19,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download bootstrap-sig-v7 --pattern "bootstrap-sig-x86_64-linux.tar.gz" --dir /tmp
+          gh release download bootstrap-sig-v7 --pattern "bootstrap-sig-aarch64-macos.tar.gz" --dir /tmp
           mkdir -p /tmp/bootstrap
-          tar -xzf /tmp/bootstrap-sig-x86_64-linux.tar.gz -C /tmp/bootstrap
+          tar -xzf /tmp/bootstrap-sig-aarch64-macos.tar.gz -C /tmp/bootstrap
           BIN=$(find /tmp/bootstrap -type f \( -name "sig" -o -name "zig" -o -name "zig2" \) | head -1)
           chmod +x "$BIN"
+          xattr -cr /tmp/bootstrap 2>/dev/null || true
+          codesign --force --sign - "$BIN" 2>/dev/null || true
           echo "SIG=$BIN" >> "$GITHUB_ENV"
           ln -sf "$(pwd)/lib" "$(dirname $BIN)/../lib" 2>/dev/null || true
-          "$BIN" version || echo "version check skipped (dev build)"
 
       - name: Create build_options.zig
         run: |
@@ -64,16 +65,9 @@ jobs:
           mkdir -p /tmp/zig-wasm-cache /tmp/zig-wasm-local
           rm -f stage1/zig1.wasm
 
-          # Add swap — self-hosted wasm codegen is memory-hungry
-          sudo swapoff /swapfile 2>/dev/null || true
-          sudo rm -f /swapfile
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          echo "Swap enabled: $(swapon --show)"
+          echo "RAM: $(sysctl -n hw.memsize | awk '{print $1/1024/1024/1024 " GB"}')"
+          echo "Building zig1.wasm (self-hosted wasm backend, macOS 14GB)..."
 
-          echo "Building zig1.wasm with bootstrap sig (has LLVM)..."
           "${SIG}" build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
@@ -83,7 +77,6 @@ jobs:
             -femit-bin="stage1/zig1.wasm" \
             --zig-lib-dir lib \
             -target wasm32-wasi \
-            -ofmt=wasm \
             -fno-llvm \
             -fno-lld \
             -fno-compiler-rt \
