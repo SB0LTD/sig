@@ -166,7 +166,7 @@ jobs:
 
           echo "Release binary built:"
           ls -la "${OUT}/bin/"
-        timeout-minutes: 120
+        timeout-minutes: 300
 
       - name: Install lib
         shell: bash
