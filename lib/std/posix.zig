@@ -791,6 +791,7 @@ pub fn dl_iterate_phdr(
 
     switch (builtin.object_format) {
         .elf, .c => {},
+        .wasm => return, // no dynamic linking on wasm
         else => @compileError("dl_iterate_phdr is not available for this target"),
     }
 
