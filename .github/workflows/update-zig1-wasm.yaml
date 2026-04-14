@@ -14,7 +14,7 @@ env:
 jobs:
   regenerate:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,11 +65,11 @@ jobs:
             -Mroot=src/main.zig \
             -Mbuild_options=/tmp/build_options.zig \
             -Maro=lib/compiler/aro/aro.zig \
-            -ofmt=wasm \
             -O ReleaseSmall \
             -femit-bin="stage1/zig1.wasm" \
             --zig-lib-dir lib \
-            -target wasm32-wasi
+            -target wasm32-wasi \
+            -fLLVM
           echo "zig1.wasm regenerated:"
           ls -la stage1/zig1.wasm
 
