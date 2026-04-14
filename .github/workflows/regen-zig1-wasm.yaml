@@ -70,7 +70,6 @@ jobs:
             -femit-bin="stage1/zig1.wasm" \
             --zig-lib-dir lib \
             -target wasm32-wasi \
-            -fllvm \
             -ofmt=wasm \
             -fstrip \
             -fsingle-threaded
