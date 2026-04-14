@@ -3260,8 +3260,8 @@ pub const Sigaction = switch (native_os) {
 
         /// signal handler
         handler: extern union {
-            handler: handler_fn,
-            sigaction: sigaction_fn,
+            handler: ?handler_fn,
+            sigaction: ?sigaction_fn,
         },
 
         /// signal mask to apply
