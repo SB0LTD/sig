@@ -35,8 +35,11 @@ jobs:
 
       - name: Install Binaryen (wasm-opt)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq binaryen
+          # Ubuntu apt has old Binaryen — get latest from GitHub
+          BINARYEN_VER="version_129"
+          curl -fsSL "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VER}/binaryen-${BINARYEN_VER}-x86_64-linux.tar.gz" -o /tmp/binaryen.tar.gz
+          tar -xzf /tmp/binaryen.tar.gz -C /tmp
+          sudo cp /tmp/binaryen-${BINARYEN_VER}/bin/wasm-opt /usr/local/bin/
           wasm-opt --version
 
       - name: Regenerate zig1.wasm
