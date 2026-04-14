@@ -66,8 +66,13 @@ jobs:
 
           # Debug: show zig version and target support
           zig version
+          ZIG_LIB=$(dirname $(which zig))/../lib
+          echo "Zig lib dir: $ZIG_LIB"
+          echo "Sig lib dir: $(pwd)/lib"
           echo "Building wasm32-wasi target..."
 
+          # Use upstream zig's own lib dir for compilation, not sig's
+          # The sig lib may have modifications that confuse the target selection
           zig build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
@@ -75,7 +80,6 @@ jobs:
             -Maro=lib/compiler/aro/aro.zig \
             -O ReleaseSmall \
             -femit-bin="stage1/zig1.wasm" \
-            --zig-lib-dir lib \
             -target wasm32-wasi \
             -fstrip \
             -fsingle-threaded
