@@ -9,7 +9,9 @@ permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: "bootstrap-sig-v6"
+  # Use the same upstream zig that the bootstrap uses.
+  # The cmake bootstrap zig2 cannot cross-compile to wasm (produces native ELF).
+  ZIG_VERSION: "0.16.0-dev.3091+557caecaa"
 
 jobs:
   regenerate:
@@ -20,18 +22,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download bootstrap zig2
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download "${BOOTSTRAP_TAG}" --pattern "bootstrap-sig-x86_64-linux.tar.gz" --dir /tmp
-          mkdir -p /tmp/bootstrap
-          tar -xzf /tmp/bootstrap-sig-x86_64-linux.tar.gz -C /tmp/bootstrap
-          BIN=$(find /tmp/bootstrap -type f -name "zig" -o -name "zig2" | head -1)
-          chmod +x "$BIN"
-          echo "BOOTSTRAP=$BIN" >> "$GITHUB_ENV"
-          ln -sf "$(pwd)/lib" "$(dirname $BIN)/../lib" 2>/dev/null || true
-          "$BIN" version || echo "version check skipped"
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
 
       - name: Regenerate zig1.wasm
         run: |
@@ -60,7 +54,7 @@ jobs:
           pub const mem_leak_frames = 0;
           EOF
 
-          "${BOOTSTRAP}" build-exe \
+          zig build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=/tmp/build_options.zig \
@@ -69,14 +63,10 @@ jobs:
             -femit-bin="stage1/zig1.wasm" \
             --zig-lib-dir lib \
             -target wasm32-wasi \
-            -mcpu baseline-extended_const+nontrapping_bulk_memory_len0 \
-            -fllvm \
             -fstrip \
             -fsingle-threaded
           
           echo "zig1.wasm size: $(du -h stage1/zig1.wasm | cut -f1)"
-          # wasm2c reads raw wasm (expects \0asm magic) — do NOT compress.
-          # Git's own packfile compression handles storage efficiency.
 
           # Validate output is actually wasm (magic: \0asm = 00 61 73 6d)
           MAGIC=$(xxd -l 4 -p stage1/zig1.wasm)
