@@ -112,12 +112,15 @@ jobs:
           New-Item -Path 'build' -ItemType Directory | Out-Null
           Set-Location -Path 'build'
 
+          $clangcl = Join-Path $env:LLVM_PREFIX "bin\clang-cl.exe"
+
           cmake .. `
             -DCMAKE_INSTALL_PREFIX="$PWD/stage3" `
             -DCMAKE_PREFIX_PATH="$env:LLVM_PREFIX" `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_C_COMPILER="$env:LLVM_PREFIX/bin/clang-cl.exe" `
-            -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_C_COMPILER="$clangcl" `
+            -DCMAKE_CXX_COMPILER="$clangcl" `
+            -DCMAKE_LINKER="lld-link" `
             -DZIG_USE_LLVM_CONFIG=ON `
             -DZIG_NO_LIB=ON `
             -DZIG_TARGET_TRIPLE="${{ matrix.target }}" `
