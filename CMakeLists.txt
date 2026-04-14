@@ -30,7 +30,7 @@ list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # Suppress MSVC "secure CRT" warnings (fopen→fopen_s, strcpy→strcpy_s, etc.)
 if(WIN32)
-  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 endif()
 
 project(zig
@@ -533,7 +533,9 @@ if(NOT MSVC)
     -Wno-comment
   )
 else()
-target_compile_options(zigcpp PRIVATE /Zc:preprocessor)
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  target_compile_options(zigcpp PRIVATE /Zc:preprocessor)
+endif()
 set_property(TARGET zigcpp PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 
