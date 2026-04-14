@@ -74,7 +74,12 @@ jobs:
             -fstrip \
             -fsingle-threaded
           
-          echo "zig1.wasm size: $(du -h stage1/zig1.wasm | cut -f1)"
+          echo "Raw wasm size: $(du -h stage1/zig1.wasm | cut -f1)"
+
+          # The cmake wasm2c tool expects zstd-compressed wasm
+          zstd -19 --rm stage1/zig1.wasm -o stage1/zig1.wasm.zst
+          mv stage1/zig1.wasm.zst stage1/zig1.wasm
+          echo "Compressed size: $(du -h stage1/zig1.wasm | cut -f1)"
 
       - name: Commit to git (with LFS if needed)
         run: |
