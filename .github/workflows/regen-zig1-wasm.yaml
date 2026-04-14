@@ -71,6 +71,8 @@ jobs:
             --zig-lib-dir lib \
             -target wasm32-wasi \
             -ofmt=wasm \
+            -fno-llvm \
+            -fno-lld \
             -fstrip \
             -fsingle-threaded
 
