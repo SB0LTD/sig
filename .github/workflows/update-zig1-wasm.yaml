@@ -33,15 +33,6 @@ jobs:
           ln -sf "$(pwd)/lib" "$(dirname $BIN)/../lib" 2>/dev/null || true
           "$BIN" version || echo "version check skipped"
 
-      - name: Install Binaryen (wasm-opt)
-        run: |
-          # Ubuntu apt has old Binaryen — get latest from GitHub
-          BINARYEN_VER="version_129"
-          curl -fsSL "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VER}/binaryen-${BINARYEN_VER}-x86_64-linux.tar.gz" -o /tmp/binaryen.tar.gz
-          tar -xzf /tmp/binaryen.tar.gz -C /tmp
-          sudo cp /tmp/binaryen-${BINARYEN_VER}/bin/wasm-opt /usr/local/bin/
-          wasm-opt --version
-
       - name: Regenerate zig1.wasm
         run: |
           ulimit -s unlimited 2>/dev/null || true
@@ -83,30 +74,7 @@ jobs:
             -fstrip \
             -fsingle-threaded
           
-          # Try to shrink with wasm-opt (optional — may fail on newer wasm features)
-          echo "Before wasm-opt: $(du -h stage1/zig1.wasm | cut -f1)"
-          if wasm-opt -Oz \
-            --enable-bulk-memory \
-            --enable-mutable-globals \
-            --enable-nontrapping-float-to-int \
-            --enable-sign-ext \
-            stage1/zig1.wasm -o stage1/zig1.wasm.opt 2>/dev/null; then
-            mv stage1/zig1.wasm.opt stage1/zig1.wasm
-            echo "After wasm-opt: $(du -h stage1/zig1.wasm | cut -f1)"
-          else
-            echo "wasm-opt failed (unsupported wasm features) — using unoptimized binary"
-            rm -f stage1/zig1.wasm.opt
-          fi
-
-          SIZE_MB=$(du -m stage1/zig1.wasm | cut -f1)
-          echo "Size: ${SIZE_MB}MB"
-          if [ "$SIZE_MB" -gt 99 ]; then
-            echo "WARNING: zig1.wasm is ${SIZE_MB}MB — too large for git, will upload as release asset"
-            echo "WASM_TOO_LARGE=true" >> "$GITHUB_ENV"
-          else
-            echo "zig1.wasm fits in git (${SIZE_MB}MB)"
-            echo "WASM_TOO_LARGE=false" >> "$GITHUB_ENV"
-          fi
+          echo "zig1.wasm size: $(du -h stage1/zig1.wasm | cut -f1)"
 
       - name: Commit to git (with LFS if needed)
         run: |
