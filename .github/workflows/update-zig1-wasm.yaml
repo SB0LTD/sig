@@ -83,16 +83,20 @@ jobs:
             -fstrip \
             -fsingle-threaded
           
-          # Shrink with wasm-opt (Binaryen) — typically 30-50% reduction
+          # Try to shrink with wasm-opt (optional — may fail on newer wasm features)
           echo "Before wasm-opt: $(du -h stage1/zig1.wasm | cut -f1)"
-          wasm-opt -Oz \
+          if wasm-opt -Oz \
             --enable-bulk-memory \
             --enable-mutable-globals \
             --enable-nontrapping-float-to-int \
             --enable-sign-ext \
-            stage1/zig1.wasm -o stage1/zig1.wasm.opt
-          mv stage1/zig1.wasm.opt stage1/zig1.wasm
-          echo "After wasm-opt: $(du -h stage1/zig1.wasm | cut -f1)"
+            stage1/zig1.wasm -o stage1/zig1.wasm.opt 2>/dev/null; then
+            mv stage1/zig1.wasm.opt stage1/zig1.wasm
+            echo "After wasm-opt: $(du -h stage1/zig1.wasm | cut -f1)"
+          else
+            echo "wasm-opt failed (unsupported wasm features) — using unoptimized binary"
+            rm -f stage1/zig1.wasm.opt
+          fi
 
           SIZE_MB=$(du -m stage1/zig1.wasm | cut -f1)
           echo "Size: ${SIZE_MB}MB"
