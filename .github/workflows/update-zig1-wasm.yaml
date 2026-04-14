@@ -1,5 +1,5 @@
-# Regenerate stage1/zig1.wasm from current source using upstream zig.
-# Run this whenever sig source diverges from the zig1.wasm seed compiler.
+# Regenerate stage1/zig1.wasm from current source using a sig release.
+# Sig compiles its own source correctly (uses its own std library).
 name: update-zig1-wasm
 
 on:
@@ -7,9 +7,6 @@ on:
 
 permissions:
   contents: write
-
-env:
-  ZIG_VERSION: "0.16.0-dev.3091+557caecaa"
 
 jobs:
   regenerate:
@@ -20,10 +17,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+      - name: Setup Sig
+        uses: ./tools/setup-sig
         with:
-          version: ${{ env.ZIG_VERSION }}
+          version: latest
           use-cache: false
 
       - name: Regenerate zig1.wasm
@@ -31,14 +28,12 @@ jobs:
           set -euo pipefail
           ulimit -s unlimited 2>/dev/null || true
 
-          # Nuke ALL caches — start completely fresh
-          rm -rf .zig-cache zig-cache zig-out /tmp/zig-*
+          rm -rf .zig-cache zig-cache zig-out
           rm -f stage1/zig1.wasm
 
-          zig version
-          echo "which zig: $(which zig)"
+          sig version
+          echo "which sig: $(which sig)"
 
-          # build_options.zig — must NOT have leading whitespace
           cat > /tmp/build_options.zig << 'ENDOPTS'
 pub const have_llvm = false;
 pub const llvm_has_m68k = false;
@@ -61,12 +56,8 @@ pub const sig_version: [:0]const u8 = "0.1.2";
 pub const mem_leak_frames = 0;
 ENDOPTS
 
-          echo "=== build_options.zig ==="
-          cat /tmp/build_options.zig
-          echo "========================="
-
-          echo "Building zig1.wasm (wasm32-wasi, ReleaseSmall)..."
-          zig build-exe \
+          echo "Building zig1.wasm with sig compiler..."
+          sig build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=/tmp/build_options.zig \
@@ -76,19 +67,16 @@ ENDOPTS
             --zig-lib-dir lib \
             -target wasm32-wasi \
             -fstrip \
-            -fsingle-threaded \
-            --verbose-link
+            -fsingle-threaded
 
-          echo "=== Result ==="
           ls -la stage1/zig1.wasm
           file stage1/zig1.wasm
           MAGIC=$(xxd -l 4 -p stage1/zig1.wasm)
-          echo "Magic: $MAGIC"
           if [ "$MAGIC" != "0061736d" ]; then
             echo "FATAL: not a wasm file (magic=$MAGIC)"
             exit 1
           fi
-          echo "OK: valid wasm"
+          echo "OK: valid wasm — $(du -h stage1/zig1.wasm | cut -f1)"
 
       - name: Commit
         run: |
