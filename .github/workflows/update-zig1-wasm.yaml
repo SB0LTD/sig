@@ -33,6 +33,12 @@ jobs:
           ln -sf "$(pwd)/lib" "$(dirname $BIN)/../lib" 2>/dev/null || true
           "$BIN" version || echo "version check skipped"
 
+      - name: Install Binaryen (wasm-opt)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binaryen
+          wasm-opt --version
+
       - name: Regenerate zig1.wasm
         run: |
           ulimit -s unlimited 2>/dev/null || true
@@ -73,26 +79,29 @@ jobs:
             -fstrip \
             -fsingle-threaded
           
-          # Strip further with wasm-strip if available
-          if command -v wasm-strip &>/dev/null; then
-            wasm-strip stage1/zig1.wasm
-          elif command -v llvm-strip &>/dev/null; then
-            llvm-strip stage1/zig1.wasm
+          # Shrink with wasm-opt (Binaryen) — typically 30-50% reduction
+          echo "Before wasm-opt: $(du -h stage1/zig1.wasm | cut -f1)"
+          wasm-opt -Oz --strip-debug --strip-producers --zero-filled-memory \
+            stage1/zig1.wasm -o stage1/zig1.wasm.opt
+          mv stage1/zig1.wasm.opt stage1/zig1.wasm
+          echo "After wasm-opt: $(du -h stage1/zig1.wasm | cut -f1)"
+
+          SIZE_MB=$(du -m stage1/zig1.wasm | cut -f1)
+          echo "Size: ${SIZE_MB}MB"
+          if [ "$SIZE_MB" -gt 99 ]; then
+            echo "WARNING: zig1.wasm is ${SIZE_MB}MB — too large for git, will upload as release asset"
+            echo "WASM_TOO_LARGE=true" >> "$GITHUB_ENV"
+          else
+            echo "zig1.wasm fits in git (${SIZE_MB}MB)"
+            echo "WASM_TOO_LARGE=false" >> "$GITHUB_ENV"
           fi
 
-          echo "zig1.wasm regenerated:"
-          ls -la stage1/zig1.wasm
-          echo "Size: $(du -h stage1/zig1.wasm | cut -f1)"
-
-      - name: Upload zig1.wasm as release asset
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit to git
         run: |
-          RELEASE_TAG="zig1-wasm"
-          gh release view "${RELEASE_TAG}" >/dev/null 2>&1 || \
-            gh release create "${RELEASE_TAG}" \
-              --title "zig1.wasm (bootstrap seed)" \
-              --notes "Pre-built zig1.wasm for cmake bootstrap. Regenerated from current source." \
-              --prerelease
-          gh release upload "${RELEASE_TAG}" stage1/zig1.wasm --clobber
-          echo "Uploaded zig1.wasm ($(du -h stage1/zig1.wasm | cut -f1)) to release ${RELEASE_TAG}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add stage1/zig1.wasm
+          git diff --cached --quiet && echo "No changes" && exit 0
+          SIZE_MB=$(du -m stage1/zig1.wasm | cut -f1)
+          git commit -m "chore: regenerate zig1.wasm (${SIZE_MB}MB)"
+          git push

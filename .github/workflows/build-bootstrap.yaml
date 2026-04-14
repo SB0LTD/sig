@@ -76,15 +76,6 @@ jobs:
           rm "/tmp/${{ matrix.llvm_asset }}"
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
 
-      - name: Download zig1.wasm
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Download the regenerated zig1.wasm (too large for git, stored as release asset)
-          gh release download zig1-wasm --pattern "zig1.wasm" --dir stage1/ --clobber
-          echo "zig1.wasm: $(du -h stage1/zig1.wasm | cut -f1)"
-
       - name: Build sig with cmake + ninja (Unix)
         if: runner.os != 'Windows'
         shell: bash
