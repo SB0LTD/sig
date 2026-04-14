@@ -53,11 +53,15 @@ jobs:
             > /tmp/build_options.zig
 
       - name: Regenerate zig1.wasm
+        env:
+          ZIG_GLOBAL_CACHE_DIR: /tmp/zig-wasm-cache
+          ZIG_LOCAL_CACHE_DIR: /tmp/zig-wasm-local
         run: |
           set -euo pipefail
           ulimit -s unlimited 2>/dev/null || true
 
-          rm -rf .zig-cache zig-cache zig-out ~/.cache/zig
+          rm -rf /tmp/zig-wasm-cache /tmp/zig-wasm-local
+          mkdir -p /tmp/zig-wasm-cache /tmp/zig-wasm-local
           rm -f stage1/zig1.wasm
 
           echo "Building zig1.wasm with bootstrap sig (has LLVM)..."
