@@ -5803,7 +5803,7 @@ fn dirReadHaiku(userdata: ?*anyopaque, dr: *Dir.Reader, buffer: []Dir.Entry) Dir
                 const syscall: Syscall = try .start();
                 while (true) {
                     const rc = posix.system._kern_rewind_dir(dr.dir.handle);
-                    switch (posix.errno(rc)) {
+                    switch (@as(posix.E, @enumFromInt(@min(rc, 0)))) {
                         .SUCCESS => {
                             syscall.finish();
                             break;
@@ -5825,7 +5825,7 @@ fn dirReadHaiku(userdata: ?*anyopaque, dr: *Dir.Reader, buffer: []Dir.Entry) Dir
             const syscall: Syscall = try .start();
             const n: usize = while (true) {
                 const rc = posix.system._kern_read_dir(dr.dir.handle, dr.buffer.ptr, dr.buffer.len, @truncate(dr.buffer.len / @sizeOf(posix.system.DirEnt)));
-                switch (posix.errno(rc)) {
+                switch (@as(posix.E, @enumFromInt(@min(rc, 0)))) {
                     .SUCCESS => {
                         syscall.finish();
                         break @intCast(rc);
@@ -5868,7 +5868,7 @@ fn dirReadHaiku(userdata: ?*anyopaque, dr: *Dir.Reader, buffer: []Dir.Entry) Dir
             const syscall: Syscall = try .start();
             while (true) {
                 const rc = posix.system._kern_read_stat(dr.dir.handle, name, false, &stat, @sizeOf(std.c.Stat));
-                switch (posix.errno(rc)) {
+                switch (@as(posix.E, @enumFromInt(@min(rc, 0)))) {
                     .SUCCESS => {
                         syscall.finish();
                         break;
