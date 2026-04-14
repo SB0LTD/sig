@@ -2531,7 +2531,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             } else continue;
         }
 
-        if (options.skip_libc and test_target.link_libc == true)
+        if (options.skip_libc and (test_target.link_libc == true or std.os.targetRequiresLibC(target)))
             continue;
 
         // We can't provide MSVC libc when cross-compiling.
