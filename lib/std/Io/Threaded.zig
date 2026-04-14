@@ -5791,10 +5791,119 @@ fn dirReadIllumos(userdata: ?*anyopaque, dr: *Dir.Reader, buffer: []Dir.Entry) D
 }
 
 fn dirReadHaiku(userdata: ?*anyopaque, dr: *Dir.Reader, buffer: []Dir.Entry) Dir.Reader.Error!usize {
-    _ = userdata;
-    _ = dr;
-    _ = buffer;
-    @panic("TODO implement dirReadHaiku");
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    var buffer_index: usize = 0;
+    while (buffer.len - buffer_index != 0) {
+        if (dr.end - dr.index == 0) {
+            // Refill the buffer, unless we've already created references to
+            // buffered data.
+            if (buffer_index != 0) break;
+            if (dr.state == .reset) {
+                const syscall: Syscall = try .start();
+                while (true) {
+                    const rc = posix.system._kern_rewind_dir(dr.dir.handle);
+                    switch (posix.errno(rc)) {
+                        .SUCCESS => {
+                            syscall.finish();
+                            break;
+                        },
+                        .INTR => {
+                            try syscall.checkCancel();
+                            continue;
+                        },
+                        else => |e| {
+                            syscall.finish();
+                            switch (e) {
+                                else => |err| return posix.unexpectedErrno(err),
+                            }
+                        },
+                    }
+                }
+                dr.state = .reading;
+            }
+            const syscall: Syscall = try .start();
+            const n: usize = while (true) {
+                const rc = posix.system._kern_read_dir(dr.dir.handle, dr.buffer.ptr, dr.buffer.len, @truncate(dr.buffer.len / @sizeOf(posix.system.DirEnt)));
+                switch (posix.errno(rc)) {
+                    .SUCCESS => {
+                        syscall.finish();
+                        break @intCast(rc);
+                    },
+                    .INTR => {
+                        try syscall.checkCancel();
+                        continue;
+                    },
+                    else => |e| {
+                        syscall.finish();
+                        switch (e) {
+                            else => |err| return posix.unexpectedErrno(err),
+                        }
+                    },
+                }
+            };
+            if (n == 0) {
+                dr.state = .finished;
+                return 0;
+            }
+            dr.index = 0;
+            // _kern_read_dir returns entry count, but Dir.Reader is designed for byte count
+            dr.end = 0;
+            var i: usize = 0;
+            while (i < n) : (i += 1) {
+                const entry = @as(*align(1) posix.system.DirEnt, @ptrCast(&dr.buffer[dr.end]));
+                dr.end += entry.reclen;
+            }
+        }
+        const entry = @as(*align(1) posix.system.DirEnt, @ptrCast(&dr.buffer[dr.index]));
+        const next_index = dr.index + entry.reclen;
+        dr.index = next_index;
+
+        const name = std.mem.sliceTo(@as([*:0]u8, @ptrCast(&entry.name)), 0);
+        if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..") or entry.ino == 0) continue;
+
+        // haiku dirent doesn't expose type, so we have to call stat to get it.
+        var stat: std.c.Stat = undefined;
+        {
+            const syscall: Syscall = try .start();
+            while (true) {
+                const rc = posix.system._kern_read_stat(dr.dir.handle, name, false, &stat, @sizeOf(std.c.Stat));
+                switch (posix.errno(rc)) {
+                    .SUCCESS => {
+                        syscall.finish();
+                        break;
+                    },
+                    .INTR => {
+                        try syscall.checkCancel();
+                        continue;
+                    },
+                    else => |e| {
+                        syscall.finish();
+                        switch (e) {
+                            else => |err| return posix.unexpectedErrno(err),
+                        }
+                    },
+                }
+            }
+        }
+
+        const entry_kind: File.Kind = switch (stat.mode & posix.S.IFMT) {
+            posix.S.IFBLK => .block_device,
+            posix.S.IFCHR => .character_device,
+            posix.S.IFDIR => .directory,
+            posix.S.IFIFO => .named_pipe,
+            posix.S.IFLNK => .sym_link,
+            posix.S.IFREG => .file,
+            else => .unknown,
+        };
+        buffer[buffer_index] = .{
+            .name = name,
+            .kind = entry_kind,
+            .inode = entry.ino,
+        };
+        buffer_index += 1;
+    }
+    return buffer_index;
 }
 
 fn dirReadWindows(userdata: ?*anyopaque, dr: *Dir.Reader, buffer: []Dir.Entry) Dir.Reader.Error!usize {
