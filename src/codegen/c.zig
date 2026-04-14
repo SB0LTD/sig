@@ -1633,7 +1633,7 @@ pub const DeclGen = struct {
             if (func_analysis.branch_hint == .cold)
                 try w.writeAll("zig_cold ");
 
-            if (kind == .definition and func_analysis.disable_intrinsics or dg.mod.no_builtin)
+            if (kind == .definition and (func_analysis.disable_intrinsics or dg.mod.no_builtin))
                 try w.writeAll("zig_no_builtin ");
         }
 
