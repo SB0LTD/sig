@@ -43,7 +43,7 @@ jobs:
             zstd_flag: ""
           - os: windows-latest
             llvm_asset: llvm-22-x86_64-windows.tar.xz
-            target: x86_64-windows-gnu
+            target: x86_64-windows
             artifact: bootstrap-sig-x86_64-windows
             bin: zig2.exe
             deps: choco install ninja -y
