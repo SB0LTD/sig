@@ -64,6 +64,12 @@ jobs:
           mkdir -p /tmp/zig-wasm-cache /tmp/zig-wasm-local
           rm -f stage1/zig1.wasm
 
+          # Add swap — self-hosted wasm codegen is memory-hungry
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
           echo "Building zig1.wasm with bootstrap sig (has LLVM)..."
           "${SIG}" build-exe \
             --dep build_options --dep aro \
