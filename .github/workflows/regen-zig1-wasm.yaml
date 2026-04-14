@@ -65,10 +65,13 @@ jobs:
           rm -f stage1/zig1.wasm
 
           # Add swap — self-hosted wasm codegen is memory-hungry
+          sudo swapoff /swapfile 2>/dev/null || true
+          sudo rm -f /swapfile
           sudo fallocate -l 8G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
+          echo "Swap enabled: $(swapon --show)"
 
           echo "Building zig1.wasm with bootstrap sig (has LLVM)..."
           "${SIG}" build-exe \
