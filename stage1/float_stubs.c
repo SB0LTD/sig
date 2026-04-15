@@ -18,7 +18,14 @@ uint16_t zig_exp_f16(uint16_t x)  { (void)x; return 0; }
 uint16_t zig_exp2_f16(uint16_t x) { (void)x; return 0; }
 uint16_t zig_log_f16(uint16_t x)  { (void)x; return 0; }
 uint16_t zig_log2_f16(uint16_t x) { (void)x; return 0; }
+uint16_t zig_log10_f16(uint16_t x) { (void)x; return 0; }
 uint16_t zig_fma_f16(uint16_t x, uint16_t y, uint16_t z) { (void)x; (void)y; (void)z; return 0; }
+uint16_t zig_fmod_f16(uint16_t x, uint16_t y) { (void)x; (void)y; return 0; }
+uint16_t zig_max_f16(uint16_t x, uint16_t y) { (void)x; (void)y; return 0; }
+uint16_t zig_ceil_f16(uint16_t x) { (void)x; return 0; }
+uint16_t zig_floor_f16(uint16_t x) { (void)x; return 0; }
+uint16_t zig_round_f16(uint16_t x) { (void)x; return 0; }
+uint16_t zig_trunc_f16(uint16_t x) { (void)x; return 0; }
 
 /* f80 is represented as a 128-bit type on Windows (no native long double = 80-bit) */
 typedef struct { uint64_t lo; uint64_t hi; } zig_f80;
@@ -32,6 +39,13 @@ zig_f80 zig_exp_f80(zig_f80 x)  { (void)x; return zero80; }
 zig_f80 zig_exp2_f80(zig_f80 x) { (void)x; return zero80; }
 zig_f80 zig_log_f80(zig_f80 x)  { (void)x; return zero80; }
 zig_f80 zig_log2_f80(zig_f80 x) { (void)x; return zero80; }
+zig_f80 zig_log10_f80(zig_f80 x) { (void)x; return zero80; }
 zig_f80 zig_fma_f80(zig_f80 x, zig_f80 y, zig_f80 z) { (void)x; (void)y; (void)z; return zero80; }
+zig_f80 zig_fmod_f80(zig_f80 x, zig_f80 y) { (void)x; (void)y; return zero80; }
+zig_f80 zig_max_f80(zig_f80 x, zig_f80 y) { (void)x; (void)y; return zero80; }
+zig_f80 zig_ceil_f80(zig_f80 x) { (void)x; return zero80; }
+zig_f80 zig_floor_f80(zig_f80 x) { (void)x; return zero80; }
+zig_f80 zig_round_f80(zig_f80 x) { (void)x; return zero80; }
+zig_f80 zig_trunc_f80(zig_f80 x) { (void)x; return zero80; }
 
 #endif /* _WIN32 */
