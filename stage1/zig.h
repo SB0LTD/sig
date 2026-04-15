@@ -15,6 +15,11 @@
 #ifdef _environ
 #undef _environ
 #endif
+/* zig2.c declares: zig_extern uintptr_t _msize(void const *a0);
+   UCRT declares:   size_t __cdecl _msize(void *_Block);
+   Redirect zig2.c's _msize to a compatible wrapper. */
+static inline uintptr_t zig__msize_wrapper(void const *p) { return (uintptr_t)_msize((void*)p); }
+#define _msize zig__msize_wrapper
 #endif
 
 #if defined(_MSC_VER)
