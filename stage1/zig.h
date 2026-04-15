@@ -8,6 +8,7 @@
    Include stdlib.h only on Windows to get the macro, then undef it. */
 #if defined(_WIN32) || defined(_MSC_VER)
 #include <stdlib.h>
+#include <malloc.h>
 #ifdef environ
 #undef environ
 #endif
