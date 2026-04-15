@@ -41,9 +41,9 @@ pub fn build(b: *std.Build) void {
     exe_options.addOption(bool, "enable_tracy", false);
     exe_options.addOption(bool, "value_tracing", false);
     exe_options.addOption(bool, "skip_non_native", false);
-    exe_options.addOption(DevEnv, "dev", .bootstrap);
+    exe_options.addOption(DevEnv, "dev", .core);
     exe_options.addOption(enum { threaded, evented }, "io_mode", .threaded);
-    exe_options.addOption(ValueInterpretMode, "value_interpret_mode", .by_name);
+    exe_options.addOption(ValueInterpretMode, "value_interpret_mode", .direct);
     exe_options.addOption([:0]const u8, "sig_version", "0.1.2");
 
     const update_zig1 = b.addUpdateSourceFiles();
