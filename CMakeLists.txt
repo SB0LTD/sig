@@ -623,7 +623,7 @@ if(MSVC)
   # Suppress conflicting libc redeclarations in auto-generated zig2.c (e.g. _msize const mismatch)
   # clang-cl needs /clang: prefix for -W flags
   set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /clang:-Wno-incompatible-library-redeclaration /clang:-Wno-builtin-requires-header")
-  set(ZIG2_LINK_FLAGS "/STACK:16777216 /FORCE:MULTIPLE")
+  set(ZIG2_LINK_FLAGS "/STACK:16777216 /FORCE:MULTIPLE /NODEFAULTLIB:msvcrt /NODEFAULTLIB:msvcrtd")
 else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os -fno-strict-aliasing")
