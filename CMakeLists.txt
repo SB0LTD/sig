@@ -164,7 +164,7 @@ if(ZIG_STATIC_ZSTD)
     list(APPEND LLVM_LIBRARIES "${ZSTD}")
 endif()
 
-if (MSVC)
+if (MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
     if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
         # Always use static CRT (/MT) — required for clang-cl compatibility with zigcpp
         set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
