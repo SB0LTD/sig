@@ -166,11 +166,8 @@ endif()
 
 if (MSVC)
     if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
-        if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-            # avoid linking to the debug versions of ucrt by default
-            # as they are not redistributable.
-            set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
-        endif()
+        # Always use static CRT (/MT) — required for clang-cl compatibility with zigcpp
+        set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
     endif()
 endif ()
 
