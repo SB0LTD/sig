@@ -7,6 +7,7 @@ const ValueInterpretMode = enum { direct, by_name };
 pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "zig1",
+        .max_rss = 7_000_000_000,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = b.resolveTargetQuery(std.Target.Query.parse(.{
@@ -14,7 +15,6 @@ pub fn build(b: *std.Build) void {
                 .cpu_features = "baseline+nontrapping_bulk_memory_len0",
             }) catch unreachable),
             .optimize = .ReleaseSmall,
-            .strip = true,
             .single_threaded = true,
         }),
     });
@@ -39,6 +39,9 @@ pub fn build(b: *std.Build) void {
     exe_options.addOption(bool, "enable_logging", false);
     exe_options.addOption(bool, "enable_link_snapshots", false);
     exe_options.addOption(bool, "enable_tracy", false);
+    exe_options.addOption(bool, "enable_tracy_callstack", false);
+    exe_options.addOption(bool, "enable_tracy_allocation", false);
+    exe_options.addOption(u32, "tracy_callstack_depth", 0);
     exe_options.addOption(bool, "value_tracing", false);
     exe_options.addOption(bool, "skip_non_native", false);
     exe_options.addOption(DevEnv, "dev", .bootstrap);
