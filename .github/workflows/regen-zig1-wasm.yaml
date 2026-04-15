@@ -88,9 +88,9 @@ jobs:
             -target wasm32-wasi \
             -fno-llvm \
             -fno-lld \
-            -fno-compiler-rt \
             -fstrip \
-            -fsingle-threaded
+            -fsingle-threaded \
+            -lc
 
           ls -la stage1/zig1.wasm
           file stage1/zig1.wasm
