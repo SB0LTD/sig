@@ -43,6 +43,7 @@ jobs:
           echo "Memory: $(free -h | grep Mem | awk '{print $2}') RAM + $(free -h | grep Swap | awk '{print $2}') swap"
 
           rm -f stage1/zig1.wasm
+          rm -rf .zig-cache ~/.cache/zig
 
           # Use the build system (build_wasm.zig) instead of build-exe CLI.
           # The build system properly handles wasm32-wasi target, compiler-rt,
