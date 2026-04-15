@@ -87,10 +87,8 @@ jobs:
             --zig-lib-dir lib \
             -target wasm32-wasi \
             -fno-llvm \
-            -fno-lld \
             -fstrip \
-            -fsingle-threaded \
-            -lc
+            -fsingle-threaded
 
           ls -la stage1/zig1.wasm
           file stage1/zig1.wasm
