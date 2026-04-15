@@ -9,7 +9,7 @@ permissions:
 jobs:
   regenerate:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,18 +26,6 @@ jobs:
           chmod +x "$BIN"
           echo "SIG=$BIN" >> "$GITHUB_ENV"
           ln -sf "$(pwd)/lib" "$(dirname $BIN)/../lib" 2>/dev/null || true
-
-      - name: Install wasi-sdk
-        run: |
-          WASI_VERSION_FULL=25.0
-          curl -sL "https://github.com/aspect-build/aspect-workflows/releases/download/5.12.0/wasi-sdk-${WASI_VERSION_FULL}-x86_64-linux.tar.gz" -o /tmp/wasi-sdk.tar.gz 2>/dev/null || true
-          # Use official wasi-sdk
-          curl -sL "https://github.com/aspect-build/aspect-workflows/releases/download/5.12.0/wasi-sdk-${WASI_VERSION_FULL}-x86_64-linux.tar.gz" -o /dev/null 2>/dev/null || true
-          # Just get wasi-sdk from the official source
-          WASI_SDK_URL="https://github.com/aspect-build/aspect-workflows/releases/download/5.12.0/wasi-sdk-${WASI_VERSION_FULL}-x86_64-linux.tar.gz"
-          echo "placeholder" > /dev/null
-          # Actually: we don't need wasi-sdk. The bootstrap zig2 can compile C to wasm via its bundled clang.
-          # zig2 cc --target=wasm32-wasi works.
 
       - name: Create build_options.zig
         run: |
@@ -63,101 +51,60 @@ jobs:
             'pub const mem_leak_frames = 0;' \
             > /tmp/build_options.zig
 
-      - name: Step 1 - Generate C code targeting wasm32-wasi
+      - name: Regenerate zig1.wasm
         env:
-          ZIG_GLOBAL_CACHE_DIR: /tmp/zig-c-cache
-          ZIG_LOCAL_CACHE_DIR: /tmp/zig-c-local
+          ZIG_GLOBAL_CACHE_DIR: /tmp/zig-wasm-cache
+          ZIG_LOCAL_CACHE_DIR: /tmp/zig-wasm-local
         run: |
           set -euo pipefail
           ulimit -s unlimited 2>/dev/null || true
-          rm -rf /tmp/zig-c-cache /tmp/zig-c-local
-          mkdir -p /tmp/zig-c-cache /tmp/zig-c-local
 
-          echo "Step 1: Generating zig1.c (-ofmt=c -target wasm32-wasi)..."
+          # Free disk space for swap
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost 2>/dev/null || true
+          df -h /
+
+          # 20GB swap — self-hosted wasm codegen is extremely memory-hungry
+          sudo swapoff -a 2>/dev/null || true
+          sudo rm -f /swapfile /mnt/swapfile
+          sudo fallocate -l 20G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          echo "Memory: $(free -h | grep Mem | awk '{print $2}') RAM + $(free -h | grep Swap | awk '{print $2}') swap"
+
+          rm -rf /tmp/zig-wasm-cache /tmp/zig-wasm-local
+          mkdir -p /tmp/zig-wasm-cache /tmp/zig-wasm-local
+          rm -f stage1/zig1.wasm
+
+          echo "Building zig1.wasm (self-hosted wasm backend)..."
           "${SIG}" build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=/tmp/build_options.zig \
             -Maro=lib/compiler/aro/aro.zig \
             -O ReleaseSmall \
-            -ofmt=c \
-            -lc \
-            --name zig1 \
-            -femit-bin="/tmp/zig1.c" \
+            -femit-bin="stage1/zig1.wasm" \
             --zig-lib-dir lib \
             -target wasm32-wasi \
+            -fno-llvm \
+            -fno-lld \
+            -fno-compiler-rt \
             -fstrip \
             -fsingle-threaded
 
-          ls -la /tmp/zig1.c
-          echo "zig1.c: $(du -h /tmp/zig1.c | cut -f1)"
-          head -3 /tmp/zig1.c
-
-      - name: Step 2 - Also generate compiler_rt.c
-        env:
-          ZIG_GLOBAL_CACHE_DIR: /tmp/zig-c-cache
-          ZIG_LOCAL_CACHE_DIR: /tmp/zig-c-local
-        run: |
-          echo "Step 2: Generating compiler_rt.c..."
-          "${SIG}" build-obj \
-            -ofmt=c \
-            -OReleaseSmall \
-            --name compiler_rt \
-            -femit-bin="/tmp/compiler_rt.c" \
-            --zig-lib-dir lib \
-            -target wasm32-wasi \
-            -Mroot=lib/compiler_rt.zig
-
-          ls -la /tmp/compiler_rt.c
-          echo "compiler_rt.c: $(du -h /tmp/compiler_rt.c | cut -f1)"
-
-      - name: Step 3 - Compile C to wasm with clang (from LLVM 22)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          # Download our pre-built LLVM 22 (has clang with wasm target)
-          gh release download llvm-22 --pattern "llvm-22-x86_64-linux.tar.xz" --dir /tmp
-          mkdir -p /tmp/llvm
-          tar -xJf /tmp/llvm-22-x86_64-linux.tar.xz -C /tmp/llvm --strip-components=1
-          rm /tmp/llvm-22-x86_64-linux.tar.xz
-
-          CLANG="/tmp/llvm/bin/clang"
-          echo "Clang version: $($CLANG --version | head -1)"
-
-          # Compile zig1.c + compiler_rt.c to wasm
-          # Use wasi-libc sysroot from zig's lib directory
-          echo "Step 3: Compiling to wasm32-wasip1..."
-          $CLANG \
-            --target=wasm32-wasip1 \
-            -std=c99 -Os \
-            -ffreestanding \
-            -nostdlib \
-            -I stage1 \
-            -Wno-incompatible-pointer-types \
-            -Wno-constant-conversion \
-            -Wl,--no-entry \
-            -Wl,--export-dynamic \
-            -Wl,--allow-undefined \
-            -Wl,--stack-first \
-            -Wl,-z,stack-size=16777216 \
-            -o stage1/zig1.wasm \
-            /tmp/zig1.c /tmp/compiler_rt.c
-
           ls -la stage1/zig1.wasm
           file stage1/zig1.wasm
-
-      - name: Validate and commit
-        run: |
           MAGIC=$(xxd -l 4 -p stage1/zig1.wasm)
           if [ "$MAGIC" != "0061736d" ]; then
             echo "FATAL: not a wasm file (magic=$MAGIC)"
             exit 1
           fi
+          echo "OK: valid wasm — $(du -h stage1/zig1.wasm | cut -f1)"
 
+      - name: Commit
+        run: |
           SIZE_MB=$(du -m stage1/zig1.wasm | cut -f1)
-          echo "OK: valid wasm — ${SIZE_MB}MB"
+          echo "zig1.wasm: ${SIZE_MB}MB"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
