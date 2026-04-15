@@ -88,7 +88,6 @@ jobs:
             -target wasm32-wasi \
             -fno-llvm \
             -fno-lld \
-            -fno-compiler-rt \
             --import-symbols \
             -fstrip \
             -fsingle-threaded
