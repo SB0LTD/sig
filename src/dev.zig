@@ -60,6 +60,7 @@ pub const Env = enum {
                 .build_obj_command,
                 .ast_gen,
                 .sema,
+                .legalize,
                 .c_backend,
                 .c_linker,
                 => true,

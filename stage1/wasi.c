@@ -7,7 +7,7 @@
 
 #include "panic.h"
 
-#define LOG_TRACE 1
+#define LOG_TRACE 0
 
 enum wasi_errno {
     wasi_errno_success        = 0,
