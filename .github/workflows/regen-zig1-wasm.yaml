@@ -52,6 +52,7 @@ jobs:
           "${SIG}" build \
             --build-file build_wasm.zig \
             --zig-lib-dir lib \
+            --prominent-color off \
             update-zig1
 
           ls -la stage1/zig1.wasm

@@ -63,6 +63,8 @@ pub const Env = enum {
                 .legalize,
                 .c_backend,
                 .c_linker,
+                .make_writable,
+                .make_executable,
                 => true,
                 else => false,
             },
