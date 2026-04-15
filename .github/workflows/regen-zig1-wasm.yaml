@@ -135,6 +135,8 @@ jobs:
             -ffreestanding \
             -nostdlib \
             -I stage1 \
+            -Wno-incompatible-pointer-types \
+            -Wno-constant-conversion \
             -Wl,--no-entry \
             -Wl,--export-dynamic \
             -Wl,--allow-undefined \
