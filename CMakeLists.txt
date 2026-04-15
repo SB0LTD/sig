@@ -683,6 +683,9 @@ add_custom_command(
 
 add_executable(zig1 ${ZIG1_C_SOURCE} stage1/wasi.c)
 set_target_properties(zig1 PROPERTIES COMPILE_FLAGS ${ZIG1_COMPILE_FLAGS})
+if(MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
+  set_property(TARGET zig1 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+endif()
 
 if(MSVC)
   target_link_options(zig1 PRIVATE /STACK:0x10000000)
@@ -738,6 +741,9 @@ set_target_properties(zig2 PROPERTIES
   COMPILE_FLAGS ${ZIG2_COMPILE_FLAGS}
   LINK_FLAGS "${ZIG2_LINK_FLAGS}"
 )
+if(MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
+  set_property(TARGET zig2 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+endif()
 target_include_directories(zig2 PUBLIC stage1)
 target_link_libraries(zig2 LINK_PUBLIC zigcpp)
 
