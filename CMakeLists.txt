@@ -734,6 +734,9 @@ add_custom_command(
 )
 
 add_executable(zig2 ${ZIG2_C_SOURCE} ${ZIG_COMPILER_RT_C_SOURCE})
+if(WIN32)
+  target_sources(zig2 PRIVATE stage1/float_stubs.c)
+endif()
 set_target_properties(zig2 PROPERTIES
   COMPILE_FLAGS ${ZIG2_COMPILE_FLAGS}
   LINK_FLAGS "${ZIG2_LINK_FLAGS}"

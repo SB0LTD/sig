@@ -3642,6 +3642,13 @@ zig_common_float_builtins(64)
 zig_common_float_builtins(80)
 zig_common_float_builtins(128)
 
+/* On Windows without native f16/f80, the extern declarations from
+   zig_common_float_builtins are unresolved. The bootstrap zig2 never
+   calls these at runtime — they exist only because the C backend emits
+   references for all target float types. Provide no-op stubs via a
+   separate .c file or weak symbols. For the bootstrap, we use the
+   linker's /FORCE:MULTIPLE to ignore these. */
+
 #define zig_float_builtins(w) \
     zig_convert_builtin( int32_t,  int32_t, fix,     zig_f##w, zig_f##w, ) \
     zig_convert_builtin(uint32_t, uint32_t, fixuns,  zig_f##w, zig_f##w, ) \
