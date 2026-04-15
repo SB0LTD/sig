@@ -622,7 +622,7 @@ set(ZIG_HOST_TARGET_TRIPLE "${ZIG_HOST_TARGET_ARCH}-${ZIG_HOST_TARGET_OS}${ZIG_H
 if(MSVC)
   set(ZIG_WASM2C_COMPILE_FLAGS "")
   set(ZIG1_COMPILE_FLAGS "/Os")
-  set(ZIG2_COMPILE_FLAGS "/Od")
+  set(ZIG2_COMPILE_FLAGS "/Od /MT")
   # Suppress conflicting libc redeclarations in auto-generated zig2.c (e.g. _msize const mismatch)
   # clang-cl needs /clang: prefix for -W flags
   set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /clang:-Wno-incompatible-library-redeclaration /clang:-Wno-builtin-requires-header")
