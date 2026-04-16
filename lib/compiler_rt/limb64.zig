@@ -57,9 +57,10 @@ fn fixLastLimb(out_ptr: [*]u64, is_signed: bool, bits: u16) void {
     if (limb_cnt == true_limb_cnt) return;
     const true_out = out_ptr[0..true_limb_cnt];
 
-    const sign: u64 = if (!is_signed or @as(i64, @bitCast(true_out[limb_cnt - 1])) >= 0) 0 else ~@as(u64, 0);
+    const ms = limbGet(true_out, limb_cnt - 1);
+    const sign: u64 = if (!is_signed or @as(i64, @bitCast(ms)) >= 0) 0 else ~@as(u64, 0);
     for (limb_cnt..true_limb_cnt) |i| {
-        true_out[i] = sign;
+        limbSet(true_out, i, sign);
     }
 }
 
