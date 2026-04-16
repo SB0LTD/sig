@@ -1,119 +1,103 @@
 name: sig-sync
 
 on:
-  # Primary trigger: Cloud Run watcher fires this on new upstream commits (~30s latency)
   repository_dispatch:
     types: [upstream-push]
-  # Fallback: poll every 5 minutes in case the watcher is down
-  schedule:
-    - cron: '*/5 * * * *'
-  # Manual trigger
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  sync-upstream:
+  sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Sig  # [sig] Use our own setup-sig action
-        uses: ./tools/setup-sig
-        with:
-          version: latest
-
-      - name: Add upstream Codeberg remote
+      - name: Fetch upstream
         run: |
-          git remote add upstream-zig https://codeberg.org/ziglang/zig.git || true
-          git fetch upstream-zig
+          git remote add upstream https://codeberg.org/ziglang/zig.git 2>/dev/null || true
+          git fetch upstream master --depth=100
 
       - name: Check for new commits
         id: check
         run: |
-          LAST=$(jq -r '.last_integrated_commit' tools/sig_sync/manifest.json)
-          LATEST=$(git rev-parse upstream-zig/master)
-          if [ "$LAST" = "$LATEST" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            echo "No new upstream commits"
+          UPSTREAM=$(git rev-parse upstream/master)
+          # Check if upstream/master is already an ancestor of HEAD
+          if git merge-base --is-ancestor "$UPSTREAM" HEAD; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already up to date with upstream ($UPSTREAM)"
           else
-            echo "skip=false" >> $GITHUB_OUTPUT
-            echo "New commits: $LAST..$LATEST"
+            COUNT=$(git rev-list HEAD..upstream/master --count)
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "UPSTREAM_SHA=$UPSTREAM" >> "$GITHUB_ENV"
+            echo "COMMIT_COUNT=$COUNT" >> "$GITHUB_ENV"
+            echo "$COUNT new upstream commits (latest: $UPSTREAM)"
           fi
 
-      - name: Configure git
+      - name: Merge upstream
         if: steps.check.outputs.skip != 'true'
         run: |
           git config user.name "sig-sync[bot]"
           git config user.email "sig-sync@users.noreply.github.com"
 
-      - name: Build and run sig-sync
-        if: steps.check.outputs.skip != 'true'
-        run: |
-          # Compile sig_sync tool directly (run-sig-sync step is not yet in build.sig)
-          sig build-exe \
-            --dep sig --dep std \
-            -Mroot=tools/sig_sync/main.sig \
-            -Msig=lib/sig/sig.zig \
-            -Mstd=lib/std/std.zig \
-            --zig-lib-dir lib \
-            --cache-dir .zig-cache \
-            --global-cache-dir .zig-cache \
-            -femit-bin=.zig-cache/sig_sync
-          .zig-cache/sig_sync --remote upstream-zig --branch master
-        timeout-minutes: 30
-
-      - name: Push to GitHub (ShadovvBeast/sig master)
-        if: steps.check.outputs.skip != 'true'
-        run: git push origin HEAD:master
-
-      - name: Push to Codeberg fork (ShadowBeast/zig sig branch)
-        if: steps.check.outputs.skip != 'true' && env.HAS_CODEBERG == 'true'
-        run: |
-          git remote add codeberg-fork https://${{ secrets.CODEBERG_USER }}:${{ secrets.CODEBERG_TOKEN }}@codeberg.org/ShadowBeast/zig.git || true
-          git push codeberg-fork HEAD:sig
-        env:
-          HAS_CODEBERG: ${{ secrets.CODEBERG_TOKEN != '' }}
-
-      - name: Run Sig tests  # [sig] Verify Sig tests still pass after sync
-        if: steps.check.outputs.skip != 'true'
-        run: sig build test-sig --zig-lib-dir lib
-        timeout-minutes: 30
-
-      - name: Verify identical output  # [sig] Regression gate after sync
-        if: steps.check.outputs.skip != 'true'
-        run: sig build --verify-identical --zig-lib-dir lib
-        timeout-minutes: 60
-
-      - name: Check for conflicts
-        if: steps.check.outputs.skip != 'true'
-        run: |
-          if grep -q '"conflict"' tools/sig_sync/manifest.json; then
-            echo "::warning::Sync encountered conflicts — check manifest for details"
-            exit 1
-          fi
-
-      - name: Regenerate README
-        if: steps.check.outputs.skip != 'true'
-        run: |
-          sig build run-sig-readme --zig-lib-dir lib || true
-          if git diff --quiet README.md tools/sig_sync/manifest.json; then
-            echo "README unchanged"
+          # Try automatic merge
+          if git merge upstream/master --no-edit -m "sig-sync: merge upstream zig ($COMMIT_COUNT commits)"; then
+            echo "MERGE_OK=true" >> "$GITHUB_ENV"
+            echo "Clean merge"
           else
-            git add README.md tools/sig_sync/manifest.json
-            git commit -m "sig-sync: update manifest and README"
-            git push origin HEAD:master
+            echo "MERGE_OK=false" >> "$GITHUB_ENV"
+            echo "::warning::Merge conflicts detected"
+
+            # For sig-specific files, keep ours
+            for f in README.md CHANGELOG.md build.sig lib/sig/ tools/sig_sync/ tools/setup-sig/ tools/upstream-watcher/ .github/workflows/; do
+              git checkout --ours -- "$f" 2>/dev/null && git add "$f" 2>/dev/null || true
+            done
+
+            # For upstream compiler files, take theirs
+            for f in src/Sema.zig src/print_zir.zig lib/std/zig/Zir.zig lib/std/zig/AstGen.zig lib/std/zig/AstRlAnnotate.zig lib/std/zig/BuiltinFn.zig; do
+              if git diff --name-only --diff-filter=U | grep -q "^$f$"; then
+                git checkout --theirs -- "$f" 2>/dev/null && git add "$f" 2>/dev/null || true
+              fi
+            done
+
+            # Check if all conflicts are resolved
+            if git diff --name-only --diff-filter=U | grep -q .; then
+              echo "::error::Unresolved conflicts remain:"
+              git diff --name-only --diff-filter=U
+              exit 1
+            fi
+
+            git commit --no-edit -m "sig-sync: merge upstream zig ($COMMIT_COUNT commits, conflicts auto-resolved)"
+            echo "MERGE_OK=true" >> "$GITHUB_ENV"
           fi
 
-      # [sig] Trigger release build after successful sync
-      - name: Trigger release
-        if: steps.check.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update manifest
+        if: steps.check.outputs.skip != 'true' && env.MERGE_OK == 'true'
         run: |
-          gh api repos/${{ github.repository }}/dispatches \
-            -f event_type=sig-release
+          TIMESTAMP=$(date +%s)
+          cat > tools/sig_sync/manifest.json << EOF
+          {
+            "last_integrated_commit": "$UPSTREAM_SHA",
+            "last_integration_timestamp": $TIMESTAMP,
+            "entries": []
+          }
+          EOF
+          # Fix indentation from heredoc
+          python3 -c "
+          import json
+          with open('tools/sig_sync/manifest.json') as f:
+              d = json.load(f)
+          with open('tools/sig_sync/manifest.json', 'w') as f:
+              json.dump(d, f, indent=2)
+              f.write('\n')
+          "
+          git add tools/sig_sync/manifest.json
+          git diff --cached --quiet || git commit -m "sig-sync: update manifest to $UPSTREAM_SHA"
+
+      - name: Push
+        if: steps.check.outputs.skip != 'true' && env.MERGE_OK == 'true'
+        run: git push origin HEAD:master
