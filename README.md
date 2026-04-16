@@ -1,240 +1,95 @@
-<p align="center">
-  <img src="sig.png" alt="Sig" width="420" />
-</p>
+# Sig
 
-<h1 align="center">Sig — Strict Zig</h1>
+A Zig fork where `.sig` files make allocator usage a compile error.
 
-<p align="center">
-  <em>Memory is not a guess.</em>
-</p>
-
-<p align="center">
-  A capacity-first memory model layer on top of the Zig compiler.<br/>
-  Every buffer is caller-owned. Every container is bounded. Every allocation is visible.
-</p>
-
----
-
-## Why Sig?
-
-Zig gives you control. Sig makes that control **the default**.
-
-Standard Zig APIs pass around `std.mem.Allocator` — a runtime parameter that hides when, where, and how much memory is used. Code compiles, ships, and then OOMs in production because an `ArrayList` doubled its backing store at the worst possible moment.
-
-Sig eliminates that entire class of failure. Every API takes a caller-provided buffer or a fixed-capacity container. If the memory isn't there, you get a compile-time-sized error — not a surprise at 3 AM.
+## What it looks like
 
 ```zig
-// Zig standard library — allocator hidden inside
+// zig — allocator is a runtime parameter, capacity is implicit
 var list = std.ArrayList(u8).init(allocator);
-try list.appendSlice(data); // may allocate 1x, 2x, 4x… who knows?
+try list.appendSlice(data); // might realloc 1x, 2x, 4x…
 
-// Sig — you own the memory, always
+// sig — you provide the buffer, capacity is the type
 var buf: [4096]u8 = undefined;
-const result = try sig.fmt.formatInto(&buf, "{s}: {d} items", .{ name, count });
+const result = try sig.fmt.formatInto(&buf, "{s}: {d}", .{ name, count });
 ```
-
-## Benchmarks
-
-Same hardware, same inputs, same compiler backend. Sig's capacity-first APIs vs Zig's allocator-based equivalents.
-
-> Run `sig build bench-sig` to regenerate these tables with data from your machine. The numbers below are projected estimates — real benchmark data will replace them once the benchmark suite runs end-to-end.
-
-### Formatting
-
-| Operation | Sig `formatInto` (ns/op) | Zig `std.fmt.bufPrint` (ns/op) | Δ Latency | Sig Peak RAM | Zig Peak RAM |
-|---|--:|--:|--:|--:|--:|
-| Small string (32 B) | **18** | 31 | −42% | 64 B | 4,096 B |
-| Medium template (256 B) | **42** | 67 | −37% | 256 B | 4,096 B |
-| Large interpolation (2 KB) | **189** | 304 | −38% | 2,048 B | 8,192 B |
-
-### I/O Reads
-
-| Operation | Sig `readInto` (ns/op) | Zig `std.io` reader (ns/op) | Δ Latency | Sig Peak RAM | Zig Peak RAM |
-|---|--:|--:|--:|--:|--:|
-| 4 KB file read | **1,200** | 2,100 | −43% | 4,096 B | 8,192 B |
-| 64 KB buffered read | **14,000** | 23,000 | −39% | 65,536 B | 131,072 B |
-| 1 MB streaming (4 KB chunks) | **198,000** | 340,000 | −42% | 4,096 B | 1,048,576 B |
-
-### Containers
-
-| Operation | Sig `BoundedVec` (ns/op) | Zig `std.ArrayList` (ns/op) | Δ Latency | Sig Peak RAM | Zig Peak RAM |
-|---|--:|--:|--:|--:|--:|
-| 1,000 push ops | **8,400** | 14,200 | −41% | 8,000 B | 16,384 B |
-| 10,000 push ops | **84,000** | 156,000 | −46% | 80,000 B | 131,072 B |
-| Push/pop interleaved (5,000) | **52,000** | 89,000 | −42% | 8,000 B | 65,536 B |
-
-> **Why is Sig faster?** No allocator overhead, no capacity-doubling reallocs, no indirection through vtable-style `Allocator` interfaces. The buffer is right there on the stack or in a known region — the CPU prefetcher loves it.
-
-## Why We Rewrote the Build System
-
-Zig's `std.Build` allocates on every operation. Every `b.path()`, `b.createModule()`, `b.step()`, and `b.fmt()` hits the heap through `b.allocator`. The configure phase creates thousands of `std.Build.Module` objects, each with allocator-backed import lists, path strings, and option maps. On Windows, the runner's memory usage peaks at hundreds of MB for the Zig compiler build, with GC pressure from the arena allocator. Incremental builds re-evaluate the entire build graph even when nothing changed, because the build runner is a compiled Zig program that must be re-executed.
-
-The Sig build runner (`sig build`) eliminates all of this:
-
-- Fixed-capacity registries: 104KB for 256 steps, no heap
-- Binary cache with O(1) lookup and 96-byte fixed records
-- Sub-10ms configure phase for 100+ steps/modules
-- Zero heap allocations during configure — enforced by the `.sig` extension
-
-### Build System Benchmarks
-
-> Run `sig build --benchmark` to regenerate this table on your machine.
-
-| Metric | `sig build` | `zig build` | Δ |
-|---|--:|--:|--:|
-| Full rebuild | — | — | target: ≤80% |
-| Incremental (no changes) | — | — | target: ≤50ms |
-| Peak RSS | — | — | target: ≤50% |
-
-### Architecture
-
-```
-CLI (sig build)
-  → Option Parser (stack buffers, BoundedStringMap)
-  → build.sig Loader (compile as module, call build fn)
-  → Build_Context
-      ├── Step_Registry    (BoundedVec, 256 slots, 104KB)
-      ├── Module_Registry  (BoundedVec, 128 slots)
-      └── Option_Map       (BoundedStringMap, 128 entries)
-  → Dependency_Graph (fixed adjacency lists, 18KB)
-  → Topological Sort (Kahn's algorithm, BoundedDeque)
-  → Scheduler
-      ├── Cache_Map (4096 entries, binary persistence)
-      └── Thread_Pool (up to 64 workers, BoundedDeque queue)
-          → Upstream Compiler (child process)
-```
-
-Zero allocators from CLI to scheduler. The only heap usage is inside the upstream Zig compiler, spawned as a child process.
-
-## The Spoon Model
-
-Sig is not a fork. It's a **Spoon**.
-
-A Spoon is a close derivative that stays continuously synchronized with its upstream. While a traditional fork drifts further from its origin with every passing month, a Spoon integrates every upstream commit automatically. Sig tracks the upstream Zig compiler and standard library through **Sig_Sync** — every commit in [ziglang/zig](https://codeberg.org/ziglang/zig) flows into Sig automatically.
-
-| | Traditional Fork | Spoon (Sig) |
-|---|---|---|
-| Upstream tracking | Manual, periodic | Continuous, automatic |
-| Divergence over time | Grows unbounded | Near zero |
-| Merge conflicts | Accumulate silently | Resolved immediately |
-| Upstream compatibility | Degrades | Always maintained |
-
-## Sync Status
-
-| | |
-|---|---|
-| Latest integrated upstream commit | [`7977ef80f9c`](https://codeberg.org/ziglang/zig/commit/7977ef80f9c) |
-| Integration timestamp | 2026-04-14 |
-| Upstream | [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) |
-| Sync target | 99.99% automatic integration |
-| Schedule | Every 6 hours via CI |
-
-> Sync runs automatically on a schedule. You can also trigger it manually via the Forgejo workflow dispatch.
-
-## Getting Started
-
-```bash
-git clone https://github.com/sig-lang/sig.git
-cd sig
-sig build
-```
-
-The output binary is `sig.exe` (or `sig` on Linux/macOS). It's a drop-in replacement for `zig` with Sig's diagnostics layer on top.
-
-```
-$ sig version
-sig 0.1.2 (zig 0.16.0-dev)
-```
-
-Prerequisites: a system C/C++ toolchain, LLVM 22.x. See the [Zig getting started guide](https://ziglang.org/learn/getting-started/) for details.
-
-### Quick Example
 
 ```zig
-const sig = @import("sig");
-
-pub fn main() !void {
-    // Format into a stack buffer — zero allocations
-    var buf: [256]u8 = undefined;
-    const msg = try sig.fmt.formatInto(&buf, "Hello, {s}! You have {d} items.", .{ "world", 42 });
-
-    // Bounded container — capacity is known at comptime
-    var vec = sig.containers.BoundedVec(u32, 1024){};
-    try vec.push(10);
-    try vec.push(20);
-    _ = vec.pop(); // 20
-
-    // Stream a large file in fixed 4KB chunks — RAM never exceeds 4KB
-    var stream = sig.io.StreamReader(4096){};
-    while (stream.next(file_reader)) |chunk| {
-        process(chunk);
-    }
-
-    _ = msg;
-}
+// bounded container — capacity is comptime-known
+var vec = sig.containers.BoundedVec(u32, 1024){};
+try vec.push(10);
+try vec.push(20); // returns CapacityExceeded if full
 ```
 
-## Memory Model at a Glance
+## Strict mode
 
-| Pattern | Classification | Example |
-|---|---|---|
-| Stack buffer | ✅ Canonical | `var buf: [1024]u8 = undefined;` |
-| Caller-provided buffer | ✅ Canonical | `fn read(buf: []u8) ![]u8` |
-| Bounded container | ✅ Canonical | `BoundedVec(u8, 256)` |
-| Fixed pool | ✅ Canonical | `FixedPool(Node, 64)` |
-| Global/static memory | ✅ Canonical | `const table = [_]u8{...};` |
-| Heap allocation | ⚠️ Non-canonical | `allocator.alloc(u8, n)` |
-| Allocator parameter | ⚠️ Non-canonical | `fn init(alloc: Allocator)` |
-| Runtime resizing | ⚠️ Non-canonical | `list.ensureTotalCapacity(n)` |
-
-Non-canonical patterns compile but produce diagnostics. In `strict` mode, they become compile errors.
-
-## The `.sig` File Extension
-
-Sig introduces `.sig` as a source file extension. A `.sig` file is syntactically identical to a `.zig` file — same grammar, same parser, same compilation pipeline — but the extension itself implies strict mode. All allocator usage diagnostics in a `.sig` file are compile errors, no flags needed.
-
-This is analogous to `.js` vs `.ts`: the file extension is the contract.
+The `.sig` file extension enables strict mode. Same syntax as `.zig`, same parser, same compiler — but allocator usage is a compile error.
 
 ```
 src/core.sig:42:5: error: direct allocation in 'init' (.sig file: strict mode enforced)
 ```
 
-| File | Allocator usage | Behavior |
+| File | `allocator.alloc(...)` | Behavior |
 |---|---|---|
-| `foo.zig` | `allocator.alloc(...)` | Warning (default) or error (`--sig-mode=strict`) |
-| `foo.sig` | `allocator.alloc(...)` | Always a compile error |
+| `foo.zig` | Allowed | Warning (or error with `--sig-mode=strict`) |
+| `foo.sig` | Not allowed | Compile error, always |
 
-`.sig` and `.zig` files interoperate freely via `@import`. Each file gets its own diagnostic mode based on its extension. You can adopt strict mode incrementally, one file at a time.
+`.sig` and `.zig` files interoperate via `@import`. You can adopt strict mode one file at a time.
 
-## Versioning
+## Error model
 
-Sig follows its own semver (`0.1.2`) while tracking the upstream Zig version it's built on. The `sig version` command shows both:
+Four explicit errors instead of silent reallocation:
 
-```
-sig 0.1.2 (zig 0.16.0-dev)
-```
-
-## Error Model
-
-Sig uses four explicit capacity errors instead of silent reallocation:
-
-| Error | When |
+| Error | Meaning |
 |---|---|
 | `BufferTooSmall` | Output exceeds the caller-provided buffer |
 | `CapacityExceeded` | Bounded container is full |
-| `DepthExceeded` | Recursive operation exceeds depth limit |
+| `DepthExceeded` | Recursive operation hit depth limit |
 | `QuotaExceeded` | Resource usage limit reached |
 
-These are standard Zig error unions — handle them with `try`, `catch`, or `orelse`. No panics, no hidden allocations.
+Standard Zig error unions. Handle with `try`, `catch`, or `orelse`.
+
+## Memory patterns
+
+| Pattern | In `.sig` files |
+|---|---|
+| `var buf: [1024]u8 = undefined;` | ✅ |
+| `fn read(buf: []u8) ![]u8` | ✅ |
+| `BoundedVec(u8, 256)` | ✅ |
+| `FixedPool(Node, 64)` | ✅ |
+| `allocator.alloc(u8, n)` | ❌ compile error |
+| `fn init(alloc: Allocator)` | ❌ compile error |
+| `list.ensureTotalCapacity(n)` | ❌ compile error |
+
+In `.zig` files, the ❌ patterns compile normally (with optional warnings).
+
+## Getting started
+
+Download a binary from [releases](https://github.com/SB0LTD/sig/releases), or build from source:
+
+```bash
+git clone https://github.com/SB0LTD/sig.git
+cd sig && sig build
+```
+
+Drop-in replacement for `zig`. All existing `.zig` code works unchanged.
+
+## Upstream sync
+
+Sig tracks [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) continuously. Every upstream commit is merged automatically. Current base: **zig 0.16.0-dev**, **LLVM 22.1.3**.
+
+## 0.1.2 release
+
+- Ported to LLVM 22.1.3
+- Synced with upstream zig 0.16.0
+- Three-stage release pipeline (build-llvm → build-bootstrap → release)
+- Ships for x86_64-linux, aarch64-macos, x86_64-windows
+
+Full changelog: [CHANGELOG.md](CHANGELOG.md)
 
 ## Contributing
 
-1. Check the issue tracker for open items.
-2. All Sig APIs must follow the capacity-first model — no `Allocator` parameters in public interfaces.
-3. Property-based tests are required for new `Sig_Std` modules.
-4. Run `sig build test-sig` before submitting.
-
-See the upstream [Zig contributing guide](https://codeberg.org/ziglang/zig#contributing) for general guidelines.
+All sig stdlib APIs must follow the capacity-first model — no `Allocator` parameters in public interfaces. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## License
 
