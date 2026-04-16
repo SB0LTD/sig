@@ -594,7 +594,7 @@ const Writer = struct {
                 try self.writeSrcNode(stream, inst_data.node);
             },
 
-            .round_op => {
+            .round_cast => {
                 const round_op: Zir.Inst.RoundOp = @enumFromInt(extended.small);
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
                 try stream.print("{s}, ", .{@tagName(round_op)});

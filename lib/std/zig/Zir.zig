@@ -4386,7 +4386,7 @@ fn findTrackableInner(
                 .sub_with_overflow,
                 .mul_with_overflow,
                 .shl_with_overflow,
-                .round_op,
+                .round_cast,
                 .wasm_memory_size,
                 .wasm_memory_grow,
                 .prefetch,
