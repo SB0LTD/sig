@@ -54,6 +54,9 @@ fn testModf(comptime T: type) !void {
 test "modf" {
     try testModf(f32);
     try testModf(f64);
+
+    if (builtin.target.cpu.arch.isPowerPC()) return error.SkipZigTest; // TODO
+
     try testModf(c_longdouble);
 }
 

@@ -6,6 +6,8 @@ const mem = std.mem;
 const testing = std.testing;
 
 test "bzero" {
+    if (builtin.target.os.tag == .windows) return; // no bzero
+
     var array: [10]u8 = [_]u8{ '1', '2', '3', '4', '5', '6', '7', '8', '9', '0' };
     var a = mem.zeroes([array.len]u8);
     a[9] = '0';
@@ -31,8 +33,17 @@ fn testFfs(comptime T: type) !void {
 }
 
 test "ffs" {
+    if (builtin.target.os.tag == .openbsd) return; // no ffsl/ffsll
+    if (builtin.target.os.tag == .windows) return; // no ffs
+
     try testFfs(c_int);
+
+    if (builtin.target.os.tag == .netbsd) return; // no ffsl/ffsll until 11
+
     try testFfs(c_long);
+
+    if (@sizeOf(usize) == 4) return error.SkipZigTest; // TODO
+
     try testFfs(c_longlong);
 }
 

@@ -11,6 +11,8 @@ const Node = extern struct {
 };
 
 test "insque and remque" {
+    if (builtin.target.os.tag == .windows) return; // no insque/remque
+
     var first: Node = .{ .next = null, .prev = null };
     var second: Node = .{ .next = null, .prev = null };
     var third: Node = .{ .next = null, .prev = null };

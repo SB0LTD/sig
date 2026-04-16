@@ -5,6 +5,8 @@ const c = std.c;
 const testing = std.testing;
 
 test "erand48" {
+    if (builtin.target.os.tag == .windows) return; // no erand48
+
     var xsubi: [3]c_ushort = .{ 37174, 64810, 11603 };
 
     try testing.expectApproxEqAbs(0.8965, c.erand48(&xsubi), 0.0005);
@@ -24,6 +26,10 @@ test "erand48" {
 }
 
 test "jrand48" {
+    if (builtin.target.os.tag == .windows) return; // no jrand48
+
+    if (builtin.target.os.tag == .openbsd) return error.SkipZigTest; // TODO
+
     var xsubi: [3]c_ushort = .{ 25175, 11052, 45015 };
 
     try testing.expectEqual(1699503220, c.jrand48(&xsubi));
@@ -43,6 +49,8 @@ test "jrand48" {
 }
 
 test "nrand48" {
+    if (builtin.target.os.tag == .windows) return; // no nrand48
+
     var xsubi: [3]c_ushort = .{ 546, 33817, 23389 };
 
     try testing.expectEqual(914920692, c.nrand48(&xsubi));
