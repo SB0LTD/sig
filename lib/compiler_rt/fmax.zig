@@ -39,8 +39,6 @@ pub fn fmaxq(x: f128, y: f128) callconv(.c) f128 {
 
 pub fn fmaxl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return __fmaxh(x, y),
-        32 => return fmaxf(x, y),
         64 => return fmax(x, y),
         80 => return __fmaxx(x, y),
         128 => return fmaxq(x, y),

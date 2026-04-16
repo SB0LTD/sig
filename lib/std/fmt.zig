@@ -1342,9 +1342,9 @@ pub const hex_charset = "0123456789abcdef";
 
 /// Converts an unsigned integer of any multiple of u8 to an array of lowercase
 /// hex bytes, little endian.
-pub fn hex(x: anytype) [@sizeOf(@TypeOf(x)) * 2]u8 {
+pub fn hex(x: anytype) [@typeInfo(@TypeOf(x)).int.bits / 4]u8 {
     comptime assert(@typeInfo(@TypeOf(x)).int.signedness == .unsigned);
-    var result: [@sizeOf(@TypeOf(x)) * 2]u8 = undefined;
+    var result: [@typeInfo(@TypeOf(x)).int.bits / 4]u8 = undefined;
     var i: usize = 0;
     while (i < result.len / 2) : (i += 1) {
         const byte: u8 = @truncate(x >> @intCast(8 * i));
@@ -1359,6 +1359,11 @@ test hex {
         const x = hex(@as(u32, 0xdeadbeef));
         try std.testing.expect(x.len == 8);
         try std.testing.expectEqualStrings("efbeadde", &x);
+    }
+    {
+        const s = "[" ++ hex(@as(u48, 0x12345678_abcd)) ++ "]";
+        try std.testing.expect(s.len == 14);
+        try std.testing.expectEqualStrings("[cdab78563412]", s);
     }
     {
         const s = "[" ++ hex(@as(u64, 0x12345678_abcdef00)) ++ "]";

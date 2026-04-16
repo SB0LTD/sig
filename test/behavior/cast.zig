@@ -1808,8 +1808,6 @@ test "coerce between pointers of compatible differently-named floats" {
     }
 
     const F = switch (@typeInfo(c_longdouble).float.bits) {
-        16 => f16,
-        32 => f32,
         64 => f64,
         80 => f80,
         128 => f128,

@@ -116,13 +116,9 @@ fn atanf(x: f32) callconv(.c) f32 {
 }
 
 fn atanl(x: c_longdouble) callconv(.c) c_longdouble {
-    return switch (@typeInfo(@TypeOf(x)).float.bits) {
-        16 => math.atan(@as(f16, @floatCast(x))),
-        32 => math.atan(@as(f32, @floatCast(x))),
-        64 => math.atan(@as(f64, @floatCast(x))),
-        80 => math.atan(@as(f80, @floatCast(x))),
-        128 => math.atan(@as(f128, @floatCast(x))),
-        else => unreachable,
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.atan(x),
+        else => math.atan(x),
     };
 }
 
@@ -143,7 +139,10 @@ fn copysignf(x: f32, y: f32) callconv(.c) f32 {
 }
 
 fn copysignl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
-    return math.copysign(x, y);
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.copysign(x, y),
+        else => math.copysign(x, y),
+    };
 }
 
 fn cosh(x: f64) callconv(.c) f64 {
@@ -183,15 +182,18 @@ fn fdimf(x: f32, y: f32) callconv(.c) f32 {
 }
 
 fn fdiml(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
-    return fdimGeneric(c_longdouble, x, y);
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.fdim(x, y),
+        else => fdimGeneric(c_longdouble, x, y),
+    };
 }
 
 fn finite(x: f64) callconv(.c) c_int {
-    return if (math.isFinite(x)) 1 else 0;
+    return @intFromBool(math.isFinite(x));
 }
 
 fn finitef(x: f32) callconv(.c) c_int {
-    return if (math.isFinite(x)) 1 else 0;
+    return @intFromBool(math.isFinite(x));
 }
 
 fn frexpGeneric(comptime T: type, x: T, e: *c_int) T {
@@ -222,7 +224,10 @@ fn frexpf(x: f32, e: *c_int) callconv(.c) f32 {
 }
 
 fn frexpl(x: c_longdouble, e: *c_int) callconv(.c) c_longdouble {
-    return frexpGeneric(c_longdouble, x, e);
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.frexp(x, e),
+        else => frexpGeneric(c_longdouble, x, e),
+    };
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
@@ -234,19 +239,22 @@ fn hypotf(x: f32, y: f32) callconv(.c) f32 {
 }
 
 fn hypotl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
-    return math.hypot(x, y);
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.hypot(x, y),
+        else => math.hypot(x, y),
+    };
 }
 
 fn isnan(x: f64) callconv(.c) c_int {
-    return if (math.isNan(x)) 1 else 0;
+    return @intFromBool(math.isNan(x));
 }
 
 fn isnanf(x: f32) callconv(.c) c_int {
-    return if (math.isNan(x)) 1 else 0;
+    return @intFromBool(math.isNan(x));
 }
 
 fn isnanl(x: c_longdouble) callconv(.c) c_int {
-    return if (math.isNan(x)) 1 else 0;
+    return @intFromBool(math.isNan(x));
 }
 
 fn lrint(x: f64) callconv(.c) c_long {
@@ -290,7 +298,10 @@ fn modff(x: f32, iptr: *f32) callconv(.c) f32 {
 }
 
 fn modfl(x: c_longdouble, iptr: *c_longdouble) callconv(.c) c_longdouble {
-    return modfGeneric(c_longdouble, x, iptr);
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.modf(x, iptr),
+        else => modfGeneric(c_longdouble, x, iptr),
+    };
 }
 
 fn testModf(comptime T: type) !void {

@@ -11102,6 +11102,14 @@ pub const ioctl = switch (native_os) {
     else => private.ioctl,
 };
 
+// Math
+pub extern "c" fn atan(x: f64) callconv(.c) f64;
+pub extern "c" fn copysign(x: f64, y: f64) callconv(.c) f64;
+pub extern "c" fn fdim(x: f64, y: f64) callconv(.c) f64;
+pub extern "c" fn frexp(x: f64, e: *c_int) callconv(.c) f64;
+pub extern "c" fn hypot(x: f64, y: f64) callconv(.c) f64;
+pub extern "c" fn modf(x: f64, iptr: *f64) callconv(.c) f64;
+
 // OS-specific bits. These are protected from being used on the wrong OS by
 // comptime assertions inside each OS-specific file.
 

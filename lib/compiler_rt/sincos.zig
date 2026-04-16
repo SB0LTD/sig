@@ -292,8 +292,6 @@ pub fn sincosq(x: f128, r_sin: *f128, r_cos: *f128) callconv(.c) void {
 
 pub fn sincosl(x: c_longdouble, r_sin: *c_longdouble, r_cos: *c_longdouble) callconv(.c) void {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return sincosh(x, r_sin, r_cos),
-        32 => return sincosf(x, r_sin, r_cos),
         64 => return sincos(x, r_sin, r_cos),
         80 => return sincosx(x, r_sin, r_cos),
         128 => return sincosq(x, r_sin, r_cos),

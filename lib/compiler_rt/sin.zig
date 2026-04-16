@@ -189,8 +189,6 @@ pub fn sinq(x: f128) callconv(.c) f128 {
 
 pub fn sinl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return sinh(x),
-        32 => return sinf(x),
         64 => return sin(x),
         80 => return sinx(x),
         128 => return sinq(x),

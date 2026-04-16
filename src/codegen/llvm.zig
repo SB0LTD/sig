@@ -107,6 +107,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
 
         .alpha,
         .arceb,
+        .ez80,
         .hppa,
         .hppa64,
         .kalimba,
@@ -244,6 +245,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .other,
         .plan9,
         .psp,
+        .tios,
         .vita,
         => "unknown",
     };
@@ -473,6 +475,7 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
 
         .alpha,
         .arceb,
+        .ez80,
         .hppa,
         .hppa64,
         .kalimba,
@@ -1365,7 +1368,7 @@ pub const Object = struct {
                         for (0..field_types.len, llvm_args_start..) |field_i, llvm_arg_index| {
                             const param = wip.arg(@intCast(llvm_arg_index));
                             const field_ptr = try wip.gepStruct(llvm_ty, arg_ptr, field_i, "");
-                            const alignment: Builder.Alignment = .fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+                            const alignment = Type.ptrAbiAlignment(target).toLlvm();
                             _ = try wip.store(.normal, param, field_ptr, alignment);
                         }
 
@@ -4506,6 +4509,8 @@ pub fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *con
         .avr_gnu,
         .bpf_std,
         .csky_sysv,
+        .ez80_cet,
+        .ez80_tiflags,
         .hexagon_sysv,
         .hexagon_sysv_hvx,
         .hppa_elf,
@@ -4903,6 +4908,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         // LLVM does does not have a backend for these.
         .alpha,
         .arceb,
+        .ez80,
         .hppa,
         .hppa64,
         .kalimba,

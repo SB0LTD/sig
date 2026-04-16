@@ -198,8 +198,6 @@ const expq = @import("exp_f128.zig").exp;
 
 pub fn expl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return __exph(x),
-        32 => return expf(x),
         64 => return exp(x),
         80 => return __expx(x),
         128 => return expq(x),

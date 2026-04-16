@@ -54,6 +54,13 @@ stage3-release\bin\zig.exe build test docs `
   --test-timeout 30m
 CheckLastExitCode
 
+# Ensure that the fuzzer at least compiles.
+# https://codeberg.org/ziglang/zig/issues/31893
+# stage3-release\bin\zig.exe build test-std --fuzz=1K -Dno-lib -Dfuzz-only -Doptimize=ReleaseSafe
+# CheckLastExitCode
+# stage3-release\bin\zig.exe build test-std --fuzz=1K -Dno-lib -Dfuzz-only -Doptimize=Debug
+# CheckLastExitCode
+
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 Write-Output "Build and compare stage4..."
 stage3-release\bin\zig.exe build `

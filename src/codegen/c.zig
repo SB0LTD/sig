@@ -248,7 +248,9 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "inline", {} },
     .{ "int", {} },
     .{ "int16_t", {} },
+    .{ "int24_t", {} },
     .{ "int32_t", {} },
+    .{ "int48_t", {} },
     .{ "int64_t", {} },
     .{ "int8_t", {} },
     .{ "intptr_t", {} },
@@ -270,7 +272,9 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "typedef", {} },
     .{ "typeof", {} },
     .{ "uint16_t", {} },
+    .{ "uint24_t", {} },
     .{ "uint32_t", {} },
+    .{ "uint48_t", {} },
     .{ "uint64_t", {} },
     .{ "uint8_t", {} },
     .{ "uintptr_t", {} },
@@ -6996,6 +7000,9 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         .x86_64_interrupt,
         => "interrupt",
 
+        .ez80_tiflags,
+        => "__tiflags__",
+
         else => unreachable, // `Zcu.callconvSupported`
     };
 }
@@ -7289,7 +7296,9 @@ const FormatInt128 = struct {
         switch (data.int_cty) {
             .uint8_t,
             .uint16_t,
+            .uint24_t,
             .uint32_t,
+            .uint48_t,
             .uint64_t,
             .@"unsigned short",
             .@"unsigned int",
@@ -7302,6 +7311,8 @@ const FormatInt128 = struct {
 
             .int8_t,
             .int16_t,
+            .int24_t,
+            .int48_t,
             .int32_t,
             .int64_t,
             .char,
@@ -7447,13 +7458,17 @@ fn minMaxMacroPrefix(int_cty: CType.Int) []const u8 {
 
         .uint8_t  => "UINT8",
         .uint16_t => "UINT16",
+        .uint24_t => "UINT24",
         .uint32_t => "UINT32",
+        .uint48_t => "UINT48",
         .uint64_t => "UINT64",
         .zig_u128 => unreachable,
 
         .int8_t   => "INT8",
         .int16_t  => "INT16",
+        .int24_t  => "INT24",
         .int32_t  => "INT32",
+        .int48_t  => "INT48",
         .int64_t  => "INT64",
         .zig_i128 => unreachable,
 
@@ -7479,13 +7494,17 @@ fn intLiteralPrefix(cty: CType.Int, is_global: bool) []const u8 {
 
         .uint8_t  =>  "UINT8_C(",
         .uint16_t => "UINT16_C(",
+        .uint24_t => "UINT24_C(",
         .uint32_t => "UINT32_C(",
+        .uint48_t => "UINT48_C(",
         .uint64_t => "UINT64_C(",
         .zig_u128 => unreachable,
 
         .int8_t   =>  "INT8_C(",
         .int16_t  => "INT16_C(",
+        .int24_t  => "INT24_C(",
         .int32_t  => "INT32_C(",
+        .int48_t  => "INT48_C(",
         .int64_t  => "INT64_C(",
         .zig_i128 => unreachable,
 
@@ -7511,13 +7530,17 @@ fn intLiteralSuffix(cty: CType.Int) []const u8 {
 
         .uint8_t  => ")",
         .uint16_t => ")",
+        .uint24_t => ")",
         .uint32_t => ")",
+        .uint48_t => ")",
         .uint64_t => ")",
         .zig_u128 => unreachable,
 
         .int8_t   => ")",
         .int16_t  => ")",
+        .int24_t  => ")",
         .int32_t  => ")",
+        .int48_t  => ")",
         .int64_t  => ")",
         .zig_i128 => unreachable,
 

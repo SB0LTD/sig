@@ -251,8 +251,6 @@ pub fn fmodq(a: f128, b: f128) callconv(.c) f128 {
 
 pub fn fmodl(a: c_longdouble, b: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return __fmodh(a, b),
-        32 => return fmodf(a, b),
         64 => return fmod(a, b),
         80 => return __fmodx(a, b),
         128 => return fmodq(a, b),

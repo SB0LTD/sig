@@ -173,8 +173,6 @@ pub fn cosq(x: f128) callconv(.c) f128 {
 
 pub fn cosl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return cosh(x),
-        32 => return cosf(x),
         64 => return cos(x),
         80 => return cosx(x),
         128 => return cosq(x),

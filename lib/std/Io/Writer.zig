@@ -599,11 +599,15 @@ pub fn writeAll(w: *Writer, bytes: []const u8) Error!void {
 /// - `u`: integer as an UTF-8 sequence. Integer type must have 21 bits at max.
 /// - `B`: bytes in SI units (decimal)
 /// - `Bi`: bytes in IEC units (binary)
-/// - `?`: optional value as either the unwrapped value, or `null`; may be followed by a format specifier for the underlying value.
-/// - `!`: error union value as either the unwrapped value, or the formatted error value; may be followed by a format specifier for the underlying value.
+/// - `?`: optional value as either the unwrapped value, or `null`; may be
+///   followed by a format specifier for the underlying value.
+/// - `!`: error union value as either the unwrapped value, or the formatted
+///   error value; may be followed by a format specifier for the underlying
+///   value.
 /// - `*`: the address of the value instead of the value itself.
 /// - `any`: a value of any type using its default format.
-/// - `f`: delegates to a method on the type named "format" with the signature `fn (*Writer, args: anytype) Writer.Error!void`.
+/// - `f`: delegates to the `format` method of the type, passing `*Writer` and
+///   expecting `Error!void` returned.
 ///
 /// A user type may be a struct, vector, union or enum type.
 ///

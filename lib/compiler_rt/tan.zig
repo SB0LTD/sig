@@ -164,8 +164,6 @@ pub fn tanq(x: f128) callconv(.c) f128 {
 
 pub fn tanl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return tanh(x),
-        32 => return tanf(x),
         64 => return tan(x),
         80 => return tanx(x),
         128 => return tanq(x),

@@ -919,7 +919,7 @@ fn airRet(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error!vo
     if (self.ret_ptr != .none) {
         const operand = try self.resolveInst(un_op);
         const val_is_undef = if (un_op.toInterned()) |i| Value.fromInterned(i).isUndef(zcu) else false;
-        if (val_is_undef and safety) {
+        if (val_is_undef and safety and !self.needMemsetWorkaround(ret_ty.abiSize(zcu))) {
             const len = try o.builder.intValue(try o.lowerType(.usize), ret_ty.abiSize(zcu));
             _ = try self.wip.callMemSet(
                 self.ret_ptr,
@@ -973,7 +973,7 @@ fn airRet(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error!vo
     const val_is_undef = if (un_op.toInterned()) |i| Value.fromInterned(i).isUndef(zcu) else false;
     const alignment = ret_ty.abiAlignment(zcu).toLlvm();
 
-    if (val_is_undef and safety) {
+    if (val_is_undef and safety and !self.needMemsetWorkaround(ret_ty.abiSize(zcu))) {
         const llvm_ret_ty = operand.typeOfWip(&self.wip);
         const rp = try self.buildAlloca(llvm_ret_ty, alignment);
         const len = try o.builder.intValue(try o.lowerType(.usize), ret_ty.abiSize(zcu));
@@ -4697,7 +4697,7 @@ fn airStore(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error!
     const operand_ty = ptr_ty.childType(zcu);
 
     const val_is_undef = if (bin_op.rhs.toInterned()) |i| Value.fromInterned(i).isUndef(zcu) else false;
-    if (val_is_undef) {
+    if (val_is_undef and !self.needMemsetWorkaround(operand_ty.abiSize(zcu))) {
         const owner_mod = self.ownerModule();
 
         // Even if safety is disabled, we still emit a memset to undefined since it conveys
@@ -5079,7 +5079,13 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
 
     self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
-    if (bin_op.rhs.toInterned()) |elem_ip_index| {
+    const allow_byte_memset = !self.needMemsetWorkaround(switch (ptr_ty.ptrSize(zcu)) {
+        .one => ptr_ty.childType(zcu).abiSize(zcu),
+        .slice => null,
+        .many, .c => unreachable,
+    });
+
+    if (allow_byte_memset) if (bin_op.rhs.toInterned()) |elem_ip_index| {
         const elem_val: Value = .fromInterned(elem_ip_index);
         if (elem_val.isUndef(zcu)) {
             // Even if safety is disabled, we still emit a memset to undefined since it conveys
@@ -5122,12 +5128,12 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
             );
             return .none;
         }
-    }
+    };
 
     const value = try self.resolveInst(bin_op.rhs);
     const elem_abi_size = elem_ty.abiSize(zcu);
 
-    if (elem_abi_size == 1 and elem_ty.bitSize(zcu) == 8) {
+    if (allow_byte_memset and elem_abi_size == 1 and elem_ty.bitSize(zcu) == 8) {
         // In this case we can take advantage of LLVM's intrinsic.
         const fill_byte = try self.bitCast(value, elem_ty, Type.u8);
         const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
@@ -7458,6 +7464,32 @@ fn llvmAllocaAddressSpace(target: *const std.Target) Builder.AddrSpace {
         .amdgcn => Builder.AddrSpace.amdgpu.private,
         else => .default,
     };
+}
+
+/// Due to an LLVM bug, calls to `@llvm.memset.inline.*` with large constant length arguments cause
+/// LLVM to crash. As a mitigation, this function returns `true` if we should avoid emitting a
+/// memset call of the given length.
+///
+/// Most of our call sites are just setting memory to `undefined`, so can simply skip the memset
+/// call if we return `true`.
+///
+/// Upstream issue: https://github.com/llvm/llvm-project/issues/189161
+/// Zig issue: https://codeberg.org/ziglang/zig/issues/31701
+fn needMemsetWorkaround(fg: *const FuncGen, maybe_len: ?u64) bool {
+    if (!fg.disable_intrinsics) {
+        // The bug is limited to `@llvm.memset.inline.*`: normal memset calls are fine.
+        return false;
+    }
+    const len = maybe_len orelse {
+        // We don't think the length is constant, but a trivial optimization on LLVM's side could
+        // turn it into one and potentially trigger the bug. Therefore, always apply the workaround
+        // if the length is not a known constant.
+        return true;
+    };
+    // Empirically, the crash first happens at 1048561 bytes, which is 1 MiB less 15 bytes. To be
+    // safe (just in case the limit is target-specific or something like that), let's just set the
+    // cap at half of that, i.e. 512 KiB.
+    return len > 1024 * 512;
 }
 
 const mips_clobber_overrides = std.StaticStringMap(enum {

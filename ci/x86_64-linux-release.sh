@@ -60,7 +60,10 @@ unset CXX
 
 ninja install
 
-# simultaneously test building self-hosted without LLVM and with 32-bit arm
+# Covers several things:
+# 1. building the compiler without LLVM
+# 2. 32-bit
+# 3. arm
 stage3-release/bin/zig build \
   -Dtarget=arm-linux-musleabihf \
   -Dno-lib
@@ -78,6 +81,10 @@ stage3-release/bin/zig build test docs \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-superhtml \
   --test-timeout 12m
+
+# Ensure that the fuzzer at least compiles.
+stage3-release/bin/zig build test-std --fuzz=1K -Dno-lib -Dfuzz-only -Doptimize=ReleaseSafe
+stage3-release/bin/zig build test-std --fuzz=1K -Dno-lib -Dfuzz-only -Doptimize=Debug
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \

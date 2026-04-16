@@ -38,8 +38,6 @@ pub fn fabsq(a: f128) callconv(.c) f128 {
 
 pub fn fabsl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return __fabsh(x),
-        32 => return fabsf(x),
         64 => return fabs(x),
         80 => return __fabsx(x),
         128 => return fabsq(x),
