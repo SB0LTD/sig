@@ -973,10 +973,9 @@ test "Select.cancel with no tasks, no deadlock" {
 }
 
 test "Condition" {
-    if (builtin.single_threaded) return error.SkipZigTest;
     const io = testing.io;
 
-    const TestContext = struct {
+    const Context = struct {
         ready: Io.Event = .unset,
         mutex: Io.Mutex = .init,
         cond: Io.Condition = .init,
@@ -1001,9 +1000,11 @@ test "Condition" {
         }
     };
 
-    var ctx: TestContext = .{};
+    var ctx: Context = .{};
 
-    var future = try io.concurrent(TestContext.worker, .{&ctx});
+    var future = io.concurrent(Context.worker, .{&ctx}) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => return error.SkipZigTest,
+    };
     defer future.cancel(io) catch {};
 
     try ctx.ready.wait(io);
