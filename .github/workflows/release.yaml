@@ -119,61 +119,7 @@ jobs:
           echo "Bootstrap binary: ${BIN}"
           "${BIN}" version || true
 
-      # ── Download pre-built LLVM 22 for C++ compilation ──
-      - name: Download LLVM 22
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          case "${{ runner.os }}" in
-            Linux)   ASSET="llvm-22-x86_64-linux.tar.xz" ;;
-            macOS)   ASSET="llvm-22-aarch64-macos.tar.xz" ;;
-            Windows) ASSET="llvm-22-x86_64-windows.tar.xz" ;;
-          esac
-          echo "Downloading ${ASSET}..."
-          gh release download llvm-22 --pattern "${ASSET}" --dir /tmp
-          mkdir -p "$PWD/llvm-22"
-          tar -xJf "/tmp/${ASSET}" -C "$PWD/llvm-22" --strip-components=1
-          rm "/tmp/${ASSET}"
-          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
-
-      # ── Build sig using bootstrap sig (self-sustained, no zig) ─────────
-      - name: Build sig
-        shell: bash
-        run: |
-          SIG="${BOOTSTRAP_BIN}"
-          TARGET="${{ matrix.zig_target }}"
-          MCPU="baseline"
-          OUT="sig-${VERSION}-${{ matrix.target }}"
-
-          if [ "${{ runner.os }}" != "Windows" ]; then
-            ulimit -s unlimited 2>/dev/null || ulimit -s 65536 2>/dev/null || true
-          fi
-
-          # Stage 3: bootstrap sig builds the release sig
-          # The bootstrap has LLVM so it can cross-compile and self-host.
-          "${SIG}" build \
-            --zig-lib-dir lib \
-            -Denable-llvm \
-            -Dstatic-llvm \
-            -Dllvm-prefix="${LLVM_PREFIX}" \
-            -Doptimize=ReleaseSafe \
-            -Dtarget="${TARGET}" \
-            -Dno-lib \
-            -Dno-langref \
-            -Dskip-tests \
-            --prefix "${OUT}"
-
-          echo "Release binary built:"
-          ls -la "${OUT}/bin/"
-        timeout-minutes: 300
-
-      - name: Install lib
-        shell: bash
-        run: |
-          OUT="sig-${VERSION}-${{ matrix.target }}"
-          cp -r lib "${OUT}/lib"
-
+      # ── Verify binary ───────────────────────────────────────────────
       - name: Verify binary
         shell: bash
         run: |
@@ -181,26 +127,6 @@ jobs:
           [ ! -f "$FILE" ] && echo "ERROR: $FILE not found" && ls -laR "sig-${VERSION}-${{ matrix.target }}/" && exit 1
           echo "OK: $(file "$FILE" 2>/dev/null || echo "$FILE exists")"
           echo "Size: $(ls -la "$FILE" | awk '{print $5}') bytes"
-
-      # ── Stage 4 verification: release sig builds itself ────────────────
-      - name: Verify self-hosting (stage 4)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          STAGE3="sig-${VERSION}-${{ matrix.target }}/bin/${{ matrix.bin }}"
-          "${STAGE3}" build \
-            --zig-lib-dir lib \
-            --prefix stage4 \
-            -Denable-llvm \
-            -Dno-lib \
-            -Doptimize=ReleaseSafe \
-            -Dtarget=${{ matrix.zig_target }} \
-            -Dskip-tests
-
-          echo "Stage 4 built — verifying byte-for-byte identical..."
-          diff "${STAGE3}" "stage4/bin/${{ matrix.bin }}" && echo "PASS: stage3 == stage4" \
-            || echo "WARNING: stage3 and stage4 differ (nondeterminism)"
-        timeout-minutes: 60
 
       - name: Package tarball
         if: matrix.ext == 'tar.xz'
