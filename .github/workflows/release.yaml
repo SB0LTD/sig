@@ -119,6 +119,21 @@ jobs:
           echo "Bootstrap binary: ${BIN}"
           "${BIN}" version || true
 
+      # ── Package bootstrap sig as the release binary ─────────────────
+      - name: Package release
+        shell: bash
+        run: |
+          OUT="sig-${VERSION}-${{ matrix.target }}"
+          mkdir -p "${OUT}/bin"
+          cp "${BOOTSTRAP_BIN}" "${OUT}/bin/${{ matrix.bin }}"
+          case "${{ matrix.bin }}" in
+            sig)     cp "${BOOTSTRAP_BIN}" "${OUT}/bin/zig" ;;
+            sig.exe) cp "${BOOTSTRAP_BIN}" "${OUT}/bin/zig.exe" ;;
+          esac
+          cp -r lib "${OUT}/lib"
+          echo "Release contents:"
+          ls -la "${OUT}/bin/"
+
       # ── Verify binary ───────────────────────────────────────────────
       - name: Verify binary
         shell: bash
