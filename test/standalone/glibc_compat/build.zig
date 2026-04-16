@@ -180,12 +180,44 @@ pub fn build(b: *std.Build) void {
             }
         }
 
+        const malloc_translation = b.addTranslateC(.{
+            .root_source_file = b.path("include_malloc.h"),
+            .target = target,
+            .optimize = .Debug,
+            .link_libc = true,
+        });
+        const stdlib_translation = b.addTranslateC(.{
+            .root_source_file = b.path("include_stdlib.h"),
+            .target = target,
+            .optimize = .Debug,
+            .link_libc = true,
+        });
+        const string_translation = b.addTranslateC(.{
+            .root_source_file = b.path("include_string.h"),
+            .target = target,
+            .optimize = .Debug,
+            .link_libc = true,
+        });
         const exe = b.addExecutable(.{
             .name = t,
             .root_module = b.createModule(.{
                 .root_source_file = b.path("glibc_runtime_check.zig"),
                 .target = target,
                 .link_libc = true,
+                .imports = &.{
+                    .{
+                        .name = "malloc.h",
+                        .module = malloc_translation.createModule(),
+                    },
+                    .{
+                        .name = "stdlib.h",
+                        .module = stdlib_translation.createModule(),
+                    },
+                    .{
+                        .name = "string.h",
+                        .module = string_translation.createModule(),
+                    },
+                },
             }),
         });
         // We disable UBSAN for these tests as the libc being tested here is

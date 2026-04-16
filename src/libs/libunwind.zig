@@ -104,6 +104,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .assembly_with_cpp => {},
             else => unreachable, // See `unwind_src_list`.
         }
+        try cflags.append("-w"); // Disable all warnings.
         try cflags.append("-I");
         try cflags.append(try comp.dirs.zig_lib.join(arena, &.{ "libunwind", "include" }));
         try cflags.append("-D_LIBUNWIND_HIDE_SYMBOLS");
@@ -125,13 +126,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         }
         if (target.cpu.arch.isArm() and target.abi.float() == .hard) {
             try cflags.append("-DCOMPILER_RT_ARMHF_TARGET");
-        }
-        try cflags.append("-Wno-bitwise-conditional-parentheses");
-        try cflags.append("-Wno-visibility");
-        try cflags.append("-Wno-incompatible-pointer-types");
-
-        if (target.os.tag == .windows) {
-            try cflags.append("-Wno-dll-attribute-on-redeclaration");
         }
 
         c_source_files[i] = .{
@@ -163,7 +157,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
-        .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,

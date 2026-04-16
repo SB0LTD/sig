@@ -3363,8 +3363,8 @@ pub fn mapOldZirToNew(
         old_inst: Zir.Inst.Index,
         new_inst: Zir.Inst.Index,
     };
-    var match_stack: std.ArrayList(MatchedZirDecl) = .empty;
-    defer match_stack.deinit(gpa);
+    var pending_matched_type_decls: std.ArrayList(MatchedZirDecl) = .empty;
+    defer pending_matched_type_decls.deinit(gpa);
 
     // Used as temporary buffers for namespace declaration instructions
     var old_contents: Zir.DeclContents = .init;
@@ -3372,42 +3372,13 @@ pub fn mapOldZirToNew(
     var new_contents: Zir.DeclContents = .init;
     defer new_contents.deinit(gpa);
 
-    // Map the main struct inst (and anything in its fields)
-    {
-        try old_zir.findTrackableRoot(gpa, &old_contents);
-        try new_zir.findTrackableRoot(gpa, &new_contents);
+    // Map the main struct inst to start off with.
+    try pending_matched_type_decls.append(gpa, .{
+        .old_inst = .main_struct_inst,
+        .new_inst = .main_struct_inst,
+    });
 
-        assert(old_contents.explicit_types.items[0] == .main_struct_inst);
-        assert(new_contents.explicit_types.items[0] == .main_struct_inst);
-
-        assert(old_contents.func_decl == null);
-        assert(new_contents.func_decl == null);
-
-        // We don't have any smart way of matching up these instructions, so we correlate them based on source order
-        // in their respective arrays.
-
-        const num_explicit_types = @min(old_contents.explicit_types.items.len, new_contents.explicit_types.items.len);
-        try match_stack.ensureUnusedCapacity(gpa, @intCast(num_explicit_types));
-        for (
-            old_contents.explicit_types.items[0..num_explicit_types],
-            new_contents.explicit_types.items[0..num_explicit_types],
-        ) |old_inst, new_inst| {
-            // Here we use `match_stack`, so that we will recursively consider declarations on these types.
-            match_stack.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
-        }
-
-        const num_other = @min(old_contents.other.items.len, new_contents.other.items.len);
-        try inst_map.ensureUnusedCapacity(gpa, @intCast(num_other));
-        for (
-            old_contents.other.items[0..num_other],
-            new_contents.other.items[0..num_other],
-        ) |old_inst, new_inst| {
-            // These instructions don't have declarations, so we just modify `inst_map` directly.
-            inst_map.putAssumeCapacity(old_inst, new_inst);
-        }
-    }
-
-    while (match_stack.pop()) |match_item| {
+    while (pending_matched_type_decls.pop()) |match_item| {
         // There are some properties of type declarations which cannot change across incremental
         // updates. If they have, we need to ignore this mapping. These properties are essentially
         // everything passed into `InternPool.getDeclaredStructType` (likewise for unions, enums,
@@ -3463,8 +3434,40 @@ pub fn mapOldZirToNew(
             else => unreachable,
         }
 
-        // Match the namespace declaration itself
+        // Match the container declaration itself
         try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
+
+        {
+            // First, map the fields...
+            try old_zir.findTrackableFields(gpa, &old_contents, match_item.old_inst);
+            try new_zir.findTrackableFields(gpa, &new_contents, match_item.new_inst);
+
+            // This isn't a `.declaration`, so we shouldn't see a function declaration.
+            assert(old_contents.func_decl == null);
+            assert(new_contents.func_decl == null);
+
+            // We don't have any smart way of matching up these instructions, so we correlate them based on source order
+            // in their respective arrays.
+
+            const num_type_decls = @min(old_contents.type_decls.items.len, new_contents.type_decls.items.len);
+            try pending_matched_type_decls.ensureUnusedCapacity(gpa, @intCast(num_type_decls));
+            for (
+                old_contents.type_decls.items[0..num_type_decls],
+                new_contents.type_decls.items[0..num_type_decls],
+            ) |old_inst, new_inst| {
+                pending_matched_type_decls.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
+            }
+
+            const num_other = @min(old_contents.other.items.len, new_contents.other.items.len);
+            try inst_map.ensureUnusedCapacity(gpa, @intCast(num_other));
+            for (
+                old_contents.other.items[0..num_other],
+                new_contents.other.items[0..num_other],
+            ) |old_inst, new_inst| {
+                // These instructions don't have declarations, so we just modify `inst_map` directly.
+                inst_map.putAssumeCapacity(old_inst, new_inst);
+            }
+        }
 
         // Maps decl name to `declaration` instruction.
         var named_decls: std.StringHashMapUnmanaged(Zir.Inst.Index) = .empty;
@@ -3539,14 +3542,13 @@ pub fn mapOldZirToNew(
             // We don't have any smart way of matching up these instructions, so we correlate them based on source order
             // in their respective arrays.
 
-            const num_explicit_types = @min(old_contents.explicit_types.items.len, new_contents.explicit_types.items.len);
-            try match_stack.ensureUnusedCapacity(gpa, @intCast(num_explicit_types));
+            const num_type_decls = @min(old_contents.type_decls.items.len, new_contents.type_decls.items.len);
+            try pending_matched_type_decls.ensureUnusedCapacity(gpa, @intCast(num_type_decls));
             for (
-                old_contents.explicit_types.items[0..num_explicit_types],
-                new_contents.explicit_types.items[0..num_explicit_types],
+                old_contents.type_decls.items[0..num_type_decls],
+                new_contents.type_decls.items[0..num_type_decls],
             ) |old_inst, new_inst| {
-                // Here we use `match_stack`, so that we will recursively consider declarations on these types.
-                match_stack.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
+                pending_matched_type_decls.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
             }
 
             const num_other = @min(old_contents.other.items.len, new_contents.other.items.len);

@@ -1457,8 +1457,6 @@ test "switch on nested packed containers" {
 }
 
 test "switch on large types" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest(a: u128, b: i500) !void {
             switch (a) {

@@ -31,6 +31,7 @@ test {
 
 const arch_bits = switch (native_arch) {
     .aarch64, .aarch64_be => @import("linux/aarch64.zig"),
+    .arc, .arceb => @import("linux/arc.zig"),
     .arm, .armeb, .thumb, .thumbeb => @import("linux/arm.zig"),
     .hexagon => @import("linux/hexagon.zig"),
     .loongarch32 => @import("linux/loongarch32.zig"),
@@ -274,7 +275,13 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .hexagon, .m68k, .or1k, .s390x => packed struct(u32) {
+    .arc,
+    .arceb,
+    .hexagon,
+    .m68k,
+    .or1k,
+    .s390x,
+    => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -451,7 +458,12 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _23: u9 = 0,
     },
-    .hexagon, .or1k, .s390x => packed struct(u32) {
+    .arc,
+    .arceb,
+    .hexagon,
+    .or1k,
+    .s390x,
+    => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CREAT: bool = false,

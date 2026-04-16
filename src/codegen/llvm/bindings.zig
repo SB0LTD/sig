@@ -1,6 +1,3 @@
-//! We do this instead of @cImport because the self-hosted compiler is easier
-//! to bootstrap if it does not depend on translate-c.
-
 /// Do not compare directly to .True, use toBool() instead.
 pub const Bool = enum(c_int) {
     False,

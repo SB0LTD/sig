@@ -36,9 +36,6 @@
         .compile_asm = .{
             .path = "compile_asm",
         },
-        .issue_794 = .{
-            .path = "issue_794",
-        },
         .issue_5825 = .{
             .path = "issue_5825",
         },
@@ -83,9 +80,6 @@
         },
         .dep_shared_builtin = .{
             .path = "dep_shared_builtin",
-        },
-        .dep_lazypath = .{
-            .path = "dep_lazypath",
         },
         .dirname = .{
             .path = "dirname",

@@ -24,7 +24,7 @@ extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.c) ?[*]u8
 comptime {
     @export(&__stack_chk_fail, .{ .name = if (builtin.os.tag == .openbsd) "__stack_smash_handler" else "__stack_chk_fail", .linkage = compiler_rt.linkage, .visibility = compiler_rt.visibility });
     symbol(&__chk_fail, "__chk_fail");
-    symbol(&__stack_chk_guard, "__stack_chk_guard");
+    symbol(&__stack_chk_guard, if (builtin.os.tag == .openbsd) "__guard_local" else "__stack_chk_guard");
     symbol(&__strcpy_chk, "__strcpy_chk");
     symbol(&__strncpy_chk, "__strncpy_chk");
     symbol(&__strcat_chk, "__strcat_chk");

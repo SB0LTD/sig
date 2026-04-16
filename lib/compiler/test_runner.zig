@@ -563,7 +563,7 @@ pub fn fuzz(
                     const stderr = std.debug.lockStderr(&.{}).terminal();
                     p: {
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.writeStackTrace(trace, stderr) catch break :p;
+                            std.debug.writeErrorReturnTrace(trace, stderr) catch break :p;
                         }
                         stderr.writer.print("failed with error.{t}\n", .{err}) catch break :p;
                     }

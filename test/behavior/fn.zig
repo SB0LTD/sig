@@ -770,3 +770,15 @@ test "return undefined pointer from function, directly and by expired local" {
     const bad_ptr_2 = S.returnStackPointer();
     _ = bad_ptr_2; // dereferencing this would be illegal behavior
 }
+
+test "a function that works at comptime but not runtime" {
+    const a = comptime testComptimeOnlyFn(1, 1);
+    try expect(a[0] == 1);
+    try expect(a[1] == 2);
+}
+
+fn testComptimeOnlyFn(x: u32, y: u32) [2]u8 {
+    const xa: [x]u8 = .{1};
+    const ya: [y]u8 = .{2};
+    return xa ++ ya;
+}

@@ -135,8 +135,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 try addCcArgs(comp, arena, &winpthreads_args);
                 try winpthreads_args.appendSlice(&[_][]const u8{
                     "-DIN_WINPTHREAD",
-                    // winpthreads incorrectly assumes that Clang has `-Wprio-ctor-dtor`.
-                    "-Wno-unknown-warning-option",
                 });
 
                 switch (comp.compilerRtOptMode()) {
@@ -170,6 +168,7 @@ fn addCcArgs(
     args: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
+        "-w", // Disable all warnings.
         "-std=gnu11",
         "-D__USE_MINGW_ANSI_STDIO=0",
 
@@ -851,7 +850,6 @@ const mingw32_x86_src = [_][]const u8{
     "complex" ++ path.sep_str ++ "ctanl.c",
     "math" ++ path.sep_str ++ "cbrtl.c",
     "math" ++ path.sep_str ++ "erfl.c",
-    "math" ++ path.sep_str ++ "fdiml.c",
     "math" ++ path.sep_str ++ "fmal.c",
     "math" ++ path.sep_str ++ "llrintl.c",
     "math" ++ path.sep_str ++ "llroundl.c",

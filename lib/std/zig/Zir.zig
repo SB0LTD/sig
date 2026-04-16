@@ -1016,9 +1016,6 @@ pub const Inst = struct {
         /// Implements the `@max` builtin for 2 args.
         /// Uses the `pl_node` union field with payload `Bin`
         max,
-        /// Implements the `@cImport` builtin.
-        /// Uses the `pl_node` union field with payload `Block`.
-        c_import,
 
         /// Allocates stack local memory.
         /// Uses the `un_node` union field. The operand is the type of the allocated object.
@@ -1297,7 +1294,6 @@ pub const Inst = struct {
                 .memset,
                 .memmove,
                 .min,
-                .c_import,
                 .@"resume",
                 .ret_err_value_code,
                 .extended,
@@ -1577,7 +1573,6 @@ pub const Inst = struct {
                 .builtin_call,
                 .max,
                 .min,
-                .c_import,
                 .@"resume",
                 .ret_err_value_code,
                 .@"break",
@@ -1857,7 +1852,6 @@ pub const Inst = struct {
                 .memset = .pl_node,
                 .memmove = .pl_node,
                 .min = .pl_node,
-                .c_import = .pl_node,
 
                 .alloc = .un_node,
                 .alloc_mut = .un_node,
@@ -2029,12 +2023,6 @@ pub const Inst = struct {
         /// `operand` is `UnNode`.
         /// `small` is unused.
         round_op_ty,
-        /// `operand` is payload index to `UnNode`.
-        c_undef,
-        /// `operand` is payload index to `UnNode`.
-        c_include,
-        /// `operand` is payload index to `BinNode`.
-        c_define,
         /// `operand` is payload index to `UnNode`.
         wasm_memory_size,
         /// `operand` is payload index to `BinNode`.
@@ -4038,30 +4026,30 @@ pub const DeclContents = struct {
     /// This is a simple optional because ZIR guarantees that a `func`/`func_inferred`/`func_fancy` instruction
     /// can only occur once per `declaration`.
     func_decl: ?Inst.Index,
-    explicit_types: std.ArrayList(Inst.Index),
+    type_decls: std.ArrayList(Inst.Index),
     other: std.ArrayList(Inst.Index),
 
     pub const init: DeclContents = .{
         .func_decl = null,
-        .explicit_types = .empty,
+        .type_decls = .empty,
         .other = .empty,
     };
 
     pub fn clear(contents: *DeclContents) void {
         contents.func_decl = null;
-        contents.explicit_types.clearRetainingCapacity();
+        contents.type_decls.clearRetainingCapacity();
         contents.other.clearRetainingCapacity();
     }
 
     pub fn deinit(contents: *DeclContents, gpa: Allocator) void {
-        contents.explicit_types.deinit(gpa);
+        contents.type_decls.deinit(gpa);
         contents.other.deinit(gpa);
     }
 };
 
 /// Find all tracked ZIR instructions, recursively, within a `declaration` instruction. Does not recurse through
 /// nested declarations; to find all declarations, call this function recursively on the type declarations discovered
-/// in `contents.explicit_types`.
+/// in `contents.type_decls`.
 ///
 /// This populates an `ArrayList` because an iterator would need to allocate memory anyway.
 pub fn findTrackable(zir: Zir, gpa: Allocator, contents: *DeclContents, decl_inst: Zir.Inst.Index) !void {
@@ -4081,15 +4069,49 @@ pub fn findTrackable(zir: Zir, gpa: Allocator, contents: *DeclContents, decl_ins
     if (decl.value_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
 }
 
-/// Like `findTrackable`, but only considers the `main_struct_inst` instruction. This may return more than
-/// just that instruction because it will also traverse fields.
-pub fn findTrackableRoot(zir: Zir, gpa: Allocator, contents: *DeclContents) !void {
+/// `findTrackable` does not recurse into field expressions in a type. Instead, this function will
+/// scan specifically field expressions in a given type declaration for trackable ZIR instructions.
+pub fn findTrackableFields(
+    zir: *const Zir,
+    gpa: Allocator,
+    contents: *DeclContents,
+    type_decl_inst: Zir.Inst.Index,
+) Allocator.Error!void {
     contents.clear();
 
     var found_defers: std.AutoHashMapUnmanaged(u32, void) = .empty;
     defer found_defers.deinit(gpa);
 
-    try zir.findTrackableInner(gpa, contents, &found_defers, .main_struct_inst);
+    assert(zir.instructions.items(.tag)[@intFromEnum(type_decl_inst)] == .extended);
+    switch (zir.instructions.items(.data)[@intFromEnum(type_decl_inst)].extended.opcode) {
+        .struct_decl => {
+            const struct_decl = zir.getStructDecl(type_decl_inst);
+            var it = struct_decl.iterateFields();
+            while (it.next()) |field| {
+                try zir.findTrackableBody(gpa, contents, &found_defers, field.type_body);
+                if (field.align_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+                if (field.default_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+            }
+        },
+        .union_decl => {
+            const union_decl = zir.getUnionDecl(type_decl_inst);
+            var it = union_decl.iterateFields();
+            while (it.next()) |field| {
+                if (field.type_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+                if (field.align_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+                if (field.value_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+            }
+        },
+        .enum_decl => {
+            const enum_decl = zir.getEnumDecl(type_decl_inst);
+            var it = enum_decl.iterateFields();
+            while (it.next()) |field| {
+                if (field.value_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+            }
+        },
+        .opaque_decl => {},
+        else => unreachable,
+    }
 }
 
 fn findTrackableInner(
@@ -4364,13 +4386,7 @@ fn findTrackableInner(
                 .sub_with_overflow,
                 .mul_with_overflow,
                 .shl_with_overflow,
-                .round_cast,
-                .floor_cast,
-                .ceil_cast,
-                .trunc_cast,
-                .c_undef,
-                .c_include,
-                .c_define,
+                .round_op,
                 .wasm_memory_size,
                 .wasm_memory_grow,
                 .prefetch,
@@ -4419,49 +4435,18 @@ fn findTrackableInner(
                     try zir.findTrackableBody(gpa, contents, defers, body);
                 },
 
-                // Reifications and opaque declarations need tracking, but have no bodies.
+                // Reifications need tracking.
                 .reify_enum,
                 .reify_struct,
                 .reify_union,
-                .opaque_decl,
                 => return contents.other.append(gpa, inst),
 
-                // Struct declarations need tracking and have bodies.
-                .struct_decl => {
-                    try contents.explicit_types.append(gpa, inst);
-
-                    const struct_decl = zir.getStructDecl(inst);
-                    var it = struct_decl.iterateFields();
-                    while (it.next()) |field| {
-                        try zir.findTrackableBody(gpa, contents, defers, field.type_body);
-                        if (field.align_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
-                        if (field.default_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
-                    }
-                },
-
-                // Union declarations need tracking and have bodies.
-                .union_decl => {
-                    try contents.explicit_types.append(gpa, inst);
-
-                    const union_decl = zir.getUnionDecl(inst);
-                    var it = union_decl.iterateFields();
-                    while (it.next()) |field| {
-                        if (field.type_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
-                        if (field.align_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
-                        if (field.value_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
-                    }
-                },
-
-                // Enum declarations need tracking and have bodies.
-                .enum_decl => {
-                    try contents.explicit_types.append(gpa, inst);
-
-                    const enum_decl = zir.getEnumDecl(inst);
-                    var it = enum_decl.iterateFields();
-                    while (it.next()) |field| {
-                        if (field.value_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
-                    }
-                },
+                // Type declarations need tracking.
+                .struct_decl,
+                .union_decl,
+                .enum_decl,
+                .opaque_decl,
+                => return contents.type_decls.append(gpa, inst),
             }
         },
 
@@ -4540,7 +4525,6 @@ fn findTrackableInner(
 
         .block,
         .block_inline,
-        .c_import,
         .typeof_builtin,
         .loop,
         => {

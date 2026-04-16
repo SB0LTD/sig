@@ -253,7 +253,6 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .verbose_link = comp.verbose_link,
                 .verbose_air = comp.verbose_air,
                 .verbose_llvm_ir = comp.verbose_llvm_ir,
-                .verbose_cimport = comp.verbose_cimport,
                 .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
                 .clang_passthrough_mode = comp.clang_passthrough_mode,
                 .c_source_files = &.{
@@ -823,8 +822,6 @@ const src_files = [_][]const u8{
     "musl/src/math/expm1l.c",
     "musl/src/math/__expo2.c",
     "musl/src/math/__expo2f.c",
-    "musl/src/math/fdimf.c",
-    "musl/src/math/fdiml.c",
     "musl/src/math/fma.c",
     "musl/src/math/fmaf.c",
     "musl/src/math/fmal.c",

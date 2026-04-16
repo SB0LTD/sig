@@ -10,4 +10,3 @@ test "variadic function" {
 
 // test
 // link_libc
-// verbose_cimport

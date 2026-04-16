@@ -582,7 +582,7 @@ pub fn runCommand(
         .exited => |code| code,
         .signal => |sig| signalToExitCode(@as(u32, @intFromEnum(sig))),
         .stopped => |sig| signalToExitCode(@as(u32, @intFromEnum(sig))),
-        .unknown => |sig| signalToExitCode(@as(u32, @intFromEnum(sig))),
+        .unknown => |val| signalToExitCode(val),
     };
 }
 

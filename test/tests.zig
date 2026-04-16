@@ -1989,6 +1989,26 @@ const c_abi_targets = blk: {
     };
 };
 
+/// Unlike `test_targets` and `c_abi_targets`, these targets are just simple strings which we pass
+/// directly to `incr-check`. They include the target triple and the compiler backend.
+///
+/// If only one specific test is failing on a target, instead of entirely disabling the target here,
+/// you can skip the target for that specific test only by adding a line like this to the manifest:
+///   #skip_target=x86_64-linux-selfhosted
+const incremental_targets: []const []const u8 = &.{
+    // Avoid adding more CBE or LLVM targets without good reason: they're a lot slower than others
+    // to run due to the output (C source code or LLVM IR) being built non-incrementally (by Clang
+    // or LLVM). We just have a couple here to make sure that it works.
+    "x86_64-linux-cbe",
+    "x86_64-linux-llvm",
+
+    "x86_64-linux-selfhosted",
+    // https://codeberg.org/ziglang/zig/issues/31773
+    //"x86_64-windows-selfhosted",
+    // https://codeberg.org/ziglang/zig/issues/31810
+    //"wasm32-wasi-selfhosted",
+};
+
 fn compatible32bitArch(b: *std.Build) ?std.Target.Cpu.Arch {
     const host = b.graph.host.result;
     return switch (host.os.tag) {
@@ -2935,21 +2955,27 @@ pub fn addIncrementalTests(b: *std.Build, test_step: *Step, test_filters: []cons
             if (std.mem.indexOf(u8, entry.path, test_filter)) |_| break;
         } else if (test_filters.len > 0) continue;
 
-        const run = b.addRunArtifact(incr_check);
-        run.setName(b.fmt("incr-check '{s}'", .{entry.basename}));
+        for (incremental_targets) |target_str| {
+            const run = b.addRunArtifact(incr_check);
+            run.setName(b.fmt("incr-check {s} '{s}'", .{ target_str, entry.basename }));
 
-        run.addArg(b.graph.zig_exe);
-        run.addFileArg(b.path("test/incremental/").path(b, entry.path));
-        run.addArgs(&.{ "--zig-lib-dir", b.fmt("{f}", .{b.graph.zig_lib_directory}) });
+            run.addArg(b.graph.zig_exe);
+            run.addFileArg(b.path("test/incremental/").path(b, entry.path));
+            run.addArgs(&.{
+                "--zig-lib-dir", b.graph.zig_lib_directory.path orelse ".",
+                "--target",      target_str,
+            });
 
-        if (b.enable_qemu) run.addArg("-fqemu");
-        if (b.enable_wine) run.addArg("-fwine");
-        if (b.enable_wasmtime) run.addArg("-fwasmtime");
-        if (b.enable_darling) run.addArg("-fdarling");
+            run.addArg("--quiet"); // don't fill stderr telling us about skipped tests etc
 
-        run.addCheck(.{ .expect_term = .{ .exited = 0 } });
+            if (b.enable_qemu) run.addArg("-fqemu");
+            if (b.enable_wine) run.addArg("-fwine");
+            if (b.enable_wasmtime) run.addArg("-fwasmtime");
+            if (b.enable_darling) run.addArg("-fdarling");
 
-        test_step.dependOn(&run.step);
+            run.addCheck(.{ .expect_term = .{ .exited = 0 } });
+            test_step.dependOn(&run.step);
+        }
     }
 }
 

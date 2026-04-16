@@ -185,10 +185,6 @@ fn printOutput(
                     try shell_out.print("-fno-llvm", .{});
                 }
             }
-            if (code.verbose_cimport) {
-                try build_args.append("--verbose-cimport");
-                try shell_out.print("--verbose-cimport ", .{});
-            }
             for (code.additional_options) |option| {
                 try build_args.append(option);
                 try shell_out.print("{s} ", .{option});
@@ -223,11 +219,7 @@ fn printOutput(
             }
             const exec_result = run(arena, io, environ_map, tmp_dir_path, build_args.items) catch
                 fatal("example failed to compile", .{});
-
-            if (code.verbose_cimport) {
-                const escaped_build_stderr = try escapeHtml(arena, exec_result.stderr);
-                try shell_out.writeAll(escaped_build_stderr);
-            }
+            _ = exec_result;
 
             if (code.target_str) |triple| {
                 if (mem.startsWith(u8, triple, "wasm32") or
@@ -853,7 +845,6 @@ const Code = struct {
     link_libc: bool,
     link_mode: ?std.builtin.LinkMode,
     disable_cache: bool,
-    verbose_cimport: bool,
     just_check_syntax: bool,
     additional_options: []const []const u8,
     use_llvm: ?bool,
@@ -915,7 +906,6 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
     var target_str: ?[]const u8 = null;
     var link_libc = false;
     var disable_cache = false;
-    var verbose_cimport = false;
     var use_llvm: ?bool = null;
 
     while (it.next()) |prefixed_line| {
@@ -940,8 +930,6 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
             link_libc = true;
         } else if (mem.eql(u8, line, "disable_cache")) {
             disable_cache = true;
-        } else if (mem.eql(u8, line, "verbose_cimport")) {
-            verbose_cimport = true;
         } else {
             fatal("unrecognized manifest line: {s}", .{line});
         }
@@ -956,7 +944,6 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
         .link_libc = link_libc,
         .link_mode = link_mode,
         .disable_cache = disable_cache,
-        .verbose_cimport = verbose_cimport,
         .just_check_syntax = just_check_syntax,
         .use_llvm = use_llvm,
     };

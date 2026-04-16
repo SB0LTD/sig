@@ -126,6 +126,56 @@ test "@floatFromInt" {
     try comptime S.doTheTest();
 }
 
+fn testIntFromFloat(comptime F: type, f: F, comptime I: type, i: I) !void {
+    try expect(@as(I, @intFromFloat(f)) == i);
+}
+
+test "@intFromFloat > 128 bits" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    try testIntFromFloat(f16, 1024, u140, 1024);
+    try testIntFromFloat(f16, -1024, i140, -1024);
+
+    try testIntFromFloat(f32, 1 << 24, u140, 1 << 24);
+    try testIntFromFloat(f32, -1 << 24, i140, -1 << 24);
+
+    try testIntFromFloat(f64, 1 << 53, u200, 1 << 53);
+    try testIntFromFloat(f64, -1 << 53, i200, -1 << 53);
+
+    try testIntFromFloat(f80, 1 << 63, u200, 1 << 63);
+    try testIntFromFloat(f80, -1 << 63, i200, -1 << 63);
+
+    try testIntFromFloat(f128, 1 << 100, u200, 1 << 100);
+    try testIntFromFloat(f128, -1 << 100, i200, -1 << 100);
+}
+
+fn testFloatFromInt(comptime I: type, i: I, comptime F: type, expected: F) !void {
+    try expect(@as(F, @floatFromInt(i)) == expected);
+}
+
+test "@floatFromInt > 128 bits" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    try testFloatFromInt(u140, 1024, f16, 1024);
+    try testFloatFromInt(i140, -1024, f16, -1024);
+
+    try testFloatFromInt(u140, 1 << 24, f32, 1 << 24);
+    try testFloatFromInt(i140, -1 << 24, f32, -1 << 24);
+
+    try testFloatFromInt(u200, 1 << 53, f64, 1 << 53);
+    try testFloatFromInt(i200, -1 << 53, f64, -1 << 53);
+
+    try testFloatFromInt(u200, 1 << 63, f80, 1 << 63);
+    try testFloatFromInt(i200, -1 << 63, f80, -1 << 63);
+
+    try testFloatFromInt(u200, 1 << 100, f128, 1 << 100);
+    try testFloatFromInt(i200, -1 << 100, f128, -1 << 100);
+}
+
 test "@floatFromInt(f80)" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO

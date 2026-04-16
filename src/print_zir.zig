@@ -429,7 +429,6 @@ const Writer = struct {
             .block_inline,
             .suspend_block,
             .loop,
-            .c_import,
             .typeof_builtin,
             => try self.writeBlock(stream, inst),
 
@@ -555,8 +554,6 @@ const Writer = struct {
 
             .tuple_decl => try self.writeTupleDecl(stream, extended),
 
-            .c_undef,
-            .c_include,
             .set_float_mode,
             .wasm_memory_size,
             .int_from_error,
@@ -579,7 +576,6 @@ const Writer = struct {
             },
 
             .builtin_extern,
-            .c_define,
             .error_cast,
             .wasm_memory_grow,
             .prefetch,
