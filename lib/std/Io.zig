@@ -243,8 +243,6 @@ pub const VTable = struct {
     netConnectUnix: *const fn (?*anyopaque, *const net.UnixAddress) net.UnixAddress.ConnectError!net.Socket.Handle,
     netSocketCreatePair: *const fn (?*anyopaque, net.Socket.CreatePairOptions) net.Socket.CreatePairError![2]net.Socket,
     netSend: *const fn (?*anyopaque, net.Socket.Handle, []net.OutgoingMessage, net.SendFlags) struct { ?net.Socket.SendError, usize },
-    /// Returns 0 on end of stream.
-    netRead: *const fn (?*anyopaque, src: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usize,
     netWrite: *const fn (?*anyopaque, dest: net.Socket.Handle, header: []const u8, data: []const []const u8, splat: usize) net.Stream.Writer.Error!usize,
     netWriteFile: *const fn (?*anyopaque, net.Socket.Handle, header: []const u8, *Io.File.Reader, Io.Limit) net.Stream.Writer.WriteFileError!usize,
     netClose: *const fn (?*anyopaque, handle: []const net.Socket.Handle) void,
@@ -261,6 +259,7 @@ pub const Operation = union(enum) {
     /// other systems this tag is unreachable.
     device_io_control: DeviceIoControl,
     net_receive: NetReceive,
+    net_read: NetRead,
 
     pub const Tag = @typeInfo(Operation).@"union".tag_type.?;
 
@@ -384,6 +383,23 @@ pub const Operation = union(enum) {
         } || Io.UnexpectedError;
 
         pub const Result = struct { ?net.Socket.ReceiveError, usize };
+    };
+
+    pub const NetRead = struct {
+        socket_handle: net.Socket.Handle,
+        data: [][]u8,
+
+        pub const Error = error{
+            SystemResources,
+            ConnectionResetByPeer,
+            SocketUnconnected,
+            /// The file descriptor does not hold the required rights to read
+            /// from it.
+            AccessDenied,
+            NetworkDown,
+        } || Io.UnexpectedError;
+
+        pub const Result = Error!usize;
     };
 
     pub const Result = Result: {
@@ -2626,7 +2642,6 @@ pub const failing: std.Io = .{
         .netConnectUnix = failingNetConnectUnix,
         .netSocketCreatePair = failingNetSocketCreatePair,
         .netSend = failingNetSend,
-        .netRead = failingNetRead,
         .netWrite = failingNetWrite,
         .netWriteFile = failingNetWriteFile,
         .netClose = unreachableNetClose,
@@ -2774,6 +2789,7 @@ pub fn failingOperate(userdata: ?*anyopaque, operation: Operation) Cancelable!Op
         .file_write_streaming => .{ .file_write_streaming = error.InputOutput },
         .device_io_control => unreachable,
         .net_receive => .{ .net_receive = .{ error.NetworkDown, 0 } },
+        .net_read => .{ .net_read = error.NetworkDown },
     };
 }
 
@@ -3375,13 +3391,6 @@ pub fn failingNetSend(userdata: ?*anyopaque, handle: net.Socket.Handle, messages
     _ = messages;
     _ = flags;
     return .{ error.NetworkDown, 0 };
-}
-
-pub fn failingNetRead(userdata: ?*anyopaque, src: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usize {
-    _ = userdata;
-    _ = src;
-    _ = data;
-    return error.NetworkDown;
 }
 
 pub fn failingNetWrite(userdata: ?*anyopaque, dest: net.Socket.Handle, header: []const u8, data: []const []const u8, splat: usize) net.Stream.Writer.Error!usize {

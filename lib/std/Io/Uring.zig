@@ -779,7 +779,6 @@ pub fn io(ev: *Evented) Io {
             .netConnectUnix = netConnectUnixUnavailable,
             .netSocketCreatePair = netSocketCreatePairUnavailable,
             .netSend = netSendUnavailable,
-            .netRead = netReadUnavailable,
             .netWrite = netWriteUnavailable,
             .netWriteFile = netWriteFileUnavailable,
             .netClose = netClose,
@@ -2105,6 +2104,12 @@ fn operate(userdata: ?*anyopaque, operation: Io.Operation) Io.Cancelable!Io.Oper
                 };
             },
         },
+        .net_read => |o| .{
+            .net_read = r: {
+                _ = o;
+                break :r error.NetworkDown; // TODO
+            },
+        },
     };
 }
 
@@ -2392,6 +2397,10 @@ fn batchDrainSubmitted(
                 _ = o;
                 @panic("TODO implement batchDrainSubmitted for net_receive");
             },
+            .net_read => |o| {
+                _ = o;
+                @panic("TODO implement batchDrainSubmitted for net_read");
+            },
         })) |result| {
             switch (batch.completed.tail) {
                 .none => batch.completed.head = index,
@@ -2493,6 +2502,7 @@ fn batchDrainReady(batch: *Io.Batch) Io.Timeout.Error!void {
                 },
                 .device_io_control => unreachable,
                 .net_receive => @panic("TODO"),
+                .net_read => @panic("TODO"),
             })) |result| {
                 switch (batch.completed.tail) {
                     .none => batch.completed.head = index,
@@ -5140,18 +5150,6 @@ fn netReceive(
             else => |err| return .{ unexpectedErrno(err), message_i },
         }
     }
-}
-
-fn netReadUnavailable(
-    userdata: ?*anyopaque,
-    fd: net.Socket.Handle,
-    data: [][]u8,
-) net.Stream.Reader.Error!usize {
-    const ev: *Evented = @ptrCast(@alignCast(userdata));
-    _ = ev;
-    _ = fd;
-    _ = data;
-    return error.NetworkDown;
 }
 
 fn netWriteUnavailable(

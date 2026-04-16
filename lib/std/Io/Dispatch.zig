@@ -459,7 +459,6 @@ pub fn io(ev: *Evented) Io {
             .netConnectUnix = netConnectUnixUnavailable,
             .netSocketCreatePair = netSocketCreatePairUnavailable,
             .netSend = netSendUnavailable,
-            .netRead = netReadUnavailable,
             .netWrite = netWriteUnavailable,
             .netWriteFile = netWriteFileUnavailable,
             .netClose = netClose,
@@ -1713,6 +1712,7 @@ fn operate(userdata: ?*anyopaque, operation: Io.Operation) Io.Cancelable!Io.Oper
         },
         .device_io_control => |*o| return .{ .device_io_control = try deviceIoControl(o) },
         .net_receive => @panic("TODO implement net_receive operation"),
+        .net_read => @panic("TODO implement net_read operation"),
     }
 }
 
@@ -2134,6 +2134,7 @@ fn batchDrainSubmitted(
                 },
                 .device_io_control => {},
                 .net_receive => @panic("TODO implement batched net_receive"),
+                .net_read => @panic("TODO implement batched net_read"),
             };
             if (concurrency) return error.ConcurrencyUnavailable;
             break :result try operate(ev, storage.submission.operation);
@@ -2193,6 +2194,7 @@ fn batchSourceEvent(context: ?*anyopaque) callconv(.c) void {
         },
         .device_io_control => unreachable,
         .net_receive => @panic("TODO implement batched net_receive"),
+        .net_read => @panic("TODO implement batched net_read"),
     };
 
     switch (pending.node.prev) {
@@ -4875,18 +4877,6 @@ fn netSendUnavailable(
     _ = messages;
     _ = flags;
     return .{ error.NetworkDown, 0 };
-}
-
-fn netReadUnavailable(
-    userdata: ?*anyopaque,
-    fd: net.Socket.Handle,
-    data: [][]u8,
-) net.Stream.Reader.Error!usize {
-    const ev: *Evented = @ptrCast(@alignCast(userdata));
-    _ = ev;
-    _ = fd;
-    _ = data;
-    return error.NetworkDown;
 }
 
 fn netWriteUnavailable(
