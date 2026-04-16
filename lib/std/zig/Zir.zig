@@ -2003,22 +2003,10 @@ pub const Inst = struct {
         /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
         shl_with_overflow,
-        /// Explicit rounding cast.
-        /// `operand` is payload index to `Bin`.
-        /// `small` is unused.
-        round_cast,
-        /// Explicit floor cast.
-        /// `operand` is payload index to `Bin`.
-        /// `small` is unused.
-        floor_cast,
-        /// Explicit ceil cast.
-        /// `operand` is payload index to `Bin`.
-        /// `small` is unused.
-        ceil_cast,
-        /// Explicit trunc cast.
-        /// `operand` is payload index to `Bin`.
-        /// `small` is unused.
-        trunc_cast,
+        /// `@round`, `@floor`, `@ceil`, or `@trunc`, with a result type.
+        /// `operand` is payload index to `BinNode`.
+        /// `small` is a `RoundOp` representing the specific operation being performed.
+        round_op,
         /// Returns the type for the operand of a rounding op.
         /// `operand` is `UnNode`.
         /// `small` is unused.
@@ -3241,6 +3229,13 @@ pub const Inst = struct {
         string_to_union_field_attrs,
     };
 
+    pub const RoundOp = enum(u16) {
+        round,
+        floor,
+        ceil,
+        trunc,
+    };
+
     pub const UnNode = struct {
         node: Ast.Node.Offset,
         operand: Ref,
@@ -4386,7 +4381,7 @@ fn findTrackableInner(
                 .sub_with_overflow,
                 .mul_with_overflow,
                 .shl_with_overflow,
-                .round_cast,
+                .round_op,
                 .wasm_memory_size,
                 .wasm_memory_grow,
                 .prefetch,

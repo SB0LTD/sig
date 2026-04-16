@@ -1779,7 +1779,7 @@ fn structInitExpr(
         var sfba = std.heap.stackFallback(256, astgen.arena);
         const sfba_allocator = sfba.get();
 
-        var duplicate_names: std.AutoArrayHashMap(Zir.NullTerminatedString, ArrayList(Ast.TokenIndex)) = .empty;
+        var duplicate_names: std.array_hash_map.Auto(Zir.NullTerminatedString, ArrayList(Ast.TokenIndex)) = .empty;
         try duplicate_names.ensureTotalCapacity(sfba_allocator, @intCast(struct_init.ast.fields.len));
 
         // When there aren't errors, use this to avoid a second iteration.
@@ -9820,14 +9820,14 @@ fn floatRoundOp(
         const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = operand_ty_inst } }, operand_node);
 
         try emitDbgStmt(gz, cursor);
-        const cast_tag: Zir.Inst.Extended = switch (float_tag) {
-            .round => .round_cast,
-            .floor => .floor_cast,
-            .ceil => .ceil_cast,
-            .trunc => .trunc_cast,
+        const round_op: Zir.Inst.RoundOp = switch (float_tag) {
+            .round => .round,
+            .floor => .floor,
+            .ceil => .ceil,
+            .trunc => .trunc,
             else => unreachable,
         };
-        const result = try gz.addExtendedPayload(cast_tag, Zir.Inst.BinNode{
+        const result = try gz.addExtendedPayloadSmall(.round_op, @intFromEnum(round_op), Zir.Inst.BinNode{
             .node = gz.nodeIndexToRelative(node),
             .lhs = dest_type,
             .rhs = operand,
