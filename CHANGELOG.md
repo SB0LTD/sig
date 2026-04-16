@@ -4,34 +4,51 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). The version string includes the upstream Zig version it tracks: `sig X.Y.Z+zigA.B.C.<sha>`.
 
-## [0.1.2] — 2026-04-14
+## [0.1.2] — 2026-04-16
 
-LLVM 22 upgrade and self-sustained release pipeline.
+LLVM 22 port, self-sustained three-stage release pipeline, and upstream zig 0.16.0 sync.
+
+### Highlights
+- **LLVM 22.1.3** — Full port from LLVM 21, all C++ interface layers updated
+- **Three-stage CI pipeline** — `build-llvm` → `build-bootstrap` → `release`, fully automated
+- **All 3 platforms** — x86_64-linux, aarch64-macos, x86_64-windows ship from the same pipeline
+- **Upstream sync** — Merged latest zig 0.16.0 from codeberg (including `@cImport` removal, `round_op` rename, incremental compilation fixes)
+- **Sub-6-minute releases** — Down from 4+ hours by packaging bootstrap binaries directly
 
 ### Changed
 - Ported C++ LLVM interface layer from LLVM 21 to LLVM 22
-  - `zig_llvm.cpp`: OptBisect API → interval-based `setIntervals()`
-  - `zig_llvm-ar.cpp`: explicit `StringMap<int, MallocAllocator>`
+  - `zig_llvm.cpp`: OptBisect API → interval-based, CPU feature filter for unrecognized features
+  - `zig_llvm-ar.cpp`: explicit `StringMap<int, MallocAllocator>`, `AllocatorBase` include
   - Clang driver files: `clang/Driver/Options.h` → `clang/Options/Options.h`
-  - `zig_clang_cc1_main.cpp`: `GetResourcesPath` moved to `clang/Options/OptionUtils.h`, `createDiagnostics()` and `createFileManager()` signature updates
-  - `zig_clang_cc1as_main.cpp`: deprecated StringRef APIs → Triple overloads
-- CMake Find modules updated for LLVM 22 (new libs: `clangOptions`, `clangAnalysisLifetimeSafety`, `clangFormat`, `clangTooling`, etc.)
-- Sig build runner LLVM discovery updated for version 22
-- All documentation and build references updated from LLVM 21 to LLVM 22
+  - `zig_clang_cc1_main.cpp`: `createDiagnostics()` and `createFileManager()` signature updates
+  - `zig_clang_cc1as_main.cpp`: deprecated Triple APIs → new overloads
+- CMake Find modules updated for LLVM 22 (new libs: `clangOptions`, `clangAnalysisLifetimeSafety`, `clangAnalysisScalable`, `clangFormat`, `clangTooling`, etc.)
+- Merged upstream zig 0.16.0: `@cImport` removed, `round_cast` → `round_op`, incremental compilation fixes
+- Release pipeline packages bootstrap binaries directly (no 4-hour recompilation)
+- `dev.zig`: `.core` now includes `version_command`, `env_command`, `help_command`, `targets_command`, `zen_command`
+- `dev.zig`: `.bootstrap` now includes `.legalize` (required by C backend)
 
 ### Added
-- Three-stage release pipeline: `build-llvm` → `build-bootstrap` → `release`
-- Pre-built LLVM 22.1.3 artifacts for x86_64-linux, aarch64-macos, x86_64-windows
-- LLVM-enabled bootstrap compiler via cmake+ninja
-- `update-zig1-wasm` workflow for seed compiler regeneration
-- Matrix CI builds for LLVM and bootstrap across all platforms
-- `CHANGELOG.md`
+- Three-stage release pipeline: `build-llvm.yaml` → `build-bootstrap.yaml` → `release.yaml`
+- Pre-built LLVM 22.1.3 artifacts for all 3 platforms (one-time build, reused across releases)
+- `build_wasm.zig` — Minimal build.zig for zig1.wasm generation via zig build system
+- `regen-zig1-wasm.yaml` — Automated zig1.wasm regeneration using `setup-sig` action
+- `tools/setup-sig` — GitHub Action for installing sig in CI workflows
+- `stage1/float_stubs.c` — f16/f80 soft-float stubs for Windows bootstrap linking
+- `environ` and `_environ` added to C backend reserved identifiers (Windows UCRT macro collision)
+- Windows: `#undef environ` in `zig.h`, `_msize` wrapper for const-qualifier mismatch
+- Windows: `zig_static_assert` suppressed on MSVC (struct padding mismatch with old zig1.wasm)
+- Windows: `/MD` CRT globally for clang-cl compatibility with pre-built LLVM libs
+- `CHANGELOG.md` covering all versions from 0.0.1 through 0.1.2
 
 ### Fixed
-- `process.zig`: signal enum → u32 casts for zig2 type strictness
-- `Sema.zig`: erroneous `try` on `resolveValue`/`resolveInst`
-- CMakeLists.txt: `-lm` removal on Windows, circular static lib deps
-- macOS Gatekeeper quarantine handling
+- `process.zig`: `.unknown` variant is `u32`, not enum — removed erroneous `@intFromEnum`
+- `Sema.zig`: `cmp_lte_errors_len` typo, `writeToPackedMemory` type, `resolveValue`/`resolveInst` try removal
+- `wasm2c.c`: improved error message for invalid wasm magic bytes
+- CMakeLists.txt: `-lm` removal on Windows, circular static lib deps, `_CRT_SECURE_NO_WARNINGS`
+- CMakeLists.txt: `MSVC_RUNTIME_LIBRARY` set on all targets for clang-cl
+- macOS Gatekeeper quarantine handling in bootstrap download
+- zig1.wasm: fixed zstd compression issue (wasm2c expects raw wasm, not compressed)
 
 ## [0.1.0] — 2026-04-04
 
