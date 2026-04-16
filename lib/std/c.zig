@@ -11466,8 +11466,6 @@ pub const perf_event = serenity.perf_event;
 pub const perf_register_string = serenity.perf_register_string;
 pub const get_stack_bounds = serenity.get_stack_bounds;
 pub const anon_create = serenity.anon_create;
-pub const serenity_readlink = serenity.serenity_readlink;
-pub const serenity_open = serenity.serenity_open;
 pub const getkeymap = serenity.getkeymap;
 pub const setkeymap = serenity.setkeymap;
 
