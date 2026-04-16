@@ -53,9 +53,7 @@ pub extern "c" fn profiling_enable(pid: pid_t, event_mask: PERF_EVENT) c_int;
 pub extern "c" fn profiling_disable(pid: pid_t) c_int;
 pub extern "c" fn profiling_free_buffer(pid: pid_t) c_int;
 
-pub extern "c" fn futex(userspace_address: *u32, futex_op: c_int, value: u32, timeout: *const timespec, userspace_address2: *u32, value3: u32) c_int;
-pub extern "c" fn futex_wait(userspace_address: *u32, value: u32, abstime: *const timespec, clockid: clockid_t, process_shared: c_int) c_int;
-pub extern "c" fn futex_wake(userspace_address: *u32, count: u32, process_shared: c_int) c_int;
+pub extern "c" fn futex(userspace_address: *u32, futex_op: c_int, value: u32, timeout: ?*const timespec, userspace_address2: ?*u32, value3: u32) c_int;
 
 pub extern "c" fn purge(mode: c_int) c_int;
 
