@@ -1401,7 +1401,7 @@ fn analyzeBodyInner(
                     .@"asm"             => try sema.zirAsm(               block, extended, false),
                     .asm_expr           => try sema.zirAsm(               block, extended, true),
                     .typeof_peer        => try sema.zirTypeofPeer(        block, extended, inst),
-                    .round_cast         => try sema.zirRoundCast(         block, extended),
+                    .round_op           => try sema.zirRoundCast(         block, extended),
                     .round_op_ty        => try sema.zirRoundOpType(       block, extended),
                     .compile_log        => try sema.zirCompileLog(        block, extended),
                     .min_multi          => try sema.zirMinMaxMulti(       block, extended, .min),
