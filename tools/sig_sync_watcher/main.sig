@@ -1,11 +1,8 @@
 const std = @import("std");
-const sig = @import("sig");
-const sig_http = sig.http;
-const sig_fmt = sig.fmt;
 
-/// Sig Sync Watcher — Cloud Run service (pure Sig, zero allocators)
+/// Sig Sync Watcher — Cloud Run service (pure Sig, zero allocators where possible)
 ///
-/// Listens on $PORT via sig.http.Server. On each request (Cloud Scheduler ~30s):
+/// Listens on $PORT. On each request (Cloud Scheduler hits every ~30s):
 ///   1. Fetches the Codeberg RSS feed for ziglang/zig master branch
 ///   2. Extracts the latest commit hash from the first <link> element
 ///   3. Compares to the last known hash (in-memory, survives warm invocations)
@@ -15,7 +12,7 @@ const sig_fmt = sig.fmt;
 /// Environment variables:
 ///   PORT              — HTTP listen port (set by Cloud Run, default 8080)
 ///   GITHUB_TOKEN      — Personal access token with repo scope
-///   GITHUB_REPO       — e.g. "ShadovvBeast/sig"
+///   GITHUB_REPO       — e.g. "SB0LTD/sig"
 
 // ── Configuration ────────────────────────────────────────────────────────
 
@@ -23,65 +20,83 @@ const rss_host = "codeberg.org";
 const rss_path = "/ziglang/zig/rss/branch/master";
 const github_api_host = "api.github.com";
 
-// ── State (persists across warm invocations) ─────────────────────────────
+// ── State (persists across warm invocations on Cloud Run) ────────────────
 
 var last_known_commit: [40]u8 = .{0} ** 40;
 var last_known_len: usize = 0;
 
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+fn getenv(name: [*:0]const u8) ?[]const u8 {
+    const ptr = std.c.getenv(name) orelse return null;
+    return std.mem.sliceTo(ptr, 0);
+}
+
+fn log(comptime fmt_str: []const u8, args: anytype) void {
+    std.debug.print("[sig-sync-watcher] " ++ fmt_str ++ "\n", args);
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 pub fn main() !void {
-    const port_str = std.posix.getenv("PORT") orelse "8080";
+    const port_str = getenv("PORT") orelse "8080";
     const port = std.fmt.parseInt(u16, port_str, 10) catch 8080;
 
-    if (std.posix.getenv("LAST_KNOWN_COMMIT")) |seed| {
+    if (getenv("LAST_KNOWN_COMMIT")) |seed| {
         if (seed.len == 40) {
             @memcpy(&last_known_commit, seed[0..40]);
             last_known_len = 40;
         }
     }
 
-    const io = std.process.Init.io();
-    var server = sig_http.Server(8192).listen(io, port) catch {
-        log("Failed to listen on port {d}", .{port});
+    const address = std.net.Address.parseIp4("0.0.0.0", port) catch unreachable;
+    var server = try std.net.StreamServer.init(.{
+        .reuse_address = true,
+    });
+    defer server.deinit();
+
+    server.listen(address) catch |err| {
+        log("Failed to listen on port {d}: {s}", .{ port, @errorName(err) });
         return;
     };
-    defer server.deinit(io);
 
-    log("sig-sync-watcher listening on port {d}", .{port});
+    log("listening on port {d}", .{port});
 
     while (true) {
-        var req_buf: [4096]u8 = undefined;
-        const request = server.accept(io, &req_buf) catch continue;
-        _ = request; // We don't inspect the request, just handle it.
-
-        handleRequest(io, &server);
+        const conn = server.accept() catch continue;
+        defer conn.stream.close();
+        handleConnection(conn.stream);
     }
 }
 
-// ── Request Handler ──────────────────────────────────────────────────────
+// ── Connection Handler ───────────────────────────────────────────────────
 
-fn handleRequest(io: std.Io, server: anytype) void {
-    const github_token = std.posix.getenv("GITHUB_TOKEN") orelse "";
-    const github_repo = std.posix.getenv("GITHUB_REPO") orelse "ShadovvBeast/sig";
+fn handleConnection(stream: std.net.Stream) void {
+    // Read the HTTP request (we don't really need to parse it)
+    var req_buf: [4096]u8 = undefined;
+    _ = stream.read(&req_buf) catch return;
+
+    const github_token = getenv("GITHUB_TOKEN") orelse "";
+    const github_repo = getenv("GITHUB_REPO") orelse "SB0LTD/sig";
 
     // 1. Fetch RSS feed
-    var rss_buf: [32768]u8 = undefined;
-    const rss_data = fetchRss(&rss_buf) catch {
-        server.respond(io, 502, "Failed to fetch RSS feed") catch {};
+    var rss_buf: [65536]u8 = undefined;
+    const rss_data = fetchRss(&rss_buf) catch |err| {
+        log("RSS fetch failed: {s}", .{@errorName(err)});
+        sendResponse(stream, "502 Bad Gateway", "Failed to fetch RSS feed");
         return;
     };
 
     // 2. Extract latest commit hash
     var hash_buf: [40]u8 = undefined;
     const latest_hash = extractLatestCommitHash(rss_data, &hash_buf) orelse {
-        server.respond(io, 502, "Failed to parse commit hash from RSS") catch {};
+        sendResponse(stream, "502 Bad Gateway", "Failed to parse commit hash from RSS");
         return;
     };
 
     // 3. Compare to last known
     if (last_known_len == 40 and std.mem.eql(u8, latest_hash, &last_known_commit)) {
-        server.respond(io, 200, "No new commits") catch {};
+        sendResponse(stream, "200 OK", "No new commits");
         return;
     }
 
@@ -92,50 +107,47 @@ fn handleRequest(io: std.Io, server: anytype) void {
 
     // 5. Fire repository_dispatch
     if (github_token.len == 0) {
-        server.respond(io, 200, "New commit but no GITHUB_TOKEN") catch {};
+        sendResponse(stream, "200 OK", "New commit detected but no GITHUB_TOKEN set");
         return;
     }
 
-    fireRepositoryDispatch(github_token, github_repo) catch {
-        server.respond(io, 502, "Failed to trigger dispatch") catch {};
+    fireRepositoryDispatch(github_token, github_repo) catch |err| {
+        log("Dispatch failed: {s}", .{@errorName(err)});
+        sendResponse(stream, "502 Bad Gateway", "Failed to trigger dispatch");
         return;
     };
 
-    server.respond(io, 200, "Triggered sync for new commit") catch {};
+    sendResponse(stream, "200 OK", "Triggered sync for new commit");
 }
 
-// ── RSS Fetch (raw TCP + TLS, request built via sig.http.buildRequest) ───
+fn sendResponse(stream: std.net.Stream, status: []const u8, body: []const u8) void {
+    var buf: [1024]u8 = undefined;
+    const header = std.fmt.bufPrint(&buf, "HTTP/1.1 {s}\r\nContent-Length: {d}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n", .{ status, body.len }) catch return;
+    _ = stream.write(header) catch return;
+    _ = stream.write(body) catch return;
+}
+
+// ── RSS Fetch ────────────────────────────────────────────────────────────
 
 fn fetchRss(buf: []u8) ![]const u8 {
-    var req_buf: [1024]u8 = undefined;
-    const request = sig_http.buildRequest(
-        &req_buf,
-        "GET",
-        rss_host,
-        rss_path,
-        &[_]sig_http.Header{
-            .{ .name = "User-Agent", .value = "sig-sync-watcher/1.0" },
-            .{ .name = "Connection", .value = "close" },
-        },
-        "",
-    ) catch return error.BufferTooSmall;
-
-    return tcpHttpsRaw(rss_host, request, buf);
+    return httpGet(rss_host, rss_path, null, buf);
 }
 
 // ── Commit Hash Extraction ───────────────────────────────────────────────
 
 fn extractLatestCommitHash(rss: []const u8, out: *[40]u8) ?[]const u8 {
+    // Find first <item>, then its <link>...</link>
     const item_start = std.mem.indexOf(u8, rss, "<item>") orelse return null;
     const after_item = rss[item_start..];
 
-    const link_tag = std.mem.indexOf(u8, after_item, "<link>") orelse return null;
-    const content_start = link_tag + 6;
+    const link_open = std.mem.indexOf(u8, after_item, "<link>") orelse return null;
+    const content_start = link_open + 6; // len("<link>")
     const remaining = after_item[content_start..];
 
-    const link_end = std.mem.indexOf(u8, remaining, "</link>") orelse return null;
-    const link_url = remaining[0..link_end];
+    const link_close = std.mem.indexOf(u8, remaining, "</link>") orelse return null;
+    const link_url = remaining[0..link_close];
 
+    // The URL ends with the 40-char commit hash
     if (link_url.len < 40) return null;
     const hash = link_url[link_url.len - 40 ..][0..40];
 
@@ -151,79 +163,80 @@ fn isHex(c: u8) bool {
     return (c >= '0' and c <= '9') or (c >= 'a' and c <= 'f') or (c >= 'A' and c <= 'F');
 }
 
-// ── GitHub API Dispatch (request built via sig.http.buildRequest) ─────────
+// ── GitHub Dispatch ──────────────────────────────────────────────────────
 
 fn fireRepositoryDispatch(token: []const u8, repo: []const u8) !void {
+    // Build path: /repos/{repo}/dispatches
     var path_buf: [256]u8 = undefined;
-    const path = sig_fmt.formatInto(&path_buf, "/repos/{s}/dispatches", .{repo}) catch return error.BufferTooSmall;
+    const path = std.fmt.bufPrint(&path_buf, "/repos/{s}/dispatches", .{repo}) catch return error.Overflow;
 
+    // Build auth header value
     var auth_buf: [256]u8 = undefined;
-    const auth = sig_fmt.formatInto(&auth_buf, "Bearer {s}", .{token}) catch return error.BufferTooSmall;
+    const auth = std.fmt.bufPrint(&auth_buf, "Bearer {s}", .{token}) catch return error.Overflow;
 
     const body = "{\"event_type\":\"upstream-push\"}";
 
-    var req_buf: [2048]u8 = undefined;
-    const request = sig_http.buildRequest(
-        &req_buf,
-        "POST",
-        github_api_host,
-        path,
-        &[_]sig_http.Header{
-            .{ .name = "Authorization", .value = auth },
-            .{ .name = "Accept", .value = "application/vnd.github.v3+json" },
-            .{ .name = "User-Agent", .value = "sig-sync-watcher/1.0" },
-            .{ .name = "Content-Type", .value = "application/json" },
-        },
-        body,
-    ) catch return error.BufferTooSmall;
-
     var resp_buf: [4096]u8 = undefined;
-    const resp = tcpHttpsRaw(github_api_host, request, &resp_buf) catch return error.ConnectionFailed;
+    const resp = httpPost(github_api_host, path, auth, body, &resp_buf) catch return error.ConnectionFailed;
 
-    // Parse response using sig.http.parseResponse
-    var headers: [32]sig_http.Header = undefined;
-    const parsed = sig_http.parseResponse(resp, &headers) catch {
-        log("Failed to parse GitHub response", .{});
-        return error.GitHubApiError;
-    };
-
-    if (parsed.status == 204 or parsed.status == 200) {
+    // Check for 2xx status in the raw response
+    if (std.mem.startsWith(u8, resp, "HTTP/1.1 2") or std.mem.startsWith(u8, resp, "HTTP/1.0 2")) {
         log("repository_dispatch triggered successfully", .{});
     } else {
-        log("GitHub API unexpected status: {d}", .{parsed.status});
-        return error.GitHubApiError;
+        const status_end = std.mem.indexOf(u8, resp, "\r\n") orelse resp.len;
+        log("GitHub API unexpected response: {s}", .{resp[0..@min(status_end, 80)]});
+        return error.Unexpected;
     }
 }
 
-// ── Raw TLS transport ────────────────────────────────────────────────────
+// ── Raw HTTPS transport (TLS over TCP) ───────────────────────────────────
 
-fn tcpHttpsRaw(host: []const u8, request: []const u8, buf: []u8) ![]const u8 {
-    const addr = try std.net.Address.resolveIp(host, 443);
+fn httpGet(host: []const u8, path: []const u8, auth: ?[]const u8, buf: []u8) ![]const u8 {
+    var req_buf: [2048]u8 = undefined;
+    var pos: usize = 0;
+
+    pos += (std.fmt.bufPrint(req_buf[pos..], "GET {s} HTTP/1.1\r\nHost: {s}\r\nUser-Agent: sig-sync-watcher/1.0\r\nConnection: close\r\n", .{ path, host }) catch return error.Overflow).len;
+    if (auth) |a| {
+        pos += (std.fmt.bufPrint(req_buf[pos..], "Authorization: {s}\r\n", .{a}) catch return error.Overflow).len;
+    }
+    pos += (std.fmt.bufPrint(req_buf[pos..], "\r\n", .{}) catch return error.Overflow).len;
+
+    return tcpTlsRequest(host, req_buf[0..pos], buf);
+}
+
+fn httpPost(host: []const u8, path: []const u8, auth: []const u8, body: []const u8, buf: []u8) ![]const u8 {
+    var req_buf: [4096]u8 = undefined;
+    const req = std.fmt.bufPrint(&req_buf, "POST {s} HTTP/1.1\r\nHost: {s}\r\nUser-Agent: sig-sync-watcher/1.0\r\nAuthorization: {s}\r\nAccept: application/vnd.github.v3+json\r\nContent-Type: application/json\r\nContent-Length: {d}\r\nConnection: close\r\n\r\n{s}", .{ path, host, auth, body.len, body }) catch return error.Overflow;
+
+    return tcpTlsRequest(host, req, buf);
+}
+
+fn tcpTlsRequest(host: []const u8, request: []const u8, buf: []u8) ![]const u8 {
+    // Resolve hostname
+    const list = try std.net.Address.resolveIp(host, 443);
+    const addr = list;
+
     const sock = try std.posix.socket(addr.any.family, std.posix.SOCK.STREAM, 0);
     defer std.posix.close(sock);
 
     try std.posix.connect(sock, &addr.any, addr.getOsSockLen());
 
-    var tls_client = try std.crypto.tls.Client(@TypeOf(sock)).init(sock, .{
+    // TLS handshake
+    var tls = try std.crypto.tls.client(sock, .{
         .host = host,
     });
-    defer tls_client.close() catch {};
+    defer tls.close() catch {};
 
-    try tls_client.writeAll(request);
+    // Send request
+    try tls.writeAll(request);
 
+    // Read response
     var total: usize = 0;
     while (total < buf.len) {
-        const n = tls_client.read(buf[total..]) catch break;
+        const n = tls.read(buf[total..]) catch break;
         if (n == 0) break;
         total += n;
     }
 
     return buf[0..total];
-}
-
-// ── Logging ──────────────────────────────────────────────────────────────
-
-fn log(comptime fmt_str: []const u8, args: anytype) void {
-    const stderr = std.io.getStdErr();
-    stderr.writer().print("[sig-sync-watcher] " ++ fmt_str ++ "\n", args) catch {};
 }

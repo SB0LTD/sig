@@ -1,17 +1,21 @@
-FROM alpine:3.19 AS builder
+FROM ubuntu:24.04 AS builder
 
-RUN apk add --no-cache curl xz
-ARG SIG_VERSION=latest
-RUN DOWNLOAD_URL=$(curl -s https://api.github.com/repos/SB0LTD/sig/releases/${SIG_VERSION} \
-    | grep -o '"browser_download_url": *"[^"]*x86_64-linux[^"]*\.tar\.xz"' \
-    | head -1 | cut -d'"' -f4) && \
-    curl -L "$DOWNLOAD_URL" | tar -xJ -C /opt && \
-    ln -s /opt/sig-*/bin/sig /usr/local/bin/sig
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl xz-utils ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download upstream zig (stable, known to work) to compile the watcher.
+# The watcher only uses std APIs, so upstream zig compiles it fine.
+RUN curl -L "https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz" \
+    | tar -xJ -C /opt && \
+    ln -s /opt/zig-linux-x86_64-0.13.0/zig /usr/local/bin/zig && \
+    zig version
 
 WORKDIR /app
-COPY main.sig main.sig
+COPY main.sig main.zig
 
-RUN sig build-exe main.sig \
+# Build a static musl binary
+RUN zig build-exe main.zig \
     -target x86_64-linux-musl -OReleaseSafe \
     --name sig-sync-watcher
 
