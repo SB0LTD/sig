@@ -12,7 +12,7 @@ const std = @import("std"); // Only for std.SemanticVersion
 // CI workflows grep these constants to resolve release versions.
 // sig_version struct is the source of truth; sig_version_string is derived.
 // Grep patterns: sig_version.*major = \K\d+, sig_version.*minor = \K\d+, etc.
-const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 16, .patch = 0 };
+const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
 const sig_version = .{ .major = 0, .minor = 1, .patch = 2, .pre = "" };
 const sig_version_string = "0.1.2";
 
