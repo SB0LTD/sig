@@ -895,7 +895,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) Allocator
     // Avoid heap allocation when paths.len is <= @bitSizeOf(usize) * 2
     // (we use `* 3` because stackFallback uses 1 usize as a length)
     var buf: [3]usize = undefined;
-    var bit_set_allocator_state: std.heap.StackFallbackAllocator = .init(@ptrCast(&buf), allocator);
+    var bit_set_allocator_state: std.heap.BufferFirstAllocator = .init(@ptrCast(&buf), allocator);
     const bit_set_allocator = bit_set_allocator_state.allocator();
     var relevant_paths = try std.bit_set.DynamicBitSetUnmanaged.initEmpty(bit_set_allocator, paths.len);
     defer relevant_paths.deinit(bit_set_allocator);
@@ -1644,7 +1644,7 @@ fn windowsResolveAgainstCwd(
 ) ![]u8 {
     // Space for 256 WTF-16 code units; potentially 3 WTF-8 bytes per WTF-16 code unit
     var buf: [256 * 3]u8 = undefined;
-    var temp_allocator_state: std.heap.StackFallbackAllocator = .init(&buf, gpa);
+    var temp_allocator_state: std.heap.BufferFirstAllocator = .init(&buf, gpa);
     return switch (parsed.kind) {
         .drive_absolute,
         .unc_absolute,

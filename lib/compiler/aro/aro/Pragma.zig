@@ -212,9 +212,9 @@ pub const Diagnostic = struct {
 };
 
 pub fn err(pp: *Preprocessor, tok_i: TokenIndex, diagnostic: Diagnostic, args: anytype) Compilation.Error!void {
-    var sf_buf: [1024]u8 = undefined;
-    var sf: std.heap.StackFallbackAllocator = .init(&sf_buf, pp.comp.gpa);
-    var allocating: std.Io.Writer.Allocating = .init(sf.allocator());
+    var buf: [1024]u8 = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(&buf, pp.comp.gpa);
+    var allocating: std.Io.Writer.Allocating = .init(bfa.allocator());
     defer allocating.deinit();
 
     Diagnostics.formatArgs(&allocating.writer, diagnostic.fmt, args) catch return error.OutOfMemory;

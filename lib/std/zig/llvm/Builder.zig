@@ -7638,9 +7638,9 @@ pub const Constant = enum(u32) {
                                 std.math.big.int.calcToStringLimbsBufferLen(expected_limbs, 10)
                             ]std.math.big.Limb,
                         };
-                        var stack_buf: ExpectedContents = undefined;
-                        var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), data.builder.gpa);
-                        const allocator = stack.allocator();
+                        var bfa_buf: ExpectedContents = undefined;
+                        var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), data.builder.gpa);
+                        const allocator = bfa.allocator();
                         const str = bigint.toStringAlloc(allocator, 10, undefined) catch return error.WriteFailed;
                         defer allocator.free(str);
                         try w.writeAll(str);
@@ -9209,9 +9209,9 @@ pub fn getIntrinsic(
             fields: [expected_fields_len]Type,
         },
     };
-    var stack_buf: ExpectedContents = undefined;
-    var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), self.gpa);
-    const allocator = stack.allocator();
+    var bfa_buf: ExpectedContents = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), self.gpa);
+    const allocator = bfa.allocator();
 
     const name = name: {
         {
@@ -10607,9 +10607,9 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                             std.math.big.int.calcToStringLimbsBufferLen(expected_limbs, 10)
                         ]std.math.big.Limb,
                     };
-                    var stack_buf: ExpectedContents = undefined;
-                    var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), self.gpa);
-                    const allocator = stack.allocator();
+                    var bfa_buf: ExpectedContents = undefined;
+                    var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), self.gpa);
+                    const allocator = bfa.allocator();
 
                     const limbs = self.metadata_limbs.items[extra.limbs_index..][0..extra.limbs_len];
                     const bigint: std.math.big.int.Const = .{
@@ -11129,9 +11129,9 @@ fn bigIntConstAssumeCapacity(
     const bits = type_item.data;
 
     const ExpectedContents = [64 / @sizeOf(std.math.big.Limb)]std.math.big.Limb;
-    var stack_buf: ExpectedContents = undefined;
-    var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), self.gpa);
-    const allocator = stack.allocator();
+    var bfa_buf: ExpectedContents = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), self.gpa);
+    const allocator = bfa.allocator();
 
     var limbs: []std.math.big.Limb = &.{};
     defer allocator.free(limbs);

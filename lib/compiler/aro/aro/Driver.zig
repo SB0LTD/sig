@@ -947,9 +947,9 @@ fn addImacros(d: *Driver, path: []const u8) !void {
 }
 
 pub fn err(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
-    var sf_buf: [1024]u8 = undefined;
-    var sf: std.heap.StackFallbackAllocator = .init(&sf_buf, d.comp.gpa);
-    var allocating: std.Io.Writer.Allocating = .init(sf.allocator());
+    var bfa_buf: [1024]u8 = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(&bfa_buf, d.comp.gpa);
+    var allocating: std.Io.Writer.Allocating = .init(bfa.allocator());
     defer allocating.deinit();
 
     Diagnostics.formatArgs(&allocating.writer, fmt, args) catch return error.OutOfMemory;
@@ -957,9 +957,9 @@ pub fn err(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
 }
 
 pub fn warn(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
-    var sf_buf: [1024]u8 = undefined;
-    var sf: std.heap.StackFallbackAllocator = .init(&sf_buf, d.comp.gpa);
-    var allocating: std.Io.Writer.Allocating = .init(sf.allocator());
+    var bfa_buf: [1024]u8 = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(&bfa_buf, d.comp.gpa);
+    var allocating: std.Io.Writer.Allocating = .init(bfa.allocator());
     defer allocating.deinit();
 
     Diagnostics.formatArgs(&allocating.writer, fmt, args) catch return error.OutOfMemory;
@@ -1103,9 +1103,9 @@ fn parseTarget(d: *Driver, arch_os_abi: []const u8, opt_cpu_features: ?[]const u
 }
 
 pub fn fatal(d: *Driver, comptime fmt: []const u8, args: anytype) error{ FatalError, OutOfMemory } {
-    var sf_buf: [1024]u8 = undefined;
-    var sf: std.heap.StackFallbackAllocator = .init(&sf_buf, d.comp.gpa);
-    var allocating: std.Io.Writer.Allocating = .init(sf.allocator());
+    var bfa_buf: [1024]u8 = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(&bfa_buf, d.comp.gpa);
+    var allocating: std.Io.Writer.Allocating = .init(bfa.allocator());
     defer allocating.deinit();
 
     Diagnostics.formatArgs(&allocating.writer, fmt, args) catch return error.OutOfMemory;

@@ -427,11 +427,11 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
             });
 
             // For short initializers, track the names on the stack rather than going through gpa.
-            var sfba_buf: [256]u8 = undefined;
-            var sfba_state: std.heap.StackFallbackAllocator = .init(&sfba_buf, gpa);
-            const sfba = sfba_state.allocator();
+            var bfa_buf: [256]u8 = undefined;
+            var bfa_state: std.heap.BufferFirstAllocator = .init(&bfa_buf, gpa);
+            const bfa = bfa_state.allocator();
             var field_names: std.AutoHashMapUnmanaged(Zoir.NullTerminatedString, Ast.TokenIndex) = .empty;
-            defer field_names.deinit(sfba);
+            defer field_names.deinit(bfa);
 
             var reported_any_duplicate = false;
 
@@ -439,7 +439,7 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
                 const name_token = tree.firstToken(elem_node) - 2;
                 if (zg.identAsString(name_token)) |name_str| {
                     zg.extra.items[extra_name_idx] = @intFromEnum(name_str);
-                    const gop = try field_names.getOrPut(sfba, name_str);
+                    const gop = try field_names.getOrPut(bfa, name_str);
                     if (gop.found_existing and !reported_any_duplicate) {
                         reported_any_duplicate = true;
                         const earlier_token = gop.value_ptr.*;

@@ -882,16 +882,16 @@ pub fn fieldValue(val: Value, pt: Zcu.PerThread, index: usize) !Value {
                 else => unreachable,
             };
             // Avoid hitting gpa for accesses to small packed structs
-            var sfba_buf: [128]u8 = undefined;
-            var sfba_state: std.heap.StackFallbackAllocator = .init(&sfba_buf, zcu.comp.gpa);
-            const sfba = sfba_state.allocator();
-            const buf = try sfba.alloc(u8, @intCast((ty.bitSize(zcu) + 7) / 8));
-            defer sfba.free(buf);
+            var bfa_buf: [128]u8 = undefined;
+            var bfa_state: std.heap.BufferFirstAllocator = .init(&bfa_buf, zcu.comp.gpa);
+            const bfa = bfa_state.allocator();
+            const buf = try bfa.alloc(u8, @intCast((ty.bitSize(zcu) + 7) / 8));
+            defer bfa.free(buf);
             int_val.writeToPackedMemory(zcu, buf, 0) catch |err| switch (err) {
                 error.ReinterpretDeclRef => unreachable, // it's an integer
                 error.OutOfMemory => |e| return e,
             };
-            return Value.readFromPackedMemory(field_ty, pt, buf, field_bit_offset, sfba) catch |err| switch (err) {
+            return Value.readFromPackedMemory(field_ty, pt, buf, field_bit_offset, bfa) catch |err| switch (err) {
                 error.IllDefinedMemoryLayout => unreachable, // it's a bitpack
                 error.OutOfMemory => |e| return e,
             };

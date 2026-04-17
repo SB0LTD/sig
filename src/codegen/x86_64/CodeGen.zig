@@ -173820,9 +173820,9 @@ fn genLazy(cg: *CodeGen, lazy_sym: link.File.LazySymbol) InnerError!void {
             var err_temp = try cg.tempInit(err_ty, err_mcv);
 
             const ExpectedContents = [32]Mir.Inst.Index;
-            var stack_buf: ExpectedContents = undefined;
-            var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), cg.gpa);
-            const allocator = stack.allocator();
+            var bfa_buf: ExpectedContents = undefined;
+            var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), cg.gpa);
+            const allocator = bfa.allocator();
 
             const relocs = try allocator.alloc(Mir.Inst.Index, error_set_type.names.len);
             defer allocator.free(relocs);
@@ -174220,9 +174220,9 @@ fn restoreState(self: *CodeGen, state: State, deaths: []const Air.Inst.Index, co
     for (deaths) |death| try self.processDeath(death, .{ .emit_instructions = opts.emit_instructions });
 
     const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).array.len]RegisterLock;
-    const stack_buf_len = if (opts.update_tracking) 0 else 1;
-    var stack_buf: [stack_buf_len]ExpectedContents = undefined;
-    var stack = if (opts.update_tracking) {} else std.heap.StackFallbackAllocator.init(@ptrCast(&stack_buf), self.gpa);
+    const bfa_buf_len = if (opts.update_tracking) 0 else 1;
+    var bfa_buf: [bfa_buf_len]ExpectedContents = undefined;
+    var stack = if (opts.update_tracking) {} else std.heap.BufferFirstAllocator.init(@ptrCast(&bfa_buf), self.gpa);
 
     var reg_locks = if (opts.update_tracking) {} else try std.array_list.Managed(RegisterLock).initCapacity(
         stack.allocator(),
@@ -175930,9 +175930,9 @@ fn airCall(self: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         tys: [32][@sizeOf(Type)]u8 align(@alignOf(Type)),
         vals: [32][@sizeOf(MCValue)]u8 align(@alignOf(MCValue)),
     };
-    var stack_buf: [1]ExpectedContents = undefined;
-    var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), self.gpa);
-    const allocator = stack.allocator();
+    var bfa_buf: [1]ExpectedContents = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), self.gpa);
+    const allocator = bfa.allocator();
 
     const arg_tys = try allocator.alloc(Type, arg_refs.len);
     defer allocator.free(arg_tys);
@@ -175986,9 +175986,9 @@ fn genCall(self: *CodeGen, info: union(enum) {
         frame_indices: [32]FrameIndex,
         reg_locks: [32][@sizeOf(?RegisterLock)]u8 align(@alignOf(?RegisterLock)),
     };
-    var stack_buf: ExpectedContents = undefined;
-    var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), self.gpa);
-    const allocator = stack.allocator();
+    var bfa_buf: ExpectedContents = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), self.gpa);
+    const allocator = bfa.allocator();
 
     const var_args = try allocator.alloc(Type, args.len - fn_info.param_types.len);
     defer allocator.free(var_args);
@@ -176589,9 +176589,9 @@ fn lowerSwitchBr(
         bigint_limbs: [std.math.big.int.calcTwosCompLimbCount(1 << 10)]std.math.big.Limb,
         relocs: [1 << 6]Mir.Inst.Index,
     };
-    var stack_buf: ExpectedContents = undefined;
-    var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), cg.gpa);
-    const allocator = stack.allocator();
+    var bfa_buf: ExpectedContents = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), cg.gpa);
+    const allocator = bfa.allocator();
 
     const state = try cg.saveState();
 
@@ -181155,9 +181155,9 @@ fn resolveCallingConventionValues(
     const ExpectedContents = extern struct {
         param_types: [32][@sizeOf(Type)]u8 align(@alignOf(Type)),
     };
-    var stack_buf: ExpectedContents = undefined;
-    var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), cg.gpa);
-    const allocator = stack.allocator();
+    var bfa_buf: ExpectedContents = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), cg.gpa);
+    const allocator = bfa.allocator();
 
     const param_types = try allocator.alloc(Type, fn_info.param_types.len + var_args.len);
     defer allocator.free(param_types);
@@ -188707,9 +188707,9 @@ const Select = struct {
                             }
 
                             const ExpectedContents = [std.math.big.int.calcTwosCompLimbCount(1 << 10)]std.math.big.Limb;
-                            var stack_buf: ExpectedContents = undefined;
-                            var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), cg.gpa);
-                            const allocator = stack.allocator();
+                            var bfa_buf: ExpectedContents = undefined;
+                            var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), cg.gpa);
+                            const allocator = bfa.allocator();
                             var res_big_int: std.math.big.int.Mutable = .{
                                 .limbs = try allocator.alloc(
                                     std.math.big.Limb,

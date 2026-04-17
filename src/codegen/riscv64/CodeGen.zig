@@ -672,11 +672,11 @@ fn restoreState(func: *Func, state: State, deaths: []const Air.Inst.Index, compt
 
     const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).array.len]RegisterLock;
     const stack_buf_len = if (opts.update_tracking) 0 else 1;
-    var stack_buf: [stack_buf_len]ExpectedContents = undefined;
-    var stack = if (opts.update_tracking) {} else std.heap.StackFallbackAllocator.init(@ptrCast(&stack_buf), func.gpa);
+    var bfa_buf: [stack_buf_len]ExpectedContents = undefined;
+    var bfa = if (opts.update_tracking) {} else std.heap.BufferFirstAllocator.init(@ptrCast(&bfa_buf), func.gpa);
 
     var reg_locks = if (opts.update_tracking) {} else try std.array_list.Managed(RegisterLock).initCapacity(
-        stack.allocator(),
+        bfa.allocator(),
         @typeInfo(ExpectedContents).array.len,
     );
     defer if (!opts.update_tracking) {
@@ -4808,9 +4808,9 @@ fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const ExpectedContents = extern struct {
         vals: [expected_num_args][@sizeOf(MCValue)]u8 align(@alignOf(MCValue)),
     };
-    var stack_buf: ExpectedContents = undefined;
-    var stack: std.heap.StackFallbackAllocator = .init(@ptrCast(&stack_buf), func.gpa);
-    const allocator = stack.allocator();
+    var bfa_buf: ExpectedContents = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), func.gpa);
+    const allocator = bfa.allocator();
 
     const arg_tys = try allocator.alloc(Type, arg_refs.len);
     defer allocator.free(arg_tys);

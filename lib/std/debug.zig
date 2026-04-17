@@ -1197,8 +1197,9 @@ fn printSourceAtAddress(
 
     // Initialize the symbol array with space for at least one element, allocating this on the stack
     // in the common case where only one element is needed
-    var symbol_fallback_allocator = std.heap.stackFallback(@sizeOf(Symbol) + @alignOf(Symbol) - 1, getDebugInfoAllocator());
-    const symbol_allocator = symbol_fallback_allocator.get();
+    var buf: [1]Symbol = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&buf), getDebugInfoAllocator());
+    const symbol_allocator = bfa.allocator();
     var symbols = std.ArrayList(Symbol).initCapacity(symbol_allocator, 1) catch unreachable;
     defer symbols.deinit(symbol_allocator);
 
