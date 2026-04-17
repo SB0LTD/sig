@@ -10,14 +10,14 @@ on:
       version:
         description: 'Bootstrap release tag'
         required: false
-        default: 'bootstrap-sig-v5'
+        default: 'bootstrap-sig-v9'
 
 permissions:
   contents: write
 
 env:
-  VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v5' }}
-  ZIG_VERSION: "0.16.0-dev.3091+557caecaa"
+  VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v9' }}
+  ZIG_VERSION: "0.14.1"
 
 jobs:
   build:
