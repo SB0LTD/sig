@@ -1236,6 +1236,7 @@ fn protocolInterfaces(
         @TypeOf(interfaces),
     ) = undefined;
     result[0] = handle_arg;
+    result[result.len - 1] = null;
 
     comptime var idx: usize = 1;
     inline for (interfaces) |interface| {
@@ -1270,13 +1271,15 @@ fn ProtocolInterfaces(HandleType: type, Interfaces: type) type {
         @compileError("expected tuple of protocol interfaces, got " ++ @typeName(Interfaces));
     const interfaces_info = interfaces_type_info.@"struct";
 
-    var tuple_types: [interfaces_info.fields.len * 2 + 1]type = undefined;
+    var tuple_types: [interfaces_info.fields.len * 2 + 2]type = undefined;
     tuple_types[0] = HandleType;
+    tuple_types[tuple_types.len - 1] = ?*const Guid;
+
     var idx = 1;
-    while (idx < tuple_types.len) : (idx += 2) {
+    while (idx < tuple_types.len - 1) : (idx += 2) {
         tuple_types[idx] = *const Guid;
         tuple_types[idx + 1] = *const anyopaque;
     }
 
-    return std.meta.Tuple(tuple_types[0..]);
+    return @Tuple(tuple_types[0..]);
 }
