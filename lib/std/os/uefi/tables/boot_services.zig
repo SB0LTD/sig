@@ -158,10 +158,10 @@ pub const BootServices = extern struct {
     _locateProtocol: *const fn (protocol: *const Guid, registration: ?EventRegistration, interface: *?*const anyopaque) callconv(cc) Status,
 
     /// Installs one or more protocol interfaces into the boot services environment
-    _installMultipleProtocolInterfaces: *const fn (handle: *Handle, ...) callconv(cc) Status,
+    _installMultipleProtocolInterfaces: *const fn (handle: *?Handle, ...) callconv(cc) Status,
 
     /// Removes one or more protocol interfaces into the boot services environment
-    _uninstallMultipleProtocolInterfaces: *const fn (handle: *Handle, ...) callconv(cc) Status,
+    _uninstallMultipleProtocolInterfaces: *const fn (handle: Handle, ...) callconv(cc) Status,
 
     /// Computes and returns a 32-bit CRC for a data buffer.
     _calculateCrc32: *const fn (data: [*]const u8, data_size: usize, *u32) callconv(cc) Status,
