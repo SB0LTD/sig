@@ -25,9 +25,9 @@ RUN /opt/sig/sig build-exe main.sig \
     -target x86_64-linux-musl -OReleaseSafe \
     --name sig-sync-watcher
 
-FROM scratch
+FROM alpine:3.21
+RUN apk add --no-cache curl ca-certificates
 COPY --from=builder /app/sig-sync-watcher /sig-sync-watcher
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 ENV PORT=8080
 EXPOSE 8080
