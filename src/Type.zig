@@ -3175,6 +3175,7 @@ pub fn validateExtern(ty: Type, position: ExternPosition, zcu: *const Zcu) bool 
         },
         .int => switch (ty.intInfo(zcu).bits) {
             0, 8, 16, 32, 64, 128 => true,
+            24, 48 => zcu.getTarget().cpu.arch == .ez80,
             else => false,
         },
         .@"fn" => {
