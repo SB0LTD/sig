@@ -3,33 +3,93 @@ set -euo pipefail
 
 # Sig Sync Watcher — GCP Cloud Run deployment
 #
+# Builds a minimal Docker context (only the files the Dockerfile needs),
+# pushes to Artifact Registry, and deploys to Cloud Run with Cloud Scheduler.
+#
 # Prerequisites:
 #   - gcloud CLI authenticated
-#   - GCP project with Cloud Run, Cloud Scheduler, Secret Manager, Cloud Build APIs enabled
+#   - GCP project with Cloud Run, Cloud Scheduler, Secret Manager, Artifact Registry APIs enabled
 #   - Service account: sig-sync-watcher@{PROJECT}.iam.gserviceaccount.com
 #   - Secret: sig-sync-github-token in Secret Manager
+#   - Artifact Registry repo: us-central1-docker.pkg.dev/{PROJECT}/sig
 #
 # Usage:
-#   ./deploy.sh [PROJECT_ID] [REGION]
+#   ./tools/sig_sync_watcher/deploy.sh [PROJECT_ID] [REGION]
+#   (run from sig repo root)
 
 PROJECT_ID="${1:-sbzero}"
 REGION="${2:-us-central1}"
 SERVICE_NAME="sig-sync-watcher"
 SA_EMAIL="sig-sync-watcher@${PROJECT_ID}.iam.gserviceaccount.com"
-GITHUB_REPO="ShadovvBeast/sig"
+GITHUB_REPO="SB0LTD/sig"
 SCHEDULER_JOB="sig-sync-poll"
-CUSTOM_DOMAIN="sync.sig.best"
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/sig/${SERVICE_NAME}"
 
-echo "==> Building and deploying to Cloud Run"
-echo "    Project: $PROJECT_ID"
-echo "    Region:  $REGION"
-echo "    SA:      $SA_EMAIL"
+echo "==> Preparing minimal build context"
 
-# Deploy Cloud Run service with Secret Manager integration
+# Create a temp directory with only the files the Dockerfile needs
+TMPCTX=$(mktemp -d)
+trap "rm -rf $TMPCTX" EXIT
+
+cp tools/sig_sync_watcher/Dockerfile "$TMPCTX/Dockerfile"
+cp tools/sig_sync_watcher/main.sig   "$TMPCTX/main.sig"
+
+# Rewrite Dockerfile for flat context (no nested paths)
+cat > "$TMPCTX/Dockerfile" << 'DOCKERFILE'
+FROM alpine:3.19 AS builder
+
+RUN apk add --no-cache curl xz
+ARG SIG_VERSION=latest
+RUN DOWNLOAD_URL=$(curl -s https://api.github.com/repos/SB0LTD/sig/releases/${SIG_VERSION} \
+    | grep -o '"browser_download_url": *"[^"]*x86_64-linux[^"]*\.tar\.xz"' \
+    | head -1 | cut -d'"' -f4) && \
+    curl -L "$DOWNLOAD_URL" | tar -xJ -C /opt && \
+    ln -s /opt/sig-*/bin/sig /usr/local/bin/sig
+
+WORKDIR /app
+COPY main.sig main.sig
+
+# sig downloads its own std lib; we only need the watcher source
+RUN sig build-exe main.sig \
+    -target x86_64-linux-musl -OReleaseSafe \
+    --name sig-sync-watcher
+
+FROM scratch
+COPY --from=builder /app/sig-sync-watcher /sig-sync-watcher
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+ENV PORT=8080
+EXPOSE 8080
+ENTRYPOINT ["/sig-sync-watcher"]
+DOCKERFILE
+
+echo "    Context size: $(du -sh "$TMPCTX" | cut -f1)"
+
+# ── Ensure Artifact Registry repo exists ──────────────────────────────
+gcloud artifacts repositories describe sig \
+  --project="$PROJECT_ID" \
+  --location="$REGION" \
+  --format="value(name)" 2>/dev/null || \
+gcloud artifacts repositories create sig \
+  --project="$PROJECT_ID" \
+  --location="$REGION" \
+  --repository-format=docker \
+  --description="Sig container images" \
+  --quiet
+
+# ── Build with Cloud Build (tiny context, fast upload) ────────────────
+echo "==> Building image via Cloud Build"
+gcloud builds submit "$TMPCTX" \
+  --project="$PROJECT_ID" \
+  --region="$REGION" \
+  --tag="$IMAGE:latest" \
+  --quiet
+
+# ── Deploy to Cloud Run ──────────────────────────────────────────────
+echo "==> Deploying to Cloud Run"
 gcloud run deploy "$SERVICE_NAME" \
   --project="$PROJECT_ID" \
   --region="$REGION" \
-  --source=. \
+  --image="$IMAGE:latest" \
   --platform=managed \
   --no-allow-unauthenticated \
   --service-account="$SA_EMAIL" \
@@ -42,7 +102,6 @@ gcloud run deploy "$SERVICE_NAME" \
   --set-secrets="GITHUB_TOKEN=sig-sync-github-token:latest" \
   --quiet
 
-# Get the service URL
 SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" \
   --project="$PROJECT_ID" \
   --region="$REGION" \
@@ -50,25 +109,12 @@ SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" \
 
 echo "==> Service deployed at: $SERVICE_URL"
 
-# Map custom domain
-echo "==> Mapping custom domain: $CUSTOM_DOMAIN"
-gcloud run domain-mappings create \
-  --service="$SERVICE_NAME" \
-  --domain="$CUSTOM_DOMAIN" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --quiet 2>/dev/null || echo "  Domain mapping already exists"
-
-# Use custom domain for scheduler (HTTPS, Cloud Run handles TLS)
-SCHEDULER_URL="https://${CUSTOM_DOMAIN}"
-
-# Create Cloud Scheduler jobs (2 jobs offset by 30s for ~30s polling)
+# ── Cloud Scheduler (2 jobs offset by 30s → ~30s polling) ────────────
 echo "==> Setting up Cloud Scheduler"
 
 for OFFSET in 0 30; do
   JOB_NAME="${SCHEDULER_JOB}-${OFFSET}s"
 
-  # Delete existing job if present
   gcloud scheduler jobs delete "$JOB_NAME" \
     --project="$PROJECT_ID" \
     --location="$REGION" \
@@ -78,7 +124,7 @@ for OFFSET in 0 30; do
     --project="$PROJECT_ID" \
     --location="$REGION" \
     --schedule="* * * * *" \
-    --uri="${SCHEDULER_URL}/check" \
+    --uri="${SERVICE_URL}/check" \
     --http-method=GET \
     --oidc-service-account-email="$SA_EMAIL" \
     --oidc-token-audience="$SERVICE_URL" \
@@ -90,7 +136,7 @@ done
 
 echo ""
 echo "==> Deployment complete!"
-echo "    Service:   $CUSTOM_DOMAIN (Cloud Run: $SERVICE_URL)"
-echo "    Polling:   Every ~30 seconds"
+echo "    Service:   $SERVICE_URL"
+echo "    Polling:   Every ~30 seconds (2 scheduler jobs)"
 echo "    RSS feed:  https://codeberg.org/ziglang/zig/rss/branch/master"
 echo "    Dispatch:  https://api.github.com/repos/$GITHUB_REPO/dispatches"

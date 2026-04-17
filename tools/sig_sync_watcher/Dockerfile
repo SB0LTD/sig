@@ -1,28 +1,20 @@
 FROM alpine:3.19 AS builder
 
-# Install Sig compiler from GitHub releases
 RUN apk add --no-cache curl xz
 ARG SIG_VERSION=latest
-RUN DOWNLOAD_URL=$(curl -s https://api.github.com/repos/ShadovvBeast/sig/releases/${SIG_VERSION} \
+RUN DOWNLOAD_URL=$(curl -s https://api.github.com/repos/SB0LTD/sig/releases/${SIG_VERSION} \
     | grep -o '"browser_download_url": *"[^"]*x86_64-linux[^"]*\.tar\.xz"' \
     | head -1 | cut -d'"' -f4) && \
     curl -L "$DOWNLOAD_URL" | tar -xJ -C /opt && \
     ln -s /opt/sig-*/bin/sig /usr/local/bin/sig
 
 WORKDIR /app
+COPY main.sig main.sig
 
-# Copy sig library and watcher source
-COPY lib/sig/ lib/sig/
-COPY tools/sig_sync_watcher/main.sig tools/sig_sync_watcher/main.sig
-
-# Build static binary
-RUN sig build-exe tools/sig_sync_watcher/main.sig \
-    --mod sig::lib/sig/sig.zig \
-    --deps sig \
+RUN sig build-exe main.sig \
     -target x86_64-linux-musl -OReleaseSafe \
     --name sig-sync-watcher
 
-# Minimal runtime image
 FROM scratch
 COPY --from=builder /app/sig-sync-watcher /sig-sync-watcher
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
