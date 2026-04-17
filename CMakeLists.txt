@@ -748,9 +748,9 @@ target_include_directories(zig2 PUBLIC stage1)
 target_link_libraries(zig2 LINK_PUBLIC zigcpp)
 
 if(MSVC)
-  target_link_libraries(zig2 LINK_PUBLIC ntdll.lib ws2_32.lib)
+  target_link_libraries(zig2 LINK_PUBLIC ntdll.lib ws2_32.lib crypt32.lib)
 elseif(MINGW)
-  target_link_libraries(zig2 LINK_PUBLIC ntdll ws2_32)
+  target_link_libraries(zig2 LINK_PUBLIC ntdll ws2_32 crypt32)
 endif()
 
 if(NOT MSVC)
