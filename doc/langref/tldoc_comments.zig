@@ -3,8 +3,8 @@
 //! depend on libc, but will use functions from it if available.
 
 const S = struct {
-    //! Top level comments are allowed inside a container other than a module,
-    //! but it is not very useful.  Currently, when producing the package
+    //! Top level comments are allowed inside containers other than source
+    //! files, but it is not very useful. Currently, when producing the package
     //! documentation, these comments are ignored.
 };
 

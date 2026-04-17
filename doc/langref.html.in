@@ -429,7 +429,7 @@
       {#header_open|Top-Level Doc Comments#}
       <p>
       A top-level doc comment is one that begins with two slashes and an exclamation
-      point: {#syntax#}//!{#endsyntax#}; it documents the current module.
+      point: {#syntax#}//!{#endsyntax#}; it documents the current source file.
       </p>
       <p>
       It is a compile error if a top-level doc comment is not placed at the start
@@ -2470,7 +2470,7 @@ or
       <p>Unions can be declared with an enum tag type.
       This turns the union into a <em>tagged</em> union, which makes it eligible
       to use with {#link|switch#} expressions. When switching on tagged unions,
-      the tag value can be obtained using an additional capture. 
+      the tag value can be obtained using an additional capture.
       Tagged unions coerce to their tag type: {#link|Type Coercion: Unions and Enums#}.
       </p>
       {#code|test_tagged_union.zig#}
