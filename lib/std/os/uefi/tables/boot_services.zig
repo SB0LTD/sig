@@ -1239,7 +1239,7 @@ fn protocolInterfaces(
     ) = undefined;
     result[0] = handle_arg;
 
-    var idx: usize = 1;
+    comptime var idx: usize = 1;
     inline for (interfaces) |interface| {
         const InterfacePtr = @TypeOf(interface);
         const Interface = switch (@typeInfo(InterfacePtr)) {
