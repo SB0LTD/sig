@@ -745,7 +745,6 @@ const src_files = [_][]const u8{
     "musl/src/linux/sync_file_range.c",
     "musl/src/linux/syncfs.c",
     "musl/src/linux/sysinfo.c",
-    "musl/src/linux/tee.c",
     "musl/src/linux/timerfd.c",
     "musl/src/linux/unshare.c",
     "musl/src/linux/utimes.c",
