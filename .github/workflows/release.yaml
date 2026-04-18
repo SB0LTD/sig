@@ -212,9 +212,11 @@ jobs:
           for f in sig-*.tar.xz sig-*.zip; do [ -f "$f" ] && ARCHIVES="$ARCHIVES $f"; done
           [ -z "$ARCHIVES" ] && echo "No archives found" && ls -la && exit 1
 
-          gh release delete "sig-${VERSION}" --yes 2>/dev/null || true
+          gh release delete "sig-${VERSION}" --yes --cleanup-tag 2>/dev/null || true
+          sleep 2
           gh release create "sig-${VERSION}" \
             --title "Sig ${VERSION}" \
             --notes "Sig ${VERSION} — self-sustained release (sig builds sig, no upstream zig dependency)." \
+            --latest \
             ${PRERELEASE} \
             $ARCHIVES sha256sums.txt

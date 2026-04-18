@@ -193,15 +193,16 @@ jobs:
               git add README.md
               git diff --cached --quiet || git commit -m "sig-sync: update README sync status"
 
-              # Push + trigger release
+              # Push + release for this commit
               git push origin HEAD:master
 
-              echo "Dispatching sig-release for $SHORT..."
-              gh api repos/${{ github.repository }}/dispatches \
-                -f event_type=sig-release
-
-              sleep 5
+              sleep 2
             fi
 
             echo "::endgroup::"
           done < /tmp/new_commits.txt
+
+          # ── Dispatch a single release after all commits are integrated ──
+          echo "Dispatching sig-release..."
+          gh api repos/${{ github.repository }}/dispatches \
+            -f event_type=sig-release
