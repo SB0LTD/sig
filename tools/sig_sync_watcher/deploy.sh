@@ -3,15 +3,8 @@ set -euo pipefail
 
 # Sig Sync Watcher — GCP Cloud Run deployment
 #
-# Builds a minimal Docker context (only the files the Dockerfile needs),
-# pushes to Artifact Registry, and deploys to Cloud Run with Cloud Scheduler.
-#
-# Prerequisites:
-#   - gcloud CLI authenticated
-#   - GCP project with Cloud Run, Cloud Scheduler, Secret Manager, Artifact Registry APIs enabled
-#   - Service account: sig-sync-watcher@{PROJECT}.iam.gserviceaccount.com
-#   - Secret: sig-sync-github-token in Secret Manager
-#   - Artifact Registry repo: us-central1-docker.pkg.dev/{PROJECT}/sig
+# The watcher is compiled by the sig bootstrap compiler (v9+, dev=.full).
+# The bootstrap downloads its own std lib, so we only need main.sig.
 #
 # Usage:
 #   ./tools/sig_sync_watcher/deploy.sh [PROJECT_ID] [REGION]
@@ -27,32 +20,49 @@ IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/sig/${SERVICE_NAME}"
 
 echo "==> Preparing minimal build context"
 
-# Create a temp directory with only the files the Dockerfile needs
 TMPCTX=$(mktemp -d)
 trap "rm -rf $TMPCTX" EXIT
 
-cp tools/sig_sync_watcher/Dockerfile "$TMPCTX/Dockerfile"
-cp tools/sig_sync_watcher/main.sig   "$TMPCTX/main.sig"
+cp tools/sig_sync_watcher/main.sig "$TMPCTX/main.sig"
 
-# Rewrite Dockerfile for flat context (no nested paths)
-# Use the repo's Dockerfile directly
-cp tools/sig_sync_watcher/Dockerfile "$TMPCTX/Dockerfile"
+# Inline Dockerfile — downloads bootstrap sig and compiles the watcher
+cat > "$TMPCTX/Dockerfile" << 'DOCKERFILE'
+FROM ubuntu:24.04 AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download bootstrap-sig-v9 (dev=.full, supports build-exe)
+RUN curl -sL "https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v9/bootstrap-sig-x86_64-linux.tar.gz" \
+    | tar -xz -C /opt && \
+    chmod +x /opt/bin/sig /opt/bin/zig && \
+    echo "sig bootstrap ready"
+
+# Clone just the lib/ directory we need for compilation
+RUN curl -sL "https://github.com/SB0LTD/sig/archive/refs/heads/master.tar.gz" \
+    | tar -xz --strip-components=1 -C /opt/sig-src "sig-master/lib" && \
+    echo "std lib ready"
+
+WORKDIR /app
+COPY main.sig main.sig
+
+RUN /opt/bin/sig build-exe main.sig \
+    --zig-lib-dir /opt/sig-src/lib \
+    -target x86_64-linux-musl -OReleaseSafe \
+    --name sig-sync-watcher
+
+FROM scratch
+COPY --from=builder /app/sig-sync-watcher /sig-sync-watcher
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+ENV PORT=8080
+EXPOSE 8080
+ENTRYPOINT ["/sig-sync-watcher"]
+DOCKERFILE
 
 echo "    Context size: $(du -sh "$TMPCTX" | cut -f1)"
 
-# ── Ensure Artifact Registry repo exists ──────────────────────────────
-gcloud artifacts repositories describe sig \
-  --project="$PROJECT_ID" \
-  --location="$REGION" \
-  --format="value(name)" 2>/dev/null || \
-gcloud artifacts repositories create sig \
-  --project="$PROJECT_ID" \
-  --location="$REGION" \
-  --repository-format=docker \
-  --description="Sig container images" \
-  --quiet
-
-# ── Build with Cloud Build (tiny context, fast upload) ────────────────
+# ── Build with Cloud Build ────────────────────────────────────────────
 echo "==> Building image via Cloud Build"
 gcloud builds submit "$TMPCTX" \
   --project="$PROJECT_ID" \

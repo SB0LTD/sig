@@ -4,8 +4,6 @@ on:
   repository_dispatch:
     types: [upstream-push]
   workflow_dispatch:
-  schedule:
-    - cron: '*/30 * * * *'   # poll every 30 min
 
 permissions:
   contents: write
@@ -35,13 +33,11 @@ jobs:
             exit 0
           fi
 
-          # List every upstream commit we haven't integrated, oldest first
           git rev-list HEAD..upstream/master --reverse > /tmp/new_commits.txt
           COUNT=$(wc -l < /tmp/new_commits.txt)
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "$COUNT new upstream commits to integrate"
 
-      # ── Per-commit rebase loop ──────────────────────────────────────
       - name: Integrate commits one-by-one
         if: steps.check.outputs.skip != 'true'
         env:
@@ -52,16 +48,52 @@ jobs:
           git config user.name  "sig-sync[bot]"
           git config user.email "sig-sync@users.noreply.github.com"
 
-          SIG_SPECIFIC_PATHS=(
+          # Files we own — on conflict, keep ours
+          SIG_OWNED=(
             README.md CHANGELOG.md build.sig
-            "lib/sig/" "tools/sig_sync/" "tools/setup-sig/"
-            "tools/upstream-watcher/" ".github/workflows/"
+            stage1/config.zig.in
           )
-          UPSTREAM_COMPILER_PATHS=(
-            src/Sema.zig src/print_zir.zig
-            lib/std/zig/Zir.zig lib/std/zig/AstGen.zig
-            lib/std/zig/AstRlAnnotate.zig lib/std/zig/BuiltinFn.zig
+          # Directories we own — on conflict, keep ours
+          SIG_OWNED_DIRS=(
+            lib/sig/ tools/sig_sync/ tools/sig_sync_watcher/
+            tools/setup-sig/ tools/upstream-watcher/ .github/workflows/
           )
+
+          resolve_conflicts() {
+            local CONFLICTS
+            CONFLICTS=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+            [ -z "$CONFLICTS" ] && return 0
+
+            echo "Resolving $(echo "$CONFLICTS" | wc -l) conflicted files..."
+
+            while IFS= read -r f; do
+              local keep_ours=false
+
+              # Check if file is sig-owned
+              for owned in "${SIG_OWNED[@]}"; do
+                [ "$f" = "$owned" ] && keep_ours=true && break
+              done
+              if [ "$keep_ours" = "false" ]; then
+                for dir in "${SIG_OWNED_DIRS[@]}"; do
+                  [[ "$f" == ${dir}* ]] && keep_ours=true && break
+                done
+              fi
+
+              if [ "$keep_ours" = "true" ]; then
+                echo "  keep ours: $f"
+                git checkout --ours -- "$f" && git add "$f"
+              else
+                echo "  take theirs: $f"
+                git checkout --theirs -- "$f" && git add "$f"
+              fi
+            done <<< "$CONFLICTS"
+
+            # Verify all resolved
+            REMAINING=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+            [ -z "$REMAINING" ] && return 0
+            echo "::error::Still unresolved: $REMAINING"
+            return 1
+          }
 
           TOTAL=$(wc -l < /tmp/new_commits.txt)
           IDX=0
@@ -72,97 +104,65 @@ jobs:
             SUBJECT=$(git log -1 --format='%s' "$COMMIT")
             echo "::group::[$IDX/$TOTAL] $SHORT — $SUBJECT"
 
-            # ── Try cherry-pick (rebase-style) first ──────────────────
             INTEGRATED=false
+
+            # ── Try cherry-pick first ─────────────────────────────────
             if git cherry-pick "$COMMIT" --no-edit 2>/dev/null; then
               echo "Clean cherry-pick"
               INTEGRATED=true
             else
-              # Check if there are conflicts
               CONFLICTS=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
-              if [ -z "$CONFLICTS" ]; then
-                # cherry-pick failed for non-conflict reason — fall back to merge
-                git cherry-pick --abort 2>/dev/null || true
-              else
-                echo "Cherry-pick conflicts detected, attempting auto-resolve..."
-
-                # For sig-specific files, keep ours
-                for f in "${SIG_SPECIFIC_PATHS[@]}"; do
-                  git checkout --ours -- "$f" 2>/dev/null && git add "$f" 2>/dev/null || true
-                done
-
-                # For upstream compiler files, take theirs
-                for f in "${UPSTREAM_COMPILER_PATHS[@]}"; do
-                  if echo "$CONFLICTS" | grep -q "^$f$"; then
-                    git checkout --theirs -- "$f" 2>/dev/null && git add "$f" 2>/dev/null || true
-                  fi
-                done
-
-                # Check if all conflicts resolved
-                REMAINING=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
-                if [ -z "$REMAINING" ]; then
+              if [ -n "$CONFLICTS" ]; then
+                if resolve_conflicts; then
                   git -c core.editor=true cherry-pick --continue
                   echo "Cherry-pick with auto-resolved conflicts"
                   INTEGRATED=true
                 else
-                  echo "::warning::Cannot auto-resolve cherry-pick for $SHORT, falling back to merge"
                   git cherry-pick --abort 2>/dev/null || true
                 fi
+              else
+                git cherry-pick --abort 2>/dev/null || true
               fi
             fi
 
-            # ── Fallback: merge single commit ─────────────────────────
+            # ── Fallback: merge ───────────────────────────────────────
             if [ "$INTEGRATED" = "false" ]; then
-              if git merge "$COMMIT" --no-edit -m "sig-sync: merge upstream $SHORT — $SUBJECT"; then
+              if git merge "$COMMIT" --no-edit -m "sig-sync: merge upstream $SHORT — $SUBJECT" 2>/dev/null; then
                 echo "Clean merge (fallback)"
                 INTEGRATED=true
               else
-                # Same conflict resolution for merge
-                for f in "${SIG_SPECIFIC_PATHS[@]}"; do
-                  git checkout --ours -- "$f" 2>/dev/null && git add "$f" 2>/dev/null || true
-                done
-                for f in "${UPSTREAM_COMPILER_PATHS[@]}"; do
-                  if git diff --name-only --diff-filter=U | grep -q "^$f$"; then
-                    git checkout --theirs -- "$f" 2>/dev/null && git add "$f" 2>/dev/null || true
-                  fi
-                done
-
-                REMAINING=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
-                if [ -z "$REMAINING" ]; then
-                  git commit --no-edit -m "sig-sync: merge upstream $SHORT (conflicts auto-resolved)"
+                if resolve_conflicts; then
+                  git commit --no-edit -m "sig-sync: merge upstream $SHORT (auto-resolved)"
                   echo "Merge with auto-resolved conflicts"
                   INTEGRATED=true
                 else
-                  echo "::error::Unresolved conflicts for $SHORT:"
-                  echo "$REMAINING"
                   git merge --abort 2>/dev/null || true
-                  echo "Stopping integration at commit $SHORT"
+                  echo "::error::Cannot integrate $SHORT — manual resolution needed"
                   break
                 fi
               fi
             fi
 
-            # ── Sync zig version from CMakeLists.txt → build.sig ──────
+            # ── Post-integration: version sync, manifest, README, push, release
             if [ "$INTEGRATED" = "true" ]; then
+              # Sync zig version from CMakeLists.txt → build.sig
               ZIG_MAJOR=$(sed -n 's/^set(ZIG_VERSION_MAJOR \([0-9]*\))/\1/p' CMakeLists.txt)
               ZIG_MINOR=$(sed -n 's/^set(ZIG_VERSION_MINOR \([0-9]*\))/\1/p' CMakeLists.txt)
               ZIG_PATCH=$(sed -n 's/^set(ZIG_VERSION_PATCH \([0-9]*\))/\1/p' CMakeLists.txt)
 
               if [ -n "$ZIG_MAJOR" ] && [ -n "$ZIG_MINOR" ] && [ -n "$ZIG_PATCH" ]; then
-                # Read current values from build.sig
                 CUR_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
                 CUR_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
                 CUR_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' build.sig | head -1)
 
                 if [ "$ZIG_MAJOR" != "$CUR_MAJOR" ] || [ "$ZIG_MINOR" != "$CUR_MINOR" ] || [ "$ZIG_PATCH" != "$CUR_PATCH" ]; then
-                  echo "Updating zig_version in build.sig: $CUR_MAJOR.$CUR_MINOR.$CUR_PATCH → $ZIG_MAJOR.$ZIG_MINOR.$ZIG_PATCH"
                   sed -i "s/const zig_version: std.SemanticVersion = .{ .major = [0-9]*, .minor = [0-9]*, .patch = [0-9]* };/const zig_version: std.SemanticVersion = .{ .major = $ZIG_MAJOR, .minor = $ZIG_MINOR, .patch = $ZIG_PATCH };/" build.sig
                   git add build.sig
                   git diff --cached --quiet || git commit -m "sig-sync: bump zig_version to $ZIG_MAJOR.$ZIG_MINOR.$ZIG_PATCH"
                 fi
               fi
 
-              # ── Update manifest ───────────────────────────────────────
+              # Update manifest
               TIMESTAMP=$(date +%s)
               python3 -c "
           import json, os
@@ -175,39 +175,31 @@ jobs:
               git add tools/sig_sync/manifest.json
               git diff --cached --quiet || git commit -m "sig-sync: update manifest to $SHORT"
 
-              # ── Update README sync status ─────────────────────────────
+              # Update README sync status
               SYNC_DATE=$(date -u +%Y-%m-%d)
-              COMMIT_SHORT=$(echo "$COMMIT" | cut -c1-8)
               ZIG_VER="${ZIG_MAJOR:-0}.${ZIG_MINOR:-17}.${ZIG_PATCH:-0}"
-              python3 -c "
-          import re, sys
-          with open('README.md', 'r') as f: content = f.read()
-          replacements = {
-              r'\| \*\*Latest upstream commit\*\* \|[^|]*\|': '| **Latest upstream commit** | [\`${SHORT}\`](https://codeberg.org/ziglang/zig/commit/${COMMIT}) |',
-              r'\| \*\*Last sync\*\* \|[^|]*\|': '| **Last sync** | ${DATE} |',
-              r'\| \*\*Base version\*\* \|[^|]*\|': '| **Base version** | zig ${ZIG}-dev · LLVM 22.1.3 |',
-          }
-          import os
-          commit = os.environ.get('COMMIT','')
+              python3 << PYEOF
+          import re
+          commit = "$COMMIT"
           short = commit[:8]
-          date = os.environ.get('SYNC_DATE','')
-          zig = os.environ.get('ZIG_VER','0.17.0')
+          date = "$SYNC_DATE"
+          zig = "$ZIG_VER"
+          with open('README.md', 'r') as f: content = f.read()
           content = re.sub(r'\| \*\*Latest upstream commit\*\* \|[^|]*\|', f'| **Latest upstream commit** | [\`{short}\`](https://codeberg.org/ziglang/zig/commit/{commit}) |', content)
           content = re.sub(r'\| \*\*Last sync\*\* \|[^|]*\|', f'| **Last sync** | {date} |', content)
           content = re.sub(r'\| \*\*Base version\*\* \|[^|]*\|', f'| **Base version** | zig {zig}-dev · LLVM 22.1.3 |', content)
           with open('README.md', 'w') as f: f.write(content)
-          "
+          PYEOF
               git add README.md
               git diff --cached --quiet || git commit -m "sig-sync: update README sync status"
 
-              # ── Push + release for this commit ────────────────────────
+              # Push + trigger release
               git push origin HEAD:master
 
               echo "Dispatching sig-release for $SHORT..."
               gh api repos/${{ github.repository }}/dispatches \
                 -f event_type=sig-release
 
-              # Small delay so the release workflow picks up the right HEAD
               sleep 5
             fi
 
