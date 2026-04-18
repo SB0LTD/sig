@@ -1,8 +1,27 @@
-# Sig
+<p align="center">
+  <img src="sig.png" alt="Sig" width="420" />
+</p>
 
-A Zig fork where `.sig` files make allocator usage a compile error.
+<h1 align="center">Sig — Strict Zig</h1>
 
-## What it looks like
+<p align="center">
+  <em>Memory is not a guess.</em>
+</p>
+
+<p align="center">
+  A capacity-first memory model layer on top of the Zig compiler.<br/>
+  Every buffer is caller-owned. Every container is bounded. Every allocation is visible.
+</p>
+
+<p align="center">
+  <a href="https://github.com/SB0LTD/sig/releases"><img src="https://img.shields.io/github/v/release/SB0LTD/sig?label=sig&color=f7a41d&style=flat-square" alt="Release"></a>
+  <a href="https://codeberg.org/ziglang/zig"><img src="https://img.shields.io/badge/upstream-zig%200.17.0--dev-blue?style=flat-square" alt="Upstream"></a>
+  <a href="https://github.com/SB0LTD/sig/actions/workflows/sig-sync.yaml"><img src="https://img.shields.io/github/actions/workflow/status/SB0LTD/sig/sig-sync.yaml?label=sync&style=flat-square" alt="Sync Status"></a>
+</p>
+
+---
+
+## What Sig looks like
 
 ```zig
 // zig — allocator is a runtime parameter, capacity is implicit
@@ -63,6 +82,37 @@ Standard Zig error unions. Handle with `try`, `catch`, or `orelse`.
 
 In `.zig` files, the ❌ patterns compile normally (with optional warnings).
 
+---
+
+## The Spoon Model
+
+Sig is not a fork. It's a **Spoon** 🥄
+
+A Spoon is a close derivative that stays continuously synchronized with its upstream. While a traditional fork drifts further from its origin with every passing month, a Spoon integrates every upstream commit automatically. Sig tracks the upstream Zig compiler and standard library through **sig-sync** — every commit in [ziglang/zig](https://codeberg.org/ziglang/zig) flows into Sig within minutes.
+
+| | Traditional Fork | Spoon (Sig) |
+|---|---|---|
+| Upstream tracking | Manual, periodic | Continuous, automatic |
+| Divergence over time | Grows unbounded | Near zero |
+| Merge conflicts | Accumulate silently | Resolved immediately |
+| Upstream compatibility | Degrades | Always maintained |
+
+### Sync status
+
+<!-- Updated automatically by sig-sync workflow -->
+
+| | |
+|---|---|
+| **Latest upstream commit** | [`3e1e6258`](https://codeberg.org/ziglang/zig/commit/3e1e625814165d9d9282f3cd89bc117cf1b6d61c) |
+| **Last sync** | 2026-04-16 |
+| **Upstream** | [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) |
+| **Base version** | zig 0.17.0-dev · LLVM 22.1.3 |
+| **Sync frequency** | Every commit (< 1 min latency) |
+
+> The sync status above is updated automatically after each successful integration. See the [sig-sync workflow](https://github.com/SB0LTD/sig/actions/workflows/sig-sync.yaml) for live run history.
+
+---
+
 ## Getting started
 
 Download a binary from [releases](https://github.com/SB0LTD/sig/releases), or build from source:
@@ -74,18 +124,14 @@ cd sig && sig build
 
 Drop-in replacement for `zig`. All existing `.zig` code works unchanged.
 
-## Upstream sync
+```
+$ sig version
+sig 0.1.2 (zig 0.17.0-dev)
+```
 
-Sig tracks [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) continuously. Every upstream commit is merged automatically. Current base: **zig 0.16.0-dev**, **LLVM 22.1.3**.
+## Versioning
 
-## 0.1.2 release
-
-- Ported to LLVM 22.1.3
-- Synced with upstream zig 0.16.0
-- Three-stage release pipeline (build-llvm → build-bootstrap → release)
-- Ships for x86_64-linux, aarch64-macos, x86_64-windows
-
-Full changelog: [CHANGELOG.md](CHANGELOG.md)
+Sig follows its own semver while tracking the upstream Zig version it's built on. Release tags encode both: `sig-0.1.2+zig0.17.0.<sha>`.
 
 ## Contributing
 
