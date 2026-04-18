@@ -3070,7 +3070,7 @@ fn dirRead(userdata: ?*anyopaque, dr: *Dir.Reader, buffer: []Dir.Entry) Dir.Read
             }
             const n = while (true) {
                 try sync.cancel_region.await(.nothing);
-                const rc = linux.getdents64(dr.dir.handle, dr.buffer.ptr, dr.buffer.len);
+                const rc = linux.getdents64(dr.dir.handle, dr.buffer.ptr, @min(dr.buffer.len, std.math.maxInt(c_uint)));
                 switch (linux.errno(rc)) {
                     .SUCCESS => break rc,
                     .INTR => {},

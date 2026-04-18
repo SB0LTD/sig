@@ -887,21 +887,21 @@ pub fn getcwd(buf: [*]u8, size: usize) usize {
     return syscall2(.getcwd, @intFromPtr(buf), size);
 }
 
-pub fn getdents(fd: fd_t, dirp: [*]u8, len: usize) usize {
+pub fn getdents(fd: fd_t, dirp: [*]u8, len: c_uint) usize {
     return syscall3(
         .getdents,
         @as(u32, @bitCast(fd)),
         @intFromPtr(dirp),
-        @min(len, maxInt(c_int)),
+        len,
     );
 }
 
-pub fn getdents64(fd: fd_t, dirp: [*]u8, len: usize) usize {
+pub fn getdents64(fd: fd_t, dirp: [*]u8, len: c_uint) usize {
     return syscall3(
         .getdents64,
         @as(u32, @bitCast(fd)),
         @intFromPtr(dirp),
-        @min(len, maxInt(c_int)),
+        len,
     );
 }
 
