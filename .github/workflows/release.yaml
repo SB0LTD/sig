@@ -71,10 +71,10 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
             SIG_VER="${{ inputs.version }}"
           else
-            SIG_MAJOR=$(sed -n 's/.*sig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
-            SIG_MINOR=$(sed -n 's/.*sig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
-            SIG_PATCH=$(sed -n 's/.*sig_version.*patch = \([0-9]*\).*/\1/p' build.sig | head -1)
-            SIG_PRE=$(sed -n 's/.*sig_version.*pre = "\([^"]*\)".*/\1/p' build.sig | head -1)
+            SIG_MAJOR=$(sed -n 's/^const sig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
+            SIG_MINOR=$(sed -n 's/^const sig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
+            SIG_PATCH=$(sed -n 's/^const sig_version.*patch = \([0-9]*\).*/\1/p' build.sig | head -1)
+            SIG_PRE=$(sed -n 's/^const sig_version.*pre = "\([^"]*\)".*/\1/p' build.sig | head -1)
             [ -n "$SIG_PRE" ] && SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}-${SIG_PRE}" \
                               || SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}"
           fi
