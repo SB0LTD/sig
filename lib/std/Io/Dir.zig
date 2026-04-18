@@ -1993,7 +1993,7 @@ pub fn setFileOwner(
     owner: ?File.Uid,
     group: ?File.Gid,
     options: SetFileOwnerOptions,
-) SetOwnerError!void {
+) SetFileOwnerError!void {
     return io.vtable.dirSetFileOwner(io.userdata, dir, sub_path, owner, group, options);
 }
 
@@ -2032,7 +2032,7 @@ pub fn setTimestampsNow(
     sub_path: []const u8,
     options: SetTimestampsNowOptions,
 ) SetTimestampsError!void {
-    return io.vtable.fileSetTimestamps(io.userdata, dir, sub_path, .{
+    return io.vtable.dirSetTimestamps(io.userdata, dir, sub_path, .{
         .follow_symlinks = options.follow_symlinks,
         .access_timestamp = .now,
         .modify_timestamp = .now,
