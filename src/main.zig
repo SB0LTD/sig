@@ -7342,6 +7342,7 @@ const usage_fetch =
     \\Options:
     \\  -h, --help                    Print this help and exit
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
+    \\  --pkg-dir [path]              Override path to package directory
     \\  --debug-hash                  Print verbose hash information to stdout
     \\  --save                        Add the fetched package to build.sig.zon or build.zig.zon
     \\  --save=[name]                 Add the fetched package to build.sig.zon or build.zig.zon as name
@@ -7362,6 +7363,7 @@ fn cmdFetch(
     const color: Color = .auto;
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
+    var override_pkg_dir: ?[]const u8 = null;
     var debug_hash: bool = false;
     var save: union(enum) {
         no,
@@ -7381,6 +7383,10 @@ fn cmdFetch(
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     override_global_cache_dir = args[i];
+                } else if (mem.eql(u8, arg, "--pkg-dir")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    override_pkg_dir = args[i];
                 } else if (mem.eql(u8, arg, "--debug-hash")) {
                     debug_hash = true;
                 } else if (mem.eql(u8, arg, "--save")) {
@@ -7442,7 +7448,7 @@ fn cmdFetch(
         .local_cache = local_cache_path,
         .root_pkg_path = .{
             .root_dir = build_root.directory,
-            .sub_path = "zig-pkg",
+            .sub_path = override_pkg_dir orelse "zig-pkg",
         },
         .recursive = false,
         .read_only = false,
