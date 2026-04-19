@@ -21,3 +21,31 @@
   - but artifact install steps also add paths for dyn libs on windows
 
 
+
+## Unresolved Branch Conflicts
+
+* move max_jobs to maker not configurer
+
++// hack for stage2_x86_64 + coff
++generated_compiler_rt_dyn_lib: ?*GeneratedFile,
+
++        // hack for stage2_x86_64 + coff
++        if (compile.generated_compiler_rt_dyn_lib) |lp| lp.path = compile.outputPath(output_dir, .compiler_rt_dyn_lib);
+
+    if (install_artifact.compiler_rt_dyn_lib_dir) |compiler_rt_dir| {
+        const full_compiler_rt_path = b.getInstallPath(compiler_rt_dir, install_artifact.emitted_compiler_rt_dyn_lib.?.basename(b, step));
+        const p = try step.installFile(install_artifact.emitted_compiler_rt_dyn_lib.?, full_compiler_rt_path);
+        all_cached = all_cached and p == .fresh;
+    }
+
+
+        .compiler_rt_dyn_lib_dir = switch (options.compiler_rt_dyn_lib_dir) {
+            .disabled => null,
+            .default => if (artifact.producesCompilerRtDynLib()) dest_dir else null,
+            .override => |o| o,
+        },
+
+    if (install_artifact.compiler_rt_dyn_lib_dir != null) install_artifact.emitted_compiler_rt_dyn_lib = artifact.getEmittedCompilerRtDynLib();
+
+
+
