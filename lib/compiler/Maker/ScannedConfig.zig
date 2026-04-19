@@ -74,6 +74,11 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
         Configuration.MaxRss => {
             try s.value(field_value.toBytes(), .{});
         },
+        Configuration.Step.Run.Arg.Index => {
+            var sub_struct = try s.beginStruct(.{});
+            try printStruct(sc, &sub_struct, Configuration.Step.Run.Arg, field_value.get(c));
+            try sub_struct.end();
+        },
         else => switch (@typeInfo(Field)) {
             .int => try s.int(field_value),
             .pointer => |info| switch (info.size) {
