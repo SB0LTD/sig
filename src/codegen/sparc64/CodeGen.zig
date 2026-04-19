@@ -499,8 +499,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .shl_exact       => try self.airBinOp(inst, .shl_exact),
             .shr             => try self.airBinOp(inst, .shr),
             .shr_exact       => try self.airBinOp(inst, .shr_exact),
-            .bool_and        => try self.airBinOp(inst, .bool_and),
-            .bool_or         => try self.airBinOp(inst, .bool_or),
             .bit_and         => try self.airBinOp(inst, .bit_and),
             .bit_or          => try self.airBinOp(inst, .bit_or),
             .xor             => try self.airBinOp(inst, .xor),
@@ -2936,26 +2934,6 @@ fn binOp(
                         const addr = try self.binOp(tag, lhs, offset, Type.manyptr_u8, Type.usize, null);
                         return addr;
                     }
-                },
-                else => unreachable,
-            }
-        },
-
-        .bool_and,
-        .bool_or,
-        => {
-            switch (lhs_ty.zigTypeTag(zcu)) {
-                .bool => {
-                    assert(lhs != .immediate); // should have been handled by Sema
-                    assert(rhs != .immediate); // should have been handled by Sema
-
-                    const mir_tag: Mir.Inst.Tag = switch (tag) {
-                        .bool_and => .@"and",
-                        .bool_or => .@"or",
-                        else => unreachable,
-                    };
-
-                    return try self.binOpRegister(mir_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
                 },
                 else => unreachable,
             }

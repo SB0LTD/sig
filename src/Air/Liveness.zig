@@ -436,8 +436,6 @@ fn analyzeInst(
         .cmp_gt_optimized,
         .cmp_neq,
         .cmp_neq_optimized,
-        .bool_and,
-        .bool_or,
         .store,
         .store_safe,
         .array_elem_val,

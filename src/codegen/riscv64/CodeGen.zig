@@ -1415,8 +1415,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .shl, .shl_exact,
             .shr, .shr_exact,
 
-            .bool_and,
-            .bool_or,
             .bit_and,
             .bit_or,
 
@@ -2702,13 +2700,11 @@ fn genBinOp(
 
         .bit_and,
         .bit_or,
-        .bool_and,
-        .bool_or,
         => {
             _ = try func.addInst(.{
                 .tag = switch (tag) {
-                    .bit_and, .bool_and => .@"and",
-                    .bit_or, .bool_or => .@"or",
+                    .bit_and => .@"and",
+                    .bit_or => .@"or",
                     else => unreachable,
                 },
                 .data = .{
@@ -2719,13 +2715,6 @@ fn genBinOp(
                     },
                 },
             });
-
-            switch (tag) {
-                .bool_and,
-                .bool_or,
-                => try func.truncateRegister(Type.bool, dst_reg),
-                else => {},
-            }
         },
 
         .shr,

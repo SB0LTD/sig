@@ -60839,14 +60839,14 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 try slot.finish(inst, &.{}, &.{}, cg);
             },
             .assembly => try cg.airAsm(inst),
-            .bit_and, .bit_or, .xor, .bool_and, .bool_or => |air_tag| {
+            .bit_and, .bit_or, .xor => |air_tag| {
                 const bin_op = air_datas[@intFromEnum(inst)].bin_op;
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 var res: [1]Temp = undefined;
                 cg.select(&res, &.{cg.typeOf(bin_op.lhs)}, &ops, switch (@as(Mir.Inst.Tag, switch (air_tag) {
                     else => unreachable,
-                    .bit_and, .bool_and => .@"and",
-                    .bit_or, .bool_or => .@"or",
+                    .bit_and => .@"and",
+                    .bit_or => .@"or",
                     .xor => .xor,
                 })) {
                     else => unreachable,

@@ -538,12 +538,6 @@ pub const Inst = struct {
         /// Result type is always bool.
         /// Uses the `un_op` field.
         is_non_err_ptr,
-        /// Result type is always bool.
-        /// Uses the `bin_op` field.
-        bool_and,
-        /// Result type is always bool.
-        /// Uses the `bin_op` field.
-        bool_or,
         /// Read a value from a pointer.
         /// Uses the `ty_op` field.
         load,
@@ -1580,8 +1574,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .shl_sat,
         .min,
         .max,
-        .bool_and,
-        .bool_or,
         .add_optimized,
         .sub_optimized,
         .mul_optimized,
@@ -2010,8 +2002,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .is_non_null,
         .is_err,
         .is_non_err,
-        .bool_and,
-        .bool_or,
         .fptrunc,
         .fpext,
         .intcast,

@@ -2693,8 +2693,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
             .bit_and  => try cg.airBinOpSimple(inst, .OpBitwiseAnd),
             .bit_or   => try cg.airBinOpSimple(inst, .OpBitwiseOr),
             .xor      => try cg.airBinOpSimple(inst, .OpBitwiseXor),
-            .bool_and => try cg.airBinOpSimple(inst, .OpLogicalAnd),
-            .bool_or  => try cg.airBinOpSimple(inst, .OpLogicalOr),
 
             .shl, .shl_exact => try cg.airShift(inst, .OpShiftLeftLogical, .OpShiftLeftLogical),
             .shr, .shr_exact => try cg.airShift(inst, .OpShiftRightLogical, .OpShiftRightArithmetic),

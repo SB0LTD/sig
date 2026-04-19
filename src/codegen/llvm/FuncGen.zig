@@ -258,11 +258,11 @@ pub fn genBody(self: *FuncGen, body: []const Air.Inst.Index, coverage_point: Air
             .mul_with_overflow => try self.airOverflow(inst, .@"smul.with.overflow", .@"umul.with.overflow"),
             .shl_with_overflow => try self.airShlWithOverflow(inst),
 
-            .bit_and, .bool_and => try self.airAnd(inst),
-            .bit_or, .bool_or   => try self.airOr(inst),
-            .xor                => try self.airXor(inst),
-            .shr                => try self.airShr(inst, false),
-            .shr_exact          => try self.airShr(inst, true),
+            .bit_and   => try self.airAnd(inst),
+            .bit_or    => try self.airOr(inst),
+            .xor       => try self.airXor(inst),
+            .shr       => try self.airShr(inst, false),
+            .shr_exact => try self.airShr(inst, true),
 
             .sqrt         => try self.airUnaryOp(inst, .sqrt),
             .sin          => try self.airUnaryOp(inst, .sin),

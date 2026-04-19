@@ -203,8 +203,6 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
         .cmp_gt_optimized,
         .cmp_neq,
         .cmp_neq_optimized,
-        .bool_and,
-        .bool_or,
         .array_elem_val,
         .slice_elem_val,
         .ptr_elem_val,
@@ -2883,7 +2881,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
 
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
-        .bit_and, .bit_or, .xor, .bool_and, .bool_or => |air_tag| {
+        .bit_and, .bit_or, .xor => |air_tag| {
             if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| {
                 defer res_vi.value.deref(isel);
 
@@ -2914,12 +2912,12 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                     const rhs_part_mat = try rhs_part_vi.?.matReg(isel);
                     try isel.emit(switch (air_tag) {
                         else => unreachable,
-                        .bit_and, .bool_and => switch (size) {
+                        .bit_and => switch (size) {
                             else => unreachable,
                             1, 2, 4 => .@"and"(res_part_ra.w(), lhs_part_mat.ra.w(), .{ .register = rhs_part_mat.ra.w() }),
                             8 => .@"and"(res_part_ra.x(), lhs_part_mat.ra.x(), .{ .register = rhs_part_mat.ra.x() }),
                         },
-                        .bit_or, .bool_or => switch (size) {
+                        .bit_or => switch (size) {
                             else => unreachable,
                             1, 2, 4 => .orr(res_part_ra.w(), lhs_part_mat.ra.w(), .{ .register = rhs_part_mat.ra.w() }),
                             8 => .orr(res_part_ra.x(), lhs_part_mat.ra.x(), .{ .register = rhs_part_mat.ra.x() }),

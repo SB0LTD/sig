@@ -148,8 +148,6 @@ const Writer = struct {
             .cmp_gte,
             .cmp_gt,
             .cmp_neq,
-            .bool_and,
-            .bool_or,
             .store,
             .store_safe,
             .array_elem_val,

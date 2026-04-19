@@ -1516,7 +1516,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             try cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
         },
 
-        .bit_and, .bit_or, .bool_and, .bool_or, .xor, .shl_exact, .shr, .shr_exact => |tag| {
+        .bit_and, .bit_or, .xor, .shl_exact, .shr, .shr_exact => |tag| {
             const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
             const lhs = try cg.resolveInst(bin_op.lhs);
             const rhs = try cg.resolveInst(bin_op.rhs);
@@ -1528,8 +1528,8 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
             const int_ty: IntType = .fromType(cg, ty);
             const result = switch (tag) {
-                .bit_and, .bool_and => try cg.intAnd(int_ty, lhs, rhs),
-                .bit_or, .bool_or => try cg.intOr(int_ty, lhs, rhs),
+                .bit_and => try cg.intAnd(int_ty, lhs, rhs),
+                .bit_or => try cg.intOr(int_ty, lhs, rhs),
                 .xor => try cg.intXor(int_ty, lhs, rhs),
                 .shl_exact => try cg.intShl(int_ty, lhs, rhs),
                 .shr, .shr_exact => try cg.intShr(int_ty, lhs, rhs),

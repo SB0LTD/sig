@@ -713,8 +713,6 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .is_non_err,
             .is_err_ptr,
             .is_non_err_ptr,
-            .bool_and,
-            .bool_or,
             => {},
             .load => if (l.features.has(.expand_packed_load)) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -2018,7 +2016,7 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
         } else undefined;
         const out_of_range_inst: Air.Inst.Index = inst: {
             if (have_min_check and have_max_check) break :inst cur_block.add(l, .{
-                .tag = .bool_or,
+                .tag = .bit_or,
                 .data = .{ .bin_op = .{
                     .lhs = below_min_inst.toRef(),
                     .rhs = above_max_inst.toRef(),
@@ -2156,7 +2154,7 @@ fn safeIntFromFloatBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimiz
 
     // Combine the conditions.
     const out_of_bounds_inst: Air.Inst.Index = main_block.add(l, .{
-        .tag = .bool_or,
+        .tag = .bit_or,
         .data = .{ .bin_op = .{
             .lhs = below_min_inst.toRef(),
             .rhs = above_max_inst.toRef(),
