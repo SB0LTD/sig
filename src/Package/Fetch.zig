@@ -1543,7 +1543,19 @@ fn unzip(
             .read = true,
         }) catch |err| switch (err) {
             error.PathAlreadyExists => continue,
-            error.Canceled => return error.Canceled,
+            error.FileNotFound => {
+                cache_root.handle.createDir(io, prefix, .default_dir) catch |dir_err| switch (dir_err) {
+                    error.Canceled => |e| return e,
+                    // error.PathAlreadyExists is considered a failure here because
+                    // it implies that the prefix is not a directory.
+                    else => |e| return f.fail(
+                        f.location_tok,
+                        try eb.printString("failed to create temporary directory: {t}", .{e}),
+                    ),
+                };
+                continue;
+            },
+            error.Canceled => |e| return e,
             else => |e| return f.fail(
                 f.location_tok,
                 try eb.printString("failed to create temporary zip file: {t}", .{e}),
@@ -1556,7 +1568,7 @@ fn unzip(
         var zip_file_writer = zip_file.writer(io, &zip_file_buffer);
 
         _ = reader.streamRemaining(&zip_file_writer.interface) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
             error.WriteFailed => return f.fail(
                 f.location_tok,
                 try eb.printString("failed writing temporary zip file: {t}", .{err}),
