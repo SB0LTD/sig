@@ -2038,3 +2038,8 @@ pub fn setTimestampsNow(
         .modify_timestamp = .now,
     });
 }
+
+test {
+    _ = &setFileOwner;
+    _ = &setTimestampsNow;
+}
