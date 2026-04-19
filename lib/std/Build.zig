@@ -32,13 +32,6 @@ allocator: Allocator,
 user_input_options: UserInputOptionsMap,
 available_options_map: AvailableOptionsMap,
 available_options_list: std.array_list.Managed(AvailableOption),
-verbose: bool,
-verbose_link: bool,
-verbose_cc: bool,
-verbose_air: bool,
-verbose_llvm_ir: ?[]const u8,
-verbose_llvm_bc: ?[]const u8,
-verbose_llvm_cpu_features: bool,
 invalid_user_input: bool,
 default_step: *Step,
 top_level_steps: std.StringArrayHashMapUnmanaged(*Step.TopLevel),
@@ -100,9 +93,6 @@ pub const Graph = struct {
     host: ResolvedTarget,
     dependency_cache: InitializedDepMap = .empty,
     allow_so_scripts: ?bool = null,
-    /// Steps should use `io` to limit the number of jobs, however in the case of
-    /// a single step spawning a fixed number of processes this can be used.
-    max_jobs: ?u32 = null,
     time_report: bool = false,
     /// Similar to the `Io.Terminal.Mode` returned by `Io.lockStderr`, but also
     /// respects the '--color' flag.

@@ -48,6 +48,9 @@ sysroot: ?[]const u8 = null,
 search_prefixes: std.ArrayList([]const u8) = .empty,
 build_id: ?std.zig.BuildId = null,
 error_limit: ?u32 = null,
+/// Steps should use `io` to limit the number of jobs, however in the case of
+/// a single step spawning a fixed number of processes this can be used.
+max_jobs: ?u32 = null,
 
 /// Intention of verbose is to print all sub-process command lines to stderr
 /// before spawning them.

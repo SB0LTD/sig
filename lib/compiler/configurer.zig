@@ -952,7 +952,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .expect_term => |t| expect_term = switch (t) {
                                     .exited => |x| .{ .status = .exited, .value = x },
                                     .signal => |x| .{ .status = .signal, .value = @intFromEnum(x) },
-                                    .stopped => |x| .{ .status = .stopped, .value = x },
+                                    .stopped => |x| .{ .status = .stopped, .value = @intFromEnum(x) },
                                     .unknown => |x| .{ .status = .unknown, .value = x },
                                 },
                             },

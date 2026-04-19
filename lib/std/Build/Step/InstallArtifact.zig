@@ -17,10 +17,6 @@ emitted_implib: ?LazyPath,
 pdb_dir: ?InstallDir,
 emitted_pdb: ?LazyPath,
 
-// hack for stage2_x86_64 + coff
-compiler_rt_dyn_lib_dir: ?InstallDir,
-emitted_compiler_rt_dyn_lib: ?LazyPath,
-
 h_dir: ?InstallDir,
 emitted_h: ?LazyPath,
 

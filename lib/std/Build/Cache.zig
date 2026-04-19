@@ -195,7 +195,7 @@ pub const HashHelper = struct {
     }
 
     pub fn addBytesZ(hh: *HashHelper, bytes: [:0]const u8) void {
-        hh.hasher.update(mem.absorbSentinel(u8, 0, bytes));
+        hh.hasher.update(mem.absorbSentinel(bytes));
     }
 
     pub fn addOptionalBytes(hh: *HashHelper, optional_bytes: ?[]const u8) void {
