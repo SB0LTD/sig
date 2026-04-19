@@ -388,22 +388,15 @@
       </p>
       {#see_also|Values|Tuples|@import|Errors|Entry Point|Source Encoding|try#}
       {#header_close#}
+
       {#header_open|Comments#}
-      <p>
-      Zig supports 3 types of comments. Normal comments are ignored, but doc comments
-      and top-level doc comments are used by the compiler to generate the package documentation.
-      </p>
-      <p>
-      The generated documentation is still experimental, and can be produced with:
-      </p>
-      {#shell_samp#}zig test -femit-docs main.zig{#end_shell_samp#}
+      <p>There are three types of comments. Normal comments are ignored, while {#link|Doc Comments#}
+      and {#link|Top-Level Doc Comments#} are used by the compiler to generate
+      the package documentation.</p>
       {#code|comments.zig#}
 
-      <p>
-      There are no multiline comments in Zig (e.g. like <code class="c">/* */</code>
-      comments in C).  This allows Zig to have the property that each line
-      of code can be tokenized out of context.
-      </p>
+      <p>There are no multiline comments. Zig has the property that each line
+      of code can be tokenized independently.</p>
       {#header_open|Doc Comments#}
       <p>
       A doc comment is one that begins with exactly three slashes (i.e.
@@ -429,15 +422,26 @@
       {#header_open|Top-Level Doc Comments#}
       <p>
       A top-level doc comment is one that begins with two slashes and an exclamation
-      point: {#syntax#}//!{#endsyntax#}; it documents the current source file.
+      point: {#syntax#}//!{#endsyntax#}; it documents the type which owns the containing
+      {#link|Namespace#}.
       </p>
       <p>
       It is a compile error if a top-level doc comment is not placed at the start
-      of a {#link|container|Containers#}, before any expressions.
+      of a namespace, before any expressions.
       </p>
       {#code|tldoc_comments.zig#}
 
       {#header_close#}
+      {#header_close#}
+
+      {#header_open|Namespace#}
+      <p>A namespace in Zig is created by {#link|struct#}, {#link|enum#}, {#link|union#}, and {#link|opaque#}.</p>
+      <p>They contain {#link|Namespace Level Variables#},
+      {#link|function|Functions#} declarations, and {#link|comptime#} blocks.</p>
+      <p>Although namespaces use curly braces to surround their definition,
+      they should not be confused with {#link|blocks|Blocks#} or function bodies.</p>
+      <p><strong>Every Zig source file is implicitly a struct</strong>, with the keyword
+      {#syntax#}struct{#endsyntax#} and curly braces omitted.</p>
       {#header_close#}
 
       {#header_open|Identifiers#}
@@ -813,7 +817,7 @@
       {#code|destructuring_to_existing.zig#}
 
       <p>
-        A destructuring expression may only appear within a block (i.e. not at container scope).
+        A destructuring expression may only appear within a block (i.e. not at {#link|Namespace#} scope).
         The left hand side of the assignment must consist of a comma separated list,
         each element of which may be either an lvalue (for instance, an existing `var`) or a variable declaration:
       </p>
@@ -993,27 +997,23 @@
       </p>
       {#see_also|Exporting a C Library#}
 
-      {#header_open|Container Level Variables#}
-      <p>
-      {#link|Container|Containers#} level variables have static lifetime and are order-independent and lazily analyzed.
-      The initialization value of container level variables is implicitly
-      {#link|comptime#}. If a container level variable is {#syntax#}const{#endsyntax#} then its value is
-      {#syntax#}comptime{#endsyntax#}-known, otherwise it is runtime-known.
-      </p>
-      {#code|test_container_level_variables.zig#}
-
-      <p>
-      Container level variables may be declared inside a {#link|struct#}, {#link|union#}, {#link|enum#}, or {#link|opaque#}:
-      </p>
-      {#code|test_namespaced_container_level_variable.zig#}
+      {#header_open|Namespace Level Variables#}
+      <p>{#link|Namespace|Namespace#} level variables have global lifetime and are
+      order-independent and lazily analyzed. The initialization value of
+      namespace level variables is implicitly {#link|comptime#}. If a namespace
+      level variable is {#syntax#}const{#endsyntax#} then its value is
+      {#syntax#}comptime{#endsyntax#}-known, otherwise it is runtime-known.</p>
+      {#code|test_namespace_level_variables.zig#}
+      <p>Namespace level variables may be declared inside a {#link|struct#},
+      {#link|union#}, {#link|enum#}, or {#link|opaque#}:</p>
+      {#code|test_namespaced_variable.zig#}
 
       {#header_close#}
 
-      {#header_open|Static Local Variables#}
-      <p>
-        It is also possible to have local variables with static lifetime by using containers inside functions.
-      </p>
-      {#code|test_static_local_variable.zig#}
+      {#header_open|Locally-Scoped Global Variables#}
+      <p>It is also possible to have local variables with global lifetime by
+      using {#link|namespaces|Namespace#} inside functions.</p>
+      {#code|test_locally_scoped_global_variable.zig#}
 
       {#header_close#}
 
@@ -1022,10 +1022,8 @@
       {#syntax#}threadlocal{#endsyntax#} keyword,
       which makes each thread work with a separate instance of the variable:</p>
       {#code|test_thread_local_variables.zig#}
-
-      <p>
-      For {#link|Single Threaded Builds#}, all thread local variables are treated as regular {#link|Container Level Variables#}.
-      </p>
+      <p>For {#link|Single Threaded Builds#}, all thread local variables are
+      treated as regular {#link|Namespace Level Variables#}.</p>
       <p>
       Thread local variables may not be {#syntax#}const{#endsyntax#}.
       </p>
@@ -4123,13 +4121,11 @@ fn performFn(start_value: i32) i32 {
       </p>
       {#code|test_fibonacci_comptime_unreachable.zig#}
 
-
-      <p>
-      At {#link|container|Containers#} level (outside of any function), all expressions are implicitly
-      {#syntax#}comptime{#endsyntax#} expressions. This means that we can use functions to
-      initialize complex static data. For example:
-      </p>
-      {#code|test_container-level_comptime_expressions.zig#}
+      <p>At {#link|Namespace#} level (outside of any function), all expressions
+      are implicitly {#syntax#}comptime{#endsyntax#} expressions. This means
+      that we can use functions to initialize complex constant data. For
+      example:</p>
+      {#code|test_namespace-level_comptime_expressions.zig#}
 
       <p>
       When we compile this program, Zig generates the constants
@@ -4309,7 +4305,7 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
 
       {#header_open|Global Assembly#}
       <p>
-      When an assembly expression occurs in a {#link|container|Containers#} level {#link|comptime#} block, this is
+      When an assembly expression occurs in a {#link|Namespace#} level {#link|comptime#} block, this is
       <strong>global assembly</strong>.
       </p>
       <p>
@@ -4946,25 +4942,18 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@hasDecl#}
-      <pre>{#syntax#}@hasDecl(comptime Container: type, comptime name: []const u8) bool{#endsyntax#}</pre>
-      <p>
-      Returns whether or not a {#link|container|Containers#} has a declaration
-      matching {#syntax#}name{#endsyntax#}.
-      </p>
+      <pre>{#syntax#}@hasDecl(comptime Namespace: type, comptime name: []const u8) bool{#endsyntax#}</pre>
+      <p>Returns whether or not a {#link|Namespace#} has a declaration matching {#syntax#}name{#endsyntax#}.</p>
       {#code|test_hasDecl_builtin.zig#}
 
       {#see_also|@hasField#}
       {#header_close#}
 
       {#header_open|@hasField#}
-      <pre>{#syntax#}@hasField(comptime Container: type, comptime name: []const u8) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@hasField(comptime T: type, comptime name: []const u8) bool{#endsyntax#}</pre>
       <p>Returns whether the field name of a struct, union, or enum exists.</p>
-      <p>
-      The result is a compile time constant.
-      </p>
-      <p>
-      It does not include functions, variables, or constants.
-      </p>
+      <p>The result is a compile time constant.</p>
+      <p>It does not include functions, variables, or constants.</p>
       {#see_also|@hasDecl#}
       {#header_close#}
 
@@ -5980,7 +5969,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|Single Threaded Builds#}
       <p>Zig has a compile option <kbd>-fsingle-threaded</kbd> which has the following effects:</p>
       <ul>
-        <li>All {#link|Thread Local Variables#} are treated as regular {#link|Container Level Variables#}.</li>
+        <li>All {#link|Thread Local Variables#} are treated as regular {#link|Namespace Level Variables#}.</li>
         <li>The overhead of {#link|Async Functions#} becomes equivalent to function call overhead.</li>
         <li>The {#syntax#}@import("builtin").single_threaded{#endsyntax#} becomes {#syntax#}true{#endsyntax#}
           and therefore various userland APIs which read this variable become more efficient.
@@ -6635,7 +6624,7 @@ const builtin = @import("builtin");
       {#header_open|Panic Handler#}
       <p>
       The Zig Standard Library looks for a declaration named {#syntax#}panic{#endsyntax#} in the root module's
-      root source file. If present, it is expected to be a namespace (container type) with declarations
+      root source file. If present, it is expected to be a {#link|Namespace#} with declarations
       providing different panic handlers.
       </p>
       <p>
@@ -7755,18 +7744,6 @@ fn readU32Be() u32 {}
       {#header_close#}
 
       {#header_open|Appendix#}
-      {#header_open|Containers#}
-      <p>
-      A <em>container</em> in Zig is any syntactical construct that acts as a namespace to hold {#link|variable|Container Level Variables#} and {#link|function|Functions#} declarations.
-      Containers are also type definitions which can be instantiated.
-      {#link|Structs|struct#}, {#link|enums|enum#}, {#link|unions|union#}, {#link|opaques|opaque#}, and even Zig source files themselves are containers.
-      </p>
-      <p>
-      Although containers (except Zig source files) use curly braces to surround their definition, they should not be confused with {#link|blocks|Blocks#} or functions.
-      Containers do not contain statements.
-      </p>
-      {#header_close#}
-
       {#header_open|Grammar#}
       {#syntax_block|peg|grammar.peg#}
 Root <- skip ContainerMembers eof
