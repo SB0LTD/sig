@@ -890,7 +890,7 @@ pub const Clock = enum {
             if (t.clock == clock) return t;
             const now_old = t.clock.now(io);
             const now_new = clock.now(io);
-            const duration = now_old.durationTo(t);
+            const duration = now_old.durationTo(t.raw);
             return .{
                 .clock = clock,
                 .raw = now_new.addDuration(duration),
