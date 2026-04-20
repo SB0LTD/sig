@@ -484,7 +484,11 @@ pub fn generateSymbol(
             },
             .vector_type => |vector_type| {
                 const abi_size = math.cast(usize, ty.abiSize(zcu)) orelse return error.Overflow;
-                if (vector_type.child == .bool_type) {
+                const vector_bool_bitpacked = switch (zcu.comp.getZigBackend()) {
+                    .stage2_wasm => false,
+                    else => true,
+                };
+                if (vector_type.child == .bool_type and vector_bool_bitpacked) {
                     const bytes = try w.writableSlice(abi_size);
                     @memset(bytes, 0xaa);
                     var index: usize = 0;

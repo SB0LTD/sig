@@ -935,7 +935,7 @@ pub fn abiAlignment(ty: Type, zcu: *const Zcu) Alignment {
                     const bytes = ((elem_bits * vector_type.len) + 7) / 8;
                     return .fromByteUnits(std.math.ceilPowerOfTwoAssert(u32, bytes));
                 },
-                .stage2_c => return Type.fromInterned(vector_type.child).abiAlignment(zcu),
+                .stage2_c, .stage2_wasm => return Type.fromInterned(vector_type.child).abiAlignment(zcu),
                 .stage2_x86_64 => {
                     if (vector_type.child == .bool_type) {
                         if (vector_type.len > 256 and target.cpu.has(.x86, .avx512f)) return .@"64";
@@ -1084,7 +1084,7 @@ pub fn abiSize(ty: Type, zcu: *const Zcu) u64 {
             const elem_ty: Type = .fromInterned(vec.child);
             const bytes = switch (zcu.comp.getZigBackend()) {
                 else => std.math.divCeil(u64, vec.len * elem_ty.bitSize(zcu), 8) catch unreachable,
-                .stage2_c => vec.len * elem_ty.abiSize(zcu),
+                .stage2_c, .stage2_wasm => vec.len * elem_ty.abiSize(zcu),
                 .stage2_x86_64 => switch (elem_ty.toIntern()) {
                     .bool_type => std.math.divCeil(u64, vec.len, 8) catch unreachable,
                     else => vec.len * elem_ty.abiSize(zcu),

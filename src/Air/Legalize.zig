@@ -1503,7 +1503,7 @@ fn scalarizeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?
             l,
             .store,
             index_ptr,
-            .fromValue(try pt.intValue(.usize, operand_ty.arrayLen(zcu))),
+            .fromValue(try pt.intValue(.usize, operand_ty.arrayLen(zcu) - 1)),
         );
         _ = uint_block.addBinOp(l, .store, result_ptr, .fromValue(try pt.intValue(uint_ty, 0)));
 
@@ -1811,6 +1811,7 @@ fn scalarizeReduceBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimize
         .Or, .Xor, .Add => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => try pt.intValue(scalar_ty, 0),
             .float => try pt.floatValue(scalar_ty, 0.0),
+            .bool => .false,
             else => unreachable,
         },
         // identity for multiplication is 1
@@ -1820,9 +1821,13 @@ fn scalarizeReduceBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimize
             else => unreachable,
         },
         // identity for AND is all 1 bits
-        .And => switch (scalar_ty.intInfo(zcu).signedness) {
-            .unsigned => try scalar_ty.maxIntScalar(pt, scalar_ty),
-            .signed => try pt.intValue(scalar_ty, -1),
+        .And => switch (scalar_ty.zigTypeTag(zcu)) {
+            .int => switch (scalar_ty.intInfo(zcu).signedness) {
+                .unsigned => try scalar_ty.maxIntScalar(pt, scalar_ty),
+                .signed => try pt.intValue(scalar_ty, -1),
+            },
+            .bool => .true,
+            else => unreachable,
         },
         // identity for @min is maximum value
         .Min => switch (scalar_ty.zigTypeTag(zcu)) {
