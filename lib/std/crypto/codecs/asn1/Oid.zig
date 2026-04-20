@@ -85,6 +85,14 @@ test toDot {
     }
 }
 
+test "malformed OID" {
+    var empty: der.Decoder = .{ .bytes = &.{ 0x06, 0x00 } };
+    try std.testing.expectError(error.EndOfStream, decodeDer(&empty));
+
+    var truncated: der.Decoder = .{ .bytes = &.{ 0x06, 0x02, 0x2a, 0x80 } };
+    try std.testing.expectError(error.InvalidEncoding, decodeDer(&truncated));
+}
+
 const TestCase = struct {
     encoded: []const u8,
     dot_notation: []const u8,
@@ -109,7 +117,10 @@ pub const asn1_tag = asn1.Tag.init(.oid, false, .universal);
 
 pub fn decodeDer(decoder: *der.Decoder) !Oid {
     const ele = try decoder.element(asn1_tag.toExpected());
-    return Oid{ .encoded = decoder.view(ele) };
+    const encoded = decoder.view(ele);
+    if (encoded.len == 0) return error.EndOfStream;
+    if (encoded[encoded.len - 1] & 0x80 != 0) return error.InvalidEncoding;
+    return Oid{ .encoded = encoded };
 }
 
 pub fn encodeDer(self: Oid, encoder: *der.Encoder) !void {
