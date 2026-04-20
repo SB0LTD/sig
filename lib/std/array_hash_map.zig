@@ -280,8 +280,7 @@ pub fn Custom(
                 if (it.index >= it.len) return null;
                 const result = Entry{
                     .key_ptr = &it.keys[it.index],
-                    // workaround for #6974
-                    .value_ptr = if (@sizeOf(*V) == 0) undefined else &it.values[it.index],
+                    .value_ptr = &it.values[it.index],
                 };
                 it.index += 1;
                 return result;
@@ -323,8 +322,7 @@ pub fn Custom(
                 const slice = self.entries.slice();
                 return GetOrPutResult{
                     .key_ptr = &slice.items(.key)[index],
-                    // workaround for #6974
-                    .value_ptr = if (@sizeOf(*V) == 0) undefined else &slice.items(.value)[index],
+                    .value_ptr = &slice.items(.value)[index],
                     .found_existing = true,
                     .index = index,
                 };
@@ -369,8 +367,7 @@ pub fn Custom(
                     if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*, i)) {
                         return GetOrPutResult{
                             .key_ptr = item_key,
-                            // workaround for #6974
-                            .value_ptr = if (@sizeOf(*V) == 0) undefined else &slice.items(.value)[i],
+                            .value_ptr = &slice.items(.value)[i],
                             .found_existing = true,
                             .index = i,
                         };
@@ -383,8 +380,7 @@ pub fn Custom(
 
                 return GetOrPutResult{
                     .key_ptr = &keys_array.ptr[index],
-                    // workaround for #6974
-                    .value_ptr = if (@sizeOf(*V) == 0) undefined else &slice.items(.value).ptr[index],
+                    .value_ptr = &slice.items(.value).ptr[index],
                     .found_existing = false,
                     .index = index,
                 };
@@ -569,8 +565,7 @@ pub fn Custom(
             const slice = self.entries.slice();
             return Entry{
                 .key_ptr = &slice.items(.key)[index],
-                // workaround for #6974
-                .value_ptr = if (@sizeOf(*V) == 0) undefined else &slice.items(.value)[index],
+                .value_ptr = &slice.items(.value)[index],
             };
         }
 
@@ -634,8 +629,7 @@ pub fn Custom(
         }
         pub fn getPtrAdapted(self: Self, key: anytype, ctx: anytype) ?*V {
             const index = self.getIndexAdapted(key, ctx) orelse return null;
-            // workaround for #6974
-            return if (@sizeOf(*V) == 0) @as(*V, undefined) else &self.values()[index];
+            return &self.values()[index];
         }
 
         /// Find the actual key associated with an adapted key
@@ -1314,8 +1308,7 @@ pub fn Custom(
                     return .{
                         .found_existing = false,
                         .key_ptr = &keys_array.ptr[new_index],
-                        // workaround for #6974
-                        .value_ptr = if (@sizeOf(*V) == 0) undefined else &values_array.ptr[new_index],
+                        .value_ptr = &values_array.ptr[new_index],
                         .index = new_index,
                     };
                 }
@@ -1328,8 +1321,7 @@ pub fn Custom(
                     return .{
                         .found_existing = true,
                         .key_ptr = &keys_array[slot_data.entry_index],
-                        // workaround for #6974
-                        .value_ptr = if (@sizeOf(*V) == 0) undefined else &values_array[slot_data.entry_index],
+                        .value_ptr = &values_array[slot_data.entry_index],
                         .index = slot_data.entry_index,
                     };
                 }
@@ -1370,8 +1362,7 @@ pub fn Custom(
                             return .{
                                 .found_existing = false,
                                 .key_ptr = &keys_array.ptr[new_index],
-                                // workaround for #6974
-                                .value_ptr = if (@sizeOf(*V) == 0) undefined else &values_array.ptr[new_index],
+                                .value_ptr = &values_array.ptr[new_index],
                                 .index = new_index,
                             };
                         }
