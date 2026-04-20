@@ -5641,9 +5641,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                 .parent = root_mod,
             });
 
-            var cleanup_build_dir: ?Io.Dir = null;
-            defer if (cleanup_build_dir) |*dir| dir.close(io);
-
             if (dev.env.supports(.fetch_command)) {
                 const fetch_prog_node = root_prog_node.start("Fetch Packages", 0);
                 defer fetch_prog_node.end();
@@ -5655,36 +5652,29 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     .io = io,
                     .http_client = &http_client,
                     .global_cache = dirs.global_cache,
-                    .local_cache = .{ .root_dir = dirs.local_cache, .sub_path = "" },
-                    .root_pkg_path = if (override_pkg_dir) |cwd_rel_path| .initCwd(cwd_rel_path) else .{
-                        .root_dir = build_root.directory,
-                        .sub_path = "zig-pkg",
+                    .local_storage = &.{
+                        .cache_root = .{ .root_dir = dirs.local_cache, .sub_path = "" },
+                        .pkg_root = if (override_pkg_dir) |p|
+                            .initCwd(p)
+                        else if (system_pkg_dir_path) |p|
+                            .initCwd(p)
+                        else
+                            .{
+                                .root_dir = build_root.directory,
+                                .sub_path = "zig-pkg",
+                            },
                     },
-                    .read_only = false,
                     .recursive = true,
                     .debug_hash = false,
                     .unlazy_set = unlazy_set,
                     .fork_set = fork_set,
                     .mode = fetch_mode,
                     .prog_node = fetch_prog_node,
+                    .read_only = system_pkg_dir_path != null,
                 };
                 defer job_queue.deinit();
 
-                if (system_pkg_dir_path) |p| {
-                    const system_pkg_path: Path = .{
-                        .root_dir = .{
-                            .path = p,
-                            .handle = Io.Dir.cwd().openDir(io, p, .{}) catch |err| {
-                                fatal("unable to open system package directory '{s}': {t}", .{ p, err });
-                            },
-                        },
-                        .sub_path = "",
-                    };
-                    job_queue.global_cache = system_pkg_path.root_dir;
-                    job_queue.root_pkg_path = system_pkg_path;
-                    job_queue.read_only = true;
-                    cleanup_build_dir = job_queue.global_cache.handle;
-                } else {
+                if (system_pkg_dir_path == null) {
                     try http_client.initDefaultProxies(arena, environ_map);
                 }
 
@@ -7351,7 +7341,8 @@ const usage_fetch =
     \\Options:
     \\  -h, --help                    Print this help and exit
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
-    \\  --pkg-dir [path]              Override path to package directory
+    \\  --cache-dir [path]            Override path to local cache directory
+    \\  --pkg-dir [path]              Override path to local package directory
     \\  --debug-hash                  Print verbose hash information to stdout
     \\  --save                        Add the fetched package to build.sig.zon or build.zig.zon
     \\  --save=[name]                 Add the fetched package to build.sig.zon or build.zig.zon as name
@@ -7372,6 +7363,7 @@ fn cmdFetch(
     const color: Color = .auto;
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
+    var override_local_cache_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_CACHE_DIR.get(environ_map);
     var override_pkg_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_PKG_DIR.get(environ_map);
     var debug_hash: bool = false;
     var save: union(enum) {
@@ -7392,6 +7384,10 @@ fn cmdFetch(
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     override_global_cache_dir = args[i];
+                } else if (mem.eql(u8, arg, "--cache-dir")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    override_local_cache_dir = args[i];
                 } else if (mem.eql(u8, arg, "--pkg-dir")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
@@ -7438,27 +7434,39 @@ fn cmdFetch(
     };
     defer global_cache_directory.handle.close(io);
 
+    var local_storage: Package.Fetch.LocalStorage = undefined;
+    var build_root: BuildRoot = undefined;
+    var build_root_initialized = false;
+    defer if (build_root_initialized) build_root.deinit(io);
+
     const cwd_path = try introspect.getResolvedCwd(io, arena);
 
-    var build_root = try findBuildRoot(arena, io, .{
-        .cwd_path = cwd_path,
-    });
-    defer build_root.deinit(io);
+    const local_storage_ptr = switch (save) {
+        .no => null,
+        .yes, .exact => ls: {
+            build_root = try findBuildRoot(arena, io, .{ .cwd_path = cwd_path });
+            build_root_initialized = true;
 
-    const local_cache_path: Path = .{
-        .root_dir = build_root.directory,
-        .sub_path = ".zig-cache",
+            local_storage = .{
+                .cache_root = if (override_local_cache_dir) |p| .initCwd(p) else .{
+                    .root_dir = build_root.directory,
+                    .sub_path = ".zig-cache",
+                },
+                .pkg_root = if (override_pkg_dir) |p| .initCwd(p) else .{
+                    .root_dir = build_root.directory,
+                    .sub_path = "zig-pkg",
+                },
+            };
+
+            break :ls &local_storage;
+        },
     };
 
     var job_queue: Package.Fetch.JobQueue = .{
         .io = io,
         .http_client = &http_client,
         .global_cache = global_cache_directory,
-        .local_cache = local_cache_path,
-        .root_pkg_path = if (override_pkg_dir) |cwd_rel_path| .initCwd(cwd_rel_path) else .{
-            .root_dir = build_root.directory,
-            .sub_path = "zig-pkg",
-        },
+        .local_storage = local_storage_ptr,
         .recursive = false,
         .read_only = false,
         .debug_hash = debug_hash,
