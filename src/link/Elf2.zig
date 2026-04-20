@@ -2863,7 +2863,7 @@ fn navMapIndex(elf: *Elf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Node.NavM
                         .ReleaseFast,
                         => target_util.defaultFunctionAlignment(target),
                         .ReleaseSmall => min,
-                    },
+                    }.maxStrict(Type.fromInterned(nav.resolved.?.type).abiAlignment(zcu)),
                 };
             },
             else => switch (nav.resolved.?.@"align") {

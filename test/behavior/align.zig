@@ -15,6 +15,15 @@ test "global variable alignment" {
     }
 }
 
+test "large abi alignment of global" {
+    const S = struct {
+        var global: @This() = undefined;
+        x: u64 align(64),
+    };
+
+    try std.testing.expect(@ctz(@intFromPtr(&S.global)) >= 6);
+}
+
 test "large alignment of local constant" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // flaky
