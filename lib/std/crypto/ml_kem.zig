@@ -1725,15 +1725,8 @@ const NistDRBG = struct {
     v: [16]u8,
 
     fn incV(g: *NistDRBG) void {
-        var j: usize = 15;
-        while (j >= 0) : (j -= 1) {
-            if (g.v[j] == 255) {
-                g.v[j] = 0;
-            } else {
-                g.v[j] += 1;
-                break;
-            }
-        }
+        const val = std.mem.readInt(u128, &g.v, .big);
+        std.mem.writeInt(u128, &g.v, val +% 1, .big);
     }
 
     // AES256_CTR_DRBG_Update(pd, &g.key, &g.v).
