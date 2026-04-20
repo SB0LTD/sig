@@ -710,12 +710,11 @@ fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.c) c_int {
 /// General error message for a malformed return type
 const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
 
-const use_debug_allocator = !is_wasm and switch (builtin.mode) {
-    .Debug => true,
-    .ReleaseSafe => !builtin.link_libc, // Not ideal, but the best we have for now.
+const use_safe_allocator = !is_wasm and switch (builtin.mode) {
+    .Debug, .ReleaseSafe => true,
     .ReleaseFast, .ReleaseSmall => !builtin.link_libc and builtin.single_threaded, // Also not ideal.
 };
-var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+var safe_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
 
 inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.Block) u8 {
     const fn_info = @typeInfo(@TypeOf(root.main)).@"fn";
@@ -725,8 +724,8 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
         .environ = .{ .block = environ },
     }));
 
-    const gpa = if (use_debug_allocator)
-        debug_allocator.allocator()
+    const gpa = if (use_safe_allocator)
+        safe_allocator.allocator()
     else if (builtin.link_libc)
         std.heap.c_allocator
     else if (is_wasm)
@@ -736,8 +735,8 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
     else
         comptime unreachable;
 
-    defer if (use_debug_allocator) {
-        _ = debug_allocator.deinit(); // Leaks do not affect return code.
+    defer if (use_safe_allocator) {
+        _ = safe_allocator.deinit(); // Leaks do not affect return code.
     };
 
     const arena_backing_allocator = if (is_wasm) gpa else std.heap.page_allocator;

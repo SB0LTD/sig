@@ -201,9 +201,12 @@ test "Allocator.resize" {
         defer testing.allocator.free(values);
 
         for (values, 0..) |*v, i| v.* = @as(T, @intCast(i));
-        if (!testing.allocator.resize(values, values.len + 10)) return error.OutOfMemory;
-        values = values.ptr[0 .. values.len + 10];
-        try testing.expect(values.len == 110);
+        if (testing.allocator.resize(values, values.len + 10)) {
+            values = values.ptr[0 .. values.len + 10];
+            try testing.expect(values.len == 110);
+        } else {
+            // `resize` is not guaranteed to succeed even if there is sufficient memory.
+        }
     }
 
     const primitiveFloatTypes = .{
@@ -217,9 +220,12 @@ test "Allocator.resize" {
         defer testing.allocator.free(values);
 
         for (values, 0..) |*v, i| v.* = @as(T, @floatFromInt(i));
-        if (!testing.allocator.resize(values, values.len + 10)) return error.OutOfMemory;
-        values = values.ptr[0 .. values.len + 10];
-        try testing.expect(values.len == 110);
+        if (testing.allocator.resize(values, values.len + 10)) {
+            values = values.ptr[0 .. values.len + 10];
+            try testing.expect(values.len == 110);
+        } else {
+            // `resize` is not guaranteed to succeed even if there is sufficient memory.
+        }
     }
 }
 

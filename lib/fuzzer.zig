@@ -39,10 +39,10 @@ fn logOverride(
     fw.interface.flush() catch panic("failed to write to fuzzer log: {t}", .{fw.err.?});
 }
 
-var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+var safe_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
 const gpa = switch (builtin.mode) {
-    .Debug => debug_allocator.allocator(),
-    .ReleaseFast, .ReleaseSmall, .ReleaseSafe => std.heap.smp_allocator,
+    .Debug, .ReleaseSafe => safe_allocator.allocator(),
+    .ReleaseFast, .ReleaseSmall => std.heap.smp_allocator,
 };
 
 // Seperate from `exec` to allow initialization before `exec` is.

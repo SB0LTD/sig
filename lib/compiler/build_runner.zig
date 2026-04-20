@@ -26,9 +26,9 @@ pub const std_options: std.Options = .{
 pub fn main(init: process.Init.Minimal) !void {
     // The build runner is often short-lived, but thanks to `--watch` and `--webui`, that's not
     // always the case. So, we do need a true gpa for some things.
-    var debug_gpa_state: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = debug_gpa_state.deinit();
-    const gpa = debug_gpa_state.allocator();
+    var safe_gpa_state: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
+    defer _ = safe_gpa_state.deinit();
+    const gpa = safe_gpa_state.allocator();
 
     var threaded: std.Io.Threaded = .init(gpa, .{
         .environ = init.environ,

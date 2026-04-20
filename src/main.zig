@@ -157,34 +157,29 @@ pub fn log(
     std.log.defaultLog(level, scope, format, args);
 }
 
-const use_debug_allocator = build_options.debug_gpa or
+const use_safe_allocator = build_options.debug_gpa or
     (native_os != .wasi and !builtin.link_libc and switch (builtin.mode) {
         .Debug, .ReleaseSafe => true,
         .ReleaseFast, .ReleaseSmall => false,
     });
 
-const RootAllocator = if (use_debug_allocator) std.heap.DebugAllocator(.{
+// TODO: The `align(@alignOf(std.heap.SafeAllocator))` can be removed the next time zig1.wasm is updated
+var safe_allocator: std.heap.SafeAllocator align(@alignOf(std.heap.SafeAllocator)) = .init(std.heap.page_allocator, .{
     .stack_trace_frames = build_options.mem_leak_frames,
-    .thread_safe = switch (build_options.io_mode) {
-        .threaded => true,
-        .evented => false,
-    },
-}) else struct {
-    pub const init: RootAllocator = .{};
-    pub fn allocator(_: RootAllocator) Allocator {
-        if (native_os == .wasi) return std.heap.wasm_allocator;
-        if (builtin.link_libc) return std.heap.c_allocator;
-        return std.heap.smp_allocator;
-    }
-    pub fn deinit(_: RootAllocator) std.heap.Check {
-        return .ok;
-    }
-};
+});
 
 pub fn main(init: std.process.Init.Minimal) anyerror!void {
-    var root_allocator: RootAllocator = .init;
-    defer _ = root_allocator.deinit();
-    const root_gpa = root_allocator.allocator();
+    const root_gpa = if (use_safe_allocator)
+        safe_allocator.allocator()
+    else if (native_os == .wasi)
+        std.heap.wasm_allocator
+    else if (builtin.link_libc)
+        std.heap.c_allocator
+    else
+        std.heap.smp_allocator;
+    defer if (use_safe_allocator) {
+        _ = safe_allocator.deinit();
+    };
     var io_impl: IoImpl = undefined;
     switch (build_options.io_mode) {
         .threaded => io_impl = .init(root_gpa, .{
@@ -197,7 +192,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
             .argv0 = .init(init.args),
             .environ = init.environ,
 
-            .backing_allocator_needs_mutex = use_debug_allocator,
+            .backing_allocator_needs_mutex = false,
         }),
     }
     defer io_impl.deinit();
