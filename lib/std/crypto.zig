@@ -367,6 +367,7 @@ test {
     _ = ff;
     _ = errors;
     _ = tls;
+    _ = tls.Client;
     _ = Certificate;
     _ = codecs;
 }
