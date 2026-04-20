@@ -744,6 +744,7 @@ pub fn parseTargetQueryOrReportFatalError(
 pub const EnvVar = enum {
     ZIG_GLOBAL_CACHE_DIR,
     ZIG_LOCAL_CACHE_DIR,
+    ZIG_LOCAL_PKG_DIR,
     ZIG_LIB_DIR,
     ZIG_LIBC,
     ZIG_BUILD_RUNNER,

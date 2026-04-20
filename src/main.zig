@@ -5229,6 +5229,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
     var override_lib_dir: ?[]const u8 = EnvVar.ZIG_LIB_DIR.get(environ_map);
     var override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
     var override_local_cache_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_CACHE_DIR.get(environ_map);
+    var override_pkg_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_PKG_DIR.get(environ_map);
     var override_build_runner: ?[]const u8 = EnvVar.ZIG_BUILD_RUNNER.get(environ_map);
     var child_argv: std.ArrayList([]const u8) = .empty;
     var forks: std.ArrayList(Fork) = .empty;
@@ -5318,6 +5319,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     override_local_cache_dir = args[i];
+                    continue;
+                } else if (mem.eql(u8, arg, "--pkg-dir")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    override_pkg_dir = args[i];
                     continue;
                 } else if (mem.eql(u8, arg, "--global-cache-dir")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
@@ -5650,7 +5656,10 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     .http_client = &http_client,
                     .global_cache = dirs.global_cache,
                     .local_cache = .{ .root_dir = dirs.local_cache, .sub_path = "" },
-                    .root_pkg_path = .{ .root_dir = build_root.directory, .sub_path = "zig-pkg" },
+                    .root_pkg_path = if (override_pkg_dir) |cwd_rel_path| .initCwd(cwd_rel_path) else .{
+                        .root_dir = build_root.directory,
+                        .sub_path = "zig-pkg",
+                    },
                     .read_only = false,
                     .recursive = true,
                     .debug_hash = false,
@@ -7363,7 +7372,7 @@ fn cmdFetch(
     const color: Color = .auto;
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
-    var override_pkg_dir: ?[]const u8 = null;
+    var override_pkg_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_PKG_DIR.get(environ_map);
     var debug_hash: bool = false;
     var save: union(enum) {
         no,
@@ -7446,9 +7455,9 @@ fn cmdFetch(
         .http_client = &http_client,
         .global_cache = global_cache_directory,
         .local_cache = local_cache_path,
-        .root_pkg_path = .{
+        .root_pkg_path = if (override_pkg_dir) |cwd_rel_path| .initCwd(cwd_rel_path) else .{
             .root_dir = build_root.directory,
-            .sub_path = override_pkg_dir orelse "zig-pkg",
+            .sub_path = "zig-pkg",
         },
         .recursive = false,
         .read_only = false,
