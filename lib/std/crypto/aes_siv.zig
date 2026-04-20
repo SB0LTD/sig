@@ -229,6 +229,7 @@ fn AesSiv(comptime Aes: anytype) type {
         /// an arbitrary vector of associated data strings as specified in RFC 5297.
         pub fn encryptWithAdVector(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const []const u8, key: [key_length]u8) void {
             debug.assert(c.len == m.len);
+            debug.assert(ad.len <= 126); // AES-SIV supports at most 126 associated data components
 
             // Split key into K1 (for S2V) and K2 (for CTR)
             const k1 = key[0 .. Aes.key_bits / 8];
@@ -263,6 +264,7 @@ fn AesSiv(comptime Aes: anytype) type {
         /// an arbitrary vector of associated data strings as specified in RFC 5297.
         pub fn decryptWithAdVector(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const []const u8, key: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
+            assert(ad.len <= 126); // AES-SIV supports at most 126 associated data components
 
             // Split key into K1 (for S2V) and K2 (for CTR)
             const k1 = key[0 .. Aes.key_bits / 8];
