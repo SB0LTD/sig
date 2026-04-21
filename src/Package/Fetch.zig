@@ -56,6 +56,9 @@ location_tok: std.zig.Ast.TokenIndex,
 hash_tok: std.zig.Ast.OptionalTokenIndex,
 name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
+/// Same as `parent_packge_root` except it is unchanged when recursing into
+/// relative file paths (as opposed to URL).
+remote_package_root: Cache.Path,
 parent_package_root: Cache.Path,
 parent_manifest_ast: ?*const std.zig.Ast,
 prog_node: std.Progress.Node,
@@ -544,8 +547,11 @@ pub fn run(f: *Fetch) RunError!void {
             // will already have been resolved to no longer have extra ".." or
             // "." components.
             assert(job_queue.local_storage != null);
-            assert(pkg_root.root_dir.eql(f.parent_package_root.root_dir));
-            if (!std.mem.startsWith(u8, pkg_root.sub_path, f.parent_package_root.sub_path)) return f.fail(
+            log.debug("checking pkg root \"{s}\" against parent package root \"{s}\"", .{
+                pkg_root.sub_path, f.remote_package_root.sub_path,
+            });
+            assert(pkg_root.root_dir.eql(f.remote_package_root.root_dir));
+            if (!std.mem.startsWith(u8, pkg_root.sub_path, f.remote_package_root.sub_path)) return f.fail(
                 f.location_tok,
                 try eb.printString("dependency path outside project: '{f}'", .{pkg_root}),
             );
@@ -591,6 +597,7 @@ pub fn run(f: *Fetch) RunError!void {
             log.debug("using fork {f} for {s}", .{ fork.path, fork.manifest.name });
             fork.uses += 1;
             f.package_root = fork.path;
+            f.remote_package_root = f.package_root;
             f.manifest_ast = fork.manifest_ast;
             f.manifest = fork.manifest;
             f.have_manifest = true;
@@ -604,6 +611,7 @@ pub fn run(f: *Fetch) RunError!void {
             if (package_root.root_dir.handle.access(io, package_root.sub_path, .{})) |_| {
                 assert(f.lazy_status != .unavailable);
                 f.package_root = package_root;
+                f.remote_package_root = f.package_root;
                 try loadManifest(f, f.package_root);
                 try checkBuildFileExistence(f);
                 if (!job_queue.recursive) return;
@@ -782,6 +790,7 @@ fn runResource(
     } else {
         f.package_root = tmp_directory_path;
     }
+    f.remote_package_root = f.package_root;
 
     if (!disable_recompress) {
         // Spin off a task to recompress the tarball, with filtered files deleted, into
@@ -1024,6 +1033,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     .all => .eager,
                 },
                 .parent_package_root = f.package_root,
+                .remote_package_root = f.remote_package_root,
                 .parent_manifest_ast = &f.manifest_ast,
                 .prog_node = f.prog_node,
                 .job_queue = f.job_queue,
