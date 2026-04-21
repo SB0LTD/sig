@@ -1218,7 +1218,7 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
     if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
         const path = try uri.path.toRawMaybeAlloc(arena);
         const file = f.parent_package_root.openFile(io, path, .{}) catch |err| {
-            return f.fail(f.location_tok, try eb.printString("unable to open '{f}{s}': {t}", .{
+            return f.fail(f.location_tok, try eb.printString("unable to open {f}/{s}: {t}", .{
                 f.parent_package_root, path, err,
             }));
         };
