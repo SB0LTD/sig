@@ -1611,7 +1611,7 @@ pub fn hasRepeatedByteRepr(val: Value, zcu: *const Zcu) !?u8 {
     defer zcu.gpa.free(byte_buffer);
 
     writeToMemory(val, zcu, byte_buffer) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.ReinterpretDeclRef => return null,
         // TODO: The writeToMemory function was originally created for the purpose
         // of comptime pointer casting. However, it is now additionally being used

@@ -3924,7 +3924,7 @@ pub fn handleUpdateExports(
 ) Allocator.Error!void {
     const gpa = zcu.gpa;
     result catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.AnalysisFail => {
             const export_idx = export_indices[0];
             const new_export = export_idx.ptr(zcu);

@@ -102,14 +102,12 @@ pub fn genIr(tree: *const Tree) Compilation.Error!Ir {
             .function => |function| {
                 if (function.body == null) continue;
                 c.genFn(function) catch |err| switch (err) {
-                    error.FatalError => return error.FatalError,
-                    error.OutOfMemory => return error.OutOfMemory,
+                    error.FatalError, error.OutOfMemory => |e| return e,
                 };
             },
 
             .variable => |variable| c.genVar(variable) catch |err| switch (err) {
-                error.FatalError => return error.FatalError,
-                error.OutOfMemory => return error.OutOfMemory,
+                error.FatalError, error.OutOfMemory => |e| return e,
             },
             .global_asm => {
                 return c.fail("TODO global assembly", .{});

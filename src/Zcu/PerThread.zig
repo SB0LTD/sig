@@ -4583,7 +4583,7 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
         defer verify.deinit();
 
         verify.verify() catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             else => return zcu.codegenFail(nav, "invalid liveness: {t}", .{err}),
         };
     }

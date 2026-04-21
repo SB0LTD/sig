@@ -998,8 +998,8 @@ fn rendersMultiline(r: *const Render, node: Ast.Node.Index) error{OutOfMemory}!b
         .fixups = r.fixups,
     };
 
-    renderExpression(&sub_r, node, .none) catch |e| return switch (e) {
-        error.OutOfMemory => return error.OutOfMemory,
+    renderExpression(&sub_r, node, .none) catch |err| return switch (err) {
+        error.OutOfMemory => |e| return e,
         error.WriteFailed => return true,
     };
     if (sub_ais.disabled_offset != null) return true;
@@ -1685,7 +1685,7 @@ fn renderBuiltinCall(
             assert(tree.tokenTag(str_lit_token) == .string_literal);
             const token_bytes = tree.tokenSlice(str_lit_token);
             const imported_string = std.zig.string_literal.parseAlloc(r.gpa, token_bytes) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 error.InvalidLiteral => break :f,
             };
             defer r.gpa.free(imported_string);

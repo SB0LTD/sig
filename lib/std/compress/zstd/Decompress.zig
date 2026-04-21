@@ -173,8 +173,7 @@ fn discardDirect(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
     }
     const n = r.stream(&writer, limit) catch |err| switch (err) {
         error.WriteFailed => unreachable,
-        error.ReadFailed => return error.ReadFailed,
-        error.EndOfStream => return error.EndOfStream,
+        error.ReadFailed, error.EndOfStream => |e| return e,
     };
     assert(n <= @intFromEnum(limit));
     return n;
@@ -252,8 +251,7 @@ fn stream(d: *Decompress, w: *Writer, limit: Limit) Reader.StreamError!usize {
         },
         .in_frame => |*in_frame| {
             return readInFrame(d, w, limit, in_frame) catch |err| switch (err) {
-                error.ReadFailed => return error.ReadFailed,
-                error.WriteFailed => return error.WriteFailed,
+                error.ReadFailed, error.WriteFailed => |e| return e,
                 else => |e| {
                     d.err = e;
                     return error.ReadFailed;

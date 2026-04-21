@@ -14589,7 +14589,7 @@ fn lookupDns(
                 }
             }
             if (recv_err) |err| switch (err) {
-                error.Canceled => return error.Canceled,
+                error.Canceled => |e| return e,
                 error.Timeout => continue :send,
                 else => continue,
             };
@@ -14726,13 +14726,13 @@ fn lookupHostsReader(
         const line = reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
             error.StreamTooLong => {
                 // Skip lines that are too long.
-                _ = reader.discardDelimiterInclusive('\n') catch |e| switch (e) {
+                _ = reader.discardDelimiterInclusive('\n') catch |er| switch (er) {
                     error.EndOfStream => break,
-                    error.ReadFailed => return error.ReadFailed,
+                    error.ReadFailed => |e| return e,
                 };
                 continue;
             },
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
             error.EndOfStream => break,
         };
         reader.toss(@min(1, reader.bufferedLen()));

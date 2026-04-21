@@ -22339,7 +22339,7 @@ fn checkAtomicPtrOperand(
     try sema.ensureLayoutResolved(elem_ty, elem_ty_src, .ptr_access);
     var diag: Zcu.AtomicPtrAlignmentDiagnostics = .{};
     const alignment = zcu.atomicPtrAlignment(elem_ty, &diag) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.FloatTooBig => return sema.fail(
             block,
             elem_ty_src,

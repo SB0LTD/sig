@@ -2704,7 +2704,7 @@ fn evalGeneric(run: *Run, spawn_options: process.SpawnOptions) !EvalGenericResul
         } else {
             var stdout_reader = stdout.readerStreaming(io, &.{});
             stdout_bytes = stdout_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 error.ReadFailed => return stdout_reader.err.?,
                 error.StreamTooLong => return error.StdoutStreamTooLong,
             };
@@ -2712,7 +2712,7 @@ fn evalGeneric(run: *Run, spawn_options: process.SpawnOptions) !EvalGenericResul
     } else if (child.stderr) |stderr| {
         var stderr_reader = stderr.readerStreaming(io, &.{});
         stderr_bytes = stderr_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             error.ReadFailed => return stderr_reader.err.?,
             error.StreamTooLong => return error.StderrStreamTooLong,
         };

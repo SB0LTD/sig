@@ -562,14 +562,14 @@ pub const Manifest = struct {
                             self.diagnostic = .{ .manifest_create = error.FileNotFound };
                             return error.CacheCheckFailed;
                         },
-                        error.Canceled => return error.Canceled,
+                        error.Canceled => |e| return e,
                         else => |e| {
                             self.diagnostic = .{ .manifest_create = e };
                             return error.CacheCheckFailed;
                         },
                     }
                 },
-                error.Canceled => return error.Canceled,
+                error.Canceled => |e| return e,
                 else => |e| {
                     self.diagnostic = .{ .manifest_create = e };
                     return error.CacheCheckFailed;
@@ -675,7 +675,7 @@ pub const Manifest = struct {
         var manifest_reader = self.manifest_file.?.reader(io, &tiny_buffer); // Reads positionally from zero.
         const limit: std.Io.Limit = .limited(manifest_file_size_max);
         const file_contents = manifest_reader.interface.allocRemaining(gpa, limit) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             error.StreamTooLong => return error.OutOfMemory,
             error.ReadFailed => {
                 self.diagnostic = .{ .manifest_read = manifest_reader.err.? };
@@ -767,7 +767,7 @@ pub const Manifest = struct {
                     // Every digest before this one has been populated successfully.
                     return .{ .miss = .{ .file_digests_populated = idx } };
                 },
-                error.Canceled => return error.Canceled,
+                error.Canceled => |e| return e,
                 else => |e| {
                     self.diagnostic = .{ .file_open = .{
                         .file_index = idx,
@@ -880,14 +880,14 @@ pub const Manifest = struct {
                 .read = true,
                 .truncate = true,
             }) catch |err| switch (err) {
-                error.Canceled => return error.Canceled,
+                error.Canceled => |e| return e,
                 else => return true,
             };
             defer file.close(io);
 
             // Save locally and also save globally (we still hold the global lock).
             const stat = file.stat(io) catch |err| switch (err) {
-                error.Canceled => return error.Canceled,
+                error.Canceled => |e| return e,
                 else => return true,
             };
             man.recent_problematic_timestamp = stat.mtime;

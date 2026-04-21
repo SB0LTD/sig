@@ -5725,9 +5725,8 @@ fn returnStmt(p: *Parser) Error!?Node.Index {
 // ====== expressions ======
 
 pub fn macroExpr(p: *Parser) Compilation.Error!bool {
-    const res = p.expect(condExpr) catch |e| switch (e) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.FatalError => return error.FatalError,
+    const res = p.expect(condExpr) catch |er| switch (er) {
+        error.OutOfMemory, error.FatalError => |e| return e,
         error.ParsingFailed => return false,
     };
     return res.val.toBool(p.comp);

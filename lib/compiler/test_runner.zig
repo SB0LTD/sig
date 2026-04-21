@@ -488,7 +488,7 @@ var fuzz_runner: if (builtin.fuzz) struct {
     fn inputPoller() Io.Cancelable!void {
         @disableInstrumentation();
         switch (inputPollerInner()) {
-            error.Canceled => return error.Canceled,
+            error.Canceled => |e| return e,
             error.ReadFailed => {
                 if (stdin_reader.err.? == error.Canceled) return error.Canceled;
                 panic("failed to read from stdin: {t}", .{stdin_reader.err.?});

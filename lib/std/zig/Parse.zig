@@ -278,7 +278,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                     }
                     const comptime_token = p.nextToken();
                     const opt_block = p.parseBlock() catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
+                        error.OutOfMemory => |e| return e,
                         error.ParseError => blk: {
                             p.findNextContainerMember();
                             break :blk null;
@@ -301,7 +301,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                     const identifier = p.tok_i;
                     defer last_field = identifier;
                     const container_field = p.expectContainerField() catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
+                        error.OutOfMemory => |e| return e,
                         error.ParseError => {
                             p.findNextContainerMember();
                             continue;
@@ -398,7 +398,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
             },
             else => {
                 const c_container = p.parseCStyleContainer() catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
+                    error.OutOfMemory => |e| return e,
                     error.ParseError => false,
                 };
                 if (c_container) continue;
@@ -406,7 +406,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                 const identifier = p.tok_i;
                 defer last_field = identifier;
                 const container_field = p.expectContainerField() catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
+                    error.OutOfMemory => |e| return e,
                     error.ParseError => {
                         p.findNextContainerMember();
                         continue;
@@ -589,7 +589,7 @@ fn expectTestDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
     if (p.expectTestDecl()) |node| {
         return node;
     } else |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.ParseError => {
             p.findNextContainerMember();
             return null;
@@ -668,7 +668,7 @@ fn expectTopLevelDecl(p: *Parse) !?Node.Index {
 
 fn expectTopLevelDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
     return p.expectTopLevelDecl() catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.ParseError => {
             p.findNextContainerMember();
             return null;
@@ -1145,7 +1145,7 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
 fn expectStatementRecoverable(p: *Parse) Error!?Node.Index {
     while (true) {
         return p.expectStatement(true) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             error.ParseError => {
                 p.findNextStmt(); // Try to skip to the next statement.
                 switch (p.tokenTag(p.tok_i)) {

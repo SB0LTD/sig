@@ -353,7 +353,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
         if (record_len > tls.max_ciphertext_len) return error.TlsRecordOverflow;
         const record_buffer = input.take(record_len) catch |err| switch (err) {
             error.EndOfStream => return error.TlsConnectionTruncated,
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
         };
         var record_decoder: tls.Decoder = .fromTheirSlice(record_buffer);
         var ctd, const ct = content: switch (cipher_state) {
@@ -1157,7 +1157,7 @@ fn readIndirect(c: *Client) Reader.Error!usize {
                 return failRead(c, error.TlsConnectionTruncated);
             }
         },
-        error.ReadFailed => return error.ReadFailed,
+        error.ReadFailed => |e| return e,
     };
     const ct: tls.ContentType = @enumFromInt(record_header[0]);
     const legacy_version = mem.readInt(u16, record_header[1..][0..2], .big);
@@ -1168,7 +1168,7 @@ fn readIndirect(c: *Client) Reader.Error!usize {
     if (record_end > input.buffered().len) {
         input.fillMore() catch |err| switch (err) {
             error.EndOfStream => return failRead(c, error.TlsConnectionTruncated),
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
         };
         if (record_end > input.buffered().len) return 0;
     }

@@ -253,7 +253,7 @@ pub fn parse(args: ParseOptions) !Query {
             } else if (abi.isAndroid()) {
                 result.android_api_level = std.fmt.parseUnsigned(u32, abi_ver_text, 10) catch |err| switch (err) {
                     error.InvalidCharacter => return error.InvalidVersion,
-                    error.Overflow => return error.Overflow,
+                    error.Overflow => |e| return e,
                 };
             } else {
                 return error.InvalidAbiVersion;
@@ -346,7 +346,7 @@ pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticV
         fn parseVersionComponentInner(component: []const u8) error{ InvalidVersion, Overflow }!usize {
             return std.fmt.parseUnsigned(usize, component, 10) catch |err| switch (err) {
                 error.InvalidCharacter => return error.InvalidVersion,
-                error.Overflow => return error.Overflow,
+                error.Overflow => |e| return e,
             };
         }
     }).parseVersionComponentInner;

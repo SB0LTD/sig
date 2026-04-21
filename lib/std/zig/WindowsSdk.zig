@@ -47,7 +47,7 @@ pub fn find(
         error.InstallationNotFound => null,
         error.PathTooLong => null,
         error.VersionTooLong => null,
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
     };
     errdefer if (windows10sdk) |*w| w.free(gpa);
 
@@ -55,13 +55,13 @@ pub fn find(
         error.InstallationNotFound => null,
         error.PathTooLong => null,
         error.VersionTooLong => null,
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
     };
     errdefer if (windows81sdk) |*w| w.free(gpa);
 
     const msvc_lib_dir: ?[]const u8 = MsvcLibDir.find(gpa, io, &registry, arch, environ_map) catch |err| switch (err) {
         error.MsvcLibDirNotFound => null,
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
     };
     errdefer gpa.free(msvc_lib_dir);
 
@@ -498,7 +498,7 @@ pub const Installation = struct {
                 error.StringNotFound,
                 => return error.InstallationNotFound,
 
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
             };
             defer gpa.free(path_w_maybe_with_trailing_slash);
 
@@ -572,7 +572,7 @@ pub const Installation = struct {
                 error.StringNotFound,
                 => return error.InstallationNotFound,
 
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
             };
             defer gpa.free(path_w_maybe_with_trailing_slash);
 
@@ -593,7 +593,7 @@ pub const Installation = struct {
                 error.StringNotFound,
                 => return error.InstallationNotFound,
 
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
             };
             defer gpa.free(version_without_0);
 
@@ -664,7 +664,7 @@ const MsvcLibDir = struct {
             error.StringNotFound,
             => return error.PathNotFound,
 
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
         };
         defer gpa.free(packages_path);
 
@@ -708,7 +708,7 @@ const MsvcLibDir = struct {
             error.StringNotFound,
             => return error.PathNotFound,
 
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
         };
         defer gpa.free(dll_path);
 
@@ -1042,7 +1042,7 @@ const MsvcLibDir = struct {
             const config_key = root_key.open(config_path) catch continue;
 
             const source_directories_value = config_key.getString(gpa, .{ .name = L("Source Directories") }, .wtf8) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 else => continue,
             };
 
@@ -1118,7 +1118,7 @@ const MsvcLibDir = struct {
             defer vs7_key.close();
             try_vs7_key: {
                 const path_maybe_with_trailing_slash = vs7_key.getString(gpa, .{ .name = L("14.0") }, .wtf8) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
+                    error.OutOfMemory => |e| return e,
                     else => break :try_vs7_key,
                 };
 
@@ -1178,11 +1178,11 @@ const MsvcLibDir = struct {
         environ_map: *const Environ.Map,
     ) error{ OutOfMemory, MsvcLibDirNotFound }![]const u8 {
         const full_path = MsvcLibDir.findViaCOM(gpa, io, registry, arch, environ_map) catch |err1| switch (err1) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             error.PathNotFound => MsvcLibDir.findViaRegistry(gpa, io, arch, environ_map) catch |err2| switch (err2) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 error.PathNotFound => MsvcLibDir.findViaVs7Key(gpa, io, registry, arch, environ_map) catch |err3| switch (err3) {
-                    error.OutOfMemory => return error.OutOfMemory,
+                    error.OutOfMemory => |e| return e,
                     error.PathNotFound => return error.MsvcLibDirNotFound,
                 },
             },

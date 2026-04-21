@@ -196,7 +196,7 @@ pub fn findNative(gpa: Allocator, io: Io, args: FindNativeOptions) FindError!Lib
         const sdk = std.zig.WindowsSdk.find(gpa, io, args.target.cpu.arch, args.environ_map) catch |err| switch (err) {
             error.NotFound => return error.WindowsSdkNotFound,
             error.PathTooLong => return error.WindowsSdkNotFound,
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
         };
         defer sdk.free(gpa);
 
@@ -278,7 +278,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, gpa: Allocator, io: Io, ar
         // So we use the expandArg0 variant of ChildProcess to give them a helping hand.
         .expand_arg0 = .expand,
     }) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         else => {
             printVerboseInvocation(argv.items, null, args.verbose, null);
             return error.UnableToSpawnCCompiler;
@@ -596,7 +596,7 @@ fn ccPrintFileName(gpa: Allocator, io: Io, args: CCPrintFileNameOptions) ![]u8 {
         // So we use the expandArg0 variant of ChildProcess to give them a helping hand.
         .expand_arg0 = .expand,
     }) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         else => return error.UnableToSpawnCCompiler,
     };
     defer {

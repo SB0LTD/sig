@@ -953,7 +953,7 @@ test "Server streams both reading and writing" {
                 try response.flush();
                 const buf = br.peekGreedy(1) catch |err| switch (err) {
                     error.EndOfStream => break,
-                    error.ReadFailed => return error.ReadFailed,
+                    error.ReadFailed => |e| return e,
                 };
                 br.toss(buf.len);
                 for (buf) |*b| b.* = std.ascii.toUpper(b.*);

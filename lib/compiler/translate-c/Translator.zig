@@ -1297,7 +1297,7 @@ fn transType(t: *Translator, scope: *Scope, qt: QualType, source_loc: TokenIndex
                     error.SelfReferential => {},
                     error.UnsupportedTranslation => {},
                     error.UnsupportedType => {},
-                    error.OutOfMemory => return error.OutOfMemory,
+                    error.OutOfMemory => |e| return e,
                 }
             }
             continue :loop typeof_ty.base.type(t.comp);
@@ -4099,7 +4099,7 @@ fn createIntNode(t: *Translator, int: aro.Value) !ZigNode {
     big.positive = true;
 
     const str = big.toStringAlloc(t.arena, 10, .lower) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
     };
     const res = try ZigTag.integer_literal.create(t.arena, str);
     if (is_negative) return ZigTag.negate.create(t.arena, res);

@@ -757,8 +757,7 @@ pub fn flush(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std
     defer sub_prog_node.end();
 
     return flushInner(self, arena, tid) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.LinkFailure => return error.LinkFailure,
+        error.OutOfMemory, error.LinkFailure => |e| return e,
         else => |e| return diags.fail("ELF flush failed: {t}", .{e}),
     };
 }
@@ -1717,7 +1716,7 @@ pub fn updateContainerType(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     return self.zigObjectPtr().?.updateContainerType(pt, ty, success) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
     };
 }
 

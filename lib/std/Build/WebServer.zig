@@ -622,8 +622,8 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     defer body_buffer.deinit(gpa);
 
     while (true) {
-        const header = stdout.takeStruct(Header, .little) catch |e| switch (e) {
-            error.ReadFailed => return error.ReadFailed,
+        const header = stdout.takeStruct(Header, .little) catch |err| switch (err) {
+            error.ReadFailed => |e| return e,
             error.EndOfStream => break,
         };
         body_buffer.clearRetainingCapacity();

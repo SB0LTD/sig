@@ -199,7 +199,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
             assert(struct_decl_ref.toIndex().? == .main_struct_inst);
             break :fatal false;
         } else |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             error.AnalysisFail => break :fatal true, // Handled via compile_errors below.
         }
     } else fatal: {
@@ -5681,7 +5681,7 @@ fn containerMember(
 
             const prev_decl_index = wip_decls.index;
             astgen.fnDecl(gz, scope, wip_decls, member_node, body, full) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 error.AnalysisFail => {
                     wip_decls.index = prev_decl_index;
                     try addFailedDeclaration(
@@ -5704,7 +5704,7 @@ fn containerMember(
             const full = tree.fullVarDecl(member_node).?;
             const prev_decl_index = wip_decls.index;
             astgen.globalVarDecl(gz, scope, wip_decls, member_node, full) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 error.AnalysisFail => {
                     wip_decls.index = prev_decl_index;
                     try addFailedDeclaration(
@@ -5722,7 +5722,7 @@ fn containerMember(
         .@"comptime" => {
             const prev_decl_index = wip_decls.index;
             astgen.comptimeDecl(gz, scope, wip_decls, member_node) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 error.AnalysisFail => {
                     wip_decls.index = prev_decl_index;
                     try addFailedDeclaration(
@@ -5742,7 +5742,7 @@ fn containerMember(
             // Since it doesn't strictly matter *what* this is, let's save ourselves the trouble
             // of duplicating the test name logic, and just assume this is an unnamed test.
             astgen.testDecl(gz, scope, wip_decls, member_node) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 error.AnalysisFail => {
                     wip_decls.index = prev_decl_index;
                     try addFailedDeclaration(
@@ -8563,7 +8563,7 @@ fn numberLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index, source_node:
             big_int.setString(@intFromEnum(base), bytes[prefix_offset..]) catch |err| switch (err) {
                 error.InvalidCharacter => unreachable, // caught in `parseNumberLiteral`
                 error.InvalidBase => unreachable, // we only pass 16, 8, 2, see above
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
             };
 
             const limbs = big_int.limbs[0..big_int.len()];

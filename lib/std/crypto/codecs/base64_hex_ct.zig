@@ -47,8 +47,7 @@ pub const hex = struct {
         }
         _ = decodeAny(bin, encoded, null) catch |err| {
             switch (err) {
-                error.InvalidCharacter => return error.InvalidCharacter,
-                error.InvalidPadding => return error.InvalidPadding,
+                error.InvalidCharacter, error.InvalidPadding => |e| return e,
                 else => unreachable,
             }
         };
@@ -228,8 +227,7 @@ pub const base64 = struct {
     pub fn decode(bin: []u8, encoded: []const u8, comptime variant: Variant) error{ InvalidCharacter, InvalidPadding }![]const u8 {
         return decodeAny(bin, encoded, variant, null) catch |err| {
             switch (err) {
-                error.InvalidCharacter => return error.InvalidCharacter,
-                error.InvalidPadding => return error.InvalidPadding,
+                error.InvalidCharacter, error.InvalidPadding => |e| return e,
                 else => unreachable,
             }
         };

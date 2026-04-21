@@ -2399,7 +2399,7 @@ fn loadDsoExact(elf: *Elf, name: []const u8) !void {
 pub fn prelink(elf: *Elf, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     elf.prelinkInner() catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         else => |e| return elf.base.comp.link_diags.fail("prelink failed: {t}", .{e}),
     };
 }
@@ -2934,7 +2934,7 @@ pub fn lowerUav(
 
     try elf.pending_uavs.ensureUnusedCapacity(gpa, 1);
     const umi = elf.uavMapIndex(uav_val) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         else => |e| return .{ .fail = try Zcu.ErrorMsg.create(
             gpa,
             src_loc,
@@ -3057,7 +3057,7 @@ pub fn updateErrorData(elf: *Elf, pt: Zcu.PerThread) !void {
         .kind = .const_data,
         .index = @intCast(elf.lazy.getPtr(.const_data).map.getIndex(.anyerror_type) orelse return),
     }) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.CodegenFail => return error.LinkFailure,
         else => |e| return elf.base.comp.link_diags.fail("updateErrorData failed: {t}", .{e}),
     };
@@ -3091,7 +3091,7 @@ pub fn idle(elf: *Elf, tid: Zcu.PerThread.Id) !bool {
                 pending_uav.value.alignment,
                 pending_uav.value.src_loc,
             ) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 else => |e| return comp.link_diags.fail(
                     "linker failed to lower constant: {t}",
                     .{e},
@@ -3118,7 +3118,7 @@ pub fn idle(elf: *Elf, tid: Zcu.PerThread.Id) !bool {
             );
             defer sub_prog_node.end();
             elf.flushLazy(pt, lmr) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 else => |e| return comp.link_diags.fail(
                     "linker failed to lower lazy {s}: {t}",
                     .{ kind, e },

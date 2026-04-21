@@ -150,8 +150,7 @@ pub fn genAsm(tree: *const Tree) Error!Assembly {
 
     codegen.genDecls() catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
-        error.OutOfMemory => return error.OutOfMemory,
-        error.FatalError => return error.FatalError,
+        error.OutOfMemory, error.FatalError => |e| return e,
     };
 
     const text_slice = try text.toOwnedSlice();

@@ -760,7 +760,7 @@ fn lowerUavRef(
         .offset = w.end,
         .addend = @intCast(offset),
     }) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         else => |e| std.debug.panic("TODO rework lowerUav. internal error: {t}", .{e}),
     };
     const endian = target.cpu.arch.endian();
@@ -903,7 +903,7 @@ pub fn genNavRef(
         }
     } else if (lf.cast(.elf2)) |elf| {
         return .{ .sym_index = @intFromEnum(elf.navSymbol(zcu, nav_index) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             else => |e| return .{ .fail = try ErrorMsg.create(
                 zcu.gpa,
                 src_loc,

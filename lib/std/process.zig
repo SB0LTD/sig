@@ -130,7 +130,7 @@ pub fn posixGetUserInfo(io: Io, name: []const u8) !UserInfo {
     return posixGetUserInfoPasswdStream(name, &file_reader.interface) catch |err| switch (err) {
         error.ReadFailed => return file_reader.err.?,
         error.EndOfStream => return error.UserNotFound,
-        error.CorruptPasswordFile => return error.CorruptPasswordFile,
+        error.CorruptPasswordFile => |e| return e,
     };
 }
 

@@ -138,7 +138,7 @@ pub fn parseDbiStream(self: *Pdb) !void {
     if (section_contrib_size != 0) {
         const version = reader.takeEnum(pdb.SectionContrSubstreamVersion, .little) catch |err| switch (err) {
             error.InvalidEnumTag, error.EndOfStream => return error.InvalidDebugInfo,
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
         };
         _ = version;
         sect_cont_offset += @sizeOf(u32);

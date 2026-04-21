@@ -400,7 +400,7 @@ pub const Reader = struct {
                         0 => return error.HttpConnectionClosing,
                         else => return error.HttpRequestTruncated,
                     },
-                    error.ReadFailed => return error.ReadFailed,
+                    error.ReadFailed => |e| return e,
                 };
                 continue;
             }
@@ -543,8 +543,7 @@ pub const Reader = struct {
             else => unreachable,
         };
         return chunkedReadEndless(reader, w, limit, chunk_len_ptr) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
-            error.WriteFailed => return error.WriteFailed,
+            error.ReadFailed, error.WriteFailed => |e| return e,
             error.EndOfStream => {
                 reader.body_err = error.HttpChunkTruncated;
                 return error.ReadFailed;
@@ -613,7 +612,7 @@ pub const Reader = struct {
             else => unreachable,
         };
         return chunkedDiscardEndless(reader, limit, chunk_len_ptr) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
             error.EndOfStream => {
                 reader.body_err = error.HttpChunkTruncated;
                 return error.ReadFailed;

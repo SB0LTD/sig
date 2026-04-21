@@ -4958,7 +4958,7 @@ fn randomSecure(userdata: ?*anyopaque, buffer: []u8) Io.RandomSecureError!void {
     var cancel_region: CancelRegion = .init();
     defer cancel_region.deinit();
     ev.urandomReadAll(&cancel_region, buffer) catch |err| switch (err) {
-        error.Canceled => return error.Canceled,
+        error.Canceled => |e| return e,
         else => return error.EntropyUnavailable,
     };
 }

@@ -1182,8 +1182,7 @@ pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_
         var stdout = std.Io.File.stdout().writer(d.comp.io, &stdout_buf);
         if (parseArgs(d, &stdout.interface, &macro_buf, args) catch |er| switch (er) {
             error.WriteFailed => return d.fatal("failed to write to stdout: {s}", .{errorDescription(er)}),
-            error.OutOfMemory => return error.OutOfMemory,
-            error.FatalError => return error.FatalError,
+            error.OutOfMemory, error.FatalError => |e| return e,
         }) return;
         if (macro_buf.items.len > std.math.maxInt(u32)) {
             return d.fatal("user provided macro source exceeded max size", .{});
@@ -1207,12 +1206,11 @@ pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_
     };
 
     tc.discover() catch |er| switch (er) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.TooManyMultilibs => return d.fatal("found more than one multilib with the same priority", .{}),
     };
     tc.defineSystemIncludes() catch |er| switch (er) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.FatalError => return error.FatalError,
+        error.OutOfMemory, error.FatalError => |e| return e,
     };
     try d.comp.initSearchPath(d.includes.items, d.verbose_search_path);
 
@@ -1525,8 +1523,8 @@ fn processSource(
             render_errors.deinit(gpa);
         }
 
-        var obj = ir.render(gpa, d.comp.target.toZigTarget(), &render_errors) catch |e| switch (e) {
-            error.OutOfMemory => return error.OutOfMemory,
+        var obj = ir.render(gpa, d.comp.target.toZigTarget(), &render_errors) catch |er| switch (er) {
+            error.OutOfMemory => |e| return e,
             error.LowerFail => {
                 return d.fatal(
                     "unable to render Ir to machine code: {s}",

@@ -1453,8 +1453,7 @@ fn unpackResource(
             return try unpackTarball(f, tmp_directory.handle, &decompress.reader);
         },
         .git_pack => return unpackGitPack(f, tmp_directory.handle, &resource.git) catch |err| switch (err) {
-            error.FetchFailed => return error.FetchFailed,
-            error.OutOfMemory => return error.OutOfMemory,
+            error.FetchFailed, error.OutOfMemory => |e| return e,
             else => |e| return f.fail(f.location_tok, try eb.printString("unable to unpack git files: {t}", .{e})),
         },
         .zip => return unzip(f, tmp_directory.handle, resource.reader()) catch |err| switch (err) {

@@ -666,7 +666,7 @@ pub const Decoder = struct {
         if (request_amt > dest.len) return error.TlsRecordOverflow;
         stream.readSlice(dest[0..request_amt]) catch |err| switch (err) {
             error.EndOfStream => return error.TlsConnectionTruncated,
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
         };
         d.cap += request_amt;
     }
