@@ -10977,11 +10977,11 @@ else
 
 pub const PTHREAD_PROCESS_SHARED: c_int = 1;
 
-pub extern "c" fn pthread_spin_init(spin: *pthread_spinlock_t, pshared: c_int) E;
-pub extern "c" fn pthread_spin_lock(spin: *pthread_spinlock_t) E;
-pub extern "c" fn pthread_spin_unlock(spin: *pthread_spinlock_t) E;
-pub extern "c" fn pthread_spin_trylock(spin: *pthread_spinlock_t) E;
-pub extern "c" fn pthread_spin_destroy(spin: *pthread_spinlock_t) E;
+pub extern "c" fn pthread_spin_init(spin: *pthread_spinlock_t, pshared: c_int) c_int;
+pub extern "c" fn pthread_spin_lock(spin: *pthread_spinlock_t) c_int;
+pub extern "c" fn pthread_spin_unlock(spin: *pthread_spinlock_t) c_int;
+pub extern "c" fn pthread_spin_trylock(spin: *pthread_spinlock_t) c_int;
+pub extern "c" fn pthread_spin_destroy(spin: *pthread_spinlock_t) c_int;
 
 pub const PTHREAD_MUTEX_INITIALIZER: pthread_mutex_t = .{};
 pub extern "c" fn pthread_mutex_lock(mutex: *pthread_mutex_t) E;
