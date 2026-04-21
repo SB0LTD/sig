@@ -913,7 +913,6 @@ const mingw32_winpthreads_src = [_][]const u8{
     "winpthreads" ++ path.sep_str ++ "rwlock.c",
     "winpthreads" ++ path.sep_str ++ "sched.c",
     "winpthreads" ++ path.sep_str ++ "sem.c",
-    "winpthreads" ++ path.sep_str ++ "spinlock.c",
     "winpthreads" ++ path.sep_str ++ "thread.c",
 };
 

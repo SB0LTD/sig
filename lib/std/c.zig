@@ -7898,6 +7898,12 @@ pub const Stat = switch (native_os) {
     else => void,
 };
 
+pub const pthread_spinlock_t = switch (native_os) {
+    .openbsd => openbsd.pthread_spinlock_t,
+    .windows => isize,
+    else => c_int,
+};
+
 pub const pthread_mutex_t = switch (native_os) {
     .linux => extern struct {
         data: [data_len]u8 align(@alignOf(usize)) = [_]u8{0} ** data_len,
@@ -10956,6 +10962,19 @@ pub extern "c" fn dn_expand(
     length: c_int,
 ) c_int;
 
+pub const PTHREAD_PROCESS_PRIVATE: c_int = if (native_os.isDarwin())
+    2
+else
+    0;
+
+pub const PTHREAD_PROCESS_SHARED: c_int = 1;
+
+pub extern "c" fn pthread_spin_init(spin: *pthread_spinlock_t, pshared: c_int) E;
+pub extern "c" fn pthread_spin_lock(spin: *pthread_spinlock_t) E;
+pub extern "c" fn pthread_spin_unlock(spin: *pthread_spinlock_t) E;
+pub extern "c" fn pthread_spin_trylock(spin: *pthread_spinlock_t) E;
+pub extern "c" fn pthread_spin_destroy(spin: *pthread_spinlock_t) E;
+
 pub const PTHREAD_MUTEX_INITIALIZER: pthread_mutex_t = .{};
 pub extern "c" fn pthread_mutex_lock(mutex: *pthread_mutex_t) E;
 pub extern "c" fn pthread_mutex_unlock(mutex: *pthread_mutex_t) E;
@@ -11268,7 +11287,6 @@ pub const login_getcaptime = openbsd.login_getcaptime;
 pub const login_getclass = openbsd.login_getclass;
 pub const login_getstyle = openbsd.login_getstyle;
 pub const pledge = openbsd.pledge;
-pub const pthread_spinlock_t = openbsd.pthread_spinlock_t;
 pub const pw_dup = openbsd.pw_dup;
 pub const setclasscontext = openbsd.setclasscontext;
 pub const setpassent = openbsd.setpassent;

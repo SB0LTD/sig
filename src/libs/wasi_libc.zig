@@ -939,8 +939,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/thread/pthread_setcancelstate.c",
     "musl/src/thread/pthread_setcanceltype.c",
     "musl/src/thread/pthread_setspecific.c",
-    "musl/src/thread/pthread_spin_destroy.c",
-    "musl/src/thread/pthread_spin_init.c",
     "musl/src/thread/pthread_testcancel.c",
     "musl/src/thread/thrd_sleep.c",
     "musl/src/time/asctime.c",
@@ -1086,9 +1084,6 @@ const libc_top_half_src_files = [_][]const u8{
     "wasi/thread-stub/pthread_rwlock_trywrlock.c",
     "wasi/thread-stub/pthread_rwlock_unlock.c",
     "wasi/thread-stub/pthread_rwlock_wrlock.c",
-    "wasi/thread-stub/pthread_spin_lock.c",
-    "wasi/thread-stub/pthread_spin_trylock.c",
-    "wasi/thread-stub/pthread_spin_unlock.c",
 };
 
 const crt1_command_src_file = "wasi/libc-bottom-half/crt/crt1-command.c";
