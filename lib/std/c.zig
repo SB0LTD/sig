@@ -11166,6 +11166,13 @@ pub extern "c" fn atoi(str: [*:0]const c_char) c_int;
 pub extern "c" fn atol(str: [*:0]const c_char) c_long;
 pub extern "c" fn atoll(str: [*:0]const c_char) c_longlong;
 
+pub extern "c" fn strtol(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) c_long;
+pub extern "c" fn strtoll(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) c_longlong;
+pub extern "c" fn strtoul(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) c_ulong;
+pub extern "c" fn strtoull(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) c_ulonglong;
+pub extern "c" fn strtoimax(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) intmax_t;
+pub extern "c" fn strtoumax(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) uintmax_t;
+
 pub extern "c" fn bsearch(
     key: *const anyopaque,
     base: *const anyopaque,

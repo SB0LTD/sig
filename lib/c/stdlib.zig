@@ -158,29 +158,40 @@ fn stringToInteger(comptime T: type, noalias buf: [*:0]const u8, noalias maybe_e
     };
 
     // The prefix is allowed iff base == 0 or base == base of the prefix
-    const real_base: u6 = if (current[0] == '0') blk: {
-        current += 1;
+    const real_base: u6, const digits = blk: {
+        if (current[0] == '0') {
+            if ((base == 0 or base == 16) and std.ascii.toLower(current[1]) == 'x' and std.ascii.isHex(current[2])) {
+                break :blk .{ 16, current[2..] };
+            } else if (base == 0) {
+                break :blk .{ 8, current };
+            } else {
+                break :blk .{
+                    switch (base) {
+                        0 => 10,
+                        else => @intCast(base),
+                    },
+                    current,
+                };
+            }
+        } else {
+            const real_base: u6 = switch (base) {
+                0 => 10,
+                else => @intCast(base),
+            };
 
-        if ((base == 0 or base == 16) and std.ascii.toLower(current[0]) == 'x' and std.ascii.isHex(current[1])) {
-            current += 1;
-            break :blk 16;
+            _ = std.fmt.charToDigit(current[0], real_base) catch {
+                // No digits to parse. Setting errno to .INVAL is optional in this case.
+                if (maybe_end) |end| {
+                    end.* = buf;
+                }
+                return 0;
+            };
+            break :blk .{ real_base, current };
         }
-
-        if ((base == 0 or base == 8) and std.ascii.isDigit(current[0])) {
-            break :blk 8;
-        }
-
-        break :blk switch (base) {
-            0 => 10,
-            else => @intCast(base),
-        };
-    } else switch (base) {
-        0 => 10,
-        else => @intCast(base),
     };
 
     if (@typeInfo(T).int.signedness == .unsigned) {
-        const result = parseDigitsWithSignGenericCharacter(T, u8, current, maybe_end, real_base, .pos) catch {
+        const result = parseDigitsWithSignGenericCharacter(T, u8, digits, maybe_end, real_base, .pos) catch {
             std.c._errno().* = @intFromEnum(std.c.E.RANGE);
             return std.math.maxInt(T);
         };
@@ -188,12 +199,12 @@ fn stringToInteger(comptime T: type, noalias buf: [*:0]const u8, noalias maybe_e
         return if (negative) -%result else result;
     }
 
-    if (negative) return parseDigitsWithSignGenericCharacter(T, u8, current, maybe_end, real_base, .neg) catch blk: {
+    if (negative) return parseDigitsWithSignGenericCharacter(T, u8, digits, maybe_end, real_base, .neg) catch blk: {
         std.c._errno().* = @intFromEnum(std.c.E.RANGE);
         break :blk std.math.minInt(T);
     };
 
-    return parseDigitsWithSignGenericCharacter(T, u8, current, maybe_end, real_base, .pos) catch blk: {
+    return parseDigitsWithSignGenericCharacter(T, u8, digits, maybe_end, real_base, .pos) catch blk: {
         std.c._errno().* = @intFromEnum(std.c.E.RANGE);
         break :blk std.math.maxInt(T);
     };
@@ -222,7 +233,6 @@ fn parseDigitsWithSignGenericCharacter(
     var value: T = 0;
     while (true) {
         const c: u8 = std.math.cast(u8, current[0]) orelse break;
-        if (!std.ascii.isAlphanumeric(c)) break;
 
         const digit: u6 = @intCast(std.fmt.charToDigit(c, base) catch break);
         defer current += 1;
