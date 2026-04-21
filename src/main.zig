@@ -374,8 +374,7 @@ fn mainArgs(
         return stdout_writer.interface.flush();
     } else if (mem.eql(u8, cmd, "version")) {
         dev.check(.version_command);
-        // [sig] Print Sig version alongside upstream Zig version.
-        try Io.File.stdout().writeStreamingAll(io, "sig " ++ build_options.sig_version ++ " (zig " ++ build_options.version ++ ")\n");
+        try Io.File.stdout().writeStreamingAll(io, build_options.version ++ "\n");
         return;
     } else if (mem.eql(u8, cmd, "env")) {
         dev.check(.env_command);
@@ -1360,12 +1359,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
                         override_lib_dir = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--debug-log")) {
-                        if (!build_options.enable_logging) {
-                            warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
-                            _ = args_iter.nextOrFatal();
-                        } else {
-                            try log_scopes.append(arena, args_iter.nextOrFatal());
-                        }
+                        try addDebugLog(arena, args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--listen")) {
                         const next_arg = args_iter.nextOrFatal();
                         if (mem.eql(u8, next_arg, "-")) {
@@ -1859,9 +1853,9 @@ fn buildOutputType(
                             .extra_flags = try arena.dupe([]const u8, extra_rcflags.items),
                         });
                     },
-                    .zig, .sig => {
+                    .zig => {
                         if (root_src_file) |other| {
-                            fatal("found another source file '{s}' after root source file '{s}'", .{ arg, other });
+                            fatal("found another zig file '{s}' after root source file '{s}'", .{ arg, other });
                         } else root_src_file = arg;
                     },
                     .unknown => {
@@ -1992,9 +1986,9 @@ fn buildOutputType(
                                 .src_path = it.only_arg,
                             });
                         },
-                        .zig, .sig => {
+                        .zig => {
                             if (root_src_file) |other| {
-                                fatal("found another source file '{s}' after root source file '{s}'", .{ it.only_arg, other });
+                                fatal("found another zig file '{s}' after root source file '{s}'", .{ it.only_arg, other });
                             } else root_src_file = it.only_arg;
                         },
                     },
@@ -4206,7 +4200,7 @@ fn createModule(
         error.StackCheckUnsupportedByTarget => fatal("unable to create module '{s}': the selected target does not support stack checking", .{name}),
         error.StackProtectorUnsupportedByTarget => fatal("unable to create module '{s}': the selected target does not support stack protection", .{name}),
         error.StackProtectorUnavailableWithoutLibC => fatal("unable to create module '{s}': enabling stack protection requires libc", .{name}),
-        error.OutOfMemory => |e| return e,
+        error.OutOfMemory => return error.OutOfMemory,
     };
     cli_mod.resolved = mod;
 
@@ -4811,7 +4805,6 @@ const usage_init =
     \\
     \\Options:
     \\  -m, --minimal          Use minimal init template
-    \\  -z, --zig              Generate build.zig / build.zig.zon instead of build.sig / build.sig.zon
     \\  -h, --help             Print this help and exit
     \\
     \\
@@ -4821,7 +4814,6 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
     dev.check(.init_command);
 
     var template: enum { example, minimal } = .example;
-    var use_sig = true; // [sig] Default to build.sig / build.sig.zon; --zig opts out
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -4829,8 +4821,6 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-m") or mem.eql(u8, arg, "--minimal")) {
                     template = .minimal;
-                } else if (mem.eql(u8, arg, "-z") or mem.eql(u8, arg, "--zig")) {
-                    use_sig = false; // [sig] Opt out to build.zig / build.zig.zon
                 } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                     try Io.File.stdout().writeStreamingAll(io, usage_init);
                     return cleanExit(io);
@@ -4850,51 +4840,39 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
     const rng: std.Random.IoSource = .{ .io = io };
     const fingerprint: Package.Fingerprint = .generate(rng.interface(), sanitized_root_name);
 
-    // [sig] Select build file and manifest basenames based on --sig flag
-    const build_basename = if (use_sig) Package.build_sig_basename else Package.build_zig_basename;
-    const manifest_basename = if (use_sig) Package.Manifest.sig_basename else Package.Manifest.basename;
-
     switch (template) {
         .example => {
             var templates = findTemplates(gpa, arena, io);
             defer templates.deinit(io);
 
             const s = fs.path.sep_str;
-            // [sig] Template sources are always the .zig versions from lib/init/;
-            // output paths use the selected basenames.
-            const template_sources = [_][]const u8{
+            const template_paths = [_][]const u8{
                 Package.build_zig_basename,
                 Package.Manifest.basename,
                 "src" ++ s ++ "main.zig",
                 "src" ++ s ++ "root.zig",
             };
-            const output_paths = [_][]const u8{
-                build_basename,
-                manifest_basename,
-                "src" ++ s ++ "main.zig",
-                "src" ++ s ++ "root.zig",
-            };
             var ok_count: usize = 0;
 
-            for (template_sources, output_paths) |template_source, output_path| {
-                if (templates.writeAs(arena, io, Io.Dir.cwd(), sanitized_root_name, template_source, output_path, fingerprint)) |_| {
-                    std.log.info("created {s}", .{output_path});
+            for (template_paths) |template_path| {
+                if (templates.write(arena, io, Io.Dir.cwd(), sanitized_root_name, template_path, fingerprint)) |_| {
+                    std.log.info("created {s}", .{template_path});
                     ok_count += 1;
                 } else |err| switch (err) {
                     error.PathAlreadyExists => std.log.info("preserving already existing file: {s}", .{
-                        output_path,
+                        template_path,
                     }),
-                    else => std.log.err("unable to write {s}: {s}\n", .{ output_path, @errorName(err) }),
+                    else => std.log.err("unable to write {s}: {s}\n", .{ template_path, @errorName(err) }),
                 }
             }
 
-            if (ok_count == output_paths.len) {
+            if (ok_count == template_paths.len) {
                 std.log.info("see `zig build --help` for a menu of options", .{});
             }
             return cleanExit(io);
         },
         .minimal => {
-            writeSimpleTemplateFile(io, manifest_basename, // [sig]
+            writeSimpleTemplateFile(io, Package.Manifest.basename,
                 \\.{{
                 \\    .name = .{s},
                 \\    .version = "0.0.1",
@@ -4908,10 +4886,10 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
                 build_options.version,
                 fingerprint.int(),
             }) catch |err| switch (err) {
-                else => fatal("failed to create '{s}': {s}", .{ manifest_basename, @errorName(err) }),
-                error.PathAlreadyExists => fatal("refusing to overwrite '{s}'", .{manifest_basename}),
+                else => fatal("failed to create '{s}': {s}", .{ Package.Manifest.basename, @errorName(err) }),
+                error.PathAlreadyExists => fatal("refusing to overwrite '{s}'", .{Package.Manifest.basename}),
             };
-            writeSimpleTemplateFile(io, build_basename, // [sig]
+            writeSimpleTemplateFile(io, Package.build_zig_basename,
                 \\const std = @import("std");
                 \\
                 \\pub fn build(b: *std.Build) void {{
@@ -4919,15 +4897,15 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
                 \\}}
                 \\
             , .{}) catch |err| switch (err) {
-                else => fatal("failed to create '{s}': {s}", .{ build_basename, @errorName(err) }),
-                // Build file already existing is okay: the user has just used `zig init` to set up
-                // their manifest *after* writing their build file. So this one isn't fatal.
+                else => fatal("failed to create '{s}': {s}", .{ Package.build_zig_basename, @errorName(err) }),
+                // `build.zig` already existing is okay: the user has just used `zig init` to set up
+                // their `build.zig.zon` *after* writing their `build.zig`. So this one isn't fatal.
                 error.PathAlreadyExists => {
-                    std.log.info("successfully populated '{s}', preserving existing '{s}'", .{ manifest_basename, build_basename }); // [sig]
+                    std.log.info("successfully populated '{s}', preserving existing '{s}'", .{ Package.Manifest.basename, Package.build_zig_basename });
                     return cleanExit(io);
                 },
             };
-            std.log.info("successfully populated '{s}' and '{s}'", .{ manifest_basename, build_basename }); // [sig]
+            std.log.info("successfully populated '{s}' and '{s}'", .{ Package.Manifest.basename, Package.build_zig_basename });
             return cleanExit(io);
         },
     }
@@ -4966,260 +4944,6 @@ test sanitizeExampleName {
     try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, "test"));
     try std.testing.expectEqualStrings("tests", try sanitizeExampleName(arena, "tests"));
     try std.testing.expectEqualStrings("test_project", try sanitizeExampleName(arena, "test project"));
-}
-
-// [sig] Options for delegating to the sig build runner.
-// Zero allocators — all fields are borrowed slices from cmdBuild's scope.
-const SigBuildDelegateOptions = struct {
-    build_root_path: []const u8,
-    zig_lib_dir: []const u8,
-    local_cache_dir: []const u8,
-    global_cache_dir: []const u8,
-    self_exe_path: []const u8,
-    child_argv: []const []const u8,
-};
-
-// [sig] Compile and spawn the sig build runner (tools/sig_build/main.sig).
-// ZERO ALLOCATORS — all path construction, argv assembly, and process management
-// uses stack buffers and syscalls only. The build runner compilation is delegated
-// to a child `sig build-exe` process (which uses allocators internally, but that's
-// the compiler's own process, not ours).
-// [sig] noinline to prevent stack frame merging with cmdBuild (which is already huge).
-// Without this, the combined stack frame can exceed the default stack size.
-noinline fn sigBuildDelegate(
-    io: Io,
-    opts: SigBuildDelegateOptions,
-) void {
-    // 1. Locate tools/sig_build/main.sig relative to zig lib dir (stack buffer)
-    // Use small buffers to minimize stack frame size. sigBuildDelegate must not
-    // blow the stack when combined with cmdBuild's frame.
-    const path_buf_size = 512;
-    var runner_src_buf: [path_buf_size]u8 = undefined;
-    const runner_src = sigJoinPath(&runner_src_buf, &.{
-        opts.zig_lib_dir, "..", "tools", "sig_build", "main.sig",
-    });
-
-    // Verify the build runner source exists
-    Io.Dir.cwd().access(io, runner_src, .{}) catch {
-        fatal("sig build runner not found at '{s}'\n  Expected: tools/sig_build/main.sig relative to zig lib dir\n  Hint: run the bootstrap script to install the sig build runner", .{runner_src});
-    };
-
-    // 2. Construct module paths for --mod flags (stack buffers)
-    var sig_mod_buf: [path_buf_size]u8 = undefined;
-    const sig_mod_path = sigJoinPath(&sig_mod_buf, &.{ opts.zig_lib_dir, "sig", "sig.zig" });
-
-    var std_mod_buf: [path_buf_size]u8 = undefined;
-    const std_mod_path = sigJoinPath(&std_mod_buf, &.{ opts.zig_lib_dir, "std", "std.zig" });
-
-    // 3. Build output path for the compiled runner binary
-    var runner_bin_buf: [path_buf_size]u8 = undefined;
-    const runner_bin_name = switch (builtin.os.tag) {
-        .windows => "sig_build_runner.exe",
-        else => "sig_build_runner",
-    };
-    const runner_bin = sigJoinPath(&runner_bin_buf, &.{
-        opts.local_cache_dir, runner_bin_name,
-    });
-
-    // 4. Construct -femit-bin=<path> flag and -M flag values (stack buffers)
-    var emit_flag_buf: [path_buf_size + 16]u8 = undefined;
-    const emit_flag = sigConcat(&emit_flag_buf, &.{ "-femit-bin=", runner_bin });
-
-    var sig_mod_flag_buf: [path_buf_size + 8]u8 = undefined;
-    const sig_mod_flag = sigConcat(&sig_mod_flag_buf, &.{ "-Msig=", sig_mod_path });
-
-    var std_mod_flag_buf: [path_buf_size + 8]u8 = undefined;
-    const std_mod_flag = sigConcat(&std_mod_flag_buf, &.{ "-Mstd=", std_mod_path });
-
-    var root_mod_flag_buf: [path_buf_size + 8]u8 = undefined;
-    const root_mod_flag = sigConcat(&root_mod_flag_buf, &.{ "-Mroot=", runner_src });
-
-    // 5. Compile the build runner via child process: sig build-exe
-    //    This re-invokes the sig compiler itself, which handles all the
-    //    allocator-heavy compilation internally in its own process.
-    //    Module syntax: --dep name (before -Mroot=) then -Mname=path
-    const compile_argv = [_][]const u8{
-        opts.self_exe_path,
-        "build-exe",
-        "--dep",
-        "sig",
-        "--dep",
-        "std",
-        root_mod_flag,
-        sig_mod_flag,
-        std_mod_flag,
-        "--cache-dir",
-        opts.local_cache_dir,
-        "--global-cache-dir",
-        opts.global_cache_dir,
-        emit_flag,
-        "--zig-lib-dir",
-        opts.zig_lib_dir,
-    };
-
-    switch (sigSpawnAndWait(io, &compile_argv)) {
-        .exited => |code| {
-            if (code != 0) {
-                if (code == 2) process.exit(2); // Compile errors already reported
-                fatal("sig build runner compilation failed with exit code {d}", .{code});
-            }
-        },
-        .signal => |sig| fatal("sig build runner compilation terminated with signal {t}", .{sig}),
-        else => fatal("sig build runner compilation crashed", .{}),
-    }
-
-    // 6. Build argument vector for the runner using fixed-capacity stack array.
-    //    Layout: [runner_bin, self_exe, zig_lib, build_root, local_cache, global_cache, user_args...]
-    //    Filter child_argv (raw cmdBuild args) to only pass what the sig runner understands:
-    //    step names, -D flags, -j, --verbose, --benchmark, --verify-identical, --self-test.
-    //    Skip compiler-internal flags: --build-file, --zig-lib-dir, --cache-dir,
-    //    --global-cache-dir, --build-runner, --seed, -Z, --color, --fetch, --fork=,
-    //    --system, --debug-*, --verbose-*, -freference-trace, --maxrss, --prefix.
-    const fixed_args = 6;
-    const max_runner_argv = fixed_args + 256;
-    var runner_argv_buf: [max_runner_argv][]const u8 = undefined;
-    var runner_argv_len: usize = 0;
-    runner_argv_buf[runner_argv_len] = runner_bin;
-    runner_argv_len += 1;
-    runner_argv_buf[runner_argv_len] = opts.self_exe_path;
-    runner_argv_len += 1;
-    runner_argv_buf[runner_argv_len] = opts.zig_lib_dir;
-    runner_argv_len += 1;
-    runner_argv_buf[runner_argv_len] = opts.build_root_path;
-    runner_argv_len += 1;
-    runner_argv_buf[runner_argv_len] = opts.local_cache_dir;
-    runner_argv_len += 1;
-    runner_argv_buf[runner_argv_len] = opts.global_cache_dir;
-    runner_argv_len += 1;
-    {
-        var i: usize = 0;
-        while (i < opts.child_argv.len) : (i += 1) {
-            const arg = opts.child_argv[i];
-            // Skip flags consumed by cmdBuild (not for the sig runner)
-            if (mem.eql(u8, arg, "--build-file") or
-                mem.eql(u8, arg, "--zig-lib-dir") or
-                mem.eql(u8, arg, "--cache-dir") or
-                mem.eql(u8, arg, "--global-cache-dir") or
-                mem.eql(u8, arg, "--build-runner") or
-                mem.eql(u8, arg, "--seed") or
-                mem.eql(u8, arg, "--color") or
-                mem.eql(u8, arg, "--system") or
-                mem.eql(u8, arg, "--debug-log") or
-                mem.eql(u8, arg, "--debug-target") or
-                mem.eql(u8, arg, "--debug-libc") or
-                mem.eql(u8, arg, "--maxrss"))
-            {
-                if (i + 1 < opts.child_argv.len) i += 1; // skip the flag AND its value
-                continue;
-            }
-            // Skip flags with no value
-            if (mem.eql(u8, arg, "--fetch") or
-                mem.eql(u8, arg, "--debug-compile-errors") or
-                mem.eql(u8, arg, "--verbose-link") or
-                mem.eql(u8, arg, "--verbose-cc") or
-                mem.eql(u8, arg, "--verbose-air") or
-                mem.eql(u8, arg, "--verbose-intern-pool") or
-                mem.eql(u8, arg, "--verbose-generic-instances") or
-                mem.eql(u8, arg, "--verbose-llvm-ir") or
-                mem.eql(u8, arg, "--verbose-cimport") or
-                mem.eql(u8, arg, "--verbose-llvm-cpu-features") or
-                mem.eql(u8, arg, "-fno-reference-trace") or
-                mem.startsWith(u8, arg, "--fork=") or
-                mem.startsWith(u8, arg, "--fetch=") or
-                mem.startsWith(u8, arg, "--seed=") or
-                mem.startsWith(u8, arg, "--verbose-llvm-ir=") or
-                mem.startsWith(u8, arg, "--verbose-llvm-bc=") or
-                mem.startsWith(u8, arg, "-freference-trace") or
-                (arg.len >= 2 and arg[0] == '-' and arg[1] == 'Z'))
-            {
-                continue;
-            }
-            // -j is handled: convert to sig runner format
-            if (mem.startsWith(u8, arg, "-j")) {
-                if (runner_argv_len >= max_runner_argv) break;
-                runner_argv_buf[runner_argv_len] = arg;
-                runner_argv_len += 1;
-                continue;
-            }
-            // Pass through: step names, -D flags, --verbose, --benchmark, --verify-identical, --self-test, --
-            if (runner_argv_len >= max_runner_argv) break;
-            runner_argv_buf[runner_argv_len] = arg;
-            runner_argv_len += 1;
-        }
-    }
-    const runner_argv = runner_argv_buf[0..runner_argv_len];
-
-    // 7. Spawn runner and propagate exit code
-    switch (sigSpawnAndWait(io, runner_argv)) {
-        .exited => |code| {
-            if (code == 0) return;
-            if (code == 2) process.exit(2); // Compile errors already reported
-            process.exit(code);
-        },
-        .signal => |sig| fatal("sig build runner terminated with signal {t}", .{sig}),
-        else => fatal("sig build runner crashed", .{}),
-    }
-}
-
-// [sig] Spawn a child process and wait for it to exit. Zero allocators.
-fn sigSpawnAndWait(io: Io, argv: []const []const u8) std.process.Child.Term {
-    if (!process.can_spawn) {
-        fatal("cannot spawn process (platform does not support spawning)", .{});
-    }
-    _ = io.lockStderr(&.{}, .no_color) catch
-        fatal("failed to lock stderr for child process", .{});
-    defer io.unlockStderr();
-    var child = std.process.spawn(io, .{
-        .argv = argv,
-    }) catch |err| fatal("failed to spawn '{s}': {t}", .{ argv[0], err });
-    defer child.kill(io);
-    return child.wait(io) catch |err|
-        fatal("failed to wait for '{s}': {t}", .{ argv[0], err });
-}
-
-// [sig] Join path segments into a stack buffer using the platform separator.
-// Returns a slice into `buf`. Calls `fatal` if the buffer is too small.
-// Zero allocators — pure stack operation.
-fn sigJoinPath(buf: []u8, segments: []const []const u8) []const u8 {
-    const sep = fs.path.sep;
-    var offset: usize = 0;
-    for (segments, 0..) |seg, i| {
-        // Strip trailing separators (except root "/")
-        var s = seg;
-        while (s.len > 1 and s[s.len - 1] == sep) {
-            s = s[0 .. s.len - 1];
-        }
-        // Strip leading separators from non-first segments
-        if (i > 0) {
-            while (s.len > 0 and s[0] == sep) {
-                s = s[1..];
-            }
-        }
-        if (s.len == 0) continue;
-        // Add separator between segments
-        if (i > 0 and offset > 0 and buf[offset - 1] != sep) {
-            if (offset >= buf.len) fatal("sig build runner path exceeds maximum length", .{});
-            buf[offset] = sep;
-            offset += 1;
-        }
-        if (offset + s.len > buf.len) fatal("sig build runner path exceeds maximum length", .{});
-        @memcpy(buf[offset..][0..s.len], s);
-        offset += s.len;
-    }
-    return buf[0..offset];
-}
-
-// [sig] Concatenate slices into a stack buffer (no separator).
-// Returns a slice into `buf`. Calls `fatal` if the buffer is too small.
-// Zero allocators — pure stack operation.
-fn sigConcat(buf: []u8, slices: []const []const u8) []const u8 {
-    var offset: usize = 0;
-    for (slices) |s| {
-        if (offset + s.len > buf.len) fatal("sig build runner buffer exceeds maximum length", .{});
-        @memcpy(buf[offset..][0..s.len], s);
-        offset += s.len;
-    }
-    return buf[0..offset];
 }
 
 fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, environ_map: *process.Environ.Map) !void {
@@ -5369,11 +5093,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     try child_argv.appendSlice(arena, args[i .. i + 2]);
                     i += 1;
-                    if (!build_options.enable_logging) {
-                        warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
-                    } else {
-                        try log_scopes.append(arena, args[i]);
-                    }
+                    try addDebugLog(arena, args[i]);
                     continue;
                 } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                     if (build_options.enable_debug_extensions) {
@@ -5495,45 +5215,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
         .cwd_path = cwd_path,
         .build_file = build_file,
     });
-
-    // [sig] Delegate to sig build runner when build.sig is found
-    // and no ZIG_BUILD_RUNNER override is set.
-    // ZERO ALLOCATORS in the delegation path — all path construction uses stack
-    // buffers, compilation is delegated to a child sig process.
-    if (override_build_runner == null and
-        mem.eql(u8, build_root.build_zig_basename, Package.build_sig_basename))
-    {
-        std.log.info("using sig build runner for {s}", .{Package.build_sig_basename}); // [sig] verbose logging
-
-        // [sig] Resolve zig lib dir from override or self_exe_path (stack buffer, zero allocators).
-        // The zig lib dir is typically <exe_dir>/../lib or provided via ZIG_LIB_DIR.
-        var zig_lib_buf: [4096]u8 = undefined;
-        const zig_lib_dir = override_lib_dir orelse blk: {
-            const exe_dir = fs.path.dirname(self_exe_path) orelse ".";
-            break :blk sigJoinPath(&zig_lib_buf, &.{ exe_dir, "..", "lib" });
-        };
-
-        // [sig] Resolve local cache dir (stack buffer, zero allocators).
-        var local_cache_buf: [4096]u8 = undefined;
-        const local_cache_dir = override_local_cache_dir orelse blk: {
-            const br_path = build_root.directory.path orelse ".";
-            break :blk sigJoinPath(&local_cache_buf, &.{ br_path, introspect.default_local_zig_cache_basename });
-        };
-
-        // [sig] Resolve global cache dir. If not overridden, use local cache as fallback.
-        const global_cache_dir = override_global_cache_dir orelse local_cache_dir;
-
-        return sigBuildDelegate(io, .{
-            .build_root_path = build_root.directory.path orelse ".",
-            .zig_lib_dir = zig_lib_dir,
-            .local_cache_dir = local_cache_dir,
-            .global_cache_dir = global_cache_dir,
-            .self_exe_path = self_exe_path,
-            .child_argv = args,
-        });
-    }
-
-    std.log.info("using standard Zig build runner for {s}", .{build_root.build_zig_basename}); // [sig] verbose logging
 
     // This `init` calls `fatal` on error.
     var dirs: Compilation.Directories = .init(
@@ -5690,6 +5371,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     .hash_tok = .none,
                     .name_tok = 0,
                     .lazy_status = .eager,
+                    .remote_package_root = phantom_package_root,
                     .parent_package_root = phantom_package_root,
                     .parent_manifest_ast = null,
                     .prog_node = fetch_prog_node,
@@ -5710,6 +5392,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
 
                     .module = build_mod,
                 };
+
                 job_queue.all_fetches.appendAssumeCapacity(&fetch);
 
                 job_queue.table.putAssumeCapacityNoClobber(
@@ -7344,10 +7027,11 @@ const usage_fetch =
     \\  --cache-dir [path]            Override path to local cache directory
     \\  --pkg-dir [path]              Override path to local package directory
     \\  --debug-hash                  Print verbose hash information to stdout
-    \\  --save                        Add the fetched package to build.sig.zon or build.zig.zon
-    \\  --save=[name]                 Add the fetched package to build.sig.zon or build.zig.zon as name
-    \\  --save-exact                  Add the fetched package to build.sig.zon or build.zig.zon, storing the URL verbatim
-    \\  --save-exact=[name]           Add the fetched package to build.sig.zon or build.zig.zon as name, storing the URL verbatim
+    \\  --debug-log [scope]           Enable printing debug/info log messages for scope
+    \\  --save                        Add the fetched package to build.zig.zon
+    \\  --save=[name]                 Add the fetched package to build.zig.zon as name
+    \\  --save-exact                  Add the fetched package to build.zig.zon, storing the URL verbatim
+    \\  --save-exact=[name]           Add the fetched package to build.zig.zon as name, storing the URL verbatim
     \\
 ;
 
@@ -7381,19 +7065,23 @@ fn cmdFetch(
                     try Io.File.stdout().writeStreamingAll(io, usage_fetch);
                     return cleanExit(io);
                 } else if (mem.eql(u8, arg, "--global-cache-dir")) {
-                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    if (i + 1 >= args.len) fatal("expected argument after: {s}", .{arg});
                     i += 1;
                     override_global_cache_dir = args[i];
                 } else if (mem.eql(u8, arg, "--cache-dir")) {
-                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    if (i + 1 >= args.len) fatal("expected argument after: {s}", .{arg});
                     i += 1;
                     override_local_cache_dir = args[i];
                 } else if (mem.eql(u8, arg, "--pkg-dir")) {
-                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    if (i + 1 >= args.len) fatal("expected argument after: {s}", .{arg});
                     i += 1;
                     override_pkg_dir = args[i];
                 } else if (mem.eql(u8, arg, "--debug-hash")) {
                     debug_hash = true;
+                } else if (mem.eql(u8, arg, "--debug-log")) {
+                    if (i + 1 >= args.len) fatal("expected argument after: {s}", .{arg});
+                    i += 1;
+                    try addDebugLog(arena, args[i]);
                 } else if (mem.eql(u8, arg, "--save")) {
                     save = .{ .yes = null };
                 } else if (mem.cutPrefix(u8, arg, "--save=")) |rest| {
@@ -7482,6 +7170,7 @@ fn cmdFetch(
         .hash_tok = .none,
         .name_tok = 0,
         .lazy_status = .eager,
+        .remote_package_root = undefined,
         .parent_package_root = undefined,
         .parent_manifest_ast = null,
         .prog_node = root_prog_node,
@@ -7533,14 +7222,14 @@ fn cmdFetch(
         .yes, .exact => |name| name: {
             if (name) |n| break :name n;
             if (!fetch.have_manifest)
-                fatal("unable to determine name; fetched package has no build.sig.zon or build.zig.zon file", .{}); // [sig]
+                fatal("unable to determine name; fetched package has no build.zig.zon file", .{});
             break :name fetch.manifest.name;
         },
     };
 
     // The name to use in case the manifest file needs to be created now.
     const init_root_name = fs.path.basename(build_root.directory.path orelse cwd_path);
-    var manifest, var ast, const manifest_basename = try loadManifest(gpa, arena, io, .{
+    var manifest, var ast = try loadManifest(gpa, arena, io, .{
         .root_name = try sanitizeExampleName(arena, init_root_name),
         .dir = build_root.directory.handle,
         .color = color,
@@ -7656,8 +7345,8 @@ fn cmdFetch(
     try ast.render(gpa, &aw.writer, fixups);
     const rendered = aw.written();
 
-    build_root.directory.handle.writeFile(io, .{ .sub_path = manifest_basename, .data = rendered }) catch |err| { // [sig]
-        fatal("unable to write {s} file: {t}", .{ manifest_basename, err });
+    build_root.directory.handle.writeFile(io, .{ .sub_path = Package.Manifest.basename, .data = rendered }) catch |err| {
+        fatal("unable to write {s} file: {t}", .{ Package.Manifest.basename, err });
     };
 
     return cleanExit(io);
@@ -7773,25 +7462,9 @@ fn findBuildRoot(arena: Allocator, io: Io, options: FindBuildRootOptions) !Build
             .cleanup_build_dir = null,
         };
     }
-    // Search up parent directories until we find build.sig or build.zig. // [sig]
+    // Search up parent directories until we find build.zig.
     var dirname: []const u8 = cwd_path;
     while (true) {
-        // [sig] Try build.sig first, then fall back to build.zig
-        const sig_path = try fs.path.join(arena, &[_][]const u8{ dirname, Package.build_sig_basename }); // [sig]
-        if (Io.Dir.cwd().access(io, sig_path, .{})) |_| { // [sig]
-            const dir = Io.Dir.cwd().openDir(io, dirname, .{}) catch |err| { // [sig]
-                fatal("unable to open directory while searching for build file, '{s}': {s}", .{ dirname, @errorName(err) }); // [sig]
-            }; // [sig]
-            return .{ // [sig]
-                .build_zig_basename = Package.build_sig_basename, // [sig]
-                .directory = .{ // [sig]
-                    .path = dirname, // [sig]
-                    .handle = dir, // [sig]
-                }, // [sig]
-                .cleanup_build_dir = dir, // [sig]
-            }; // [sig]
-        } else |_| {} // [sig]
-
         const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
         if (Io.Dir.cwd().access(io, joined_path, .{})) |_| {
             const dir = Io.Dir.cwd().openDir(io, dirname, .{}) catch |err| {
@@ -7832,26 +7505,20 @@ fn loadManifest(
     arena: Allocator,
     io: Io,
     options: LoadManifestOptions,
-) !struct { Package.Manifest, Ast, []const u8 } {
+) !struct { Package.Manifest, Ast } {
     const rng: std.Random.IoSource = .{ .io = io };
-
-    // [sig] Try build.sig.zon first, fall back to build.zig.zon
-    const manifest_basename = if (options.dir.access(io, Package.Manifest.sig_basename, .{})) |_|
-        Package.Manifest.sig_basename
-    else |_|
-        Package.Manifest.basename;
 
     const manifest_bytes = while (true) {
         break options.dir.readFileAllocOptions(
             io,
-            manifest_basename,
+            Package.Manifest.basename,
             arena,
             .limited(Package.Manifest.max_bytes),
             .@"1",
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
-                writeSimpleTemplateFile(io, manifest_basename,
+                writeSimpleTemplateFile(io, Package.Manifest.basename,
                     \\.{{
                     \\    .name = .{s},
                     \\    .version = "{s}",
@@ -7864,18 +7531,18 @@ fn loadManifest(
                     build_options.version,
                     Package.Fingerprint.generate(rng.interface(), options.root_name).int(),
                 }) catch |e| {
-                    fatal("unable to write {s}: {t}", .{ manifest_basename, e });
+                    fatal("unable to write {s}: {t}", .{ Package.Manifest.basename, e });
                 };
                 continue;
             },
-            else => |e| fatal("unable to load {s}: {t}", .{ manifest_basename, e }),
+            else => |e| fatal("unable to load {s}: {t}", .{ Package.Manifest.basename, e }),
         };
     };
     var ast = try Ast.parse(gpa, manifest_bytes, .zon);
     errdefer ast.deinit(gpa);
 
     if (ast.errors.len > 0) {
-        try std.zig.printAstErrorsToStderr(gpa, io, ast, manifest_basename, options.color);
+        try std.zig.printAstErrorsToStderr(gpa, io, ast, Package.Manifest.basename, options.color);
         process.exit(2);
     }
 
@@ -7887,7 +7554,7 @@ fn loadManifest(
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
 
-        const src_path = try wip_errors.addString(manifest_basename);
+        const src_path = try wip_errors.addString(Package.Manifest.basename);
         try manifest.copyErrorsIntoBundle(ast, src_path, &wip_errors);
 
         var error_bundle = try wip_errors.toOwnedBundle("");
@@ -7896,7 +7563,7 @@ fn loadManifest(
 
         process.exit(2);
     }
-    return .{ manifest, ast, manifest_basename };
+    return .{ manifest, ast };
 }
 
 const Templates = struct {
@@ -7958,60 +7625,6 @@ const Templates = struct {
 
         return out_dir.writeFile(io, .{
             .sub_path = template_path,
-            .data = templates.buffer.items,
-            .flags = .{ .exclusive = true },
-        });
-    }
-
-    // [sig] Write a template file, reading from `source_path` in the template directory
-    // but writing to `out_path` in the output directory. This allows `--sig` to reuse
-    // the .zig templates while generating .sig output files.
-    fn writeAs(
-        templates: *Templates,
-        arena: Allocator,
-        io: Io,
-        out_dir: Io.Dir,
-        root_name: []const u8,
-        source_path: []const u8,
-        out_path: []const u8,
-        fingerprint: Package.Fingerprint,
-    ) !void {
-        if (fs.path.dirname(out_path)) |dirname| {
-            out_dir.createDirPath(io, dirname) catch |err| {
-                fatal("unable to make path '{s}': {t}", .{ dirname, err });
-            };
-        }
-
-        const max_bytes = 10 * 1024 * 1024;
-        const contents = templates.dir.readFileAlloc(io, source_path, arena, .limited(max_bytes)) catch |err| {
-            fatal("unable to read template file '{s}': {t}", .{ source_path, err });
-        };
-        templates.buffer.clearRetainingCapacity();
-        try templates.buffer.ensureUnusedCapacity(contents.len);
-        var i: usize = 0;
-        while (i < contents.len) {
-            if (contents[i] == '_' or contents[i] == '.') {
-                if (std.mem.startsWith(u8, contents[i + 1 ..], "NAME")) {
-                    try templates.buffer.appendSlice(root_name);
-                    i += "_NAME".len;
-                    continue;
-                } else if (std.mem.startsWith(u8, contents[i + 1 ..], "FINGERPRINT")) {
-                    try templates.buffer.print("0x{x}", .{fingerprint.int()});
-                    i += "_FINGERPRINT".len;
-                    continue;
-                } else if (std.mem.startsWith(u8, contents[i + 1 ..], "ZIGVER")) {
-                    try templates.buffer.appendSlice(build_options.version);
-                    i += "_ZIGVER".len;
-                    continue;
-                }
-            }
-
-            try templates.buffer.append(contents[i]);
-            i += 1;
-        }
-
-        return out_dir.writeFile(io, .{
-            .sub_path = out_path,
             .data = templates.buffer.items,
             .flags = .{ .exclusive = true },
         });
@@ -8201,4 +7814,12 @@ fn randInt(io: Io, comptime T: type) T {
     var x: T = undefined;
     io.random(@ptrCast(&x));
     return x;
+}
+
+fn addDebugLog(arena: Allocator, scope_name: []const u8) error{OutOfMemory}!void {
+    if (!build_options.enable_logging) {
+        warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
+    } else {
+        try log_scopes.append(arena, scope_name);
+    }
 }
