@@ -11136,6 +11136,9 @@ pub extern "c" fn swab(noalias from: *const anyopaque, noalias to: *anyopaque, n
 pub extern "c" fn strncmp(a: [*:0]const c_char, b: [*:0]const c_char, max: usize) c_int;
 pub extern "c" fn strcasecmp(a: [*:0]const c_char, b: [*:0]const c_char) c_int;
 pub extern "c" fn strncasecmp(a: [*:0]const c_char, b: [*:0]const c_char, max: usize) c_int;
+pub extern "c" fn strdup(s: [*:0]const c_char) ?[*:0]c_char;
+pub extern "c" fn strndup(s: [*:0]const c_char, n: usize) ?[*:0]c_char;
+pub extern "c" fn wcsdup(s: [*:0]const wchar_t) ?[*:0]wchar_t;
 
 pub extern "c" fn ffs(i: c_int) c_int;
 pub extern "c" fn ffsl(i: c_long) c_long;

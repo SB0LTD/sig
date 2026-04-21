@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const symbol = @import("../c.zig").symbol;
+const c = std.c;
 
 comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
@@ -24,6 +25,8 @@ comptime {
         symbol(&strpbrk, "strpbrk");
         symbol(&strstr, "strstr");
         symbol(&strtok, "strtok");
+        symbol(&strdup, "strdup");
+        symbol(&strndup, "strndup");
         // strlen is in compiler_rt
 
         symbol(&strtok_r, "strtok_r");
@@ -162,6 +165,23 @@ fn strtok(noalias maybe_str: ?[*:0]c_char, noalias values: [*:0]const c_char) ca
     };
 
     return strtok_r(maybe_str, values, &state.str);
+}
+
+fn strdup(str: [*:0]const c_char) callconv(.c) ?[*:0]c_char {
+    const len = std.mem.len(str);
+    const d_opaque = c.malloc(len + 1) orelse return null;
+    const d: [*]c_char = @ptrCast(d_opaque);
+    @memcpy(d[0 .. len + 1], str[0 .. len + 1]);
+    return @ptrCast(d);
+}
+
+fn strndup(str: [*:0]const c_char, n: usize) callconv(.c) ?[*:0]c_char {
+    const len = strnlen(str, n);
+    const d_opaque = c.malloc(len + 1) orelse return null;
+    const d: [*]c_char = @ptrCast(d_opaque);
+    @memcpy(d[0..len], str[0..len]);
+    d[len] = 0;
+    return @ptrCast(d);
 }
 
 // strlen is in compiler_rt
