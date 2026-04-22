@@ -6,9 +6,9 @@ const BuiltinFn = std.zig.BuiltinFn;
 
 ast: *const Ast,
 transformations: *std.array_list.Managed(Transformation),
-unreferenced_globals: std.StringArrayHashMapUnmanaged(Ast.Node.Index),
-in_scope_names: std.StringArrayHashMapUnmanaged(u32),
-replace_names: std.StringArrayHashMapUnmanaged(u32),
+unreferenced_globals: std.array_hash_map.String(Ast.Node.Index),
+in_scope_names: std.array_hash_map.String(u32),
+replace_names: std.array_hash_map.String(u32),
 gpa: std.mem.Allocator,
 arena: std.mem.Allocator,
 
@@ -63,9 +63,9 @@ pub fn findTransformations(
         .transformations = transformations,
         .gpa = transformations.allocator,
         .arena = arena,
-        .unreferenced_globals = .{},
-        .in_scope_names = .{},
-        .replace_names = .{},
+        .unreferenced_globals = .empty,
+        .in_scope_names = .empty,
+        .replace_names = .empty,
     };
     defer {
         walk.unreferenced_globals.deinit(walk.gpa);
@@ -607,7 +607,7 @@ fn walkBlock(
                 {
                     try w.transformations.append(.{ .delete_var_decl = .{
                         .var_decl_node = stmt,
-                        .references = .{},
+                        .references = .empty,
                     } });
                     const name_tok = var_decl.ast.mut_token + 1;
                     const name_bytes = ast.tokenSlice(name_tok);
