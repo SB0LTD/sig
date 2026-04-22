@@ -6672,11 +6672,7 @@ const ParamTypeIterator = struct {
                     .memory => return .byref_mut,
                     .float_array => |len| return Lowering{ .float_array = len },
                     .byval => return .byval,
-                    .integer => {
-                        it.types_len = 1;
-                        it.types_buffer[0] = .i64;
-                        return .multiple_llvm_types;
-                    },
+                    .integer => return .abi_sized_int,
                     .double_integer => return Lowering{ .i64_array = 2 },
                 }
             },
