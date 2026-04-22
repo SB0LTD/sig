@@ -3013,6 +3013,13 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
         try comp.appendFileSystemInput(try .fromUnresolved(arena, comp.dirs, &.{c_object.src.src_path}));
     }
 
+    for (comp.link_inputs) |input| if (input.path()) |path| {
+        try comp.appendFileSystemInput(try .fromUnresolved(arena, comp.dirs, &.{
+            path.root_dir.path orelse ".",
+            path.sub_path,
+        }));
+    };
+
     // For compiling Win32 resources, we rely on the cache hash system to avoid duplicating work.
     // Add a Job for each Win32 resource file.
     try comp.win32_resource_work_queue.ensureUnusedCapacity(gpa, comp.win32_resource_table.count());
