@@ -1,9 +1,9 @@
-# pretty printing for the zig language, zig standard library, and zig stage 2 compiler.
+# pretty printing for the zig language, zig standard library, and zig compiler.
 # put commands in ~/.lldbinit to run them automatically when starting lldb
-# `command script import /path/to/zig/tools/lldb_pretty_printers.py` to import this file
+# `command script import /path/to/zig/lib/lldb/pretty_printers.py` to import this file
 # `type category enable zig.lang` to enable pretty printing for the zig language
 # `type category enable zig.std` to enable pretty printing for the zig standard library
-# `type category enable zig.stage2` to enable pretty printing for the zig stage 2 compiler
+# `type category enable zig.compiler` to enable pretty printing for the zig compiler
 import lldb
 import re
 
@@ -331,7 +331,7 @@ class std_Entry_SynthProvider:
     def get_child_index(self, name): return self.indices.get(name)
     def get_child_at_index(self, index): return self.children[index].deref if index in range(len(self.children)) else None
 
-# Define Zig Stage2 Compiler
+# Define Zig Compiler
 
 class TagAndPayload_SynthProvider:
     def __init__(self, value, _=None): self.value = value
@@ -680,7 +680,7 @@ value_tag_handlers = {
     'lazy_size': lambda payload: '@sizeOf(%s)' % type_Type_SummaryProvider(payload),
 }
 
-# Define Zig Stage2 Compiler (compiled with the self-hosted backend)
+# Define Zig Compiler (compiled with the self-hosted backend)
 
 class root_InternPool_Local_List_SynthProvider:
     def __init__(self, value, _=None): self.value = value
@@ -915,31 +915,31 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig.std', regex=True, type='^hash_map\\.HashMapUnmanaged\\(.*\\)$', identifier='std_HashMapUnmanaged', synth=True, expand=True, summary=True)
     add(debugger, category='zig.std', regex=True, type='^hash_map\\.HashMapUnmanaged\\(.*\\)\\.Entry$', identifier = 'std_Entry', synth=True, inline_children=True, summary=True)
 
-    # Initialize Zig Stage2 Compiler
-    add(debugger, category='zig.stage2', type='Zir.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
-    add(debugger, category='zig.stage2', regex=True, type=MultiArrayList_Entry('Zir\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
-    add(debugger, category='zig.stage2', regex=True, type='^Zir\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
-    add(debugger, category='zig.stage2', type='Zir.Inst::Zir.Inst.Ref', identifier='InstRef', summary=True)
-    add(debugger, category='zig.stage2', type='Zir.Inst::Zir.Inst.Index', identifier='InstIndex', summary=True)
-    add(debugger, category='zig.stage2', type='Air.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
-    add(debugger, category='zig.stage2', type='Air.Inst::Air.Inst.Ref', identifier='InstRef', summary=True)
-    add(debugger, category='zig.stage2', type='Air.Inst::Air.Inst.Index', identifier='InstIndex', summary=True)
-    add(debugger, category='zig.stage2', regex=True, type=MultiArrayList_Entry('Air\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
-    add(debugger, category='zig.stage2', regex=True, type='^Air\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
-    add(debugger, category='zig.stage2', type='zig.DeclIndex', synth=True)
-    add(debugger, category='zig.stage2', type='Module.Namespace::Module.Namespace.Index', synth=True)
-    add(debugger, category='zig.stage2', type='Module.LazySrcLoc', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.stage2', type='InternPool.Index', synth=True)
-    add(debugger, category='zig.stage2', type='InternPool.NullTerminatedString', summary=True)
-    add(debugger, category='zig.stage2', type='InternPool.Key', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.stage2', type='InternPool.Key.Int.Storage', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.stage2', type='InternPool.Key.ErrorUnion.Value', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.stage2', type='InternPool.Key.Float.Storage', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.stage2', type='InternPool.Key.Ptr.Addr', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.stage2', type='InternPool.Key.Aggregate.Storage', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.stage2', type='arch.x86_64.CodeGen.MCValue', identifier='zig_TaggedUnion', synth=True, inline_children=True, summary=True)
+    # Initialize Zig Compiler
+    add(debugger, category='zig.compiler', type='Zir.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
+    add(debugger, category='zig.compiler', regex=True, type=MultiArrayList_Entry('Zir\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
+    add(debugger, category='zig.compiler', regex=True, type='^Zir\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
+    add(debugger, category='zig.compiler', type='Zir.Inst::Zir.Inst.Ref', identifier='InstRef', summary=True)
+    add(debugger, category='zig.compiler', type='Zir.Inst::Zir.Inst.Index', identifier='InstIndex', summary=True)
+    add(debugger, category='zig.compiler', type='Air.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
+    add(debugger, category='zig.compiler', type='Air.Inst::Air.Inst.Ref', identifier='InstRef', summary=True)
+    add(debugger, category='zig.compiler', type='Air.Inst::Air.Inst.Index', identifier='InstIndex', summary=True)
+    add(debugger, category='zig.compiler', regex=True, type=MultiArrayList_Entry('Air\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
+    add(debugger, category='zig.compiler', regex=True, type='^Air\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
+    add(debugger, category='zig.compiler', type='zig.DeclIndex', synth=True)
+    add(debugger, category='zig.compiler', type='Module.Namespace::Module.Namespace.Index', synth=True)
+    add(debugger, category='zig.compiler', type='Module.LazySrcLoc', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='zig.compiler', type='InternPool.Index', synth=True)
+    add(debugger, category='zig.compiler', type='InternPool.NullTerminatedString', summary=True)
+    add(debugger, category='zig.compiler', type='InternPool.Key', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='zig.compiler', type='InternPool.Key.Int.Storage', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='zig.compiler', type='InternPool.Key.ErrorUnion.Value', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='zig.compiler', type='InternPool.Key.Float.Storage', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='zig.compiler', type='InternPool.Key.Ptr.Addr', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='zig.compiler', type='InternPool.Key.Aggregate.Storage', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='zig.compiler', type='arch.x86_64.CodeGen.MCValue', identifier='zig_TaggedUnion', synth=True, inline_children=True, summary=True)
 
-    # Initialize Zig Stage2 Compiler (compiled with the self-hosted backend)
+    # Initialize Zig Compiler (compiled with the self-hosted backend)
     add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.Local\.List\(.*\)$', identifier='root_InternPool_Local_List', synth=True, expand=True, summary='capacity=${var%#}')
     add(debugger, category='zig', type='root.InternPool.Index', synth=True, summary=True)
     add(debugger, category='zig', type='root.InternPool.Index.Unwrapped', synth=True)
