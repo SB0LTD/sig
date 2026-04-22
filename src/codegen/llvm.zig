@@ -1358,24 +1358,22 @@ pub const Object = struct {
                     },
                     .multiple_llvm_types => {
                         assert(!it.byval_attr);
-                        const field_types = it.types_buffer[0..it.types_len];
                         const param_ty: Type = .fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                         const param_llvm_ty = try o.lowerType(param_ty);
-                        const param_alignment = param_ty.abiAlignment(zcu).toLlvm();
-                        const arg_ptr = try buildAllocaInner(&wip, param_llvm_ty, param_alignment, target);
-                        const llvm_ty = try o.builder.structType(.normal, field_types);
-                        const llvm_args_start = it.llvm_index - field_types.len;
-                        for (0..field_types.len, llvm_args_start..) |field_i, llvm_arg_index| {
+                        const param_alignment = param_ty.abiAlignment(zcu);
+                        const llvm_ty = try o.builder.arrayType(it.offsets_buffer[it.types_len], .i8);
+                        const arg_ptr = try buildAllocaInner(&wip, llvm_ty, param_alignment.toLlvm(), target);
+                        const llvm_args_start = it.llvm_index - it.types_len;
+                        for (llvm_args_start.., it.offsets_buffer[0..it.types_len]) |llvm_arg_index, offset| {
                             const param = wip.arg(@intCast(llvm_arg_index));
-                            const field_ptr = try wip.gepStruct(llvm_ty, arg_ptr, field_i, "");
-                            const alignment = Type.ptrAbiAlignment(target).toLlvm();
-                            _ = try wip.store(.normal, param, field_ptr, alignment);
+                            const part_ptr = try o.ptraddConst(&wip, arg_ptr, offset);
+                            _ = try wip.store(.normal, param, part_ptr, param_alignment.offset(offset).toLlvm());
                         }
 
                         if (isByRef(param_ty, zcu)) {
                             args.appendAssumeCapacity(arg_ptr);
                         } else {
-                            args.appendAssumeCapacity(try wip.load(.normal, param_llvm_ty, arg_ptr, param_alignment, ""));
+                            args.appendAssumeCapacity(try wip.load(.normal, param_llvm_ty, arg_ptr, param_alignment.toLlvm(), ""));
                         }
                     },
                     .float_array => {
@@ -4361,6 +4359,13 @@ pub const Object = struct {
             fn_name,
             toLlvmAddressSpace(.generic, o.zcu.getTarget()),
         );
+    }
+
+    pub fn ptraddConst(o: *Object, wip: *Builder.WipFunction, ptr: Builder.Value, offset: u64) Allocator.Error!Builder.Value {
+        if (offset == 0) return ptr;
+        const llvm_usize_ty = try o.lowerType(.usize);
+        const offset_val = try o.builder.intValue(llvm_usize_ty, offset);
+        return wip.gep(.inbounds, .i8, ptr, &.{offset_val}, "");
     }
 };
 

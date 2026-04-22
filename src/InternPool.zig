@@ -5888,6 +5888,12 @@ pub const Alignment = enum(u6) {
         return @enumFromInt(@min(@intFromEnum(lhs), @intFromEnum(rhs)));
     }
 
+    /// Given a base address known to be aligned to `a`,
+    /// computes the known alignment of base address plus `off`.
+    pub fn offset(a: Alignment, off: u64) Alignment {
+        return .fromLog2Units(@min(a.toLog2Units(), @ctz(off)));
+    }
+
     /// Align an address forwards to this alignment.
     pub fn forward(a: Alignment, addr: u64) u64 {
         assert(a != .none);

@@ -287,7 +287,6 @@ extern fn c_ret_struct_u8() Struct_u8;
 extern fn c_struct_u8(Struct_u8, usize) void;
 
 test "C ABI struct u8" {
-    if (builtin.cpu.arch == .aarch64_be) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
@@ -315,7 +314,6 @@ extern fn c_ret_struct_u16() Struct_u16;
 extern fn c_struct_u16(Struct_u16, usize) void;
 
 test "C ABI struct u16" {
-    if (builtin.cpu.arch == .aarch64_be) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
@@ -343,7 +341,6 @@ extern fn c_ret_struct_u32() Struct_u32;
 extern fn c_struct_u32(Struct_u32, usize) void;
 
 test "C ABI struct u32" {
-    if (builtin.cpu.arch == .aarch64_be) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
@@ -770,7 +767,6 @@ test "C ABI small struct of ints" {
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .aarch64_be) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
     if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
@@ -5613,7 +5609,6 @@ extern fn c_ret_ptr_size_float_struct() Vector2;
 
 test "C ABI pointer sized float struct" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
-    if (builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isArm() and builtin.abi.float() == .soft) return error.SkipZigTest;
     if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
@@ -5978,7 +5973,6 @@ extern fn stdcall_coord2(Coord2, Coord2, Coord2) callconv(stdcall_callconv) Coor
 test "Stdcall ABI structs" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .aarch64_be) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
     if (builtin.cpu.arch == .s390x) return error.SkipZigTest;

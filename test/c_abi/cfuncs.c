@@ -2802,7 +2802,6 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined(__AARCH_BIG_ENDIAN)
 #if !defined(__mips64)
 #if !defined(ZIG_PPC32)
 #if !defined(__s390x__)
@@ -2814,9 +2813,7 @@ void run_c_tests(void) {
 #endif
 #endif
 #endif
-#endif
 
-#if !defined(__AARCH_BIG_ENDIAN)
 #if !defined(__mips64)
 #if !defined(ZIG_PPC32)
 #if !defined(__s390x__)
@@ -2828,9 +2825,7 @@ void run_c_tests(void) {
 #endif
 #endif
 #endif
-#endif
 
-#if !defined(__AARCH_BIG_ENDIAN)
 #if !defined(__mips64)
 #if !defined(ZIG_PPC32)
 #if !defined(__s390x__)
@@ -2839,7 +2834,6 @@ void run_c_tests(void) {
         assert_or_panic(s.a == 13);
         zig_struct_u32((struct Struct_u32){ .a = 14 }, 15);
     }
-#endif
 #endif
 #endif
 #endif
@@ -2872,7 +2866,6 @@ void run_c_tests(void) {
         zig_struct_u64_u64_8(0, 1, 2, 3, 4, 5, 6, 7, (struct Struct_u64_u64){ .a = 19, .b = 20 }, 9);
     }
 
-#if !defined(ZIG_RISCV64)
 #if !defined(__mips64__)
     {
         struct Struct_f32 s = zig_ret_struct_f32();
@@ -2908,7 +2901,6 @@ void run_c_tests(void) {
     }
 #endif
 #endif
-#endif
 
 #if !defined(__powerpc__) && !defined(__loongarch__) && !defined(__mips64__)
     {
@@ -2933,8 +2925,8 @@ void run_c_tests(void) {
 #endif
 #endif
 
-#if !defined __i386__ && !defined __arm__ && !defined(__AARCH_BIG_ENDIAN) && \
-    !defined __powerpc__ && !defined ZIG_RISCV64 && !defined(__loongarch__) && \
+#if !defined __i386__ && !defined __arm__ && \
+    !defined __powerpc__ && !defined(__loongarch__) && \
     !defined(__mips64__) && !defined(__hexagon__) && !defined(__s390x__)
     {
         struct SmallStructInts s = {1, 2, 3, 4};
@@ -2942,8 +2934,8 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __arm__ && !defined(__AARCH_BIG_ENDIAN) && \
-    !defined __powerpc__ && !defined ZIG_RISCV64 && !defined(__loongarch__) && \
+#if !defined __arm__ && \
+    !defined __powerpc__ && !defined(__loongarch__) && \
     !defined(__mips64__) && !defined(__hexagon__) && !defined(__s390x__)
     {
         struct MedStructInts s = {1, 2, 3};

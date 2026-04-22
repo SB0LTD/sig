@@ -709,22 +709,25 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         .multiple_llvm_types => {
             const arg = args[it.zig_index - 1];
             const param_ty = self.typeOf(arg);
-            const llvm_types = it.types_buffer[0..it.types_len];
             const llvm_arg = try self.resolveInst(arg);
             const is_by_ref = isByRef(param_ty, zcu);
-            const arg_ptr = if (is_by_ref) llvm_arg else ptr: {
-                const alignment = param_ty.abiAlignment(zcu).toLlvm();
-                const ptr = try self.buildAlloca(llvm_arg.typeOfWip(&self.wip), alignment);
-                _ = try self.wip.store(.normal, llvm_arg, ptr, alignment);
-                break :ptr ptr;
-            };
+            const param_alignment = param_ty.abiAlignment(zcu);
+            const llvm_ty = try o.builder.arrayType(it.offsets_buffer[it.types_len], .i8);
+            const arg_ptr = try self.buildAlloca(llvm_ty, param_alignment.toLlvm());
+            if (is_by_ref) _ = try self.wip.callMemCpy(
+                arg_ptr,
+                param_alignment.toLlvm(),
+                llvm_arg,
+                param_alignment.toLlvm(),
+                try o.builder.intValue(try o.lowerType(.usize), param_ty.abiSize(zcu)),
+                .normal,
+                self.disable_intrinsics,
+            ) else _ = try self.wip.store(.normal, llvm_arg, arg_ptr, param_alignment.toLlvm());
 
-            const llvm_ty = try o.builder.structType(.normal, llvm_types);
             try llvm_args.ensureUnusedCapacity(it.types_len);
-            for (llvm_types, 0..) |field_ty, i| {
-                const alignment: Builder.Alignment = .fromByteUnits(@divExact(target.ptrBitWidth(), 8));
-                const field_ptr = try self.wip.gepStruct(llvm_ty, arg_ptr, i, "");
-                const loaded = try self.wip.load(.normal, field_ty, field_ptr, alignment, "");
+            for (it.types_buffer[0..it.types_len], it.offsets_buffer[0..it.types_len]) |field_ty, offset| {
+                const field_ptr = try self.ptraddConst(arg_ptr, offset);
+                const loaded = try self.wip.load(.normal, field_ty, field_ptr, param_alignment.offset(offset).toLlvm(), "");
                 llvm_args.appendAssumeCapacity(loaded);
             }
         },
@@ -2269,10 +2272,7 @@ fn airStructFieldVal(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Build
 
     const struct_ptr_align = struct_ty.abiAlignment(zcu);
     const field_ptr = try self.ptraddConst(struct_llvm_val, offset);
-    const field_ptr_align: InternPool.Alignment = switch (offset) {
-        0 => struct_ptr_align,
-        else => struct_ptr_align.minStrict(.fromLog2Units(@ctz(offset))),
-    };
+    const field_ptr_align = struct_ptr_align.offset(offset);
 
     if (isByRef(field_ty, zcu)) {
         return self.loadByRef(field_ptr, field_ty, field_ptr_align.toLlvm(), .normal);
@@ -3120,11 +3120,7 @@ fn airSaveErrReturnTraceIndex(self: *FuncGen, inst: Air.Inst.Index) Allocator.Er
 
     const field_ty = struct_ty.fieldType(field_index, zcu);
     const field_offset = struct_ty.structFieldOffset(field_index, zcu);
-    const field_align = switch (field_offset) {
-        0 => struct_ty.abiAlignment(zcu),
-        else => struct_ty.abiAlignment(zcu).minStrict(.fromLog2Units(@ctz(field_offset))),
-    };
-
+    const field_align = struct_ty.abiAlignment(zcu).offset(field_offset);
     const field_ptr = try self.ptraddConst(self.err_ret_trace, field_offset);
     return self.load(field_ptr, field_ty, field_align.toLlvm(), .normal);
 }
@@ -5279,10 +5275,7 @@ fn airSetUnionTag(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.
         return .none;
     }
     const tag_field_ptr = try self.ptraddConst(union_ptr, layout.tagOffset());
-    const tag_ptr_align: InternPool.Alignment = switch (layout.tagOffset()) {
-        0 => union_ptr_align,
-        else => |off| .minStrict(union_ptr_align, .fromLog2Units(@ctz(off))),
-    };
+    const tag_ptr_align = union_ptr_align.offset(layout.tagOffset());
     _ = try self.wip.store(access_kind, new_tag, tag_field_ptr, tag_ptr_align.toLlvm());
     return .none;
 }
@@ -5922,10 +5915,7 @@ fn airAggregateInit(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builde
                     if (!field_ty.hasRuntimeBits(zcu)) continue;
                     const offset = result_ty.structFieldOffset(field_index, zcu);
                     const field_ptr = try self.ptraddConst(alloca_inst, offset);
-                    const field_ptr_align: InternPool.Alignment = switch (offset) {
-                        0 => struct_align,
-                        else => struct_align.minStrict(.fromLog2Units(@ctz(offset))),
-                    };
+                    const field_ptr_align = struct_align.offset(offset);
 
                     const llvm_field_val = try self.resolveInst(elem);
 
@@ -6581,6 +6571,7 @@ const ParamTypeIterator = struct {
     llvm_index: u32,
     types_len: u32,
     types_buffer: [8]Builder.Type,
+    offsets_buffer: [9]u64,
     byval_attr: bool,
 
     const Lowering = union(enum) {
@@ -6672,7 +6663,12 @@ const ParamTypeIterator = struct {
                     .memory => return .byref_mut,
                     .float_array => |len| return Lowering{ .float_array = len },
                     .byval => return .byval,
-                    .integer => return .abi_sized_int,
+                    .integer => {
+                        it.types_len = 1;
+                        it.types_buffer[0..1].* = .{.i64};
+                        it.offsets_buffer[0..2].* = .{ 0, 8 };
+                        return .multiple_llvm_types;
+                    },
                     .double_integer => return Lowering{ .i64_array = 2 },
                 }
             },
@@ -6711,12 +6707,17 @@ const ParamTypeIterator = struct {
                     .double_integer => return Lowering{ .i64_array = 2 },
                     .fields => {
                         it.types_len = 0;
+                        var offset: u64 = 0;
                         for (0..ty.structFieldCount(zcu)) |field_index| {
                             const field_ty = ty.fieldType(field_index, zcu);
                             if (!field_ty.hasRuntimeBits(zcu)) continue;
+                            offset = field_ty.abiAlignment(zcu).forward(offset);
                             it.types_buffer[it.types_len] = try it.object.lowerType(field_ty);
+                            it.offsets_buffer[it.types_len] = offset;
                             it.types_len += 1;
+                            offset += field_ty.abiSize(zcu);
                         }
+                        it.offsets_buffer[it.types_len] = offset;
                         it.llvm_index += it.types_len - 1;
                         return .multiple_llvm_types;
                     },
@@ -6729,9 +6730,8 @@ const ParamTypeIterator = struct {
                         it.llvm_index += 1;
                         return .byval;
                     } else {
-                        var types_buffer: [8]Builder.Type = undefined;
-                        types_buffer[0] = try it.object.lowerType(scalar_ty);
-                        it.types_buffer = types_buffer;
+                        it.types_buffer[0..1].* = .{try it.object.lowerType(scalar_ty)};
+                        it.offsets_buffer[0..2].* = .{ 0, scalar_ty.abiSize(zcu) };
                         it.types_len = 1;
                         it.llvm_index += 1;
                         it.zig_index += 1;
@@ -6804,31 +6804,36 @@ const ParamTypeIterator = struct {
             return .byval;
         }
         var types_index: u32 = 0;
-        var types_buffer: [8]Builder.Type = undefined;
+        var offset: u64 = 0;
         for (classes) |class| {
             switch (class) {
                 .integer => {
-                    types_buffer[types_index] = .i64;
+                    it.types_buffer[types_index] = .i64;
+                    it.offsets_buffer[types_index] = offset;
                     types_index += 1;
                 },
                 .sse => {
-                    types_buffer[types_index] = .double;
+                    it.types_buffer[types_index] = .double;
+                    it.offsets_buffer[types_index] = offset;
                     types_index += 1;
                 },
                 .sseup => {
-                    if (types_buffer[types_index - 1] == .double) {
-                        types_buffer[types_index - 1] = .fp128;
+                    if (it.types_buffer[types_index - 1] == .double) {
+                        it.types_buffer[types_index - 1] = .fp128;
                     } else {
-                        types_buffer[types_index] = .double;
+                        it.types_buffer[types_index] = .double;
+                        it.offsets_buffer[types_index] = offset;
                         types_index += 1;
                     }
                 },
                 .float => {
-                    types_buffer[types_index] = .float;
+                    it.types_buffer[types_index] = .float;
+                    it.offsets_buffer[types_index] = offset;
                     types_index += 1;
                 },
                 .float_combine => {
-                    types_buffer[types_index] = try it.object.builder.vectorType(.normal, 2, .float);
+                    it.types_buffer[types_index] = try it.object.builder.vectorType(.normal, 2, .float);
+                    it.offsets_buffer[types_index] = offset;
                     types_index += 1;
                 },
                 .x87 => {
@@ -6845,6 +6850,7 @@ const ParamTypeIterator = struct {
                     @panic("TODO");
                 },
             }
+            offset += 8;
         }
         const first_non_integer = std.mem.indexOfNone(x86_64_abi.Class, &classes, &.{.integer});
         if (first_non_integer == null or classes[first_non_integer.?] == .none) {
@@ -6865,15 +6871,15 @@ const ParamTypeIterator = struct {
                     const size = ty.abiSize(zcu);
                     assert((std.math.divCeil(u64, size, 8) catch unreachable) == types_index);
                     if (size % 8 > 0) {
-                        types_buffer[types_index - 1] =
+                        it.types_buffer[types_index - 1] =
                             try it.object.builder.intType(@intCast(size % 8 * 8));
                     }
                 },
                 else => {},
             }
         }
+        it.offsets_buffer[types_index] = offset;
         it.types_len = types_index;
-        it.types_buffer = types_buffer;
         it.llvm_index += types_index;
         it.zig_index += 1;
         return .multiple_llvm_types;
@@ -6887,6 +6893,7 @@ pub fn iterateParamTypes(object: *Object, fn_info: InternPool.Key.FuncType) Para
         .llvm_index = 0,
         .types_len = 0,
         .types_buffer = undefined,
+        .offsets_buffer = undefined,
         .byval_attr = false,
     };
 }
@@ -6965,7 +6972,7 @@ pub fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Erro
             .memory => return .void,
             .float_array => return o.lowerType(return_type),
             .byval => return o.lowerType(return_type),
-            .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
+            .integer => return .i64,
             .double_integer => return o.builder.arrayType(2, .i64),
         },
         .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
@@ -7285,11 +7292,7 @@ fn getAtomicAbiType(fg: *const FuncGen, ty: Type, is_rmw_xchg: bool) Allocator.E
 }
 
 fn ptraddConst(fg: *FuncGen, ptr: Builder.Value, offset: u64) Allocator.Error!Builder.Value {
-    if (offset == 0) return ptr;
-    const o = fg.object;
-    const llvm_usize_ty = try o.lowerType(.usize);
-    const offset_val = try o.builder.intValue(llvm_usize_ty, offset);
-    return fg.wip.gep(.inbounds, .i8, ptr, &.{offset_val}, "");
+    return fg.object.ptraddConst(&fg.wip, ptr, offset);
 }
 fn ptraddScaled(fg: *FuncGen, ptr: Builder.Value, index: Builder.Value, scale: u64) Allocator.Error!Builder.Value {
     if (scale == 0) return ptr;
