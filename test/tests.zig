@@ -2795,11 +2795,6 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
                 } else continue;
             }
 
-            if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
-                // https://github.com/ziglang/zig/issues/14908
-                continue;
-            }
-
             const test_mod = b.createModule(.{
                 .root_source_file = b.path("test/c_abi/main.zig"),
                 .target = resolved_target,

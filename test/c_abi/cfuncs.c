@@ -24,11 +24,6 @@ static void assert_or_panic(bool ok) {
 #  endif
 #endif
 
-#if defined(__aarch64__) && defined(__linux__)
-// TODO: https://github.com/ziglang/zig/issues/14908
-#define ZIG_BUG_14908
-#endif
-
 #ifdef __i386__
 #  define ZIG_NO_I128
 #endif
@@ -204,6 +199,74 @@ double complex zig_cmultd_comp(double a_r, double a_i, double b_r, double b_i);
 
 float complex zig_cmultf(float complex a, float complex b);
 double complex zig_cmultd(double complex a, double complex b);
+
+struct Struct_u8 {
+    uint8_t a;
+};
+
+struct Struct_u8 zig_ret_struct_u8(void);
+
+void zig_struct_u8(struct Struct_u8, size_t);
+
+struct Struct_u8 c_ret_struct_u8(void) {
+    return (struct Struct_u8){ 4 };
+}
+
+void c_struct_u8(struct Struct_u8 s, size_t i) {
+    assert_or_panic(s.a == 5);
+    assert_or_panic(i == 6);
+}
+
+struct Struct_u16 {
+    uint16_t a;
+};
+
+struct Struct_u16 zig_ret_struct_u16(void);
+
+void zig_struct_u16(struct Struct_u16, size_t);
+
+struct Struct_u16 c_ret_struct_u16(void) {
+    return (struct Struct_u16){ 10 };
+}
+
+void c_struct_u16(struct Struct_u16 s, size_t i) {
+    assert_or_panic(s.a == 11);
+    assert_or_panic(i == 12);
+}
+
+struct Struct_u32 {
+    uint32_t a;
+};
+
+struct Struct_u32 zig_ret_struct_u32(void);
+
+void zig_struct_u32(struct Struct_u32, size_t);
+
+struct Struct_u32 c_ret_struct_u32(void) {
+    return (struct Struct_u32){ 16 };
+}
+
+void c_struct_u32(struct Struct_u32 s, size_t i) {
+    assert_or_panic(s.a == 17);
+    assert_or_panic(i == 18);
+}
+
+struct Struct_u64 {
+    uint64_t a;
+};
+
+struct Struct_u64 zig_ret_struct_u64(void);
+
+void zig_struct_u64(struct Struct_u64, size_t);
+
+struct Struct_u64 c_ret_struct_u64(void) {
+    return (struct Struct_u64){ 22 };
+}
+
+void c_struct_u64(struct Struct_u64 s, size_t i) {
+    assert_or_panic(s.a == 23);
+    assert_or_panic(i == 24);
+}
 
 struct Struct_u64_u64 {
     uint64_t a;
@@ -2677,10 +2740,8 @@ void run_c_tests(void) {
     }
 #endif
 
-#ifndef ZIG_BUG_14908
     zig_i8(-1);
     zig_i16(-2);
-#endif
     zig_i32(-3);
     zig_i64(-4);
 
@@ -2739,6 +2800,60 @@ void run_c_tests(void) {
         assert_or_panic(creal(z) == 1.5);
         assert_or_panic(cimag(z) == 13.5);
     }
+#endif
+
+#if !defined(__AARCH_BIG_ENDIAN)
+#if !defined(__mips64)
+#if !defined(ZIG_PPC32)
+#if !defined(__s390x__)
+    {
+        struct Struct_u8 s = zig_ret_struct_u8();
+        assert_or_panic(s.a == 1);
+        zig_struct_u8((struct Struct_u8){ .a = 2 }, 3);
+    }
+#endif
+#endif
+#endif
+#endif
+
+#if !defined(__AARCH_BIG_ENDIAN)
+#if !defined(__mips64)
+#if !defined(ZIG_PPC32)
+#if !defined(__s390x__)
+    {
+        struct Struct_u16 s = zig_ret_struct_u16();
+        assert_or_panic(s.a == 7);
+        zig_struct_u16((struct Struct_u16){ .a = 8 }, 9);
+    }
+#endif
+#endif
+#endif
+#endif
+
+#if !defined(__AARCH_BIG_ENDIAN)
+#if !defined(__mips64)
+#if !defined(ZIG_PPC32)
+#if !defined(__s390x__)
+    {
+        struct Struct_u32 s = zig_ret_struct_u32();
+        assert_or_panic(s.a == 13);
+        zig_struct_u32((struct Struct_u32){ .a = 14 }, 15);
+    }
+#endif
+#endif
+#endif
+#endif
+
+#if !defined(ZIG_PPC32)
+#if !defined(ZIG_RISCV32)
+#if !defined(__s390x__)
+    {
+        struct Struct_u64 s = zig_ret_struct_u64();
+        assert_or_panic(s.a == 19);
+        zig_struct_u64((struct Struct_u64){ .a = 20 }, 21);
+    }
+#endif
+#endif
 #endif
 
 #if !defined(ZIG_PPC32) && !defined(__hexagon__) && !defined(__s390x__)
@@ -2818,7 +2933,7 @@ void run_c_tests(void) {
 #endif
 #endif
 
-#if !defined __i386__ && !defined __arm__ && !defined __aarch64__ && \
+#if !defined __i386__ && !defined __arm__ && !defined(__AARCH_BIG_ENDIAN) && \
     !defined __powerpc__ && !defined ZIG_RISCV64 && !defined(__loongarch__) && \
     !defined(__mips64__) && !defined(__hexagon__) && !defined(__s390x__)
     {
@@ -2827,7 +2942,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __arm__ && !defined __aarch64__ && \
+#if !defined __arm__ && !defined(__AARCH_BIG_ENDIAN) && \
     !defined __powerpc__ && !defined ZIG_RISCV64 && !defined(__loongarch__) && \
     !defined(__mips64__) && !defined(__hexagon__) && !defined(__s390x__)
     {

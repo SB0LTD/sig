@@ -269,6 +269,117 @@ export fn zig_cmultd_comp(a_r: f64, a_i: f64, b_r: f64, b_i: f64) ComplexDouble 
     return .{ .real = 1.5, .imag = 13.5 };
 }
 
+const Struct_u8 = extern struct {
+    a: u8,
+};
+
+export fn zig_ret_struct_u8() Struct_u8 {
+    return .{ .a = 1 };
+}
+
+export fn zig_struct_u8(s: Struct_u8, i: usize) void {
+    expect(s.a == 2) catch @panic("test failure");
+    expect(i == 3) catch @panic("test failure");
+}
+
+extern fn c_ret_struct_u8() Struct_u8;
+
+extern fn c_struct_u8(Struct_u8, usize) void;
+
+test "C ABI struct u8" {
+    if (builtin.cpu.arch == .aarch64_be) return error.SkipZigTest;
+    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
+
+    const s = c_ret_struct_u8();
+    try expect(s.a == 4);
+    c_struct_u8(.{ .a = 5 }, 6);
+}
+
+const Struct_u16 = extern struct {
+    a: u16,
+};
+
+export fn zig_ret_struct_u16() Struct_u16 {
+    return .{ .a = 7 };
+}
+
+export fn zig_struct_u16(s: Struct_u16, i: usize) void {
+    expect(s.a == 8) catch @panic("test failure");
+    expect(i == 9) catch @panic("test failure");
+}
+
+extern fn c_ret_struct_u16() Struct_u16;
+
+extern fn c_struct_u16(Struct_u16, usize) void;
+
+test "C ABI struct u16" {
+    if (builtin.cpu.arch == .aarch64_be) return error.SkipZigTest;
+    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
+
+    const s = c_ret_struct_u16();
+    try expect(s.a == 10);
+    c_struct_u16(.{ .a = 11 }, 12);
+}
+
+const Struct_u32 = extern struct {
+    a: u32,
+};
+
+export fn zig_ret_struct_u32() Struct_u32 {
+    return .{ .a = 13 };
+}
+
+export fn zig_struct_u32(s: Struct_u32, i: usize) void {
+    expect(s.a == 14) catch @panic("test failure");
+    expect(i == 15) catch @panic("test failure");
+}
+
+extern fn c_ret_struct_u32() Struct_u32;
+
+extern fn c_struct_u32(Struct_u32, usize) void;
+
+test "C ABI struct u32" {
+    if (builtin.cpu.arch == .aarch64_be) return error.SkipZigTest;
+    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
+
+    const s = c_ret_struct_u32();
+    try expect(s.a == 16);
+    c_struct_u32(.{ .a = 17 }, 18);
+}
+
+const Struct_u64 = extern struct {
+    a: u64,
+};
+
+export fn zig_ret_struct_u64() Struct_u64 {
+    return .{ .a = 19 };
+}
+
+export fn zig_struct_u64(s: Struct_u64, i: usize) void {
+    expect(s.a == 20) catch @panic("test failure");
+    expect(i == 21) catch @panic("test failure");
+}
+
+extern fn c_ret_struct_u64() Struct_u64;
+
+extern fn c_struct_u64(Struct_u64, usize) void;
+
+test "C ABI struct u64" {
+    if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .riscv32) return error.SkipZigTest;
+    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
+
+    const s = c_ret_struct_u64();
+    try expect(s.a == 22);
+    c_struct_u64(.{ .a = 23 }, 24);
+}
+
 const Struct_u64_u64 = extern struct {
     a: u64,
     b: u64,
@@ -5596,7 +5707,6 @@ test "CFF: Zig returns to C" {
 test "CFF: C passes to Zig" {
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
     if (builtin.cpu.arch.isRISCV() and builtin.mode != .Debug) return error.SkipZigTest;
-    if (builtin.cpu.arch == .aarch64 and builtin.mode != .Debug) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
@@ -5606,7 +5716,6 @@ test "CFF: C passes to Zig" {
     try expectOk(c_send_CFF());
 }
 test "CFF: C returns to Zig" {
-    if (builtin.cpu.arch == .aarch64 and builtin.mode != .Debug) return error.SkipZigTest;
     if (builtin.cpu.arch.isRISCV() and builtin.mode != .Debug) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
@@ -5738,7 +5847,17 @@ test "C function that takes byval struct called via function pointer" {
 
 extern fn c_f16(f16) f16;
 test "f16 bare" {
-    if (!builtin.cpu.arch.isAARCH64()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86_64) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
+    if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
+    if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
+    if (builtin.cpu.arch.isWasm()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
+
+    if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
 
     const a = c_f16(12);
     try expect(a == 34);
