@@ -83,8 +83,8 @@ pub fn parseDbiStream(self: *Pdb) !void {
     const mod_info_size = header.mod_info_size;
     const section_contrib_size = header.section_contribution_size;
 
-    var modules = std.array_list.Managed(Module).init(gpa);
-    errdefer modules.deinit();
+    var modules: std.ArrayList(Module) = .empty;
+    defer modules.deinit(gpa);
 
     // Module Info Substream
     var mod_info_offset: usize = 0;
@@ -113,11 +113,16 @@ pub fn parseDbiStream(self: *Pdb) !void {
             this_record_len += march_forward_bytes;
         }
 
-        try modules.append(.{
-            .mod_info = mod_info,
-            .module_name = try module_name.toOwnedSlice(),
-            .obj_file_name = try obj_file_name.toOwnedSlice(),
+        try modules.ensureUnusedCapacity(gpa, 1);
+        const module_name_slice = try module_name.toOwnedSlice();
+        errdefer gpa.free(module_name_slice);
+        const obj_file_name_slice = try obj_file_name.toOwnedSlice();
+        errdefer gpa.free(obj_file_name_slice);
 
+        modules.appendAssumeCapacity(.{
+            .mod_info = mod_info,
+            .module_name = module_name_slice,
+            .obj_file_name = obj_file_name_slice,
             .populated = false,
             .symbols = undefined,
             .subsect_info = undefined,
@@ -131,8 +136,8 @@ pub fn parseDbiStream(self: *Pdb) !void {
     }
 
     // Section Contribution Substream
-    var sect_contribs = std.array_list.Managed(pdb.SectionContribEntry).init(gpa);
-    errdefer sect_contribs.deinit();
+    var sect_contribs: std.ArrayList(pdb.SectionContribEntry) = .empty;
+    defer sect_contribs.deinit(gpa);
 
     var sect_cont_offset: usize = 0;
     if (section_contrib_size != 0) {
@@ -144,7 +149,7 @@ pub fn parseDbiStream(self: *Pdb) !void {
         sect_cont_offset += @sizeOf(u32);
     }
     while (sect_cont_offset != section_contrib_size) {
-        const entry = try sect_contribs.addOne();
+        const entry = try sect_contribs.addOne(gpa);
         entry.* = try reader.takeStruct(pdb.SectionContribEntry, .little);
         sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
 
@@ -152,8 +157,11 @@ pub fn parseDbiStream(self: *Pdb) !void {
             return error.InvalidDebugInfo;
     }
 
-    self.modules = try modules.toOwnedSlice();
-    self.sect_contribs = try sect_contribs.toOwnedSlice();
+    try sect_contribs.shrinkToLen(gpa);
+    try modules.shrinkToLen(gpa);
+
+    self.sect_contribs = sect_contribs.toOwnedSliceAssert();
+    self.modules = modules.toOwnedSliceAssert();
 }
 
 pub fn parseIpiStream(self: *Pdb) !void {
@@ -1098,22 +1106,22 @@ const MsfStream = struct {
     }
 };
 
-fn readSparseBitVector(reader: *Io.Reader, allocator: Allocator) ![]u32 {
+fn readSparseBitVector(reader: *Io.Reader, gpa: Allocator) ![]u32 {
     const num_words = try reader.takeInt(u32, .little);
-    var list = std.array_list.Managed(u32).init(allocator);
-    errdefer list.deinit();
+    var list: std.ArrayList(u32) = .empty;
+    defer list.deinit(gpa);
     var word_i: u32 = 0;
     while (word_i != num_words) : (word_i += 1) {
         const word = try reader.takeInt(u32, .little);
         var bit_i: u5 = 0;
         while (true) : (bit_i += 1) {
             if (word & (@as(u32, 1) << bit_i) != 0) {
-                try list.append(word_i * 32 + bit_i);
+                try list.append(gpa, word_i * 32 + bit_i);
             }
             if (bit_i == std.math.maxInt(u5)) break;
         }
     }
-    return try list.toOwnedSlice();
+    return try list.toOwnedSlice(gpa);
 }
 
 fn blockCountFromSize(size: u32, block_size: u32) u32 {

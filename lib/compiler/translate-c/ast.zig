@@ -863,11 +863,14 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
         .start = @as(u32, @intCast(ctx.buf.items.len)),
     });
 
+    try ctx.buf.shrinkToLenSentinel(gpa);
+    try ctx.extra_data.shrinkToLen(gpa);
+
     return .{
-        .source = try ctx.buf.toOwnedSliceSentinel(gpa, 0),
+        .source = ctx.buf.toOwnedSliceSentinelAssert(0),
         .tokens = ctx.tokens.toOwnedSlice(),
         .nodes = ctx.nodes.toOwnedSlice(),
-        .extra_data = try ctx.extra_data.toOwnedSlice(gpa),
+        .extra_data = ctx.extra_data.toOwnedSliceAssert(),
         .errors = &.{},
         .mode = .zig,
     };

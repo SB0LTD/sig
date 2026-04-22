@@ -337,20 +337,20 @@ const Action = enum {
     close,
 };
 
-fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
-    var urls = std.StringHashMap(Token).init(allocator);
+fn genToc(gpa: Allocator, tokenizer: *Tokenizer) !Toc {
+    var urls = std.StringHashMap(Token).init(gpa);
     errdefer urls.deinit();
 
     var header_stack_size: usize = 0;
     var last_action: Action = .open;
     var last_columns: ?u8 = null;
 
-    var toc_buf: Writer.Allocating = .init(allocator);
+    var toc_buf: Writer.Allocating = .init(gpa);
     defer toc_buf.deinit();
 
     const toc = &toc_buf.writer;
 
-    var nodes = std.array_list.Managed(Node).init(allocator);
+    var nodes = std.array_list.Managed(Node).init(gpa);
     defer nodes.deinit();
 
     try toc.writeByte('\n');
@@ -408,7 +408,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
 
                     header_stack_size += 1;
 
-                    const urlized = try urlize(allocator, content);
+                    const urlized = try urlize(gpa, content);
                     try nodes.append(Node{
                         .HeaderOpen = HeaderOpen{
                             .name = content,
@@ -450,7 +450,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         last_action = .close;
                     }
                 } else if (mem.eql(u8, tag_name, "see_also")) {
-                    var list = std.array_list.Managed(SeeAlsoItem).init(allocator);
+                    var list = std.array_list.Managed(SeeAlsoItem).init(gpa);
                     errdefer list.deinit();
 
                     while (true) {
@@ -465,7 +465,8 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             },
                             .separator => {},
                             .bracket_close => {
-                                try nodes.append(Node{ .SeeAlso = try list.toOwnedSlice() });
+                                try nodes.ensureUnusedCapacity(1);
+                                nodes.appendAssumeCapacity(.{ .SeeAlso = try list.toOwnedSlice() });
                                 break;
                             },
                             else => return parseError(tokenizer, see_also_tok, "invalid see_also token", .{}),
@@ -491,7 +492,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
 
                     try nodes.append(Node{
                         .Link = Link{
-                            .url = try urlize(allocator, url_name),
+                            .url = try urlize(gpa, url_name),
                             .name = name,
                             .token = name_tok,
                         },
@@ -592,9 +593,14 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
         }
     }
 
+    const nodes_slice = try nodes.toOwnedSlice();
+    errdefer gpa.free(nodes_slice);
+    const toc_slice = try toc_buf.toOwnedSlice();
+    errdefer gpa.free(toc_slice);
+
     return .{
-        .nodes = try nodes.toOwnedSlice(),
-        .toc = try toc_buf.toOwnedSlice(),
+        .nodes = nodes_slice,
+        .toc = toc_slice,
         .urls = urls,
     };
 }
@@ -617,12 +623,11 @@ fn urlize(gpa: Allocator, input: []const u8) ![]u8 {
     return try buf.toOwnedSlice(gpa);
 }
 
-fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.array_list.Managed(u8).init(allocator);
-    defer buf.deinit();
+fn escapeHtml(gpa: Allocator, input: []const u8) ![]u8 {
+    var buf: std.Io.Writer.Allocating = .init(gpa);
+    defer buf.deinit(gpa);
 
-    const out = buf.writer();
-    try writeEscaped(out, input);
+    try writeEscaped(&buf.writer, input);
     return try buf.toOwnedSlice();
 }
 

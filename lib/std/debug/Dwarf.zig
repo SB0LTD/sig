@@ -879,16 +879,16 @@ fn parseAbbrevTable(di: *Dwarf, gpa: Allocator, offset: u64) !Abbrev.Table {
     var fr: Reader = .fixed(di.section(.debug_abbrev).?);
     fr.seek = cast(usize, offset) orelse return bad();
 
-    var abbrevs = std.array_list.Managed(Abbrev).init(gpa);
+    var abbrevs: std.ArrayList(Abbrev) = .empty;
     defer {
         for (abbrevs.items) |*abbrev| {
             abbrev.deinit(gpa);
         }
-        abbrevs.deinit();
+        abbrevs.deinit(gpa);
     }
 
-    var attrs = std.array_list.Managed(Abbrev.Attr).init(gpa);
-    defer attrs.deinit();
+    var attrs: std.ArrayList(Abbrev.Attr) = .empty;
+    defer attrs.deinit(gpa);
 
     while (true) {
         const code = try fr.takeLeb128(u64);
@@ -900,7 +900,7 @@ fn parseAbbrevTable(di: *Dwarf, gpa: Allocator, offset: u64) !Abbrev.Table {
             const attr_id = try fr.takeLeb128(u64);
             const form_id = try fr.takeLeb128(u64);
             if (attr_id == 0 and form_id == 0) break;
-            try attrs.append(.{
+            try attrs.append(gpa, .{
                 .id = attr_id,
                 .form_id = form_id,
                 .payload = switch (form_id) {
@@ -909,18 +909,18 @@ fn parseAbbrevTable(di: *Dwarf, gpa: Allocator, offset: u64) !Abbrev.Table {
                 },
             });
         }
-
-        try abbrevs.append(.{
+        try abbrevs.ensureUnusedCapacity(gpa, 1);
+        abbrevs.appendAssumeCapacity(.{
             .code = code,
             .tag_id = tag_id,
             .has_children = has_children,
-            .attrs = try attrs.toOwnedSlice(),
+            .attrs = try attrs.toOwnedSlice(gpa),
         });
     }
 
     return .{
         .offset = offset,
-        .abbrevs = try abbrevs.toOwnedSlice(),
+        .abbrevs = try abbrevs.toOwnedSlice(gpa),
     };
 }
 
@@ -1204,10 +1204,13 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, endian: Endian, compile_unit:
         }
     }{ .keys = line_table.keys() });
 
+    try directories.shrinkToLen(gpa);
+    try file_entries.shrinkToLen(gpa);
+
     return .{
         .line_table = line_table,
-        .directories = try directories.toOwnedSlice(gpa),
-        .files = try file_entries.toOwnedSlice(gpa),
+        .directories = directories.toOwnedSliceAssert(),
+        .files = file_entries.toOwnedSliceAssert(),
         .version = version,
     };
 }

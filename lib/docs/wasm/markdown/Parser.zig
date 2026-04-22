@@ -311,17 +311,13 @@ pub fn endInput(p: *Parser) Allocator.Error!Document {
     p.scratch_string.items.len = 0;
     p.scratch_extra.items.len = 0;
 
-    var nodes = p.nodes.toOwnedSlice();
-    errdefer nodes.deinit(p.allocator);
-    const extra = try p.extra.toOwnedSlice(p.allocator);
-    errdefer p.allocator.free(extra);
-    const string_bytes = try p.string_bytes.toOwnedSlice(p.allocator);
-    errdefer p.allocator.free(string_bytes);
+    try p.extra.shrinkToLen(p.allocator);
+    try p.string_bytes.shrinkToLen(p.allocator);
 
     return .{
-        .nodes = nodes,
-        .extra = extra,
-        .string_bytes = string_bytes,
+        .nodes = p.nodes.toOwnedSlice(),
+        .extra = p.extra.toOwnedSliceAssert(),
+        .string_bytes = p.string_bytes.toOwnedSliceAssert(),
     };
 }
 

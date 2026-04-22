@@ -998,22 +998,19 @@ pub fn generate(
         } },
     });
 
-    var mir: Mir = .{
-        .instructions = .empty,
-        .extra = &.{},
-        .string_bytes = &.{},
-        .locals = &.{},
-        .table = &.{},
-        .frame_locs = .empty,
+    try function.mir_extra.shrinkToLen(gpa);
+    try function.mir_string_bytes.shrinkToLen(gpa);
+    try function.mir_locals.shrinkToLen(gpa);
+    try function.mir_table.shrinkToLen(gpa);
+
+    return .{
+        .instructions = function.mir_instructions.toOwnedSlice(),
+        .extra = function.mir_extra.toOwnedSliceAssert(),
+        .string_bytes = function.mir_string_bytes.toOwnedSliceAssert(),
+        .locals = function.mir_locals.toOwnedSliceAssert(),
+        .table = function.mir_table.toOwnedSliceAssert(),
+        .frame_locs = function.frame_locs.toOwnedSlice(),
     };
-    errdefer mir.deinit(gpa);
-    mir.instructions = function.mir_instructions.toOwnedSlice();
-    mir.extra = try function.mir_extra.toOwnedSlice(gpa);
-    mir.string_bytes = try function.mir_string_bytes.toOwnedSlice(gpa);
-    mir.locals = try function.mir_locals.toOwnedSlice(gpa);
-    mir.table = try function.mir_table.toOwnedSlice(gpa);
-    mir.frame_locs = function.frame_locs.toOwnedSlice();
-    return mir;
 }
 
 pub fn getTmpMir(cg: *CodeGen) Mir {

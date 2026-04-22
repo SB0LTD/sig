@@ -324,13 +324,12 @@ pub fn generate(
         else => |e| return e,
     };
 
-    var mir: Mir = .{
+    try function.mir_extra.shrinkToLen(gpa);
+
+    return .{
         .instructions = function.mir_instructions.toOwnedSlice(),
-        .extra = &.{}, // fallible, so populated after errdefer
+        .extra = function.mir_extra.toOwnedSliceAssert(),
     };
-    errdefer mir.deinit(gpa);
-    mir.extra = try function.mir_extra.toOwnedSlice(gpa);
-    return mir;
 }
 
 fn gen(self: *Self) !void {

@@ -778,43 +778,46 @@ pub fn runPkgConfig(step: *Step, lib_name: []const u8) !PkgConfigResult {
         else => return err,
     };
 
-    var zig_cflags = std.array_list.Managed([]const u8).init(b.allocator);
-    defer zig_cflags.deinit();
-    var zig_libs = std.array_list.Managed([]const u8).init(b.allocator);
-    defer zig_libs.deinit();
+    var zig_cflags: std.ArrayList([]const u8) = .empty;
+    defer zig_cflags.deinit(b.allocator);
+    var zig_libs: std.ArrayList([]const u8) = .empty;
+    defer zig_libs.deinit(b.allocator);
 
     var arg_it = mem.tokenizeAny(u8, stdout, " \r\n\t");
     while (arg_it.next()) |arg| {
         if (mem.eql(u8, arg, "-I")) {
             const dir = arg_it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_cflags.appendSlice(&[_][]const u8{ "-I", dir });
+            try zig_cflags.appendSlice(b.allocator, &.{ "-I", dir });
         } else if (mem.startsWith(u8, arg, "-I")) {
-            try zig_cflags.append(arg);
+            try zig_cflags.append(b.allocator, arg);
         } else if (mem.eql(u8, arg, "-L")) {
             const dir = arg_it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_libs.appendSlice(&[_][]const u8{ "-L", dir });
+            try zig_libs.appendSlice(b.allocator, &.{ "-L", dir });
         } else if (mem.startsWith(u8, arg, "-L")) {
-            try zig_libs.append(arg);
+            try zig_libs.append(b.allocator, arg);
         } else if (mem.eql(u8, arg, "-l")) {
             const lib = arg_it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_libs.appendSlice(&[_][]const u8{ "-l", lib });
+            try zig_libs.appendSlice(b.allocator, &.{ "-l", lib });
         } else if (mem.startsWith(u8, arg, "-l")) {
-            try zig_libs.append(arg);
+            try zig_libs.append(b.allocator, arg);
         } else if (mem.eql(u8, arg, "-D")) {
             const macro = arg_it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_cflags.appendSlice(&[_][]const u8{ "-D", macro });
+            try zig_cflags.appendSlice(b.allocator, &.{ "-D", macro });
         } else if (mem.startsWith(u8, arg, "-D")) {
-            try zig_cflags.append(arg);
+            try zig_cflags.append(b.allocator, arg);
         } else if (mem.startsWith(u8, arg, wl_rpath_prefix)) {
-            try zig_cflags.appendSlice(&[_][]const u8{ "-rpath", arg[wl_rpath_prefix.len..] });
+            try zig_cflags.appendSlice(b.allocator, &.{ "-rpath", arg[wl_rpath_prefix.len..] });
         } else if (b.debug_pkg_config) {
             return step.fail("unknown pkg-config flag '{s}'", .{arg});
         }
     }
 
+    try zig_cflags.shrinkToLen(b.allocator);
+    try zig_libs.shrinkToLen(b.allocator);
+
     return .{
-        .cflags = try zig_cflags.toOwnedSlice(),
-        .libs = try zig_libs.toOwnedSlice(),
+        .cflags = zig_cflags.toOwnedSliceAssert(),
+        .libs = zig_libs.toOwnedSliceAssert(),
     };
 }
 

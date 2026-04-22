@@ -211,9 +211,8 @@ pub const Value = union(enum) {
             .float => return Value{ .float = math.lossyCast(f64, input) },
 
             .@"struct" => |info| if (info.is_tuple) {
-                var list = std.array_list.Managed(Value).init(arena);
-                errdefer list.deinit();
-                try list.ensureTotalCapacityPrecise(info.fields.len);
+                var list: std.ArrayList(Value) = try .initCapacity(arena);
+                defer list.deinit();
 
                 inline for (info.fields) |field| {
                     if (try encode(arena, @field(input, field.name))) |value| {
@@ -221,7 +220,7 @@ pub const Value = union(enum) {
                     }
                 }
 
-                return Value{ .list = try list.toOwnedSlice() };
+                return Value{ .list = try list.toOwnedSlice(arena) };
             } else {
                 var map = Map.init(arena);
                 errdefer map.deinit();
@@ -262,9 +261,8 @@ pub const Value = union(enum) {
                         return Value{ .string = try arena.dupe(u8, input) };
                     }
 
-                    var list = std.array_list.Managed(Value).init(arena);
-                    errdefer list.deinit();
-                    try list.ensureTotalCapacityPrecise(input.len);
+                    var list: std.ArrayList(Value) = .initCapacity(input.len);
+                    defer list.deinit(arena);
 
                     for (input) |elem| {
                         if (try encode(arena, elem)) |value| {
@@ -275,7 +273,7 @@ pub const Value = union(enum) {
                         }
                     }
 
-                    return Value{ .list = try list.toOwnedSlice() };
+                    return Value{ .list = try list.toOwnedSlice(arena) };
                 },
                 else => {
                     @compileError("Unhandled type: {s}" ++ @typeName(@TypeOf(input)));

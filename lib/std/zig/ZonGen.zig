@@ -67,38 +67,30 @@ pub fn generate(gpa: Allocator, tree: Ast, options: Options) Allocator.Error!Zoi
     }
 
     if (zg.compile_errors.items.len > 0) {
-        const string_bytes = try zg.string_bytes.toOwnedSlice(gpa);
-        errdefer gpa.free(string_bytes);
-        const compile_errors = try zg.compile_errors.toOwnedSlice(gpa);
-        errdefer gpa.free(compile_errors);
-        const error_notes = try zg.error_notes.toOwnedSlice(gpa);
-        errdefer gpa.free(error_notes);
+        try zg.string_bytes.shrinkToLen(gpa);
+        try zg.compile_errors.shrinkToLen(gpa);
+        try zg.error_notes.shrinkToLen(gpa);
 
         return .{
             .nodes = .empty,
             .extra = &.{},
             .limbs = &.{},
-            .string_bytes = string_bytes,
-            .compile_errors = compile_errors,
-            .error_notes = error_notes,
+            .string_bytes = zg.string_bytes.toOwnedSliceAssert(),
+            .compile_errors = zg.compile_errors.toOwnedSliceAssert(),
+            .error_notes = zg.error_notes.toOwnedSliceAssert(),
         };
     } else {
         assert(zg.error_notes.items.len == 0);
 
-        var nodes = zg.nodes.toOwnedSlice();
-        errdefer nodes.deinit(gpa);
-        const extra = try zg.extra.toOwnedSlice(gpa);
-        errdefer gpa.free(extra);
-        const limbs = try zg.limbs.toOwnedSlice(gpa);
-        errdefer gpa.free(limbs);
-        const string_bytes = try zg.string_bytes.toOwnedSlice(gpa);
-        errdefer gpa.free(string_bytes);
+        try zg.extra.shrinkToLen(gpa);
+        try zg.limbs.shrinkToLen(gpa);
+        try zg.string_bytes.shrinkToLen(gpa);
 
         return .{
-            .nodes = nodes,
-            .extra = extra,
-            .limbs = limbs,
-            .string_bytes = string_bytes,
+            .nodes = zg.nodes.toOwnedSlice(),
+            .extra = zg.extra.toOwnedSliceAssert(),
+            .limbs = zg.limbs.toOwnedSliceAssert(),
+            .string_bytes = zg.string_bytes.toOwnedSliceAssert(),
             .compile_errors = &.{},
             .error_notes = &.{},
         };

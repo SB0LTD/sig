@@ -196,19 +196,17 @@ pub fn parseTokens(
         .zon => try parser.parseZon(),
     }
 
-    const extra_data = try parser.extra_data.toOwnedSlice(gpa);
-    errdefer gpa.free(extra_data);
-    const errors = try parser.errors.toOwnedSlice(gpa);
-    errdefer gpa.free(errors);
+    try parser.extra_data.shrinkToLen(gpa);
+    try parser.errors.shrinkToLen(gpa);
 
     // TODO experiment with compacting the MultiArrayList slices here
-    return Ast{
+    return .{
         .source = source,
         .mode = mode,
         .tokens = tokens,
         .nodes = parser.nodes.toOwnedSlice(),
-        .extra_data = extra_data,
-        .errors = errors,
+        .extra_data = parser.extra_data.toOwnedSliceAssert(),
+        .errors = parser.errors.toOwnedSliceAssert(),
     };
 }
 

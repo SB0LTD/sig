@@ -397,9 +397,13 @@ pub const Wip = struct {
         });
         try wip.extra.appendSlice(gpa, @as([]const u32, @ptrCast(wip.root_list.items)));
         wip.root_list.clearAndFree(gpa);
+
+        try wip.string_bytes.shrinkToLen(gpa);
+        try wip.extra.shrinkToLen(gpa);
+
         return .{
-            .string_bytes = try wip.string_bytes.toOwnedSlice(gpa),
-            .extra = try wip.extra.toOwnedSlice(gpa),
+            .string_bytes = wip.string_bytes.toOwnedSliceAssert(),
+            .extra = wip.extra.toOwnedSliceAssert(),
         };
     }
 

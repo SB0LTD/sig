@@ -314,15 +314,21 @@ pub fn parse(
     header.sections = &.{};
     errdefer gpa.free(sections);
 
+    try strtab.shrinkToLen(gpa);
+    try nonlocal_esyms.shrinkToLen(gpa);
+    try nonlocal_versyms.shrinkToLen(gpa);
+    try nonlocal_symbols.shrinkToLen(gpa);
+    try verstrings.shrinkToLen(gpa);
+
     return .{
         .sections = sections,
         .stat = header.stat,
         .soname_index = header.soname_index,
-        .strtab = try strtab.toOwnedSlice(gpa),
-        .symtab = try nonlocal_esyms.toOwnedSlice(gpa),
-        .versyms = try nonlocal_versyms.toOwnedSlice(gpa),
-        .symbols = try nonlocal_symbols.toOwnedSlice(gpa),
-        .verstrings = try verstrings.toOwnedSlice(gpa),
+        .strtab = strtab.toOwnedSliceAssert(),
+        .symtab = nonlocal_esyms.toOwnedSliceAssert(),
+        .versyms = nonlocal_versyms.toOwnedSliceAssert(),
+        .symbols = nonlocal_symbols.toOwnedSliceAssert(),
+        .verstrings = verstrings.toOwnedSliceAssert(),
     };
 }
 

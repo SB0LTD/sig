@@ -2699,7 +2699,9 @@ fn evalGeneric(run: *Run, spawn_options: process.SpawnOptions) !EvalGenericResul
 
             try multi_reader.checkAnyError();
 
+            // TODO: this string can leak since alloc below can return error.
             stdout_bytes = try multi_reader.toOwnedSlice(0);
+            // TODO: this string can leak since its allocated using gpa and `try child.wait(io)` below can fail.
             stderr_bytes = try multi_reader.toOwnedSlice(1);
         } else {
             var stdout_reader = stdout.readerStreaming(io, &.{});

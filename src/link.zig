@@ -171,8 +171,8 @@ pub const Diags = struct {
     ) Allocator.Error!void {
         const gpa = diags.gpa;
 
-        var context_lines = std.array_list.Managed([]const u8).init(gpa);
-        defer context_lines.deinit();
+        var context_lines: std.ArrayList([]const u8) = .empty;
+        defer context_lines.deinit(gpa);
 
         var current_err: ?*Lld = null;
         var lines = mem.splitSequence(u8, stderr, if (builtin.os.tag == .windows) "\r\n" else "\n");
@@ -181,16 +181,17 @@ pub const Diags = struct {
                 mem.eql(u8, line[0..prefix.len], prefix) and line[prefix.len] == ':')
             {
                 if (current_err) |err| {
-                    err.context_lines = try context_lines.toOwnedSlice();
+                    err.context_lines = try context_lines.toOwnedSlice(gpa);
                 }
 
                 var split = mem.splitSequence(u8, line, "error: ");
                 _ = split.first();
 
-                const duped_msg = try std.fmt.allocPrint(gpa, "{s}: {s}", .{ prefix, split.rest() });
-                errdefer gpa.free(duped_msg);
+                try diags.lld.ensureUnusedCapacity(gpa, 1);
 
-                current_err = try diags.lld.addOne(gpa);
+                const duped_msg = try std.fmt.allocPrint(gpa, "{s}: {s}", .{ prefix, split.rest() });
+
+                current_err = diags.lld.addOneAssumeCapacity();
                 current_err.?.* = .{ .msg = duped_msg };
             } else if (current_err != null) {
                 const context_prefix = ">>> ";
@@ -200,14 +201,14 @@ pub const Diags = struct {
                 }
 
                 if (trimmed.len > 0) {
-                    const duped_line = try gpa.dupe(u8, trimmed);
-                    try context_lines.append(duped_line);
+                    try context_lines.ensureUnusedCapacity(gpa, 1);
+                    context_lines.appendAssumeCapacity(try gpa.dupe(u8, trimmed));
                 }
             }
         }
 
         if (current_err) |err| {
-            err.context_lines = try context_lines.toOwnedSlice();
+            err.context_lines = try context_lines.toOwnedSlice(gpa);
         }
     }
 

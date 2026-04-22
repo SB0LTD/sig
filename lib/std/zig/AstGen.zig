@@ -243,10 +243,13 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
         }
     }
 
+    try astgen.extra.shrinkToLen(gpa);
+    try astgen.string_bytes.shrinkToLen(gpa);
+
     return .{
         .instructions = if (fatal) .empty else astgen.instructions.toOwnedSlice(),
-        .string_bytes = try astgen.string_bytes.toOwnedSlice(gpa),
-        .extra = try astgen.extra.toOwnedSlice(gpa),
+        .string_bytes = astgen.string_bytes.toOwnedSliceAssert(),
+        .extra = astgen.extra.toOwnedSliceAssert(),
     };
 }
 
