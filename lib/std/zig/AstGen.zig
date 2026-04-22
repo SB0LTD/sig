@@ -5001,6 +5001,10 @@ fn structDeclInner(
     );
     if (field_comptime_bits) |bits| @memset(bits.get(astgen), 0);
 
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = .init(.{});
+
     // Before any field bodies comes the backing int type, if specified.
     const backing_int_type_body_len: ?u32 = if (maybe_backing_int_node.unwrap()) |backing_int_node| len: {
         if (layout != .@"packed") return astgen.failNode(
@@ -5008,6 +5012,7 @@ fn structDeclInner(
             "non-packed struct does not support backing integer type",
             .{},
         );
+        astgen.src_hasher.update(astgen.tree.getNodeSource(backing_int_node));
         const type_ref = try typeExpr(&block_scope, &namespace.base, backing_int_node);
         if (!block_scope.endsWithNoReturn()) {
             _ = try block_scope.addBreak(.break_inline, decl_inst, type_ref);
@@ -5016,10 +5021,6 @@ fn structDeclInner(
         block_scope.instructions.items.len = block_scope.instructions_top;
         break :len body_len;
     } else null;
-
-    const old_hasher = astgen.src_hasher;
-    defer astgen.src_hasher = old_hasher;
-    astgen.src_hasher = .init(.{});
 
     var next_field_idx: u32 = 0;
     for (container_decl.ast.members) |member_node| {
@@ -5281,8 +5282,13 @@ fn unionDeclInner(
     const field_align_body_lens = try scratch.addOptionalSlice(scan_result.any_field_aligns, scan_result.fields_len);
     const field_value_body_lens = try scratch.addOptionalSlice(scan_result.any_field_values, scan_result.fields_len);
 
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = .init(.{});
+
     // Before any field bodies comes the tag/backing type, if specified.
     const arg_type_body_len: ?u32 = if (opt_arg_node.unwrap()) |arg_node| len: {
+        astgen.src_hasher.update(astgen.tree.getNodeSource(arg_node));
         const type_ref = try typeExpr(&block_scope, &namespace.base, arg_node);
         if (!block_scope.endsWithNoReturn()) {
             _ = try block_scope.addBreak(.break_inline, decl_inst, type_ref);
@@ -5291,10 +5297,6 @@ fn unionDeclInner(
         block_scope.instructions.items.len = block_scope.instructions_top;
         break :len body_len;
     } else null;
-
-    const old_hasher = astgen.src_hasher;
-    defer astgen.src_hasher = old_hasher;
-    astgen.src_hasher = .init(.{});
 
     var next_field_idx: u32 = 0;
     for (members) |member_node| {
@@ -5486,8 +5488,13 @@ fn containerDecl(
             const field_names = try scratch.addSlice(fields_len);
             const field_value_body_lens = try scratch.addOptionalSlice(scan_result.any_field_values, fields_len);
 
+            const old_hasher = astgen.src_hasher;
+            defer astgen.src_hasher = old_hasher;
+            astgen.src_hasher = .init(.{});
+
             // Before any field bodies comes the tag type, if specified.
             const tag_type_body_len: ?u32 = if (container_decl.ast.arg.unwrap()) |tag_type_node| len: {
+                astgen.src_hasher.update(astgen.tree.getNodeSource(tag_type_node));
                 const type_ref = try typeExpr(&block_scope, &namespace.base, tag_type_node);
                 if (!block_scope.endsWithNoReturn()) {
                     _ = try block_scope.addBreak(.break_inline, decl_inst, type_ref);
@@ -5496,10 +5503,6 @@ fn containerDecl(
                 block_scope.instructions.items.len = block_scope.instructions_top;
                 break :len body_len;
             } else null;
-
-            const old_hasher = astgen.src_hasher;
-            defer astgen.src_hasher = old_hasher;
-            astgen.src_hasher = .init(.{});
 
             var next_field_idx: u32 = 0;
             var opt_nonexhaustive_node: Ast.Node.OptionalIndex = .none;
