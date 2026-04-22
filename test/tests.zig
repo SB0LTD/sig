@@ -2749,6 +2749,7 @@ pub fn wouldUseLlvm(use_llvm: ?bool, query: std.Target.Query, optimize_mode: Opt
 
 const CAbiTestOptions = struct {
     test_target_filters: []const []const u8,
+    optimize_modes: []const OptimizeMode,
     skip_non_native: bool,
     skip_wasm: bool,
     skip_freebsd: bool,
@@ -2758,42 +2759,37 @@ const CAbiTestOptions = struct {
     skip_darwin: bool,
     skip_linux: bool,
     skip_llvm: bool,
-    skip_release: bool,
     max_rss: usize = 0,
 };
 
 pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
     const step = b.step("test-c-abi", "Run the C ABI tests");
 
-    const optimize_modes: [3]OptimizeMode = .{ .Debug, .ReleaseSafe, .ReleaseFast };
+    for (c_abi_targets) |c_abi_target| {
+        if (options.skip_non_native and !c_abi_target.target.isNative()) continue;
 
-    for (optimize_modes) |optimize_mode| {
-        if (optimize_mode != .Debug and options.skip_release) continue;
+        if (options.skip_wasm and c_abi_target.target.cpu_arch != null and c_abi_target.target.cpu_arch.?.isWasm()) continue;
 
-        for (c_abi_targets) |c_abi_target| {
-            if (options.skip_non_native and !c_abi_target.target.isNative()) continue;
+        if (options.skip_freebsd and c_abi_target.target.os_tag == .freebsd) continue;
+        if (options.skip_netbsd and c_abi_target.target.os_tag == .netbsd) continue;
+        if (options.skip_openbsd and c_abi_target.target.os_tag == .openbsd) continue;
+        if (options.skip_windows and c_abi_target.target.os_tag == .windows) continue;
+        if (options.skip_darwin and c_abi_target.target.os_tag != null and c_abi_target.target.os_tag.?.isDarwin()) continue;
+        if (options.skip_linux and c_abi_target.target.os_tag == .linux) continue;
 
-            if (options.skip_wasm and c_abi_target.target.cpu_arch != null and c_abi_target.target.cpu_arch.?.isWasm()) continue;
+        const resolved_target = b.resolveTargetQuery(c_abi_target.target);
+        const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
+        const target = &resolved_target.result;
 
-            if (options.skip_freebsd and c_abi_target.target.os_tag == .freebsd) continue;
-            if (options.skip_netbsd and c_abi_target.target.os_tag == .netbsd) continue;
-            if (options.skip_openbsd and c_abi_target.target.os_tag == .openbsd) continue;
-            if (options.skip_windows and c_abi_target.target.os_tag == .windows) continue;
-            if (options.skip_darwin and c_abi_target.target.os_tag != null and c_abi_target.target.os_tag.?.isDarwin()) continue;
-            if (options.skip_linux and c_abi_target.target.os_tag == .linux) continue;
+        if (options.test_target_filters.len > 0) {
+            for (options.test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+            } else continue;
+        }
 
-            const would_use_llvm = wouldUseLlvm(c_abi_target.use_llvm, c_abi_target.target, .Debug);
+        for (options.optimize_modes) |optimize_mode| {
+            const would_use_llvm = wouldUseLlvm(c_abi_target.use_llvm, c_abi_target.target, optimize_mode);
             if (options.skip_llvm and would_use_llvm) continue;
-
-            const resolved_target = b.resolveTargetQuery(c_abi_target.target);
-            const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
-            const target = &resolved_target.result;
-
-            if (options.test_target_filters.len > 0) {
-                for (options.test_target_filters) |filter| {
-                    if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
-                } else continue;
-            }
 
             const test_mod = b.createModule(.{
                 .root_source_file = b.path("test/c_abi/main.zig"),

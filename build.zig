@@ -416,7 +416,7 @@ pub fn build(b: *std.Build) !void {
         chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.ReleaseSmall;
         chosen_mode_index += 1;
     }
-    const optimization_modes = chosen_opt_modes_buf[0..chosen_mode_index];
+    const optimize_modes = chosen_opt_modes_buf[0..chosen_mode_index];
 
     const test_only: ?tests.ModuleTestOptions.TestOnly = if (no_matrix)
         .default
@@ -476,7 +476,7 @@ pub fn build(b: *std.Build) !void {
         .root_src = "test/behavior.zig",
         .name = "behavior",
         .desc = "Run the behavior tests",
-        .optimize_modes = optimization_modes,
+        .optimize_modes = optimize_modes,
         .include_paths = &.{},
         .sanitize_thread = sanitize_thread,
         .skip_single_threaded = skip_single_threaded,
@@ -502,7 +502,7 @@ pub fn build(b: *std.Build) !void {
         .root_src = "lib/compiler_rt.zig",
         .name = "compiler-rt",
         .desc = "Run the compiler_rt tests",
-        .optimize_modes = optimization_modes,
+        .optimize_modes = optimize_modes,
         .include_paths = &.{},
         .sanitize_thread = sanitize_thread,
         .skip_single_threaded = true,
@@ -529,7 +529,7 @@ pub fn build(b: *std.Build) !void {
         .root_src = "lib/std/std.zig",
         .name = "std",
         .desc = "Run the standard library tests",
-        .optimize_modes = optimization_modes,
+        .optimize_modes = optimize_modes,
         .include_paths = &.{},
         .sanitize_thread = sanitize_thread,
         .skip_single_threaded = skip_single_threaded,
@@ -555,7 +555,7 @@ pub fn build(b: *std.Build) !void {
         .root_src = "test/c.zig",
         .name = "libc",
         .desc = "Run the libc API tests",
-        .optimize_modes = optimization_modes,
+        .optimize_modes = optimize_modes,
         .include_paths = &.{},
         .sanitize_thread = sanitize_thread,
         .skip_single_threaded = true,
@@ -599,13 +599,14 @@ pub fn build(b: *std.Build) !void {
 
     test_step.dependOn(tests.addStandaloneTests(
         b,
-        optimization_modes,
+        optimize_modes,
         enable_macos_sdk,
         enable_ios_sdk,
         enable_symlinks_windows,
     ));
     test_step.dependOn(tests.addCAbiTests(b, .{
         .test_target_filters = test_target_filters,
+        .optimize_modes = optimize_modes,
         .skip_non_native = skip_non_native,
         .skip_wasm = skip_wasm,
         .skip_freebsd = skip_freebsd,
@@ -615,19 +616,18 @@ pub fn build(b: *std.Build) !void {
         .skip_darwin = skip_darwin,
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
-        .skip_release = skip_release,
         .max_rss = 3_300_000_000,
     }));
     test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filters, skip_non_native));
-    test_step.dependOn(tests.addErrorTraceTests(b, test_filters, optimization_modes, skip_non_native));
+    test_step.dependOn(tests.addErrorTraceTests(b, test_filters, optimize_modes, skip_non_native));
     test_step.dependOn(tests.addCliTests(b));
     if (tests.addDebuggerTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .gdb = b.option([]const u8, "gdb", "path to gdb binary"),
         .lldb = b.option([]const u8, "lldb", "path to lldb binary"),
-        .optimize_modes = optimization_modes,
+        .optimize_modes = optimize_modes,
         .skip_single_threaded = skip_single_threaded,
         .skip_libc = skip_libc,
     })) |test_debugger_step| test_step.dependOn(test_debugger_step);
@@ -663,7 +663,7 @@ pub fn build(b: *std.Build) !void {
     if (!skip_test_incremental) test_step.dependOn(test_incremental_step);
 
     if (tests.addLibcTestNszTests(b, .{
-        .optimize_modes = optimization_modes,
+        .optimize_modes = optimize_modes,
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .skip_wasm = skip_wasm,
