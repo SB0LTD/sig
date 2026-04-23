@@ -269,7 +269,7 @@ pub const Options = struct {
     kind: Kind,
     linkage: ?std.builtin.LinkMode = null,
     version: ?std.SemanticVersion = null,
-    max_rss: usize = 0,
+    max_rss: u64 = 0,
     filters: []const []const u8 = &.{},
     test_runner: ?TestRunner = null,
     use_llvm: ?bool = null,

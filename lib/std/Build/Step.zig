@@ -30,7 +30,7 @@ dependencies: std.ArrayList(*Step),
 /// max_rss value that does not exceed the `max_total_rss` value of the build
 /// runner. This value is configurable on the command line, and defaults to the
 /// total system memory available.
-max_rss: usize,
+max_rss: u64,
 
 /// The return address associated with creation of this step that can be useful
 /// to print along with debugging messages.
@@ -87,7 +87,7 @@ pub const StepOptions = struct {
     name: []const u8,
     owner: *Build,
     first_ret_addr: ?usize = null,
-    max_rss: usize = 0,
+    max_rss: u64 = 0,
 };
 
 pub fn init(options: StepOptions) Step {

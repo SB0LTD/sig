@@ -876,8 +876,8 @@ pub fn updateTimeReportRunTest(
     assert(tests.names.len == ns_per_test.len);
     const tests_len: u32 = @intCast(tests.names.len);
 
-    const new_len: u64 = len: {
-        var names_len: u64 = 0;
+    const new_len: usize = len: {
+        var names_len: usize = 0;
         for (0..tests_len) |i| {
             names_len += tests.testName(@intCast(i)).len + 1;
         }

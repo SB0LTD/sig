@@ -11,7 +11,7 @@ pub const Options = struct {
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
     skip_wasm: bool,
-    max_rss: usize,
+    max_rss: u64,
 };
 
 const TestCase = struct {

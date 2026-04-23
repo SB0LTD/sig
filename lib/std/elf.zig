@@ -873,8 +873,8 @@ pub const ProgramHeaderBufferIterator = struct {
         if (it.index >= it.phnum) return null;
         defer it.index += 1;
 
-        const size: u64 = if (it.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr);
-        const offset = it.phoff + size * it.index;
+        const size: usize = if (it.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr);
+        const offset = @as(usize, @intCast(it.phoff)) + size * it.index;
         var reader = Io.Reader.fixed(it.buf[offset..]);
 
         return try takeProgramHeader(&reader, it.is_64, it.endian);

@@ -2467,7 +2467,7 @@ pub const ModuleTestOptions = struct {
     skip_linux: bool,
     skip_llvm: bool,
     skip_libc: bool,
-    max_rss: usize = 0,
+    max_rss: u64 = 0,
     no_builtin: bool = false,
     sanitize_thread: ?bool = null,
     build_options: ?*Step.Options = null,
@@ -2795,7 +2795,7 @@ const CAbiTestOptions = struct {
     skip_darwin: bool,
     skip_linux: bool,
     skip_llvm: bool,
-    max_rss: usize = 0,
+    max_rss: u64 = 0,
 };
 
 pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {

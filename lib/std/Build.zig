@@ -692,7 +692,7 @@ pub const ExecutableOptions = struct {
     root_module: *Module,
     version: ?std.SemanticVersion = null,
     linkage: ?std.builtin.LinkMode = null,
-    max_rss: usize = 0,
+    max_rss: u64 = 0,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -722,7 +722,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
 pub const ObjectOptions = struct {
     name: []const u8,
     root_module: *Module,
-    max_rss: usize = 0,
+    max_rss: u64 = 0,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -745,7 +745,7 @@ pub const LibraryOptions = struct {
     name: []const u8,
     root_module: *Module,
     version: ?std.SemanticVersion = null,
-    max_rss: usize = 0,
+    max_rss: u64 = 0,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -778,7 +778,7 @@ pub fn addLibrary(b: *Build, options: LibraryOptions) *Step.Compile {
 pub const TestOptions = struct {
     name: []const u8 = "test",
     root_module: *Module,
-    max_rss: usize = 0,
+    max_rss: u64 = 0,
     filters: []const []const u8 = &.{},
     test_runner: ?Step.Compile.TestRunner = null,
     use_llvm: ?bool = null,
@@ -819,7 +819,7 @@ pub const AssemblyOptions = struct {
     /// `host` field of the package's `Build` instance.
     target: ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    max_rss: usize = 0,
+    max_rss: u64 = 0,
     zig_lib_dir: ?LazyPath = null,
 };
 
