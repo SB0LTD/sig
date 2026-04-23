@@ -109,8 +109,8 @@ pub fn syscall6(
         \\ push %%ebp
         \\ mov 4(%%esp), %%ebp
         \\ mov %%edi, 4(%%esp)
-        \\ // The saved %edi and %ebp are on the stack, and %ebp points to `args56`.
-        \\ // Prepare the last two args, syscall, then pop the saved %ebp and %edi.
+        \\ // The saved %%edi and %%ebp are on the stack, and %%ebp points to `args56`.
+        \\ // Prepare the last two args, syscall, then pop the saved %%ebp and %%edi.
         \\ mov (%%ebp), %%edi
         \\ mov 4(%%ebp), %%ebp
         \\ int  $0x80
