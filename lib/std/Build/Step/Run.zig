@@ -2166,11 +2166,15 @@ const FuzzTestRunner = struct {
                 const result = completion.result;
                 switch (completion.index % 3) {
                     0 => try f.completeStdinWrite(id, result.file_write_streaming catch |e| switch (e) {
-                        error.BrokenPipe => return f.instanceEos(id),
+                        // Avoid calling `instanceEos` until EndOfStream is seen with stderr so
+                        // that all stderr is collected.
+                        error.BrokenPipe => continue,
                         else => |write_e| return write_e,
                     }),
                     1 => try f.completeStdoutRead(id, result.file_read_streaming catch |e| switch (e) {
-                        error.EndOfStream => return f.instanceEos(id),
+                        // Avoid calling `instanceEos` until EndOfStream is seen with stderr so
+                        // that all stderr is collected.
+                        error.EndOfStream => continue,
                         else => |read_e| return read_e,
                     }),
                     2 => try f.completeStderrRead(id, result.file_read_streaming catch |e| switch (e) {
@@ -2480,7 +2484,7 @@ const FuzzTestRunner = struct {
         const step_owner = f.run.step.owner;
         const arena = step_owner.allocator;
 
-        // Collect any remaining stderr
+        // Collect any available stderr
         while (f.batch.next()) |completion| {
             if (completion.index % 3 != 2) continue;
             const len = completion.result.file_read_streaming catch continue;
