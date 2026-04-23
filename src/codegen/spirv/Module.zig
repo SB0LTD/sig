@@ -280,7 +280,7 @@ pub fn idBound(module: Module) Word {
 pub fn addEntryPointDeps(
     module: *Module,
     decl_index: Decl.Index,
-    seen: *std.DynamicBitSetUnmanaged,
+    seen: *std.bit_set.Dynamic,
     interface: *std.array_list.Managed(Id),
 ) !void {
     const decl = module.declPtr(decl_index);
@@ -310,7 +310,7 @@ fn entryPoints(module: *Module) !Section {
     var interface = std.array_list.Managed(Id).init(module.gpa);
     defer interface.deinit();
 
-    var seen = try std.DynamicBitSetUnmanaged.initEmpty(module.gpa, module.decls.items.len);
+    var seen: std.bit_set.Dynamic = try .initEmpty(module.gpa, module.decls.items.len);
     defer seen.deinit(module.gpa);
 
     for (module.entry_points.keys(), module.entry_points.values()) |entry_point_id, entry_point| {

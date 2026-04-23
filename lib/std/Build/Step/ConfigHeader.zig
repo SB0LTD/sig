@@ -290,7 +290,7 @@ fn render_autoconf_undef(
     const build = step.owner;
     const allocator = build.allocator;
 
-    var is_used: std.DynamicBitSetUnmanaged = try .initEmpty(allocator, values.count());
+    var is_used: std.bit_set.Dynamic = try .initEmpty(allocator, values.count());
     defer is_used.deinit(allocator);
 
     var any_errors = false;

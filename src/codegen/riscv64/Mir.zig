@@ -238,7 +238,7 @@ const Immediate = bits.Immediate;
 const Memory = bits.Memory;
 const FrameIndex = bits.FrameIndex;
 const FrameAddr = @import("CodeGen.zig").FrameAddr;
-const IntegerBitSet = std.bit_set.IntegerBitSet;
+const IntegerBitSet = std.bit_set.Integer;
 const Mnemonic = @import("mnem.zig").Mnemonic;
 
 const InternPool = @import("../../InternPool.zig");

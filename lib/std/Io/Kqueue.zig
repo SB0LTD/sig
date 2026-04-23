@@ -79,7 +79,7 @@ const Fiber = struct {
     awaiter: ?*Fiber,
     queue_next: ?*Fiber,
     cancel_thread: ?*Thread,
-    awaiting_completions: std.StaticBitSet(3),
+    awaiting_completions: std.bit_set.Static(3),
 
     const finished: ?*Fiber = @ptrFromInt(@alignOf(Thread));
 

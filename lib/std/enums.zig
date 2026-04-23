@@ -247,7 +247,7 @@ pub fn EnumSet(comptime E: type) type {
         /// The element type for this set.
         pub const Key = Indexer.Key;
 
-        const BitSet = std.StaticBitSet(Indexer.count);
+        const BitSet = std.bit_set.Static(Indexer.count);
 
         /// The maximum number of items in this set.
         pub const len = Indexer.count;
@@ -445,7 +445,7 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         /// The number of possible keys in the map
         pub const len = Indexer.count;
 
-        const BitSet = std.StaticBitSet(Indexer.count);
+        const BitSet = std.bit_set.Static(Indexer.count);
 
         /// Bits determining whether items are in the map
         bits: BitSet = .empty,

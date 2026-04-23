@@ -897,7 +897,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) Allocator
     var buf: [3]usize = undefined;
     var bit_set_allocator_state: std.heap.BufferFirstAllocator = .init(@ptrCast(&buf), allocator);
     const bit_set_allocator = bit_set_allocator_state.allocator();
-    var relevant_paths = try std.bit_set.DynamicBitSetUnmanaged.initEmpty(bit_set_allocator, paths.len);
+    var relevant_paths: std.bit_set.Dynamic = try .initEmpty(bit_set_allocator, paths.len);
     defer relevant_paths.deinit(bit_set_allocator);
 
     // Iterate the paths backwards, marking the relevant paths along the way.

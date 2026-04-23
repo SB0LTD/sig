@@ -541,8 +541,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         var sym_i: usize = 0;
         var sym_name_buf: std.Io.Writer.Allocating = .init(arena);
         var opt_symbol_name: ?[]const u8 = null;
-        var versions = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
-        var weak_linkages = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
+        var versions: std.bit_set.Dynamic = try .initEmpty(arena, metadata.all_versions.len);
+        var weak_linkages: std.bit_set.Dynamic = try .initEmpty(arena, metadata.all_versions.len);
 
         var inc_reader: std.Io.Reader = .fixed(metadata.inclusions);
 

@@ -12319,7 +12319,7 @@ fn analyzeSwitchPayloadCapture(
         // be several, and we can squash all of these cases into the same switch prong using
         // a simple bitcast. We'll make this the 'else' prong.
 
-        var in_mem_coercible: std.DynamicBitSet = try .initFull(sema.arena, field_indices.len);
+        var in_mem_coercible: std.bit_set.Dynamic = try .initFull(sema.arena, field_indices.len);
         in_mem_coercible.unset(first_non_imc);
         {
             const next = first_non_imc + 1;

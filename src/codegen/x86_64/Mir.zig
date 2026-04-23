@@ -1777,7 +1777,7 @@ pub const Inst = struct {
 pub const RegisterList = struct {
     bitset: BitSet,
 
-    const BitSet = std.bit_set.IntegerBitSet(32);
+    const BitSet = std.bit_set.Integer(32);
     const Self = @This();
 
     pub const empty: RegisterList = .{ .bitset = .empty };

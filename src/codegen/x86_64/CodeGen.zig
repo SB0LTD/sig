@@ -129,7 +129,7 @@ mir_table: std.ArrayList(Mir.Inst.Index) = .empty,
 /// which is a relative jump, based on the address following the reloc.
 epilogue_relocs: std.ArrayList(Mir.Inst.Index) = .empty,
 
-reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
+reused_operands: std.bit_set.Static(Air.Liveness.bpi - 1) = undefined,
 inst_tracking: InstTrackingMap = .empty,
 
 // Key is the block instruction
@@ -177439,7 +177439,7 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
         }
 
         var mnem_size: struct {
-            op_has_size: std.StaticBitSet(4),
+            op_has_size: std.bit_set.Static(4),
             size: Memory.Size,
             used: bool,
             fn init(size: ?Memory.Size) @This() {
@@ -178378,7 +178378,7 @@ fn genCopy(self: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: C
                     else => unreachable,
                 },
                 dst_tag => |src_regs| {
-                    var remaining: std.StaticBitSet(dst_regs.len) = .full;
+                    var remaining: std.bit_set.Static(dst_regs.len) = .full;
                     var hazard_regs = src_regs;
                     while (!remaining.eql(.empty)) {
                         var remaining_it = remaining.iterator(.{});
@@ -187560,7 +187560,7 @@ const Temp = struct {
         }
 
         const max = std.math.maxInt(@typeInfo(Index).@"enum".tag_type);
-        const Set = std.StaticBitSet(max);
+        const Set = std.bit_set.Static(max);
         const SafetySet = if (std.debug.runtime_safety) Set else struct {
             inline fn initEmpty() @This() {
                 return .{};

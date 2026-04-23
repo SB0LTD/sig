@@ -501,7 +501,7 @@ const BytesDiffer = struct {
         var row: usize = 0;
         while (expected_iterator.next()) |chunk| {
             // to avoid having to calculate diffs twice per chunk
-            var diffs: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 };
+            var diffs: std.bit_set.Integer(16) = .{ .mask = 0 };
             for (chunk, 0..) |byte, col| {
                 const absolute_byte_index = col + row * 16;
                 const diff = if (absolute_byte_index < self.actual.len) self.actual[absolute_byte_index] != byte else true;

@@ -9,7 +9,9 @@ pub const StaticStringMapWithEql = static_string_map.StaticStringMapWithEql;
 pub const Deque = @import("deque.zig").Deque;
 pub const DoublyLinkedList = @import("DoublyLinkedList.zig");
 pub const DynLib = @import("dynamic_library.zig").DynLib;
+/// Deprecated: use `bit_set.DynamicManaged`.
 pub const DynamicBitSet = bit_set.DynamicBitSet;
+/// Deprecated: use `bit_set.Dynamic`.
 pub const DynamicBitSetUnmanaged = bit_set.DynamicBitSetUnmanaged;
 pub const EnumArray = enums.EnumArray;
 pub const EnumMap = enums.EnumMap;
@@ -24,6 +26,7 @@ pub const Progress = @import("Progress.zig");
 pub const Random = @import("Random.zig");
 pub const SemanticVersion = @import("SemanticVersion.zig");
 pub const SinglyLinkedList = @import("SinglyLinkedList.zig");
+/// Deprecated: use `bit_set.Static`.
 pub const StaticBitSet = bit_set.StaticBitSet;
 pub const StringHashMap = hash_map.StringHashMap;
 pub const StringHashMapUnmanaged = hash_map.StringHashMapUnmanaged;

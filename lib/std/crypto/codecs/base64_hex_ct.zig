@@ -3,7 +3,7 @@
 //! This is designed to be used in cryptographic applications where timing attacks are a concern.
 const std = @import("std");
 const testing = std.testing;
-const StaticBitSet = std.StaticBitSet;
+const StaticBitSet = std.bit_set.Static;
 
 pub const Error = error{
     /// An invalid character was found in the input.
