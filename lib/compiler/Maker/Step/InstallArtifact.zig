@@ -55,6 +55,10 @@ pub fn make(
 
             if (conf_ia.flags.dylib_symlinks)
                 try maker.installSymLinks(arena, dest_path, compile_step_index, step_index);
+
+            const make_comp_step = maker.stepByIndex(compile_step_index);
+            const make_comp = &make_comp_step.extended.compile;
+            make_comp.installed_path = dest_path;
         }
     }
 

@@ -20,6 +20,8 @@ const Maker = @import("../../Maker.zig");
 zig_process: ?*Step.ZigProcess = null,
 /// Persisted to reuse memory on subsequent calls to `make`.
 zig_args: std.ArrayList([]const u8) = .empty,
+/// Populated by InstallArtifact.
+installed_path: ?Path = null,
 
 pub fn make(
     compile: *Compile,

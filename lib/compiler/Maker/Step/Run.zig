@@ -132,22 +132,20 @@ pub fn make(
                 const root_module = producer.root_module.get(conf);
                 const root_module_target = root_module.resolved_target.get(conf).?.result.get(conf);
                 const os_tag = root_module_target.flags.os_tag.unwrap().?;
-
-                if (true) @panic("TODO");
+                const producer_make_comp_step = maker.stepByIndex(producer_index);
+                const producer_make_comp = &producer_make_comp_step.extended.compile;
 
                 if (os_tag == .windows) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     addPathForDynLibs(producer_index);
                 }
-                const file_path = producer_index.installed_path orelse producer_index.generated_bin.?.path.?;
+                const file_path = producer_make_comp.installed_path orelse maker.generatedPath(producer.generated_bin.value.?).*;
 
                 argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
-                    prefix,
-                    try convertPathArg(run_index, maker, .{ .root_dir = .cwd(), .sub_path = file_path }),
-                    suffix,
+                    prefix, try convertPathArg(run_index, maker, file_path), suffix,
                 }));
 
-                _ = try man.addFile(file_path, null);
+                _ = try man.addFilePath(file_path, null);
             },
             .output_file, .output_directory => {
                 const prefix = if (arg.prefix.value) |p| p.slice(conf) else "";
