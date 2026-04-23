@@ -2360,7 +2360,10 @@ const FuzzTestRunner = struct {
         var in_name_buf: [12]u8 = undefined;
         var in_name: []const u8 = undefined;
         var i: u32 = 0;
-        const header: InputHeader = while (true) {
+        const header: InputHeader = while (true) : ({
+            if (i == std.math.maxInt(u32)) return;
+            i += 1;
+        }) {
             const name_prefix = "f" ++ Io.Dir.path.sep_str ++ "in";
             in_name = std.fmt.bufPrint(&in_name_buf, name_prefix ++ "{x}", .{i}) catch unreachable;
             in_f = b.cache_root.handle.openFile(io, in_name, .{
@@ -2394,8 +2397,6 @@ const FuzzTestRunner = struct {
             }
 
             in_f.close(io);
-            if (i == std.math.maxInt(u32)) return;
-            i += 1;
         };
         defer in_f.close(io);
 
