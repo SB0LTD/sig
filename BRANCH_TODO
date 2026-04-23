@@ -15,11 +15,16 @@
 * https://codeberg.org/ziglang/zig/issues/31397
 * restore the generated_compiler_rt_dyn_lib hack?
 * run args
+* https://codeberg.org/ziglang/zig/pulls/30762
 
 ## Followup Issues
 * link_eh_frame_hdr should be DefaultingBool
 * make --foo, --no-foo CLI args uniform (make them -f args instead)
 * install steps should provide generated files for installed things, then delete the run step hack
   - but artifact install steps also add paths for dyn libs on windows
+* no more "artifact arg" to run step. if you want to run the post-install binary, get the lazy path
+  from the install step.
 
 
+## Release Notes
+* run args are all together now, not observable in configure phase whether run args are provided
