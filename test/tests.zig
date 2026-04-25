@@ -2238,6 +2238,24 @@ pub fn addCliTests(b: *std.Build) *Step {
     const s = std.fs.path.sep_str;
 
     {
+        // Test that all JIT'd commands compile.
+        for (&[_][]const u8{
+            "libc",
+            "objcopy",
+            "objdump",
+            "rc",
+            "reduce",
+            "std",
+        }) |cmd| {
+            const run_help = b.addSystemCommand(&.{ b.graph.zig_exe, cmd, "--help" });
+            run_help.setName(b.fmt("zig {s} --help", .{cmd}));
+            run_help.expectStdErrEqual("");
+            run_help.expectExitCode(0);
+            step.dependOn(&run_help.step);
+        }
+    }
+
+    {
         // Test `zig init`.
         const tmp_path = b.tmpPath();
         const init_exe = b.addSystemCommand(&.{ b.graph.zig_exe, "init" });
