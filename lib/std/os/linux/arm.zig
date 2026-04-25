@@ -182,30 +182,4 @@ pub const VDSO = struct {
     pub const CGT_VER = "LINUX_2.6";
 };
 
-pub const HWCAP = struct {
-    pub const SWP = 1 << 0;
-    pub const HALF = 1 << 1;
-    pub const THUMB = 1 << 2;
-    pub const @"26BIT" = 1 << 3;
-    pub const FAST_MULT = 1 << 4;
-    pub const FPA = 1 << 5;
-    pub const VFP = 1 << 6;
-    pub const EDSP = 1 << 7;
-    pub const JAVA = 1 << 8;
-    pub const IWMMXT = 1 << 9;
-    pub const CRUNCH = 1 << 10;
-    pub const THUMBEE = 1 << 11;
-    pub const NEON = 1 << 12;
-    pub const VFPv3 = 1 << 13;
-    pub const VFPv3D16 = 1 << 14;
-    pub const TLS = 1 << 15;
-    pub const VFPv4 = 1 << 16;
-    pub const IDIVA = 1 << 17;
-    pub const IDIVT = 1 << 18;
-    pub const VFPD32 = 1 << 19;
-    pub const IDIV = IDIVA | IDIVT;
-    pub const LPAE = 1 << 20;
-    pub const EVTSTRM = 1 << 21;
-};
-
 pub const time_t = i32;

@@ -161,22 +161,3 @@ pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_5.10";
 };
-
-pub const HWCAP = struct {
-    pub const CPUCFG = 1 << 0;
-    pub const LAM = 1 << 1;
-    pub const UAL = 1 << 2;
-    pub const FPU = 1 << 3;
-    pub const LSX = 1 << 4;
-    pub const LASX = 1 << 5;
-    pub const CRC32 = 1 << 6;
-    pub const COMPLEX = 1 << 7;
-    pub const CRYPTO = 1 << 8;
-    pub const LVZ = 1 << 9;
-    pub const LBT_X86 = 1 << 10;
-    pub const LBT_ARM = 1 << 11;
-    pub const LBT_MIPS = 1 << 12;
-    pub const PTW = 1 << 13;
-    pub const LSPW = 1 << 14;
-    pub const SCQ = 1 << 15;
-};
