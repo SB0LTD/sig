@@ -11,7 +11,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,6 +47,18 @@ jobs:
 
           git config user.name  "sig-sync[bot]"
           git config user.email "sig-sync@users.noreply.github.com"
+
+          # ── Resolve current bootstrap tag from manifest ─────────────
+          BOOTSTRAP_TAG="bootstrap-sig-v10"
+          if [ -f tools/sig_sync/manifest.json ]; then
+            MANIFEST_BOOT=$(python3 -c "
+          import json
+          with open('tools/sig_sync/manifest.json') as f:
+              m = json.load(f)
+          print(m.get('bootstrap_tag', ''))" 2>/dev/null || true)
+            [ -n "$MANIFEST_BOOT" ] && BOOTSTRAP_TAG="$MANIFEST_BOOT"
+          fi
+          echo "Current bootstrap: $BOOTSTRAP_TAG"
 
           # Files we own — on conflict, keep ours
           SIG_OWNED=(
@@ -94,6 +106,111 @@ jobs:
             echo "::error::Still unresolved: $REMAINING"
             return 1
           }
+
+          # ── Bootstrap validation helper ─────────────────────────────
+          # Downloads the bootstrap compiler and tries a minimal build
+          # to detect lib incompatibilities (e.g. deleted musl sources).
+          # Returns 0 if bootstrap is good, 1 if rebuild needed.
+          validate_bootstrap() {
+            local TAG="$1"
+            echo "Validating bootstrap $TAG..."
+
+            # Download bootstrap
+            local TMPBOOT=$(mktemp -d)
+            if ! gh release download "$TAG" --pattern "bootstrap-sig-x86_64-linux.tar.gz" --dir "$TMPBOOT" 2>/dev/null; then
+              echo "::warning::Bootstrap $TAG not found"
+              return 1
+            fi
+            mkdir -p "$TMPBOOT/boot"
+            tar -xzf "$TMPBOOT/bootstrap-sig-x86_64-linux.tar.gz" -C "$TMPBOOT/boot"
+
+            local SIG_BIN=$(find "$TMPBOOT/boot" -type f -name "sig" -o -name "zig" | head -1)
+            [ -z "$SIG_BIN" ] && echo "::warning::No binary in bootstrap" && rm -rf "$TMPBOOT" && return 1
+            chmod +x "$SIG_BIN"
+
+            # Try a minimal libc compilation probe — this catches stale musl sources
+            # We ask the compiler to build a trivial C-importing file against musl
+            cat > "$TMPBOOT/probe.zig" << 'PROBE'
+          const c = @cImport({ @cInclude("stdlib.h"); });
+          pub fn main() void { _ = c.getenv("HOME"); }
+          PROBE
+
+            local RESULT=0
+            if ! "$SIG_BIN" build-exe "$TMPBOOT/probe.zig" \
+                --zig-lib-dir "$(pwd)/lib" \
+                -target x86_64-linux-musl -lc \
+                --name probe \
+                -fno-emit-bin 2>"$TMPBOOT/probe.log"; then
+              echo "Bootstrap probe failed:"
+              cat "$TMPBOOT/probe.log"
+              if grep -q "FileNotFound\|file_hash\|sub-compilation.*failed" "$TMPBOOT/probe.log"; then
+                echo "::warning::Bootstrap $TAG has stale lib references — rebuild needed"
+                RESULT=1
+              else
+                echo "::warning::Bootstrap probe failed for unknown reason"
+                RESULT=1
+              fi
+            else
+              echo "Bootstrap $TAG validated OK"
+            fi
+
+            rm -rf "$TMPBOOT"
+            return $RESULT
+          }
+
+          # ── Trigger bootstrap rebuild and wait ──────────────────────
+          trigger_bootstrap_rebuild() {
+            local OLD_TAG="$1"
+
+            # Bump version: bootstrap-sig-vN → bootstrap-sig-v(N+1)
+            local VER_NUM=$(echo "$OLD_TAG" | grep -oP 'v\K[0-9]+')
+            local NEW_VER=$((VER_NUM + 1))
+            local NEW_TAG="bootstrap-sig-v${NEW_VER}"
+
+            echo "::notice::Triggering bootstrap rebuild: $OLD_TAG → $NEW_TAG"
+
+            # Dispatch the bootstrap build
+            gh workflow run build-bootstrap.yaml -f version="$NEW_TAG"
+
+            # Wait for the bootstrap build to complete (poll every 60s, max 3h)
+            echo "Waiting for bootstrap $NEW_TAG to build..."
+            local MAX_WAIT=10800  # 3 hours
+            local WAITED=0
+            local POLL=60
+
+            while [ $WAITED -lt $MAX_WAIT ]; do
+              sleep $POLL
+              WAITED=$((WAITED + POLL))
+
+              # Check if the release asset exists
+              if gh release view "$NEW_TAG" --json assets --jq '.assets[].name' 2>/dev/null \
+                  | grep -q "bootstrap-sig-x86_64-linux.tar.gz"; then
+                echo "Bootstrap $NEW_TAG linux asset ready (waited ${WAITED}s)"
+
+                # Wait a bit more for all platforms to finish
+                sleep 120
+
+                # Validate the new bootstrap
+                if validate_bootstrap "$NEW_TAG"; then
+                  echo "Bootstrap $NEW_TAG validated successfully"
+                  echo "$NEW_TAG"
+                  return 0
+                else
+                  echo "::error::New bootstrap $NEW_TAG also fails validation"
+                  return 1
+                fi
+              fi
+
+              echo "  Still waiting... (${WAITED}s / ${MAX_WAIT}s)"
+            done
+
+            echo "::error::Bootstrap build timed out after ${MAX_WAIT}s"
+            return 1
+          }
+
+          # ── Pre-flight: validate current bootstrap ──────────────────
+          BOOTSTRAP_VALID=true
+          NEED_REBUILD=false
 
           TOTAL=$(wc -l < /tmp/new_commits.txt)
           IDX=0
@@ -143,7 +260,7 @@ jobs:
               fi
             fi
 
-            # ── Post-integration: version sync, manifest, README, push, release
+            # ── Post-integration: version sync, manifest, README, push
             if [ "$INTEGRATED" = "true" ]; then
               # Sync zig version from CMakeLists.txt → build.sig
               ZIG_MAJOR=$(sed -n 's/^set(ZIG_VERSION_MAJOR \([0-9]*\))/\1/p' CMakeLists.txt)
@@ -162,11 +279,42 @@ jobs:
                 fi
               fi
 
-              # Update manifest
+              # ── Check if this commit touches lib/ in ways that break bootstrap ──
+              CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
+              TOUCHES_LIB=false
+              if echo "$CHANGED_FILES" | grep -qE '^lib/(libc|std|compiler_rt)/'; then
+                TOUCHES_LIB=true
+              fi
+
+              # If this commit touches lib/ and we haven't validated yet, do it now
+              if [ "$TOUCHES_LIB" = "true" ] && [ "$NEED_REBUILD" = "false" ]; then
+                echo "Commit touches lib/ — validating bootstrap..."
+                if ! validate_bootstrap "$BOOTSTRAP_TAG"; then
+                  NEED_REBUILD=true
+                  echo "::warning::Bootstrap stale after $SHORT — will rebuild"
+
+                  NEW_TAG=$(trigger_bootstrap_rebuild "$BOOTSTRAP_TAG")
+                  if [ $? -eq 0 ] && [ -n "$NEW_TAG" ]; then
+                    BOOTSTRAP_TAG="$NEW_TAG"
+                    NEED_REBUILD=false
+                    echo "::notice::Bootstrap upgraded to $BOOTSTRAP_TAG"
+                  else
+                    echo "::error::Bootstrap rebuild failed — continuing with stale bootstrap"
+                    echo "::error::Releases may fail until bootstrap is manually rebuilt"
+                  fi
+                fi
+              fi
+
+              # Update manifest (now includes bootstrap_tag)
               TIMESTAMP=$(date +%s)
               python3 -c "
           import json, os
-          m = {'last_integrated_commit': '$COMMIT', 'last_integration_timestamp': $TIMESTAMP, 'entries': []}
+          m = {
+            'last_integrated_commit': '$COMMIT',
+            'last_integration_timestamp': $TIMESTAMP,
+            'bootstrap_tag': '$BOOTSTRAP_TAG',
+            'entries': []
+          }
           os.makedirs('tools/sig_sync', exist_ok=True)
           with open('tools/sig_sync/manifest.json', 'w') as f:
               json.dump(m, f, indent=2)
@@ -193,7 +341,7 @@ jobs:
               git add README.md
               git diff --cached --quiet || git commit -m "sig-sync: update README sync status"
 
-              # Push + release for this commit
+              # Push this commit
               git push origin HEAD:master
 
               sleep 2
@@ -202,7 +350,9 @@ jobs:
             echo "::endgroup::"
           done < /tmp/new_commits.txt
 
-          # ── Dispatch a single release after all commits are integrated ──
-          echo "Dispatching sig-release..."
+          # ── Dispatch release after all commits are integrated ───────
+          # Pass the current bootstrap tag so release uses the right one
+          echo "Dispatching sig-release with bootstrap=$BOOTSTRAP_TAG..."
           gh api repos/${{ github.repository }}/dispatches \
-            -f event_type=sig-release
+            -f event_type=sig-release \
+            -f "client_payload[bootstrap_tag]=$BOOTSTRAP_TAG"

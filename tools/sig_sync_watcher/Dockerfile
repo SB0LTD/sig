@@ -1,15 +1,19 @@
+ARG BOOTSTRAP_TAG=bootstrap-sig-v10
+
 FROM ubuntu:24.04 AS builder
+
+ARG BOOTSTRAP_TAG
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Download bootstrap-sig-v10 (dev=.full, supports build-exe)
-RUN curl -sL "https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v10/bootstrap-sig-x86_64-linux.tar.gz" \
+# Download bootstrap sig (version from build arg)
+RUN curl -sL "https://github.com/SB0LTD/sig/releases/download/${BOOTSTRAP_TAG}/bootstrap-sig-x86_64-linux.tar.gz" \
     | tar -xz -C /opt && \
     mv /opt/bin /opt/sig && \
     chmod +x /opt/sig/sig && \
-    echo "sig binary ready"
+    echo "sig binary ready (${BOOTSTRAP_TAG})"
 
 WORKDIR /app
 
@@ -22,7 +26,7 @@ COPY tools/sig_sync_watcher/main.sig /app/main.sig
 # Build a static musl binary
 RUN /opt/sig/sig build-exe main.sig \
     --zig-lib-dir /app/lib \
-    -target x86_64-linux-musl -OReleaseSafe \
+    -target x86_64-linux-musl -OReleaseSafe -lc \
     --name sig-sync-watcher
 
 FROM alpine:3.21
