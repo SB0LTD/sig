@@ -187,7 +187,8 @@ extern fn c_cmultd(a: ComplexDouble, b: ComplexDouble) ComplexDouble;
 const complex_abi_compatible = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isMIPS() and
     !builtin.cpu.arch.isArm() and !builtin.cpu.arch.isPowerPC32() and !builtin.cpu.arch.isRISCV() and
     builtin.cpu.arch != .hexagon and
-    builtin.cpu.arch != .s390x;
+    builtin.cpu.arch != .s390x and
+    !(builtin.cpu.arch.isLoongArch() and builtin.abi.float() == .soft);
 
 test "C ABI complex float" {
     if (!complex_abi_compatible) return error.SkipZigTest;
@@ -5676,6 +5677,7 @@ test "C ABI pointer sized float struct" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isArm() and builtin.abi.float() == .soft) return error.SkipZigTest;
+    if (builtin.cpu.arch.isLoongArch() and builtin.abi.float() == .soft) return error.SkipZigTest;
     if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     c_ptr_size_float_struct(.{ .x = 1, .y = 2 });

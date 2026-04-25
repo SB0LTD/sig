@@ -1764,6 +1764,13 @@ const c_abi_targets = blk: {
                 .abi = .musl,
             },
         },
+        .{
+            .target = .{
+                .cpu_arch = .loongarch64,
+                .os_tag = .linux,
+                .abi = .muslsf,
+            },
+        },
 
         .{
             .target = .{

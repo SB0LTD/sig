@@ -65,6 +65,10 @@ static void assert_or_panic(bool ok) {
 #  define ZIG_NO_COMPLEX
 #endif
 
+#if defined(__loongarch__) && defined(__loongarch_soft_float)
+#  define ZIG_NO_COMPLEX
+#endif
+
 #ifdef __powerpc__
 #  define ZIG_NO_COMPLEX
 #endif
