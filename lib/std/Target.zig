@@ -1014,6 +1014,7 @@ pub const Abi = enum {
             .gnueabi,
             .musleabi,
             .gnusf,
+            .muslsf,
             .ohoseabi,
             => .soft,
             else => .hard,
