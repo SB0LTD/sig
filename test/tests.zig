@@ -412,6 +412,14 @@ const module_test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .loongarch32,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .loongarch64,
                 .os_tag = .linux,
                 .abi = .none,
