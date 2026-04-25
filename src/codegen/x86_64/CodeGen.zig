@@ -181632,9 +181632,11 @@ fn splitType(self: *CodeGen, comptime parts_len: usize, ty: Type) ![parts_len]Ty
             else => break,
         };
     } else {
-        var part_sizes: u64 = 0;
-        for (parts) |part| part_sizes += part.abiSize(zcu);
-        if (part_sizes == ty.abiSize(zcu)) return parts;
+        var parts_size: u64 = 0;
+        for (parts) |part| parts_size += part.abiSize(zcu);
+        const abi_size = ty.abiSize(zcu);
+        if (abi_size == parts_size) return parts;
+        if (classes[classes.len - 1] == .float and abi_size > parts_size and abi_size <= parts_size + 4) return parts;
     };
     return self.fail("TODO implement splitType({d}, {f})", .{ parts_len, ty.fmt(pt) });
 }

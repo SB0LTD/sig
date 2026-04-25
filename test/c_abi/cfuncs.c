@@ -2948,14 +2948,12 @@ void run_c_tests(void) {
 #if !defined(__riscv)
 #if !defined(__s390x__)
 #if !defined(__i386__)
-#if !defined(__x86_64__)
     {
         struct Struct_f32a8_f32a8 s = zig_ret_struct_f32a8_f32a8();
         assert_or_panic(s.a == 1.25f);
         assert_or_panic(s.b == 2.75f);
         zig_struct_f32a8_f32a8((struct Struct_f32a8_f32a8){ .a = 3.125f, .b = 4.375f }, 5.5f);
     }
-#endif
 #endif
 #endif
 #endif

@@ -554,22 +554,14 @@ const Struct_f32a8_f32a8 = extern struct {
     b: f32 align(8),
 };
 
-comptime {
-    skip: {
-        if (builtin.zig_backend == .stage2_x86_64) break :skip;
+export fn zig_ret_struct_f32a8_f32a8() Struct_f32a8_f32a8 {
+    return .{ .a = 1.25, .b = 2.75 };
+}
 
-        _ = struct {
-            export fn zig_ret_struct_f32a8_f32a8() Struct_f32a8_f32a8 {
-                return .{ .a = 1.25, .b = 2.75 };
-            }
-
-            export fn zig_struct_f32a8_f32a8(s: Struct_f32a8_f32a8, f: f32) void {
-                expect(s.a == 3.125) catch @panic("test failure");
-                expect(s.b == 4.375) catch @panic("test failure");
-                expect(f == 5.5) catch @panic("test failure");
-            }
-        };
-    }
+export fn zig_struct_f32a8_f32a8(s: Struct_f32a8_f32a8, f: f32) void {
+    expect(s.a == 3.125) catch @panic("test failure");
+    expect(s.b == 4.375) catch @panic("test failure");
+    expect(f == 5.5) catch @panic("test failure");
 }
 
 extern fn c_ret_struct_f32a8_f32a8() Struct_f32a8_f32a8;
@@ -584,7 +576,6 @@ test "C ABI struct f32 align(8), f32 align(8)" {
     if (builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
-    if (builtin.cpu.arch == .x86_64) return error.SkipZigTest;
 
     const s = c_ret_struct_f32a8_f32a8();
     try expect(s.a == 6.625);

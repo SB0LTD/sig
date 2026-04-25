@@ -300,21 +300,26 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
             for (result, 0..) |class, i| switch (class) {
                 .memory => return Class.stack,
                 .x87up => if (i == 0 or result[i - 1] != .x87) return Class.stack,
-                else => continue,
+                else => {},
             };
             // "If the size of the aggregate exceeds two eightbytes and the first eight-
-            // byte isn’t SSE or any other eightbyte isn’t SSEUP, the whole argument
+            // byte isn't SSE or any other eightbyte isn't SSEUP, the whole argument
             // is passed in memory."
             if (ty_size > 16 and (result[0] != .sse or
                 std.mem.indexOfNone(Class, result[1..], &.{ .sseup, .none }) != null)) return Class.stack;
 
             // "If SSEUP is not preceded by SSE or SSEUP, it is converted to SSE."
-            for (&result, 0..) |*item, i| {
-                if (item.* == .sseup) switch (result[i - 1]) {
-                    .sse, .sseup => continue,
-                    else => item.* = .sse,
-                };
-            }
+            for (&result, 0..) |*class, i| switch (class.*) {
+                .sseup => switch (result[i - 1]) {
+                    .sse, .sseup => {},
+                    else => class.* = .sse,
+                },
+                .float => if (i + 1 < result.len) switch (result[i + 1]) {
+                    .none => {},
+                    else => class.* = .float_combine,
+                },
+                else => {},
+            };
             return result;
         },
         .array => {
