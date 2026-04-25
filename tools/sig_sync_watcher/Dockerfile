@@ -4,8 +4,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Download bootstrap-sig-v9 (dev=.full, supports build-exe)
-RUN curl -sL "https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v9/bootstrap-sig-x86_64-linux.tar.gz" \
+# Download bootstrap-sig-v10 (dev=.full, supports build-exe)
+RUN curl -sL "https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v10/bootstrap-sig-x86_64-linux.tar.gz" \
     | tar -xz -C /opt && \
     mv /opt/bin /opt/sig && \
     chmod +x /opt/sig/sig && \
