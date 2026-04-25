@@ -305,8 +305,6 @@ test "generic function instantiation non-duplicates" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
     const S = struct {
         fn copy(comptime T: type, dest: []T, source: []const T) void {
             @export(&foo, .{ .name = "test_generic_instantiation_non_dupe" });
@@ -322,8 +320,6 @@ test "generic function instantiation non-duplicates" {
 
 test "generic instantiation of tagged union with only one field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const S = struct {
         const U = union(enum) {

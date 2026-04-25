@@ -147,11 +147,6 @@ test "saturating multiplication <= 32 bits" {
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isWasm()) {
-        // https://github.com/ziglang/zig/issues/9660
-        return error.SkipZigTest;
-    }
-
     try testSatMul(u8, 0, maxInt(u8), 0);
     try testSatMul(u8, 1 << 7, 1 << 7, maxInt(u8));
     try testSatMul(u8, maxInt(u8) - 1, 2, maxInt(u8));
@@ -245,11 +240,6 @@ test "saturating multiplication" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isWasm()) {
-        // https://github.com/ziglang/zig/issues/9660
-        return error.SkipZigTest;
-    }
 
     const S = struct {
         fn doTheTest() !void {

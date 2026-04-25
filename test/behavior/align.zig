@@ -317,7 +317,6 @@ test "@alignCast functions" {
 
     // function alignment is a compile error on wasm
     if (native_arch.isWasm()) return error.SkipZigTest;
-    if (native_arch.isThumb()) return error.SkipZigTest;
 
     try expect(fnExpectsOnly1(simple4) == 0x19);
 }
