@@ -100,6 +100,7 @@ const targets = [_]std.Target.Query{
     // .{ .cpu_arch = .csky, .os_tag = .linux, .abi = .gnueabihf },
 
     .{ .cpu_arch = .hexagon, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .hexagon, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .hexagon, .os_tag = .linux, .abi = .none },
 
     .{ .cpu_arch = .lanai, .os_tag = .freestanding, .abi = .none },
@@ -173,6 +174,7 @@ const targets = [_]std.Target.Query{
 
     .{ .cpu_arch = .nvptx, .os_tag = .cuda, .abi = .none },
     .{ .cpu_arch = .nvptx, .os_tag = .nvcl, .abi = .none },
+
     .{ .cpu_arch = .nvptx64, .os_tag = .cuda, .abi = .none },
     .{ .cpu_arch = .nvptx64, .os_tag = .nvcl, .abi = .none },
 
