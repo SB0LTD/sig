@@ -18,7 +18,7 @@ fn usage(io: Io) noreturn {
         \\                            By default, enabled unless a port is specified.
         \\
     ) catch {};
-    std.process.exit(1);
+    std.process.exit(0);
 }
 
 pub fn main(init: std.process.Init) !void {
