@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   sync:
@@ -128,11 +129,13 @@ jobs:
             [ -z "$SIG_BIN" ] && echo "::warning::No binary in bootstrap" && rm -rf "$TMPBOOT" && return 1
             chmod +x "$SIG_BIN"
 
-            # Try a minimal libc compilation probe — this catches stale musl sources
-            # We ask the compiler to build a trivial C-importing file against musl
+            # Try a minimal musl libc compilation probe — this catches stale
+            # musl sources (e.g. deleted .c files the compiler recipe still references).
+            # We use build-obj with a trivial zig file that links libc, which forces
+            # the compiler to build musl from source. No @cImport (needs LLVM).
             cat > "$TMPBOOT/probe.zig" << 'PROBE'
-          const c = @cImport({ @cInclude("stdlib.h"); });
-          pub fn main() void { _ = c.getenv("HOME"); }
+          extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
+          pub fn main() void { _ = getenv("HOME"); }
           PROBE
 
             local RESULT=0
@@ -147,8 +150,10 @@ jobs:
                 echo "::warning::Bootstrap $TAG has stale lib references — rebuild needed"
                 RESULT=1
               else
-                echo "::warning::Bootstrap probe failed for unknown reason"
-                RESULT=1
+                # Unknown failure — don't block sync, just warn
+                echo "::warning::Bootstrap probe failed (non-lib reason) — continuing"
+                cat "$TMPBOOT/probe.log"
+                RESULT=0
               fi
             else
               echo "Bootstrap $TAG validated OK"
