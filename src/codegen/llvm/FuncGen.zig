@@ -6707,17 +6707,18 @@ const ParamTypeIterator = struct {
                     .double_integer => return Lowering{ .i64_array = 2 },
                     .fields => {
                         it.types_len = 0;
-                        var offset: u64 = 0;
-                        for (0..ty.structFieldCount(zcu)) |field_index| {
+                        var field_it: InternPool.LoadedStructType.RuntimeOrderIterator = if (zcu.typeToStruct(ty)) |loaded_struct|
+                            loaded_struct.iterateRuntimeOrder(&zcu.intern_pool)
+                        else
+                            .{ .runtime_order = null, .fields_len = ty.structFieldCount(zcu), .next_index = 0 };
+                        while (field_it.next()) |field_index| {
                             const field_ty = ty.fieldType(field_index, zcu);
                             if (!field_ty.hasRuntimeBits(zcu)) continue;
-                            offset = field_ty.abiAlignment(zcu).forward(offset);
                             it.types_buffer[it.types_len] = try it.object.lowerType(field_ty);
-                            it.offsets_buffer[it.types_len] = offset;
+                            it.offsets_buffer[it.types_len] = ty.structFieldOffset(field_index, zcu);
                             it.types_len += 1;
-                            offset += field_ty.abiSize(zcu);
                         }
-                        it.offsets_buffer[it.types_len] = offset;
+                        it.offsets_buffer[it.types_len] = ty.abiSize(zcu);
                         it.llvm_index += it.types_len - 1;
                         return .multiple_llvm_types;
                     },
