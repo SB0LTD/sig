@@ -684,8 +684,8 @@ pub fn llvmMachineAbi(target: *const std.Target) ?[:0]const u8 {
             else => "lp64d",
         },
         .loongarch32 => switch (target.abi) {
-            .gnusf => "ilp32s",
-            .gnuf32 => "ilp32f",
+            .gnusf, .muslsf => "ilp32s",
+            .gnuf32, .muslf32 => "ilp32f",
             else => "ilp32d",
         },
         .mips, .mipsel => "o32",
