@@ -37,10 +37,4 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addCSourceFile(.{ .file = b.path("main.m"), .flags = &.{} });
     exe.root_module.linkFramework("Foundation", .{});
     exe.root_module.linkFramework("UIKit", .{});
-
-    const check = exe.checkObject();
-    check.checkInHeaders();
-    check.checkExact("cmd BUILD_VERSION");
-    check.checkExact("platform IOS");
-    test_step.dependOn(&check.step);
 }

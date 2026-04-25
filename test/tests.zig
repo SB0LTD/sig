@@ -2246,27 +2246,6 @@ pub fn addStandaloneTests(
     return step;
 }
 
-pub fn addLinkTests(
-    b: *std.Build,
-    enable_macos_sdk: bool,
-    enable_ios_sdk: bool,
-    enable_symlinks_windows: bool,
-) *Step {
-    const step = b.step("test-link", "Run the linker tests");
-    if (compilerHasPackageManager(b)) {
-        const test_cases_dep_name = "link_test_cases";
-        const test_cases_dep = b.dependency(test_cases_dep_name, .{
-            .enable_ios_sdk = enable_ios_sdk,
-            .enable_macos_sdk = enable_macos_sdk,
-            .enable_symlinks_windows = enable_symlinks_windows,
-        });
-        const test_cases_dep_step = test_cases_dep.builder.default_step;
-        test_cases_dep_step.name = b.dupe(test_cases_dep_name);
-        step.dependOn(test_cases_dep.builder.default_step);
-    }
-    return step;
-}
-
 pub fn addCliTests(b: *std.Build) *Step {
     const step = b.step("test-cli", "Test the command line interface");
     const s = std.fs.path.sep_str;

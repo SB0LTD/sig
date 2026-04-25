@@ -176,7 +176,6 @@ pub const Id = enum {
             .update_source_files => UpdateSourceFiles,
             .run => Run,
             .check_file => CheckFile,
-            .check_object => CheckObject,
             .config_header => ConfigHeader,
             .objcopy => ObjCopy,
             .options => Options,
@@ -186,7 +185,6 @@ pub const Id = enum {
 };
 
 pub const CheckFile = @import("Step/CheckFile.zig");
-pub const CheckObject = @import("Step/CheckObject.zig");
 pub const ConfigHeader = @import("Step/ConfigHeader.zig");
 pub const Fail = @import("Step/Fail.zig");
 pub const Fmt = @import("Step/Fmt.zig");
@@ -1004,7 +1002,6 @@ pub fn invalidateResult(step: *Step, gpa: Allocator) bool {
 
 test {
     _ = CheckFile;
-    _ = CheckObject;
     _ = Fail;
     _ = Fmt;
     _ = InstallArtifact;
