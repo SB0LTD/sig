@@ -286,6 +286,19 @@ jobs:
                 TOUCHES_LIB=true
               fi
 
+              # Check if this commit touches stage1/ or compiler internals that
+              # could require zig1.wasm regeneration (stage1 compiler snapshot).
+              # Signals: stage1/ changes, Zir/AstGen/Parse changes, new IR ops.
+              NEEDS_ZIG1_REGEN=false
+              if echo "$CHANGED_FILES" | grep -qE '^stage1/'; then
+                NEEDS_ZIG1_REGEN=true
+                echo "::warning::Commit touches stage1/ — zig1.wasm may need regeneration"
+              elif echo "$CHANGED_FILES" | grep -qE '^(lib/std/zig/(Zir|AstGen|Parse|tokenizer)\.zig|src/(Air|Sema|Zcu|InternPool|codegen)\.zig)'; then
+                echo "::notice::Commit touches compiler internals — monitoring for zig1.wasm staleness"
+                # These don't always break stage1, but they're high-risk.
+                # The bootstrap build will catch actual failures.
+              fi
+
               # If this commit touches lib/ and we haven't validated yet, do it now
               if [ "$TOUCHES_LIB" = "true" ] && [ "$NEED_REBUILD" = "false" ]; then
                 echo "Commit touches lib/ — validating bootstrap..."
@@ -303,6 +316,12 @@ jobs:
                     echo "::error::Releases may fail until bootstrap is manually rebuilt"
                   fi
                 fi
+              fi
+
+              # If stage1 files changed, trigger zig1.wasm regeneration after all
+              # commits are integrated (it needs the latest source to compile against)
+              if [ "$NEEDS_ZIG1_REGEN" = "true" ]; then
+                echo "ZIG1_REGEN_NEEDED=true" >> /tmp/sync_state.env
               fi
 
               # Update manifest (now includes bootstrap_tag)
@@ -349,6 +368,13 @@ jobs:
 
             echo "::endgroup::"
           done < /tmp/new_commits.txt
+
+          # ── Regenerate zig1.wasm if stage1 changes were detected ─────
+          if grep -q "ZIG1_REGEN_NEEDED=true" /tmp/sync_state.env 2>/dev/null; then
+            echo "::notice::Triggering zig1.wasm regeneration..."
+            gh workflow run update-zig1-wasm.yaml
+            echo "zig1.wasm regen dispatched — bootstrap rebuild will follow if needed"
+          fi
 
           # ── Dispatch release after all commits are integrated ───────
           # Pass the current bootstrap tag so release uses the right one
