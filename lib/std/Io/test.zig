@@ -137,7 +137,6 @@ test "File.setLength" {
 test "legacy setLength" {
     // https://github.com/ziglang/zig/issues/20747 (open fd does not have write permission)
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23806
 
     const io = testing.io;
 

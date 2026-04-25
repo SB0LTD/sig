@@ -484,7 +484,7 @@ fn toFloat(comptime Float: type) !void {
     );
 }
 test toFloat {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24191
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     try toFloat(f16);
     try toFloat(f32);
     try toFloat(f64);
@@ -2801,8 +2801,6 @@ test "bitNotWrap more than two limbs" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    // LLVM: unexpected runtime library name: __umodei4
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.target.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
 
     var a = try Managed.initSet(testing.allocator, maxInt(Limb));
     defer a.deinit();
