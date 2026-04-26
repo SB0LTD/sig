@@ -615,7 +615,7 @@ const inv_ntt_reductions = [_]i16{
 test "invNTTReductions bounds" {
     // Checks whether the reductions proposed by invNTTReductions
     // don't overflow during invNTT().
-    var xs: [256]i32 = @splat(1); // start at |x| ≤ q
+    var xs = [_]i32{1} ** 256; // start at |x| ≤ q
 
     var r: usize = 0;
     var layer: math.Log2Int(usize) = 1;
@@ -797,7 +797,7 @@ const Poly = struct {
     cs: [N]i16,
 
     const encoded_length = N / 2 * 3;
-    const zero: Poly = .{ .cs = @splat(0) };
+    const zero: Poly = .{ .cs = .{0} ** N };
 
     // Add two polynomials (coefficients not normalized)
     fn add(a: Poly, b: Poly) Poly {
@@ -1011,7 +1011,7 @@ const Poly = struct {
 
         const out_length: usize = comptime @divTrunc(N * d, 8);
         comptime assert(out_length * 8 == d * N);
-        var out: [out_length]u8 = @splat(0);
+        var out = [_]u8{0} ** out_length;
 
         while (in_off < N) {
             // First we compress into in.
@@ -1655,14 +1655,20 @@ test "Test happy flow" {
 // Code to test NIST Known Answer Tests (KAT), see PQCgenKAT.c.
 
 test "NIST KAT test d00.Kyber512" {
+    if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
+
     try testNistKat(d00.Kyber512, "e9c2bd37133fcb40772f81559f14b1f58dccd1c816701be9ba6214d43baf4547");
 }
 
 test "NIST KAT test d00.Kyber1024" {
+    if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
+
     try testNistKat(d00.Kyber1024, "89248f2f33f7f4f7051729111f3049c409a933ec904aedadf035f30fa5646cd5");
 }
 
 test "NIST KAT test d00.Kyber768" {
+    if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
+
     try testNistKat(d00.Kyber768, "a1e122cad3c24bc51622e4c242d8b8acbcd3f618fee4220400605ca8f9ea02c2");
 }
 
@@ -1754,7 +1760,7 @@ const NistDRBG = struct {
     }
 
     fn init(seed: [48]u8) NistDRBG {
-        var ret: NistDRBG = .{ .key = @splat(0), .v = @splat(0) };
+        var ret: NistDRBG = .{ .key = .{0} ** 32, .v = .{0} ** 16 };
         ret.update(seed);
         return ret;
     }
