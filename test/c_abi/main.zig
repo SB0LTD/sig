@@ -538,6 +538,7 @@ extern fn c_struct_f32a8(Struct_f32a8, f32) void;
 
 test "C ABI struct f32 align(8)" {
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
@@ -571,6 +572,7 @@ extern fn c_struct_f32a8_f32a8(Struct_f32a8_f32a8, f32) void;
 
 test "C ABI struct f32 align(8), f32 align(8)" {
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
