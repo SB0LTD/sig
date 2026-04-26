@@ -770,8 +770,6 @@ const module_test_targets = blk: {
             },
             .linkage = .dynamic,
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/2256
-            .skip_modules = &.{"std"},
             .extra_target = true,
         },
         .{
@@ -801,8 +799,6 @@ const module_test_targets = blk: {
                 .abi = .gnueabi,
             },
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/2256
-            .skip_modules = &.{"std"},
             .extra_target = true,
         },
         .{
