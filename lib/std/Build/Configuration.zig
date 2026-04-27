@@ -1572,6 +1572,10 @@ pub const Bytes = extern struct {
     /// Points into `string_bytes`.
     index: u32,
     len: u32,
+
+    pub fn slice(bytes: Bytes, c: *const Configuration) []const u8 {
+        return c.string_bytes[bytes.index..][0..bytes.len];
+    }
 };
 
 pub const DefaultingBool = enum(u2) {

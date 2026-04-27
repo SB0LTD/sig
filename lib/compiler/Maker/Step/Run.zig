@@ -48,6 +48,7 @@ pub fn make(
     const conf_run = conf_step.extended.get(conf.extra).run;
     const argv_list = &run.argv;
     const output_placeholders = &run.output_placeholders;
+    const cache_root = graph.local_cache_root;
 
     argv_list.clearRetainingCapacity();
     output_placeholders.clearRetainingCapacity();
@@ -174,51 +175,62 @@ pub fn make(
         }
     }
 
-    if (true) @panic("TODO");
-
     switch (conf_run.stdin.u) {
         .bytes => |bytes| {
-            man.hash.addBytes(bytes);
+            man.hash.addBytes(bytes.slice(conf));
         },
         .lazy_path => |lazy_path| {
-            const file_path = lazy_path.getPath2(graph, step);
-            _ = try man.addFile(file_path, null);
+            const file_path = try maker.resolveLazyPathIndex(arena, lazy_path, run_index);
+            _ = try man.addFilePath(file_path, null);
         },
         .none => {},
     }
 
-    if (conf_run.captured_stdout) |captured| {
-        man.hash.addBytes(captured.output.basename);
-        man.hash.add(captured.trim_whitespace);
+    if (conf_run.captured_stdout.value) |captured| {
+        man.hash.addBytes(captured.basename.slice(conf));
+        man.hash.add(conf_run.flags.stdout_trim_whitespace);
     }
 
-    if (conf_run.captured_stderr) |captured| {
-        man.hash.addBytes(captured.output.basename);
-        man.hash.add(captured.trim_whitespace);
+    if (conf_run.captured_stderr.value) |captured| {
+        man.hash.addBytes(captured.basename.slice(conf));
+        man.hash.add(conf_run.flags.stderr_trim_whitespace);
     }
 
-    std.log.err("TODO hashStdIo", .{});
-    //hashStdIo(&man.hash, conf_run.stdio);
-
-    for (conf_run.file_inputs.items) |lazy_path| {
-        _ = try man.addFile(lazy_path.getPath2(graph, step), null);
+    switch (conf_run.flags.stdio) {
+        .infer_from_args, .inherit, .zig_test => {},
+        .check => {
+            man.hash.addBytes(if (conf_run.expect_stderr_exact.value) |bytes| bytes.slice(conf) else "");
+            man.hash.addBytes(if (conf_run.expect_stdout_exact.value) |bytes| bytes.slice(conf) else "");
+            for (conf_run.expect_stderr_match.slice) |bytes| man.hash.addBytes(bytes.slice(conf));
+            for (conf_run.expect_stdout_match.slice) |bytes| man.hash.addBytes(bytes.slice(conf));
+            man.hash.add(conf_run.flags2.expect_term_status);
+            man.hash.addOptional(conf_run.expect_term_value.value);
+        },
     }
 
-    if (conf_run.cwd) |cwd| {
-        const cwd_path = cwd.getPath3(graph, step);
+    for (conf_run.file_inputs.slice) |lazy_path| {
+        const file_path = try maker.resolveLazyPathIndex(arena, lazy_path, run_index);
+        _ = try man.addFilePath(file_path, null);
+    }
+
+    if (conf_run.cwd.value) |lazy_path| {
+        const cwd_path = try maker.resolveLazyPathIndex(arena, lazy_path, run_index);
         _ = man.hash.addBytes(try cwd_path.toString(arena));
     }
 
     const has_side_effects = conf_run.flags.has_side_effects;
 
-    if (!has_side_effects and try step.cacheHitAndWatch(&man)) {
+    if (true) @panic("TODO");
+
+    if (!has_side_effects and try step.cacheHitAndWatch(maker, &man)) {
         // cache hit, skip running command
         const digest = man.final();
 
         try populateGeneratedPaths(
             arena,
             output_placeholders.items,
-            graph.cache_root,
+            &conf_run,
+            cache_root,
             &digest,
         );
 
@@ -236,7 +248,8 @@ pub fn make(
         try populateGeneratedPaths(
             arena,
             output_placeholders.items,
-            graph.cache_root,
+            &conf_run,
+            cache_root,
             &digest,
         );
 
@@ -248,9 +261,9 @@ pub fn make(
                 .output_directory => output_sub_path,
                 else => unreachable,
             };
-            graph.cache_root.handle.createDirPath(io, output_sub_dir_path) catch |err| {
+            cache_root.handle.createDirPath(io, output_sub_dir_path) catch |err| {
                 return step.fail(maker, "unable to make path '{f}{s}': {t}", .{
-                    graph.cache_root, output_sub_dir_path, err,
+                    cache_root, output_sub_dir_path, err,
                 });
             };
             const arg_output_path = try convertPathArg(run_index, maker, .{
@@ -281,13 +294,13 @@ pub fn make(
             .output_directory => output_sub_path,
             else => unreachable,
         };
-        graph.cache_root.handle.createDirPath(io, output_sub_dir_path) catch |err| {
+        cache_root.handle.createDirPath(io, output_sub_dir_path) catch |err| {
             return step.fail(maker, "unable to make path '{f}{s}': {t}", .{
-                graph.cache_root, output_sub_dir_path, err,
+                cache_root, output_sub_dir_path, err,
             });
         };
         const raw_output_path: Path = .{
-            .root_dir = graph.cache_root,
+            .root_dir = cache_root,
             .sub_path = graph.pathJoin(&output_components),
         };
         placeholder.output.generated_file.path = raw_output_path.toString(arena) catch @panic("OOM");
@@ -318,21 +331,21 @@ pub fn make(
     if (any_output) {
         const o_sub_path = "o" ++ Dir.path.sep_str ++ &digest;
 
-        graph.cache_root.handle.rename(tmp_dir_path, graph.cache_root.handle, o_sub_path, io) catch |err| switch (err) {
+        cache_root.handle.rename(tmp_dir_path, cache_root.handle, o_sub_path, io) catch |err| switch (err) {
             Dir.RenameError.DirNotEmpty => {
-                graph.cache_root.handle.deleteTree(io, o_sub_path) catch |del_err| {
+                cache_root.handle.deleteTree(io, o_sub_path) catch |del_err| {
                     return step.fail(maker, "unable to remove dir '{f}'{s}: {t}", .{
-                        graph.cache_root, tmp_dir_path, del_err,
+                        cache_root, tmp_dir_path, del_err,
                     });
                 };
-                graph.cache_root.handle.rename(tmp_dir_path, graph.cache_root.handle, o_sub_path, io) catch |retry_err| {
+                cache_root.handle.rename(tmp_dir_path, cache_root.handle, o_sub_path, io) catch |retry_err| {
                     return step.fail(maker, "unable to rename dir '{f}{s}' to '{f}{s}': {t}", .{
-                        graph.cache_root, tmp_dir_path, graph.cache_root, o_sub_path, retry_err,
+                        cache_root, tmp_dir_path, cache_root, o_sub_path, retry_err,
                     });
                 };
             },
             else => return step.fail(maker, "unable to rename dir '{f}{s}' to '{f}{s}': {t}", .{
-                graph.cache_root, tmp_dir_path, graph.cache_root, o_sub_path, err,
+                cache_root, tmp_dir_path, cache_root, o_sub_path, err,
             }),
         };
     }
@@ -342,7 +355,8 @@ pub fn make(
     try populateGeneratedPaths(
         arena,
         output_placeholders.items,
-        graph.cache_root,
+        &conf_run,
+        cache_root,
         &digest,
     );
 }
@@ -1548,8 +1562,7 @@ const CapturedStdIo = void; // TODO get it from Configuration
 fn populateGeneratedPaths(
     arena: std.mem.Allocator,
     output_placeholders: []const IndexedOutput,
-    captured_stdout: ?*CapturedStdIo,
-    captured_stderr: ?*CapturedStdIo,
+    conf_run: *const Configuration.Step.Run,
     cache_root: Cache.Directory,
     digest: *const Cache.HexDigest,
 ) !void {
@@ -1559,13 +1572,13 @@ fn populateGeneratedPaths(
         });
     }
 
-    if (captured_stdout) |captured| {
+    if (conf_run.captured_stdout.value) |captured| {
         captured.output.generated_file.path = try cache_root.join(arena, &.{
             "o", digest, captured.output.basename,
         });
     }
 
-    if (captured_stderr) |captured| {
+    if (conf_run.captured_stderr.value) |captured| {
         captured.output.generated_file.path = try cache_root.join(arena, &.{
             "o", digest, captured.output.basename,
         });
@@ -1985,29 +1998,6 @@ fn spawnChildAndCollect(
     }
 }
 
-fn hashStdIo(hh: *Cache.HashHelper, stdio: void) void {
-    switch (stdio) {
-        .infer_from_args, .inherit, .zig_test => {},
-        .check => |checks| for (checks.items) |check| {
-            hh.add(@as(std.meta.Tag(@This().StdIo.Check), check));
-            switch (check) {
-                .expect_stderr_exact,
-                .expect_stderr_match,
-                .expect_stdout_exact,
-                .expect_stdout_match,
-                => |s| hh.addBytes(s),
-
-                .expect_term => |term| {
-                    hh.add(@as(std.meta.Tag(process.Child.Term), term));
-                    switch (term) {
-                        inline .exited, .signal, .stopped => |x| hh.add(x),
-                        .unknown => |x| hh.add(x),
-                    }
-                },
-            }
-        },
-    }
-}
 fn termMatches(expected: ?process.Child.Term, actual: process.Child.Term) bool {
     return if (expected) |e| switch (e) {
         .exited => |expected_code| switch (actual) {
