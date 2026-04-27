@@ -7154,8 +7154,7 @@ pub fn ccAbiPromoteInt(cc: std.builtin.CallingConvention, zcu: *Zcu, ty: Type) ?
         .mips64el,
         => switch (int_info.bits) {
             8, 16, 64 => int_info.signedness,
-            // https://github.com/llvm/llvm-project/issues/179088
-            // 32 => .signed,
+            32 => .signed,
             else => null,
         },
 
