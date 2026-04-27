@@ -58,6 +58,7 @@ pub const floatMax = float.floatMax;
 pub const floatEps = float.floatEps;
 pub const floatEpsAt = float.floatEpsAt;
 pub const inf = float.inf;
+pub const long_double = float.long_double;
 pub const nan = float.nan;
 pub const snan = float.snan;
 

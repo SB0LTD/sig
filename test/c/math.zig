@@ -3,14 +3,19 @@ const std = @import("std");
 
 const c = std.c;
 const math = std.math;
+
 const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
+const expectApproxEqAbs = testing.expectApproxEqAbs;
+const expectApproxEqRel = testing.expectApproxEqRel;
 
 fn testModf(comptime T: type) !void {
     const f = switch (T) {
         f32 => c.modff,
         f64 => c.modf,
         c_longdouble => c.modfl,
-        else => unreachable,
+        else => @compileError("modf not implemented for " ++ @typeName(T)),
     };
 
     var int: T = undefined;
@@ -20,85 +25,140 @@ fn testModf(comptime T: type) !void {
     const normal_frac = f(@as(T, 1234.567), iptr);
     // Account for precision error
     const expected = 1234.567 - @as(T, 1234);
-    try testing.expectApproxEqAbs(expected, normal_frac, eps_val);
-    try testing.expectApproxEqRel(@as(T, 1234.0), iptr.*, eps_val);
+    try expectApproxEqAbs(expected, normal_frac, eps_val);
+    try expectApproxEqRel(@as(T, 1234.0), iptr.*, eps_val);
 
     // When `x` is a NaN, NaN is returned and `*iptr` is set to NaN
     const nan_frac = f(math.nan(T), iptr);
-    try testing.expect(math.isNan(nan_frac));
-    try testing.expect(math.isNan(iptr.*));
+    try expect(math.isNan(nan_frac));
+    try expect(math.isNan(iptr.*));
 
     // When `x` is positive infinity, +0 is returned and `*iptr` is set to
     // positive infinity
     const pos_zero_frac = f(math.inf(T), iptr);
-    try testing.expect(math.isPositiveZero(pos_zero_frac));
-    try testing.expect(math.isPositiveInf(iptr.*));
+    try expectEqual(0.0, pos_zero_frac);
+    try expect(math.isPositiveInf(iptr.*));
 
     // When `x` is negative infinity, -0 is returned and `*iptr` is set to
     // negative infinity
     const neg_zero_frac = f(-math.inf(T), iptr);
-    try testing.expect(math.isNegativeZero(neg_zero_frac));
-    try testing.expect(math.isNegativeInf(iptr.*));
+    try expectEqual(-0.0, neg_zero_frac);
+    try expect(math.isNegativeInf(iptr.*));
 
     // Return -0 when `x` is a negative integer
     const nz_frac = f(@as(T, -1000.0), iptr);
-    try testing.expect(math.isNegativeZero(nz_frac));
-    try testing.expectEqual(@as(T, -1000.0), iptr.*);
+    try expectEqual(-0.0, nz_frac);
+    try expectEqual(@as(T, -1000.0), iptr.*);
 
     // Return +0 when `x` is a positive integer
     const pz_frac = f(@as(T, 1000.0), iptr);
-    try testing.expect(math.isPositiveZero(pz_frac));
-    try testing.expectEqual(@as(T, 1000.0), iptr.*);
+    try expectEqual(0.0, pz_frac);
+    try expectEqual(@as(T, 1000.0), iptr.*);
 }
 
 test "modf" {
-    try testModf(f32);
     try testModf(f64);
+}
 
-    if (builtin.target.cpu.arch.isPowerPC()) return error.SkipZigTest; // TODO
+test "modff" {
+    try testModf(f32);
+}
+
+test "modfl" {
+    if (builtin.target.cpu.arch.isPowerPC()) return error.SkipZigTest; // TODO: see https://codeberg.org/ziglang/zig/issues/30976
 
     try testModf(c_longdouble);
 }
 
-fn testRint(comptime T: type) !void {
+fn testRintSpecial(comptime T: type) !void {
     const f = switch (T) {
         f32 => c.rintf,
         f64 => c.rint,
+        c_longdouble => c.rintl,
+        else => @compileError("rint not implemented for" ++ @typeName(T)),
+    };
+
+    // For the special cases, x itself should be returned
+    try expectEqual(0.0, f(0.0));
+    try expectEqual(-0.0, f(-0.0));
+    try expectEqual(math.inf(T), f(math.inf(T)));
+    try expectEqual(-math.inf(T), f(-math.inf(T)));
+    try expect(math.isNan(f(math.nan(T))));
+}
+
+fn testRintNormal(comptime T: type) !void {
+    const f = switch (T) {
+        f32 => c.rintf,
+        f64 => c.rint,
+        c_longdouble => c.rintl,
         else => @compileError("rint not implemented for" ++ @typeName(T)),
     };
 
     // Positive numbers round correctly
-    try testing.expectEqual(@as(T, 42.0), f(42.2));
-    try testing.expectEqual(@as(T, 42.0), f(41.8));
+    try expectEqual(@as(T, 42.0), f(42.2));
+    try expectEqual(@as(T, 42.0), f(41.8));
+    try expectEqual(@as(T, 16_777_216.0), f(16_777_215.6));
 
     // Negative numbers round correctly
-    try testing.expectEqual(@as(T, -6.0), f(-5.9));
-    try testing.expectEqual(@as(T, -6.0), f(-6.1));
+    try expectEqual(@as(T, -6.0), f(-5.9));
+    try expectEqual(@as(T, -6.0), f(-6.1));
+    // TODO: negative `long double`s close to `-n.5` seem to round to `-n.5`
+    // instead of either `-n.0` or `-(n-1).0` on NetBSD. For example, this
+    // case would round to `-16_777_215.5`.
+    if (!(T == c_longdouble and builtin.target.os.tag == .netbsd)) {
+        try expectEqual(@as(T, -16_777_215.0), f(-16_777_215.4));
+    }
 
     // No rounding needed test
-    try testing.expectEqual(@as(T, 5.0), f(5.0));
-    try testing.expectEqual(@as(T, -10.0), f(-10.0));
-    try testing.expectEqual(@as(T, 0.0), f(0.0));
+    try expectEqual(@as(T, 5.0), f(5.0));
+    try expectEqual(@as(T, -10.0), f(-10.0));
+    try expectEqual(@as(T, 0.0), f(0.0));
 
     // Very large numbers return unchanged
     const large: T = 9007199254740992.0; // 2^53
-    try testing.expectEqual(large, f(large));
-    try testing.expectEqual(-large, f(-large));
+    try expectEqual(large, f(large));
+    try expectEqual(-large, f(-large));
 
     // Small positive numbers round to zero
-    const pos_result = f(0.3);
-    try testing.expect(math.isPositiveZero(pos_result));
+    try expectEqual(@as(T, 0.0), f(0.3));
 
-    // Small negative numbers round to negative zero
-    const neg_result = f(-0.3);
-    try testing.expect(math.isNegativeZero(neg_result));
+    // TODO: negative `long double`s close to `-n.5` seem to round to `-n.5`
+    // instead of either `-n.0` or `-(n-1).0` on NetBSD. For example, this
+    // case would round to `-0.5`.
+    if (!(T == c_longdouble and builtin.target.os.tag == .netbsd)) {
+        // Small negative numbers round to negative zero
+        try expectEqual(@as(T, -0.0), f(-0.3));
+    }
 
     // Exact half rounds to nearest even (banker's rounding)
-    try testing.expectEqual(@as(T, 2.0), f(2.5));
-    try testing.expectEqual(@as(T, 4.0), f(3.5));
+    try expectEqual(@as(T, 2.0), f(2.5));
+    try expectEqual(@as(T, 4.0), f(3.5));
 }
 
-test "rint" {
-    try testRint(f32);
-    try testRint(f64);
+test "rintf.special" {
+    try testRintSpecial(f32);
+}
+
+test "rintf.normal" {
+    try testRintNormal(f32);
+}
+
+test "rint.special" {
+    try testRintSpecial(f64);
+}
+
+test "rint.normal" {
+    try testRintNormal(f64);
+}
+
+test "rintl.special" {
+    if (builtin.target.cpu.arch.isPowerPC()) return error.SkipZigTest; // TODO: see https://codeberg.org/ziglang/zig/issues/30976
+
+    try testRintSpecial(c_longdouble);
+}
+
+test "rintl.normal" {
+    if (builtin.target.cpu.arch.isPowerPC()) return error.SkipZigTest; // TODO: see https://codeberg.org/ziglang/zig/issues/30976
+
+    try testRintNormal(c_longdouble);
 }
