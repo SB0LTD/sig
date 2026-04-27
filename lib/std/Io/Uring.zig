@@ -5984,7 +5984,7 @@ fn socket(
 
     if (options.ip6_only) {
         if (linux.IPV6 == void) return error.OptionUnsupported;
-        try ev.setsockopt(cancel_region, socket_fd, linux.IPPROTO.IPV6, linux.IPV6.V6ONLY, 0);
+        try ev.setsockopt(cancel_region, socket_fd, linux.IPPROTO.IPV6, linux.IPV6.V6ONLY, 1);
     }
 
     return socket_fd;
