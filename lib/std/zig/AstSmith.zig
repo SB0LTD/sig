@@ -486,7 +486,7 @@ fn pegContainerField(a: *AstSmith) SourceError!void {
 /// BlockStatement
 ///     <- Statement
 ///      / KEYWORD_defer BlockExprStatement
-///      / KEYWORD_errdefer Payload? BlockExprStatement
+///      / KEYWORD_errdefer BlockExprStatement
 ///      / !ExprStatement (KEYWORD_comptime !BlockExpr)? VarAssignStatement
 fn pegBlockStatement(a: *AstSmith) SourceError!void {
     const Kind = enum {

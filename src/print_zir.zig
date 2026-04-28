@@ -477,7 +477,6 @@ const Writer = struct {
             .decl_ref,
             .decl_val,
             .ret_err_value,
-            .ret_err_value_code,
             .param_anytype,
             .param_anytype_comptime,
             => try self.writeStrTok(stream, inst),
@@ -497,7 +496,6 @@ const Writer = struct {
             .dbg_stmt => try self.writeDbgStmt(stream, inst),
 
             .@"defer" => try self.writeDefer(stream, inst),
-            .defer_err_code => try self.writeDeferErrCode(stream, inst),
 
             .declaration => try self.writeDeclaration(stream, inst),
 
@@ -2182,19 +2180,6 @@ const Writer = struct {
     fn writeDefer(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].@"defer";
         const body = self.code.bodySlice(inst_data.index, inst_data.len);
-        try self.writeBracedBody(stream, body);
-        try stream.writeByte(')');
-    }
-
-    fn writeDeferErrCode(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].defer_err_code;
-        const extra = self.code.extraData(Zir.Inst.DeferErrCode, inst_data.payload_index).data;
-
-        try self.writeInstRef(stream, extra.remapped_err_code.toRef());
-        try stream.writeAll(" = ");
-        try self.writeInstRef(stream, inst_data.err_code);
-        try stream.writeAll(", ");
-        const body = self.code.bodySlice(extra.index, extra.len);
         try self.writeBracedBody(stream, body);
         try stream.writeByte(')');
     }

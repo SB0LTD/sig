@@ -952,8 +952,8 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .switch_range,
         => n = tree.nodeData(n).node_and_node[1],
 
-        .test_decl, .@"errdefer" => n = tree.nodeData(n).opt_token_and_node[1],
-        .@"defer" => n = tree.nodeData(n).node,
+        .test_decl => n = tree.nodeData(n).opt_token_and_node[1],
+        .@"defer", .@"errdefer" => n = tree.nodeData(n).node,
         .anyframe_type => n = tree.nodeData(n).token_and_node[1],
 
         .switch_case_one,
@@ -3059,11 +3059,8 @@ pub const Node = struct {
         /// a `assign_destructure` node or a parsing error occured.
         aligned_var_decl,
         /// `errdefer expr`,
-        /// `errdefer |payload| expr`.
         ///
-        /// The `data` field is a `.opt_token_and_node`:
-        ///   1. a `OptionalTokenIndex` to the payload identifier, if any.
-        ///   2. a `Node.Index` to the deferred expression.
+        /// The `data` field is a `.node` to the deferred expression.
         ///
         /// The `main_token` field is the `errdefer` token.
         @"errdefer",
@@ -3071,7 +3068,7 @@ pub const Node = struct {
         ///
         /// The `data` field is a `.node` to the deferred expression.
         ///
-        /// The `main_token` field is the `defer`.
+        /// The `main_token` field is the `defer` token.
         @"defer",
         /// `lhs catch rhs`,
         /// `lhs catch |err| rhs`.

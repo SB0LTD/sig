@@ -597,13 +597,6 @@ pub const Inst = struct {
         /// name is added to it.
         /// Uses the `str_tok` union field.
         ret_err_value,
-        /// A string name is provided which is an anonymous error set value.
-        /// If the current function has an inferred error set, the error given by the
-        /// name is added to it.
-        /// Results in the error code. Note that control flow is not diverted with
-        /// this instruction; a following 'ret' instruction will do the diversion.
-        /// Uses the `str_tok` union field.
-        ret_err_value_code,
         /// Obtains a pointer to the return value.
         /// Uses the `node` union field.
         ret_ptr,
@@ -1066,9 +1059,6 @@ pub const Inst = struct {
         /// A defer statement.
         /// Uses the `defer` union field.
         @"defer",
-        /// An errdefer statement with a code.
-        /// Uses the `err_defer_code` union field.
-        defer_err_code,
 
         /// Requests that Sema update the saved error return trace index for the enclosing
         /// block, if the operand is .none or of an error/error-union type.
@@ -1295,14 +1285,12 @@ pub const Inst = struct {
                 .memmove,
                 .min,
                 .@"resume",
-                .ret_err_value_code,
                 .extended,
                 .ret_ptr,
                 .ret_type,
                 .@"try",
                 .try_ptr,
                 .@"defer",
-                .defer_err_code,
                 .save_err_ret_index,
                 .for_len,
                 .opt_eu_base_ptr_init,
@@ -1377,7 +1365,6 @@ pub const Inst = struct {
                 .memmove,
                 .check_comptime_control_flow,
                 .@"defer",
-                .defer_err_code,
                 .save_err_ret_index,
                 .restore_err_ret_index_unconditional,
                 .restore_err_ret_index_fn_entry,
@@ -1574,7 +1561,6 @@ pub const Inst = struct {
                 .max,
                 .min,
                 .@"resume",
-                .ret_err_value_code,
                 .@"break",
                 .break_inline,
                 .condbr,
@@ -1732,7 +1718,6 @@ pub const Inst = struct {
                 .ret_load = .un_node,
                 .ret_implicit = .un_tok,
                 .ret_err_value = .str_tok,
-                .ret_err_value_code = .str_tok,
                 .ret_ptr = .node,
                 .ret_type = .node,
                 .ptr_type = .ptr_type,
@@ -1866,7 +1851,6 @@ pub const Inst = struct {
                 .@"resume" = .un_node,
 
                 .@"defer" = .@"defer",
-                .defer_err_code = .defer_err_code,
 
                 .save_err_ret_index = .save_err_ret_index,
                 .restore_err_ret_index_unconditional = .un_node,
@@ -2484,10 +2468,6 @@ pub const Inst = struct {
             index: u32,
             len: u32,
         },
-        defer_err_code: struct {
-            err_code: Ref,
-            payload_index: u32,
-        },
         save_err_ret_index: struct {
             operand: Ref, // If error type (or .none), save new trace index
         },
@@ -2538,7 +2518,6 @@ pub const Inst = struct {
             inst_node,
             str_op,
             @"defer",
-            defer_err_code,
             save_err_ret_index,
             elem_val_imm,
             declaration,
@@ -3974,12 +3953,6 @@ pub const Inst = struct {
         column: u32,
     };
 
-    pub const DeferErrCode = struct {
-        remapped_err_code: Index,
-        index: u32,
-        len: u32,
-    };
-
     pub const ValidateDestructure = struct {
         /// The value being destructured.
         operand: Ref,
@@ -4222,7 +4195,6 @@ fn findTrackableInner(
         .ret_load,
         .ret_implicit,
         .ret_err_value,
-        .ret_err_value_code,
         .ret_ptr,
         .ret_type,
         .ptr_type,
@@ -4618,15 +4590,6 @@ fn findTrackableInner(
             const gop = try defers.getOrPut(gpa, inst_data.index);
             if (!gop.found_existing) {
                 const body = zir.bodySlice(inst_data.index, inst_data.len);
-                try zir.findTrackableBody(gpa, contents, defers, body);
-            }
-        },
-        .defer_err_code => {
-            const inst_data = datas[@intFromEnum(inst)].defer_err_code;
-            const extra = zir.extraData(Inst.DeferErrCode, inst_data.payload_index).data;
-            const gop = try defers.getOrPut(gpa, extra.index);
-            if (!gop.found_existing) {
-                const body = zir.bodySlice(extra.index, extra.len);
                 try zir.findTrackableBody(gpa, contents, defers, body);
             }
         },

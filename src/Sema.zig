@@ -1245,7 +1245,6 @@ fn analyzeBodyInner(
             .optional_type                => try sema.zirOptionalType(block, inst),
             .ptr_type                     => try sema.zirPtrType(block, inst),
             .ref                          => try sema.zirRef(block, inst),
-            .ret_err_value_code           => try sema.zirRetErrValueCode(inst),
             .shr                          => try sema.zirShr(block, inst, .shr),
             .shr_exact                    => try sema.zirShr(block, inst, .shr_exact),
             .slice_end                    => try sema.zirSliceEnd(block, inst),
@@ -1957,25 +1956,6 @@ fn analyzeBodyInner(
             .@"defer" => blk: {
                 const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].@"defer";
                 const defer_body = sema.code.bodySlice(inst_data.index, inst_data.len);
-                if (sema.analyzeBodyInner(block, defer_body)) {
-                    // The defer terminated noreturn - no more analysis needed.
-                    break;
-                } else |err| switch (err) {
-                    error.ComptimeBreak => {},
-                    else => |e| return e,
-                }
-                if (sema.comptime_break_inst != defer_body[defer_body.len - 1]) {
-                    return error.ComptimeBreak;
-                }
-                break :blk .void_value;
-            },
-            .defer_err_code => blk: {
-                const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].defer_err_code;
-                const extra = sema.code.extraData(Zir.Inst.DeferErrCode, inst_data.payload_index).data;
-                const defer_body = sema.code.bodySlice(extra.index, extra.len);
-                const err_code = sema.resolveInst(inst_data.err_code);
-                try map.ensureSpaceForInstructions(sema.gpa, defer_body);
-                map.putAssumeCapacity(extra.remapped_err_code, err_code);
                 if (sema.analyzeBodyInner(block, defer_body)) {
                     // The defer terminated noreturn - no more analysis needed.
                     break;
@@ -12936,29 +12916,6 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     return Air.internedToRef(result.val);
-}
-
-fn zirRetErrValueCode(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const comp = zcu.comp;
-    const gpa = comp.gpa;
-    const io = comp.io;
-
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
-    const name = try zcu.intern_pool.getOrPutString(
-        gpa,
-        io,
-        pt.tid,
-        inst_data.get(sema.code),
-        .no_embedded_nulls,
-    );
-    _ = try pt.getErrorValue(name);
-    const error_set_type = try pt.singleErrorSetType(name);
-    return Air.internedToRef((try pt.intern(.{ .err = .{
-        .ty = error_set_type.toIntern(),
-        .name = name,
-    } })));
 }
 
 fn zirShl(

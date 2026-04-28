@@ -7774,7 +7774,7 @@ ContainerField <- doc_comment? (KEYWORD_comptime / !KEYWORD_comptime) !KEYWORD_f
 BlockStatement
     <- Statement
      / KEYWORD_defer BlockExprStatement
-     / KEYWORD_errdefer Payload? BlockExprStatement
+     / KEYWORD_errdefer BlockExprStatement
      / !ExprStatement (KEYWORD_comptime !BlockExpr)? VarAssignStatement
 
 Statement

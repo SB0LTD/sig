@@ -394,20 +394,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             return renderBlock(r, node, statements, space);
         },
 
-        .@"errdefer" => {
-            const defer_token = tree.nodeMainToken(node);
-            const maybe_payload_token, const expr = tree.nodeData(node).opt_token_and_node;
-
-            try renderToken(r, defer_token, .maybe_space);
-            if (maybe_payload_token.unwrap()) |payload_token| {
-                try renderToken(r, payload_token - 1, .none); // |
-                try renderIdentifier(r, payload_token, .none, .preserve_when_shadowing); // identifier
-                try renderToken(r, payload_token + 1, .maybe_space); // |
-            }
-            return renderExpression(r, expr, space);
-        },
-
         .@"defer",
+        .@"errdefer",
         .@"comptime",
         .@"nosuspend",
         .@"suspend",

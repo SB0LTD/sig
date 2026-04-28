@@ -223,12 +223,8 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
             return walkBlock(w, node, statements);
         },
 
-        .@"errdefer" => {
-            const expr = ast.nodeData(node).opt_token_and_node[1];
-            return walkExpression(w, expr);
-        },
-
         .@"defer",
+        .@"errdefer",
         .@"comptime",
         .@"nosuspend",
         .@"suspend",

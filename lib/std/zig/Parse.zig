@@ -909,7 +909,7 @@ fn expectContainerField(p: *Parse) !Node.Index {
 /// BlockStatement
 ///     <- Statement
 ///      / KEYWORD_defer BlockExprStatement
-///      / KEYWORD_errdefer Payload? BlockExprStatement
+///      / KEYWORD_errdefer BlockExprStatement
 ///      / !ExprStatement (KEYWORD_comptime !BlockExpr)? VarAssignStatement
 ///
 /// Statement
@@ -975,10 +975,7 @@ fn expectStatement(p: *Parse, is_block_level: bool) Error!Node.Index {
         .keyword_errdefer => if (is_block_level) return p.addNode(.{
             .tag = .@"errdefer",
             .main_token = p.nextToken(),
-            .data = .{ .opt_token_and_node = .{
-                try p.parsePayload(),
-                try p.expectBlockExprStatement(),
-            } },
+            .data = .{ .node = try p.expectBlockExprStatement() },
         }),
         .keyword_if => return p.expectIfStatement(),
         .keyword_enum, .keyword_struct, .keyword_union => {
