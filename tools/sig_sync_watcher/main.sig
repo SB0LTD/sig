@@ -345,14 +345,39 @@ fn fireDispatch(token: []const u8, repo: []const u8) !void {
     var url_buf: [256]u8 = undefined;
     const url = fmt.bufPrint(&url_buf, "api.github.com/repos/{s}/dispatches", .{repo}) catch return error.Overflow;
 
-    var auth_buf: [256]u8 = undefined;
-    const auth = fmt.bufPrint(&auth_buf, "token {s}", .{token}) catch return error.Overflow;
+    // Write JSON body to a temp file to avoid shell quoting issues
+    const body_file = "/tmp/dispatch_body.json";
+    const body_content = "{\"event_type\":\"upstream-push\"}";
+    const fd = c.open(body_file, 0x241, 0o644); // O_WRONLY|O_CREAT|O_TRUNC
+    if (fd < 0) return error.FileError;
+    _ = c.write(fd, body_content.ptr, body_content.len);
+    _ = c.close(fd);
 
-    const body = "{\"event_type\":\"upstream-push\"}";
+    var cmd_buf: [1024]u8 = undefined;
+    const cmd_str = fmt.bufPrint(&cmd_buf, "curl -s -w '\\n%chttp_code%c' -X POST -H 'Authorization: token {s}' -H 'Accept: application/vnd.github+json' -A 'sig-sync-watcher/1.0' -H 'Content-Type: application/json' -d @{s} 'https://{s}'", .{ '{', '}', token, body_file, url }) catch return error.Overflow;
+    cmd_buf[cmd_str.len] = 0;
+    const cmd: [*:0]const u8 = @ptrCast(cmd_buf[0..cmd_str.len]);
+    const pipe = popen(cmd, "r") orelse return error.PipeFailed;
 
-    curlPost(url, auth, body) catch |err| {
-        log("dispatch failed: {s}", .{@errorName(err)});
-        return err;
-    };
-    log("dispatch triggered", .{});
+    var out_buf: [4096]u8 = undefined;
+    var out_len: usize = 0;
+    while (out_len < out_buf.len) {
+        const n = fread(out_buf[out_len..].ptr, 1, out_buf.len - out_len, pipe);
+        if (n == 0) break;
+        out_len += n;
+    }
+    _ = pclose(pipe);
+
+    if (out_len >= 3) {
+        const status = out_buf[out_len - 3 .. out_len];
+        if (status[0] == '2') {
+            log("dispatch triggered (HTTP {s})", .{status});
+            return;
+        }
+        const body_end = if (out_len > 4 and out_buf[out_len - 4] == '\n') out_len - 4 else out_len - 3;
+        log("dispatch HTTP {s}: {s}", .{ status, out_buf[0..@min(body_end, 300)] });
+        return error.HttpError;
+    }
+    log("dispatch: no response (len={d})", .{out_len});
+    return error.HttpError;
 }
