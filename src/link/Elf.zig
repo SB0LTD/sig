@@ -1392,9 +1392,9 @@ pub fn initOutputSection(self: *Elf, args: struct {
         if (self.base.isRelocatable()) break :blk args.name;
         if (args.flags & elf.SHF_MERGE != 0) break :blk args.name;
         const name_prefixes: []const [:0]const u8 = &.{
-            ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
-            ".init_array", ".fini_array",  ".tbss", ".tdata",  ".gcc_except_table", ".ctors",
-            ".dtors",      ".gnu.warning",
+            ".text",          ".data.rel.ro", ".data",        ".rodata", ".bss.rel.ro", ".bss",
+            ".preinit_array", ".init_array",  ".fini_array",  ".tbss",   ".tdata",      ".gcc_except_table",
+            ".ctors",         ".dtors",       ".gnu.warning",
         };
         inline for (name_prefixes) |prefix| {
             if (mem.eql(u8, args.name, prefix) or mem.startsWith(u8, args.name, prefix ++ ".")) {
@@ -1409,6 +1409,8 @@ pub fn initOutputSection(self: *Elf, args: struct {
         switch (args.type) {
             elf.SHT_NULL => unreachable,
             elf.SHT_PROGBITS => {
+                if (mem.eql(u8, args.name, ".preinit_array") or mem.startsWith(u8, args.name, ".preinit_array."))
+                    break :tt elf.SHT_PREINIT_ARRAY;
                 if (mem.eql(u8, args.name, ".init_array") or mem.startsWith(u8, args.name, ".init_array."))
                     break :tt elf.SHT_INIT_ARRAY;
                 if (mem.eql(u8, args.name, ".fini_array") or mem.startsWith(u8, args.name, ".fini_array."))

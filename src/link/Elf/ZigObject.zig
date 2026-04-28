@@ -1237,6 +1237,10 @@ fn getNavShdrIndex(
             self.debug_rnglists_index = section_index;
         } else if (std.mem.startsWith(u8, section_name, ".debug")) {
             elf_file.sections.items(.shdr)[osec].sh_flags = 0;
+        } else if (std.mem.eql(u8, section_name, ".preinit_array") or std.mem.startsWith(u8, section_name, ".preinit_array.")) {
+            const shdr = &elf_file.sections.items(.shdr)[osec];
+            shdr.sh_type = elf.SHT_PREINIT_ARRAY;
+            shdr.sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE;
         } else if (std.mem.eql(u8, section_name, ".init_array") or std.mem.startsWith(u8, section_name, ".init_array.")) {
             const shdr = &elf_file.sections.items(.shdr)[osec];
             shdr.sh_type = elf.SHT_INIT_ARRAY;
