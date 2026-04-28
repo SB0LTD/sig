@@ -18339,7 +18339,6 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     switch (obj_ty.zigTypeTag(zcu)) {
         .@"struct" => return sema.structInitEmpty(block, obj_ty, src, src),
         .array, .vector => return sema.arrayInitEmpty(block, src, obj_ty),
-        .void => return Air.internedToRef(Value.void.toIntern()),
         .@"union" => return sema.fail(block, src, "union initializer must initialize one field", .{}),
         else => return sema.failWithArrayInitNotSupported(block, src, obj_ty),
     }
