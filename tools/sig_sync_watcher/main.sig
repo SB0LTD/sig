@@ -306,31 +306,37 @@ fn curlGet(url: []const u8, auth: ?[]const u8, buf: []u8) !usize {
 }
 
 fn curlPost(url: []const u8, auth: []const u8, body: []const u8) !void {
-    // Use -f to fail on HTTP errors, -v to get verbose output on stderr for debugging
+    // Don't use -f so we can capture the error response body
     var cmd_buf: [2048]u8 = undefined;
-    const cmd_str = fmt.bufPrint(&cmd_buf, "curl -sf -X POST -H 'Authorization: {s}' -H 'Accept: application/vnd.github+json' -H 'User-Agent: sig-sync-watcher/1.0' -H 'Content-Type: application/json' -d '{s}' 'https://{s}' 2>&1", .{ auth, body, url }) catch return error.Overflow;
+    const cmd_str = fmt.bufPrint(&cmd_buf, "curl -s -w '\\n%%{{http_code}}' -X POST -H 'Authorization: {s}' -H 'Accept: application/vnd.github+json' -A 'sig-sync-watcher/1.0' -H 'Content-Type: application/json' -d '{s}' 'https://{s}'", .{ auth, body, url }) catch return error.Overflow;
     cmd_buf[cmd_str.len] = 0;
     const cmd: [*:0]const u8 = @ptrCast(cmd_buf[0..cmd_str.len]);
     const pipe = popen(cmd, "r") orelse return error.PipeFailed;
 
-    // Read any output (error messages on failure, empty on success)
-    var out_buf: [2048]u8 = undefined;
+    // Read response body + status code (last line)
+    var out_buf: [4096]u8 = undefined;
     var out_len: usize = 0;
     while (out_len < out_buf.len) {
         const n = fread(out_buf[out_len..].ptr, 1, out_buf.len - out_len, pipe);
         if (n == 0) break;
         out_len += n;
     }
-    const exit_code = pclose(pipe);
+    _ = pclose(pipe);
 
-    if (exit_code != 0) {
-        if (out_len > 0) {
-            log("curl POST failed (exit={d}): {s}", .{ exit_code, out_buf[0..@min(out_len, 200)] });
-        } else {
-            log("curl POST failed with exit code {d}", .{exit_code});
+    // Last 3 chars should be the HTTP status code (from -w '%{http_code}')
+    if (out_len >= 3) {
+        const status = out_buf[out_len - 3 .. out_len];
+        if (status[0] == '2') {
+            // 2xx success
+            return;
         }
+        // Log the error body (everything before the status code)
+        const body_end = if (out_len > 4 and out_buf[out_len - 4] == '\n') out_len - 4 else out_len - 3;
+        log("curl POST HTTP {s}: {s}", .{ status, out_buf[0..@min(body_end, 300)] });
         return error.HttpError;
     }
+    log("curl POST: no response", .{});
+    return error.HttpError;
 }
 
 // ── GitHub dispatch ──────────────────────────────────────────────────────
