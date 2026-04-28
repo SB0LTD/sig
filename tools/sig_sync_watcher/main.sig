@@ -343,47 +343,36 @@ fn curlPost(url: []const u8, auth: []const u8, body: []const u8) !void {
 // ── GitHub dispatch ──────────────────────────────────────────────────────
 
 fn fireDispatch(token: []const u8, repo: []const u8) !void {
-    // Write body to temp file to avoid shell quoting issues with JSON
-    const write_pipe = popen("cat > /tmp/dispatch.json", "w") orelse return error.PipeFailed;
-    const json_body = "{\"event_type\":\"upstream-push\"}\n";
-    _ = fwrite(json_body.ptr, 1, json_body.len, write_pipe);
-    _ = pclose(write_pipe);
+    // Write JSON body to temp file using printf (avoids all quoting issues)
+    _ = pclose(popen("printf '{\"event_type\":\"upstream-push\"}' > /tmp/dispatch.json", "r") orelse return error.PipeFailed);
 
     // Build curl command manually to avoid fmt.bufPrint issues with { and }
     var cmd_buf: [1024]u8 = undefined;
     var pos: usize = 0;
 
-    const p1 = "curl -s -w '\\n";
+    const p1 = "curl -s -X POST -H 'Authorization: token ";
     @memcpy(cmd_buf[pos..][0..p1.len], p1);
     pos += p1.len;
-    cmd_buf[pos] = '%';
-    pos += 1;
-    cmd_buf[pos] = '{';
-    pos += 1;
-    const p1b = "http_code";
-    @memcpy(cmd_buf[pos..][0..p1b.len], p1b);
-    pos += p1b.len;
-    cmd_buf[pos] = '}';
-    pos += 1;
-    const p2 = "' -X POST -H 'Authorization: token ";
-    @memcpy(cmd_buf[pos..][0..p2.len], p2);
-    pos += p2.len;
     @memcpy(cmd_buf[pos..][0..token.len], token);
     pos += token.len;
-    const p3 = "' -H 'Accept: application/vnd.github+json' -A 'sig-sync-watcher/1.0' -H 'Content-Type: application/json' -d @/tmp/dispatch.json https://api.github.com/repos/";
-    @memcpy(cmd_buf[pos..][0..p3.len], p3);
-    pos += p3.len;
+    const p2 = "' -H 'Accept: application/vnd.github+json' -A 'sig-sync-watcher/1.0' -H 'Content-Type: application/json' -d @/tmp/dispatch.json -o /dev/null -w '%";
+    @memcpy(cmd_buf[pos..][0..p2.len], p2);
+    pos += p2.len;
+    // Write literal {http_code} for curl's -w flag
+    const p2b = "{http_code}' https://api.github.com/repos/";
+    @memcpy(cmd_buf[pos..][0..p2b.len], p2b);
+    pos += p2b.len;
     @memcpy(cmd_buf[pos..][0..repo.len], repo);
     pos += repo.len;
-    const p4 = "/dispatches";
-    @memcpy(cmd_buf[pos..][0..p4.len], p4);
-    pos += p4.len;
+    const p3 = "/dispatches";
+    @memcpy(cmd_buf[pos..][0..p3.len], p3);
+    pos += p3.len;
     cmd_buf[pos] = 0;
 
     const cmd: [*:0]const u8 = @ptrCast(cmd_buf[0..pos]);
     const pipe = popen(cmd, "r") orelse return error.PipeFailed;
 
-    var out_buf: [4096]u8 = undefined;
+    var out_buf: [16]u8 = undefined;
     var out_len: usize = 0;
     while (out_len < out_buf.len) {
         const n = fread(out_buf[out_len..].ptr, 1, out_buf.len - out_len, pipe);
@@ -393,15 +382,14 @@ fn fireDispatch(token: []const u8, repo: []const u8) !void {
     _ = pclose(pipe);
 
     if (out_len >= 3) {
-        const status = out_buf[out_len - 3 .. out_len];
+        const status = out_buf[0..3];
         if (status[0] == '2') {
             log("dispatch OK (HTTP {s})", .{status});
             return;
         }
-        const body_end = if (out_len > 4 and out_buf[out_len - 4] == '\n') out_len - 4 else out_len - 3;
-        log("dispatch HTTP {s}: {s}", .{ status, out_buf[0..@min(body_end, 300)] });
+        log("dispatch HTTP {s}", .{status});
         return error.HttpError;
     }
-    log("dispatch: no response (len={d})", .{out_len});
+    log("dispatch: no status (len={d})", .{out_len});
     return error.HttpError;
 }
