@@ -357,8 +357,7 @@ fn fireDispatch(token: []const u8, repo: []const u8) !void {
     @memcpy(cmd_buf[pos..][0..p2.len], p2);
     pos += p2.len;
     // JSON body — single-quoted so shell passes it verbatim to curl
-    // We close the previous arg, start single-quote for JSON, then continue
-    const json_part = " -d '{\"event_type\":\"upstream-push\"}' -o /dev/null -w '%";
+    const json_part = "'{\"event_type\":\"upstream-push\"}' -o /dev/null -w '%";
     @memcpy(cmd_buf[pos..][0..json_part.len], json_part);
     pos += json_part.len;
     const p3b = "{http_code}' https://api.github.com/repos/";
