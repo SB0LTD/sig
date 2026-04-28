@@ -1664,12 +1664,12 @@ pub const MSF = switch (native_os) {
         pub const ASYNC = 1;
         pub const INVALIDATE = 2;
     },
-    .openbsd => struct {
+    .openbsd, .haiku => struct {
         pub const ASYNC = 1;
         pub const SYNC = 2;
         pub const INVALIDATE = 4;
     },
-    .haiku, .netbsd, .illumos => struct {
+    .netbsd, .illumos => struct {
         pub const ASYNC = 1;
         pub const INVALIDATE = 2;
         pub const SYNC = 4;
