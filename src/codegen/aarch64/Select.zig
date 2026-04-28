@@ -11222,13 +11222,15 @@ fn initValueAdvanced(
     };
     return @enumFromInt(isel.values.items.len);
 }
-pub fn dumpValues(isel: *Select, which: enum { only_referenced, all }) void {
+const WhichValues = enum { only_referenced, all };
+pub fn dumpValues(isel: *Select, which: WhichValues) void {
+    dumpValuesInner(isel, which) catch |err| @panic(@errorName(err));
+}
+fn dumpValuesInner(isel: *Select, which: WhichValues) !void {
     const zcu = isel.pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(isel.nav_index);
-
-    errdefer |err| @panic(@errorName(err));
 
     const locked_stderr = std.debug.lockStderr(&.{});
     defer std.debug.unlockStderr();

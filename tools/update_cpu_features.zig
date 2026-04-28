@@ -2010,7 +2010,9 @@ const Job = struct {
 };
 
 fn processOneTarget(io: Io, job: Job) void {
-    errdefer |err| std.debug.panic("panic: {s}", .{@errorName(err)});
+    processOneTargetInner(io, job) catch |err| std.debug.panic("panic: {s}", .{@errorName(err)});
+}
+fn processOneTargetInner(io: Io, job: Job) !void {
     const target = job.target;
 
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
