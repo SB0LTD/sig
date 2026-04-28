@@ -602,7 +602,6 @@ test "bitcount/to" {
     try testing.expectEqual(0, a.bitCountTwosComp());
 
     try testing.expectEqual(0, try a.toInt(u0));
-    try testing.expectEqual(0, try a.toInt(i0));
 
     try a.set(-1);
     try testing.expectEqual(1, a.bitCountTwosComp());
@@ -631,7 +630,6 @@ test "fits" {
 
     try a.set(0);
     try testing.expect(a.fits(u0));
-    try testing.expect(a.fits(i0));
 
     try a.set(255);
     try testing.expect(!a.fits(u0));
@@ -711,7 +709,6 @@ test "twos complement limit set" {
     try testTwosComplementLimit(u1);
     try testTwosComplementLimit(i1);
     try testTwosComplementLimit(u0);
-    try testTwosComplementLimit(i0);
     try testTwosComplementLimit(u65);
     try testTwosComplementLimit(i65);
 }

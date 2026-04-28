@@ -23,7 +23,7 @@ pub fn nextAfter(comptime T: type, x: T, y: T) T {
 fn nextAfterInt(comptime T: type, x: T, y: T) T {
     comptime assert(@typeInfo(T) == .int or @typeInfo(T) == .comptime_int);
     return if (@typeInfo(T) == .int and @bitSizeOf(T) < 2)
-        // Special case for `i0`, `u0`, `i1`, and `u1`.
+        // Special case for `u0`, `i1`, and `u1`.
         y
     else if (y > x)
         x + 1
@@ -102,7 +102,6 @@ fn nextAfterFloat(comptime T: type, x: T, y: T) T {
 }
 
 test "int" {
-    try expect(nextAfter(i0, 0, 0) == 0);
     try expect(nextAfter(u0, 0, 0) == 0);
     try expect(nextAfter(i1, 0, 0) == 0);
     try expect(nextAfter(i1, 0, -1) == -1);

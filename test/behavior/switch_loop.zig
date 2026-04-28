@@ -547,12 +547,12 @@ test "switch loop with packed unions" {
 test "switch loop with packed unions with OPV" {
     const P = packed union {
         a: u0,
-        b: i0,
+        b: void,
 
         fn doTheTest(p: @This()) !void {
             var looped = false;
             s: switch (p) {
-                .{ .b = 0 } => |x| {
+                .{ .b = {} } => |x| {
                     comptime assert(x.a == 0);
                     if (looped) break :s;
                     looped = true;

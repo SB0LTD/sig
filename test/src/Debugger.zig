@@ -56,7 +56,6 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 \\    u24_16777215: u24 = 16777215,
                 \\    u32_0: u32 = 0,
                 \\    u32_4294967295: u32 = 4294967295,
-                \\    i0_0: i0 = 0,
                 \\    @"i1_-1": i1 = -1,
                 \\    i1_0: i1 = 0,
                 \\    @"i2_-2": i2 = -2,
@@ -139,7 +138,6 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\  (u24) .u24_16777215 = 16777215
             \\  (u32) .u32_0 = 0
             \\  (u32) .u32_4294967295 = 4294967295
-            \\  (i0) .i0_0 = 0
             \\  (i1) .@"i1_-1" = -1
             \\  (i1) .i1_0 = 0
             \\  (i2) .@"i2_-2" = -2

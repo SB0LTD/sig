@@ -1903,7 +1903,7 @@ test "@fieldParentPtr tagged union all zero-bit fields" {
 
     const C = union(enum) {
         a: u0,
-        b: i0,
+        b: void,
     };
 
     {
@@ -1938,20 +1938,20 @@ test "@fieldParentPtr tagged union all zero-bit fields" {
     }
 
     {
-        const c: C = .{ .b = 0 };
+        const c: C = .{ .b = {} };
         const pcf = &c.b;
         const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
-        const c: C = .{ .b = 0 };
+        const c: C = .{ .b = {} };
         const pcf = &c.b;
         var pc: *const C = undefined;
         pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
-        const c: C = .{ .b = 0 };
+        const c: C = .{ .b = {} };
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
@@ -1960,7 +1960,7 @@ test "@fieldParentPtr tagged union all zero-bit fields" {
     }
     {
         var c: C = undefined;
-        c = .{ .b = 0 };
+        c = .{ .b = {} };
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;

@@ -2097,7 +2097,6 @@ test "deserialize signed LEB128" {
     try testing.expectEqual(std.math.minInt(i128), testLeb128(i128, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7E"));
 
     // Specific cases
-    try testing.expectEqual(0, testLeb128(i0, "\x00"));
     try testing.expectEqual(0, testLeb128(i2, "\x00"));
     try testing.expectEqual(0, testLeb128(i8, "\x00"));
 
@@ -2134,8 +2133,6 @@ test "deserialize signed LEB128" {
     try testing.expectError(error.EndOfStream, testLeb128(i128, &end_of_stream));
 
     // Overflow
-    try testing.expectError(error.Overflow, testLeb128(i0, "\x01"));
-    try testing.expectError(error.Overflow, testLeb128(i0, "\x7F"));
     try testing.expectError(error.Overflow, testLeb128(i8, "\x80\x01"));
     try testing.expectError(error.Overflow, testLeb128(i8, "\xFF\x7E"));
     try testing.expectError(error.Overflow, testLeb128(i8, "\x80\x80\x40"));
@@ -2145,7 +2142,6 @@ test "deserialize signed LEB128" {
     try testing.expectError(error.Overflow, testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01"));
     try testing.expectError(error.Overflow, testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x40"));
 
-    try testing.expectError(error.Overflow, testLeb128(i0, &overflow));
     try testing.expectError(error.Overflow, testLeb128(i7, &overflow));
     try testing.expectError(error.Overflow, testLeb128(i8, &overflow));
     try testing.expectError(error.Overflow, testLeb128(i14, &overflow));
@@ -2159,7 +2155,6 @@ test "deserialize signed LEB128" {
     try testing.expectEqual(0x80, testLeb128(i64, "\x80\x81\x00"));
     try testing.expectEqual(0x80, testLeb128(i64, "\x80\x81\x80\x00"));
 
-    try testing.expectEqual(0, testLeb128(i0, &long_zero));
     try testing.expectEqual(0, testLeb128(i7, &long_zero));
     try testing.expectEqual(0, testLeb128(i8, &long_zero));
     try testing.expectEqual(0, testLeb128(i14, &long_zero));

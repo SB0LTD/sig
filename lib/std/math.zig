@@ -1141,13 +1141,11 @@ test isPowerOfTwo {
 pub fn ByteAlignedInt(comptime T: type) type {
     const info = @typeInfo(T).int;
     const bits = (info.bits + 7) / 8 * 8;
-    const extended_type = std.meta.Int(info.signedness, bits);
-    return extended_type;
+    return @Int(info.signedness, bits);
 }
 
 test ByteAlignedInt {
     try testing.expect(ByteAlignedInt(u0) == u0);
-    try testing.expect(ByteAlignedInt(i0) == i0);
     try testing.expect(ByteAlignedInt(u3) == u8);
     try testing.expect(ByteAlignedInt(u8) == u8);
     try testing.expect(ByteAlignedInt(i111) == i112);
@@ -1218,7 +1216,7 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(@typeInfo(
     comptime assert(@typeInfo(T) == .int);
     comptime assert(@typeInfo(T).int.signedness == .unsigned);
     assert(value != 0);
-    const PromotedType = std.meta.Int(@typeInfo(T).int.signedness, @typeInfo(T).int.bits + 1);
+    const PromotedType = @Int(@typeInfo(T).int.signedness, @typeInfo(T).int.bits + 1);
     const ShiftType = std.math.Log2Int(PromotedType);
     return @as(PromotedType, 1) << @as(ShiftType, @intCast(@typeInfo(T).int.bits - @clz(value - 1)));
 }
@@ -1230,7 +1228,7 @@ pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     comptime assert(@typeInfo(T) == .int);
     const info = @typeInfo(T).int;
     comptime assert(info.signedness == .unsigned);
-    const PromotedType = std.meta.Int(info.signedness, info.bits + 1);
+    const PromotedType = @Int(info.signedness, info.bits + 1);
     const overflowBit = @as(PromotedType, 1) << info.bits;
     const x = ceilPowerOfTwoPromote(T, value);
     if (overflowBit & x != 0) {
@@ -1442,19 +1440,17 @@ test lerp {
 
 /// Returns the maximum value of integer type T.
 pub fn maxInt(comptime T: type) comptime_int {
-    const info = @typeInfo(T);
-    const bit_count = info.int.bits;
-    if (bit_count == 0) return 0;
-    return (1 << (bit_count - @intFromBool(info.int.signedness == .signed))) - 1;
+    const info = @typeInfo(T).int;
+    return (1 << (info.bits - @intFromBool(info.signedness == .signed))) - 1;
 }
 
 /// Returns the minimum value of integer type T.
 pub fn minInt(comptime T: type) comptime_int {
-    const info = @typeInfo(T);
-    const bit_count = info.int.bits;
-    if (info.int.signedness == .unsigned) return 0;
-    if (bit_count == 0) return 0;
-    return -(1 << (bit_count - 1));
+    const info = @typeInfo(T).int;
+    return switch (info.signedness) {
+        .unsigned => 0,
+        .signed => -(1 << (info.bits - 1)),
+    };
 }
 
 test maxInt {
@@ -1466,7 +1462,6 @@ test maxInt {
     try testing.expect(maxInt(u64) == 18446744073709551615);
     try testing.expect(maxInt(u128) == 340282366920938463463374607431768211455);
 
-    try testing.expect(maxInt(i0) == 0);
     try testing.expect(maxInt(i1) == 0);
     try testing.expect(maxInt(i8) == 127);
     try testing.expect(maxInt(i16) == 32767);
@@ -1486,7 +1481,6 @@ test minInt {
     try testing.expect(minInt(u64) == 0);
     try testing.expect(minInt(u128) == 0);
 
-    try testing.expect(minInt(i0) == 0);
     try testing.expect(minInt(i1) == -1);
     try testing.expect(minInt(i8) == -128);
     try testing.expect(minInt(i16) == -32768);
@@ -1710,8 +1704,8 @@ pub inline fn boolMask(comptime MaskInt: type, value: bool) MaskInt {
     if (@typeInfo(MaskInt) != .int)
         @compileError("boolMask requires an integer mask type.");
 
-    if (MaskInt == u0 or MaskInt == i0)
-        @compileError("boolMask cannot convert to u0 or i0, they are too small.");
+    if (MaskInt == u0)
+        @compileError("boolMask cannot convert to u0, it is too small.");
 
     // The u1 and i1 cases tend to overflow,
     // so we special case them here.

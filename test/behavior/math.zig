@@ -401,7 +401,6 @@ test "binary not" {
     try expect(not(u64, 0x0123_4567_89AB_CDEF) == 0xFEDC_BA98_7654_3210);
     try expect(not(u64, 0xFEDC_BA98_7654_3210) == 0x0123_4567_89AB_CDEF);
 
-    try expect(not(i0, 0) == 0);
     try expect(not(i1, 0) == -1);
     try expect(not(i1, -1) == 0);
     try expect(not(i5, -2) == 1);

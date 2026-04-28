@@ -1924,7 +1924,6 @@ test "serialize signed LEB128" {
     try testLeb128Encoding(i128, std.math.minInt(i128), "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7E");
 
     // Specific cases
-    try testLeb128Encoding(i0, 0, "\x00");
     try testLeb128Encoding(i8, 0, "\x00");
 
     try testLeb128Encoding(i2, -1, "\x7F");

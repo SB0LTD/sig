@@ -3049,8 +3049,6 @@ test "@intFromFloat boundary cases" {
 
             try case(u0, 1.0, .down, 0);
             try case(u0, -1.0, .up, 0);
-            try case(i0, 1.0, .down, 0);
-            try case(i0, -1.0, .up, 0);
 
             try case(u10, 1024.0, .down, 1023);
             try case(u10, -1.0, .up, 0);
@@ -3081,7 +3079,6 @@ test "@intFromFloat vector boundary cases" {
             try case(i8, .{ -129.0, 128.0 }, .{ -128, 127 });
 
             try case(u0, .{ -1.0, 1.0 }, .{ 0, 0 });
-            try case(i0, .{ -1.0, 1.0 }, .{ 0, 0 });
 
             try case(u10, .{ -1.0, 1024.0 }, .{ 0, 1023 });
             try case(i10, .{ -513.0, 512.0 }, .{ -512, 511 });

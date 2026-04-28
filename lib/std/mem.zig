@@ -370,7 +370,6 @@ test zeroes {
         comptime comptime_field: u8 = 5,
 
         integral_types: struct {
-            integer_0: i0,
             integer_8: i8,
             integer_16: i16,
             integer_32: i32,
@@ -405,7 +404,6 @@ test zeroes {
 
     const b = zeroes(ZigStruct);
     try testing.expectEqual(@as(u8, 5), b.comptime_field);
-    try testing.expectEqual(@as(i8, 0), b.integral_types.integer_0);
     try testing.expectEqual(@as(i8, 0), b.integral_types.integer_8);
     try testing.expectEqual(@as(i16, 0), b.integral_types.integer_16);
     try testing.expectEqual(@as(i32, 0), b.integral_types.integer_32);

@@ -369,7 +369,6 @@ test "atomics with different types" {
     try testAtomicsWithType(u24, 2, 1);
 
     try testAtomicsWithType(u0, 0, 0);
-    try testAtomicsWithType(i0, 0, 0);
 
     try testAtomicsWithType(enum(u32) { x = 1234, y = 5678 }, .x, .y);
     try testAtomicsWithType(enum(u19) { x = 1234, y = 5678 }, .x, .y);

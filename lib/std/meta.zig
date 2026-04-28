@@ -1067,7 +1067,7 @@ test hasUniqueRepresentation {
 
     try testing.expect(!hasUniqueRepresentation(TestUnion4));
 
-    inline for ([_]type{ i0, u8, i16, u32, i64 }) |T| {
+    inline for ([_]type{ u8, i16, u32, i64 }) |T| {
         try testing.expect(hasUniqueRepresentation(T));
         try testing.expect(hasUniqueRepresentation(enum(T) { _ }));
     }
