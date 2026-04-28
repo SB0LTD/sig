@@ -465,7 +465,7 @@ fn testPointerToVoidReturnType() anyerror!void {
     const a = testPointerToVoidReturnType2();
     return a.*;
 }
-const test_pointer_to_void_return_type_x = void{};
+const test_pointer_to_void_return_type_x = {};
 fn testPointerToVoidReturnType2() *const void {
     return &test_pointer_to_void_return_type_x;
 }

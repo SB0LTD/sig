@@ -280,7 +280,7 @@ test "implicit cast fn call result to optional in field result" {
 test "void parameters" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
-    try voidFun(1, void{}, 2, {});
+    try voidFun(1, {}, 2, {});
 }
 fn voidFun(a: i32, b: void, c: i32, d: void) !void {
     _ = d;

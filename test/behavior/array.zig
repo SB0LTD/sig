@@ -196,7 +196,7 @@ test "array with sentinels" {
 
 test "void arrays" {
     var array: [4]void = undefined;
-    array[0] = void{};
+    array[0] = {};
     array[1] = array[2];
     try expect(@sizeOf(@TypeOf(array)) == 0);
     try expect(array.len == 4);

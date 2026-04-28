@@ -295,9 +295,9 @@ test "void struct fields" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const foo = VoidStructFieldsFoo{
-        .a = void{},
+        .a = {},
         .b = 1,
-        .c = void{},
+        .c = {},
     };
     try expect(foo.b == 1);
     try expect(@sizeOf(VoidStructFieldsFoo) == 4);

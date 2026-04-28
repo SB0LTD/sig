@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
             .tenval = 10,
             .stringval = "test",
 
-            .boolnoval = void{},
+            .boolnoval = {},
             .booltrueval = true,
             .boolfalseval = false,
             .boolzeroval = 0,

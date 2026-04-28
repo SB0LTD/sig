@@ -31,7 +31,7 @@ test "reflection: @field" {
     var f = Foo{
         .one = 42,
         .two = true,
-        .three = void{},
+        .three = {},
     };
 
     try expect(f.one == f.one);
