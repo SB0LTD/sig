@@ -33,6 +33,8 @@ FROM alpine:3.21
 RUN apk add --no-cache curl ca-certificates
 COPY --from=builder /app/sig-sync-watcher /sig-sync-watcher
 
+# Stateless — compares Codeberg RSS against sig repo manifest on every request.
+# No in-memory state, cold starts are fine.
 ENV PORT=8080
 EXPOSE 8080
 

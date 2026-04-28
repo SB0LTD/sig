@@ -14,16 +14,13 @@ extern "c" fn fread(ptr: [*]u8, size: usize, nmemb: usize, stream: *FILE) usize;
 ///
 /// Listens on $PORT. Cloud Scheduler hits every ~30s.
 /// On each request:
-///   1. Fetches Codeberg RSS for ziglang/zig master
-///   2. Extracts latest commit hash
-///   3. Compares to last known (in-memory, survives warm invocations)
-///   4. If new → fires repository_dispatch to GitHub
-///   5. Returns 200
-
-// ── State ────────────────────────────────────────────────────────────────
-
-var last_known_commit: [40]u8 = .{0} ** 40;
-var last_known_len: usize = 0;
+///   1. Fetches Codeberg RSS for ziglang/zig master → latest upstream commit
+///   2. Fetches tools/sig_sync/manifest.json from sig repo → last integrated commit
+///   3. If upstream is ahead → fires repository_dispatch to GitHub
+///   4. Returns 200
+///
+/// Stateless — no in-memory state needed. Survives cold starts perfectly
+/// because the source of truth is always the manifest in the repo.
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -41,13 +38,6 @@ fn log(comptime f: []const u8, args: anytype) void {
 pub fn main() !void {
     const port_str = getenv("PORT") orelse "8080";
     const port = fmt.parseInt(u16, port_str, 10) catch 8080;
-
-    if (getenv("LAST_KNOWN_COMMIT")) |seed| {
-        if (seed.len == 40) {
-            @memcpy(&last_known_commit, seed[0..40]);
-            last_known_len = 40;
-        }
-    }
 
     // Listen
     const AF_INET: c_uint = 2;
@@ -87,41 +77,71 @@ fn handleConnection(conn: fd_t) void {
     const github_token = getenv("GITHUB_TOKEN") orelse "";
     const github_repo = getenv("GITHUB_REPO") orelse "SB0LTD/sig";
 
-    // 1. Fetch RSS
+    // 1. Fetch Codeberg RSS → latest upstream commit
     var rss_buf: [65536]u8 = undefined;
-    const rss_len = httpGet("codeberg.org", "/ziglang/zig/rss/branch/master", null, &rss_buf) catch |err| {
+    const rss_len = curlGet("https://codeberg.org/ziglang/zig/rss/branch/master", null, &rss_buf) catch |err| {
         log("RSS fetch failed: {s}", .{@errorName(err)});
         sendResponse(conn, "502 Bad Gateway", "RSS fetch failed");
         return;
     };
-    const rss_data = rss_buf[0..rss_len];
 
-    // 2. Extract commit hash
-    var hash_buf: [40]u8 = undefined;
-    const latest_hash = extractCommitHash(rss_data, &hash_buf) orelse {
+    var upstream_hash: [40]u8 = undefined;
+    const upstream = extractCommitHash(rss_buf[0..rss_len], &upstream_hash) orelse {
         sendResponse(conn, "502 Bad Gateway", "No commit hash in RSS");
         return;
     };
 
+    // 2. Fetch manifest from sig repo → last integrated commit
+    var manifest_url_buf: [256]u8 = undefined;
+    const manifest_url = fmt.bufPrint(&manifest_url_buf, "https://raw.githubusercontent.com/{s}/master/tools/sig_sync/manifest.json", .{github_repo}) catch {
+        sendResponse(conn, "500 Internal Server Error", "URL overflow");
+        return;
+    };
+
+    var manifest_buf: [4096]u8 = undefined;
+    const manifest_len = curlGet(manifest_url, null, &manifest_buf) catch |err| {
+        log("manifest fetch failed: {s}", .{@errorName(err)});
+        // If we can't read the manifest, trigger sync anyway — it'll sort itself out
+        if (github_token.len > 0) {
+            fireDispatch(github_token, github_repo) catch {};
+            sendResponse(conn, "200 OK", "Triggered sync (manifest unavailable)");
+        } else {
+            sendResponse(conn, "200 OK", "Manifest unavailable, no token");
+        }
+        return;
+    };
+
+    var integrated_hash: [40]u8 = undefined;
+    const integrated = extractManifestCommit(manifest_buf[0..manifest_len], &integrated_hash);
+
     // 3. Compare
-    if (last_known_len == 40 and mem.eql(u8, latest_hash, &last_known_commit)) {
-        sendResponse(conn, "200 OK", "No new commits");
+    if (integrated) |synced| {
+        // Check if upstream commit starts with the synced prefix or matches fully.
+        // Manifest stores full 40-char hash; RSS also gives 40-char.
+        if (mem.eql(u8, upstream, synced)) {
+            sendResponse(conn, "200 OK", "Up to date");
+            return;
+        }
+    }
+    // else: no manifest or parse failure → trigger sync to be safe
+
+    log("upstream={s} synced={s}", .{ upstream, if (integrated) |s| s else "unknown" });
+
+    if (github_token.len == 0) {
+        sendResponse(conn, "200 OK", "Upstream ahead but no GITHUB_TOKEN");
         return;
     }
 
-    // 4. Update state
-    log("New commit: {s}", .{latest_hash});
-    @memcpy(&last_known_commit, latest_hash);
-    last_known_len = 40;
-
-    if (github_token.len == 0) {
-        sendResponse(conn, "200 OK", "New commit but no GITHUB_TOKEN");
+    // 4. Check if a sync workflow is already running (avoid duplicate dispatches)
+    if (isSyncRunning(github_token, github_repo)) {
+        log("sync already in progress, skipping dispatch", .{});
+        sendResponse(conn, "200 OK", "Sync already running");
         return;
     }
 
     // 5. Fire dispatch
     fireDispatch(github_token, github_repo) catch |err| {
-        log("Dispatch failed: {s}", .{@errorName(err)});
+        log("dispatch failed: {s}", .{@errorName(err)});
         sendResponse(conn, "502 Bad Gateway", "Dispatch failed");
         return;
     };
@@ -147,22 +167,135 @@ fn extractCommitHash(rss: []const u8, out: *[40]u8) ?[]const u8 {
     if (url.len < 40) return null;
     const hash = url[url.len - 40 ..][0..40];
     for (hash) |ch| {
-        if (!((ch >= '0' and ch <= '9') or (ch >= 'a' and ch <= 'f') or (ch >= 'A' and ch <= 'F'))) return null;
+        if (!isHexChar(ch)) return null;
     }
     @memcpy(out, hash);
     return out;
 }
 
-// ── HTTP (raw TLS via std.crypto.tls) ────────────────────────────────────
+// ── Manifest parsing ─────────────────────────────────────────────────────
 
-fn httpGet(host: []const u8, path: []const u8, auth: ?[]const u8, buf: []u8) !usize {
-    _ = auth;
+fn extractManifestCommit(json: []const u8, out: *[40]u8) ?[]const u8 {
+    // Find "last_integrated_commit": "<hash>"
+    const key = "\"last_integrated_commit\"";
+    const key_pos = mem.indexOf(u8, json, key) orelse return null;
+    const after_key = json[key_pos + key.len ..];
+
+    // Skip whitespace and colon
+    var i: usize = 0;
+    while (i < after_key.len and (after_key[i] == ' ' or after_key[i] == ':' or after_key[i] == '\n' or after_key[i] == '\r' or after_key[i] == '\t')) : (i += 1) {}
+
+    // Expect opening quote
+    if (i >= after_key.len or after_key[i] != '"') return null;
+    i += 1;
+
+    // Read hash chars
+    const start = i;
+    while (i < after_key.len and after_key[i] != '"') : (i += 1) {}
+    const value = after_key[start..i];
+
+    if (value.len != 40) return null;
+    for (value) |ch| {
+        if (!isHexChar(ch)) return null;
+    }
+    @memcpy(out, value[0..40]);
+    return out;
+}
+
+fn isHexChar(ch: u8) bool {
+    return (ch >= '0' and ch <= '9') or (ch >= 'a' and ch <= 'f') or (ch >= 'A' and ch <= 'F');
+}
+
+// ── Check if sync is already running ─────────────────────────────────────
+
+fn isSyncRunning(token: []const u8, repo: []const u8) bool {
+    // Query GitHub Actions API for in_progress or queued runs of sig-sync
     var url_buf: [512]u8 = undefined;
-    const url = fmt.bufPrint(&url_buf, "curl -sf https://{s}{s}", .{ host, path }) catch return error.Overflow;
-    url_buf[url.len] = 0;
-    const cmd: [*:0]const u8 = @ptrCast(url_buf[0..url.len]);
+    const url = fmt.bufPrint(&url_buf, "https://api.github.com/repos/{s}/actions/workflows/sig-sync.yaml/runs?status=in_progress&per_page=1", .{repo}) catch return false;
+
+    var auth_buf: [256]u8 = undefined;
+    const auth = fmt.bufPrint(&auth_buf, "Bearer {s}", .{token}) catch return false;
+
+    var resp_buf: [8192]u8 = undefined;
+    const resp_len = curlGet(url, auth, &resp_buf) catch return false;
+    const resp = resp_buf[0..resp_len];
+
+    // Look for "total_count": N where N > 0
+    const key = "\"total_count\"";
+    const key_pos = mem.indexOf(u8, resp, key) orelse return false;
+    const after = resp[key_pos + key.len ..];
+    var i: usize = 0;
+    while (i < after.len and (after[i] == ' ' or after[i] == ':')) : (i += 1) {}
+    // Parse the number
+    const start = i;
+    while (i < after.len and after[i] >= '0' and after[i] <= '9') : (i += 1) {}
+    if (i == start) return false;
+    const count = fmt.parseInt(u32, after[start..i], 10) catch return false;
+    if (count > 0) return true;
+
+    // Also check queued
+    var url_buf2: [512]u8 = undefined;
+    const url2 = fmt.bufPrint(&url_buf2, "https://api.github.com/repos/{s}/actions/workflows/sig-sync.yaml/runs?status=queued&per_page=1", .{repo}) catch return false;
+
+    var resp_buf2: [8192]u8 = undefined;
+    const resp_len2 = curlGet(url2, auth, &resp_buf2) catch return false;
+    const resp2 = resp_buf2[0..resp_len2];
+
+    const key_pos2 = mem.indexOf(u8, resp2, key) orelse return false;
+    const after2 = resp2[key_pos2 + key.len ..];
+    var j: usize = 0;
+    while (j < after2.len and (after2[j] == ' ' or after2[j] == ':')) : (j += 1) {}
+    const start2 = j;
+    while (j < after2.len and after2[j] >= '0' and after2[j] <= '9') : (j += 1) {}
+    if (j == start2) return false;
+    const count2 = fmt.parseInt(u32, after2[start2..j], 10) catch return false;
+    return count2 > 0;
+}
+
+// ── HTTP via curl ────────────────────────────────────────────────────────
+
+fn curlGet(url: []const u8, auth: ?[]const u8, buf: []u8) !usize {
+    var cmd_buf: [1024]u8 = undefined;
+    var cmd_len: usize = 0;
+
+    const prefix = "curl -sf";
+    @memcpy(cmd_buf[cmd_len..][0..prefix.len], prefix);
+    cmd_len += prefix.len;
+
+    if (auth) |a| {
+        const h1 = " -H 'Authorization: ";
+        @memcpy(cmd_buf[cmd_len..][0..h1.len], h1);
+        cmd_len += h1.len;
+        @memcpy(cmd_buf[cmd_len..][0..a.len], a);
+        cmd_len += a.len;
+        cmd_buf[cmd_len] = '\'';
+        cmd_len += 1;
+    }
+
+    // Always send Accept header for GitHub API compatibility
+    const accept = " -H 'Accept: application/vnd.github.v3+json'";
+    @memcpy(cmd_buf[cmd_len..][0..accept.len], accept);
+    cmd_len += accept.len;
+
+    // User-Agent required by GitHub API
+    const ua = " -H 'User-Agent: sig-sync-watcher'";
+    @memcpy(cmd_buf[cmd_len..][0..ua.len], ua);
+    cmd_len += ua.len;
+
+    cmd_buf[cmd_len] = ' ';
+    cmd_len += 1;
+    cmd_buf[cmd_len] = '\'';
+    cmd_len += 1;
+    @memcpy(cmd_buf[cmd_len..][0..url.len], url);
+    cmd_len += url.len;
+    cmd_buf[cmd_len] = '\'';
+    cmd_len += 1;
+    cmd_buf[cmd_len] = 0;
+
+    const cmd: [*:0]const u8 = @ptrCast(cmd_buf[0..cmd_len]);
     const pipe = popen(cmd, "r") orelse return error.PipeFailed;
     defer _ = pclose(pipe);
+
     var total: usize = 0;
     while (total < buf.len) {
         const n = fread(buf[total..].ptr, 1, buf.len - total, pipe);
@@ -172,40 +305,26 @@ fn httpGet(host: []const u8, path: []const u8, auth: ?[]const u8, buf: []u8) !us
     return total;
 }
 
-fn httpPost(host: []const u8, path: []const u8, auth: []const u8, body: []const u8, buf: []u8) !usize {
+fn curlPost(url: []const u8, auth: []const u8, body: []const u8) !void {
     var cmd_buf: [2048]u8 = undefined;
-    const cmd_str = fmt.bufPrint(&cmd_buf, "curl -sf -X POST -H 'Authorization: {s}' -H 'Accept: application/vnd.github.v3+json' -H 'Content-Type: application/json' -d '{s}' https://{s}{s}", .{ auth, body, host, path }) catch return error.Overflow;
+    const cmd_str = fmt.bufPrint(&cmd_buf, "curl -sf -X POST -H 'Authorization: {s}' -H 'Accept: application/vnd.github.v3+json' -H 'User-Agent: sig-sync-watcher' -H 'Content-Type: application/json' -d '{s}' 'https://{s}'", .{ auth, body, url }) catch return error.Overflow;
     cmd_buf[cmd_str.len] = 0;
     const cmd: [*:0]const u8 = @ptrCast(cmd_buf[0..cmd_str.len]);
     const pipe = popen(cmd, "r") orelse return error.PipeFailed;
-    const status = pclose(pipe);
-    if (status != 0) {
-        // For dispatch, 204 No Content returns empty body — curl returns 0 on 2xx
-        _ = buf;
-        return 0;
-    }
-    return 0;
-}
-
-fn tlsRequest(host: []const u8, request: []const u8, buf: []u8) !usize {
-    _ = host;
-    _ = request;
-    _ = buf;
-    return error.NotImplemented;
+    _ = pclose(pipe);
 }
 
 // ── GitHub dispatch ──────────────────────────────────────────────────────
 
 fn fireDispatch(token: []const u8, repo: []const u8) !void {
-    var path_buf: [256]u8 = undefined;
-    const path = fmt.bufPrint(&path_buf, "/repos/{s}/dispatches", .{repo}) catch return error.Overflow;
+    var url_buf: [256]u8 = undefined;
+    const url = fmt.bufPrint(&url_buf, "api.github.com/repos/{s}/dispatches", .{repo}) catch return error.Overflow;
 
     var auth_buf: [256]u8 = undefined;
     const auth = fmt.bufPrint(&auth_buf, "Bearer {s}", .{token}) catch return error.Overflow;
 
     const body = "{\"event_type\":\"upstream-push\"}";
 
-    var resp_buf: [4096]u8 = undefined;
-    _ = httpPost("api.github.com", path, auth, body, &resp_buf) catch return error.ConnectionFailed;
+    curlPost(url, auth, body) catch return error.ConnectionFailed;
     log("dispatch triggered", .{});
 }
