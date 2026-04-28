@@ -52,6 +52,18 @@ error_limit: ?u32 = null,
 /// a single step spawning a fixed number of processes this can be used.
 max_jobs: ?u32 = null,
 
+/// After following the steps in https://codeberg.org/ziglang/infra/src/branch/master/libc-update/glibc.md,
+/// this will be the directory $glibc-build-dir/install/glibcs
+/// Given the example of the aarch64 target, this is the directory
+/// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
+/// Also works for dynamic musl.
+libc_runtimes_dir: ?[]const u8 = null,
+enable_wine: bool = false,
+enable_qemu: bool = false,
+enable_wasmtime: bool = false,
+enable_darling: bool = false,
+enable_rosetta: bool = false,
+
 /// Intention of verbose is to print all sub-process command lines to stderr
 /// before spawning them.
 pub fn handleVerbose(

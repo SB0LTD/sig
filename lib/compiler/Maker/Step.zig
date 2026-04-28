@@ -62,12 +62,11 @@ comptime {
     // Common cache line size is 128. This check prevents accidentally crossing
     // an additional cache line. In the future it might be nice to try to fit
     // this struct in 128 bytes or less.
-    assert(@sizeOf(@This()) <= 128 * 3);
+    assert(@sizeOf(@This()) <= 128 * 4);
 }
 
 pub const Extended = union(enum) {
     check_file: Todo,
-    check_object: Todo,
     compile: Compile,
     config_header: Todo,
     fail: Todo,
@@ -87,7 +86,6 @@ pub const Extended = union(enum) {
     pub fn init(tag: Configuration.Step.Tag) Extended {
         return switch (tag) {
             .check_file => .{ .check_file = .{} },
-            .check_object => .{ .check_object = .{} },
             .compile => .{ .compile = .{} },
             .config_header => .{ .config_header = .{} },
             .fail => .{ .fail = .{} },
@@ -645,9 +643,8 @@ fn sendMessage(io: Io, file: Io.File, tag: std.zig.Client.Message.Tag) !void {
 /// Asserts that the caller has already populated `s.result_failed_command`.
 pub inline fn handleChildProcUnsupported(s: *Step, maker: *Maker) FailError!void {
     assert(s.result_failed_command != null);
-    if (!std.process.can_spawn) {
+    if (!std.process.can_spawn)
         return s.fail(maker, "unable to spawn process: host cannot spawn child processes", .{});
-    }
 }
 
 /// Asserts that the caller has already populated `s.result_failed_command`.
@@ -708,10 +705,10 @@ fn failWithCacheError(
 
 /// Prefer `writeManifestAndWatch` unless you already added watch inputs
 /// separately from using the cache system.
-pub fn writeManifest(s: *Step, man: *Cache.Manifest) !void {
+pub fn writeManifest(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
     if (s.test_results.isSuccess()) {
         man.writeManifest() catch |err| {
-            try s.addError("unable to write cache manifest: {t}", .{err});
+            try s.addError(maker, "unable to write cache manifest: {t}", .{err});
         };
     }
 }
@@ -721,7 +718,7 @@ pub fn writeManifest(s: *Step, man: *Cache.Manifest) !void {
 ///
 /// Must be accompanied with `cacheHitAndWatch`.
 pub fn writeManifestAndWatch(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
-    try writeManifest(s, man);
+    try writeManifest(s, maker, man);
     try setWatchInputsFromManifest(s, maker, man);
 }
 

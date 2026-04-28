@@ -85,8 +85,6 @@ stdio_limit: std.Io.Limit,
 captured_stdout: ?*CapturedStdIo,
 captured_stderr: ?*CapturedStdIo,
 
-dep_output_file: ?*Output,
-
 has_side_effects: bool,
 test_runner_mode: bool = false,
 
@@ -141,6 +139,7 @@ pub const Arg = union(enum) {
     file_content: PrefixedLazyPath,
     bytes: []const u8,
     output_file: *Output,
+    output_file_dep: *Output,
     output_directory: *Output,
     /// The arguments passed after "--" on the "zig build" CLI.
     cli_rest_positionals,
@@ -203,7 +202,6 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .stdio_limit = .unlimited,
         .captured_stdout = null,
         .captured_stderr = null,
-        .dep_output_file = null,
         .has_side_effects = false,
         .producer = null,
     };
@@ -476,12 +474,10 @@ pub fn addDepFileOutputArg(run: *Run, basename: []const u8) std.Build.LazyPath {
 
 /// Add a prefixed path argument to a dep file (.d) for the child process to
 /// write its discovered additional dependencies.
-/// Only one dep file argument is allowed by instance.
 pub fn addPrefixedDepFileOutputArg(run: *Run, prefix: []const u8, basename: []const u8) std.Build.LazyPath {
     const b = run.step.owner;
     const graph = b.graph;
     const arena = graph.arena;
-    assert(run.dep_output_file == null);
 
     const dep_file = arena.create(Output) catch @panic("OOM");
     dep_file.* = .{
@@ -490,9 +486,7 @@ pub fn addPrefixedDepFileOutputArg(run: *Run, prefix: []const u8, basename: []co
         .generated_file = graph.addGeneratedFile(&run.step),
     };
 
-    run.dep_output_file = dep_file;
-
-    run.argv.append(arena, .{ .output_file = dep_file }) catch @panic("OOM");
+    run.argv.append(arena, .{ .output_file_dep = dep_file }) catch @panic("OOM");
 
     return .{ .generated = .{ .index = dep_file.generated_file } };
 }
@@ -544,7 +538,7 @@ pub fn addPathDir(run: *Run, search_path: []const u8) void {
         .decorated_directory => false,
         .file_content => unreachable, // not allowed as first arg
         .bytes => |bytes| std.mem.endsWith(u8, bytes, ".exe"),
-        .output_file, .output_directory => false,
+        .output_file, .output_file_dep, .output_directory => false,
     };
     const key = if (use_wine) "WINEPATH" else "PATH";
     const prev_path = environ_map.get(key);

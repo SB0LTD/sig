@@ -153,17 +153,6 @@ pub fn main(init: process.Init.Minimal) !void {
     var debounce_interval_ms: u16 = 50;
     var webui_listen: ?Io.net.IpAddress = null;
     var debug_pkg_config: bool = false;
-    // After following the steps in https://codeberg.org/ziglang/infra/src/branch/master/libc-update/glibc.md,
-    // this will be the directory $glibc-build-dir/install/glibcs
-    // Given the example of the aarch64 target, this is the directory
-    // that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
-    // Also works for dynamic musl.
-    var libc_runtimes_dir: ?[]const u8 = null;
-    var enable_wine = false;
-    var enable_qemu = false;
-    var enable_wasmtime = false;
-    var enable_darling = false;
-    var enable_rosetta = false;
     var run_args: ?[]const []const u8 = null;
 
     if (std.zig.EnvVar.ZIG_BUILD_ERROR_STYLE.get(&graph.environ_map)) |str| {
@@ -314,7 +303,7 @@ pub fn main(init: process.Init.Minimal) !void {
                     fatal("unrecognized optimization mode: {s}", .{rest});
             } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
                 // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
-                libc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
+                graph.libc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--verbose")) {
                 graph.verbose = true;
             } else if (mem.eql(u8, arg, "--verbose-air")) {
@@ -370,25 +359,25 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.eql(u8, arg, "-fno-incremental")) {
                 graph.incremental = false;
             } else if (mem.eql(u8, arg, "-fwine")) {
-                enable_wine = true;
+                graph.enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
-                enable_wine = false;
+                graph.enable_wine = false;
             } else if (mem.eql(u8, arg, "-fqemu")) {
-                enable_qemu = true;
+                graph.enable_qemu = true;
             } else if (mem.eql(u8, arg, "-fno-qemu")) {
-                enable_qemu = false;
+                graph.enable_qemu = false;
             } else if (mem.eql(u8, arg, "-fwasmtime")) {
-                enable_wasmtime = true;
+                graph.enable_wasmtime = true;
             } else if (mem.eql(u8, arg, "-fno-wasmtime")) {
-                enable_wasmtime = false;
+                graph.enable_wasmtime = false;
             } else if (mem.eql(u8, arg, "-frosetta")) {
-                enable_rosetta = true;
+                graph.enable_rosetta = true;
             } else if (mem.eql(u8, arg, "-fno-rosetta")) {
-                enable_rosetta = false;
+                graph.enable_rosetta = false;
             } else if (mem.eql(u8, arg, "-fdarling")) {
-                enable_darling = true;
+                graph.enable_darling = true;
             } else if (mem.eql(u8, arg, "-fno-darling")) {
-                enable_darling = false;
+                graph.enable_darling = false;
             } else if (mem.eql(u8, arg, "-fallow-so-scripts")) {
                 graph.allow_so_scripts = true;
             } else if (mem.eql(u8, arg, "-fno-allow-so-scripts")) {
@@ -533,6 +522,7 @@ pub fn main(init: process.Init.Minimal) !void {
             .bin = install_bin_path,
             .include = install_include_path,
         },
+
         .steps = try arena.alloc(Step, scanned_config.configuration.steps.len),
         .generated_files = try arena.alloc(Path, scanned_config.configuration.generated_files_len),
         .run_args = run_args,

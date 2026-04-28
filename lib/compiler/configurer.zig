@@ -455,7 +455,7 @@ const Serialize = struct {
                     .producer = .{ .value = null },
                     .generated = .{ .value = null },
                 },
-                .output_file => |a| .{
+                .output_file, .output_file_dep => |a, tag| .{
                     .flags = .{
                         .tag = .output_file,
                         .prefix = a.prefix.len != 0,
@@ -464,7 +464,7 @@ const Serialize = struct {
                         .path = false,
                         .producer = false,
                         .generated = true,
-                        .dep_file = false,
+                        .dep_file = tag == .output_file_dep,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
                     .suffix = .{ .value = null },
@@ -1023,7 +1023,6 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                         break :e @enumFromInt(extra_index);
                     },
                     .check_file => @panic("TODO"),
-                    .check_object => @panic("TODO"),
                     .config_header => @panic("TODO"),
                     .objcopy => @panic("TODO"),
                     .options => @panic("TODO"),

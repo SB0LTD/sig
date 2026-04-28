@@ -18,6 +18,7 @@
 * https://codeberg.org/ziglang/zig/pulls/30762
 
 ## Followup Issues
+* reduce the size of Maker.Step.Extended (make Run smaller) probably by using an arena per make
 * link_eh_frame_hdr should be DefaultingBool
 * make --foo, --no-foo CLI args uniform (make them -f args instead)
 * install steps should provide generated files for installed things, then delete the run step hack

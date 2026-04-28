@@ -16,6 +16,7 @@ const allocPrint = std.fmt.allocPrint;
 
 const Step = @import("../Step.zig");
 const Maker = @import("../../Maker.zig");
+const Fuzz = @import("../../Maker/Fuzz.zig");
 
 /// If this is a Zig unit test binary, this tracks the names of the unit
 /// tests that are also fuzz tests. Indexes cannot be used as they may
@@ -31,6 +32,8 @@ rebuilt_executable: ?Path = null,
 argv: std.ArrayList([]const u8) = .empty,
 /// Persisted to reuse memory on subsequent calls to `make`.
 output_placeholders: std.ArrayList(IndexedOutput) = .empty,
+/// Persisted to reuse memory on subsequent calls to `make`.
+environ_map: std.process.Environ.Map = .{ .array_hash_map = .empty, .allocator = undefined },
 
 pub fn make(
     run: *Run,
@@ -66,6 +69,8 @@ pub fn make(
 
     man.hash.add(conf_run.flags.color);
     man.hash.add(conf_run.flags.disable_zig_progress);
+
+    var dep_file_count: usize = 0;
 
     for (conf_run.args.slice) |arg_index| {
         const arg = arg_index.get(conf);
@@ -157,6 +162,9 @@ pub fn make(
                 man.hash.addBytesZ(basename);
                 man.hash.addBytesZ(suffix);
 
+                man.hash.add(arg.flags.dep_file);
+                dep_file_count += @intFromBool(arg.flags.dep_file);
+
                 // Add a placeholder into the argument list because we need the
                 // manifest hash to be updated with all arguments before the
                 // object directory is computed.
@@ -220,145 +228,95 @@ pub fn make(
 
     const has_side_effects = conf_run.flags.has_side_effects;
 
-    if (true) @panic("TODO");
-
     if (!has_side_effects and try step.cacheHitAndWatch(maker, &man)) {
-        // cache hit, skip running command
+        // Cache hit; skip running command.
         const digest = man.final();
-
-        try populateGeneratedPaths(
-            arena,
-            output_placeholders.items,
-            &conf_run,
-            cache_root,
-            &digest,
-        );
-
+        try populateGeneratedStdIo(maker, &conf_run, cache_root, &digest);
+        try populateGeneratedPaths(maker, output_placeholders.items, cache_root, &digest);
         step.result_cached = true;
         return;
     }
 
-    const dep_output_file = conf_run.dep_output_file orelse {
-        // We already know the final output paths, use them directly.
-        const digest = if (has_side_effects)
-            man.hash.final()
-        else
-            man.final();
-
-        try populateGeneratedPaths(
-            arena,
-            output_placeholders.items,
-            &conf_run,
-            cache_root,
-            &digest,
-        );
-
+    if (dep_file_count == 0) {
+        // We already know the final output paths; use them directly.
+        const digest = if (has_side_effects) man.hash.final() else man.final();
         const output_dir_path = "o" ++ Dir.path.sep_str ++ &digest;
-        for (output_placeholders.items) |placeholder| {
-            const output_sub_path = graph.pathJoin(&.{ output_dir_path, placeholder.output.basename });
-            const output_sub_dir_path = switch (placeholder.tag) {
-                .output_file => Dir.path.dirname(output_sub_path).?,
-                .output_directory => output_sub_path,
-                else => unreachable,
-            };
-            cache_root.handle.createDirPath(io, output_sub_dir_path) catch |err| {
-                return step.fail(maker, "unable to make path '{f}{s}': {t}", .{
-                    cache_root, output_sub_dir_path, err,
-                });
-            };
-            const arg_output_path = try convertPathArg(run_index, maker, .{
-                .root_dir = .cwd(),
-                .sub_path = placeholder.output.generated_file.getPath(),
-            });
-            argv_list.items[placeholder.index] = if (placeholder.output.prefix.len == 0)
-                arg_output_path
-            else
-                try allocPrint(arena, "{s}{s}", .{ placeholder.output.prefix, arg_output_path });
-        }
-
-        try runCommand(run, maker, progress_node, argv_list.items, has_side_effects, output_dir_path, null);
-        if (!has_side_effects) try step.writeManifestAndWatch(&man);
+        try populateGeneratedStdIo(maker, &conf_run, cache_root, &digest);
+        try populateGeneratedPathsCreateDirs(run, run_index, maker, output_dir_path);
+        try runCommand(run, run_index, maker, progress_node, argv_list.items, has_side_effects, output_dir_path, null);
+        if (!has_side_effects) try step.writeManifestAndWatch(maker, &man);
         return;
-    };
+    }
 
-    // We do not know the final output paths yet, use temp paths to run the command.
+    // We do not know the final output paths yet; use temporary directory to run the command.
     var rand_int: u64 = undefined;
     io.random(@ptrCast(&rand_int));
     const tmp_dir_path = "tmp" ++ Dir.path.sep_str ++ std.fmt.hex(rand_int);
 
+    try populateGeneratedPathsCreateDirs(run, run_index, maker, tmp_dir_path);
+    try runCommand(run, run_index, maker, progress_node, argv_list.items, has_side_effects, tmp_dir_path, null);
+
     for (output_placeholders.items) |placeholder| {
-        const output_components = .{ tmp_dir_path, placeholder.output.basename };
-        const output_sub_path = graph.pathJoin(&output_components);
-        const output_sub_dir_path = switch (placeholder.tag) {
-            .output_file => Dir.path.dirname(output_sub_path).?,
-            .output_directory => output_sub_path,
-            else => unreachable,
-        };
-        cache_root.handle.createDirPath(io, output_sub_dir_path) catch |err| {
-            return step.fail(maker, "unable to make path '{f}{s}': {t}", .{
-                cache_root, output_sub_dir_path, err,
-            });
-        };
-        const raw_output_path: Path = .{
-            .root_dir = cache_root,
-            .sub_path = graph.pathJoin(&output_components),
-        };
-        placeholder.output.generated_file.path = raw_output_path.toString(arena) catch @panic("OOM");
-        argv_list.items[placeholder.index] = try mem.concat(arena, u8, .{
-            placeholder.output.prefix,
-            try convertPathArg(run_index, maker, raw_output_path),
-        });
-    }
-
-    try runCommand(run, maker, progress_node, argv_list.items, has_side_effects, tmp_dir_path, null);
-
-    const dep_file_dir = Dir.cwd();
-    const dep_file_basename = dep_output_file.generated_file.getPath2(graph, step);
-    if (has_side_effects)
-        try man.addDepFile(dep_file_dir, dep_file_basename)
-    else
-        try man.addDepFilePost(dep_file_dir, dep_file_basename);
-
-    const digest = if (has_side_effects)
-        man.hash.final()
-    else
-        man.final();
-
-    const any_output = output_placeholders.items.len > 0 or
-        conf_run.captured_stdout != null or conf_run.captured_stderr != null;
-
-    // Rename into place
-    if (any_output) {
-        const o_sub_path = "o" ++ Dir.path.sep_str ++ &digest;
-
-        cache_root.handle.rename(tmp_dir_path, cache_root.handle, o_sub_path, io) catch |err| switch (err) {
-            Dir.RenameError.DirNotEmpty => {
-                cache_root.handle.deleteTree(io, o_sub_path) catch |del_err| {
-                    return step.fail(maker, "unable to remove dir '{f}'{s}: {t}", .{
-                        cache_root, tmp_dir_path, del_err,
-                    });
-                };
-                cache_root.handle.rename(tmp_dir_path, cache_root.handle, o_sub_path, io) catch |retry_err| {
-                    return step.fail(maker, "unable to rename dir '{f}{s}' to '{f}{s}': {t}", .{
-                        cache_root, tmp_dir_path, cache_root, o_sub_path, retry_err,
-                    });
+        const arg = placeholder.arg_index.get(conf);
+        switch (arg.flags.tag) {
+            .output_file => if (arg.flags.dep_file) {
+                const generated_path = maker.generatedPath(arg.generated.value.?).*;
+                const result = if (has_side_effects)
+                    man.addDepFile(generated_path.root_dir.handle, generated_path.sub_path)
+                else
+                    man.addDepFilePost(generated_path.root_dir.handle, generated_path.sub_path);
+                result catch |err| switch (err) {
+                    error.OutOfMemory, error.Canceled => |e| return e,
+                    else => |e| return step.fail(maker, "failed adding to cache the file {f}: {t}", .{
+                        generated_path, e,
+                    }),
                 };
             },
-            else => return step.fail(maker, "unable to rename dir '{f}{s}' to '{f}{s}': {t}", .{
-                cache_root, tmp_dir_path, cache_root, o_sub_path, err,
+            .output_directory => continue,
+            else => unreachable,
+        }
+    }
+
+    const digest = if (has_side_effects) man.hash.final() else man.final();
+
+    const any_output = output_placeholders.items.len > 0 or
+        conf_run.captured_stdout.value != null or conf_run.captured_stderr.value != null;
+
+    if (any_output) {
+        // Rename into place.
+        const tmp_path: Path = .{ .root_dir = cache_root, .sub_path = tmp_dir_path };
+        const dst_path: Path = .{ .root_dir = cache_root, .sub_path = "o" ++ Dir.path.sep_str ++ &digest };
+        Dir.rename(
+            tmp_path.root_dir.handle,
+            tmp_path.sub_path,
+            dst_path.root_dir.handle,
+            dst_path.sub_path,
+            io,
+        ) catch |err| switch (err) {
+            error.DirNotEmpty => {
+                dst_path.root_dir.handle.deleteTree(io, dst_path.sub_path) catch |del_err|
+                    return step.fail(maker, "failed to remove tree {f}: {t}", .{ dst_path, del_err });
+
+                Dir.rename(
+                    tmp_path.root_dir.handle,
+                    tmp_path.sub_path,
+                    dst_path.root_dir.handle,
+                    dst_path.sub_path,
+                    io,
+                ) catch |retry_err| return step.fail(maker, "failed to rename directory {f} to {f}: {t}", .{
+                    tmp_path, dst_path, retry_err,
+                });
+            },
+            else => return step.fail(maker, "failed to rename directory {f} to {f}: {t}", .{
+                tmp_path, dst_path, err,
             }),
         };
     }
 
-    if (!has_side_effects) try step.writeManifestAndWatch(&man);
+    if (!has_side_effects) try step.writeManifestAndWatch(maker, &man);
 
-    try populateGeneratedPaths(
-        arena,
-        output_placeholders.items,
-        &conf_run,
-        cache_root,
-        &digest,
-    );
+    try populateGeneratedStdIo(maker, &conf_run, cache_root, &digest);
+    try populateGeneratedPaths(maker, output_placeholders.items, cache_root, &digest);
 }
 
 /// Reads stdout of a Zig test process until a termination condition is reached:
@@ -918,9 +876,12 @@ const FuzzTestRunner = struct {
     }
 
     fn saveCrash(f: *FuzzTestRunner, id: u32, term: process.Child.Term) !void {
+        const fuzz = f.context.fuzz;
+        const maker = fuzz.maker;
         const step = &f.run.step;
-        const b = step.owner;
-        const io = b.graph.io;
+        const graph = maker.graph;
+        const io = graph.io;
+        const cache_root = graph.local_cache_root;
 
         if (f.coverage_id == null) return;
 
@@ -938,7 +899,7 @@ const FuzzTestRunner = struct {
         }) {
             const name_prefix = "f" ++ Io.Dir.path.sep_str ++ "in";
             in_name = std.fmt.bufPrint(&in_name_buf, name_prefix ++ "{x}", .{i}) catch unreachable;
-            in_f = b.cache_root.handle.openFile(io, in_name, .{
+            in_f = cache_root.handle.openFile(io, in_name, .{
                 .lock = .exclusive,
                 .lock_nonblocking = true,
             }) catch |e| switch (e) {
@@ -946,7 +907,7 @@ const FuzzTestRunner = struct {
                 error.WouldBlock => continue, // Can not be from
                 // the crashed instance since it is still locked.
                 else => return step.fail("failed to open file '{f}{s}': {t}", .{
-                    b.cache_root, in_name, e,
+                    cache_root, in_name, e,
                 }),
             };
 
@@ -955,7 +916,7 @@ const FuzzTestRunner = struct {
                 in_f.close(io);
                 switch (e) {
                     error.ReadFailed => return step.fail("failed to read file '{f}{s}': {t}", .{
-                        b.cache_root, in_name, in_r.err.?,
+                        cache_root, in_name, in_r.err.?,
                     }),
                     error.EndOfStream => continue,
                 }
@@ -974,10 +935,10 @@ const FuzzTestRunner = struct {
 
         // Save it to a seperate file
         const crash_name = "f" ++ Io.Dir.path.sep_str ++ "crash";
-        const out = b.cache_root.handle.createFile(io, crash_name, .{
+        const out = cache_root.handle.createFile(io, crash_name, .{
             .lock = .exclusive, // Multiple run steps could have found a crash at the same time
         }) catch |e| return step.fail("failed to create file '{f}{s}': {t}", .{
-            b.cache_root, crash_name, e,
+            cache_root, crash_name, e,
         });
         defer out.close(io);
 
@@ -985,17 +946,17 @@ const FuzzTestRunner = struct {
         var out_w = out.writerStreaming(io, &out_w_buf);
         _ = out_w.interface.sendFileAll(&in_r, .limited(header.len)) catch |e| switch (e) {
             error.ReadFailed => return step.fail("failed to read file '{f}{s}': {t}", .{
-                b.cache_root, in_name, in_r.err.?,
+                cache_root, in_name, in_r.err.?,
             }),
             error.WriteFailed => return step.fail("failed to write file '{f}{s}': {t}", .{
-                b.cache_root, crash_name, out_w.err.?,
+                cache_root, crash_name, out_w.err.?,
             }),
         };
 
         return f.run.step.fail("test '{s}' {f}; input saved to '{f}{s}'", .{
             f.run.fuzz_tests.items[header.test_i],
             fmtTerm(term),
-            b.cache_root,
+            cache_root,
             crash_name,
         });
     }
@@ -1492,54 +1453,85 @@ pub fn rerunInFuzzMode(
     const maker = fuzz.maker;
     const graph = maker.graph;
     const step = &run.step;
-    const b = step.owner;
     const io = graph.io;
-    const arena = b.allocator;
-    var argv_list: std.ArrayList([]const u8) = .empty;
-    for (run.argv.items) |arg| {
-        switch (arg) {
-            .bytes => |bytes| {
-                try argv_list.append(arena, bytes);
-            },
-            .lazy_path => |file| {
-                const file_path = file.lazy_path.getPath3(b, step);
-                try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, convertPathArg(run_index, maker, file_path) }));
-            },
-            .decorated_directory => |dd| {
-                const file_path = dd.lazy_path.getPath3(b, step);
-                try argv_list.append(arena, b.fmt("{s}{s}{s}", .{ dd.prefix, convertPathArg(run_index, maker, file_path), dd.suffix }));
-            },
-            .file_content => |file_plp| {
-                const file_path = file_plp.lazy_path.getPath3(b, step);
+    const arena = graph.arena; // TODO don't leak into the process arena
+    const gpa = maker.gpa;
+    const conf = &maker.scanned_config.configuration;
+    const conf_step = run_index.ptr(conf);
+    const conf_run = conf_step.extended.get(conf.extra).run;
+    const argv_list = &run.argv;
 
-                var result: std.Io.Writer.Allocating = .init(arena);
-                errdefer result.deinit();
-                result.writer.writeAll(file_plp.prefix) catch return error.OutOfMemory;
+    argv_list.clearRetainingCapacity();
 
-                const file = try file_path.root_dir.handle.openFile(io, file_path.subPathOrDot(), .{});
-                defer file.close(io);
-
-                var buf: [1024]u8 = undefined;
-                var file_reader = file.reader(io, &buf);
-                _ = file_reader.interface.streamRemaining(&result.writer) catch |err| switch (err) {
-                    error.ReadFailed => return file_reader.err.?,
-                    error.WriteFailed => return error.OutOfMemory,
-                };
-
-                try argv_list.append(arena, result.written());
+    for (conf_run.args.slice) |arg_index| {
+        const arg = arg_index.get(conf);
+        try argv_list.ensureUnusedCapacity(gpa, 1);
+        switch (arg.flags.tag) {
+            .string => {
+                const prefix = arg.prefix.value.?.slice(conf);
+                argv_list.appendAssumeCapacity(prefix);
             },
-            .artifact => |pa| {
-                const artifact = pa.artifact;
-                const file_path: []const u8 = p: {
-                    if (artifact == run.producer.?) break :p b.fmt("{f}", .{run.rebuilt_executable.?});
-                    break :p artifact.installed_path orelse artifact.generated_bin.?.path.?;
-                };
-                try argv_list.append(arena, b.fmt("{s}{s}", .{
-                    pa.prefix,
-                    convertPathArg(run_index, maker, .{ .root_dir = .cwd(), .sub_path = file_path }),
+            .path_file => {
+                const prefix = if (arg.prefix.value) |p| p.slice(conf) else "";
+                const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
+                const file_path = try maker.resolveLazyPathIndex(arena, arg.path.value.?, run_index);
+                argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
+                    prefix, try convertPathArg(run_index, maker, file_path), suffix,
                 }));
             },
-            .output_file, .output_directory => unreachable,
+            .path_directory => {
+                const prefix = if (arg.prefix.value) |p| p.slice(conf) else "";
+                const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
+                const file_path = try maker.resolveLazyPathIndex(arena, arg.path.value.?, run_index);
+                const resolved_arg = try mem.concat(arena, u8, &.{
+                    prefix, try convertPathArg(run_index, maker, file_path), suffix,
+                });
+                argv_list.appendAssumeCapacity(resolved_arg);
+            },
+            .file_content => {
+                const prefix = if (arg.prefix.value) |p| p.slice(conf) else "";
+                const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
+                const file_path = try maker.resolveLazyPathIndex(arena, arg.path.value.?, run_index);
+
+                var result: std.Io.Writer.Allocating = .init(arena);
+                result.writer.writeAll(prefix) catch return error.OutOfMemory;
+
+                const file = file_path.root_dir.handle.openFile(io, file_path.sub_path, .{}) catch |err|
+                    return step.fail(maker, "unable to open input file {f}: {t}", .{ file_path, err });
+                defer file.close(io);
+
+                var file_reader = file.reader(io, &.{});
+                _ = file_reader.interface.streamRemaining(&result.writer) catch |err| switch (err) {
+                    error.ReadFailed => switch (file_reader.err.?) {
+                        error.Canceled => |e| return e,
+                        else => |e| return step.fail(maker, "failed to read from {f}: {t}", .{ file_path, e }),
+                    },
+                    error.WriteFailed => return error.OutOfMemory,
+                };
+                result.writer.writeAll(suffix) catch return error.OutOfMemory;
+
+                argv_list.appendAssumeCapacity(result.written());
+            },
+            .artifact => {
+                const prefix = if (arg.prefix.value) |p| p.slice(conf) else "";
+                const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
+                const producer_index = arg.producer.value.?;
+                const producer_step = producer_index.ptr(conf);
+                const producer = producer_step.extended.get(conf.extra).compile;
+                const producer_make_comp_step = maker.stepByIndex(producer_index);
+                const producer_make_comp = &producer_make_comp_step.extended.compile;
+                const file_path: Path = if (producer_index == conf_run.producer.value.?)
+                    run.rebuilt_executable.?
+                else
+                    producer_make_comp.installed_path orelse
+                        maker.generatedPath(producer.generated_bin.value.?).*;
+                argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
+                    prefix, try convertPathArg(run_index, maker, file_path), suffix,
+                }));
+            },
+            .output_file => unreachable,
+            .output_directory => unreachable,
+            .cli_rest_positionals => unreachable,
         }
     }
 
@@ -1552,7 +1544,7 @@ pub fn rerunInFuzzMode(
     var rand_int: u64 = undefined;
     io.random(@ptrCast(&rand_int));
     const tmp_dir_path = "tmp" ++ Dir.path.sep_str ++ std.fmt.hex(rand_int);
-    try runCommand(run, maker, prog_node, argv_list.items, has_side_effects, tmp_dir_path, .{
+    try runCommand(run, run_index, maker, prog_node, argv_list.items, has_side_effects, tmp_dir_path, .{
         .fuzz = fuzz,
     });
 }
@@ -1560,28 +1552,94 @@ pub fn rerunInFuzzMode(
 const CapturedStdIo = void; // TODO get it from Configuration
 
 fn populateGeneratedPaths(
-    arena: std.mem.Allocator,
+    maker: *Maker,
     output_placeholders: []const IndexedOutput,
+    cache_root: Cache.Directory,
+    digest: *const Cache.HexDigest,
+) !void {
+    const conf = &maker.scanned_config.configuration;
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into the process arena
+
+    for (output_placeholders) |placeholder| {
+        const arg = placeholder.arg_index.get(conf);
+        maker.generatedPath(arg.generated.value.?).* = .{
+            .root_dir = cache_root,
+            .sub_path = try Dir.path.join(arena, &.{
+                "o", digest, arg.basename.value.?.slice(conf),
+            }),
+        };
+    }
+}
+
+fn populateGeneratedPathsCreateDirs(
+    run: *Run,
+    run_index: Configuration.Step.Index,
+    maker: *Maker,
+    output_dir_path: []const u8,
+) !void {
+    const step = maker.stepByIndex(run_index);
+    const conf = &maker.scanned_config.configuration;
+    const graph = maker.graph;
+    const io = graph.io;
+    const arena = graph.arena; // TODO don't leak into the process arena
+    const cache_root = graph.local_cache_root;
+    const argv = run.argv.items;
+
+    for (run.output_placeholders.items) |placeholder| {
+        const arg = placeholder.arg_index.get(conf);
+        const prefix = if (arg.prefix.value) |p| p.slice(conf) else "";
+        const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
+        const basename = arg.basename.value.?.slice(conf);
+
+        const generated_path: Path = .{
+            .root_dir = cache_root,
+            .sub_path = try Dir.path.join(arena, &.{ output_dir_path, basename }),
+        };
+        const create_path: Path = .{
+            .root_dir = cache_root,
+            .sub_path = switch (arg.flags.tag) {
+                .output_file => Dir.path.dirname(generated_path.sub_path).?,
+                .output_directory => generated_path.sub_path,
+                else => unreachable,
+            },
+        };
+        create_path.root_dir.handle.createDirPath(io, create_path.sub_path) catch |err|
+            return step.fail(maker, "unable to make path {f}: {t}", .{ create_path, err });
+
+        maker.generatedPath(arg.generated.value.?).* = generated_path;
+
+        const arg_output_path = try convertPathArg(run_index, maker, generated_path);
+        argv[placeholder.index] = try mem.concat(arena, u8, &.{ prefix, arg_output_path, suffix });
+    }
+}
+
+fn populateGeneratedStdIo(
+    maker: *Maker,
     conf_run: *const Configuration.Step.Run,
     cache_root: Cache.Directory,
     digest: *const Cache.HexDigest,
 ) !void {
-    for (output_placeholders) |placeholder| {
-        placeholder.output.generated_file.path = try cache_root.join(arena, &.{
-            "o", digest, placeholder.output.basename,
-        });
-    }
+    const conf = &maker.scanned_config.configuration;
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into the process arena
 
     if (conf_run.captured_stdout.value) |captured| {
-        captured.output.generated_file.path = try cache_root.join(arena, &.{
-            "o", digest, captured.output.basename,
-        });
+        maker.generatedPath(captured.generated_file).* = .{
+            .root_dir = cache_root,
+            .sub_path = try Dir.path.join(arena, &.{
+                "o", digest, captured.basename.slice(conf),
+            }),
+        };
     }
 
     if (conf_run.captured_stderr.value) |captured| {
-        captured.output.generated_file.path = try cache_root.join(arena, &.{
-            "o", digest, captured.output.basename,
-        });
+        maker.generatedPath(captured.generated_file).* = .{
+            .root_dir = cache_root,
+            .sub_path = try Dir.path.join(arena, &.{
+                "o", digest, captured.basename.slice(conf),
+            }),
+        };
     }
 }
 
@@ -1600,11 +1658,12 @@ fn fmtTerm(term: ?process.Child.Term) std.fmt.Alt(?process.Child.Term, formatTer
 }
 
 const FuzzContext = struct {
-    fuzz: *std.Build.Fuzz,
+    fuzz: *Fuzz,
 };
 
 fn runCommand(
     run: *Run,
+    run_index: Configuration.Step.Index,
     maker: *Maker,
     progress_node: std.Progress.Node,
     argv: []const []const u8,
@@ -1615,30 +1674,45 @@ fn runCommand(
     const graph = maker.graph;
     const arena = graph.arena; // TODO don't leak into process arena
     const gpa = maker.gpa;
-    const step = &run.step;
-    const b = step.owner;
+    const step = maker.stepByIndex(run_index);
     const io = graph.io;
+    const cache_root = graph.local_cache_root;
+    const conf = &maker.scanned_config.configuration;
+    const conf_step = run_index.ptr(conf);
+    const conf_run = conf_step.extended.get(conf.extra).run;
+    const environ_map = &run.environ_map;
 
-    const cwd: process.Child.Cwd = if (run.cwd) |lazy_cwd| .{ .path = lazy_cwd.getPath2(b, step) } else .inherit;
+    const cwd: process.Child.Cwd = if (conf_run.cwd.value) |lazy_cwd|
+        .{ .path = try maker.resolveLazyPathIndexAbs(arena, lazy_cwd, run_index) }
+    else
+        .inherit;
 
-    try step.handleChildProcUnsupported();
-    try Step.handleVerbose(step.owner, cwd, run.environ_map, argv);
-
-    const allow_skip = switch (run.stdio) {
-        .check, .zig_test => run.skip_foreign_checks,
+    const allow_skip = switch (conf_run.flags.stdio) {
+        .check, .zig_test => conf_run.flags.skip_foreign_checks,
         else => false,
     };
 
-    var interp_argv = std.array_list.Managed([]const u8).init(b.allocator);
-    defer interp_argv.deinit();
+    var interp_argv: std.ArrayList([]const u8) = .empty;
 
-    var environ_map: EnvMap = env: {
-        const orig = run.environ_map orelse &graph.environ_map;
-        break :env try orig.clone(gpa);
-    };
-    defer environ_map.deinit();
+    // `environ_map` is initialized with an undefined `allocator` field; lazily
+    // initialize it here.
+    environ_map.allocator = gpa;
+    // In either case we add to this mutatable data structure so that we can
+    // tweak the environment below.
+    environ_map.clearRetainingCapacity();
+    if (conf_run.environ_map.value) |env_map_index| {
+        const conf_env_map = env_map_index.get(conf);
+        for (conf_env_map.keys.slice(conf), conf_env_map.values.slice(conf)) |k, v| {
+            try environ_map.put(k.slice(conf), v.slice(conf));
+        }
+    } else {
+        try environ_map.putAll(&graph.environ_map);
+    }
+    try graph.handleVerbose(cwd, environ_map, argv);
 
-    const opt_generic_result = spawnChildAndCollect(run, maker, progress_node, argv, &environ_map, has_side_effects, fuzz_context) catch |err| term: {
+    if (true) @panic("TODO");
+
+    const opt_generic_result = spawnChildAndCollect(run_index, run, maker, progress_node, argv, &environ_map, has_side_effects, fuzz_context) catch |err| term: {
         // InvalidExe: cpu arch mismatch
         // FileNotFound: can happen with a wrong dynamic linker path
         if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
@@ -1660,7 +1734,7 @@ fn runCommand(
                 (root_target.isGnuLibC() or (root_target.isMuslLibC() and exe.linkage == .dynamic));
             const other_target = exe.root_module.resolved_target.?.result;
             switch (std.zig.system.getExternalExecutor(io, &graph.host.result, &other_target, .{
-                .qemu_fixes_dl = need_cross_libc and b.libc_runtimes_dir != null,
+                .qemu_fixes_dl = need_cross_libc and graph.libc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
                 .native, .rosetta => {
@@ -1668,7 +1742,7 @@ fn runCommand(
                     break :interpret;
                 },
                 .wine => |bin_name| {
-                    if (b.enable_wine) {
+                    if (graph.enable_wine) {
                         try interp_argv.append(bin_name);
                         try interp_argv.appendSlice(argv);
 
@@ -1682,21 +1756,21 @@ fn runCommand(
                     }
                 },
                 .qemu => |bin_name| {
-                    if (b.enable_qemu) {
+                    if (graph.enable_qemu) {
                         try interp_argv.append(bin_name);
 
                         if (need_cross_libc) {
-                            if (b.libc_runtimes_dir) |dir| {
+                            if (graph.libc_runtimes_dir) |dir| {
                                 try interp_argv.append("-L");
-                                try interp_argv.append(b.pathJoin(&.{
+                                try interp_argv.append(try Dir.path.join(arena, &.{
                                     dir,
                                     try if (root_target.isGnuLibC()) std.zig.target.glibcRuntimeTriple(
-                                        b.allocator,
+                                        arena,
                                         root_target.cpu.arch,
                                         root_target.os.tag,
                                         root_target.abi,
                                     ) else if (root_target.isMuslLibC()) std.zig.target.muslRuntimeTriple(
-                                        b.allocator,
+                                        arena,
                                         root_target.cpu.arch,
                                         root_target.abi,
                                     ) else unreachable,
@@ -1708,7 +1782,7 @@ fn runCommand(
                     } else return failForeign(run, "-fqemu", argv[0], exe);
                 },
                 .darling => |bin_name| {
-                    if (b.enable_darling) {
+                    if (graph.enable_darling) {
                         try interp_argv.append(bin_name);
                         try interp_argv.appendSlice(argv);
                     } else {
@@ -1716,7 +1790,7 @@ fn runCommand(
                     }
                 },
                 .wasmtime => |bin_name| {
-                    if (b.enable_wasmtime) {
+                    if (graph.enable_wasmtime) {
                         try interp_argv.append(bin_name);
                         try interp_argv.append("--dir=.");
                         // Wasmtime doeesn't inherit environment variables from the parent process
@@ -1743,8 +1817,8 @@ fn runCommand(
                 .bad_os_or_cpu => {
                     if (allow_skip) return error.MakeSkipped;
 
-                    const host_name = try graph.host.result.zigTriple(b.allocator);
-                    const foreign_name = try root_target.zigTriple(b.allocator);
+                    const host_name = try graph.host.result.zigTriple(arena);
+                    const foreign_name = try root_target.zigTriple(arena);
 
                     return step.fail(maker, "the host system ({s}) is unable to execute binaries from the target ({s})", .{
                         host_name, foreign_name,
@@ -1761,7 +1835,7 @@ fn runCommand(
             step.result_failed_command = null;
             try Step.handleVerbose(step.owner, cwd, run.environ_map, interp_argv.items);
 
-            break :term spawnChildAndCollect(run, maker, progress_node, interp_argv.items, &environ_map, has_side_effects, fuzz_context) catch |e| {
+            break :term spawnChildAndCollect(run_index, run, maker, progress_node, interp_argv.items, &environ_map, has_side_effects, fuzz_context) catch |e| {
                 if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
                 if (e == error.MakeFailed) return error.MakeFailed; // error already reported
                 return step.fail(maker, "unable to spawn interpreter {s}: {t}", .{ interp_argv.items[0], e });
@@ -1800,14 +1874,14 @@ fn runCommand(
     }) |stream| {
         if (stream.captured) |captured| {
             const output_components = .{ output_dir_path, captured.output.basename };
-            const output_path = try b.cache_root.join(arena, &output_components);
+            const output_path = try cache_root.join(arena, &output_components);
             captured.output.generated_file.path = output_path;
 
-            const sub_path = b.pathJoin(&output_components);
+            const sub_path = try Dir.path.join(arena, &output_components);
             const sub_path_dirname = Dir.path.dirname(sub_path).?;
-            b.cache_root.handle.createDirPath(io, sub_path_dirname) catch |err| {
-                return step.fail(maker, "unable to make path '{f}{s}': {s}", .{
-                    b.cache_root, sub_path_dirname, @errorName(err),
+            cache_root.handle.createDirPath(io, sub_path_dirname) catch |err| {
+                return step.fail(maker, "unable to make path '{f}{s}': {t}", .{
+                    cache_root, sub_path_dirname, err,
                 });
             };
             const data = switch (captured.trim_whitespace) {
@@ -1816,9 +1890,9 @@ fn runCommand(
                 .leading => mem.trimStart(u8, stream.bytes.?, &std.ascii.whitespace),
                 .trailing => mem.trimEnd(u8, stream.bytes.?, &std.ascii.whitespace),
             };
-            b.cache_root.handle.writeFile(io, .{ .sub_path = sub_path, .data = data }) catch |err| {
-                return step.fail(maker, "unable to write file '{f}{s}': {s}", .{
-                    b.cache_root, sub_path, @errorName(err),
+            cache_root.handle.writeFile(io, .{ .sub_path = sub_path, .data = data }) catch |err| {
+                return step.fail(maker, "unable to write file '{f}{s}': {t}", .{
+                    cache_root, sub_path, err,
                 });
             };
         }
@@ -1912,6 +1986,7 @@ const EvalGenericResult = struct {
 };
 
 fn spawnChildAndCollect(
+    run_index: Configuration.Step.Index,
     run: *Run,
     maker: *Maker,
     progress_node: std.Progress.Node,
@@ -1920,24 +1995,33 @@ fn spawnChildAndCollect(
     has_side_effects: bool,
     fuzz_context: ?FuzzContext,
 ) !?EvalGenericResult {
-    const b = run.step.owner;
+    const step = run.step;
     const graph = maker.graph;
     const gpa = maker.gpa;
     const io = graph.io;
+    const arena = graph.arena; // TODO don't leak into process arena
+    const conf = &maker.scanned_config.configuration;
+    const conf_step = run_index.ptr(conf);
+    const conf_run = conf_step.extended.get(conf.extra).run;
 
     if (fuzz_context != null) {
         assert(!has_side_effects);
         assert(run.stdio == .zig_test);
     }
 
-    const child_cwd: process.Child.Cwd = if (run.cwd) |lazy_cwd| .{ .path = lazy_cwd.getPath2(b, &run.step) } else .inherit;
+    const child_cwd: process.Child.Cwd = if (conf_run.cwd) |lazy_cwd|
+        .{ .path = try maker.resolveLazyPathIndexAbs(arena, lazy_cwd, run_index) }
+    else
+        .inherit;
 
     // If an error occurs, it's caused by this command:
-    assert(run.step.result_failed_command == null);
-    run.step.result_failed_command = try Step.allocPrintCmd(gpa, child_cwd, .{
+    assert(step.result_failed_command == null);
+    step.result_failed_command = try Step.allocPrintCmd(gpa, child_cwd, .{
         .child = environ_map,
         .parent = &graph.environ_map,
     }, argv);
+
+    try step.handleChildProcUnsupported(maker);
 
     var spawn_options: process.SpawnOptions = .{
         .argv = argv,
@@ -1973,7 +2057,7 @@ fn spawnChildAndCollect(
             error.Canceled => |e| return e,
             else => |e| e,
         };
-        run.step.result_duration_ns = @intCast(started.untilNow(io).raw.nanoseconds);
+        step.result_duration_ns = @intCast(started.untilNow(io).raw.nanoseconds);
         try result;
         return null;
     } else {
@@ -1993,7 +2077,7 @@ fn spawnChildAndCollect(
             error.Canceled => |e| return e,
             else => |e| e,
         };
-        run.step.result_duration_ns = @intCast(started.untilNow(io).raw.nanoseconds);
+        step.result_duration_ns = @intCast(started.untilNow(io).raw.nanoseconds);
         return try result;
     }
 }

@@ -427,7 +427,6 @@ pub const Step = extern struct {
     max_rss: MaxRss,
     extended: Storage.Extended(Flags, union(Tag) {
         check_file: CheckFile,
-        check_object: CheckObject,
         compile: Compile,
         config_header: ConfigHeader,
         fail: Fail,
@@ -462,7 +461,6 @@ pub const Step = extern struct {
 
     pub const Tag = enum(u5) {
         check_file,
-        check_object,
         compile,
         config_header,
         fail,
@@ -993,15 +991,6 @@ pub const Step = extern struct {
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .check_file,
-            _: u27 = 0,
-        };
-    };
-
-    pub const CheckObject = struct {
-        flags: @This().Flags,
-
-        pub const Flags = packed struct(u32) {
-            tag: Tag = .check_object,
             _: u27 = 0,
         };
     };
