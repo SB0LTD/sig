@@ -343,10 +343,8 @@ fn curlPost(url: []const u8, auth: []const u8, body: []const u8) !void {
 // ── GitHub dispatch ──────────────────────────────────────────────────────
 
 fn fireDispatch(token: []const u8, repo: []const u8) !void {
-    // Write JSON body to temp file using printf (avoids all quoting issues)
-    _ = pclose(popen("printf '{\"event_type\":\"upstream-push\"}' > /tmp/dispatch.json", "r") orelse return error.PipeFailed);
-
-    // Build curl command manually to avoid fmt.bufPrint issues with { and }
+    // Build curl command with inline JSON body using double quotes
+    // The JSON uses escaped double quotes which work inside shell double quotes
     var cmd_buf: [1024]u8 = undefined;
     var pos: usize = 0;
 
@@ -355,19 +353,27 @@ fn fireDispatch(token: []const u8, repo: []const u8) !void {
     pos += p1.len;
     @memcpy(cmd_buf[pos..][0..token.len], token);
     pos += token.len;
-    const p2 = "' -H 'Accept: application/vnd.github+json' -A 'sig-sync-watcher/1.0' -H 'Content-Type: application/json' -d @/tmp/dispatch.json -o /dev/null -w '%";
+    const p2 = "' -H 'Accept: application/vnd.github+json' -A 'sig-sync-watcher/1.0' -H 'Content-Type: application/json' -d ";
     @memcpy(cmd_buf[pos..][0..p2.len], p2);
     pos += p2.len;
-    // Write literal {http_code} for curl's -w flag
-    const p2b = "{http_code}' https://api.github.com/repos/";
-    @memcpy(cmd_buf[pos..][0..p2b.len], p2b);
-    pos += p2b.len;
-    @memcpy(cmd_buf[pos..][0..repo.len], repo);
-    pos += repo.len;
-    const p3 = "/dispatches";
+    // JSON body with escaped quotes for shell: "{\"event_type\":\"upstream-push\"}"
+    const json = "\"{\\\"event_type\\\":\\\"upstream-push\\\"}\"";
+    @memcpy(cmd_buf[pos..][0..json.len], json);
+    pos += json.len;
+    const p3 = " -o /dev/null -w '%";
     @memcpy(cmd_buf[pos..][0..p3.len], p3);
     pos += p3.len;
+    const p3b = "{http_code}' https://api.github.com/repos/";
+    @memcpy(cmd_buf[pos..][0..p3b.len], p3b);
+    pos += p3b.len;
+    @memcpy(cmd_buf[pos..][0..repo.len], repo);
+    pos += repo.len;
+    const p4 = "/dispatches";
+    @memcpy(cmd_buf[pos..][0..p4.len], p4);
+    pos += p4.len;
     cmd_buf[pos] = 0;
+
+    log("cmd: {s}", .{cmd_buf[0..pos]});
 
     const cmd: [*:0]const u8 = @ptrCast(cmd_buf[0..pos]);
     const pipe = popen(cmd, "r") orelse return error.PipeFailed;
