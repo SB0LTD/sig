@@ -9,6 +9,7 @@ const FILE = opaque {};
 extern "c" fn popen(command: [*:0]const u8, mode: [*:0]const u8) ?*FILE;
 extern "c" fn pclose(stream: *FILE) c_int;
 extern "c" fn fread(ptr: [*]u8, size: usize, nmemb: usize, stream: *FILE) usize;
+extern "c" fn fwrite(ptr: [*]const u8, size: usize, nmemb: usize, stream: *FILE) usize;
 
 /// Sig Sync Watcher — Cloud Run service (pure Sig)
 ///
@@ -342,19 +343,14 @@ fn curlPost(url: []const u8, auth: []const u8, body: []const u8) !void {
 // ── GitHub dispatch ──────────────────────────────────────────────────────
 
 fn fireDispatch(token: []const u8, repo: []const u8) !void {
-    var url_buf: [256]u8 = undefined;
-    const url = fmt.bufPrint(&url_buf, "api.github.com/repos/{s}/dispatches", .{repo}) catch return error.Overflow;
-
-    // Write JSON body to a temp file to avoid shell quoting issues
-    const body_file = "/tmp/dispatch_body.json";
-    const body_content = "{\"event_type\":\"upstream-push\"}";
-    const fd = c.open(body_file, 0x241, 0o644); // O_WRONLY|O_CREAT|O_TRUNC
-    if (fd < 0) return error.FileError;
-    _ = c.write(fd, body_content.ptr, body_content.len);
-    _ = c.close(fd);
+    // Write body to temp file, then curl with @file to avoid all quoting issues
+    const write_pipe = popen("cat > /tmp/dispatch.json", "w") orelse return error.PipeFailed;
+    const body = "{\"event_type\":\"upstream-push\"}\n";
+    _ = fwrite(body.ptr, 1, body.len, write_pipe);
+    _ = pclose(write_pipe);
 
     var cmd_buf: [1024]u8 = undefined;
-    const cmd_str = fmt.bufPrint(&cmd_buf, "curl -s -w '\\n%chttp_code%c' -X POST -H 'Authorization: token {s}' -H 'Accept: application/vnd.github+json' -A 'sig-sync-watcher/1.0' -H 'Content-Type: application/json' -d @{s} 'https://{s}'", .{ '{', '}', token, body_file, url }) catch return error.Overflow;
+    const cmd_str = fmt.bufPrint(&cmd_buf, "curl -s -w '\\n%chttp_code%c' -X POST -H 'Authorization: token {s}' -H 'Accept: application/vnd.github+json' -A 'sig-sync-watcher/1.0' -H 'Content-Type: application/json' -d @/tmp/dispatch.json https://api.github.com/repos/{s}/dispatches", .{ '{', '}', token, repo }) catch return error.Overflow;
     cmd_buf[cmd_str.len] = 0;
     const cmd: [*:0]const u8 = @ptrCast(cmd_buf[0..cmd_str.len]);
     const pipe = popen(cmd, "r") orelse return error.PipeFailed;
@@ -371,7 +367,7 @@ fn fireDispatch(token: []const u8, repo: []const u8) !void {
     if (out_len >= 3) {
         const status = out_buf[out_len - 3 .. out_len];
         if (status[0] == '2') {
-            log("dispatch triggered (HTTP {s})", .{status});
+            log("dispatch OK (HTTP {s})", .{status});
             return;
         }
         const body_end = if (out_len > 4 and out_buf[out_len - 4] == '\n') out_len - 4 else out_len - 3;
