@@ -7439,7 +7439,7 @@ fn buildOutputFromZig(
     assert(out.* == null);
     out.* = crt_file;
 
-    try comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
+    try comp.queuePrelinkTaskMode(crt_file.full_object_path, false, &config);
 }
 
 pub const CrtFileOptions = struct {
@@ -7573,7 +7573,7 @@ pub fn build_crt_file(
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     const crt_file = try sub_compilation.toCrtFile();
-    try comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
+    try comp.queuePrelinkTaskMode(crt_file.full_object_path, false, &config);
 
     {
         comp.mutex.lockUncancelable(io);
@@ -7583,12 +7583,14 @@ pub fn build_crt_file(
     }
 }
 
-pub fn queuePrelinkTaskMode(comp: *Compilation, path: Cache.Path, config: *const Compilation.Config) Io.Cancelable!void {
+/// If `must_link` is set, then static library inputs will have all member objects linked into the
+/// output, instead of only those required to resolve symbol references.
+pub fn queuePrelinkTaskMode(comp: *Compilation, path: Cache.Path, must_link: bool, config: *const Compilation.Config) Io.Cancelable!void {
     try comp.queuePrelinkTasks(switch (config.output_mode) {
         .Exe => unreachable,
         .Obj => &.{.{ .load_object = path }},
         .Lib => &.{switch (config.link_mode) {
-            .static => .{ .load_archive = path },
+            .static => .{ .load_archive = .{ .path = path, .must_link = must_link } },
             .dynamic => .{ .load_dso = path },
         }},
     });

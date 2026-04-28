@@ -1086,10 +1086,10 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             .dso => continue,
             .object, .archive => |obj| {
                 if (obj.must_link and !whole_archive) {
-                    try argv.append("-whole-archive");
+                    try argv.append("--whole-archive");
                     whole_archive = true;
                 } else if (!obj.must_link and whole_archive) {
-                    try argv.append("-no-whole-archive");
+                    try argv.append("--no-whole-archive");
                     whole_archive = false;
                 }
                 try argv.append(try obj.path.toString(arena));
@@ -1101,7 +1101,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         };
 
         if (whole_archive) {
-            try argv.append("-no-whole-archive");
+            try argv.append("--no-whole-archive");
             whole_archive = false;
         }
 
@@ -1115,7 +1115,11 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
 
         if (comp.tsan_lib) |lib| {
             assert(comp.config.any_sanitize_thread);
-            try argv.append(try lib.full_object_path.toString(arena));
+            try argv.appendSlice(&.{
+                "--whole-archive",
+                try lib.full_object_path.toString(arena),
+                "--no-whole-archive",
+            });
         }
 
         if (comp.fuzzer_lib) |lib| {
@@ -1549,10 +1553,10 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
         for (comp.link_inputs) |link_input| switch (link_input) {
             .object, .archive => |obj| {
                 if (obj.must_link and !whole_archive) {
-                    try argv.append("-whole-archive");
+                    try argv.append("--whole-archive");
                     whole_archive = true;
                 } else if (!obj.must_link and whole_archive) {
-                    try argv.append("-no-whole-archive");
+                    try argv.append("--no-whole-archive");
                     whole_archive = false;
                 }
                 try argv.append(try obj.path.toString(arena));
@@ -1564,7 +1568,7 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
             .res => unreachable,
         };
         if (whole_archive) {
-            try argv.append("-no-whole-archive");
+            try argv.append("--no-whole-archive");
             whole_archive = false;
         }
 

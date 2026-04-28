@@ -320,8 +320,9 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         },
     };
 
+    // libtsan contains `.preinit_array` entries that must run for correctness, hence `must_link = true`.
     const crt_file = try sub_compilation.toCrtFile();
-    try comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
+    try comp.queuePrelinkTaskMode(crt_file.full_object_path, true, &config);
     assert(comp.tsan_lib == null);
     comp.tsan_lib = crt_file;
 }

@@ -1105,27 +1105,29 @@ pub const File = struct {
     }
 
     /// Opens a path as a static library and parses it into the linker.
-    /// If `query` is non-null, allows GNU ld scripts.
-    fn openLoadArchive(base: *File, path: Path, opt_query: ?UnresolvedInput.Query) anyerror!void {
+    fn openLoadArchive(base: *File, path: Path, must_link: bool) anyerror!void {
         if (base.tag == .lld) return;
         const io = base.comp.io;
-        if (opt_query) |query| {
-            const archive = try openObject(io, path, query.must_link, query.hidden);
-            errdefer archive.file.close(io);
-            loadInput(base, .{ .archive = archive }) catch |err| switch (err) {
-                error.BadMagic, error.UnexpectedEndOfFile => {
-                    if (base.tag != .elf and base.tag != .elf2) return err;
-                    try loadGnuLdScript(base, path, query, archive.file);
-                    archive.file.close(io);
-                    return;
-                },
-                else => return err,
-            };
-        } else {
-            const archive = try openObject(io, path, false, false);
-            errdefer archive.file.close(io);
-            try loadInput(base, .{ .archive = archive });
-        }
+        const archive = try openObject(io, path, must_link, false);
+        errdefer archive.file.close(io);
+        try loadInput(base, .{ .archive = archive });
+    }
+
+    /// Opens a path as a static library and parses it into the linker. Allows GNU ld scripts.
+    fn openLoadArchiveQuery(base: *File, path: Path, query: UnresolvedInput.Query) anyerror!void {
+        if (base.tag == .lld) return;
+        const io = base.comp.io;
+        const archive = try openObject(io, path, query.must_link, query.hidden);
+        errdefer archive.file.close(io);
+        loadInput(base, .{ .archive = archive }) catch |err| switch (err) {
+            error.BadMagic, error.UnexpectedEndOfFile => {
+                if (base.tag != .elf and base.tag != .elf2) return err;
+                try loadGnuLdScript(base, path, query, archive.file);
+                archive.file.close(io);
+                return;
+            },
+            else => return err,
+        };
     }
 
     /// Opens a path as a shared library and parses it into the linker.
@@ -1180,7 +1182,7 @@ pub const File = struct {
                     switch (Compilation.classifyFileExt(arg.path)) {
                         .shared_library => try openLoadDso(base, new_path, query),
                         .object => try openLoadObject(base, new_path),
-                        .static_library => try openLoadArchive(base, new_path, query),
+                        .static_library => try openLoadArchiveQuery(base, new_path, query),
                         else => diags.addParseError(path, "GNU ld script references file with unrecognized extension: {s}", .{arg.path}),
                     }
                 } else {
@@ -1380,7 +1382,10 @@ pub const PrelinkTask = union(enum) {
     /// Tells the linker to load an object file by path.
     load_object: Path,
     /// Tells the linker to load a static library by path.
-    load_archive: Path,
+    load_archive: struct {
+        path: Path,
+        must_link: bool,
+    },
     /// Tells the linker to load a shared library, possibly one that is a
     /// GNU ld script.
     load_dso: Path,
@@ -1462,7 +1467,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
                                         crt_dir, target.libPrefix(), lib_name, target.staticLibSuffix(),
                                     }) catch return diags.setAllocFailure(),
                                 );
-                                base.openLoadArchive(archive_path, .{
+                                base.openLoadArchiveQuery(archive_path, .{
                                     .preferred_mode = .dynamic,
                                     .search_strategy = .paths_first,
                                 }) catch |archive_err| switch (archive_err) {
@@ -1481,7 +1486,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
                             }) catch return diags.setAllocFailure(),
                         );
                         // glibc sometimes makes even archive files GNU ld scripts.
-                        base.openLoadArchive(path, .{
+                        base.openLoadArchiveQuery(path, .{
                             .preferred_mode = .static,
                             .search_strategy = .no_fallback,
                         }) catch |err| switch (err) {
@@ -1500,12 +1505,12 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
                 else => |e| diags.addParseError(path, "failed to parse object: {s}", .{@errorName(e)}),
             };
         },
-        .load_archive => |path| {
+        .load_archive => |load_archive| {
             const prog_node = comp.link_prog_node.start("Parse Archive", 0);
             defer prog_node.end();
-            base.openLoadArchive(path, null) catch |err| switch (err) {
+            base.openLoadArchive(load_archive.path, load_archive.must_link) catch |err| switch (err) {
                 error.LinkFailure => return, // error reported via link_diags
-                else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
+                else => |e| diags.addParseError(load_archive.path, "failed to parse archive: {s}", .{@errorName(e)}),
             };
         },
         .load_dso => |path| {
