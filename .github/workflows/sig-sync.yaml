@@ -236,9 +236,16 @@ jobs:
               CONFLICTS=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
               if [ -n "$CONFLICTS" ]; then
                 if resolve_conflicts; then
-                  git -c core.editor=true cherry-pick --continue
-                  echo "Cherry-pick with auto-resolved conflicts"
-                  INTEGRATED=true
+                  # Check if resolution resulted in an empty commit (all changes were in owned files)
+                  if git diff --cached --quiet 2>/dev/null; then
+                    echo "Cherry-pick empty after conflict resolution — skipping"
+                    git cherry-pick --skip 2>/dev/null || true
+                    INTEGRATED=true
+                  else
+                    git -c core.editor=true cherry-pick --continue
+                    echo "Cherry-pick with auto-resolved conflicts"
+                    INTEGRATED=true
+                  fi
                 else
                   git cherry-pick --abort 2>/dev/null || true
                 fi
@@ -254,9 +261,16 @@ jobs:
                 INTEGRATED=true
               else
                 if resolve_conflicts; then
-                  git commit --no-edit -m "sig-sync: merge upstream $SHORT (auto-resolved)"
-                  echo "Merge with auto-resolved conflicts"
-                  INTEGRATED=true
+                  # Check if resolution resulted in an empty commit
+                  if git diff --cached --quiet 2>/dev/null; then
+                    echo "Merge empty after conflict resolution — skipping"
+                    git merge --abort 2>/dev/null || true
+                    INTEGRATED=true
+                  else
+                    git commit --no-edit -m "sig-sync: merge upstream $SHORT (auto-resolved)"
+                    echo "Merge with auto-resolved conflicts"
+                    INTEGRATED=true
+                  fi
                 else
                   git merge --abort 2>/dev/null || true
                   echo "::error::Cannot integrate $SHORT — manual resolution needed"
