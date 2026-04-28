@@ -306,32 +306,30 @@ fn curlGet(url: []const u8, auth: ?[]const u8, buf: []u8) !usize {
 }
 
 fn curlPost(url: []const u8, auth: []const u8, body: []const u8) !void {
+    // Use -f to fail on HTTP errors, -v to get verbose output on stderr for debugging
     var cmd_buf: [2048]u8 = undefined;
-    const cmd_str = fmt.bufPrint(&cmd_buf, "curl -s -o /dev/stderr -w '%{{http_code}}' -X POST -H 'Authorization: {s}' -H 'Accept: application/vnd.github.v3+json' -H 'User-Agent: sig-sync-watcher' -H 'Content-Type: application/json' -d '{s}' 'https://{s}'", .{ auth, body, url }) catch return error.Overflow;
+    const cmd_str = fmt.bufPrint(&cmd_buf, "curl -sf -X POST -H 'Authorization: {s}' -H 'Accept: application/vnd.github+json' -H 'User-Agent: sig-sync-watcher/1.0' -H 'Content-Type: application/json' -d '{s}' 'https://{s}' 2>&1", .{ auth, body, url }) catch return error.Overflow;
     cmd_buf[cmd_str.len] = 0;
     const cmd: [*:0]const u8 = @ptrCast(cmd_buf[0..cmd_str.len]);
     const pipe = popen(cmd, "r") orelse return error.PipeFailed;
 
-    // Read the HTTP status code from stdout (curl -w '%{http_code}')
-    var status_buf: [8]u8 = undefined;
-    var status_len: usize = 0;
-    while (status_len < status_buf.len) {
-        const n = fread(status_buf[status_len..].ptr, 1, status_buf.len - status_len, pipe);
+    // Read any output (error messages on failure, empty on success)
+    var out_buf: [2048]u8 = undefined;
+    var out_len: usize = 0;
+    while (out_len < out_buf.len) {
+        const n = fread(out_buf[out_len..].ptr, 1, out_buf.len - out_len, pipe);
         if (n == 0) break;
-        status_len += n;
+        out_len += n;
     }
     const exit_code = pclose(pipe);
 
-    if (status_len >= 3) {
-        const code = status_buf[0..3];
-        // 204 No Content = success for dispatches
-        if (code[0] == '2') return; // 2xx
-        log("curl POST returned HTTP {s} (exit={d})", .{ code, exit_code });
-        return error.HttpError;
-    }
     if (exit_code != 0) {
-        log("curl POST failed with exit code {d}", .{exit_code});
-        return error.CurlFailed;
+        if (out_len > 0) {
+            log("curl POST failed (exit={d}): {s}", .{ exit_code, out_buf[0..@min(out_len, 200)] });
+        } else {
+            log("curl POST failed with exit code {d}", .{exit_code});
+        }
+        return error.HttpError;
     }
 }
 
