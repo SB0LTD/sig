@@ -7628,7 +7628,7 @@ pub const Constant = enum(u32) {
                             const expected_limbs = @divExact(512, @bitSizeOf(std.math.big.Limb));
                             string: [
                                 (std.math.big.int.Const{
-                                    .limbs = &@as([expected_limbs]std.math.big.Limb, @splat(maxInt(std.math.big.Limb))),
+                                    .limbs = &@splat(maxInt(std.math.big.Limb)),
                                     .positive = false,
                                 }).sizeInBaseUpperBound(10)
                             ]u8,
@@ -10022,9 +10022,9 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                         defer metadata_formatter.need_comma = undefined;
                         switch (extra.weights) {
                             .none => {},
-                            .unpredictable => try w.writeAll(", !unpredictable !{}"),
+                            .unpredictable => try w.writeAll("!unpredictable !{}"),
                             _ => try w.print("{f}", .{
-                                try metadata_formatter.fmt(", !prof ", extra.weights.toMetadata(), null),
+                                try metadata_formatter.fmt("!prof ", extra.weights.toMetadata(), null),
                             }),
                         }
                     },
@@ -10595,7 +10595,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                         const expected_limbs = @divExact(512, @bitSizeOf(std.math.big.Limb));
                         string: [
                             (std.math.big.int.Const{
-                                .limbs = &@as([expected_limbs]std.math.big.Limb, @splat(maxInt(std.math.big.Limb))),
+                                .limbs = &@splat(maxInt(std.math.big.Limb)),
                                 .positive = false,
                             }).sizeInBaseUpperBound(10)
                         ]u8,
