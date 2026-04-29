@@ -2,7 +2,6 @@
 * make addExtra return Index using reflection
 * remove Cache from configurer
 * implement the build options
-* don't forget to add -listen arg back
 * get zig init template working
 * finish migrating the rest of the build steps
 * make zig-pkg path root configurable in maker (make sure --system still works)

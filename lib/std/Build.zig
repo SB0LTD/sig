@@ -796,16 +796,19 @@ pub fn addSystemCommand(b: *Build, argv: []const []const u8) *Step.Run {
 
 /// Creates a `Step.Run` with an executable built with `addExecutable`.
 /// Add command line arguments with methods of `Step.Run`.
+///
+/// It doesn't have to target the host. In some cases cross-compiled binaries
+/// can even be executed.
+///
+/// This is declarative; it constructs a build step that may or may not be run
+/// depending on the options provided by the user to the build command.
 pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
-    // It doesn't have to be native. We catch that if you actually try to run it.
-    // Consider that this is declarative; the run step may not be run unless a user
-    // option is supplied.
 
     // Avoid the common case of the step name looking like "run test test".
     const step_name = if (exe.kind.isTest() and mem.eql(u8, exe.name, "test"))
-        b.fmt("run {s}", .{@tagName(exe.kind)})
+        b.fmt("run {t}", .{exe.kind})
     else
-        b.fmt("run {s} {s}", .{ @tagName(exe.kind), exe.name });
+        b.fmt("run {t} {s}", .{ exe.kind, exe.name });
 
     const run_step = Step.Run.create(b, step_name);
     run_step.producer = exe;

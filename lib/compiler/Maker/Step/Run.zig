@@ -183,6 +183,13 @@ pub fn make(
         }
     }
 
+    man.hash.add(conf_run.flags.test_runner_mode);
+    if (conf_run.flags.test_runner_mode) {
+        try argv_list.ensureUnusedCapacity(gpa, 2);
+        argv_list.appendAssumeCapacity(try allocPrint(arena, "--seed=0x{x}", .{graph.random_seed}));
+        argv_list.appendAssumeCapacity("--listen=-");
+    }
+
     switch (conf_run.stdin.u) {
         .bytes => |bytes| {
             man.hash.addBytes(bytes.slice(conf));
