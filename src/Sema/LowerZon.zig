@@ -448,16 +448,12 @@ fn lowerInt(
                     // If lhs has less than the 32 bits rhs can hold, we need to check the max and
                     // min values
                     if (std.math.cast(u5, lhs_info.bits)) |bits| {
-                        const min_int: i32 = if (lhs_info.signedness == .unsigned or bits == 0) b: {
-                            break :b 0;
-                        } else b: {
-                            break :b -(@as(i32, 1) << (bits - 1));
+                        const unsigned_bits = bits - @intFromBool(lhs_info.signedness == .signed);
+                        const min_int: i32 = switch (lhs_info.signedness) {
+                            .unsigned => 0,
+                            .signed => -(@as(i32, 1) << unsigned_bits),
                         };
-                        const max_int: i32 = if (bits == 0) b: {
-                            break :b 0;
-                        } else b: {
-                            break :b (@as(i32, 1) << (bits - @intFromBool(lhs_info.signedness == .signed))) - 1;
-                        };
+                        const max_int: i32 = (@as(i32, 1) << unsigned_bits) - 1;
                         if (rhs < min_int or rhs > max_int) {
                             return self.fail(
                                 node,

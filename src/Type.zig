@@ -2272,7 +2272,7 @@ pub fn minInt(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
 pub fn minIntScalar(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
     const zcu = pt.zcu;
     const info = ty.intInfo(zcu);
-    if (info.signedness == .unsigned or info.bits == 0) return pt.intValue(dest_ty, 0);
+    if (info.signedness == .unsigned) return pt.intValue(dest_ty, 0);
 
     if (std.math.cast(u6, info.bits - 1)) |shift| {
         const n = @as(i64, std.math.minInt(i64)) >> (63 - shift);

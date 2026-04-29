@@ -3902,7 +3902,6 @@ pub const Index = enum(u32) {
     pub const last_value: Index = .empty_tuple;
 
     u0_type,
-    i0_type,
     u1_type,
     u8_type,
     i8_type,
@@ -4347,11 +4346,6 @@ pub const Index = enum(u32) {
 pub const static_keys: [static_len]Key = .{
     .{ .int_type = .{
         .signedness = .unsigned,
-        .bits = 0,
-    } },
-
-    .{ .int_type = .{
-        .signedness = .signed,
         .bits = 0,
     } },
 
@@ -7207,6 +7201,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, io: Io, tid: Zcu.PerThread.Id, key: 
     try items.ensureUnusedCapacity(1);
     switch (key) {
         .int_type => |int_type| {
+            if (int_type.signedness == .signed) assert(int_type.bits > 0);
             const t: Tag = switch (int_type.signedness) {
                 .signed => .type_int_signed,
                 .unsigned => .type_int_unsigned,
@@ -11447,7 +11442,6 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
     // mean that the range of type indices would not be dense.
     return switch (index) {
         .u0_type,
-        .i0_type,
         .u1_type,
         .u8_type,
         .i8_type,
@@ -11772,7 +11766,6 @@ pub fn getBackingAddrTag(ip: *const InternPool, val: Index) ?Key.Ptr.BaseAddr.Ta
 pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
     return switch (index) {
         .u0_type,
-        .i0_type,
         .u1_type,
         .u8_type,
         .i8_type,

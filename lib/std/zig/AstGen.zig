@@ -8073,39 +8073,42 @@ fn identifier(
             return rvalue(gz, ri, zir_const_ref, ident);
         }
 
-        if (ident_name_raw.len >= 2) integer: {
-            // Keep in sync with logic in `comptimeExpr2`.
-            const first_c = ident_name_raw[0];
-            if (first_c == 'i' or first_c == 'u') {
-                const signedness: std.builtin.Signedness = switch (first_c == 'i') {
-                    true => .signed,
-                    false => .unsigned,
-                };
-                if (ident_name_raw.len >= 3 and ident_name_raw[1] == '0') {
-                    return astgen.failNode(
-                        ident,
-                        "primitive integer type '{s}' has leading zero",
-                        .{ident_name_raw},
-                    );
-                }
-                const bit_count = parseBitCount(ident_name_raw[1..]) catch |err| switch (err) {
-                    error.Overflow => return astgen.failNode(
-                        ident,
-                        "primitive integer type '{s}' exceeds maximum bit width of 65535",
-                        .{ident_name_raw},
-                    ),
-                    error.InvalidCharacter => break :integer,
-                };
-                const result = try gz.add(.{
-                    .tag = .int_type,
-                    .data = .{ .int_type = .{
-                        .src_node = gz.nodeIndexToRelative(ident),
-                        .signedness = signedness,
-                        .bit_count = bit_count,
-                    } },
-                });
-                return rvalue(gz, ri, result, ident);
+        int_type: {
+            if (ident_name_raw.len < 2) break :int_type;
+            const signedness: std.builtin.Signedness = switch (ident_name_raw[0]) {
+                'u' => .unsigned,
+                'i' => .signed,
+                else => break :int_type,
+            };
+            // `u0` already handled by `primitive_instrs`
+            if (std.mem.eql(u8, ident_name_raw, "i0")) {
+                return astgen.failNode(ident, "signed integer cannot have bit width 0", .{});
             }
+            if (ident_name_raw[1] == '0') {
+                assert(ident_name_raw.len >= 3); // `u0` and `i0` handled
+                return astgen.failNode(
+                    ident,
+                    "primitive integer type '{s}' has leading zero",
+                    .{ident_name_raw},
+                );
+            }
+            const bit_count = parseBitCount(ident_name_raw[1..]) catch |err| switch (err) {
+                error.Overflow => return astgen.failNode(
+                    ident,
+                    "primitive integer type '{s}' exceeds maximum bit width of 65535",
+                    .{ident_name_raw},
+                ),
+                error.InvalidCharacter => break :int_type,
+            };
+            const result = try gz.add(.{
+                .tag = .int_type,
+                .data = .{ .int_type = .{
+                    .src_node = gz.nodeIndexToRelative(ident),
+                    .signedness = signedness,
+                    .bit_count = bit_count,
+                } },
+            });
+            return rvalue(gz, ri, result, ident);
         }
     }
 
@@ -10122,32 +10125,37 @@ const primitive_instrs = std.StaticStringMap(Zir.Inst.Ref).initComptime(.{
     .{ "c_ushort", .c_ushort_type },
     .{ "comptime_float", .comptime_float_type },
     .{ "comptime_int", .comptime_int_type },
-    .{ "f128", .f128_type },
-    .{ "f16", .f16_type },
-    .{ "f32", .f32_type },
-    .{ "f64", .f64_type },
-    .{ "f80", .f80_type },
     .{ "false", .bool_false },
-    .{ "i16", .i16_type },
-    .{ "i32", .i32_type },
-    .{ "i64", .i64_type },
-    .{ "i128", .i128_type },
-    .{ "i8", .i8_type },
-    .{ "isize", .isize_type },
     .{ "noreturn", .noreturn_type },
     .{ "null", .null_value },
     .{ "true", .bool_true },
     .{ "type", .type_type },
-    .{ "u16", .u16_type },
-    .{ "u29", .u29_type },
-    .{ "u32", .u32_type },
-    .{ "u64", .u64_type },
-    .{ "u128", .u128_type },
+    .{ "undefined", .undef },
+    .{ "void", .void_type },
+
+    .{ "f16", .f16_type },
+    .{ "f32", .f32_type },
+    .{ "f64", .f64_type },
+    .{ "f80", .f80_type },
+    .{ "f128", .f128_type },
+
+    .{ "u0", .u0_type },
     .{ "u1", .u1_type },
     .{ "u8", .u8_type },
-    .{ "undefined", .undef },
+    .{ "i8", .i8_type },
+    .{ "u16", .u16_type },
+    .{ "i16", .i16_type },
+    .{ "u29", .u29_type },
+    .{ "u32", .u32_type },
+    .{ "i32", .i32_type },
+    .{ "u64", .u64_type },
+    .{ "i64", .i64_type },
+    .{ "u80", .u80_type },
+    .{ "u128", .u128_type },
+    .{ "i128", .i128_type },
+    .{ "u256", .u256_type },
     .{ "usize", .usize_type },
-    .{ "void", .void_type },
+    .{ "isize", .isize_type },
 });
 
 comptime {

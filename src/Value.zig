@@ -518,9 +518,9 @@ pub fn readFromPackedMemory(
         },
         .int => {
             if (buffer.len == 0) return pt.intValue(ty, 0);
+            if (ty.toIntern() == .u0_type) return pt.intValue(ty, 0);
             const int_info = ty.intInfo(zcu);
             const bits = int_info.bits;
-            if (bits == 0) return pt.intValue(ty, 0);
 
             // Fast path for integers <= u64
             if (bits <= 64) switch (int_info.signedness) {

@@ -2197,7 +2197,6 @@ pub const Inst = struct {
     /// and `[]Ref`.
     pub const Ref = enum(u32) {
         u0_type,
-        i0_type,
         u1_type,
         u8_type,
         i8_type,

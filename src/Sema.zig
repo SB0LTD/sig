@@ -19617,6 +19617,9 @@ fn zirReifyInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const signedness = try sema.resolveBuiltinEnum(block, signedness_src, extra.lhs, .Signedness, .{ .simple = .int_signedness });
     const bits: u16 = @intCast(try sema.resolveInt(block, bits_src, extra.rhs, .u16, .{ .simple = .int_bit_width }));
+    if (bits == 0 and signedness == .signed) {
+        return sema.fail(block, bits_src, "signed integer cannot have bit width 0", .{});
+    }
     return .fromType(try sema.pt.intType(signedness, bits));
 }
 
@@ -20708,7 +20711,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    if (dest_scalar_ty.intInfo(zcu).bits == 0) {
+    if (dest_scalar_ty.toIntern() == .u0_type) {
         if (block.wantSafety()) {
             // Emit an explicit safety check. We can do this one like `abs(x) < 1`.
             const abs_ref = try block.addTyOp(.abs, operand_ty, operand);
@@ -20824,7 +20827,7 @@ fn zirRoundCast(
 
     try sema.requireRuntimeBlock(block, src, operand_src);
 
-    if (dest_scalar_ty.intInfo(zcu).bits == 0) {
+    if (dest_scalar_ty.toIntern() == .u0_type) {
         if (block.wantSafety()) {
             const abs_ref = try block.addTyOp(.abs, operand_ty, operand);
             const is_vector = dest_ty.zigTypeTag(zcu) == .vector;

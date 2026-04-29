@@ -1327,12 +1327,12 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
             .indirect => return try cg.resolveType(.u1, .indirect),
         },
         .int => {
-            const int_info = ty.intInfo(zcu);
-            if (int_info.bits == 0) {
+            if (ty.toIntern() == .u0_type) {
                 assert(repr == .indirect);
                 if (target.os.tag != .opencl) return cg.fail("cannot generate opaque type", .{});
                 return try cg.module.opaqueType("u0");
             }
+            const int_info = ty.intInfo(zcu);
             return try cg.module.intType(int_info.signedness, int_info.bits);
         },
         .@"enum" => return try cg.resolveType(ty.intTagType(zcu), repr),

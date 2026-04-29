@@ -7410,7 +7410,7 @@ fn toLlvmAtomicRmwBinOp(
 
 fn minIntConst(b: *Builder, min_ty: Type, as_ty: Builder.Type, zcu: *const Zcu) Allocator.Error!Builder.Constant {
     const info = min_ty.intInfo(zcu);
-    if (info.signedness == .unsigned or info.bits == 0) {
+    if (info.signedness == .unsigned) {
         return b.intConst(as_ty, 0);
     }
     if (std.math.cast(u6, info.bits - 1)) |shift| {

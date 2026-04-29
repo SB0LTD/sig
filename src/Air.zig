@@ -1032,7 +1032,6 @@ pub const Inst = struct {
     /// The ref `none` is an exception: it has the tag bit set but refers to the InternPool.
     pub const Ref = enum(u32) {
         u0_type = @intFromEnum(InternPool.Index.u0_type),
-        i0_type = @intFromEnum(InternPool.Index.i0_type),
         u1_type = @intFromEnum(InternPool.Index.u1_type),
         u8_type = @intFromEnum(InternPool.Index.u8_type),
         i8_type = @intFromEnum(InternPool.Index.i8_type),

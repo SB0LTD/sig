@@ -2948,7 +2948,7 @@ pub const Object = struct {
         const target = zcu.getTarget();
         const ip = &zcu.intern_pool;
         return switch (t.toIntern()) {
-            .u0_type, .i0_type => unreachable, // no runtime bits
+            .u0_type => unreachable, // no runtime bits
             inline .u1_type,
             .u8_type,
             .i8_type,
