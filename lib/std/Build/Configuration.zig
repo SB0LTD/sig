@@ -1797,7 +1797,7 @@ pub const TargetQuery = struct {
         }
 
         pub fn get(this: @This(), c: *const Configuration) ?TargetQuery {
-            return (unwrap(this) orelse return null).get(c);
+            return (this.unwrap() orelse return null).get(c);
         }
     };
 
@@ -1829,6 +1829,15 @@ pub const TargetQuery = struct {
                 .none => .none,
                 .semver => .semver,
                 .windows => .windows,
+            };
+        }
+
+        pub fn unwrap(this: @This(), c: *const Configuration) ?std.Target.Query.OsVersion {
+            return switch (this) {
+                .none => .none,
+                .semver => |sv| .{ .semver = std.SemanticVersion.parse(sv.slice(c)) catch unreachable },
+                .windows => |wv| .{ .windows = wv },
+                .default => null,
             };
         }
     };
@@ -2052,6 +2061,32 @@ pub const TargetQuery = struct {
         android_api_level: bool,
         dynamic_linker: bool,
     };
+
+    pub fn unwrap(tq: *const TargetQuery, c: *const Configuration) std.Target.Query {
+        const cpu_arch = tq.flags.cpu_arch.unwrap();
+        return .{
+            .cpu_arch = cpu_arch,
+            .cpu_model = switch (tq.flags.cpu_model) {
+                .native => .native,
+                .baseline => .baseline,
+                .determined_by_arch_os => .determined_by_arch_os,
+                .explicit => .{ .explicit = cpu_arch.?.parseCpuModel(tq.cpu_name.value.?.slice(c)).? },
+            },
+            .cpu_features_add = tq.cpu_features_add.value orelse .empty,
+            .cpu_features_sub = tq.cpu_features_sub.value orelse .empty,
+            .os_tag = tq.flags.os_tag.unwrap(),
+            .os_version_min = tq.os_version_min.u.unwrap(c),
+            .os_version_max = tq.os_version_max.u.unwrap(c),
+            .glibc_version = if (tq.glibc_version.value) |s|
+                std.SemanticVersion.parse(s.slice(c)) catch unreachable
+            else
+                null,
+            .android_api_level = tq.android_api_level.value,
+            .abi = tq.flags.abi.unwrap(),
+            .dynamic_linker = .init(if (tq.dynamic_linker.value) |s| s.slice(c) else null),
+            .ofmt = tq.flags.object_format.unwrap(),
+        };
+    }
 };
 
 pub const Storage = enum {

@@ -83,6 +83,7 @@ pub fn main(init: process.Init.Minimal) !void {
         .environ_map = try init.environ.createMap(arena),
         .global_cache_root = global_cache_directory,
         .zig_lib_directory = zig_lib_directory,
+        // TODO get this from parent process instead
         .host = .{
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(io, .{}),

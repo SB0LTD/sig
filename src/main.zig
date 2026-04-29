@@ -6825,7 +6825,11 @@ fn warnAboutForeignBinaries(
     const host_query: std.Target.Query = .{};
     const host_target = std.zig.resolveTargetQueryOrFatal(io, host_query);
 
-    switch (std.zig.system.getExternalExecutor(io, &host_target, target, .{ .link_libc = link_libc })) {
+    switch (std.zig.system.getExternalExecutor(io, target, .{
+        .host_cpu_arch = host_target.cpu.arch,
+        .host_os_tag = host_target.os.tag,
+        .link_libc = link_libc,
+    })) {
         .native => return,
         .rosetta => {
             const host_name = try host_target.zigTriple(arena);

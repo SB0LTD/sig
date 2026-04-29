@@ -6,6 +6,7 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Configuration = std.Build.Configuration;
 const Path = std.Build.Cache.Path;
+const Directory = std.Build.Cache.Directory;
 
 io: Io,
 /// Process lifetime.
@@ -13,10 +14,10 @@ arena: Allocator,
 cache: std.Build.Cache,
 zig_exe: []const u8,
 environ_map: std.process.Environ.Map,
-global_cache_root: std.Build.Cache.Directory,
-local_cache_root: std.Build.Cache.Directory,
-zig_lib_directory: std.Build.Cache.Directory,
-build_root_directory: std.Build.Cache.Directory,
+global_cache_root: Directory,
+local_cache_root: Directory,
+zig_lib_directory: Directory,
+build_root_directory: Directory,
 pkg_root: Path,
 
 debug_compiler_runtime_libs: ?std.builtin.OptimizeMode = null,

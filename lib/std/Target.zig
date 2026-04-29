@@ -1668,13 +1668,13 @@ pub const Cpu = struct {
             };
         }
 
-        pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
+        pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) ?*const Cpu.Model {
             for (arch.allCpuModels()) |cpu| {
                 if (std.mem.eql(u8, cpu_name, cpu.name)) {
                     return cpu;
                 }
             }
-            return error.UnknownCpuModel;
+            return null;
         }
 
         pub fn endian(arch: Arch) std.builtin.Endian {

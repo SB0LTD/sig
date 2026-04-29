@@ -680,7 +680,7 @@ pub fn putAstErrorsIntoBundle(
 
 pub fn resolveTargetQueryOrFatal(io: Io, target_query: std.Target.Query) std.Target {
     return std.zig.system.resolveTargetQuery(io, target_query) catch |err|
-        std.process.fatal("unable to resolve target: {s}", .{@errorName(err)});
+        std.process.fatal("unable to resolve target: {t}", .{err});
 }
 
 pub fn parseTargetQueryOrReportFatalError(

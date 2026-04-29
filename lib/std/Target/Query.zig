@@ -282,7 +282,7 @@ pub fn parse(args: ParseOptions) !Query {
         } else if (mem.eql(u8, cpu_name, "baseline")) {
             result.cpu_model = .baseline;
         } else {
-            result.cpu_model = .{ .explicit = try arch.parseCpuModel(cpu_name) };
+            result.cpu_model = .{ .explicit = arch.parseCpuModel(cpu_name) orelse return error.UnknownCpuModel };
         }
 
         while (index < cpu_features.len) {

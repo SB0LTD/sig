@@ -16,6 +16,7 @@
 * restore the generated_compiler_rt_dyn_lib hack?
 * run args
 * https://codeberg.org/ziglang/zig/pulls/30762
+* get the target from the parent process instead
 
 ## Followup Issues
 * reduce the size of Maker.Step.Extended (make Run smaller) probably by using an arena per make

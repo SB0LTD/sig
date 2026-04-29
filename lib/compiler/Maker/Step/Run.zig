@@ -1717,7 +1717,7 @@ fn runCommand(
     has_side_effects: bool,
     output_dir_path: []const u8,
     fuzz_context: ?FuzzContext,
-) !void {
+) Step.ExtendedMakeError!void {
     const graph = maker.graph;
     const arena = graph.arena; // TODO don't leak into process arena
     const gpa = maker.gpa;
@@ -1757,8 +1757,6 @@ fn runCommand(
     }
     try graph.handleVerbose(cwd, environ_map, argv);
 
-    if (true) @panic("TODO");
-
     const opt_generic_result = spawnChildAndCollect(
         run_index,
         run,
@@ -1777,22 +1775,33 @@ fn runCommand(
                 // relying on it being a Compile step. This will make this logic
                 // work even for the edge case that the binary was produced by a
                 // third party.
-                const exe = switch (run.argv.items[0]) {
-                    .artifact => |exe| exe.artifact,
-                    else => break :interpret,
-                };
-                switch (exe.kind) {
+                const arg0 = conf_run.args.slice[0].get(conf);
+                const producer_index = arg0.producer.value orelse break :interpret;
+                const producer_step = producer_index.ptr(conf);
+                const producer = producer_step.extended.get(conf.extra).compile;
+                switch (producer.flags3.kind) {
                     .exe, .@"test" => {},
                     else => break :interpret,
                 }
+                const root_module = producer.root_module.get(conf);
+                const root_module_target = root_module.resolved_target.get(conf).?.result.get(conf);
+                const other_target_query = root_module_target.unwrap(conf);
+                const root_target = std.zig.system.resolveTargetQuery(io, other_target_query) catch unreachable;
+                const link_libc = maker.stepByIndex(producer_index).extended.compile.is_linking_libc;
 
-                const root_target = exe.rootModuleTarget();
-                const need_cross_libc = exe.is_linking_libc and
-                    (root_target.isGnuLibC() or (root_target.isMuslLibC() and exe.linkage == .dynamic));
-                const other_target = exe.root_module.resolved_target.?.result;
-                switch (std.zig.system.getExternalExecutor(io, &graph.host.result, &other_target, .{
+                // TODO get this from the parent process instead
+                const host: std.Target = std.zig.system.resolveTargetQuery(io, .{}) catch |he| switch (he) {
+                    error.Canceled => |e| return e,
+                    else => builtin.target,
+                };
+
+                const need_cross_libc = link_libc and root_target.os.tag == .linux and
+                    producer.flags2.linkage == .dynamic;
+                switch (std.zig.system.getExternalExecutor(io, &root_target, .{
+                    .host_cpu_arch = host.cpu.arch,
+                    .host_os_tag = host.os.tag,
                     .qemu_fixes_dl = need_cross_libc and graph.libc_runtimes_dir != null,
-                    .link_libc = exe.is_linking_libc,
+                    .link_libc = link_libc,
                 })) {
                     .native, .rosetta => {
                         if (allow_skip) return error.MakeSkipped;
@@ -1800,8 +1809,9 @@ fn runCommand(
                     },
                     .wine => |bin_name| {
                         if (graph.enable_wine) {
-                            try interp_argv.append(bin_name);
-                            try interp_argv.appendSlice(argv);
+                            try interp_argv.ensureUnusedCapacity(arena, 1 + argv.len);
+                            interp_argv.appendAssumeCapacity(bin_name);
+                            interp_argv.appendSliceAssumeCapacity(argv);
 
                             // Wine's excessive stderr logging is only situationally helpful. Disable it by default, but
                             // allow the user to override it (e.g. with `WINEDEBUG=err+all`) if desired.
@@ -1809,17 +1819,18 @@ fn runCommand(
                                 try environ_map.put("WINEDEBUG", "-all");
                             }
                         } else {
-                            return failForeign(conf_run, maker, run_index, "-fwine", argv[0], exe);
+                            return failForeign(&conf_run, maker, run_index, "-fwine", argv[0], &root_target, &host);
                         }
                     },
                     .qemu => |bin_name| {
                         if (graph.enable_qemu) {
-                            try interp_argv.append(bin_name);
+                            try interp_argv.ensureUnusedCapacity(arena, 3 + argv.len);
+                            interp_argv.appendAssumeCapacity(bin_name);
 
                             if (need_cross_libc) {
                                 if (graph.libc_runtimes_dir) |dir| {
-                                    try interp_argv.append("-L");
-                                    try interp_argv.append(try Dir.path.join(arena, &.{
+                                    interp_argv.appendAssumeCapacity("-L");
+                                    interp_argv.appendAssumeCapacity(try Dir.path.join(arena, &.{
                                         dir,
                                         try if (root_target.isGnuLibC()) std.zig.target.glibcRuntimeTriple(
                                             arena,
@@ -1832,37 +1843,38 @@ fn runCommand(
                                             root_target.abi,
                                         ) else unreachable,
                                     }));
-                                } else return failForeign(conf_run, maker, run_index, "--libc-runtimes", argv[0], exe);
+                                } else return failForeign(&conf_run, maker, run_index, "--libc-runtimes", argv[0], &root_target, &host);
                             }
 
-                            try interp_argv.appendSlice(argv);
-                        } else return failForeign(conf_run, maker, run_index, "-fqemu", argv[0], exe);
+                            interp_argv.appendSliceAssumeCapacity(argv);
+                        } else return failForeign(&conf_run, maker, run_index, "-fqemu", argv[0], &root_target, &host);
                     },
                     .darling => |bin_name| {
                         if (graph.enable_darling) {
-                            try interp_argv.append(bin_name);
-                            try interp_argv.appendSlice(argv);
+                            try interp_argv.ensureUnusedCapacity(arena, 1 + argv.len);
+                            interp_argv.appendAssumeCapacity(bin_name);
+                            interp_argv.appendSliceAssumeCapacity(argv);
                         } else {
-                            return failForeign(conf_run, maker, run_index, "-fdarling", argv[0], exe);
+                            return failForeign(&conf_run, maker, run_index, "-fdarling", argv[0], &root_target, &host);
                         }
                     },
                     .wasmtime => |bin_name| {
                         if (graph.enable_wasmtime) {
-                            try interp_argv.append(bin_name);
-                            try interp_argv.append("--dir=.");
+                            try interp_argv.ensureUnusedCapacity(arena, 3 + argv.len);
+                            interp_argv.appendAssumeCapacity(bin_name);
+                            interp_argv.appendAssumeCapacity("--dir=.");
                             // Wasmtime doeesn't inherit environment variables from the parent process
                             // by default. '-S inherit-env' was added in Wasmtime version 20.
-                            try interp_argv.append("-Sinherit-env");
-                            try interp_argv.append(argv[0]);
-                            try interp_argv.appendSlice(argv[1..]);
+                            interp_argv.appendAssumeCapacity("-Sinherit-env");
+                            interp_argv.appendSliceAssumeCapacity(argv);
                         } else {
-                            return failForeign(conf_run, maker, run_index, "-fwasmtime", argv[0], exe);
+                            return failForeign(&conf_run, maker, run_index, "-fwasmtime", argv[0], &root_target, &host);
                         }
                     },
                     .bad_dl => |foreign_dl| {
                         if (allow_skip) return error.MakeSkipped;
 
-                        const host_dl = graph.host.result.dynamic_linker.get() orelse "(none)";
+                        const host_dl = host.dynamic_linker.get() orelse "(none)";
 
                         return step.fail(maker,
                             \\the host system is unable to execute binaries from the target
@@ -1874,7 +1886,7 @@ fn runCommand(
                     .bad_os_or_cpu => {
                         if (allow_skip) return error.MakeSkipped;
 
-                        const host_name = try graph.host.result.zigTriple(arena);
+                        const host_name = try host.zigTriple(arena);
                         const foreign_name = try root_target.zigTriple(arena);
 
                         return step.fail(maker, "the host system ({s}) is unable to execute binaries from the target ({s})", .{
@@ -1885,15 +1897,24 @@ fn runCommand(
 
                 if (root_target.os.tag == .windows) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
-                    addPathForDynLibs(exe);
+                    addPathForDynLibs(producer_index);
                 }
 
                 gpa.free(step.result_failed_command.?);
                 step.result_failed_command = null;
-                try graph.handleVerbose(cwd, run.environ_map, interp_argv.items);
+                try graph.handleVerbose(cwd, environ_map, interp_argv.items);
 
-                break :term spawnChildAndCollect(run_index, run, maker, progress_node, interp_argv.items, &environ_map, has_side_effects, fuzz_context) catch |e| {
-                    if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
+                break :term spawnChildAndCollect(
+                    run_index,
+                    run,
+                    maker,
+                    progress_node,
+                    interp_argv.items,
+                    environ_map,
+                    has_side_effects,
+                    fuzz_context,
+                ) catch |e| {
+                    if (!conf_run.flags.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
                     if (e == error.MakeFailed) return error.MakeFailed; // error already reported
                     return step.fail(maker, "unable to spawn interpreter {s}: {t}", .{ interp_argv.items[0], e });
                 };
@@ -1919,47 +1940,51 @@ fn runCommand(
     const Stream = struct {
         captured: ?Configuration.Step.Run.CapturedStream,
         bytes: ?[]const u8,
+        trim_whitespace: Configuration.Step.Run.TrimWhitespace,
     };
-    for ([_]Stream{
+    for (&[_]Stream{
         .{
             .captured = conf_run.captured_stdout.value,
             .bytes = generic_result.stdout,
+            .trim_whitespace = conf_run.flags.stdout_trim_whitespace,
         },
         .{
             .captured = conf_run.captured_stderr.value,
             .bytes = generic_result.stderr,
+            .trim_whitespace = conf_run.flags.stderr_trim_whitespace,
         },
-    }) |stream| {
+    }) |*stream| {
         if (stream.captured) |captured| {
-            const output_components = .{ output_dir_path, captured.output.basename };
-            const output_path = try cache_root.join(arena, &output_components);
-            captured.output.generated_file.path = output_path;
-
-            const sub_path = try Dir.path.join(arena, &output_components);
-            const sub_path_dirname = Dir.path.dirname(sub_path).?;
-            cache_root.handle.createDirPath(io, sub_path_dirname) catch |err| {
-                return step.fail(maker, "unable to make path '{f}{s}': {t}", .{
-                    cache_root, sub_path_dirname, err,
-                });
+            const output_path: Path = .{
+                .root_dir = cache_root,
+                .sub_path = try Dir.path.join(arena, &.{
+                    output_dir_path, captured.basename.slice(conf),
+                }),
             };
-            const data = switch (captured.trim_whitespace) {
+            maker.generatedPath(captured.generated_file).* = output_path;
+
+            const sub_path_parent = output_path.dirname().?;
+            sub_path_parent.root_dir.handle.createDirPath(io, sub_path_parent.sub_path) catch |err|
+                return step.fail(maker, "unable to make path {f}: {t}", .{ sub_path_parent, err });
+
+            const data = switch (stream.trim_whitespace) {
                 .none => stream.bytes.?,
                 .all => mem.trim(u8, stream.bytes.?, &std.ascii.whitespace),
                 .leading => mem.trimStart(u8, stream.bytes.?, &std.ascii.whitespace),
                 .trailing => mem.trimEnd(u8, stream.bytes.?, &std.ascii.whitespace),
             };
-            cache_root.handle.writeFile(io, .{ .sub_path = sub_path, .data = data }) catch |err| {
-                return step.fail(maker, "unable to write file '{f}{s}': {t}", .{
-                    cache_root, sub_path, err,
-                });
-            };
+            output_path.root_dir.handle.writeFile(io, .{
+                .sub_path = output_path.sub_path,
+                .data = data,
+            }) catch |err| return step.fail(maker, "unable to write file {f}: {t}", .{ output_path, err });
         }
     }
 
     switch (conf_run.flags.stdio) {
         .zig_test => unreachable,
-        .check => |checks| for (checks.items) |check| switch (check) {
-            .expect_stderr_exact => |expected_bytes| {
+        .check => {
+            if (conf_run.expect_stderr_exact.value) |bytes| {
+                const expected_bytes = bytes.slice(conf);
                 if (!mem.eql(u8, expected_bytes, generic_result.stderr.?)) {
                     return step.fail(maker,
                         \\========= expected this stderr: =========
@@ -1971,21 +1996,9 @@ fn runCommand(
                         generic_result.stderr.?,
                     });
                 }
-            },
-            .expect_stderr_match => |match| {
-                if (mem.find(u8, generic_result.stderr.?, match) == null) {
-                    return step.fail(maker,
-                        \\========= expected to find in stderr: =========
-                        \\{s}
-                        \\========= but stderr does not contain it: =====
-                        \\{s}
-                    , .{
-                        match,
-                        generic_result.stderr.?,
-                    });
-                }
-            },
-            .expect_stdout_exact => |expected_bytes| {
+            }
+            if (conf_run.expect_stdout_exact.value) |bytes| {
+                const expected_bytes = bytes.slice(conf);
                 if (!mem.eql(u8, expected_bytes, generic_result.stdout.?)) {
                     return step.fail(maker,
                         \\========= expected this stdout: =========
@@ -1997,8 +2010,23 @@ fn runCommand(
                         generic_result.stdout.?,
                     });
                 }
-            },
-            .expect_stdout_match => |match| {
+            }
+            for (conf_run.expect_stderr_match.slice) |bytes| {
+                const match = bytes.slice(conf);
+                if (mem.find(u8, generic_result.stderr.?, match) == null) {
+                    return step.fail(maker,
+                        \\========= expected to find in stderr: =========
+                        \\{s}
+                        \\========= but stderr does not contain it: =====
+                        \\{s}
+                    , .{
+                        match,
+                        generic_result.stderr.?,
+                    });
+                }
+            }
+            for (conf_run.expect_stdout_match.slice) |bytes| {
+                const match = bytes.slice(conf);
                 if (mem.find(u8, generic_result.stdout.?, match) == null) {
                     return step.fail(maker,
                         \\========= expected to find in stdout: =========
@@ -2010,15 +2038,21 @@ fn runCommand(
                         generic_result.stdout.?,
                     });
                 }
-            },
-            .expect_term => |expected_term| {
+            }
+            if (conf_run.expect_term_value.value) |expected_term_value| {
+                const expected_term: process.Child.Term = switch (conf_run.flags2.expect_term_status) {
+                    .exited => .{ .exited = @intCast(expected_term_value) },
+                    .signal => .{ .signal = @enumFromInt(expected_term_value) },
+                    .stopped => .{ .stopped = @enumFromInt(expected_term_value) },
+                    .unknown => .{ .unknown = expected_term_value },
+                };
                 if (!termMatches(expected_term, generic_result.term)) {
                     return step.fail(maker, "process {f} (expected {f})", .{
                         fmtTerm(generic_result.term),
                         fmtTerm(expected_term),
                     });
                 }
-            },
+            }
         },
         else => {
             // On failure, report captured stderr like normal standard error output.
@@ -2032,7 +2066,7 @@ fn runCommand(
                 }
             }
 
-            try step.handleChildProcessTerm(generic_result.term);
+            try step.handleChildProcessTerm(maker, generic_result.term);
         },
     }
 }
@@ -2256,7 +2290,8 @@ fn failForeign(
     step_index: Configuration.Step.Index,
     suggested_flag: []const u8,
     argv0: []const u8,
-    exe: *Step.Compile,
+    artifact_target: *const std.Target,
+    host_target: *const std.Target,
 ) Step.ExtendedMakeError {
     const step = maker.stepByIndex(step_index);
     switch (conf_run.flags.stdio) {
@@ -2265,8 +2300,8 @@ fn failForeign(
 
             const graph = maker.graph;
             const process_arena = graph.arena; // TODO don't leak into process arena
-            const host_name = try graph.host.result.zigTriple(process_arena);
-            const foreign_name = try exe.rootModuleTarget().zigTriple(process_arena);
+            const host_name = try host_target.zigTriple(process_arena);
+            const foreign_name = try artifact_target.zigTriple(process_arena);
 
             return step.fail(maker,
                 \\unable to spawn foreign binary '{s}' ({s}) on host system ({s})

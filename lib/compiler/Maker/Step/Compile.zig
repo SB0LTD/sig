@@ -22,6 +22,8 @@ zig_process: ?*Step.ZigProcess = null,
 zig_args: std.ArrayList([]const u8) = .empty,
 /// Populated by InstallArtifact.
 installed_path: ?Path = null,
+/// Populated by `make`, used by `Run`.
+is_linking_libc: bool = false,
 
 pub fn make(
     compile: *Compile,
@@ -144,7 +146,7 @@ const ModuleListContext = struct {
 };
 
 fn lowerZigArgs(
-    compile: *const Compile,
+    compile: *Compile,
     compile_index: Configuration.Step.Index,
     maker: *const Maker,
     zig_args: *std.ArrayList([]const u8),
@@ -564,6 +566,8 @@ fn lowerZigArgs(
         try zig_args.ensureUnusedCapacity(gpa, 2);
         if (is_linking_libcpp) zig_args.appendAssumeCapacity("-lc++");
         if (is_linking_libc) zig_args.appendAssumeCapacity("-lc");
+
+        compile.is_linking_libc = is_linking_libc;
     }
 
     if (conf_comp.win32_manifest.value) |manifest_file| {
