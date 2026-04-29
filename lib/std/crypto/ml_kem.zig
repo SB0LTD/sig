@@ -615,7 +615,7 @@ const inv_ntt_reductions = [_]i16{
 test "invNTTReductions bounds" {
     // Checks whether the reductions proposed by invNTTReductions
     // don't overflow during invNTT().
-    var xs = [_]i32{1} ** 256; // start at |x| ≤ q
+    var xs: [256]i32 = @splat(1); // start at |x| ≤ q
 
     var r: usize = 0;
     var layer: math.Log2Int(usize) = 1;
@@ -797,7 +797,7 @@ const Poly = struct {
     cs: [N]i16,
 
     const encoded_length = N / 2 * 3;
-    const zero: Poly = .{ .cs = .{0} ** N };
+    const zero: Poly = .{ .cs = @splat(0) };
 
     // Add two polynomials (coefficients not normalized)
     fn add(a: Poly, b: Poly) Poly {
@@ -1011,7 +1011,7 @@ const Poly = struct {
 
         const out_length: usize = comptime @divTrunc(N * d, 8);
         comptime assert(out_length * 8 == d * N);
-        var out = [_]u8{0} ** out_length;
+        var out: [out_length]u8 = @splat(0);
 
         while (in_off < N) {
             // First we compress into in.
@@ -1754,7 +1754,7 @@ const NistDRBG = struct {
     }
 
     fn init(seed: [48]u8) NistDRBG {
-        var ret: NistDRBG = .{ .key = .{0} ** 32, .v = .{0} ** 16 };
+        var ret: NistDRBG = .{ .key = @splat(0), .v = @splat(0) };
         ret.update(seed);
         return ret;
     }
