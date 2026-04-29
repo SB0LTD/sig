@@ -18,10 +18,10 @@ const assert = std.debug.assert;
 const WebServer = @import("WebServer.zig");
 const Maker = @import("../Maker.zig");
 
-const Compile = @import("Step/Compile.zig");
-const Run = @import("Step/Run.zig");
-const InstallArtifact = @import("Step/InstallArtifact.zig");
-const InstallFile = @import("Step/InstallFile.zig");
+pub const Compile = @import("Step/Compile.zig");
+pub const Run = @import("Step/Run.zig");
+pub const InstallArtifact = @import("Step/InstallArtifact.zig");
+pub const InstallFile = @import("Step/InstallFile.zig");
 
 /// Avoid false sharing.
 _: void align(std.atomic.cache_line) = {},

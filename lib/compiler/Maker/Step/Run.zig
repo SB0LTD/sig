@@ -325,9 +325,10 @@ pub fn make(
 /// * The wait fails, indicating the child closed stdout and stderr
 fn waitZigTest(
     run: *Run,
+    run_index: Configuration.Step.Index,
     maker: *Maker,
     child: *process.Child,
-    options: Step.MakeOptions,
+    progress_node: std.Progress.Node,
     multi_reader: *Io.File.MultiReader,
     opt_metadata: *?TestMetadata,
     results: *Step.TestResults,
@@ -342,9 +343,11 @@ fn waitZigTest(
         ns_elapsed: u64,
     },
 } {
-    const gpa = run.step.owner.allocator;
-    const arena = run.step.owner.allocator;
-    const io = run.step.owner.graph.io;
+    const graph = maker.graph;
+    const gpa = maker.gpa;
+    const io = graph.io;
+    const arena = graph.arena; // TODO don't leak into the process arena
+    const step = maker.stepByIndex(run_index);
 
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
@@ -367,10 +370,10 @@ fn waitZigTest(
     // start and it acknowledging the test starting, we terminate the child and raise an error. This
     // *should* never happen, but could in theory be caused by some very unlucky IB in a test.
     const response_timeout: Io.Clock.Duration = t: {
-        const ns = @max(options.unit_test_timeout_ns orelse 0, 60 * std.time.ns_per_s);
+        const ns = @max(maker.unit_test_timeout_ns orelse 0, 60 * std.time.ns_per_s);
         break :t .{ .clock = .awake, .raw = .fromNanoseconds(ns) };
     };
-    const test_timeout: ?Io.Clock.Duration = if (options.unit_test_timeout_ns) |ns| .{
+    const test_timeout: ?Io.Clock.Duration = if (maker.unit_test_timeout_ns) |ns| .{
         .clock = .awake,
         .raw = .fromNanoseconds(ns),
     } else null;
@@ -428,7 +431,7 @@ fn waitZigTest(
         var body_r: std.Io.Reader = .fixed(body);
         switch (header.tag) {
             .zig_version => {
-                if (!std.mem.eql(u8, builtin.zig_version_string, body)) return run.step.fail(
+                if (!std.mem.eql(u8, builtin.zig_version_string, body)) return step.fail(
                     maker,
                     "zig version mismatch build runner vs compiler: '{s}' vs '{s}'",
                     .{ builtin.zig_version_string, body },
@@ -451,14 +454,14 @@ fn waitZigTest(
 
                 const string_bytes = body_r.take(tm_hdr.string_bytes_len) catch unreachable;
 
-                options.progress_node.setEstimatedTotalItems(names.len);
+                progress_node.setEstimatedTotalItems(names.len);
                 opt_metadata.* = .{
                     .string_bytes = try arena.dupe(u8, string_bytes),
                     .ns_per_test = try arena.alloc(u64, results.test_count),
                     .names = names,
                     .expected_panic_msgs = expected_panic_msgs,
                     .next_index = 0,
-                    .prog_node = options.progress_node,
+                    .prog_node = progress_node,
                 };
                 @memset(opt_metadata.*.?.ns_per_test, std.math.maxInt(u64));
 
@@ -494,20 +497,20 @@ fn waitZigTest(
                     const stderr_bytes = std.mem.trim(u8, stderr.buffered(), "\n");
                     stderr.tossBuffered();
                     if (stderr_bytes.len == 0) {
-                        try run.step.addError("'{s}' failed without output", .{name});
+                        try step.addError(maker, "'{s}' failed without output", .{name});
                     } else {
-                        try run.step.addError("'{s}' failed:\n{s}", .{ name, stderr_bytes });
+                        try step.addError(maker, "'{s}' failed:\n{s}", .{ name, stderr_bytes });
                     }
                 } else if (leak_count > 0) {
                     const name = md.testName(tr_hdr.index);
                     const stderr_bytes = std.mem.trim(u8, stderr.buffered(), "\n");
                     stderr.tossBuffered();
-                    try run.step.addError("'{s}' leaked {d} allocations:\n{s}", .{ name, leak_count, stderr_bytes });
+                    try step.addError(maker, "'{s}' leaked {d} allocations:\n{s}", .{ name, leak_count, stderr_bytes });
                 } else if (log_err_count > 0) {
                     const name = md.testName(tr_hdr.index);
                     const stderr_bytes = std.mem.trim(u8, stderr.buffered(), "\n");
                     stderr.tossBuffered();
-                    try run.step.addError("'{s}' logged {d} errors:\n{s}", .{ name, log_err_count, stderr_bytes });
+                    try step.addError(maker, "'{s}' logged {d} errors:\n{s}", .{ name, log_err_count, stderr_bytes });
                 }
 
                 active_test_index = null;
@@ -525,6 +528,7 @@ fn waitZigTest(
 
 const FuzzTestRunner = struct {
     run: *Run,
+    run_index: Configuration.Step.Index,
     ctx: FuzzContext,
     coverage_id: ?u64,
 
@@ -572,16 +576,18 @@ const FuzzTestRunner = struct {
 
     fn init(
         run: *Run,
+        run_index: Configuration.Step.Index,
         ctx: FuzzContext,
         progress_node: std.Progress.Node,
         spawn_options: process.SpawnOptions,
     ) !FuzzTestRunner {
-        const step_owner = run.step.owner;
-        const gpa = step_owner.allocator;
-        const io = step_owner.graph.io;
+        const maker = ctx.fuzz.maker;
+        const graph = maker.graph;
+        const gpa = maker.gpa;
+        const io = graph.io;
 
         const n_instances = switch (ctx.fuzz.mode) {
-            .forever => step_owner.graph.max_jobs orelse @min(
+            .forever => graph.max_jobs orelse @min(
                 std.Thread.getCpuCount() catch 1,
                 (std.math.maxInt(u32) - 2) / 3,
             ),
@@ -613,6 +619,7 @@ const FuzzTestRunner = struct {
 
         return .{
             .run = run,
+            .run_index = run_index,
             .ctx = ctx,
             .coverage_id = null,
 
@@ -625,9 +632,13 @@ const FuzzTestRunner = struct {
     }
 
     fn deinit(f: *FuzzTestRunner) void {
-        const step_owner = f.run.step.owner;
-        const gpa = step_owner.allocator;
-        const io = step_owner.graph.io;
+        const maker = f.ctx.fuzz.maker;
+        const run_index = f.run_index;
+
+        const graph = maker.graph;
+        const gpa = maker.gpa;
+        const io = graph.io;
+        const step = maker.stepByIndex(run_index);
 
         f.batch.cancel(io);
         gpa.free(f.batch.storage);
@@ -639,13 +650,18 @@ const FuzzTestRunner = struct {
             instance.progress_node.end();
             total_rss += instance.child.resource_usage_statistics.getMaxRss() orelse 0;
         }
-        f.run.step.result_peak_rss = @max(f.run.step.result_peak_rss, total_rss);
+        step.result_peak_rss = @max(step.result_peak_rss, total_rss);
         gpa.free(f.instances);
     }
 
     fn startInstances(f: *FuzzTestRunner) !void {
-        const step_owner = f.run.step.owner;
-        const io = step_owner.graph.io;
+        const maker = f.ctx.fuzz.maker;
+        const run_index = f.run_index;
+        const run = f.run;
+
+        const graph = maker.graph;
+        const io = graph.io;
+        const step = maker.stepByIndex(run_index);
 
         for (0.., f.instances) |id, *instance| {
             const id32: u32 = @intCast(id);
@@ -653,14 +669,14 @@ const FuzzTestRunner = struct {
                 .forever => sendRunFuzzTestMessage(
                     io,
                     instance.child.stdin.?,
-                    f.run.fuzz_tests.items,
+                    run.fuzz_tests.items,
                     .forever,
                     id32,
                 ),
                 .limit => |limit| sendRunFuzzTestMessage(
                     io,
                     instance.child.stdin.?,
-                    f.run.fuzz_tests.items,
+                    run.fuzz_tests.items,
                     .iterations,
                     limit.amount,
                 ),
@@ -670,7 +686,8 @@ const FuzzTestRunner = struct {
                 instance.child.stdin.?.close(io);
                 instance.child.stdin = null;
                 const term = try instance.child.wait(io);
-                return f.run.step.fail(
+                return step.fail(
+                    maker,
                     "unable to write stdin ({t}); test process unexpectedly {f}",
                     .{ write_err, fmtTerm(term) },
                 );
@@ -682,8 +699,9 @@ const FuzzTestRunner = struct {
     }
 
     fn listen(f: *FuzzTestRunner) !void {
-        const step_owner = f.run.step.owner;
-        const io = step_owner.graph.io;
+        const maker = f.ctx.fuzz.maker;
+        const graph = maker.graph;
+        const io = graph.io;
 
         while (true) {
             try f.batch.awaitConcurrent(io, .none);
@@ -714,10 +732,15 @@ const FuzzTestRunner = struct {
     }
 
     fn completeStdoutRead(f: *FuzzTestRunner, id: u32, n: usize) !void {
-        const step_owner = f.run.step.owner;
-        const gpa = step_owner.allocator;
-        const io = step_owner.graph.io;
+        const maker = f.ctx.fuzz.maker;
         const instance = &f.instances[id];
+        const run_index = f.run_index;
+        const run = f.run;
+
+        const graph = maker.graph;
+        const gpa = maker.gpa;
+        const io = graph.io;
+        const step = maker.stepByIndex(run_index);
 
         instance.message.items.len += n;
         const total_read = instance.message.items.len;
@@ -735,7 +758,8 @@ const FuzzTestRunner = struct {
 
         switch (header.tag) {
             .zig_version => {
-                if (!std.mem.eql(u8, builtin.zig_version_string, body)) return f.run.step.fail(
+                if (!std.mem.eql(u8, builtin.zig_version_string, body)) return step.fail(
+                    maker,
                     "zig version mismatch build runner vs compiler: '{s}' vs '{s}'",
                     .{ builtin.zig_version_string, body },
                 );
@@ -750,14 +774,14 @@ const FuzzTestRunner = struct {
                 const fuzz = f.ctx.fuzz;
                 fuzz.queue_mutex.lockUncancelable(io);
                 defer fuzz.queue_mutex.unlock(io);
-                try fuzz.msg_queue.append(fuzz.gpa, .{ .coverage = .{
+                try fuzz.msg_queue.append(gpa, .{ .coverage = .{
                     .id = f.coverage_id.?,
                     .cumulative = .{
                         .runs = cumulative_runs,
                         .unique = cumulative_unique,
                         .coverage = cumulative_coverage,
                     },
-                    .run = f.run,
+                    .run = run_index,
                 } });
                 fuzz.queue_cond.signal(io);
             },
@@ -768,7 +792,7 @@ const FuzzTestRunner = struct {
 
                 fuzz.queue_mutex.lockUncancelable(io);
                 defer fuzz.queue_mutex.unlock(io);
-                try fuzz.msg_queue.append(fuzz.gpa, .{ .entry_point = .{
+                try fuzz.msg_queue.append(gpa, .{ .entry_point = .{
                     .addr = addr,
                     .coverage_id = f.coverage_id.?,
                 } });
@@ -776,7 +800,7 @@ const FuzzTestRunner = struct {
             },
             .fuzz_test_change => {
                 const test_i = std.mem.readInt(u32, body[0..4], .little);
-                instance.progress_node.setName(f.run.fuzz_tests.items[test_i]);
+                instance.progress_node.setName(run.fuzz_tests.items[test_i]);
             },
             .broadcast_fuzz_input => {
                 if (f.instances.len == 1) {
@@ -823,8 +847,8 @@ const FuzzTestRunner = struct {
     }
 
     fn addStdoutRead(f: *FuzzTestRunner, id: u32, end: usize) !void {
-        const step_owner = f.run.step.owner;
-        const gpa = step_owner.allocator;
+        const maker = f.ctx.fuzz.maker;
+        const gpa = maker.gpa;
         const instance = &f.instances[id];
 
         try instance.message.ensureTotalCapacity(gpa, end);
@@ -837,8 +861,8 @@ const FuzzTestRunner = struct {
     }
 
     fn addStderrRead(f: *FuzzTestRunner, id: u32) !void {
-        const step_owner = f.run.step.owner;
-        const gpa = step_owner.allocator;
+        const maker = f.ctx.fuzz.maker;
+        const gpa = maker.gpa;
         const instance = &f.instances[id];
 
         try instance.stderr.ensureUnusedCapacity(gpa, 1);
@@ -861,24 +885,31 @@ const FuzzTestRunner = struct {
     }
 
     fn instanceEos(f: *FuzzTestRunner, id: u32) !void {
-        const step_owner = f.run.step.owner;
-        const io = step_owner.graph.io;
+        const maker = f.ctx.fuzz.maker;
         const instance = &f.instances[id];
+        const run_index = f.run_index;
+
+        const graph = maker.graph;
+        const io = graph.io;
+        const step = maker.stepByIndex(run_index);
 
         instance.child.stdin.?.close(io);
         instance.child.stdin = null;
         const term = try instance.child.wait(io);
         if (!termMatches(.{ .exited = 0 }, term)) {
-            f.run.step.result_stderr = try f.mergedStderr();
+            step.result_stderr = try f.mergedStderr();
             try f.saveCrash(id, term);
-            return f.run.step.fail("test process unexpectedly {f}", .{fmtTerm(term)});
+            return step.fail(maker, "test process unexpectedly {f}", .{fmtTerm(term)});
         }
     }
 
     fn saveCrash(f: *FuzzTestRunner, id: u32, term: process.Child.Term) !void {
-        const fuzz = f.context.fuzz;
+        const fuzz = f.ctx.fuzz;
+        const run_index = f.run_index;
+        const run = f.run;
+
         const maker = fuzz.maker;
-        const step = &f.run.step;
+        const step = maker.stepByIndex(run_index);
         const graph = maker.graph;
         const io = graph.io;
         const cache_root = graph.local_cache_root;
@@ -906,7 +937,7 @@ const FuzzTestRunner = struct {
                 error.FileNotFound => return,
                 error.WouldBlock => continue, // Can not be from
                 // the crashed instance since it is still locked.
-                else => return step.fail("failed to open file '{f}{s}': {t}", .{
+                else => return step.fail(maker, "failed to open file '{f}{s}': {t}", .{
                     cache_root, in_name, e,
                 }),
             };
@@ -915,7 +946,7 @@ const FuzzTestRunner = struct {
             const header = in_r.interface.takeStruct(InputHeader, .little) catch |e| {
                 in_f.close(io);
                 switch (e) {
-                    error.ReadFailed => return step.fail("failed to read file '{f}{s}': {t}", .{
+                    error.ReadFailed => return step.fail(maker, "failed to read file '{f}{s}': {t}", .{
                         cache_root, in_name, in_r.err.?,
                     }),
                     error.EndOfStream => continue,
@@ -924,7 +955,7 @@ const FuzzTestRunner = struct {
 
             if (header.pc_digest == f.coverage_id.? and
                 header.instance_id == id and
-                header.test_i < f.run.fuzz_tests.items.len)
+                header.test_i < run.fuzz_tests.items.len)
             {
                 break header;
             }
@@ -937,7 +968,7 @@ const FuzzTestRunner = struct {
         const crash_name = "f" ++ Io.Dir.path.sep_str ++ "crash";
         const out = cache_root.handle.createFile(io, crash_name, .{
             .lock = .exclusive, // Multiple run steps could have found a crash at the same time
-        }) catch |e| return step.fail("failed to create file '{f}{s}': {t}", .{
+        }) catch |e| return step.fail(maker, "failed to create file '{f}{s}': {t}", .{
             cache_root, crash_name, e,
         });
         defer out.close(io);
@@ -945,16 +976,16 @@ const FuzzTestRunner = struct {
         var out_w_buf: [512]u8 = undefined;
         var out_w = out.writerStreaming(io, &out_w_buf);
         _ = out_w.interface.sendFileAll(&in_r, .limited(header.len)) catch |e| switch (e) {
-            error.ReadFailed => return step.fail("failed to read file '{f}{s}': {t}", .{
+            error.ReadFailed => return step.fail(maker, "failed to read file '{f}{s}': {t}", .{
                 cache_root, in_name, in_r.err.?,
             }),
-            error.WriteFailed => return step.fail("failed to write file '{f}{s}': {t}", .{
+            error.WriteFailed => return step.fail(maker, "failed to write file '{f}{s}': {t}", .{
                 cache_root, crash_name, out_w.err.?,
             }),
         };
 
-        return f.run.step.fail("test '{s}' {f}; input saved to '{f}{s}'", .{
-            f.run.fuzz_tests.items[header.test_i],
+        return step.fail(maker, "test '{s}' {f}; input saved to '{f}{s}'", .{
+            run.fuzz_tests.items[header.test_i],
             fmtTerm(term),
             cache_root,
             crash_name,
@@ -967,8 +998,8 @@ const FuzzTestRunner = struct {
         assert(f.broadcast.items.len == 0);
         assert(from_id < f.instances.len);
 
-        const step_owner = f.run.step.owner;
-        const gpa = step_owner.allocator;
+        const maker = f.ctx.fuzz.maker;
+        const gpa = maker.gpa;
 
         var out_header: OutHeader = .{
             .tag = .new_fuzz_input,
@@ -1010,8 +1041,9 @@ const FuzzTestRunner = struct {
     }
 
     fn mergedStderr(f: *FuzzTestRunner) std.mem.Allocator.Error![]const u8 {
-        const step_owner = f.run.step.owner;
-        const arena = step_owner.allocator;
+        const maker = f.ctx.fuzz.maker;
+        const graph = maker.graph;
+        const arena = graph.arena; // TODO don't leak into the process arena
 
         // Collect any available stderr
         while (f.batch.next()) |completion| {
@@ -1035,11 +1067,12 @@ const FuzzTestRunner = struct {
 
 fn evalFuzzTest(
     run: *Run,
+    run_index: Configuration.Step.Index,
+    progress_node: std.Progress.Node,
     spawn_options: process.SpawnOptions,
-    options: Step.MakeOptions,
     fuzz_context: FuzzContext,
 ) !void {
-    var f: FuzzTestRunner = try .init(run, fuzz_context, options.progress_node, spawn_options);
+    var f: FuzzTestRunner = try .init(run, run_index, fuzz_context, progress_node, spawn_options);
     defer f.deinit();
     try f.startInstances();
     try f.listen();
@@ -1049,23 +1082,25 @@ const StdioPollEnum = enum { stdout, stderr };
 
 fn evalZigTest(
     run: *Run,
+    run_index: Configuration.Step.Index,
     maker: *Maker,
+    progress_node: std.Progress.Node,
     spawn_options: process.SpawnOptions,
-    options: Step.MakeOptions,
     fuzz_context: ?FuzzContext,
 ) !void {
     if (fuzz_context != null) {
-        try evalFuzzTest(run, spawn_options, options, fuzz_context.?);
+        try evalFuzzTest(run, run_index, progress_node, spawn_options, fuzz_context.?);
         return;
     }
 
-    const step_owner = run.step.owner;
-    const gpa = step_owner.allocator;
-    const arena = step_owner.allocator;
-    const io = step_owner.graph.io;
+    const graph = maker.graph;
+    const gpa = maker.gpa;
+    const io = graph.io;
+    const arena = graph.arena; // TODO don't leak into the process arena
+    const step = maker.stepByIndex(run_index);
 
     // We will update this every time a child runs.
-    run.step.result_peak_rss = 0;
+    step.result_peak_rss = 0;
 
     var test_results: Step.TestResults = .{
         .test_count = 0,
@@ -1087,16 +1122,18 @@ fn evalZigTest(
         defer if (!child_killed) {
             child.kill(io);
             multi_reader.deinit();
-            run.step.result_peak_rss = @max(
-                run.step.result_peak_rss,
+            step.result_peak_rss = @max(
+                step.result_peak_rss,
                 child.resource_usage_statistics.getMaxRss() orelse 0,
             );
         };
 
         switch (try waitZigTest(
             run,
+            run_index,
+            maker,
             &child,
-            options,
+            progress_node,
             &multi_reader,
             &test_metadata,
             &test_results,
@@ -1109,7 +1146,7 @@ fn evalZigTest(
                     error.ReadFailed => return stderr_fr.err.?,
                     error.EndOfStream => {},
                 }
-                run.step.result_stderr = try arena.dupe(u8, stderr_fr.interface.buffered());
+                step.result_stderr = try arena.dupe(u8, stderr_fr.interface.buffered());
 
                 // Clean up everything and wait for the child to exit.
                 child.stdin.?.close(io);
@@ -1117,14 +1154,16 @@ fn evalZigTest(
                 multi_reader.deinit();
                 child_killed = true;
                 const term = try child.wait(io);
-                run.step.result_peak_rss = @max(
-                    run.step.result_peak_rss,
+                step.result_peak_rss = @max(
+                    step.result_peak_rss,
                     child.resource_usage_statistics.getMaxRss() orelse 0,
                 );
 
                 // The individual unit test results are irrelevant: the test runner itself broke!
                 // Fail immediately without populating `s.test_results`.
-                return run.step.fail(maker, "unable to write stdin ({t}); test process unexpectedly {f}", .{ err, fmtTerm(term) });
+                return step.fail(maker, "unable to write stdin ({t}); test process unexpectedly {f}", .{
+                    err, fmtTerm(term),
+                });
             },
             .no_poll => |no_poll| {
                 // This might be a success (we requested exit and the child dutifully closed stdout) or
@@ -1138,8 +1177,8 @@ fn evalZigTest(
                 multi_reader.deinit();
                 child_killed = true;
                 const term = try child.wait(io);
-                run.step.result_peak_rss = @max(
-                    run.step.result_peak_rss,
+                step.result_peak_rss = @max(
+                    step.result_peak_rss,
                     child.resource_usage_statistics.getMaxRss() orelse 0,
                 );
 
@@ -1148,7 +1187,7 @@ fn evalZigTest(
                     // test, and continue to the next test.
                     test_metadata.?.ns_per_test[test_index] = no_poll.ns_elapsed;
                     test_results.crash_count += 1;
-                    try run.step.addError("'{s}' {f}{s}{s}", .{
+                    try step.addError(maker, "'{s}' {f}{s}{s}", .{
                         test_metadata.?.testName(test_index),
                         fmtTerm(term),
                         if (stderr_owned.len != 0) " with stderr:\n" else "",
@@ -1158,22 +1197,22 @@ fn evalZigTest(
                 }
 
                 // Report an error if the child terminated uncleanly or if we were still trying to run more tests.
-                run.step.result_stderr = stderr_owned;
+                step.result_stderr = stderr_owned;
                 const tests_done = test_metadata != null and test_metadata.?.next_index == std.math.maxInt(u32);
                 if (!tests_done or !termMatches(.{ .exited = 0 }, term)) {
                     // The individual unit test results are irrelevant: the test runner itself broke!
                     // Fail immediately without populating `s.test_results`.
-                    return run.step.fail(maker, "test process unexpectedly {f}", .{fmtTerm(term)});
+                    return step.fail(maker, "test process unexpectedly {f}", .{fmtTerm(term)});
                 }
 
                 // We're done with all of the tests! Commit the test results and return.
-                run.step.test_results = test_results;
+                step.test_results = test_results;
                 if (test_metadata) |tm| {
                     run.cached_test_metadata = tm.toCachedTestMetadata();
-                    if (options.web_server) |ws| {
-                        if (run.step.owner.graph.time_report) {
+                    if (maker.web_server) |*ws| {
+                        if (graph.time_report) {
                             ws.updateTimeReportRunTest(
-                                run,
+                                run_index,
                                 &run.cached_test_metadata.?,
                                 tm.ns_per_test,
                             );
@@ -1191,7 +1230,7 @@ fn evalZigTest(
                     // the next test.
                     test_metadata.?.ns_per_test[test_index] = timeout.ns_elapsed;
                     test_results.timeout_count += 1;
-                    try run.step.addError("'{s}' timed out after {f}{s}{s}", .{
+                    try step.addError(maker, "'{s}' timed out after {f}{s}{s}", .{
                         test_metadata.?.testName(test_index),
                         Io.Duration{ .nanoseconds = timeout.ns_elapsed },
                         if (stderr.len != 0) " with stderr:\n" else "",
@@ -1200,10 +1239,10 @@ fn evalZigTest(
                     continue;
                 }
                 // Just log an error and let the child be killed.
-                run.step.result_stderr = try arena.dupe(u8, stderr);
+                step.result_stderr = try arena.dupe(u8, stderr);
                 // The individual unit test results in `results` are irrelevant: the test runner
                 // is broken! Fail immediately without populating `s.test_results`.
-                return run.step.fail(maker, "test runner failed to respond for {f}", .{Io.Duration{ .nanoseconds = timeout.ns_elapsed }});
+                return step.fail(maker, "test runner failed to respond for {f}", .{Io.Duration{ .nanoseconds = timeout.ns_elapsed }});
             },
         }
         comptime unreachable;
@@ -1323,27 +1362,35 @@ fn sendRunFuzzTestMessage(
     }
 }
 
-fn evalGeneric(run: *Run, maker: *Maker, spawn_options: process.SpawnOptions) !EvalGenericResult {
+fn evalGeneric(
+    run_index: Configuration.Step.Index,
+    maker: *Maker,
+    spawn_options: process.SpawnOptions,
+) !EvalGenericResult {
     const graph = maker.graph;
     const io = graph.io;
-    const arena = graph.allocator; // TODO don't leak into the process arena
+    const arena = graph.arena; // TODO don't leak into the process arena
     const gpa = maker.gpa;
+    const conf = &maker.scanned_config.configuration;
+    const conf_step = run_index.ptr(conf);
+    const conf_run = conf_step.extended.get(conf.extra).run;
+    const step = maker.stepByIndex(run_index);
 
     var child = try process.spawn(io, spawn_options);
     defer child.kill(io);
 
-    switch (run.stdin) {
+    switch (conf_run.stdin.u) {
         .bytes => |bytes| {
-            child.stdin.?.writeStreamingAll(io, bytes) catch |err| {
-                return run.step.fail(maker, "unable to write stdin: {t}", .{err});
+            child.stdin.?.writeStreamingAll(io, bytes.slice(conf)) catch |err| {
+                return step.fail(maker, "failed to write stdin: {t}", .{err});
             };
             child.stdin.?.close(io);
             child.stdin = null;
         },
         .lazy_path => |lazy_path| {
-            const path = lazy_path.getPath3(graph, &run.step);
+            const path = try maker.resolveLazyPathIndex(arena, lazy_path, run_index);
             const file = path.root_dir.handle.openFile(io, path.subPathOrDot(), .{}) catch |err| {
-                return run.step.fail(maker, "unable to open stdin file: {t}", .{err});
+                return step.fail(maker, "failed to open stdin file: {t}", .{err});
             };
             defer file.close(io);
             // TODO https://github.com/ziglang/zig/issues/23955
@@ -1352,15 +1399,15 @@ fn evalGeneric(run: *Run, maker: *Maker, spawn_options: process.SpawnOptions) !E
             var write_buffer: [1024]u8 = undefined;
             var stdin_writer = child.stdin.?.writerStreaming(io, &write_buffer);
             _ = stdin_writer.interface.sendFileAll(&file_reader, .unlimited) catch |err| switch (err) {
-                error.ReadFailed => return run.step.fail(maker, "failed to read from {f}: {t}", .{
+                error.ReadFailed => return step.fail(maker, "failed to read from {f}: {t}", .{
                     path, file_reader.err.?,
                 }),
-                error.WriteFailed => return run.step.fail(maker, "failed to write to stdin: {t}", .{
+                error.WriteFailed => return step.fail(maker, "failed to write to stdin: {t}", .{
                     stdin_writer.err.?,
                 }),
             };
             stdin_writer.interface.flush() catch |err| switch (err) {
-                error.WriteFailed => return run.step.fail(maker, "failed to write to stdin: {t}", .{
+                error.WriteFailed => return step.fail(maker, "failed to write to stdin: {t}", .{
                     stdin_writer.err.?,
                 }),
             };
@@ -1384,7 +1431,7 @@ fn evalGeneric(run: *Run, maker: *Maker, spawn_options: process.SpawnOptions) !E
             const stderr_reader = multi_reader.reader(1);
 
             while (multi_reader.fill(64, .none)) |_| {
-                if (run.stdio_limit.toInt()) |limit| {
+                if (conf_run.stdio_limit.value) |limit| {
                     if (stdout_reader.buffered().len > limit)
                         return error.StdoutStreamTooLong;
                     if (stderr_reader.buffered().len > limit)
@@ -1404,7 +1451,8 @@ fn evalGeneric(run: *Run, maker: *Maker, spawn_options: process.SpawnOptions) !E
             stderr_bytes = try multi_reader.toOwnedSlice(1);
         } else {
             var stdout_reader = stdout.readerStreaming(io, &.{});
-            stdout_bytes = stdout_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
+            const stdio_limit: Io.Limit = if (conf_run.stdio_limit.value) |x| .limited(x) else .unlimited;
+            stdout_bytes = stdout_reader.interface.allocRemaining(arena, stdio_limit) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 error.ReadFailed => return stdout_reader.err.?,
                 error.StreamTooLong => return error.StdoutStreamTooLong,
@@ -1412,7 +1460,8 @@ fn evalGeneric(run: *Run, maker: *Maker, spawn_options: process.SpawnOptions) !E
         }
     } else if (child.stderr) |stderr| {
         var stderr_reader = stderr.readerStreaming(io, &.{});
-        stderr_bytes = stderr_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
+        const stdio_limit: Io.Limit = if (conf_run.stdio_limit.value) |x| .limited(x) else .unlimited;
+        stderr_bytes = stderr_reader.interface.allocRemaining(arena, stdio_limit) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             error.ReadFailed => return stderr_reader.err.?,
             error.StreamTooLong => return error.StderrStreamTooLong,
@@ -1421,16 +1470,16 @@ fn evalGeneric(run: *Run, maker: *Maker, spawn_options: process.SpawnOptions) !E
 
     if (stderr_bytes) |bytes| if (bytes.len > 0) {
         // Treat stderr as an error message.
-        const stderr_is_diagnostic = run.captured_stderr == null and switch (run.stdio) {
-            .check => |checks| !checksContainStderr(checks.items),
+        const stderr_is_diagnostic = conf_run.captured_stderr.value == null and switch (conf_run.flags.stdio) {
+            .check => !checksContainStderr(&conf_run),
             else => true,
         };
         if (stderr_is_diagnostic) {
-            run.step.result_stderr = bytes;
+            step.result_stderr = bytes;
         }
     };
 
-    run.step.result_peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0;
+    step.result_peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0;
 
     return .{
         .term = try child.wait(io),
@@ -1452,7 +1501,7 @@ pub fn rerunInFuzzMode(
 ) !void {
     const maker = fuzz.maker;
     const graph = maker.graph;
-    const step = &run.step;
+    const step = maker.stepByIndex(run_index);
     const io = graph.io;
     const arena = graph.arena; // TODO don't leak into the process arena
     const gpa = maker.gpa;
@@ -1535,9 +1584,9 @@ pub fn rerunInFuzzMode(
         }
     }
 
-    if (run.step.result_failed_command) |cmd| {
-        fuzz.gpa.free(cmd);
-        run.step.result_failed_command = null;
+    if (step.result_failed_command) |cmd| {
+        gpa.free(cmd);
+        step.result_failed_command = null;
     }
 
     const has_side_effects = false;
@@ -1548,8 +1597,6 @@ pub fn rerunInFuzzMode(
         .fuzz = fuzz,
     });
 }
-
-const CapturedStdIo = void; // TODO get it from Configuration
 
 fn populateGeneratedPaths(
     maker: *Maker,
@@ -1712,142 +1759,153 @@ fn runCommand(
 
     if (true) @panic("TODO");
 
-    const opt_generic_result = spawnChildAndCollect(run_index, run, maker, progress_node, argv, &environ_map, has_side_effects, fuzz_context) catch |err| term: {
-        // InvalidExe: cpu arch mismatch
-        // FileNotFound: can happen with a wrong dynamic linker path
-        if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
-            // TODO: learn the target from the binary directly rather than from
-            // relying on it being a Compile step. This will make this logic
-            // work even for the edge case that the binary was produced by a
-            // third party.
-            const exe = switch (run.argv.items[0]) {
-                .artifact => |exe| exe.artifact,
-                else => break :interpret,
-            };
-            switch (exe.kind) {
-                .exe, .@"test" => {},
-                else => break :interpret,
-            }
+    const opt_generic_result = spawnChildAndCollect(
+        run_index,
+        run,
+        maker,
+        progress_node,
+        argv,
+        environ_map,
+        has_side_effects,
+        fuzz_context,
+    ) catch |err| term: {
+        switch (err) {
+            error.InvalidExe, // cpu arch mismatch
+            error.FileNotFound, // can happen with a wrong dynamic linker path
+            => interpret: {
+                // TODO: learn the target from the binary directly rather than from
+                // relying on it being a Compile step. This will make this logic
+                // work even for the edge case that the binary was produced by a
+                // third party.
+                const exe = switch (run.argv.items[0]) {
+                    .artifact => |exe| exe.artifact,
+                    else => break :interpret,
+                };
+                switch (exe.kind) {
+                    .exe, .@"test" => {},
+                    else => break :interpret,
+                }
 
-            const root_target = exe.rootModuleTarget();
-            const need_cross_libc = exe.is_linking_libc and
-                (root_target.isGnuLibC() or (root_target.isMuslLibC() and exe.linkage == .dynamic));
-            const other_target = exe.root_module.resolved_target.?.result;
-            switch (std.zig.system.getExternalExecutor(io, &graph.host.result, &other_target, .{
-                .qemu_fixes_dl = need_cross_libc and graph.libc_runtimes_dir != null,
-                .link_libc = exe.is_linking_libc,
-            })) {
-                .native, .rosetta => {
-                    if (allow_skip) return error.MakeSkipped;
-                    break :interpret;
-                },
-                .wine => |bin_name| {
-                    if (graph.enable_wine) {
-                        try interp_argv.append(bin_name);
-                        try interp_argv.appendSlice(argv);
+                const root_target = exe.rootModuleTarget();
+                const need_cross_libc = exe.is_linking_libc and
+                    (root_target.isGnuLibC() or (root_target.isMuslLibC() and exe.linkage == .dynamic));
+                const other_target = exe.root_module.resolved_target.?.result;
+                switch (std.zig.system.getExternalExecutor(io, &graph.host.result, &other_target, .{
+                    .qemu_fixes_dl = need_cross_libc and graph.libc_runtimes_dir != null,
+                    .link_libc = exe.is_linking_libc,
+                })) {
+                    .native, .rosetta => {
+                        if (allow_skip) return error.MakeSkipped;
+                        break :interpret;
+                    },
+                    .wine => |bin_name| {
+                        if (graph.enable_wine) {
+                            try interp_argv.append(bin_name);
+                            try interp_argv.appendSlice(argv);
 
-                        // Wine's excessive stderr logging is only situationally helpful. Disable it by default, but
-                        // allow the user to override it (e.g. with `WINEDEBUG=err+all`) if desired.
-                        if (environ_map.get("WINEDEBUG") == null) {
-                            try environ_map.put("WINEDEBUG", "-all");
+                            // Wine's excessive stderr logging is only situationally helpful. Disable it by default, but
+                            // allow the user to override it (e.g. with `WINEDEBUG=err+all`) if desired.
+                            if (environ_map.get("WINEDEBUG") == null) {
+                                try environ_map.put("WINEDEBUG", "-all");
+                            }
+                        } else {
+                            return failForeign(conf_run, maker, run_index, "-fwine", argv[0], exe);
                         }
-                    } else {
-                        return failForeign(run, "-fwine", argv[0], exe);
-                    }
-                },
-                .qemu => |bin_name| {
-                    if (graph.enable_qemu) {
-                        try interp_argv.append(bin_name);
+                    },
+                    .qemu => |bin_name| {
+                        if (graph.enable_qemu) {
+                            try interp_argv.append(bin_name);
 
-                        if (need_cross_libc) {
-                            if (graph.libc_runtimes_dir) |dir| {
-                                try interp_argv.append("-L");
-                                try interp_argv.append(try Dir.path.join(arena, &.{
-                                    dir,
-                                    try if (root_target.isGnuLibC()) std.zig.target.glibcRuntimeTriple(
-                                        arena,
-                                        root_target.cpu.arch,
-                                        root_target.os.tag,
-                                        root_target.abi,
-                                    ) else if (root_target.isMuslLibC()) std.zig.target.muslRuntimeTriple(
-                                        arena,
-                                        root_target.cpu.arch,
-                                        root_target.abi,
-                                    ) else unreachable,
-                                }));
-                            } else return failForeign(run, "--libc-runtimes", argv[0], exe);
+                            if (need_cross_libc) {
+                                if (graph.libc_runtimes_dir) |dir| {
+                                    try interp_argv.append("-L");
+                                    try interp_argv.append(try Dir.path.join(arena, &.{
+                                        dir,
+                                        try if (root_target.isGnuLibC()) std.zig.target.glibcRuntimeTriple(
+                                            arena,
+                                            root_target.cpu.arch,
+                                            root_target.os.tag,
+                                            root_target.abi,
+                                        ) else if (root_target.isMuslLibC()) std.zig.target.muslRuntimeTriple(
+                                            arena,
+                                            root_target.cpu.arch,
+                                            root_target.abi,
+                                        ) else unreachable,
+                                    }));
+                                } else return failForeign(conf_run, maker, run_index, "--libc-runtimes", argv[0], exe);
+                            }
+
+                            try interp_argv.appendSlice(argv);
+                        } else return failForeign(conf_run, maker, run_index, "-fqemu", argv[0], exe);
+                    },
+                    .darling => |bin_name| {
+                        if (graph.enable_darling) {
+                            try interp_argv.append(bin_name);
+                            try interp_argv.appendSlice(argv);
+                        } else {
+                            return failForeign(conf_run, maker, run_index, "-fdarling", argv[0], exe);
                         }
+                    },
+                    .wasmtime => |bin_name| {
+                        if (graph.enable_wasmtime) {
+                            try interp_argv.append(bin_name);
+                            try interp_argv.append("--dir=.");
+                            // Wasmtime doeesn't inherit environment variables from the parent process
+                            // by default. '-S inherit-env' was added in Wasmtime version 20.
+                            try interp_argv.append("-Sinherit-env");
+                            try interp_argv.append(argv[0]);
+                            try interp_argv.appendSlice(argv[1..]);
+                        } else {
+                            return failForeign(conf_run, maker, run_index, "-fwasmtime", argv[0], exe);
+                        }
+                    },
+                    .bad_dl => |foreign_dl| {
+                        if (allow_skip) return error.MakeSkipped;
 
-                        try interp_argv.appendSlice(argv);
-                    } else return failForeign(run, "-fqemu", argv[0], exe);
-                },
-                .darling => |bin_name| {
-                    if (graph.enable_darling) {
-                        try interp_argv.append(bin_name);
-                        try interp_argv.appendSlice(argv);
-                    } else {
-                        return failForeign(run, "-fdarling", argv[0], exe);
-                    }
-                },
-                .wasmtime => |bin_name| {
-                    if (graph.enable_wasmtime) {
-                        try interp_argv.append(bin_name);
-                        try interp_argv.append("--dir=.");
-                        // Wasmtime doeesn't inherit environment variables from the parent process
-                        // by default. '-S inherit-env' was added in Wasmtime version 20.
-                        try interp_argv.append("-Sinherit-env");
-                        try interp_argv.append(argv[0]);
-                        try interp_argv.appendSlice(argv[1..]);
-                    } else {
-                        return failForeign(run, "-fwasmtime", argv[0], exe);
-                    }
-                },
-                .bad_dl => |foreign_dl| {
-                    if (allow_skip) return error.MakeSkipped;
+                        const host_dl = graph.host.result.dynamic_linker.get() orelse "(none)";
 
-                    const host_dl = graph.host.result.dynamic_linker.get() orelse "(none)";
+                        return step.fail(maker,
+                            \\the host system is unable to execute binaries from the target
+                            \\  because the host dynamic linker is '{s}',
+                            \\  while the target dynamic linker is '{s}'.
+                            \\  consider setting the dynamic linker or enabling skip_foreign_checks in the Run step
+                        , .{ host_dl, foreign_dl });
+                    },
+                    .bad_os_or_cpu => {
+                        if (allow_skip) return error.MakeSkipped;
 
-                    return step.fail(maker,
-                        \\the host system is unable to execute binaries from the target
-                        \\  because the host dynamic linker is '{s}',
-                        \\  while the target dynamic linker is '{s}'.
-                        \\  consider setting the dynamic linker or enabling skip_foreign_checks in the Run step
-                    , .{ host_dl, foreign_dl });
-                },
-                .bad_os_or_cpu => {
-                    if (allow_skip) return error.MakeSkipped;
+                        const host_name = try graph.host.result.zigTriple(arena);
+                        const foreign_name = try root_target.zigTriple(arena);
 
-                    const host_name = try graph.host.result.zigTriple(arena);
-                    const foreign_name = try root_target.zigTriple(arena);
+                        return step.fail(maker, "the host system ({s}) is unable to execute binaries from the target ({s})", .{
+                            host_name, foreign_name,
+                        });
+                    },
+                }
 
-                    return step.fail(maker, "the host system ({s}) is unable to execute binaries from the target ({s})", .{
-                        host_name, foreign_name,
-                    });
-                },
-            }
+                if (root_target.os.tag == .windows) {
+                    // On Windows we don't have rpaths so we have to add .dll search paths to PATH
+                    addPathForDynLibs(exe);
+                }
 
-            if (root_target.os.tag == .windows) {
-                // On Windows we don't have rpaths so we have to add .dll search paths to PATH
-                addPathForDynLibs(exe);
-            }
+                gpa.free(step.result_failed_command.?);
+                step.result_failed_command = null;
+                try graph.handleVerbose(cwd, run.environ_map, interp_argv.items);
 
-            gpa.free(step.result_failed_command.?);
-            step.result_failed_command = null;
-            try Step.handleVerbose(step.owner, cwd, run.environ_map, interp_argv.items);
-
-            break :term spawnChildAndCollect(run_index, run, maker, progress_node, interp_argv.items, &environ_map, has_side_effects, fuzz_context) catch |e| {
-                if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
-                if (e == error.MakeFailed) return error.MakeFailed; // error already reported
-                return step.fail(maker, "unable to spawn interpreter {s}: {t}", .{ interp_argv.items[0], e });
-            };
+                break :term spawnChildAndCollect(run_index, run, maker, progress_node, interp_argv.items, &environ_map, has_side_effects, fuzz_context) catch |e| {
+                    if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
+                    if (e == error.MakeFailed) return error.MakeFailed; // error already reported
+                    return step.fail(maker, "unable to spawn interpreter {s}: {t}", .{ interp_argv.items[0], e });
+                };
+            },
+            error.MakeFailed, error.OutOfMemory, error.Canceled => |e| return e,
+            else => {},
         }
-        if (err == error.MakeFailed) return error.MakeFailed; // error already reported
-
         return step.fail(maker, "failed to spawn and capture stdio from {s}: {t}", .{ argv[0], err });
     };
 
     const generic_result = opt_generic_result orelse {
-        assert(run.stdio == .zig_test);
+        assert(conf_run.flags.stdio == .zig_test);
         // Specific errors have already been reported, and test results are populated. All we need
         // to do is report step failure if any test failed.
         if (!step.test_results.isSuccess()) return error.MakeFailed;
@@ -1855,20 +1913,20 @@ fn runCommand(
     };
 
     assert(fuzz_context == null);
-    assert(run.stdio != .zig_test);
+    assert(conf_run.flags.stdio != .zig_test);
 
     // Capture stdout and stderr to GeneratedFile objects.
     const Stream = struct {
-        captured: ?*CapturedStdIo,
+        captured: ?Configuration.Step.Run.CapturedStream,
         bytes: ?[]const u8,
     };
     for ([_]Stream{
         .{
-            .captured = run.captured_stdout,
+            .captured = conf_run.captured_stdout.value,
             .bytes = generic_result.stdout,
         },
         .{
-            .captured = run.captured_stderr,
+            .captured = conf_run.captured_stderr.value,
             .bytes = generic_result.stderr,
         },
     }) |stream| {
@@ -1898,7 +1956,7 @@ fn runCommand(
         }
     }
 
-    switch (run.stdio) {
+    switch (conf_run.flags.stdio) {
         .zig_test => unreachable,
         .check => |checks| for (checks.items) |check| switch (check) {
             .expect_stderr_exact => |expected_bytes| {
@@ -1970,7 +2028,7 @@ fn runCommand(
             };
             if (bad_exit) {
                 if (generic_result.stderr) |bytes| {
-                    run.step.result_stderr = bytes;
+                    step.result_stderr = bytes;
                 }
             }
 
@@ -1995,9 +2053,8 @@ fn spawnChildAndCollect(
     has_side_effects: bool,
     fuzz_context: ?FuzzContext,
 ) !?EvalGenericResult {
-    const step = run.step;
+    const step = maker.stepByIndex(run_index);
     const graph = maker.graph;
-    const gpa = maker.gpa;
     const io = graph.io;
     const arena = graph.arena; // TODO don't leak into process arena
     const conf = &maker.scanned_config.configuration;
@@ -2006,17 +2063,17 @@ fn spawnChildAndCollect(
 
     if (fuzz_context != null) {
         assert(!has_side_effects);
-        assert(run.stdio == .zig_test);
+        assert(conf_run.flags.stdio == .zig_test);
     }
 
-    const child_cwd: process.Child.Cwd = if (conf_run.cwd) |lazy_cwd|
+    const child_cwd: process.Child.Cwd = if (conf_run.cwd.value) |lazy_cwd|
         .{ .path = try maker.resolveLazyPathIndexAbs(arena, lazy_cwd, run_index) }
     else
         .inherit;
 
     // If an error occurs, it's caused by this command:
     assert(step.result_failed_command == null);
-    step.result_failed_command = try Step.allocPrintCmd(gpa, child_cwd, .{
+    step.result_failed_command = try std.zig.allocPrintCmd(arena, child_cwd, .{
         .child = environ_map,
         .parent = &graph.environ_map,
     }, argv);
@@ -2028,22 +2085,22 @@ fn spawnChildAndCollect(
         .cwd = child_cwd,
         .environ_map = environ_map,
         .request_resource_usage_statistics = true,
-        .stdin = if (run.stdin != .none) s: {
-            assert(run.stdio != .inherit);
+        .stdin = if (conf_run.stdin.u != .none) s: {
+            assert(conf_run.flags.stdio != .inherit);
             break :s .pipe;
-        } else switch (run.stdio) {
+        } else switch (conf_run.flags.stdio) {
             .infer_from_args => if (has_side_effects) .inherit else .ignore,
             .inherit => .inherit,
             .check => .ignore,
             .zig_test => .pipe,
         },
-        .stdout = if (run.captured_stdout != null) .pipe else switch (run.stdio) {
+        .stdout = if (conf_run.captured_stdout.value != null) .pipe else switch (conf_run.flags.stdio) {
             .infer_from_args => if (has_side_effects) .inherit else .ignore,
             .inherit => .inherit,
-            .check => |checks| if (checksContainStdout(checks.items)) .pipe else .ignore,
+            .check => if (checksContainStdout(&conf_run)) .pipe else .ignore,
             .zig_test => .pipe,
         },
-        .stderr = if (run.captured_stderr != null) .pipe else switch (run.stdio) {
+        .stderr = if (conf_run.captured_stderr.value != null) .pipe else switch (conf_run.flags.stdio) {
             .infer_from_args => if (has_side_effects) .inherit else .pipe,
             .inherit => .inherit,
             .check => .pipe,
@@ -2051,9 +2108,9 @@ fn spawnChildAndCollect(
         },
     };
 
-    if (run.stdio == .zig_test) {
+    if (conf_run.flags.stdio == .zig_test) {
         const started: Io.Clock.Timestamp = .now(io, .awake);
-        const result = evalZigTest(run, maker, progress_node, spawn_options, fuzz_context) catch |err| switch (err) {
+        const result = evalZigTest(run, run_index, maker, progress_node, spawn_options, fuzz_context) catch |err| switch (err) {
             error.Canceled => |e| return e,
             else => |e| e,
         };
@@ -2062,7 +2119,7 @@ fn spawnChildAndCollect(
         return null;
     } else {
         const inherit = spawn_options.stdout == .inherit or spawn_options.stderr == .inherit;
-        if (!run.disable_zig_progress and !inherit) {
+        if (!conf_run.flags.disable_zig_progress and !inherit) {
             spawn_options.progress_node = progress_node;
         }
         const terminal_mode: Io.Terminal.Mode = if (inherit) m: {
@@ -2070,10 +2127,10 @@ fn spawnChildAndCollect(
             break :m stderr.terminal_mode;
         } else .no_color;
         defer if (inherit) io.unlockStderr();
-        try setColorEnvironmentVariables(run, environ_map, terminal_mode);
+        try setColorEnvironmentVariables(&conf_run, environ_map, terminal_mode);
 
         const started: Io.Clock.Timestamp = .now(io, .awake);
-        const result = evalGeneric(run, maker, spawn_options) catch |err| switch (err) {
+        const result = evalGeneric(run_index, maker, spawn_options) catch |err| switch (err) {
             error.Canceled => |e| return e,
             else => |e| e,
         };
@@ -2106,8 +2163,12 @@ fn termMatches(expected: ?process.Child.Term, actual: process.Child.Term) bool {
     };
 }
 
-fn setColorEnvironmentVariables(run: *Run, environ_map: *EnvMap, terminal_mode: Io.Terminal.Mode) !void {
-    color: switch (run.color) {
+fn setColorEnvironmentVariables(
+    conf_run: *const Configuration.Step.Run,
+    environ_map: *EnvMap,
+    terminal_mode: Io.Terminal.Mode,
+) !void {
+    color: switch (conf_run.flags.color) {
         .manual => {},
         .enable => {
             try environ_map.put("CLICOLOR_FORCE", "1");
@@ -2122,8 +2183,8 @@ fn setColorEnvironmentVariables(run: *Run, environ_map: *EnvMap, terminal_mode: 
             .escape_codes => continue :color .enable,
         },
         .auto => {
-            const capture_stderr = run.captured_stderr != null or switch (run.stdio) {
-                .check => |checks| checksContainStderr(checks.items),
+            const capture_stderr = conf_run.captured_stderr.value != null or switch (conf_run.flags.stdio) {
+                .check => checksContainStderr(conf_run),
                 .infer_from_args, .inherit, .zig_test => false,
             };
             if (capture_stderr) {
@@ -2135,53 +2196,12 @@ fn setColorEnvironmentVariables(run: *Run, environ_map: *EnvMap, terminal_mode: 
     }
 }
 
-fn checksContainStdout(checks: []const @This().StdIo.Check) bool {
-    for (checks) |check| switch (check) {
-        .expect_stderr_exact,
-        .expect_stderr_match,
-        .expect_term,
-        => continue,
-
-        .expect_stdout_exact,
-        .expect_stdout_match,
-        => return true,
-    };
-    return false;
+fn checksContainStdout(conf_run: *const Configuration.Step.Run) bool {
+    return conf_run.expect_stdout_exact.value != null or conf_run.expect_stdout_match.slice.len != 0;
 }
 
-fn checksContainStderr(checks: []const @This().StdIo.Check) bool {
-    for (checks) |check| switch (check) {
-        .expect_stdout_exact,
-        .expect_stdout_match,
-        .expect_term,
-        => continue,
-
-        .expect_stderr_exact,
-        .expect_stderr_match,
-        => return true,
-    };
-    return false;
-}
-
-/// Returns whether the Run step has side effects *other than* updating the output arguments.
-fn hasSideEffects(run: Run) bool {
-    if (run.has_side_effects) return true;
-    return switch (run.stdio) {
-        .infer_from_args => !run.hasAnyOutputArgs(),
-        .inherit => true,
-        .check => false,
-        .zig_test => false,
-    };
-}
-
-fn hasAnyOutputArgs(run: Run) bool {
-    if (run.captured_stdout != null) return true;
-    if (run.captured_stderr != null) return true;
-    for (run.argv.items) |arg| switch (arg) {
-        .output_file, .output_directory => return true,
-        else => continue,
-    };
-    return false;
+fn checksContainStderr(conf_run: *const Configuration.Step.Run) bool {
+    return conf_run.expect_stderr_exact.value != null or conf_run.expect_stderr_match.slice.len != 0;
 }
 
 /// If `path` is cwd-relative, make it relative to the cwd of the child instead.
@@ -2225,13 +2245,13 @@ fn addPathForDynLibs(artifact: Configuration.Step.Index) void {
             compile.isDynamicLibrary())
         {
             @panic("TODO");
-            //addPathDir(run, Dir.path.dirname(compile.getEmittedBin().getPath2(b, &run.step)).?);
+            //addPathDir(run, Dir.path.dirname(compile.getEmittedBin().getPath2(b, step)).?);
         }
     }
 }
 
 fn failForeign(
-    run: *Run,
+    conf_run: *const Configuration.Step.Run,
     maker: *Maker,
     step_index: Configuration.Step.Index,
     suggested_flag: []const u8,
@@ -2239,9 +2259,9 @@ fn failForeign(
     exe: *Step.Compile,
 ) Step.ExtendedMakeError {
     const step = maker.stepByIndex(step_index);
-    switch (run.stdio) {
+    switch (conf_run.flags.stdio) {
         .check, .zig_test => {
-            if (run.skip_foreign_checks) return error.MakeSkipped;
+            if (conf_run.flags.skip_foreign_checks) return error.MakeSkipped;
 
             const graph = maker.graph;
             const process_arena = graph.arena; // TODO don't leak into process arena
