@@ -2465,7 +2465,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
     if (options.test_only) |test_only| {
         const test_target: ModuleTestTarget = switch (test_only) {
-            .default => module_test_targets[0],
+            .default => .{
+                .link_libc = if (std.mem.eql(u8, options.name, "libc")) true else null,
+            },
             .fuzz => |optimize| .{
                 .optimize_mode = optimize,
                 .use_llvm = true,
