@@ -625,11 +625,6 @@
           <td>Used for type-erased pointers.</td>
         </tr>
         <tr>
-            <th scope="row">{#syntax#}void{#endsyntax#}</th>
-          <td>(none)</td>
-          <td>Always the value {#syntax#}void{}{#endsyntax#}</td>
-        </tr>
-        <tr>
             <th scope="row">{#syntax#}noreturn{#endsyntax#}</th>
           <td>(none)</td>
           <td>the type of {#syntax#}break{#endsyntax#}, {#syntax#}continue{#endsyntax#}, {#syntax#}return{#endsyntax#}, {#syntax#}unreachable{#endsyntax#}, and {#syntax#}while (true) {}{#endsyntax#}</td>
@@ -1807,25 +1802,6 @@ mem.eql(u32, &together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td>Array Multiplication</td>
-          <td><pre>{#syntax#}a ** b{#endsyntax#}</pre></td>
-          <td>
-            <ul>
-              <li>{#link|Arrays#}</li>
-            </ul>
-          </td>
-          <td>
-            <ul>
-              <li>Only available when the length of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
-            </ul>
-          </td>
-          <td>
-            <pre>{#syntax#}const mem = @import("std").mem;
-const pattern = "ab" ** 3;
-mem.eql(u8, pattern, "ababab"){#endsyntax#}</pre>
-          </td>
-        </tr>
-        <tr>
           <td>Pointer Dereference</td>
           <td><pre>{#syntax#}a.*{#endsyntax#}</pre></td>
           <td>
@@ -1882,7 +1858,7 @@ const B = error{Two};
 a!b
 x{}
 !x -x -%x ~x &x ?x
-* / % ** *% *| ||
+* / % *% *| ||
 + - ++ +% -% +| -|
 << >> <<|
 & ^ | orelse catch
@@ -2371,7 +2347,7 @@ or
       </p>
       <p>
       Like arrays, tuples have a .len field, can be indexed (provided the index is comptime-known)
-      and work with the ++ and ** operators. They can also be iterated over with {#link|inline for#}.
+      and work with the ++ operator. They can also be iterated over with {#link|inline for#}.
       </p>
       {#code|test_tuples.zig#}
 
@@ -2571,7 +2547,7 @@ or
       {#header_close#}
 
       {#header_open|Empty Blocks#}
-      <p>An empty block is equivalent to {#syntax#}void{}{#endsyntax#}:</p>
+      <p>An empty block returns the single value of type {#syntax#}void{#endsyntax#}:</p>
       {#code|test_empty_block.zig#}
 
       {#header_close#}
@@ -3159,10 +3135,6 @@ fn createFoo(param: i32) !Foo {
       the verbosity and cognitive overhead of trying to make sure every exit path
       is covered. The deallocation code is always directly following the allocation code.
       </p>
-      <p>
-      The {#syntax#}errdefer{#endsyntax#} statement can optionally capture the error:
-      </p>
-      {#code|test_errdefer_capture.zig#}
       {#header_close#}
       <p>
       A couple of other tidbits about error handling:
@@ -3627,7 +3599,7 @@ void do_a_thing(struct Foo *foo) {
       <p>For some types, {#link|@sizeOf#} is 0:</p>
       <ul>
           <li>{#link|void#}</li>
-          <li>The {#link|Integers#} {#syntax#}u0{#endsyntax#} and {#syntax#}i0{#endsyntax#}.</li>
+          <li>The {#link|integer type|Integers#} {#syntax#}u0{#endsyntax#}.</li>
           <li>{#link|Arrays#} and {#link|Vectors#} with len 0, or with an element type that is a zero bit type.</li>
           <li>An {#link|enum#} with only 1 tag.</li>
           <li>A {#link|struct#} with all fields being zero bit types.</li>
@@ -8036,7 +8008,6 @@ MultiplyOp
      / ASTERISK
      / SLASH
      / PERCENT
-     / ASTERISK2
      / ASTERISKPERCENT
      / ASTERISKPIPE
 
@@ -8083,11 +8054,11 @@ LabelableExpr
 # Ptr specific
 SliceTypeStart <- LBRACKET (COLON Expr)? RBRACKET
 
-SinglePtrTypeStart <- ASTERISK / ASTERISK2
+SinglePtrTypeStart <- ASTERISK
 
 ManyPtrTypeStart <- LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
 
-ArrayTypeStart <- LBRACKET Expr !(ASTERISK / ASTERISK2) (COLON Expr)? RBRACKET
+ArrayTypeStart <- LBRACKET Expr !ASTERISK (COLON Expr)? RBRACKET
 
 # ContainerDecl specific
 ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
@@ -8215,7 +8186,6 @@ BUILTINIDENTIFIER <- '@'[A-Za-z_][A-Za-z0-9_]* skip
 AMPERSAND            <- '&'      ![=]      skip
 AMPERSANDEQUAL       <- '&='               skip
 ASTERISK             <- '*'      ![*%=|]   skip
-ASTERISK2            <- '**'               skip
 ASTERISKEQUAL        <- '*='               skip
 ASTERISKPERCENT      <- '*%'     ![=]      skip
 ASTERISKPERCENTEQUAL <- '*%='              skip
