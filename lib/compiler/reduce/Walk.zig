@@ -248,7 +248,6 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .add_wrap,
         .add_sat,
         .array_cat,
-        .array_mult,
         .assign,
         .assign_bit_and,
         .assign_bit_or,

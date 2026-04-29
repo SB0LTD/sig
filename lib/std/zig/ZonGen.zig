@@ -166,7 +166,6 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         .less_than,
         .less_or_equal,
         .array_cat,
-        .array_mult,
         .bool_and,
         .bool_or,
         .bool_not,

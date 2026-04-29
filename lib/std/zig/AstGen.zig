@@ -507,7 +507,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .less_than,
         .less_or_equal,
         .array_cat,
-        .array_mult,
         .bool_and,
         .bool_or,
         .@"asm",
@@ -776,19 +775,6 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .less_than        => return simpleBinOp(gz, scope, ri, node, .cmp_lt),
         .less_or_equal    => return simpleBinOp(gz, scope, ri, node, .cmp_lte),
         .array_cat        => return simpleBinOp(gz, scope, ri, node, .array_cat),
-
-        .array_mult => {
-            // This syntax form does not currently use the result type in the language specification.
-            // However, the result type can be used to emit more optimal code for large multiplications by
-            // having Sema perform a coercion before the multiplication operation.
-            const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
-            const result = try gz.addPlNode(.array_mul, node, Zir.Inst.ArrayMul{
-                .res_ty = if (try ri.rl.resultType(gz, node)) |t| t else .none,
-                .lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node),
-                .rhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, rhs_node, .array_mul_factor),
-            });
-            return rvalue(gz, ri, result, node);
-        },
 
         .error_union, .merge_error_sets => |tag| {
             const inst_tag: Zir.Inst.Tag = switch (tag) {
@@ -2713,7 +2699,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .alloc_inferred_comptime_mut,
             .make_ptr_const,
             .array_cat,
-            .array_mul,
             .array_type,
             .array_type_sentinel,
             .elem_type,
@@ -10307,7 +10292,6 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .add_wrap,
             .add_sat,
             .array_cat,
-            .array_mult,
             .assign,
             .assign_destructure,
             .assign_bit_and,

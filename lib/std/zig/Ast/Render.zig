@@ -508,7 +508,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .add_wrap,
         .add_sat,
         .array_cat,
-        .array_mult,
         .bang_equal,
         .bit_and,
         .bit_or,
@@ -1028,16 +1027,6 @@ fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!voi
 
     switch (ptr_type.size) {
         .one => {
-            // Since ** tokens exist and the same token is shared by two
-            // nested pointer types, we check to see if we are the parent
-            // in such a relationship. If so, skip rendering anything for
-            // this pointer type and rely on the child to render our asterisk
-            // as well when it renders the ** token.
-            if (tree.tokenTag(main_token) == .asterisk_asterisk and
-                main_token == tree.nodeMainToken(ptr_type.ast.child_type))
-            {
-                return renderExpression(r, ptr_type.ast.child_type, space);
-            }
             try renderToken(r, main_token, .none); // asterisk
         },
         .many => {
@@ -3223,7 +3212,6 @@ fn nodeCausesSliceOpSpace(tag: Ast.Node.Tag) bool {
         .add,
         .add_wrap,
         .array_cat,
-        .array_mult,
         .assign,
         .assign_bit_and,
         .assign_bit_or,
