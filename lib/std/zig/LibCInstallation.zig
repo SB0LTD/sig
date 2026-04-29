@@ -46,7 +46,7 @@ pub fn parse(allocator: Allocator, io: Io, libc_file: []const u8, target: *const
         found: bool,
         allocated: ?[:0]u8,
     };
-    var found_keys = [1]FoundKey{FoundKey{ .found = false, .allocated = null }} ** fields.len;
+    var found_keys: [fields.len]FoundKey = @splat(.{ .found = false, .allocated = null });
     errdefer {
         self = .{};
         for (found_keys) |found_key| {

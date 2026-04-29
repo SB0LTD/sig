@@ -42,12 +42,6 @@ test "tuple declaration usage" {
     try expect(t[0] == 1);
     try expectEqualStrings(t[1], "foo");
 
-    const mul = t ** 3;
-    try expect(@TypeOf(mul) != T);
-    try expect(mul.len == 6);
-    try expect(mul[2] == 1);
-    try expectEqualStrings(mul[3], "foo");
-
     var t2: T = .{ 2, "bar" };
     _ = &t2;
     const cat = t ++ t2;

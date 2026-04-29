@@ -81,15 +81,31 @@ pub const msdos_stub: [120]u8 = .{
     0x00, 0x00, // Overlay number. Zero means this is the main executable.
 }
     // Reserved words.
-    ++ .{ 0x00, 0x00 } ** 4
-        // OEM-related fields.
+    ++ .{
+        0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
+    }
+    // OEM-related fields.
     ++ .{
         0x00, 0x00, // OEM identifier.
         0x00, 0x00, // OEM information.
     }
     // Reserved words.
-    ++ .{ 0x00, 0x00 } ** 10
-        // Address of the PE header (a long). This matches the size of this entire MS-DOS stub, so that's the address of what's after this MS-DOS stub.
+    ++ .{
+        0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
+    }
+    // Address of the PE header (a long). This matches the size of this entire MS-DOS stub, so that's the address of what's after this MS-DOS stub.
     ++ .{ 0x78, 0x00, 0x00, 0x00 }
     // What follows is a 16-bit x86 MS-DOS program of 7 instructions that prints the bytes after these instructions and then exits.
     ++ .{

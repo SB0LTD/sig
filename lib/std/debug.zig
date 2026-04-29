@@ -1381,7 +1381,7 @@ test printLineFromFile {
         try writer.flush();
 
         try printLineFromFile(io, output_stream, .{ .file_name = path, .line = 2, .column = 0 });
-        try expectEqualStrings(("a" ** overlap) ++ "\n", aw.written());
+        try expectEqualStrings(&@as([overlap]u8, @splat('a')) ++ "\n", aw.written());
         aw.clearRetainingCapacity();
     }
     {
@@ -1395,7 +1395,7 @@ test printLineFromFile {
         try writer.splatByteAll('a', std.heap.page_size_max);
 
         try printLineFromFile(io, output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** std.heap.page_size_max) ++ "\n", aw.written());
+        try expectEqualStrings(&@as([std.heap.page_size_max]u8, @splat('a')) ++ "\n", aw.written());
         aw.clearRetainingCapacity();
     }
     {
@@ -1410,14 +1410,16 @@ test printLineFromFile {
 
         try expectError(error.EndOfStream, printLineFromFile(io, output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
+        const many_a: [3 * std.heap.page_size_max]u8 = @splat('a');
+
         try printLineFromFile(io, output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "\n", aw.written());
+        try expectEqualStrings(&many_a ++ "\n", aw.written());
         aw.clearRetainingCapacity();
 
         try writer.writeAll("a\na");
 
         try printLineFromFile(io, output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "a\n", aw.written());
+        try expectEqualStrings(&many_a ++ "a\n", aw.written());
         aw.clearRetainingCapacity();
 
         try printLineFromFile(io, output_stream, .{ .file_name = path, .line = 2, .column = 0 });

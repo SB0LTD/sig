@@ -22,14 +22,14 @@ test "swab" {
     // n < 1
     @memset(a[0..], '\x00');
     c.swab("abcd", &a, 0);
-    try testing.expectEqualSlices(u8, "\x00" ** 4, &a);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0 }, &a);
     c.swab("abcd", &a, -1);
-    try testing.expectEqualSlices(u8, "\x00" ** 4, &a);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0 }, &a);
 
     // Odd n
     @memset(a[0..], '\x00');
     c.swab("abcd", &a, 1);
-    try testing.expectEqualSlices(u8, "\x00" ** 4, &a);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0 }, &a);
     c.swab("abcd", &a, 3);
     try testing.expectEqualSlices(u8, "ba\x00\x00", &a);
 }

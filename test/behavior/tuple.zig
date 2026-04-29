@@ -26,29 +26,6 @@ test "tuple concatenation" {
     try comptime S.doTheTest();
 }
 
-test "tuple multiplication" {
-    const S = struct {
-        fn doTheTest() !void {
-            {
-                const t = .{} ** 4;
-                try expect(@typeInfo(@TypeOf(t)).@"struct".fields.len == 0);
-            }
-            {
-                const t = .{'a'} ** 4;
-                try expect(@typeInfo(@TypeOf(t)).@"struct".fields.len == 4);
-                inline for (t) |x| try expect(x == 'a');
-            }
-            {
-                const t = .{ 1, 2, 3 } ** 4;
-                try expect(@typeInfo(@TypeOf(t)).@"struct".fields.len == 12);
-                inline for (t, 0..) |x, i| try expect(x == 1 + i % 3);
-            }
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
 test "more tuple concatenation" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -357,7 +334,7 @@ test "tuple of struct concatenation and coercion to array" {
     const StructWithDefault = struct { value: f32 = 42 };
     const SomeStruct = struct { array: [4]StructWithDefault };
 
-    const value1 = SomeStruct{ .array = .{StructWithDefault{}} ++ [_]StructWithDefault{.{}} ** 3 };
+    const value1 = SomeStruct{ .array = .{StructWithDefault{}} ++ @as([3]StructWithDefault, @splat(.{})) };
     const value2 = SomeStruct{ .array = .{ .{}, .{}, .{}, .{} } };
 
     try expectEqual(value1, value2);

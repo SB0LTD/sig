@@ -1194,8 +1194,12 @@ test bytesToHex {
 }
 
 test hexToBytes {
+    const repeated: []const u8 = repeated: {
+        const buf: [32][2]u8 = @splat("90".*);
+        break :repeated @ptrCast(&buf);
+    };
     var buf: [32]u8 = undefined;
-    try expectFmt("90" ** 32, "{X}", .{try hexToBytes(&buf, "90" ** 32)});
+    try expectFmt(repeated, "{X}", .{try hexToBytes(&buf, repeated)});
     try expectFmt("ABCD", "{X}", .{try hexToBytes(&buf, "ABCD")});
     try expectFmt("", "{X}", .{try hexToBytes(&buf, "")});
     try std.testing.expectError(error.InvalidCharacter, hexToBytes(&buf, "012Z"));

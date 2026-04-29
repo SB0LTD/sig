@@ -4345,7 +4345,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                         try isel.emit(.ldr(neg_zero_ra.q(), .{
                             .literal = @intCast((isel.instructions.items.len + 1 + isel.literals.items.len) << 2),
                         }));
-                        try isel.emitLiteral(&(.{0} ** 15 ++ .{0x80}));
+                        try isel.emitLiteral(&(@as([15]u8, @splat(0)) ++ .{0x80}));
                         try src_mat.finish(isel);
                     },
                 }
@@ -4425,7 +4425,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                         try isel.emit(.ldr(neg_zero_ra.q(), .{
                             .literal = @intCast((isel.instructions.items.len + 1 + isel.literals.items.len) << 2),
                         }));
-                        try isel.emitLiteral(&(.{0} ** 15 ++ .{0x80}));
+                        try isel.emitLiteral(&(@as([15]u8, @splat(0)) ++ .{0x80}));
                         try src_mat.finish(isel);
                     },
                 }

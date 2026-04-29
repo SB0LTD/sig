@@ -29,8 +29,8 @@ const Constants = struct {
 };
 const constants: Constants = blk: {
     @setEvalBranchQuota(2000);
-    var digits_per_limb = [_]u8{0} ** 37;
-    var bases = [_]Limb{0} ** 37;
+    var digits_per_limb: [37]u8 = @splat(0);
+    var bases: [37]Limb = @splat(0);
     for (2..37) |base| {
         digits_per_limb[base] = @intCast(math.log(Limb, base, math.maxInt(Limb)));
         bases[base] = std.math.pow(Limb, base, digits_per_limb[base]);
@@ -2391,7 +2391,7 @@ pub const Const = struct {
         var limbs: [calcToStringLimbsBufferLen(available_len, 10)]Limb = undefined;
 
         const biggest: Const = .{
-            .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
+            .limbs = &@as([available_len]Limb, @splat(comptime math.maxInt(Limb))),
             .positive = false,
         };
         var buf: [biggest.sizeInBaseUpperBound(2)]u8 = undefined;

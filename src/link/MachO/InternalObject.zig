@@ -11,7 +11,7 @@ symbols_extra: std.ArrayList(u32) = .empty,
 globals: std.ArrayList(MachO.SymbolResolver.Index) = .empty,
 
 objc_methnames: std.ArrayList(u8) = .empty,
-objc_selrefs: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64),
+objc_selrefs: [@sizeOf(u64)]u8 = @splat(0),
 
 force_undefined: std.ArrayList(Symbol.Index) = .empty,
 entry_index: ?Symbol.Index = null,

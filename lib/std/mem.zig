@@ -359,7 +359,10 @@ test zeroes {
     var a = zeroes(C_struct);
 
     // Extern structs should have padding zeroed out.
-    try testing.expectEqualSlices(u8, &[_]u8{0} ** @sizeOf(@TypeOf(a)), asBytes(&a));
+    {
+        const num_bytes = @sizeOf(@TypeOf(a));
+        try testing.expectEqualSlices(u8, &@as([num_bytes]u8, @splat(0)), @ptrCast(&a));
+    }
 
     a.y += 10;
 
@@ -1587,7 +1590,7 @@ test find {
 test "find multibyte" {
     {
         // make haystack and needle long enough to trigger Boyer-Moore-Horspool algorithm
-        const haystack = [1]u16{0} ** 100 ++ [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff };
+        const haystack = @as([100]u16, @splat(0)) ++ [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff };
         const needle = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee };
         try testing.expectEqual(findPos(u16, &haystack, 0, &needle), 100);
 
@@ -1600,7 +1603,7 @@ test "find multibyte" {
 
     {
         // make haystack and needle long enough to trigger Boyer-Moore-Horspool algorithm
-        const haystack = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff } ++ [1]u16{0} ** 100;
+        const haystack = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff } ++ @as([100]u16, @splat(0));
         const needle = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee };
         try testing.expectEqual(lastIndexOf(u16, &haystack, &needle), 0);
 
@@ -4645,7 +4648,7 @@ test "sliceAsBytes with sentinel slice" {
 }
 
 test "sliceAsBytes with zero-bit element type" {
-    const lots_of_nothing = [1]void{{}} ** 10_000;
+    const lots_of_nothing: [10_000]void = @splat({});
     const bytes = sliceAsBytes(&lots_of_nothing);
     try testing.expect(bytes.len == 0);
 }
@@ -4863,8 +4866,8 @@ test doNotOptimizeAway {
     doNotOptimizeAway(@as(u200, 0));
     doNotOptimizeAway(@as(f32, 0.0));
     doNotOptimizeAway(@as(f64, 0.0));
-    doNotOptimizeAway([_]u8{0} ** 4);
-    doNotOptimizeAway([_]u8{0} ** 100);
+    doNotOptimizeAway(@as([4]u8, @splat(0)));
+    doNotOptimizeAway(@as([100]u8, @splat(0)));
     doNotOptimizeAway(@as(std.builtin.Endian, .little));
 }
 

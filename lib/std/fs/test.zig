@@ -1449,11 +1449,15 @@ test "max file name component lengths" {
     if (native_os == .windows) {
         // U+FFFF is the character with the largest code point that is encoded as a single
         // WTF-16 code unit, so Windows allows for NAME_MAX of them.
-        const maxed_windows_filename1 = ("\u{FFFF}".*) ** windows.NAME_MAX;
+        const codepoint1 = "\u{FFFF}".*;
+        const buf1: [windows.NAME_MAX][codepoint1.len]u8 = @splat(codepoint1);
+        const maxed_windows_filename1: []const u8 = @ptrCast(&buf1);
         // This is also a code point that is encoded as one WTF-16 code unit, but
         // three WTF-8 bytes, so it exercises the limits of both WTF-16 and WTF-8 encodings.
-        const maxed_windows_filename2 = ("€".*) ** windows.NAME_MAX;
-        try testFilenameLimits(io, tmp.dir, &maxed_windows_filename1, &maxed_windows_filename2);
+        const codepoint2 = "€".*;
+        const buf2: [windows.NAME_MAX][codepoint2.len]u8 = @splat(codepoint2);
+        const maxed_windows_filename2: []const u8 = @ptrCast(&buf2);
+        try testFilenameLimits(io, tmp.dir, maxed_windows_filename1, maxed_windows_filename2);
     } else if (native_os == .wasi) {
         // On WASI, the maxed filename depends on the host OS, so in order for this test to
         // work on any host, we need to use a length that will work for all platforms

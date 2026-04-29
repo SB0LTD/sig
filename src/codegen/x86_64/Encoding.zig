@@ -1044,9 +1044,17 @@ const mnemonic_to_encodings_map = init: {
         const index = &mnemonic_index[@intFromEnum(entry[0])];
         mnemonic_map[@intFromEnum(entry[0])][index.*] = .{
             .op_en = entry[1],
-            .ops = (entry[2] ++ .{.none} ** (ops_len - entry[2].len)).*,
+            .ops = ops: {
+                var ops: [ops_len]Op = @splat(.none);
+                @memcpy(ops[0..entry[2].len], entry[2]);
+                break :ops ops;
+            },
             .opc_len = entry[3].len,
-            .opc = (entry[3] ++ .{undefined} ** (opc_len - entry[3].len)).*,
+            .opc = opc: {
+                var opc: [opc_len]u8 = @splat(undefined);
+                @memcpy(opc[0..entry[3].len], entry[3]);
+                break :opc opc;
+            },
             .modrm_ext = entry[4],
             .mode = entry[5],
             .feature = entry[6],

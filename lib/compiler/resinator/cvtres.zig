@@ -321,7 +321,7 @@ pub fn writeCoff(
         .checksum = 0,
         .number = 0,
         .selection = .NONE,
-        .unused = .{0} ** 3,
+        .unused = @splat(0),
     });
 
     try writeSymbol(writer, .{
@@ -342,7 +342,7 @@ pub fn writeCoff(
         .checksum = 0,
         .number = 0,
         .selection = .NONE,
-        .unused = .{0} ** 3,
+        .unused = @splat(0),
     });
 
     for (resource_symbols) |resource_symbol| {
@@ -353,11 +353,11 @@ pub fn writeCoff(
         const name_bytes: [8]u8 = name_bytes: {
             if (external_symbol_name.len > 8) {
                 const string_table_offset: u32 = try string_table.put(allocator, external_symbol_name);
-                var bytes = [_]u8{0} ** 8;
+                var bytes: [8]u8 = @splat(0);
                 std.mem.writeInt(u32, bytes[4..8], string_table_offset, .little);
                 break :name_bytes bytes;
             } else {
-                var symbol_shortname = [_]u8{0} ** 8;
+                var symbol_shortname: [8]u8 = @splat(0);
                 @memcpy(symbol_shortname[0..external_symbol_name.len], external_symbol_name);
                 break :name_bytes symbol_shortname;
             }

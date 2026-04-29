@@ -1574,9 +1574,9 @@ const LinuxThreadImpl = struct {
 };
 
 fn testThreadName(io: Io, thread: *Thread) !void {
-    const testCases = &[_][]const u8{
+    const testCases: []const []const u8 = &.{
         "mythread",
-        "b" ** max_name_len,
+        &@as([max_name_len]u8, @splat('b')),
     };
 
     inline for (testCases) |tc| {

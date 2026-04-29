@@ -727,15 +727,6 @@ test "array concatenation of function calls" {
     try expect(std.mem.eql(i32, &a, &[_]i32{ 3, 4 }));
 }
 
-test "array multiplication of function calls" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
-    var a = oneItem(3) ** scalar(2);
-    try expect(std.mem.eql(i32, &a, &[_]i32{ 3, 3 }));
-}
-
 fn oneItem(x: i32) [1]i32 {
     return [_]i32{x};
 }
@@ -812,41 +803,6 @@ test "array concatenation sets the sentinel - pointer" {
     try expect(c[4] == 255);
     const ptr: [*]const u8 = c;
     try expect(ptr[5] == 69);
-}
-
-test "array multiplication sets the sentinel - value" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
-    var a = [2:7]u3{ 1, 6 };
-    _ = &a;
-    const b = a ** 2;
-    comptime assert(@TypeOf(b) == [4:7]u3);
-    try expect(b[0] == 1);
-    try expect(b[1] == 6);
-    try expect(b[2] == 1);
-    try expect(b[3] == 6);
-    const ptr: [*]const u3 = &b;
-    try expect(ptr[4] == 7);
-}
-
-test "array multiplication sets the sentinel - pointer" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
-    var a = [2:7]u3{ 1, 6 };
-    const b = &a ** 2;
-    comptime assert(@TypeOf(b) == *const [4:7]u3);
-    try expect(b[0] == 1);
-    try expect(b[1] == 6);
-    try expect(b[2] == 1);
-    try expect(b[3] == 6);
-    const ptr: [*]const u3 = b;
-    try expect(ptr[4] == 7);
 }
 
 test "comptime assign int to optional int" {
@@ -1094,7 +1050,7 @@ test "storing an array of type in a field" {
 
             fn foo() @This() {
                 comptime var foobar: Foobar = undefined;
-                foobar.str = [_]u8{'a'} ** 1024;
+                foobar.str = @splat('a');
                 return foobar;
             }
         };

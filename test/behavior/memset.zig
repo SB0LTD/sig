@@ -109,7 +109,7 @@ test "memset with large array element, runtime known" {
 
     const A = [128]u64;
     var buf: [5]A = undefined;
-    var runtime_known_element = [_]u64{0} ** 128;
+    var runtime_known_element: A = @splat(0);
     _ = &runtime_known_element;
     @memset(&buf, runtime_known_element);
     for (buf[0]) |elem| try expect(elem == 0);
@@ -127,7 +127,7 @@ test "memset with large array element, comptime known" {
 
     const A = [128]u64;
     var buf: [5]A = undefined;
-    const comptime_known_element = [_]u64{0} ** 128;
+    const comptime_known_element: A = @splat(0);
     @memset(&buf, comptime_known_element);
     for (buf[0]) |elem| try expect(elem == 0);
     for (buf[1]) |elem| try expect(elem == 0);

@@ -187,11 +187,11 @@ test "mmap" {
         try expectEqual(@as(usize, 1234), data.len);
 
         // By definition the data returned by mmap is zero-filled
-        try expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
+        try expect(mem.eql(u8, data, &@as([1234]u8, @splat(0x00))));
 
         // Make sure the memory is writeable as requested
         @memset(data, 0x55);
-        try expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
+        try expect(mem.eql(u8, data, &@as([1234]u8, @splat(0x55))));
     }
 
     const test_out_file = "os_tmp_test";

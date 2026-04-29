@@ -294,13 +294,6 @@ test "string concatenation simple" {
     try expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
-test "array mult operator" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
-    try expect(mem.eql(u8, "ab" ** 5, "ababababab"));
-}
-
 const global_a: i32 = 1234;
 const global_b: *const i32 = &global_a;
 const global_c: *const f32 = @as(*const f32, @ptrCast(global_b));
@@ -1041,7 +1034,7 @@ test "const alloc with comptime-known initializer is made comptime-known" {
             positive: bool,
         };
         const biggest: Const = .{
-            .limbs = &([1]usize{comptime std.math.maxInt(usize)} ** 128),
+            .limbs = &@as([128]usize, @splat(comptime std.math.maxInt(usize))),
             .positive = false,
         };
         if (biggest.positive) @compileError("bad");

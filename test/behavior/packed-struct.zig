@@ -883,7 +883,7 @@ test "pointer to container level packed struct field" {
             enable_5: bool,
             enable_6: bool,
         },
-        var arr = [_]u32{0} ** 2;
+        var arr: [2]u32 = @splat(0);
     };
     @as(*S, @ptrCast(&S.arr[0])).other_bits.enable_3 = true;
     try expect(S.arr[0] == 0x10000000);

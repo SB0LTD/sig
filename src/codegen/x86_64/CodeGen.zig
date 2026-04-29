@@ -181601,9 +181601,9 @@ fn splitType(self: *CodeGen, comptime parts_len: usize, ty: Type) ![parts_len]Ty
     const ip = &zcu.intern_pool;
     var parts: [parts_len]Type = undefined;
     switch (ip.indexToKey(ty.toIntern())) {
-        .vector_type => |vector_type| if (std.math.divExact(u32, vector_type.len, parts_len)) |vec_len| return .{
-            try pt.vectorType(.{ .len = vec_len, .child = vector_type.child }),
-        } ** parts_len else |err| switch (err) {
+        .vector_type => |vector_type| if (std.math.divExact(u32, vector_type.len, parts_len)) |vec_len| {
+            return @splat(try pt.vectorType(.{ .len = vec_len, .child = vector_type.child }));
+        } else |err| switch (err) {
             error.DivisionByZero => unreachable,
             error.UnexpectedRemainder => {},
         },
@@ -188774,7 +188774,9 @@ const Select = struct {
                     try pt.aggregateValue(try pt.vectorType(.{ .len = 4, .child = .u32_type }), &(.{
                         (try pt.intValue(.u32, @as(u64, @bitCast(@as(f64, 0x1p52))) >> 32)).toIntern(),
                         (try pt.intValue(.u32, @as(u64, @bitCast(@as(f64, 0x1p84))) >> 32)).toIntern(),
-                    } ++ .{(try pt.intValue(.u32, 0)).toIntern()} ** 2)),
+                        (try pt.intValue(.u32, 0)).toIntern(),
+                        (try pt.intValue(.u32, 0)).toIntern(),
+                    })),
                 ), true },
                 .f32_0_0x1p64_mem => .{ try cg.tempMemFromValue(
                     try pt.aggregateValue(try pt.vectorType(.{ .len = 2, .child = .f32_type }), &.{

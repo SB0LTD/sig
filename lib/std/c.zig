@@ -7914,7 +7914,7 @@ pub const pthread_spinlock_t = switch (native_os) {
 
 pub const pthread_mutex_t = switch (native_os) {
     .linux => extern struct {
-        data: [data_len]u8 align(@alignOf(usize)) = [_]u8{0} ** data_len,
+        data: [data_len]u8 align(@alignOf(usize)) = @splat(0),
 
         const data_len = switch (native_abi) {
             .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
@@ -7930,7 +7930,7 @@ pub const pthread_mutex_t = switch (native_os) {
     },
     .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => extern struct {
         sig: c_long = 0x32AAABA7,
-        data: [data_len]u8 = [_]u8{0} ** data_len,
+        data: [data_len]u8 = @splat(0),
 
         const data_len = if (@sizeOf(usize) == 8) 56 else 40;
     },
@@ -7966,10 +7966,10 @@ pub const pthread_mutex_t = switch (native_os) {
         data: u64 = 0,
     },
     .fuchsia => extern struct {
-        data: [40]u8 align(@alignOf(usize)) = [_]u8{0} ** 40,
+        data: [40]u8 align(@alignOf(usize)) = @splat(0),
     },
     .emscripten => extern struct {
-        data: [24]u8 align(4) = [_]u8{0} ** 24,
+        data: [24]u8 align(4) = @splat(0),
     },
     // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L68-L73
     .serenity => extern struct {
@@ -7983,11 +7983,11 @@ pub const pthread_mutex_t = switch (native_os) {
 
 pub const pthread_cond_t = switch (native_os) {
     .linux => extern struct {
-        data: [48]u8 align(@alignOf(usize)) = [_]u8{0} ** 48,
+        data: [48]u8 align(@alignOf(usize)) = @splat(0),
     },
     .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => extern struct {
         sig: c_long = 0x3CB0B1BB,
-        data: [data_len]u8 = [_]u8{0} ** data_len,
+        data: [data_len]u8 = @splat(0),
         const data_len = if (@sizeOf(usize) == 8) 40 else 24;
     },
     .freebsd, .dragonfly, .openbsd => extern struct {
@@ -8012,13 +8012,13 @@ pub const pthread_cond_t = switch (native_os) {
         lock: i32 = 0,
     },
     .illumos => extern struct {
-        flag: [4]u8 = [_]u8{0} ** 4,
+        flag: [4]u8 = @splat(0),
         type: u16 = 0,
         magic: u16 = 0x4356,
         data: u64 = 0,
     },
     .fuchsia, .emscripten => extern struct {
-        data: [48]u8 align(@alignOf(usize)) = [_]u8{0} ** 48,
+        data: [48]u8 align(@alignOf(usize)) = @splat(0),
     },
     // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L80-L84
     .serenity => extern struct {
@@ -8033,20 +8033,20 @@ pub const pthread_rwlock_t = switch (native_os) {
     .linux => switch (native_abi) {
         .android, .androideabi => switch (@sizeOf(usize)) {
             4 => extern struct {
-                data: [40]u8 align(@alignOf(usize)) = [_]u8{0} ** 40,
+                data: [40]u8 align(@alignOf(usize)) = @splat(0),
             },
             8 => extern struct {
-                data: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
+                data: [56]u8 align(@alignOf(usize)) = @splat(0),
             },
             else => @compileError("impossible pointer size"),
         },
         else => extern struct {
-            data: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
+            data: [56]u8 align(@alignOf(usize)) = @splat(0),
         },
     },
     .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => extern struct {
         sig: c_long = 0x2DA8B3B4,
-        data: [192]u8 = [_]u8{0} ** 192,
+        data: [192]u8 = @splat(0),
     },
     .freebsd, .dragonfly, .openbsd => extern struct {
         ptr: ?*anyopaque = null,
@@ -8079,10 +8079,10 @@ pub const pthread_rwlock_t = switch (native_os) {
         writercv: pthread_cond_t = .{},
     },
     .fuchsia => extern struct {
-        size: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
+        size: [56]u8 align(@alignOf(usize)) = @splat(0),
     },
     .emscripten => extern struct {
-        size: [32]u8 align(4) = [_]u8{0} ** 32,
+        size: [32]u8 align(4) = @splat(0),
     },
     // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L86
     .serenity => extern struct {
@@ -8170,8 +8170,8 @@ pub const sem_t = switch (native_os) {
         count: u32 = 0,
         type: u16 = 0,
         magic: u16 = 0x534d,
-        __pad1: [3]u64 = [_]u64{0} ** 3,
-        __pad2: [2]u64 = [_]u64{0} ** 2,
+        __pad1: [3]u64 = @splat(0),
+        __pad2: [2]u64 = @splat(0),
     },
     .openbsd, .netbsd, .dragonfly => ?*opaque {},
     .haiku => extern struct {
@@ -8235,7 +8235,7 @@ pub const Kevent = switch (native_os) {
         /// Opaque user data identifier.
         udata: usize,
         /// Future extensions.
-        _ext: [4]u64 = [_]u64{0} ** 4,
+        _ext: [4]u64 = @splat(0),
     },
     .dragonfly => extern struct {
         ident: usize,

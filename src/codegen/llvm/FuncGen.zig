@@ -3981,7 +3981,7 @@ fn buildFloatOp(
     const scalar_llvm_ty = try o.lowerType(scalar_ty);
     const libc_fn = try o.getLibcFunction(
         fn_name,
-        ([1]Builder.Type{scalar_llvm_ty} ** 3)[0..params.len],
+        @as([3]Builder.Type, @splat(scalar_llvm_ty))[0..params.len],
         scalar_llvm_ty,
     );
     if (ty.zigTypeTag(zcu) == .vector) {

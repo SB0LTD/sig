@@ -406,24 +406,24 @@ pub fn Array(comptime MaskIntType: type, comptime size: usize) type {
         /// Deprecated: use `.empty`.
         /// Creates a bit set with no elements present.
         pub fn initEmpty() Self {
-            return .{ .masks = [_]MaskInt{0} ** num_masks };
+            return .empty;
         }
 
         /// Deprecated: use `.full`.
         /// Creates a bit set with all elements present.
         pub fn initFull() Self {
-            if (num_masks == 0) {
-                return .{ .masks = .{} };
-            } else {
-                return .{ .masks = [_]MaskInt{~@as(MaskInt, 0)} ** (num_masks - 1) ++ [_]MaskInt{last_item_mask} };
-            }
+            return .full;
         }
 
         /// A bit set with no elements present.
         pub const empty: Self = .{ .masks = @splat(0) };
 
         /// A bit set with all elements present.
-        pub const full: Self = .{ .masks = if (num_masks == 0) .{} else ([_]MaskInt{~@as(MaskInt, 0)} ** (num_masks - 1) ++ [_]MaskInt{last_item_mask}) };
+        pub const full: Self = full: {
+            var masks: [num_masks]MaskInt = @splat(~@as(MaskInt, 0));
+            if (num_masks > 0) masks[num_masks - 1] = last_item_mask;
+            break :full .{ .masks = masks };
+        };
 
         /// Returns the number of bits in this bit set
         pub inline fn capacity(self: Self) usize {
