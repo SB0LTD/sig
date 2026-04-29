@@ -507,6 +507,7 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .less_than,
         .less_or_equal,
         .array_cat,
+        .array_mult,
         .bool_and,
         .bool_or,
         .@"asm",
@@ -775,6 +776,19 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .less_than        => return simpleBinOp(gz, scope, ri, node, .cmp_lt),
         .less_or_equal    => return simpleBinOp(gz, scope, ri, node, .cmp_lte),
         .array_cat        => return simpleBinOp(gz, scope, ri, node, .array_cat),
+
+        .array_mult => {
+            // This syntax form does not currently use the result type in the language specification.
+            // However, the result type can be used to emit more optimal code for large multiplications by
+            // having Sema perform a coercion before the multiplication operation.
+            const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
+            const result = try gz.addPlNode(.array_mul, node, Zir.Inst.ArrayMul{
+                .res_ty = if (try ri.rl.resultType(gz, node)) |t| t else .none,
+                .lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node),
+                .rhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, rhs_node, .array_mul_factor),
+            });
+            return rvalue(gz, ri, result, node);
+        },
 
         .error_union, .merge_error_sets => |tag| {
             const inst_tag: Zir.Inst.Tag = switch (tag) {
@@ -1398,12 +1412,12 @@ fn fnProtoExprInner(
         try comptimeExpr(
             &block_scope,
             scope,
-            .{ .rl = .{ .coerced_ty = try block_scope.addStdLangValue(callconv_expr, .calling_convention) } },
+            .{ .rl = .{ .coerced_ty = try block_scope.addBuiltinValue(callconv_expr, .calling_convention) } },
             callconv_expr,
             .@"callconv",
         )
     else if (implicit_ccc)
-        try block_scope.addStdLangValue(node, .calling_convention_c)
+        try block_scope.addBuiltinValue(node, .calling_convention_c)
     else
         .none;
 
@@ -2699,6 +2713,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .alloc_inferred_comptime_mut,
             .make_ptr_const,
             .array_cat,
+            .array_mul,
             .array_type,
             .array_type_sentinel,
             .elem_type,
@@ -3782,7 +3797,7 @@ fn ptrType(
         gz.astgen.source_line = source_line;
         gz.astgen.source_column = source_column;
 
-        const addrspace_ty = try gz.addStdLangValue(addrspace_node, .address_space);
+        const addrspace_ty = try gz.addBuiltinValue(addrspace_node, .address_space);
         addrspace_ref = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = addrspace_ty } }, addrspace_node, .@"addrspace");
         trailing_count += 1;
     }
@@ -4077,7 +4092,7 @@ fn fnDecl(
 
     if (fn_proto.ast.addrspace_expr.unwrap()) |addrspace_expr| {
         astgen.restoreSourceCursor(saved_cursor);
-        const addrspace_ty = try addrspace_gz.addStdLangValue(addrspace_expr, .address_space);
+        const addrspace_ty = try addrspace_gz.addBuiltinValue(addrspace_expr, .address_space);
         const inst = try expr(&addrspace_gz, &addrspace_gz.base, .{ .rl = .{ .coerced_ty = addrspace_ty } }, addrspace_expr);
         _ = try addrspace_gz.addBreakWithSrcNode(.break_inline, decl_inst, inst, decl_node);
     }
@@ -4285,7 +4300,7 @@ fn fnDeclInner(
             const inst = try expr(
                 &cc_gz,
                 scope,
-                .{ .rl = .{ .coerced_ty = try cc_gz.addStdLangValue(callconv_expr, .calling_convention) } },
+                .{ .rl = .{ .coerced_ty = try cc_gz.addBuiltinValue(callconv_expr, .calling_convention) } },
                 callconv_expr,
             );
             if (cc_gz.instructionsSlice().len == 0) {
@@ -4295,7 +4310,7 @@ fn fnDeclInner(
             _ = try cc_gz.addBreak(.break_inline, @enumFromInt(0), inst);
             break :blk inst;
         } else if (has_inline_keyword) {
-            const inst = try cc_gz.addStdLangValue(decl_node, .calling_convention_inline);
+            const inst = try cc_gz.addBuiltinValue(decl_node, .calling_convention_inline);
             _ = try cc_gz.addBreak(.break_inline, @enumFromInt(0), inst);
             break :blk inst;
         } else {
@@ -4493,7 +4508,7 @@ fn globalVarDecl(
     defer addrspace_gz.unstack();
 
     if (var_decl.ast.addrspace_node.unwrap()) |addrspace_node| {
-        const addrspace_ty = try addrspace_gz.addStdLangValue(addrspace_node, .address_space);
+        const addrspace_ty = try addrspace_gz.addBuiltinValue(addrspace_node, .address_space);
         const addrspace_inst = try expr(&addrspace_gz, &addrspace_gz.base, .{ .rl = .{ .coerced_ty = addrspace_ty } }, addrspace_node);
         _ = try addrspace_gz.addBreakWithSrcNode(.break_inline, decl_inst, addrspace_inst, node);
     }
@@ -4780,7 +4795,7 @@ fn testDecl(
         .noalias_bits = 0,
 
         // Tests don't have a prototype that needs hashing
-        .proto_hash = @splat(0),
+        .proto_hash = .{0} ** 16,
     });
 
     _ = try decl_block.addBreak(.break_inline, decl_inst, func_inst);
@@ -4815,7 +4830,7 @@ fn structDeclInner(
     scope: *Scope,
     node: Ast.Node.Index,
     container_decl: Ast.full.ContainerDecl,
-    layout: std.lang.Type.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
     maybe_backing_int_node: Ast.Node.OptionalIndex,
     name_strat: Zir.Inst.NameStrategy,
 ) InnerError!Zir.Inst.Ref {
@@ -5020,7 +5035,7 @@ fn tupleDecl(
     scope: *Scope,
     node: Ast.Node.Index,
     container_decl: Ast.full.ContainerDecl,
-    layout: std.lang.Type.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
     backing_int_node: Ast.Node.OptionalIndex,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
@@ -5117,7 +5132,7 @@ fn unionDeclInner(
     scope: *Scope,
     node: Ast.Node.Index,
     members: []const Ast.Node.Index,
-    layout: std.lang.Type.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
     opt_arg_node: Ast.Node.OptionalIndex,
     auto_enum_tok: ?Ast.TokenIndex,
     name_strat: Zir.Inst.NameStrategy,
@@ -5324,7 +5339,7 @@ fn containerDecl(
 
     switch (tree.tokenTag(container_decl.ast.main_token)) {
         .keyword_struct => {
-            const layout: std.lang.Type.ContainerLayout = if (container_decl.layout_token) |t| switch (tree.tokenTag(t)) {
+            const layout: std.builtin.Type.ContainerLayout = if (container_decl.layout_token) |t| switch (tree.tokenTag(t)) {
                 .keyword_packed => .@"packed",
                 .keyword_extern => .@"extern",
                 else => unreachable,
@@ -5334,7 +5349,7 @@ fn containerDecl(
             return rvalue(gz, ri, result, node);
         },
         .keyword_union => {
-            const layout: std.lang.Type.ContainerLayout = if (container_decl.layout_token) |t| switch (tree.tokenTag(t)) {
+            const layout: std.builtin.Type.ContainerLayout = if (container_decl.layout_token) |t| switch (tree.tokenTag(t)) {
                 .keyword_packed => .@"packed",
                 .keyword_extern => .@"extern",
                 else => unreachable,
@@ -8060,7 +8075,7 @@ fn identifier(
 
         int_type: {
             if (ident_name_raw.len < 2) break :int_type;
-            const signedness: std.lang.Signedness = switch (ident_name_raw[0]) {
+            const signedness: std.builtin.Signedness = switch (ident_name_raw[0]) {
                 'u' => .unsigned,
                 'i' => .signed,
                 else => break :int_type,
@@ -8650,7 +8665,7 @@ fn asmExpr(
 
     const clobbers: Zir.Inst.Ref = if (full.ast.clobbers.unwrap()) |clobbers_node|
         try comptimeExpr(gz, scope, .{ .rl = .{
-            .coerced_ty = try gz.addStdLangValue(clobbers_node, .clobbers),
+            .coerced_ty = try gz.addBuiltinValue(clobbers_node, .clobbers),
         } }, clobbers_node, .clobber)
     else
         .none;
@@ -8992,7 +9007,7 @@ fn builtinCall(
             if (!allow_branch_hint) {
                 return astgen.failNode(node, "'@branchHint' must appear as the first statement in a function or conditional branch", .{});
             }
-            const hint_ty = try gz.addStdLangValue(node, .branch_hint);
+            const hint_ty = try gz.addBuiltinValue(node, .branch_hint);
             const hint_val = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = hint_ty } }, params[0], .operand_branchHint);
             _ = try gz.addExtendedPayload(.branch_hint, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
@@ -9090,7 +9105,7 @@ fn builtinCall(
 
         .@"export" => {
             const exported = try expr(gz, scope, .{ .rl = .none }, params[0]);
-            const export_options_ty = try gz.addStdLangValue(node, .export_options);
+            const export_options_ty = try gz.addBuiltinValue(node, .export_options);
             const options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = export_options_ty } }, params[1], .export_options);
             _ = try gz.addPlNode(.@"export", node, Zir.Inst.Export{
                 .exported = exported,
@@ -9100,7 +9115,7 @@ fn builtinCall(
         },
         .@"extern" => {
             const type_inst = try typeExpr(gz, scope, params[0]);
-            const extern_options_ty = try gz.addStdLangValue(node, .extern_options);
+            const extern_options_ty = try gz.addBuiltinValue(node, .extern_options);
             const options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = extern_options_ty } }, params[1], .extern_options);
             const result = try gz.addExtendedPayload(.builtin_extern, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
@@ -9110,7 +9125,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .set_float_mode => {
-            const float_mode_ty = try gz.addStdLangValue(node, .float_mode);
+            const float_mode_ty = try gz.addBuiltinValue(node, .float_mode);
             const order = try expr(gz, scope, .{ .rl = .{ .coerced_ty = float_mode_ty } }, params[0]);
             _ = try gz.addExtendedPayload(.set_float_mode, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
@@ -9196,7 +9211,7 @@ fn builtinCall(
 
         .EnumLiteral => return rvalue(gz, ri, .enum_literal_type, node),
         .Int => {
-            const signedness_ty = try gz.addStdLangValue(node, .signedness);
+            const signedness_ty = try gz.addBuiltinValue(node, .signedness);
             const result = try gz.addPlNode(.reify_int, node, Zir.Inst.Bin{
                 .lhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = signedness_ty } }, params[0], .int_signedness),
                 .rhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u16_type } }, params[1], .int_bit_width),
@@ -9211,8 +9226,8 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .Pointer => {
-            const ptr_size_ty = try gz.addStdLangValue(node, .pointer_size);
-            const ptr_attrs_ty = try gz.addStdLangValue(node, .pointer_attributes);
+            const ptr_size_ty = try gz.addBuiltinValue(node, .pointer_size);
+            const ptr_attrs_ty = try gz.addBuiltinValue(node, .pointer_attributes);
             const size = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = ptr_size_ty } }, params[0], .pointer_size);
             const attrs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = ptr_attrs_ty } }, params[1], .pointer_attrs);
             const elem_ty = try typeExpr(gz, scope, params[2]);
@@ -9231,7 +9246,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .Fn => {
-            const fn_attrs_ty = try gz.addStdLangValue(node, .fn_attributes);
+            const fn_attrs_ty = try gz.addBuiltinValue(node, .fn_attributes);
             const param_types = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_type_type } }, params[0], .fn_param_types);
             const param_attrs_ty = try gz.addExtendedPayloadSmall(
                 .reify_slice_arg_ty,
@@ -9251,7 +9266,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .Struct => {
-            const container_layout_ty = try gz.addStdLangValue(node, .container_layout);
+            const container_layout_ty = try gz.addBuiltinValue(node, .container_layout);
             const layout = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = container_layout_ty } }, params[0], .struct_layout);
             const backing_ty = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .optional_type_type } }, params[1], .type);
             const field_names = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_slice_const_u8_type } }, params[2], .struct_field_names);
@@ -9279,7 +9294,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .Union => {
-            const container_layout_ty = try gz.addStdLangValue(node, .container_layout);
+            const container_layout_ty = try gz.addBuiltinValue(node, .container_layout);
             const layout = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = container_layout_ty } }, params[0], .union_layout);
             const arg_ty = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .optional_type_type } }, params[1], .type);
             const field_names = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_slice_const_u8_type } }, params[2], .union_field_names);
@@ -9307,7 +9322,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .Enum => {
-            const enum_mode_ty = try gz.addStdLangValue(node, .enum_mode);
+            const enum_mode_ty = try gz.addBuiltinValue(node, .enum_mode);
             const tag_ty = try typeExpr(gz, scope, params[0]);
             const mode = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = enum_mode_ty } }, params[1], .type);
             const field_names = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_slice_const_u8_type } }, params[2], .enum_field_names);
@@ -9425,7 +9440,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .reduce => {
-            const reduce_op_ty = try gz.addStdLangValue(node, .reduce_op);
+            const reduce_op_ty = try gz.addBuiltinValue(node, .reduce_op);
             const op = try expr(gz, scope, .{ .rl = .{ .coerced_ty = reduce_op_ty } }, params[0]);
             const scalar = try expr(gz, scope, .{ .rl = .none }, params[1]);
             const result = try gz.addPlNode(.reduce, node, Zir.Inst.Bin{
@@ -9441,7 +9456,7 @@ fn builtinCall(
         .shl_with_overflow => return overflowArithmetic(gz, scope, ri, node, params, .shl_with_overflow),
 
         .atomic_load => {
-            const atomic_order_type = try gz.addStdLangValue(node, .atomic_order);
+            const atomic_order_type = try gz.addBuiltinValue(node, .atomic_order);
             const result = try gz.addPlNode(.atomic_load, node, Zir.Inst.AtomicLoad{
                 // zig fmt: off
                 .elem_type = try typeExpr(gz, scope,                                                  params[0]),
@@ -9452,8 +9467,8 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .atomic_rmw => {
-            const atomic_order_type = try gz.addStdLangValue(node, .atomic_order);
-            const atomic_rmw_op_type = try gz.addStdLangValue(node, .atomic_rmw_op);
+            const atomic_order_type = try gz.addBuiltinValue(node, .atomic_order);
+            const atomic_rmw_op_type = try gz.addBuiltinValue(node, .atomic_rmw_op);
             const int_type = try typeExpr(gz, scope, params[0]);
             const result = try gz.addPlNode(.atomic_rmw, node, Zir.Inst.AtomicRmw{
                 // zig fmt: off
@@ -9466,7 +9481,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .atomic_store => {
-            const atomic_order_type = try gz.addStdLangValue(node, .atomic_order);
+            const atomic_order_type = try gz.addBuiltinValue(node, .atomic_order);
             const int_type = try typeExpr(gz, scope, params[0]);
             _ = try gz.addPlNode(.atomic_store, node, Zir.Inst.AtomicStore{
                 // zig fmt: off
@@ -9490,7 +9505,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .call => {
-            const call_modifier_ty = try gz.addStdLangValue(node, .call_modifier);
+            const call_modifier_ty = try gz.addBuiltinValue(node, .call_modifier);
             const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = call_modifier_ty } }, params[0], .call_modifier);
             const callee = try expr(gz, scope, .{ .rl = .none }, params[1]);
             const args = try expr(gz, scope, .{ .rl = .none }, params[2]);
@@ -9567,7 +9582,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .prefetch => {
-            const prefetch_options_ty = try gz.addStdLangValue(node, .prefetch_options);
+            const prefetch_options_ty = try gz.addBuiltinValue(node, .prefetch_options);
             const ptr = try expr(gz, scope, .{ .rl = .none }, params[0]);
             const options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = prefetch_options_ty } }, params[1], .prefetch_options);
             _ = try gz.addExtendedPayload(.prefetch, Zir.Inst.BinNode{
@@ -9800,7 +9815,7 @@ fn cmpxchg(
     small: u16,
 ) InnerError!Zir.Inst.Ref {
     const int_type = try typeExpr(gz, scope, params[0]);
-    const atomic_order_type = try gz.addStdLangValue(node, .atomic_order);
+    const atomic_order_type = try gz.addBuiltinValue(node, .atomic_order);
     const result = try gz.addExtendedPayloadSmall(.cmpxchg, small, Zir.Inst.Cmpxchg{
         // zig fmt: off
         .node           = gz.nodeIndexToRelative(node),
@@ -9925,7 +9940,7 @@ fn callExpr(
     const astgen = gz.astgen;
 
     const callee = try calleeExpr(gz, scope, ri.rl, override_decl_literal_type, call.ast.fn_expr);
-    const modifier: std.lang.CallModifier = blk: {
+    const modifier: std.builtin.CallModifier = blk: {
         if (gz.nosuspend_node != .none) {
             break :blk .no_suspend;
         }
@@ -10292,6 +10307,7 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .add_wrap,
             .add_sat,
             .array_cat,
+            .array_mult,
             .assign,
             .assign_destructure,
             .assign_bit_and,
@@ -11801,8 +11817,8 @@ const GenZir = struct {
         return new_index;
     }
 
-    fn addStdLangValue(gz: *GenZir, src_node: Ast.Node.Index, val: Zir.Inst.StdLangValue) !Zir.Inst.Ref {
-        return addExtendedNodeSmall(gz, .std_lang_value, src_node, @intFromEnum(val));
+    fn addBuiltinValue(gz: *GenZir, src_node: Ast.Node.Index, val: Zir.Inst.BuiltinValue) !Zir.Inst.Ref {
+        return addExtendedNodeSmall(gz, .builtin_value, src_node, @intFromEnum(val));
     }
 
     fn addExtendedPayload(gz: *GenZir, opcode: Zir.Inst.Extended, extra: anytype) !Zir.Inst.Ref {
@@ -12350,7 +12366,7 @@ const GenZir = struct {
     fn setStruct(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
         src_node: Ast.Node.Index,
         name_strat: Zir.Inst.NameStrategy,
-        layout: std.lang.Type.ContainerLayout,
+        layout: std.builtin.Type.ContainerLayout,
         backing_int_type_body_len: ?u32,
         decls_len: u32,
         fields_len: u32,
