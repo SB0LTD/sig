@@ -567,7 +567,7 @@ pub const Step = extern struct {
                 file_content,
                 output_file,
                 output_directory,
-                cli_extras,
+                passthru,
             };
 
             pub const Index = IndexType(@This());

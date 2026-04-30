@@ -142,7 +142,7 @@ pub const Arg = union(enum) {
     output_file_dep: *Output,
     output_directory: *Output,
     /// The arguments passed after "--" on the "zig build" CLI.
-    cli_extras,
+    passthru,
 };
 
 pub const PrefixedArtifact = struct {
@@ -517,16 +517,18 @@ pub fn addArgs(run: *Run, args: []const []const u8) void {
     for (args) |arg| run.addArg(arg);
 }
 
-/// Any extra positional args are provided to the `zig build` command, they are
-/// appended here. This causes the step to be considered to have side effects,
-/// disabling caching.
+/// Appends the extra arguments provided to `zig build` to the command line
+/// that will be passed to the process being run.
+///
+/// This causes the step to be considered to have side effects, disabling
+/// caching.
 ///
 /// In the example command `zig build run -- arg1 arg2`, "arg1" and "arg2" will
 /// be passed to the process being run.
-pub fn addCliExtras(run: *Run) void {
+pub fn addPassthruArgs(run: *Run) void {
     const graph = run.step.owner.graph;
     const arena = graph.arena;
-    run.argv.append(arena, .cli_extras) catch @panic("OOM");
+    run.argv.append(arena, .passthru) catch @panic("OOM");
 }
 
 pub fn setStdIn(run: *Run, stdin: StdIn) void {
