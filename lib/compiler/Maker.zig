@@ -1528,7 +1528,6 @@ pub fn printErrorMessages(
 ) !void {
     const c = &maker.scanned_config.configuration;
     const gpa = maker.gpa;
-    log.err("TODO also report if result_oom flag is set", .{});
     const writer = stderr.writer;
     if (error_style.verboseContext()) {
         // Provide context for where these error messages are coming from by
@@ -1606,6 +1605,13 @@ pub fn printErrorMessages(
             try writer.writeAll(cmd_str);
             try writer.writeByte('\n');
         }
+    }
+
+    if (failing_step.result_oom) {
+        try stderr.setColor(.red);
+        try writer.writeAll("error information missing due to allocation failure");
+        try stderr.setColor(.reset);
+        try writer.writeByte('\n');
     }
 
     try writer.writeByte('\n');
