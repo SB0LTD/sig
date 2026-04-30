@@ -3910,13 +3910,6 @@ pub fn getTarget(zcu: *const Zcu) *const Target {
     return &zcu.root_mod.resolved_target.result;
 }
 
-/// Deprecated. There is no global optimization mode for a Zig Compilation
-/// Unit. Instead, look up the optimization mode based on the Module that
-/// contains the source code being analyzed.
-pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
-    return zcu.root_mod.optimize_mode;
-}
-
 pub fn handleUpdateExports(
     zcu: *Zcu,
     export_indices: []const Export.Index,

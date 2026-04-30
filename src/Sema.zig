@@ -379,7 +379,7 @@ pub const Block = struct {
     /// pop the error trace upon block exit.
     error_return_trace_index: Air.Inst.Ref = .none,
 
-    /// when null, it is determined by build mode, changed by @setRuntimeSafety
+    /// when null, it is determined by the owner modules build mode, changed by @setRuntimeSafety
     want_safety: ?bool = null,
 
     /// What mode to generate float operations in, set by @setFloatMode
@@ -532,7 +532,7 @@ pub const Block = struct {
     }
 
     fn wantSafeTypes(block: *const Block) bool {
-        return block.want_safety orelse switch (block.sema.pt.zcu.optimizeMode()) {
+        return block.want_safety orelse switch (block.ownerModule().optimize_mode) {
             .Debug => true,
             .ReleaseSafe => true,
             .ReleaseFast => false,
@@ -542,7 +542,7 @@ pub const Block = struct {
 
     fn wantSafety(block: *const Block) bool {
         if (block.isComptime()) return false; // runtime safety checks are pointless in comptime blocks
-        return block.want_safety orelse switch (block.sema.pt.zcu.optimizeMode()) {
+        return block.want_safety orelse switch (block.ownerModule().optimize_mode) {
             .Debug => true,
             .ReleaseSafe => true,
             .ReleaseFast => false,

@@ -449,7 +449,7 @@ pub const Function = struct {
     }
 
     fn wantSafety(f: *Function) bool {
-        return switch (f.dg.pt.zcu.optimizeMode()) {
+        return switch (f.dg.mod.optimize_mode) {
             .Debug, .ReleaseSafe => true,
             .ReleaseFast, .ReleaseSmall => false,
         };
@@ -1305,7 +1305,7 @@ pub const DeclGen = struct {
             else => .initializer,
         };
 
-        const safety_on = switch (zcu.optimizeMode()) {
+        const safety_on = switch (dg.mod.optimize_mode) {
             .Debug, .ReleaseSafe => true,
             .ReleaseFast, .ReleaseSmall => false,
         };
