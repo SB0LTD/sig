@@ -36,9 +36,6 @@ invalid_user_input: bool,
 default_step: *Step,
 top_level_steps: std.StringArrayHashMapUnmanaged(*Step.TopLevel),
 install_prefix: []const u8,
-/// Path to the directory containing build.zig.
-build_root: Cache.Directory,
-cache_root: Cache.Directory,
 debug_log_scopes: []const []const u8 = &.{},
 /// Number of stack frames captured when a `StackTrace` is recorded for debug purposes,
 /// in particular at `Step` creation.
@@ -83,10 +80,7 @@ pub const Graph = struct {
     arena: Allocator,
     system_integration_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
-    zig_exe: []const u8,
     environ_map: process.Environ.Map,
-    global_cache_root: Cache.Directory,
-    zig_lib_directory: Cache.Directory,
     needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .empty,
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
@@ -97,10 +91,6 @@ pub const Graph = struct {
     /// respects the '--color' flag.
     stderr_mode: ?Io.Terminal.Mode = null,
     release_mode: ReleaseMode = .off,
-    /// Whether the user passed in "--" arguments. They can be added to a child
-    /// process via `Step.Run` API but cannot be observed in the configure
-    /// phase.
-    have_run_args: bool = false,
 
     /// Indexes correspond to `Configuration.GeneratedFileIndex`.
     generated_files: std.ArrayList(*Step),
@@ -230,8 +220,6 @@ const TypeId = enum {
 
 pub fn create(
     graph: *Graph,
-    build_root: Cache.Directory,
-    cache_root: Cache.Directory,
     available_deps: AvailableDeps,
 ) error{OutOfMemory}!*Build {
     const arena = graph.arena;
@@ -239,8 +227,6 @@ pub fn create(
     const b = try arena.create(Build);
     b.* = .{
         .graph = graph,
-        .build_root = build_root,
-        .cache_root = cache_root,
         .invalid_user_input = false,
         .allocator = arena,
         .user_input_options = UserInputOptionsMap.init(arena),
@@ -280,7 +266,6 @@ pub fn create(
 fn createChild(
     parent: *Build,
     dep_name: []const u8,
-    build_root: Cache.Directory,
     pkg_hash: []const u8,
     pkg_deps: AvailableDeps,
     user_input_options: UserInputOptionsMap,
@@ -312,8 +297,6 @@ fn createChild(
         .invalid_user_input = false,
         .default_step = undefined,
         .top_level_steps = .{},
-        .build_root = build_root,
-        .cache_root = parent.cache_root,
         .debug_log_scopes = parent.debug_log_scopes,
         .enable_darling = parent.enable_darling,
         .enable_qemu = parent.enable_qemu,
@@ -2036,15 +2019,12 @@ fn dependencyInner(
 
     const build_root: std.Build.Cache.Directory = .{
         .path = build_root_string,
-        .handle = Io.Dir.cwd().openDir(io, build_root_string, .{}) catch |err| {
-            std.debug.print("unable to open '{s}': {s}\n", .{
-                build_root_string, @errorName(err),
-            });
-            process.exit(1);
-        },
+        .handle = Io.Dir.cwd().openDir(io, build_root_string, .{}) catch |err|
+            process.fatal("unable to open {s}: {t}", .{ build_root_string, err }),
     };
 
-    const sub_builder = b.createChild(name, build_root, pkg_hash, pkg_deps, user_input_options) catch @panic("unhandled error");
+    const sub_builder = b.createChild(name, build_root, pkg_hash, pkg_deps, user_input_options) catch
+        @panic("unhandled error");
     if (build_zig) |bz| {
         sub_builder.runBuild(bz) catch @panic("unhandled error");
 
@@ -2330,9 +2310,9 @@ pub const InstallDir = union(enum) {
     }
 };
 
-/// Creates a path leading to a directory inside "tmp" subdirectory of
-/// `cache_root` which is created on demand and cleaned up by the build runner
-/// upon success.
+/// Creates a path leading to a directory inside "tmp" subdirectory of local
+/// cache which is created on demand and cleaned up by the build runner upon
+/// success.
 pub fn tmpPath(b: *Build) LazyPath {
     const wf = b.addTempFiles();
     return wf.getDirectory();

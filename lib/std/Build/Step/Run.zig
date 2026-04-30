@@ -215,9 +215,7 @@ pub fn setName(run: *Run, name: []const u8) void {
 
 pub fn enableTestRunnerMode(run: *Run) void {
     if (run.test_runner_mode) return;
-    const b = run.step.owner;
     run.stdio = .zig_test;
-    run.addPrefixedDirectoryArg("--cache-dir=", .{ .cwd_relative = b.cache_root.path orelse "." });
     run.test_runner_mode = true;
 }
 

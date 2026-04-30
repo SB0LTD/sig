@@ -39,44 +39,10 @@ pub fn main(init: process.Init.Minimal) !void {
 
     const args = try init.args.toSlice(arena);
 
-    // Skip own executable name.
-    var arg_idx: usize = 1;
-
-    const zig_exe = expectArgOrFatal(args, &arg_idx, "--zig");
-    const zig_lib_dir = expectArgOrFatal(args, &arg_idx, "--zig-lib-dir");
-    const build_root = expectArgOrFatal(args, &arg_idx, "--build-root");
-    const local_cache_root = expectArgOrFatal(args, &arg_idx, "--local-cache");
-    const global_cache_root = expectArgOrFatal(args, &arg_idx, "--global-cache");
-
-    const cwd: Io.Dir = .cwd();
-
-    const zig_lib_directory: std.Build.Cache.Directory = .{
-        .path = zig_lib_dir,
-        .handle = try cwd.openDir(io, zig_lib_dir, .{}),
-    };
-
-    const build_root_directory: std.Build.Cache.Directory = .{
-        .path = build_root,
-        .handle = try cwd.openDir(io, build_root, .{}),
-    };
-
-    const local_cache_directory: std.Build.Cache.Directory = .{
-        .path = local_cache_root,
-        .handle = try cwd.createDirPathOpen(io, local_cache_root, .{}),
-    };
-
-    const global_cache_directory: std.Build.Cache.Directory = .{
-        .path = global_cache_root,
-        .handle = try cwd.createDirPathOpen(io, global_cache_root, .{}),
-    };
-
     var graph: std.Build.Graph = .{
         .io = io,
         .arena = arena,
-        .zig_exe = zig_exe,
         .environ_map = try init.environ.createMap(arena),
-        .global_cache_root = global_cache_directory,
-        .zig_lib_directory = zig_lib_directory,
         // TODO get this from parent process instead
         .host = .{
             .query = .{},
@@ -96,12 +62,7 @@ pub fn main(init: process.Init.Minimal) !void {
     assert(try graph.wip_configuration.addString("") == .empty);
     assert(try graph.wip_configuration.addString("root") == .root);
 
-    const builder = try std.Build.create(
-        &graph,
-        build_root_directory,
-        local_cache_directory,
-        dependencies.root_deps,
-    );
+    const builder = try std.Build.create(&graph, dependencies.root_deps);
 
     var error_style: ErrorStyle = .verbose;
     var multiline_errors: MultilineErrors = .indent;
@@ -119,7 +80,9 @@ pub fn main(init: process.Init.Minimal) !void {
         }
     }
 
-    while (nextArg(args, &arg_idx)) |arg| {
+    var arg_i: usize = 1; // Skip own executable name.
+
+    while (nextArg(args, &arg_i)) |arg| {
         if (mem.cutPrefix(u8, arg, "-D")) |option_contents| {
             if (option_contents.len == 0)
                 fatalWithHint("expected option name after '-D'", .{});
@@ -145,7 +108,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 });
             };
         } else if (mem.eql(u8, arg, "--color")) {
-            const next_arg = nextArg(args, &arg_idx) orelse
+            const next_arg = nextArg(args, &arg_i) orelse
                 fatalWithHint("expected [auto|on|off] after {q}", .{arg});
             color = std.meta.stringToEnum(Color, next_arg) orelse {
                 fatalWithHint("expected [auto|on|off] after {q}, found {q}", .{
@@ -153,13 +116,13 @@ pub fn main(init: process.Init.Minimal) !void {
                 });
             };
         } else if (mem.eql(u8, arg, "--error-style")) {
-            const next_arg = nextArg(args, &arg_idx) orelse
+            const next_arg = nextArg(args, &arg_i) orelse
                 fatalWithHint("expected style after {q}", .{arg});
             error_style = std.meta.stringToEnum(ErrorStyle, next_arg) orelse {
                 fatalWithHint("expected style after {q}, found {q}", .{ arg, next_arg });
             };
         } else if (mem.eql(u8, arg, "--multiline-errors")) {
-            const next_arg = nextArg(args, &arg_idx) orelse
+            const next_arg = nextArg(args, &arg_i) orelse
                 fatalWithHint("expected style after {q}", .{arg});
             multiline_errors = std.meta.stringToEnum(MultilineErrors, next_arg) orelse {
                 fatalWithHint("expected style after {q}, found {q}", .{ arg, next_arg });
@@ -169,8 +132,6 @@ pub fn main(init: process.Init.Minimal) !void {
             // but it is handled by the parent process. The build runner
             // only sees this flag.
             graph.system_package_mode = true;
-        } else if (mem.eql(u8, arg, "--have-run-args")) {
-            graph.have_run_args = true;
         } else {
             fatalWithHint("unrecognized argument: {q}", .{arg});
         }
@@ -1110,19 +1071,6 @@ fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
-}
-
-fn nextArgOrFatal(args: []const [:0]const u8, idx: *usize) [:0]const u8 {
-    return nextArg(args, idx) orelse {
-        fatalWithHint("expected argument after: {s}", .{args[idx.* - 1]});
-    };
-}
-
-fn expectArgOrFatal(args: []const [:0]const u8, index_ptr: *usize, first: []const u8) []const u8 {
-    const next_arg = nextArg(args, index_ptr) orelse fatal("missing {q} argument", .{first});
-    if (!mem.eql(u8, first, next_arg)) fatal("expected {q} instead of {q}", .{ first, next_arg });
-    const arg = nextArg(args, index_ptr) orelse fatal("expected argument after {q}", .{first});
-    return arg;
 }
 
 const ErrorStyle = enum {

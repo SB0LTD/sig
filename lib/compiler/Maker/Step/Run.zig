@@ -189,7 +189,10 @@ pub fn make(
 
     man.hash.add(conf_run.flags.test_runner_mode);
     if (conf_run.flags.test_runner_mode) {
-        try argv_list.ensureUnusedCapacity(gpa, 2);
+        const cache_dir_string = try convertPathArg(run_index, maker, .{ .root_dir = cache_root });
+
+        try argv_list.ensureUnusedCapacity(gpa, 3);
+        argv_list.appendAssumeCapacity(try allocPrint(arena, "--cache-dir={s}", .{cache_dir_string}));
         argv_list.appendAssumeCapacity(try allocPrint(arena, "--seed=0x{x}", .{graph.random_seed}));
         argv_list.appendAssumeCapacity("--listen=-");
     }

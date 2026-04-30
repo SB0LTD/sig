@@ -4976,43 +4976,27 @@ fn cmdBuild(
     try configure_argv.ensureUnusedCapacity(arena, 16);
     try make_argv.ensureUnusedCapacity(arena, 16);
 
-    _ = configure_argv.addOneAssumeCapacity();
-    _ = make_argv.addOneAssumeCapacity();
+    _ = configure_argv.addOneAssumeCapacity(); // configurer executable
+    _ = make_argv.addOneAssumeCapacity(); // maker executable
 
-    configure_argv.appendAssumeCapacity("--zig");
-    configure_argv.appendAssumeCapacity(self_exe_path);
+    make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--zig", self_exe_path };
 
-    make_argv.appendAssumeCapacity("--zig");
-    make_argv.appendAssumeCapacity(self_exe_path);
+    make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--zig-lib-dir", undefined };
+    const argv_index_zig_lib_dir = make_argv.items.len - 1;
 
-    configure_argv.appendAssumeCapacity("--zig-lib-dir");
-    make_argv.appendAssumeCapacity("--zig-lib-dir");
-    const argv_index_zig_lib_dir = configure_argv.items.len;
-    _ = configure_argv.addOneAssumeCapacity();
-    _ = make_argv.addOneAssumeCapacity();
+    make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--build-root", undefined };
+    const argv_index_build_file = make_argv.items.len - 1;
 
-    configure_argv.appendAssumeCapacity("--build-root");
-    make_argv.appendAssumeCapacity("--build-root");
-    const argv_index_build_file = configure_argv.items.len;
-    _ = configure_argv.addOneAssumeCapacity();
-    _ = make_argv.addOneAssumeCapacity();
+    make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--local-cache", undefined };
+    const argv_index_cache_dir = make_argv.items.len - 1;
 
-    configure_argv.appendAssumeCapacity("--local-cache");
-    make_argv.appendAssumeCapacity("--local-cache");
-    const argv_index_cache_dir = configure_argv.items.len;
-    _ = configure_argv.addOneAssumeCapacity();
-    _ = make_argv.addOneAssumeCapacity();
+    make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--global-cache", undefined };
+    const argv_index_global_cache_dir = make_argv.items.len - 1;
 
-    configure_argv.appendAssumeCapacity("--global-cache");
-    make_argv.appendAssumeCapacity("--global-cache");
-    const argv_index_global_cache_dir = configure_argv.items.len;
-    _ = configure_argv.addOneAssumeCapacity();
-    _ = make_argv.addOneAssumeCapacity();
-
-    make_argv.appendSliceAssumeCapacity(&.{ "--configuration", undefined });
+    make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--configuration", undefined };
     const argv_index_configuration_file = make_argv.items.len - 1;
 
-    make_argv.appendSliceAssumeCapacity(&.{ "--seed", default_seed });
+    make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--seed", default_seed };
     const argv_index_seed = make_argv.items.len - 1;
 
     var color: Color = .auto;
@@ -5147,13 +5131,10 @@ fn cmdBuild(
                     try configure_argv.appendSlice(arena, &.{ arg, args[i] });
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "-j")) |str| {
-                    const num = std.fmt.parseUnsigned(u32, str, 10) catch |err| {
-                        fatal("unable to parse jobs count '{s}': {s}", .{
-                            str, @errorName(err),
-                        });
-                    };
+                    const num = std.fmt.parseUnsigned(u32, str, 10) catch |err|
+                        fatal("unable to parse jobs count {s}: {t}", .{ str, err });
                     if (num < 1) {
-                        fatal("number of jobs must be at least 1\n", .{});
+                        fatal("number of jobs must be at least 1", .{});
                     }
                     n_jobs = num;
                 } else if (mem.eql(u8, arg, "--seed")) {
@@ -5286,11 +5267,6 @@ fn cmdBuild(
         .optimize_mode = maker_optimize_mode,
     } });
     defer _ = make_runner_task.cancel(io) catch {};
-
-    configure_argv.items[argv_index_zig_lib_dir] = dirs.zig_lib.path orelse cwd_path;
-    configure_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
-    configure_argv.items[argv_index_global_cache_dir] = dirs.global_cache.path orelse cwd_path;
-    configure_argv.items[argv_index_cache_dir] = dirs.local_cache.path orelse cwd_path;
 
     make_argv.items[argv_index_zig_lib_dir] = dirs.zig_lib.path orelse cwd_path;
     make_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
