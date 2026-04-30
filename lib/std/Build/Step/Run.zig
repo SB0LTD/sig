@@ -142,7 +142,7 @@ pub const Arg = union(enum) {
     output_file_dep: *Output,
     output_directory: *Output,
     /// The arguments passed after "--" on the "zig build" CLI.
-    cli_rest_positionals,
+    cli_positionals,
 };
 
 pub const PrefixedArtifact = struct {
@@ -491,14 +491,42 @@ pub fn addPrefixedDepFileOutputArg(run: *Run, prefix: []const u8, basename: []co
     return .{ .generated = .{ .index = dep_file.generated_file } };
 }
 
+/// Appends the contents of `arg`, verbatim, to the command line that will be
+/// passed to the process being run.
+///
+/// If `arg` is an input file, `addFileInput` (or related function) must be
+/// used instead to ensure correct cache behavior.
+///
+/// If `arg` is an output file, `addOutputFileArg` (or related function) must
+/// be used instead to ensure correct cache behavior.
 pub fn addArg(run: *Run, arg: []const u8) void {
     const graph = run.step.owner.graph;
     const arena = graph.arena;
     run.argv.append(arena, .{ .bytes = graph.dupeString(arg) }) catch @panic("OOM");
 }
 
+/// Appends each of `args`, verbatim, to the command line that will be passed
+/// to the process being run.
+///
+/// If any element of `args` is an input file, `addFileInput` must be used
+/// instead to ensure correct cache behavior.
+///
+/// If any element of `args` is an output file, `addOutputFileArg` (or related
+/// function) must be used instead to ensure correct cache behavior.
 pub fn addArgs(run: *Run, args: []const []const u8) void {
     for (args) |arg| run.addArg(arg);
+}
+
+/// Any extra positional args are provided to the `zig build` command, they are
+/// appended here. This causes the step to be considered to have side effects,
+/// disabling caching.
+///
+/// In the example command `zig build run -- arg1 arg2`, "arg1" and "arg2" will
+/// be passed to the process being run.
+pub fn addCliPositionals(run: *Run) void {
+    const graph = run.step.owner.graph;
+    const arena = graph.arena;
+    run.argv.append(arena, .cli_positionals) catch @panic("OOM");
 }
 
 pub fn setStdIn(run: *Run, stdin: StdIn) void {

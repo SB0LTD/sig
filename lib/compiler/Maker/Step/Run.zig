@@ -72,6 +72,7 @@ pub fn make(
 
     var any_dep_files = false;
     var any_output_args = false;
+    var any_cli_positionals = false;
 
     for (conf_run.args.slice) |arg_index| {
         const arg = arg_index.get(conf);
@@ -176,10 +177,11 @@ pub fn make(
                 });
                 argv_list.items.len += 1;
             },
-            .cli_rest_positionals => {
+            .cli_positionals => {
+                any_cli_positionals = true;
                 if (maker.run_args) |run_args| {
                     try argv_list.appendSlice(gpa, run_args);
-                    for (run_args) |s| man.hash.addBytes(s);
+                    man.hash.addListOfBytes(run_args);
                 }
             },
         }
@@ -236,13 +238,14 @@ pub fn make(
     }
 
     // Whether the Run step has side effects *other than* updating the output arguments.
-    const has_side_effects = conf_run.flags.has_side_effects or switch (conf_run.flags.stdio) {
-        .infer_from_args => !any_output_args and
-            conf_run.captured_stdout.value == null and
-            conf_run.captured_stderr.value == null,
-        .inherit => true,
-        .check, .zig_test => false,
-    };
+    const has_side_effects = conf_run.flags.has_side_effects or any_cli_positionals or
+        switch (conf_run.flags.stdio) {
+            .infer_from_args => !any_output_args and
+                conf_run.captured_stdout.value == null and
+                conf_run.captured_stderr.value == null,
+            .inherit => true,
+            .check, .zig_test => false,
+        };
 
     if (!has_side_effects and try step.cacheHitAndWatch(maker, &man)) {
         // Cache hit; skip running command.
@@ -1596,7 +1599,7 @@ pub fn rerunInFuzzMode(
             },
             .output_file => unreachable,
             .output_directory => unreachable,
-            .cli_rest_positionals => unreachable,
+            .cli_positionals => unreachable,
         }
     }
 

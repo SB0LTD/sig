@@ -1,21 +1,21 @@
-* make more stuff use IndexType
-* make addExtra return Index using reflection
 * remove Cache from configurer
 * implement the build options
-* get zig init template working
 * finish migrating the rest of the build steps
+* inspect b4ffb402c082605c4b324e88120306fc8fb3cf32 diff and apply changes as needed (merge conflict)
 * make zig-pkg path root configurable in maker (make sure --system still works)
 * eliminate calls to getPath, getPath2, getPath3
+* [build system compile step data races with getGraph function](https://codeberg.org/ziglang/zig/issues/31397)
 * solve the TODOs added in this branch
 * get zig tests passing
 * test a bunch of third party projects / help people migrate
-* refactor with DefaultingEnum
-* inspect b4ffb402c082605c4b324e88120306fc8fb3cf32 diff and apply changes as needed (merge conflict)
-* https://codeberg.org/ziglang/zig/issues/31397
-* restore the generated_compiler_rt_dyn_lib hack?
-* run args
-* https://codeberg.org/ziglang/zig/pulls/30762
+
 * get the target from the parent process instead
+* [handle missing cache hits when chaining two run steps](https://codeberg.org/ziglang/zig/pulls/30762)
+* [Absolute and cwd-relative paths in build cache](https://codeberg.org/ziglang/zig/issues/32097)
+
+* make more stuff use IndexType
+* make addExtra return Index using reflection
+* refactor with DefaultingEnum
 
 ## Followup Issues
 * reduce the size of Maker.Step.Extended (make Run smaller) probably by using an arena per make
@@ -28,4 +28,17 @@
 
 
 ## Release Notes
-* run args are all together now, not observable in configure phase whether run args are provided
+
+run args are all together now, not observable in configure phase whether run args are provided.
+
+```zig
+if (b.args) |args| {
+    run_cmd.addArgs(args);
+}
+```
+
+⬇️
+
+```zig
+run_cmd.addBuildPositionals();
+```
