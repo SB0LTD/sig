@@ -10022,9 +10022,9 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                         defer metadata_formatter.need_comma = undefined;
                         switch (extra.weights) {
                             .none => {},
-                            .unpredictable => try w.writeAll("!unpredictable !{}"),
+                            .unpredictable => try w.writeAll(", !unpredictable !{}"),
                             _ => try w.print("{f}", .{
-                                try metadata_formatter.fmt("!prof ", extra.weights.toMetadata(), null),
+                                try metadata_formatter.fmt(", !prof ", extra.weights.toMetadata(), null),
                             }),
                         }
                     },
