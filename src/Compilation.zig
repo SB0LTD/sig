@@ -7478,9 +7478,14 @@ pub fn build_crt_file(
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
+    const target = &comp.root_mod.resolved_target.result;
+
     const basename = try std.zig.binNameAlloc(gpa, .{
         .root_name = root_name,
-        .target = &comp.root_mod.resolved_target.result,
+        .cpu_arch = target.cpu.arch,
+        .os_tag = target.os.tag,
+        .ofmt = target.ofmt,
+        .abi = target.abi,
         .output_mode = output_mode,
     });
 

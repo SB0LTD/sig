@@ -41,7 +41,10 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     const output_mode = .Lib;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
-        .target = target,
+        .cpu_arch = target.cpu.arch,
+        .os_tag = target.os.tag,
+        .ofmt = target.ofmt,
+        .abi = target.abi,
         .output_mode = output_mode,
         .link_mode = link_mode,
     });
