@@ -142,7 +142,7 @@ pub const Arg = union(enum) {
     output_file_dep: *Output,
     output_directory: *Output,
     /// The arguments passed after "--" on the "zig build" CLI.
-    cli_positionals,
+    cli_extras,
 };
 
 pub const PrefixedArtifact = struct {
@@ -523,10 +523,10 @@ pub fn addArgs(run: *Run, args: []const []const u8) void {
 ///
 /// In the example command `zig build run -- arg1 arg2`, "arg1" and "arg2" will
 /// be passed to the process being run.
-pub fn addCliPositionals(run: *Run) void {
+pub fn addCliExtras(run: *Run) void {
     const graph = run.step.owner.graph;
     const arena = graph.arena;
-    run.argv.append(arena, .cli_positionals) catch @panic("OOM");
+    run.argv.append(arena, .cli_extras) catch @panic("OOM");
 }
 
 pub fn setStdIn(run: *Run, stdin: StdIn) void {

@@ -492,9 +492,9 @@ const Serialize = struct {
                     .producer = .{ .value = null },
                     .generated = .{ .value = a.generated_file },
                 },
-                .cli_positionals => .{
+                .cli_extras => .{
                     .flags = .{
-                        .tag = .cli_positionals,
+                        .tag = .cli_extras,
                         .prefix = false,
                         .suffix = false,
                         .basename = false,

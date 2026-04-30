@@ -177,7 +177,7 @@ pub fn make(
                 });
                 argv_list.items.len += 1;
             },
-            .cli_positionals => {
+            .cli_extras => {
                 any_cli_positionals = true;
                 if (maker.run_args) |run_args| {
                     try argv_list.appendSlice(gpa, run_args);
@@ -1599,7 +1599,7 @@ pub fn rerunInFuzzMode(
             },
             .output_file => unreachable,
             .output_directory => unreachable,
-            .cli_positionals => unreachable,
+            .cli_extras => unreachable,
         }
     }
 

@@ -40,5 +40,5 @@ if (b.args) |args| {
 ⬇️
 
 ```zig
-run_cmd.addBuildPositionals();
+run_cmd.addCliExtras();
 ```
