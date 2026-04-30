@@ -70,7 +70,8 @@ pub fn make(
     man.hash.add(conf_run.flags.color);
     man.hash.add(conf_run.flags.disable_zig_progress);
 
-    var dep_file_count: usize = 0;
+    var any_dep_files = false;
+    var any_output_args = false;
 
     for (conf_run.args.slice) |arg_index| {
         const arg = arg_index.get(conf);
@@ -161,9 +162,10 @@ pub fn make(
                 man.hash.addBytesZ(prefix);
                 man.hash.addBytesZ(basename);
                 man.hash.addBytesZ(suffix);
-
                 man.hash.add(arg.flags.dep_file);
-                dep_file_count += @intFromBool(arg.flags.dep_file);
+
+                any_dep_files = any_dep_files or arg.flags.dep_file;
+                any_output_args = true;
 
                 // Add a placeholder into the argument list because we need the
                 // manifest hash to be updated with all arguments before the
@@ -233,7 +235,14 @@ pub fn make(
         _ = man.hash.addBytes(try cwd_path.toString(arena));
     }
 
-    const has_side_effects = conf_run.flags.has_side_effects;
+    // Whether the Run step has side effects *other than* updating the output arguments.
+    const has_side_effects = conf_run.flags.has_side_effects or switch (conf_run.flags.stdio) {
+        .infer_from_args => !any_output_args and
+            conf_run.captured_stdout.value == null and
+            conf_run.captured_stderr.value == null,
+        .inherit => true,
+        .check, .zig_test => false,
+    };
 
     if (!has_side_effects and try step.cacheHitAndWatch(maker, &man)) {
         // Cache hit; skip running command.
@@ -244,7 +253,7 @@ pub fn make(
         return;
     }
 
-    if (dep_file_count == 0) {
+    if (!any_dep_files) {
         // We already know the final output paths; use them directly.
         const digest = if (has_side_effects) man.hash.final() else man.final();
         const output_dir_path = "o" ++ Dir.path.sep_str ++ &digest;

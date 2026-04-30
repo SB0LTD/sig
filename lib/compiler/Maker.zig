@@ -1669,8 +1669,10 @@ fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
 }
 
 fn cleanTmpFiles(io: Io, steps: []const Configuration.Step.Index) void {
+    std.log.err("TODO implement cleanTmpFiles", .{});
+    if (true) return;
+
     for (steps) |step_index| {
-        if (true) @panic("TODO");
         const wf = step_index.cast(std.Build.Step.WriteFile) orelse continue;
         if (wf.mode != .tmp) continue;
         const path = wf.generated_directory.path orelse continue;
