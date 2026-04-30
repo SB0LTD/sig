@@ -2822,6 +2822,17 @@ fn interpretStdLangType(
     };
 }
 
+fn uninterpretStdLangType(
+    sema: *Sema,
+    val: anytype,
+    ty: Type,
+) !Value {
+    return Value.uninterpret(val, ty, sema.pt) catch |err| switch (err) {
+        error.OutOfMemory => |e| return e,
+        error.TypeMismatch => @panic("std.lang is corrupt"),
+    };
+}
+
 fn zirTupleDecl(
     sema: *Sema,
     block: *Block,
@@ -15988,13 +15999,19 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
         .@"fn" => {
             const fn_info_ty = try sema.getStdLangType(src, .@"Type.Fn");
-            const param_info_ty = try sema.getStdLangType(src, .@"Type.Fn.Param");
+            const param_attrs_ty = try sema.getStdLangType(src, .@"Type.Fn.ParamAttributes");
+            const fn_attr_ty = try sema.getStdLangType(src, .@"Type.Fn.Attributes");
 
             const func_ty_info = zcu.typeToFunc(ty).?;
-            const param_vals = try sema.arena.alloc(InternPool.Index, func_ty_info.param_types.len);
+            const param_type_vals = try sema.arena.alloc(InternPool.Index, func_ty_info.param_types.len);
+            const param_attr_vals = try sema.arena.alloc(InternPool.Index, func_ty_info.param_types.len);
             var func_is_generic = false;
 
-            for (param_vals, 0..) |*param_val, param_index| {
+            for (
+                param_type_vals,
+                param_attr_vals,
+                0..,
+            ) |*param_type_val, *param_attr_val, param_index| {
                 const param_ty = func_ty_info.param_types.get(ip)[param_index];
                 const is_generic = param_ty == .generic_poison_type;
                 const is_noalias, const is_comptime = flags: {
@@ -16011,25 +16028,23 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .val = if (is_generic) .none else param_ty,
                 } });
 
-                const param_fields = .{
-                    // is_generic: bool,
-                    Value.makeBool(is_generic).toIntern(),
-                    // is_noalias: bool,
+                const param_attrs_fields = .{
+                    // @"noalias": bool,
                     Value.makeBool(is_noalias).toIntern(),
-                    // type: ?type,
-                    param_ty_val,
                 };
-                param_val.* = (try pt.aggregateValue(param_info_ty, &param_fields)).toIntern();
+
+                param_type_val.* = param_ty_val;
+                param_attr_val.* = (try pt.aggregateValue(param_attrs_ty, &param_attrs_fields)).toIntern();
             }
 
-            const args_val = v: {
+            const param_types_val = v: {
                 const new_decl_ty = try pt.arrayType(.{
-                    .len = param_vals.len,
-                    .child = param_info_ty.toIntern(),
+                    .len = param_type_vals.len,
+                    .child = try pt.intern(.{ .opt_type = .type_type }),
                 });
-                const new_decl_val = (try pt.aggregateValue(new_decl_ty, param_vals)).toIntern();
+                const new_decl_val = (try pt.aggregateValue(new_decl_ty, param_type_vals)).toIntern();
                 const slice_ty = (try pt.ptrType(.{
-                    .child = param_info_ty.toIntern(),
+                    .child = try pt.intern(.{ .opt_type = .type_type }),
                     .flags = .{
                         .size = .slice,
                         .is_const = true,
@@ -16046,7 +16061,34 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         } },
                         .byte_offset = 0,
                     } }),
-                    .len = (try pt.intValue(.usize, param_vals.len)).toIntern(),
+                    .len = (try pt.intValue(.usize, param_type_vals.len)).toIntern(),
+                } });
+            };
+            const param_attrs_val = v: {
+                const new_decl_ty = try pt.arrayType(.{
+                    .len = param_attr_vals.len,
+                    .child = param_attrs_ty.toIntern(),
+                });
+                const new_decl_val = (try pt.aggregateValue(new_decl_ty, param_attr_vals)).toIntern();
+                const slice_ty = (try pt.ptrType(.{
+                    .child = param_attrs_ty.toIntern(),
+                    .flags = .{
+                        .size = .slice,
+                        .is_const = true,
+                    },
+                })).toIntern();
+                const manyptr_ty = Type.fromInterned(slice_ty).slicePtrFieldType(zcu).toIntern();
+                break :v try pt.intern(.{ .slice = .{
+                    .ty = slice_ty,
+                    .ptr = try pt.intern(.{ .ptr = .{
+                        .ty = manyptr_ty,
+                        .base_addr = .{ .uav = .{
+                            .orig_ty = manyptr_ty,
+                            .val = new_decl_val,
+                        } },
+                        .byte_offset = 0,
+                    } }),
+                    .len = (try pt.intValue(.usize, param_attr_vals.len)).toIntern(),
                 } });
             };
 
@@ -16075,17 +16117,25 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 error.OutOfMemory => |e| return e,
             };
 
-            const field_values: [5]InternPool.Index = .{
-                // calling_convention: CallingConvention,
+            const fn_attrs_values = .{
+                // @"callconv": CallingConvention = .auto,
                 callconv_val.toIntern(),
+                // varargs: bool = false,
+                Value.makeBool(func_ty_info.is_var_args).toIntern(),
+            };
+
+            const field_values = .{
+                // attrs: Attributes,
+                (try pt.aggregateValue(fn_attr_ty, &fn_attrs_values)).toIntern(),
                 // is_generic: bool,
                 Value.makeBool(func_is_generic).toIntern(),
-                // is_var_args: bool,
-                Value.makeBool(func_ty_info.is_var_args).toIntern(),
                 // return_type: ?type,
                 ret_ty_opt,
-                // args: []const Fn.Param,
-                args_val,
+
+                // param_types: []const ?type,
+                param_types_val,
+                // param_attrs: []const ParamAttributes,
+                param_attrs_val,
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
@@ -16139,23 +16189,34 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const addrspace_ty = try sema.getStdLangType(src, .AddressSpace);
             const pointer_ty = try sema.getStdLangType(src, .@"Type.Pointer");
             const ptr_size_ty = try sema.getStdLangType(src, .@"Type.Pointer.Size");
+            const ptr_attrs_ty = try sema.getStdLangType(src, .@"Type.Pointer.Attributes");
+
+            const opt_addrspace_val = try pt.intern(.{ .opt = .{
+                .ty = (try pt.optionalType(addrspace_ty.toIntern())).toIntern(),
+                .val = (try sema.uninterpretStdLangType(info.flags.address_space, addrspace_ty)).toIntern(),
+            } });
+
+            const attributes = .{
+                // @"const": bool = false,
+                Value.makeBool(info.flags.is_const).toIntern(),
+                // @"volatile": bool = false,
+                Value.makeBool(info.flags.is_volatile).toIntern(),
+                // @"allowzero": bool = false,
+                Value.makeBool(info.flags.is_allowzero).toIntern(),
+                // @"addrspace": ?AddressSpace = null,
+                opt_addrspace_val,
+                // @"align": ?usize = null,
+                alignment_val.toIntern(),
+            };
 
             const field_values = .{
                 // size: Size,
                 (try pt.enumValueFieldIndex(ptr_size_ty, @intFromEnum(info.flags.size))).toIntern(),
-                // is_const: bool,
-                Value.makeBool(info.flags.is_const).toIntern(),
-                // is_volatile: bool,
-                Value.makeBool(info.flags.is_volatile).toIntern(),
-                // alignment: ?usize,
-                alignment_val.toIntern(),
-                // address_space: AddressSpace
-                (try pt.enumValueFieldIndex(addrspace_ty, @intFromEnum(info.flags.address_space))).toIntern(),
+                // attrs: Attributes
+                (try pt.aggregateValue(ptr_attrs_ty, &attributes)).toIntern(),
                 // child: type,
                 info.child,
-                // is_allowzero: bool,
-                Value.makeBool(info.flags.is_allowzero).toIntern(),
-                // sentinel: ?*const anyopaque,
+                // sentinel_ptr: ?*const anyopaque,
                 (try sema.optRefValue(switch (info.sentinel) {
                     .none => null,
                     else => Value.fromInterned(info.sentinel),
@@ -16215,8 +16276,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             })));
         },
         .error_set => {
-            // Get the Error type
-            const error_field_ty = try sema.getStdLangType(src, .@"Type.Error");
+            const error_set_ty = try sema.getStdLangType(src, .@"Type.ErrorSet");
 
             // Build our list of Error values
             // Optional value is only null if anyerror
@@ -16253,20 +16313,16 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             } });
                         };
 
-                        const error_field_fields = .{
-                            // name: [:0]const u8,
-                            error_name_val,
-                        };
-                        field_val.* = (try pt.aggregateValue(error_field_ty, &error_field_fields)).toIntern();
+                        field_val.* = error_name_val;
                     }
 
                     break :blk vals;
                 },
             };
 
-            // Build our ?[]const Error value
+            // Build our ?[]const [:0]const u8 value
             const slice_errors_ty = try pt.ptrType(.{
-                .child = error_field_ty.toIntern(),
+                .child = .slice_const_u8_sentinel_0_type,
                 .flags = .{
                     .size = .slice,
                     .is_const = true,
@@ -16276,7 +16332,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const errors_payload_val: InternPool.Index = if (error_field_vals) |vals| v: {
                 const array_errors_ty = try pt.arrayType(.{
                     .len = vals.len,
-                    .child = error_field_ty.toIntern(),
+                    .child = .slice_const_u8_sentinel_0_type,
                 });
                 const new_decl_val = (try pt.aggregateValue(array_errors_ty, vals)).toIntern();
                 const manyptr_errors_ty = slice_errors_ty.slicePtrFieldType(zcu).toIntern();
@@ -16298,11 +16354,16 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 .val = errors_payload_val,
             } });
 
+            const field_values = .{
+                // error_names: ?[]const [:0]const u8
+                errors_val,
+            };
+
             // Construct Type{ .error_set = errors_val }
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.error_set))).toIntern(),
-                .val = errors_val,
+                .val = (try pt.aggregateValue(error_set_ty, &field_values)).toIntern(),
             })));
         },
         .error_union => {
@@ -16322,12 +16383,20 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         },
         .@"enum" => {
             const enum_obj = ip.loadEnumType(ty.toIntern());
-            const is_exhaustive: Value = .makeBool(!enum_obj.nonexhaustive);
 
-            const enum_field_ty = try sema.getStdLangType(src, .@"Type.EnumField");
+            const enum_mode_ty = try sema.getStdLangType(src, .@"Type.Enum.Mode");
 
-            const enum_field_vals = try sema.arena.alloc(InternPool.Index, enum_obj.field_names.len);
-            for (enum_field_vals, 0..) |*field_val, tag_index| {
+            const enum_mode_tag: std.builtin.Type.Enum.Mode = if (enum_obj.nonexhaustive) .nonexhaustive else .exhaustive;
+
+            const enum_mode: Value = try sema.uninterpretStdLangType(enum_mode_tag, enum_mode_ty);
+
+            const enum_field_name_vals = try sema.arena.alloc(InternPool.Index, enum_obj.field_names.len);
+            const enum_field_value_vals = try sema.arena.alloc(InternPool.Index, enum_obj.field_names.len);
+            for (
+                enum_field_name_vals,
+                enum_field_value_vals,
+                0..,
+            ) |*field_name_val, *field_value_val, tag_index| {
                 const value_val = if (enum_obj.field_values.len > 0)
                     try ip.getCoercedInts(
                         gpa,
@@ -16366,23 +16435,18 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     } });
                 };
 
-                const enum_field_fields = .{
-                    // name: [:0]const u8,
-                    name_val,
-                    // value: comptime_int,
-                    value_val,
-                };
-                field_val.* = (try pt.aggregateValue(enum_field_ty, &enum_field_fields)).toIntern();
+                field_name_val.* = name_val;
+                field_value_val.* = value_val;
             }
 
-            const fields_val = v: {
-                const fields_array_ty = try pt.arrayType(.{
-                    .len = enum_field_vals.len,
-                    .child = enum_field_ty.toIntern(),
+            const fields_names_val = v: {
+                const fields_names_array_ty = try pt.arrayType(.{
+                    .len = enum_field_name_vals.len,
+                    .child = .slice_const_u8_sentinel_0_type,
                 });
-                const new_decl_val = (try pt.aggregateValue(fields_array_ty, enum_field_vals)).toIntern();
+                const new_decl_val = (try pt.aggregateValue(fields_names_array_ty, enum_field_name_vals)).toIntern();
                 const slice_ty = (try pt.ptrType(.{
-                    .child = enum_field_ty.toIntern(),
+                    .child = .slice_const_u8_sentinel_0_type,
                     .flags = .{
                         .size = .slice,
                         .is_const = true,
@@ -16399,23 +16463,55 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         } },
                         .byte_offset = 0,
                     } }),
-                    .len = (try pt.intValue(.usize, enum_field_vals.len)).toIntern(),
+                    .len = (try pt.intValue(.usize, enum_field_name_vals.len)).toIntern(),
                 } });
             };
 
-            const decls_val = try sema.typeInfoDecls(src, ip.loadEnumType(ty.toIntern()).namespace.toOptional());
+            const fields_values_val = v: {
+                const fields_values_array_ty = try pt.arrayType(.{
+                    .len = enum_field_value_vals.len,
+                    .child = .comptime_int_type,
+                });
+                const new_decl_val = (try pt.aggregateValue(fields_values_array_ty, enum_field_value_vals)).toIntern();
+                const slice_ty = (try pt.ptrType(.{
+                    .child = .comptime_int_type,
+                    .flags = .{
+                        .size = .slice,
+                        .is_const = true,
+                    },
+                })).toIntern();
+                const manyptr_ty = Type.fromInterned(slice_ty).slicePtrFieldType(zcu).toIntern();
+                break :v try pt.intern(.{ .slice = .{
+                    .ty = slice_ty,
+                    .ptr = try pt.intern(.{ .ptr = .{
+                        .ty = manyptr_ty,
+                        .base_addr = .{ .uav = .{
+                            .val = new_decl_val,
+                            .orig_ty = manyptr_ty,
+                        } },
+                        .byte_offset = 0,
+                    } }),
+                    .len = (try pt.intValue(.usize, enum_field_value_vals.len)).toIntern(),
+                } });
+            };
+
+            const decl_names_val = try sema.typeInfoDecls(ip.loadEnumType(ty.toIntern()).namespace.toOptional());
 
             const type_enum_ty = try sema.getStdLangType(src, .@"Type.Enum");
 
             const field_values = .{
                 // tag_type: type,
                 ip.loadEnumType(ty.toIntern()).int_tag_type,
-                // fields: []const EnumField,
-                fields_val,
-                // decls: []const Declaration,
-                decls_val,
-                // is_exhaustive: bool,
-                is_exhaustive.toIntern(),
+                // mode: Mode
+                enum_mode.toIntern(),
+
+                // field_names: []const [:0]const u8,
+                fields_names_val,
+                // field_values: []const comptime_int,
+                fields_values_val,
+
+                // decl_names: []const [:0]const u8,
+                decl_names_val,
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
@@ -16425,16 +16521,26 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         },
         .@"union" => {
             const type_union_ty = try sema.getStdLangType(src, .@"Type.Union");
-            const union_field_ty = try sema.getStdLangType(src, .@"Type.UnionField");
+            const union_field_attr_ty = try sema.getStdLangType(src, .@"Type.Union.FieldAttributes");
 
             const union_obj = ip.loadUnionType(ty.toIntern());
             const enum_obj = ip.loadEnumType(union_obj.enum_tag_type);
             const layout = union_obj.layout;
 
-            const union_field_vals = try gpa.alloc(InternPool.Index, enum_obj.field_names.len);
-            defer gpa.free(union_field_vals);
+            const union_field_names = try gpa.alloc(InternPool.Index, enum_obj.field_names.len);
+            defer gpa.free(union_field_names);
+            const union_field_attrs = try gpa.alloc(InternPool.Index, enum_obj.field_names.len);
+            defer gpa.free(union_field_attrs);
 
-            for (union_field_vals, 0..) |*field_val, field_index| {
+            for (
+                union_field_names,
+                union_field_attrs,
+                0..,
+            ) |
+                *field_name_val,
+                *field_attr_val,
+                field_index,
+            | {
                 const name_val = v: {
                     const field_name = enum_obj.field_names.get(ip)[field_index];
                     const field_name_len = field_name.length(ip);
@@ -16461,8 +16567,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     } });
                 };
 
-                const field_ty: Type = .fromInterned(union_obj.field_types.get(ip)[field_index]);
-
                 const alignment_ty = try pt.optionalType(.usize_type);
                 const alignment_val: Value = val: {
                     const a: Alignment = switch (layout) {
@@ -16479,25 +16583,23 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     } }));
                 };
 
-                const union_field_fields = .{
-                    // name: [:0]const u8,
-                    name_val,
-                    // type: type,
-                    field_ty.toIntern(),
+                field_name_val.* = name_val;
+                const union_field_attr = .{
                     // alignment: ?usize,
                     alignment_val.toIntern(),
                 };
-                field_val.* = (try pt.aggregateValue(union_field_ty, &union_field_fields)).toIntern();
+
+                field_attr_val.* = (try pt.aggregateValue(union_field_attr_ty, &union_field_attr)).toIntern();
             }
 
-            const fields_val = v: {
-                const array_fields_ty = try pt.arrayType(.{
-                    .len = union_field_vals.len,
-                    .child = union_field_ty.toIntern(),
+            const field_names_val = v: {
+                const array_field_names_ty = try pt.arrayType(.{
+                    .len = union_field_names.len,
+                    .child = .slice_const_u8_sentinel_0_type,
                 });
-                const new_decl_val = (try pt.aggregateValue(array_fields_ty, union_field_vals)).toIntern();
+                const new_decl_val = (try pt.aggregateValue(array_field_names_ty, union_field_names)).toIntern();
                 const slice_ty = (try pt.ptrType(.{
-                    .child = union_field_ty.toIntern(),
+                    .child = .slice_const_u8_sentinel_0_type,
                     .flags = .{
                         .size = .slice,
                         .is_const = true,
@@ -16514,11 +16616,67 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         } },
                         .byte_offset = 0,
                     } }),
-                    .len = (try pt.intValue(.usize, union_field_vals.len)).toIntern(),
+                    .len = (try pt.intValue(.usize, union_field_names.len)).toIntern(),
+                } });
+            };
+            const field_types_val = v: {
+                const union_field_types = union_obj.field_types.get(ip);
+
+                const array_fields_ty = try pt.arrayType(.{
+                    .len = union_field_types.len,
+                    .child = .type_type,
+                });
+                const new_decl_val = (try pt.aggregateValue(array_fields_ty, union_field_types)).toIntern();
+                const slice_ty = (try pt.ptrType(.{
+                    .child = .type_type,
+                    .flags = .{
+                        .size = .slice,
+                        .is_const = true,
+                    },
+                })).toIntern();
+                const manyptr_ty = Type.fromInterned(slice_ty).slicePtrFieldType(zcu).toIntern();
+                break :v try pt.intern(.{ .slice = .{
+                    .ty = slice_ty,
+                    .ptr = try pt.intern(.{ .ptr = .{
+                        .ty = manyptr_ty,
+                        .base_addr = .{ .uav = .{
+                            .orig_ty = manyptr_ty,
+                            .val = new_decl_val,
+                        } },
+                        .byte_offset = 0,
+                    } }),
+                    .len = (try pt.intValue(.usize, union_field_types.len)).toIntern(),
+                } });
+            };
+            const field_attrs_val = v: {
+                const array_fields_ty = try pt.arrayType(.{
+                    .len = union_field_attrs.len,
+                    .child = union_field_attr_ty.toIntern(),
+                });
+                const new_decl_val = (try pt.aggregateValue(array_fields_ty, union_field_attrs)).toIntern();
+                const slice_ty = (try pt.ptrType(.{
+                    .child = union_field_attr_ty.toIntern(),
+                    .flags = .{
+                        .size = .slice,
+                        .is_const = true,
+                    },
+                })).toIntern();
+                const manyptr_ty = Type.fromInterned(slice_ty).slicePtrFieldType(zcu).toIntern();
+                break :v try pt.intern(.{ .slice = .{
+                    .ty = slice_ty,
+                    .ptr = try pt.intern(.{ .ptr = .{
+                        .ty = manyptr_ty,
+                        .base_addr = .{ .uav = .{
+                            .orig_ty = manyptr_ty,
+                            .val = new_decl_val,
+                        } },
+                        .byte_offset = 0,
+                    } }),
+                    .len = (try pt.intValue(.usize, union_field_attrs.len)).toIntern(),
                 } });
             };
 
-            const decls_val = try sema.typeInfoDecls(src, ty.getNamespaceIndex(zcu).toOptional());
+            const decl_names_val = try sema.typeInfoDecls(ty.getNamespaceIndex(zcu).toOptional());
 
             const enum_tag_ty_val = try pt.intern(.{ .opt = .{
                 .ty = (try pt.optionalType(.type_type)).toIntern(),
@@ -16527,16 +16685,32 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const container_layout_ty = try sema.getStdLangType(src, .@"Type.ContainerLayout");
 
+            const backing_integer_val = try pt.intern(.{ .opt = .{
+                .ty = (try pt.optionalType(.type_type)).toIntern(),
+                .val = if (layout == .@"packed") val: {
+                    assert(Type.fromInterned(union_obj.packed_backing_int_type).isInt(zcu));
+                    break :val union_obj.packed_backing_int_type;
+                } else .none,
+            } });
+
             const field_values = .{
                 // layout: ContainerLayout,
                 (try pt.enumValueFieldIndex(container_layout_ty, @intFromEnum(layout))).toIntern(),
 
                 // tag_type: ?type,
                 enum_tag_ty_val,
-                // fields: []const UnionField,
-                fields_val,
-                // decls: []const Declaration,
-                decls_val,
+                // backing_integer: ?type,
+                backing_integer_val,
+
+                // field_names: []const [:0]const u8,
+                field_names_val,
+                // field_types: []const type,
+                field_types_val,
+                // field_attrs: []const FieldAttributes,
+                field_attrs_val,
+
+                // decl_names: []const [:0]const u8,
+                decl_names_val,
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
@@ -16546,16 +16720,26 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         },
         .@"struct" => {
             const type_struct_ty = try sema.getStdLangType(src, .@"Type.Struct");
-            const struct_field_ty = try sema.getStdLangType(src, .@"Type.StructField");
+            const struct_field_attr_ty = try sema.getStdLangType(src, .@"Type.Struct.FieldAttributes");
 
-            var struct_field_vals: []InternPool.Index = &.{};
-            defer gpa.free(struct_field_vals);
+            var struct_field_name_vals: []InternPool.Index = &.{};
+            defer gpa.free(struct_field_name_vals);
+            var struct_field_attr_vals: []InternPool.Index = &.{};
+            defer gpa.free(struct_field_attr_vals);
             fv: {
                 const struct_type = switch (ip.indexToKey(ty.toIntern())) {
                     .tuple_type => |tuple_type| {
-                        struct_field_vals = try gpa.alloc(InternPool.Index, tuple_type.types.len);
-                        for (struct_field_vals, 0..) |*struct_field_val, field_index| {
-                            const field_ty = tuple_type.types.get(ip)[field_index];
+                        struct_field_name_vals = try gpa.alloc(InternPool.Index, tuple_type.types.len);
+                        struct_field_attr_vals = try gpa.alloc(InternPool.Index, tuple_type.types.len);
+                        for (
+                            struct_field_name_vals,
+                            struct_field_attr_vals,
+                            0..,
+                        ) |
+                            *struct_field_name_val,
+                            *struct_field_attr_val,
+                            field_index,
+                        | {
                             const field_val = tuple_type.values.get(ip)[field_index];
                             const name_val = v: {
                                 const field_name = try ip.getOrPutStringFmt(gpa, io, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
@@ -16587,19 +16771,17 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             const opt_default_val = if (is_comptime) Value.fromInterned(field_val) else null;
                             const default_val_ptr = try sema.optRefValue(opt_default_val);
 
-                            const struct_field_fields = .{
-                                // name: [:0]const u8,
-                                name_val,
-                                // type: type,
-                                field_ty,
-                                // default_value: ?*const anyopaque,
-                                default_val_ptr.toIntern(),
-                                // is_comptime: bool,
+                            const struct_field_attr_fields = .{
+                                // @"comptime": bool,
                                 Value.makeBool(is_comptime).toIntern(),
-                                // alignment: ?usize,
+                                // @"align": ?usize,
                                 (try pt.nullValue(try pt.optionalType(.usize_type))).toIntern(),
+                                // default_value_ptr: ?*const anyopaque,
+                                default_val_ptr.toIntern(),
                             };
-                            struct_field_val.* = (try pt.aggregateValue(struct_field_ty, &struct_field_fields)).toIntern();
+
+                            struct_field_name_val.* = name_val;
+                            struct_field_attr_val.* = (try pt.aggregateValue(struct_field_attr_ty, &struct_field_attr_fields)).toIntern();
                         }
                         break :fv;
                     },
@@ -16607,12 +16789,20 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     else => unreachable,
                 };
                 try sema.ensureStructDefaultsResolved(ty, src); // can't do this sooner, since it's not allowed on tuples
-                struct_field_vals = try gpa.alloc(InternPool.Index, struct_type.field_types.len);
+                struct_field_name_vals = try gpa.alloc(InternPool.Index, struct_type.field_types.len);
+                struct_field_attr_vals = try gpa.alloc(InternPool.Index, struct_type.field_types.len);
 
-                for (struct_field_vals, 0..) |*field_val, field_index| {
+                for (
+                    struct_field_name_vals,
+                    struct_field_attr_vals,
+                    0..,
+                ) |
+                    *field_name_val,
+                    *field_attr_val,
+                    field_index,
+                | {
                     const field_name = struct_type.field_names.get(ip)[field_index];
                     const field_name_len = field_name.length(ip);
-                    const field_ty: Type = .fromInterned(struct_type.field_types.get(ip)[field_index]);
                     const field_default: InternPool.Index = if (struct_type.field_defaults.len > 0) d: {
                         break :d struct_type.field_defaults.get(ip)[field_index];
                     } else .none;
@@ -16660,30 +16850,27 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         } }));
                     };
 
-                    const struct_field_fields = .{
-                        // name: [:0]const u8,
-                        name_val,
-                        // type: type,
-                        field_ty.toIntern(),
-                        // default_value: ?*const anyopaque,
-                        default_val_ptr.toIntern(),
-                        // is_comptime: bool,
+                    const struct_field_attr_fields = .{
+                        // @"comptime": bool,
                         Value.makeBool(field_is_comptime).toIntern(),
-                        // alignment: ?usize,
+                        // @"align": ?usize,
                         alignment_val.toIntern(),
+                        // default_value_ptr: ?*const anyopaque,
+                        default_val_ptr.toIntern(),
                     };
-                    field_val.* = (try pt.aggregateValue(struct_field_ty, &struct_field_fields)).toIntern();
+                    field_name_val.* = name_val;
+                    field_attr_val.* = (try pt.aggregateValue(struct_field_attr_ty, &struct_field_attr_fields)).toIntern();
                 }
             }
 
-            const fields_val = v: {
+            const field_names_val = v: {
                 const array_fields_ty = try pt.arrayType(.{
-                    .len = struct_field_vals.len,
-                    .child = struct_field_ty.toIntern(),
+                    .len = struct_field_name_vals.len,
+                    .child = .slice_const_u8_sentinel_0_type,
                 });
-                const new_decl_val = (try pt.aggregateValue(array_fields_ty, struct_field_vals)).toIntern();
+                const new_decl_val = (try pt.aggregateValue(array_fields_ty, struct_field_name_vals)).toIntern();
                 const slice_ty = (try pt.ptrType(.{
-                    .child = struct_field_ty.toIntern(),
+                    .child = .slice_const_u8_sentinel_0_type,
                     .flags = .{
                         .size = .slice,
                         .is_const = true,
@@ -16700,11 +16887,74 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         } },
                         .byte_offset = 0,
                     } }),
-                    .len = (try pt.intValue(.usize, struct_field_vals.len)).toIntern(),
+                    .len = (try pt.intValue(.usize, struct_field_name_vals.len)).toIntern(),
                 } });
             };
 
-            const decls_val = try sema.typeInfoDecls(src, ty.getNamespace(zcu));
+            const field_types_val = v: {
+                const struct_field_type_vals = switch (ip.indexToKey(ty.toIntern())) {
+                    .tuple_type => |tt| tt.types.get(ip),
+                    .struct_type => blk: {
+                        const st = ip.loadStructType(ty.toIntern());
+                        break :blk st.field_types.get(ip);
+                    },
+                    else => unreachable,
+                };
+                const array_fields_ty = try pt.arrayType(.{
+                    .len = struct_field_type_vals.len,
+                    .child = .type_type,
+                });
+                const new_decl_val = (try pt.aggregateValue(array_fields_ty, struct_field_type_vals)).toIntern();
+                const slice_ty = (try pt.ptrType(.{
+                    .child = .type_type,
+                    .flags = .{
+                        .size = .slice,
+                        .is_const = true,
+                    },
+                })).toIntern();
+                const manyptr_ty = Type.fromInterned(slice_ty).slicePtrFieldType(zcu).toIntern();
+                break :v try pt.intern(.{ .slice = .{
+                    .ty = slice_ty,
+                    .ptr = try pt.intern(.{ .ptr = .{
+                        .ty = manyptr_ty,
+                        .base_addr = .{ .uav = .{
+                            .orig_ty = manyptr_ty,
+                            .val = new_decl_val,
+                        } },
+                        .byte_offset = 0,
+                    } }),
+                    .len = (try pt.intValue(.usize, struct_field_type_vals.len)).toIntern(),
+                } });
+            };
+            const field_attrs_val = v: {
+                const array_fields_ty = try pt.arrayType(.{
+                    .len = struct_field_attr_vals.len,
+                    .child = struct_field_attr_ty.toIntern(),
+                });
+                const new_decl_val = (try pt.aggregateValue(array_fields_ty, struct_field_attr_vals)).toIntern();
+                const slice_ty = (try pt.ptrType(.{
+                    .child = struct_field_attr_ty.toIntern(),
+                    .flags = .{
+                        .size = .slice,
+                        .is_const = true,
+                    },
+                })).toIntern();
+                const manyptr_ty = Type.fromInterned(slice_ty).slicePtrFieldType(zcu).toIntern();
+                break :v try pt.intern(.{ .slice = .{
+                    .ty = slice_ty,
+                    .ptr = try pt.intern(.{ .ptr = .{
+                        .ty = manyptr_ty,
+                        .base_addr = .{ .uav = .{
+                            .orig_ty = manyptr_ty,
+                            .val = new_decl_val,
+                        } },
+                        .byte_offset = 0,
+                    } }),
+                    .len = (try pt.intValue(.usize, struct_field_attr_vals.len)).toIntern(),
+                } });
+            };
+
+            const decl_names_val = try sema.typeInfoDecls(ty.getNamespace(zcu));
 
             const backing_integer_val = try pt.intern(.{ .opt = .{
                 .ty = (try pt.optionalType(.type_type)).toIntern(),
@@ -16719,16 +16969,22 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const layout = ty.containerLayout(zcu);
 
             const field_values = [_]InternPool.Index{
+                // is_tuple: bool,
+                Value.makeBool(ty.isTuple(zcu)).toIntern(),
                 // layout: ContainerLayout,
                 (try pt.enumValueFieldIndex(container_layout_ty, @intFromEnum(layout))).toIntern(),
                 // backing_integer: ?type,
                 backing_integer_val,
-                // fields: []const StructField,
-                fields_val,
-                // decls: []const Declaration,
-                decls_val,
-                // is_tuple: bool,
-                Value.makeBool(ty.isTuple(zcu)).toIntern(),
+
+                // field_names: []const [:0]const u8,
+                field_names_val,
+                // field_types: []const type,
+                field_types_val,
+                // field_attrs: []const FieldAttributes,
+                field_attrs_val,
+
+                // decl_names: []const [:0]const u8,
+                decl_names_val,
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
@@ -16739,11 +16995,11 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .@"opaque" => {
             const type_opaque_ty = try sema.getStdLangType(src, .@"Type.Opaque");
 
-            const decls_val = try sema.typeInfoDecls(src, ty.getNamespace(zcu));
+            const decl_names_val = try sema.typeInfoDecls(ty.getNamespace(zcu));
 
             const field_values = .{
-                // decls: []const Declaration,
-                decls_val,
+                // decl_names: []const [:0]const u8,
+                decl_names_val,
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
@@ -16758,14 +17014,11 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
 fn typeInfoDecls(
     sema: *Sema,
-    src: LazySrcLoc,
     opt_namespace: InternPool.OptionalNamespaceIndex,
 ) CompileError!InternPool.Index {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const gpa = sema.gpa;
-
-    const declaration_ty = try sema.getStdLangType(src, .@"Type.Declaration");
 
     var decl_vals = std.array_list.Managed(InternPool.Index).init(gpa);
     defer decl_vals.deinit();
@@ -16773,15 +17026,15 @@ fn typeInfoDecls(
     var seen_namespaces = std.AutoHashMap(*Namespace, void).init(gpa);
     defer seen_namespaces.deinit();
 
-    try sema.typeInfoNamespaceDecls(opt_namespace, declaration_ty, &decl_vals, &seen_namespaces);
+    try sema.typeInfoNamespaceDecls(opt_namespace, &decl_vals, &seen_namespaces);
 
     const array_decl_ty = try pt.arrayType(.{
         .len = decl_vals.items.len,
-        .child = declaration_ty.toIntern(),
+        .child = .slice_const_u8_sentinel_0_type,
     });
     const new_decl_val = (try pt.aggregateValue(array_decl_ty, decl_vals.items)).toIntern();
     const slice_ty = (try pt.ptrType(.{
-        .child = declaration_ty.toIntern(),
+        .child = .slice_const_u8_sentinel_0_type,
         .flags = .{
             .size = .slice,
             .is_const = true,
@@ -16805,7 +17058,6 @@ fn typeInfoDecls(
 fn typeInfoNamespaceDecls(
     sema: *Sema,
     opt_namespace_index: InternPool.OptionalNamespaceIndex,
-    declaration_ty: Type,
     decl_vals: *std.array_list.Managed(InternPool.Index),
     seen_namespaces: *std.AutoHashMap(*Namespace, void),
 ) !void {
@@ -16850,11 +17102,7 @@ fn typeInfoNamespaceDecls(
                 },
             });
         };
-        const fields = [_]InternPool.Index{
-            // name: [:0]const u8,
-            name_val,
-        };
-        try decl_vals.append((try pt.aggregateValue(declaration_ty, &fields)).toIntern());
+        try decl_vals.append(name_val);
     }
 }
 
@@ -19470,11 +19718,11 @@ fn zirReifySliceArgTy(
 
     const comptime_reason: std.zig.SimpleComptimeReason, const in_scalar_ty: Type, const out_scalar_ty: Type = switch (info) {
         // zig fmt: off
-        .type_to_fn_param_attrs       => .{ .fn_param_attrs,     .type,           try sema.getStdLangType(src, .@"Type.Fn.Param.Attributes") },
+        .type_to_fn_param_attrs       => .{ .fn_param_attrs,     .type,           try sema.getStdLangType(src, .@"Type.Fn.ParamAttributes") },
         .string_to_struct_field_type  => .{ .struct_field_types, .slice_const_u8, .type },
         .string_to_union_field_type   => .{ .union_field_types,  .slice_const_u8, .type },
-        .string_to_struct_field_attrs => .{ .struct_field_attrs, .slice_const_u8, try sema.getStdLangType(src, .@"Type.StructField.Attributes") },
-        .string_to_union_field_attrs  => .{ .union_field_attrs,  .slice_const_u8, try sema.getStdLangType(src, .@"Type.UnionField.Attributes") },
+        .string_to_struct_field_attrs => .{ .struct_field_attrs, .slice_const_u8, try sema.getStdLangType(src, .@"Type.Struct.FieldAttributes") },
+        .string_to_union_field_attrs  => .{ .union_field_attrs,  .slice_const_u8, try sema.getStdLangType(src, .@"Type.Union.FieldAttributes") },
         // zig fmt: on
     };
 
@@ -19688,7 +19936,7 @@ fn zirReifyFn(
     const ret_ty_src = block.builtinCallArgSrc(extra.node, 2);
     const fn_attrs_src = block.builtinCallArgSrc(extra.node, 3);
 
-    const single_param_attrs_ty = try sema.getStdLangType(param_attrs_src, .@"Type.Fn.Param.Attributes");
+    const single_param_attrs_ty = try sema.getStdLangType(param_attrs_src, .@"Type.Fn.ParamAttributes");
     const fn_attrs_ty = try sema.getStdLangType(fn_attrs_src, .@"Type.Fn.Attributes");
 
     const param_types_uncoerced = sema.resolveInst(extra.param_types);
@@ -19827,7 +20075,7 @@ fn zirReifyStruct(
     };
 
     const container_layout_ty = try sema.getStdLangType(layout_src, .@"Type.ContainerLayout");
-    const single_field_attrs_ty = try sema.getStdLangType(field_attrs_src, .@"Type.StructField.Attributes");
+    const single_field_attrs_ty = try sema.getStdLangType(field_attrs_src, .@"Type.Struct.FieldAttributes");
 
     const layout_uncoerced = sema.resolveInst(extra.layout);
     const layout_coerced = try sema.coerce(block, container_layout_ty, layout_uncoerced, layout_src);
@@ -20107,7 +20355,7 @@ fn zirReifyUnion(
     };
 
     const container_layout_ty = try sema.getStdLangType(layout_src, .@"Type.ContainerLayout");
-    const single_field_attrs_ty = try sema.getStdLangType(field_attrs_src, .@"Type.UnionField.Attributes");
+    const single_field_attrs_ty = try sema.getStdLangType(field_attrs_src, .@"Type.Union.FieldAttributes");
 
     const layout_uncoerced = sema.resolveInst(extra.layout);
     const layout_coerced = try sema.coerce(block, container_layout_ty, layout_uncoerced, layout_src);
