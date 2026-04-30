@@ -1,4 +1,3 @@
-* remove Cache from configurer
 * implement the build options
 * finish migrating the rest of the build steps
 * inspect b4ffb402c082605c4b324e88120306fc8fb3cf32 diff and apply changes as needed (merge conflict)
@@ -29,7 +28,8 @@
 
 ## Release Notes
 
-run args are all together now, not observable in configure phase whether run args are provided.
+In the Run step, passthru args are all together now, not observable in
+configure phase whether run args are provided.
 
 ```zig
 if (b.args) |args| {
@@ -42,3 +42,7 @@ if (b.args) |args| {
 ```zig
 run_cmd.addPassthruArgs();
 ```
+
+This removes a capability from build scripts since they can no longer observe
+those arguments. In exchange, it means that when changing those arguments,
+build scripts need not be rebuilt from source.

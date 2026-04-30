@@ -73,12 +73,6 @@ pub fn main(init: process.Init.Minimal) !void {
     var graph: std.Build.Graph = .{
         .io = io,
         .arena = arena,
-        .cache = .{
-            .io = io,
-            .gpa = arena,
-            .manifest_dir = try local_cache_directory.handle.createDirPathOpen(io, "h", .{}),
-            .cwd = try process.currentPathAlloc(io, arena),
-        },
         .zig_exe = zig_exe,
         .environ_map = try init.environ.createMap(arena),
         .global_cache_root = global_cache_directory,
@@ -101,12 +95,6 @@ pub fn main(init: process.Init.Minimal) !void {
     };
     assert(try graph.wip_configuration.addString("") == .empty);
     assert(try graph.wip_configuration.addString("root") == .root);
-
-    graph.cache.addPrefix(.{ .path = null, .handle = cwd });
-    graph.cache.addPrefix(build_root_directory);
-    graph.cache.addPrefix(local_cache_directory);
-    graph.cache.addPrefix(global_cache_directory);
-    graph.cache.hash.addBytes(builtin.zig_version_string);
 
     const builder = try std.Build.create(
         &graph,

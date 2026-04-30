@@ -83,7 +83,6 @@ pub const Graph = struct {
     arena: Allocator,
     system_integration_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
-    cache: Cache,
     zig_exe: []const u8,
     environ_map: process.Environ.Map,
     global_cache_root: Cache.Directory,
