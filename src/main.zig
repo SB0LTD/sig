@@ -4951,7 +4951,7 @@ fn cmdBuild(
         .ReleaseSafe;
     var configure_argv: std.ArrayList([]const u8) = .empty;
     var make_argv: std.ArrayList([]const u8) = .empty;
-    var cached_unordered_passthru_configure: std.ArrayList(u32) = .empty;
+    var cached_passthru_configure: std.ArrayList(u32) = .empty;
     var forks: std.ArrayList(Fork) = .empty;
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
@@ -4976,7 +4976,7 @@ fn cmdBuild(
 
     try configure_argv.ensureUnusedCapacity(arena, 16);
     try make_argv.ensureUnusedCapacity(arena, 16);
-    try cached_unordered_passthru_configure.ensureUnusedCapacity(arena, 16);
+    try cached_passthru_configure.ensureUnusedCapacity(arena, 16);
 
     _ = configure_argv.addOneAssumeCapacity(); // configurer executable
     _ = make_argv.addOneAssumeCapacity(); // maker executable
@@ -5017,7 +5017,7 @@ fn cmdBuild(
                     mem.startsWith(u8, arg, "--release=") or
                     mem.eql(u8, arg, "--release"))
                 {
-                    try cached_unordered_passthru_configure.append(arena, @intCast(configure_argv.items.len));
+                    try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
                     configure_argv.appendAssumeCapacity(arg);
                     continue;
                 } else if (mem.eql(u8, arg, "--system")) {
@@ -5025,14 +5025,14 @@ fn cmdBuild(
                     i += 1;
                     system_pkg_dir_path = args[i];
 
-                    try cached_unordered_passthru_configure.append(arena, @intCast(configure_argv.items.len));
+                    try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
                     configure_argv.appendAssumeCapacity(arg); // Intentionally "--system" only; not the path.
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "--color=")) |rest| {
                     color = std.meta.stringToEnum(Color, rest) orelse
                         fatal("expected --color=[auto|on|off]; found: {s}", .{arg});
 
-                    try cached_unordered_passthru_configure.append(arena, @intCast(configure_argv.items.len));
+                    try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
                     configure_argv.appendAssumeCapacity(arg);
                     continue;
                 } else if (mem.eql(u8, arg, "--build-file")) {
@@ -5223,21 +5223,8 @@ fn cmdBuild(
     defer config_man.deinit();
     config_man.hash.addBytes(build_options.version);
 
-    const SortContext = struct {
-        list: []const []const u8,
-        fn lessThan(this: @This(), lhs: u32, rhs: u32) bool {
-            return mem.lessThan(u8, this.list[lhs], this.list[rhs]);
-        }
-    };
-    mem.sortUnstable(
-        u32,
-        cached_unordered_passthru_configure.items,
-        @as(SortContext, .{ .list = configure_argv.items }),
-        SortContext.lessThan,
-    );
-    for (cached_unordered_passthru_configure.items) |i| {
+    for (cached_passthru_configure.items) |i|
         config_man.hash.addBytes(configure_argv.items[i]);
-    }
 
     // Normally the build runner is compiled for the host target but here is
     // some code to help when debugging edits to the build runner so that you
