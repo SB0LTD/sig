@@ -30,8 +30,7 @@ install_tls: Step.TopLevel,
 uninstall_tls: Step.TopLevel,
 allocator: Allocator,
 user_input_options: UserInputOptionsMap,
-available_options_map: AvailableOptionsMap,
-available_options_list: std.array_list.Managed(AvailableOption),
+available_options_map: std.array_hash_map.String(AvailableOption) = .empty,
 invalid_user_input: bool,
 default_step: *Step,
 top_level_steps: std.StringArrayHashMapUnmanaged(*Step.TopLevel),
@@ -180,11 +179,10 @@ pub const RunError = error{
 } || std.process.SpawnError;
 
 const UserInputOptionsMap = StringHashMap(UserInputOption);
-const AvailableOptionsMap = StringHashMap(AvailableOption);
 
 const AvailableOption = struct {
     name: []const u8,
-    type_id: TypeId,
+    type_id: Configuration.AvailableOption.Type,
     description: []const u8,
     /// If the `type_id` is `enum` or `enum_list` this provides the list of enum options
     enum_options: ?[]const []const u8,
@@ -205,19 +203,6 @@ const UserValue = union(enum) {
     lazy_path_list: std.array_list.Managed(LazyPath),
 };
 
-const TypeId = enum {
-    bool,
-    int,
-    float,
-    @"enum",
-    enum_list,
-    string,
-    list,
-    build_id,
-    lazy_path,
-    lazy_path_list,
-};
-
 pub fn create(
     graph: *Graph,
     available_deps: AvailableDeps,
@@ -230,8 +215,6 @@ pub fn create(
         .invalid_user_input = false,
         .allocator = arena,
         .user_input_options = UserInputOptionsMap.init(arena),
-        .available_options_map = AvailableOptionsMap.init(arena),
-        .available_options_list = std.array_list.Managed(AvailableOption).init(arena),
         .top_level_steps = .{},
         .default_step = undefined,
         .install_prefix = undefined,
@@ -292,8 +275,6 @@ fn createChild(
             .description = "Remove build artifacts from prefix path",
         },
         .user_input_options = user_input_options,
-        .available_options_map = AvailableOptionsMap.init(allocator),
-        .available_options_list = std.array_list.Managed(AvailableOption).init(allocator),
         .invalid_user_input = false,
         .default_step = undefined,
         .top_level_steps = .{},
@@ -960,13 +941,14 @@ pub fn getUninstallStep(b: *Build) *Step {
 /// these options when calling the dependency's build.zig script as a function.
 /// `null` is returned when an option is left to default.
 pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw: []const u8) ?T {
+    const arena = b.allocator;
     const name = b.dupe(name_raw);
     const description = b.dupe(description_raw);
     const type_id = comptime typeToEnum(T);
     const enum_options = if (type_id == .@"enum" or type_id == .enum_list) blk: {
         const EnumType = if (type_id == .enum_list) @typeInfo(T).pointer.child else T;
         const fields = comptime std.meta.fields(EnumType);
-        var options = std.array_list.Managed([]const u8).initCapacity(b.allocator, fields.len) catch @panic("OOM");
+        var options = std.array_list.Managed([]const u8).initCapacity(arena, fields.len) catch @panic("OOM");
 
         inline for (fields) |field| {
             options.appendAssumeCapacity(field.name);
@@ -980,10 +962,9 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
         .description = description,
         .enum_options = enum_options,
     };
-    if ((b.available_options_map.fetchPut(name, available_option) catch @panic("OOM")) != null) {
-        panic("Option '{s}' declared twice", .{name});
+    if ((b.available_options_map.fetchPut(arena, name, available_option) catch @panic("OOM")) != null) {
+        panic("option '{s}' declared twice", .{name});
     }
-    b.available_options_list.append(available_option) catch @panic("OOM");
 
     const option_ptr = b.user_input_options.getPtr(name) orelse return null;
     option_ptr.used = true;
@@ -996,36 +977,32 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                 } else if (mem.eql(u8, s, "false")) {
                     return false;
                 } else {
-                    log.err("Expected -D{s} to be a boolean, but received '{s}'", .{ name, s });
+                    log.err("expected -D{s} to be a boolean; received: {s}", .{ name, s });
                     b.markInvalidUserInput();
                     return null;
                 }
             },
             .list, .map, .lazy_path, .lazy_path_list => {
-                log.err("Expected -D{s} to be a boolean, but received a {s}.", .{
-                    name, @tagName(option_ptr.value),
-                });
+                log.err("expected -D{s} to be a boolean; received: {t}", .{ name, option_ptr.value });
                 b.markInvalidUserInput();
                 return null;
             },
         },
         .int => switch (option_ptr.value) {
             .flag, .list, .map, .lazy_path, .lazy_path_list => {
-                log.err("Expected -D{s} to be an integer, but received a {s}.", .{
-                    name, @tagName(option_ptr.value),
-                });
+                log.err("expected -D{s} to be an integer; received: {t}", .{ name, option_ptr.value });
                 b.markInvalidUserInput();
                 return null;
             },
             .scalar => |s| {
                 const n = std.fmt.parseInt(T, s, 10) catch |err| switch (err) {
                     error.Overflow => {
-                        log.err("-D{s} value {s} cannot fit into type {s}.", .{ name, s, @typeName(T) });
+                        log.err("-D{s} value {s} cannot fit into type {s}", .{ name, s, @typeName(T) });
                         b.markInvalidUserInput();
                         return null;
                     },
                     else => {
-                        log.err("Expected -D{s} to be an integer of type {s}.", .{ name, @typeName(T) });
+                        log.err("expected -D{s} to be an integer of type {s}", .{ name, @typeName(T) });
                         b.markInvalidUserInput();
                         return null;
                     },
@@ -1035,15 +1012,13 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
         },
         .float => switch (option_ptr.value) {
             .flag, .map, .list, .lazy_path, .lazy_path_list => {
-                log.err("Expected -D{s} to be a float, but received a {s}.", .{
-                    name, @tagName(option_ptr.value),
-                });
+                log.err("expected -D{s} to be a float; received: {t}", .{ name, option_ptr.value });
                 b.markInvalidUserInput();
                 return null;
             },
             .scalar => |s| {
                 const n = std.fmt.parseFloat(T, s) catch {
-                    log.err("Expected -D{s} to be a float of type {s}.", .{ name, @typeName(T) });
+                    log.err("expected -D{s} to be a float of type {s}", .{ name, @typeName(T) });
                     b.markInvalidUserInput();
                     return null;
                 };
@@ -1052,9 +1027,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
         },
         .@"enum" => switch (option_ptr.value) {
             .flag, .map, .list, .lazy_path, .lazy_path_list => {
-                log.err("Expected -D{s} to be an enum, but received a {s}.", .{
-                    name, @tagName(option_ptr.value),
-                });
+                log.err("expected -D{s} to be an enum; received: {t}.", .{ name, option_ptr.value });
                 b.markInvalidUserInput();
                 return null;
             },
@@ -1062,7 +1035,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                 if (std.meta.stringToEnum(T, s)) |enum_lit| {
                     return enum_lit;
                 } else {
-                    log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(T) });
+                    log.err("expected -D{s} to be of type {s}", .{ name, @typeName(T) });
                     b.markInvalidUserInput();
                     return null;
                 }
@@ -1070,9 +1043,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
         },
         .string => switch (option_ptr.value) {
             .flag, .list, .map, .lazy_path, .lazy_path_list => {
-                log.err("Expected -D{s} to be a string, but received a {s}.", .{
-                    name, @tagName(option_ptr.value),
-                });
+                log.err("expected -D{s} to be a string; received: {t}", .{ name, option_ptr.value });
                 b.markInvalidUserInput();
                 return null;
             },
@@ -1080,9 +1051,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
         },
         .build_id => switch (option_ptr.value) {
             .flag, .map, .list, .lazy_path, .lazy_path_list => {
-                log.err("Expected -D{s} to be an enum, but received a {s}.", .{
-                    name, @tagName(option_ptr.value),
-                });
+                log.err("expected -D{s} to be an enum; received: {t}.", .{ name, option_ptr.value });
                 b.markInvalidUserInput();
                 return null;
             },
@@ -1090,7 +1059,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                 if (std.zig.BuildId.parse(s)) |build_id| {
                     return build_id;
                 } else |err| {
-                    log.err("unable to parse option '-D{s}': {t}", .{ name, err });
+                    log.err("failed to parse option -D{s}: {t}", .{ name, err });
                     b.markInvalidUserInput();
                     return null;
                 }
@@ -1098,42 +1067,38 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
         },
         .list => switch (option_ptr.value) {
             .flag, .map, .lazy_path, .lazy_path_list => {
-                log.err("Expected -D{s} to be a list, but received a {s}.", .{
-                    name, @tagName(option_ptr.value),
-                });
+                log.err("expected -D{s} to be a list; received: {t}", .{ name, option_ptr.value });
                 b.markInvalidUserInput();
                 return null;
             },
             .scalar => |s| {
-                return b.allocator.dupe([]const u8, &[_][]const u8{s}) catch @panic("OOM");
+                return arena.dupe([]const u8, &[_][]const u8{s}) catch @panic("OOM");
             },
             .list => |lst| return lst.items,
         },
         .enum_list => switch (option_ptr.value) {
             .flag, .map, .lazy_path, .lazy_path_list => {
-                log.err("Expected -D{s} to be a list, but received a {s}.", .{
-                    name, @tagName(option_ptr.value),
-                });
+                log.err("expected -D{s} to be a list; received: {t}", .{ name, option_ptr.value });
                 b.markInvalidUserInput();
                 return null;
             },
             .scalar => |s| {
                 const Child = @typeInfo(T).pointer.child;
                 const value = std.meta.stringToEnum(Child, s) orelse {
-                    log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(Child) });
+                    log.err("expected -D{s} to be of type {s}", .{ name, @typeName(Child) });
                     b.markInvalidUserInput();
                     return null;
                 };
-                return b.allocator.dupe(Child, &[_]Child{value}) catch @panic("OOM");
+                return arena.dupe(Child, &[_]Child{value}) catch @panic("OOM");
             },
             .list => |lst| {
                 const Child = @typeInfo(T).pointer.child;
-                const new_list = b.allocator.alloc(Child, lst.items.len) catch @panic("OOM");
+                const new_list = arena.alloc(Child, lst.items.len) catch @panic("OOM");
                 for (new_list, lst.items) |*new_item, str| {
                     new_item.* = std.meta.stringToEnum(Child, str) orelse {
-                        log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(Child) });
+                        log.err("expected -D{s} to be of type {s}", .{ name, @typeName(Child) });
                         b.markInvalidUserInput();
-                        b.allocator.free(new_list);
+                        arena.free(new_list);
                         return null;
                     };
                 }
@@ -1144,18 +1109,16 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             .scalar => |s| return .{ .cwd_relative = s },
             .lazy_path => |lp| return lp,
             .flag, .map, .list, .lazy_path_list => {
-                log.err("Expected -D{s} to be a path, but received a {s}.", .{
-                    name, @tagName(option_ptr.value),
-                });
+                log.err("expected -D{s} to be a path; received: {t}", .{ name, option_ptr.value });
                 b.markInvalidUserInput();
                 return null;
             },
         },
         .lazy_path_list => switch (option_ptr.value) {
-            .scalar => |s| return b.allocator.dupe(LazyPath, &[_]LazyPath{.{ .cwd_relative = s }}) catch @panic("OOM"),
-            .lazy_path => |lp| return b.allocator.dupe(LazyPath, &[_]LazyPath{lp}) catch @panic("OOM"),
+            .scalar => |s| return arena.dupe(LazyPath, &[_]LazyPath{.{ .cwd_relative = s }}) catch @panic("OOM"),
+            .lazy_path => |lp| return arena.dupe(LazyPath, &[_]LazyPath{lp}) catch @panic("OOM"),
             .list => |lst| {
-                const new_list = b.allocator.alloc(LazyPath, lst.items.len) catch @panic("OOM");
+                const new_list = arena.alloc(LazyPath, lst.items.len) catch @panic("OOM");
                 for (new_list, lst.items) |*new_item, str| {
                     new_item.* = .{ .cwd_relative = str };
                 }
@@ -1163,9 +1126,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
             .lazy_path_list => |lp_list| return lp_list.items,
             .flag, .map => {
-                log.err("Expected -D{s} to be a path, but received a {s}.", .{
-                    name, @tagName(option_ptr.value),
-                });
+                log.err("expected -D{s} to be a path; received: {t}", .{ name, option_ptr.value });
                 b.markInvalidUserInput();
                 return null;
             },
@@ -1250,8 +1211,8 @@ pub fn parseTargetQuery(options: std.Target.Query.ParseOptions) error{ParseFaile
     opts_copy.diagnostics = &diags;
     return std.Target.Query.parse(opts_copy) catch |err| switch (err) {
         error.UnknownCpuModel => {
-            std.debug.print("unknown CPU: '{s}'\navailable CPUs for architecture '{s}':\n", .{
-                diags.cpu_name.?, @tagName(diags.arch.?),
+            std.debug.print("unknown CPU: '{s}'\navailable CPUs for architecture '{t}':\n", .{
+                diags.cpu_name.?, diags.arch.?,
             });
             for (diags.arch.?.allCpuModels()) |cpu| {
                 std.debug.print(" {s}\n", .{cpu.name});
@@ -1261,11 +1222,10 @@ pub fn parseTargetQuery(options: std.Target.Query.ParseOptions) error{ParseFaile
         error.UnknownCpuFeature => {
             std.debug.print(
                 \\unknown CPU feature: '{s}'
-                \\available CPU features for architecture '{s}':
+                \\available CPU features for architecture '{t}':
                 \\
             , .{
-                diags.unknown_feature_name.?,
-                @tagName(diags.arch.?),
+                diags.unknown_feature_name.?, diags.arch.?,
             });
             for (diags.arch.?.allFeaturesList()) |feature| {
                 std.debug.print(" {s}: {s}\n", .{ feature.name, feature.description });
@@ -1398,7 +1358,9 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
             return true;
         },
         .lazy_path, .lazy_path_list => {
-            log.warn("the lazy path value type isn't added from the CLI, but somehow '{s}' is a .{f}", .{ name, std.zig.fmtId(@tagName(gop.value_ptr.value)) });
+            log.warn("the lazy path value type isn't added from the CLI, but somehow '{s}' is a .{f}", .{
+                name, std.zig.fmtId(@tagName(gop.value_ptr.value)),
+            });
             return true;
         },
     }
@@ -1437,7 +1399,7 @@ pub fn addUserInputFlag(b: *Build, name_raw: []const u8) error{OutOfMemory}!bool
     return false;
 }
 
-fn typeToEnum(comptime T: type) TypeId {
+fn typeToEnum(comptime T: type) Configuration.AvailableOption.Type {
     return switch (T) {
         std.zig.BuildId => .build_id,
         LazyPath => .lazy_path,
@@ -1586,17 +1548,6 @@ pub fn path(b: *Build, sub_path: []const u8) LazyPath {
         .owner = b,
         .sub_path = sub_path,
     } };
-}
-
-/// This is low-level implementation details of the build system, not meant to
-/// be called by users' build scripts. Even in the build system itself it is a
-/// code smell to call this function.
-pub fn pathFromRoot(b: *Build, sub_path: []const u8) []u8 {
-    return b.pathResolve(&.{ b.build_root.path orelse ".", sub_path });
-}
-
-fn pathFromCwd(b: *Build, sub_path: []const u8) []u8 {
-    return b.pathResolve(&.{ b.graph.cache.cwd, sub_path });
 }
 
 pub fn pathJoin(b: *Build, paths: []const []const u8) []u8 {
@@ -1792,7 +1743,9 @@ inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, c
         if (@hasDecl(pkg, "build_zig") and pkg.build_zig == asking_build_zig) break .{ pkg_hash, pkg.deps };
     } else .{ "", deps.root_deps };
     if (!std.mem.eql(u8, b_pkg_hash, b.pkg_hash)) {
-        std.debug.panic("'{}' is not the struct that corresponds to '{s}'", .{ asking_build_zig, b.pathFromRoot("build.zig") });
+        std.debug.panic("'{}' is not the struct that corresponds to '{s}'", .{
+            asking_build_zig, b.pathFromRoot("build.zig"),
+        });
     }
     comptime for (b_pkg_deps) |dep| {
         if (std.mem.eql(u8, dep[0], dep_name)) return dep[1];

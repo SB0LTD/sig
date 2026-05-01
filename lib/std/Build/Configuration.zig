@@ -189,9 +189,24 @@ pub const Wip = struct {
     }
 
     pub fn addStringList(wip: *Wip, list: []const []const u8) Allocator.Error!StringList {
-        _ = wip;
-        _ = list;
-        @panic("TODO");
+        // Increase size of extra to support the list. Add the string list
+        // there. Then check for duplicate, reverting list if already found.
+        const gpa = wip.gpa;
+        const revert_index: u32 = @intCast(wip.extra.items.len);
+        const added = try wip.extra.addManyAsSlice(gpa, list.len + 1);
+        added[0] = @intCast(list.len);
+        for (added[1..], list) |*d, s| d.* = @intFromEnum(try addString(wip, s));
+        const gop = try wip.dedupe_table.getOrPutContext(gpa, .{
+            .index = revert_index,
+            .len = @intCast(added.len),
+        }, @as(ExtraSlice.Context, .{ .extra = wip.extra.items }));
+
+        if (gop.found_existing) {
+            wip.extra.items.len = revert_index;
+            return @enumFromInt(gop.key_ptr.index);
+        }
+
+        return @enumFromInt(revert_index);
     }
 
     pub fn addBytes(wip: *Wip, bytes: []const u8) Allocator.Error!Bytes {
@@ -1455,6 +1470,13 @@ pub const StringList = enum(u32) {
 pub const OptionalStringList = enum(u32) {
     none = max_u32,
     _,
+
+    pub fn init(opt_string_list: ?StringList) OptionalStringList {
+        const sl = opt_string_list orelse return .none;
+        const result: OptionalStringList = @enumFromInt(@intFromEnum(sl));
+        assert(result != .none);
+        return result;
+    }
 
     pub fn unwrap(this: @This()) ?StringList {
         if (this == .none) return null;

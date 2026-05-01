@@ -4951,6 +4951,7 @@ fn cmdBuild(
         .ReleaseSafe;
     var configure_argv: std.ArrayList([]const u8) = .empty;
     var make_argv: std.ArrayList([]const u8) = .empty;
+    var cached_unordered_passthru_configure: std.ArrayList(u32) = .empty;
     var forks: std.ArrayList(Fork) = .empty;
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
@@ -4975,6 +4976,7 @@ fn cmdBuild(
 
     try configure_argv.ensureUnusedCapacity(arena, 16);
     try make_argv.ensureUnusedCapacity(arena, 16);
+    try cached_unordered_passthru_configure.ensureUnusedCapacity(arena, 16);
 
     _ = configure_argv.addOneAssumeCapacity(); // configurer executable
     _ = make_argv.addOneAssumeCapacity(); // maker executable
@@ -5007,7 +5009,33 @@ fn cmdBuild(
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
-                if (mem.eql(u8, arg, "--build-file")) {
+                try configure_argv.ensureUnusedCapacity(arena, 1);
+
+                if (mem.startsWith(u8, arg, "-D") or
+                    mem.startsWith(u8, arg, "-fsys=") or
+                    mem.startsWith(u8, arg, "-fno-sys=") or
+                    mem.startsWith(u8, arg, "--release=") or
+                    mem.eql(u8, arg, "--release"))
+                {
+                    try cached_unordered_passthru_configure.append(arena, @intCast(configure_argv.items.len));
+                    configure_argv.appendAssumeCapacity(arg);
+                    continue;
+                } else if (mem.eql(u8, arg, "--system")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    system_pkg_dir_path = args[i];
+
+                    try cached_unordered_passthru_configure.append(arena, @intCast(configure_argv.items.len));
+                    configure_argv.appendAssumeCapacity(arg); // Intentionally "--system" only; not the path.
+                    continue;
+                } else if (mem.cutPrefix(u8, arg, "--color=")) |rest| {
+                    color = std.meta.stringToEnum(Color, rest) orelse
+                        fatal("expected --color=[auto|on|off]; found: {s}", .{arg});
+
+                    try cached_unordered_passthru_configure.append(arena, @intCast(configure_argv.items.len));
+                    configure_argv.appendAssumeCapacity(arg);
+                    continue;
+                } else if (mem.eql(u8, arg, "--build-file")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     build_file = args[i];
@@ -5057,12 +5085,6 @@ fn cmdBuild(
                         },
                         .failed = false,
                     });
-                    continue;
-                } else if (mem.eql(u8, arg, "--system")) {
-                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
-                    i += 1;
-                    system_pkg_dir_path = args[i];
-                    try configure_argv.append(arena, "--system");
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "-freference-trace=")) |num| {
                     reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
@@ -5122,14 +5144,6 @@ fn cmdBuild(
                     verbose_llvm_bc = rest;
                 } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
                     verbose_llvm_cpu_features = true;
-                } else if (mem.eql(u8, arg, "--color")) {
-                    if (i + 1 >= args.len) fatal("expected [auto|on|off] after {s}", .{arg});
-                    i += 1;
-                    color = std.meta.stringToEnum(Color, args[i]) orelse {
-                        fatal("expected [auto|on|off] after {s}, found '{s}'", .{ arg, args[i] });
-                    };
-                    try configure_argv.appendSlice(arena, &.{ arg, args[i] });
-                    continue;
                 } else if (mem.cutPrefix(u8, arg, "-j")) |str| {
                     const num = std.fmt.parseUnsigned(u32, str, 10) catch |err|
                         fatal("unable to parse jobs count {s}: {t}", .{ str, err });
@@ -5143,9 +5157,6 @@ fn cmdBuild(
                     make_argv.items[argv_index_seed] = args[i];
                     continue;
                 } else if (mem.eql(u8, arg, "--")) {
-                    // The rest of the args are supposed to get passed onto
-                    // build runner's `build.args`
-                    try configure_argv.append(arena, "--have-run-args");
                     try make_argv.appendSlice(arena, args[i..]);
                     break;
                 }
@@ -5211,6 +5222,22 @@ fn cmdBuild(
     var config_man = local_cache.obtain();
     defer config_man.deinit();
     config_man.hash.addBytes(build_options.version);
+
+    const SortContext = struct {
+        list: []const []const u8,
+        fn lessThan(this: @This(), lhs: u32, rhs: u32) bool {
+            return mem.lessThan(u8, this.list[lhs], this.list[rhs]);
+        }
+    };
+    mem.sortUnstable(
+        u32,
+        cached_unordered_passthru_configure.items,
+        @as(SortContext, .{ .list = configure_argv.items }),
+        SortContext.lessThan,
+    );
+    for (cached_unordered_passthru_configure.items) |i| {
+        config_man.hash.addBytes(configure_argv.items[i]);
+    }
 
     // Normally the build runner is compiled for the host target but here is
     // some code to help when debugging edits to the build runner so that you

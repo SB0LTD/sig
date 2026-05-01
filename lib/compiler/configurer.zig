@@ -64,22 +64,7 @@ pub fn main(init: process.Init.Minimal) !void {
 
     const builder = try std.Build.create(&graph, dependencies.root_deps);
 
-    var error_style: ErrorStyle = .verbose;
-    var multiline_errors: MultilineErrors = .indent;
     var color: Color = .auto;
-
-    if (std.zig.EnvVar.ZIG_BUILD_ERROR_STYLE.get(&graph.environ_map)) |str| {
-        if (std.meta.stringToEnum(ErrorStyle, str)) |style| {
-            error_style = style;
-        }
-    }
-
-    if (std.zig.EnvVar.ZIG_BUILD_MULTILINE_ERRORS.get(&graph.environ_map)) |str| {
-        if (std.meta.stringToEnum(MultilineErrors, str)) |style| {
-            multiline_errors = style;
-        }
-    }
-
     var arg_i: usize = 1; // Skip own executable name.
 
     while (nextArg(args, &arg_i)) |arg| {
@@ -101,39 +86,20 @@ pub fn main(init: process.Init.Minimal) !void {
             try graph.system_integration_options.put(arena, name, .user_disabled);
         } else if (mem.eql(u8, arg, "--release")) {
             graph.release_mode = .any;
-        } else if (mem.cutPrefix(u8, arg, "--release=")) |text| {
-            graph.release_mode = std.meta.stringToEnum(std.Build.ReleaseMode, text) orelse {
-                fatalWithHint("expected [off|any|fast|safe|small] in {q}, found {q}", .{
-                    arg, text,
-                });
+        } else if (mem.cutPrefix(u8, arg, "--release=")) |rest| {
+            graph.release_mode = std.meta.stringToEnum(std.Build.ReleaseMode, rest) orelse {
+                fatalWithHint("expected --release=[off|any|fast|safe|small]; found: {s}", .{arg});
             };
-        } else if (mem.eql(u8, arg, "--color")) {
-            const next_arg = nextArg(args, &arg_i) orelse
-                fatalWithHint("expected [auto|on|off] after {q}", .{arg});
-            color = std.meta.stringToEnum(Color, next_arg) orelse {
-                fatalWithHint("expected [auto|on|off] after {q}, found {q}", .{
-                    arg, next_arg,
-                });
-            };
-        } else if (mem.eql(u8, arg, "--error-style")) {
-            const next_arg = nextArg(args, &arg_i) orelse
-                fatalWithHint("expected style after {q}", .{arg});
-            error_style = std.meta.stringToEnum(ErrorStyle, next_arg) orelse {
-                fatalWithHint("expected style after {q}, found {q}", .{ arg, next_arg });
-            };
-        } else if (mem.eql(u8, arg, "--multiline-errors")) {
-            const next_arg = nextArg(args, &arg_i) orelse
-                fatalWithHint("expected style after {q}", .{arg});
-            multiline_errors = std.meta.stringToEnum(MultilineErrors, next_arg) orelse {
-                fatalWithHint("expected style after {q}, found {q}", .{ arg, next_arg });
-            };
+        } else if (mem.cutPrefix(u8, arg, "--color=")) |rest| {
+            color = std.meta.stringToEnum(Color, rest) orelse
+                fatalWithHint("expected --color=[auto|on|off]; found: {s}", .{arg});
         } else if (mem.eql(u8, arg, "--system")) {
             // The usage text shows another argument after this parameter
             // but it is handled by the parent process. The build runner
             // only sees this flag.
             graph.system_package_mode = true;
         } else {
-            fatalWithHint("unrecognized argument: {q}", .{arg});
+            fatalWithHint("unrecognized argument: {s}", .{arg});
         }
     }
 
@@ -152,6 +118,7 @@ pub fn main(init: process.Init.Minimal) !void {
         fatal("  access the help menu with 'zig build -h'", .{});
     }
 
+    try serializePackageOptions(builder, &graph.wip_configuration);
     try serializeSystemIntegrationOptions(&graph, &graph.wip_configuration);
 
     var stdout_buffer: [1024]u8 = undefined;
@@ -1123,5 +1090,19 @@ fn serializeSystemIntegrationOptions(graph: *std.Build.Graph, wc: *Configuration
     if (bad) {
         log.info("help menu contains available options: zig build -h", .{});
         process.exit(1);
+    }
+}
+
+fn serializePackageOptions(b: *std.Build, wc: *Configuration.Wip) Allocator.Error!void {
+    const gpa = wc.gpa;
+
+    try wc.available_options.ensureTotalCapacityPrecise(gpa, b.available_options_map.count());
+    for (b.available_options_map.keys(), b.available_options_map.values()) |name, *opt| {
+        wc.available_options.appendAssumeCapacity(.{
+            .name = try wc.addString(name),
+            .description = try wc.addString(opt.description),
+            .type = opt.type_id,
+            .enum_options = if (opt.enum_options) |enum_vals| .init(try wc.addStringList(enum_vals)) else .none,
+        });
     }
 }

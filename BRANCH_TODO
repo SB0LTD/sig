@@ -1,9 +1,9 @@
-* implement the build options
 * finish migrating the rest of the build steps
 * inspect b4ffb402c082605c4b324e88120306fc8fb3cf32 diff and apply changes as needed (merge conflict)
 * make zig-pkg path root configurable in maker (make sure --system still works)
 * eliminate calls to getPath, getPath2, getPath3
 * [build system compile step data races with getGraph function](https://codeberg.org/ziglang/zig/issues/31397)
+* test lazyImport
 * solve the TODOs added in this branch
 * get zig tests passing
 * test a bunch of third party projects / help people migrate
@@ -16,6 +16,8 @@
 * make addExtra return Index using reflection
 * refactor with DefaultingEnum
 
+* implement {q} or delete {q} uses
+
 ## Followup Issues
 * reduce the size of Maker.Step.Extended (make Run smaller) probably by using an arena per make
 * link_eh_frame_hdr should be DefaultingBool
@@ -24,6 +26,7 @@
   - but artifact install steps also add paths for dyn libs on windows
 * no more "artifact arg" to run step. if you want to run the post-install binary, get the lazy path
   from the install step.
+* -D options which are files need to be accounted for in the configure cache
 
 
 ## Release Notes
@@ -45,4 +48,4 @@ run_cmd.addPassthruArgs();
 
 This removes a capability from build scripts since they can no longer observe
 those arguments. In exchange, it means that when changing those arguments,
-build scripts need not be rebuilt from source.
+build scripts no longer must be rebuilt from source.
