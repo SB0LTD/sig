@@ -40,8 +40,6 @@ pub const Uri = @import("Uri.zig");
 pub const ArrayHashMapUnmanaged = array_hash_map.Custom;
 /// Deprecated; use `array_hash_map.Auto`.
 pub const AutoArrayHashMapUnmanaged = array_hash_map.Auto;
-/// Managed auto array hash map (convenience alias).
-pub const AutoArrayHashMap = array_hash_map.Auto;
 /// Deprecated; use `array_hash_map.String`.
 pub const StringArrayHashMapUnmanaged = array_hash_map.String;
 
@@ -67,11 +65,8 @@ pub const array_hash_map = @import("array_hash_map.zig");
 pub const atomic = @import("atomic.zig");
 pub const base64 = @import("base64.zig");
 pub const bit_set = @import("bit_set.zig");
-/// Deprecated; use `lang`.
-///
-/// To be removed after Zig 0.17.0.
 pub const builtin = lang;
-pub const lang = @import("lang.zig");
+pub const lang = @import("builtin.zig");
 pub const c = @import("c.zig");
 pub const coff = @import("coff.zig");
 pub const compress = @import("compress.zig");
