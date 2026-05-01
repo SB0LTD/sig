@@ -2,7 +2,6 @@
 * inspect b4ffb402c082605c4b324e88120306fc8fb3cf32 diff and apply changes as needed (merge conflict)
 * make zig-pkg path root configurable in maker (make sure --system still works)
 * eliminate calls to getPath, getPath2, getPath3
-* [build system compile step data races with getGraph function](https://codeberg.org/ziglang/zig/issues/31397)
 * test lazyImport
 * solve the TODOs added in this branch
 * get zig tests passing
@@ -17,6 +16,7 @@
 * refactor with DefaultingEnum
 
 * implement {q} or delete {q} uses
+* make the generated dependencies.zig be dependencies.zon and don't put absolute paths in there
 
 ## Followup Issues
 * reduce the size of Maker.Step.Extended (make Run smaller) probably by using an arena per make
@@ -49,3 +49,5 @@ run_cmd.addPassthruArgs();
 This removes a capability from build scripts since they can no longer observe
 those arguments. In exchange, it means that when changing those arguments,
 build scripts no longer must be rebuilt from source.
+
+closes #31397

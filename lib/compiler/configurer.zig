@@ -164,7 +164,6 @@ const Serialize = struct {
             .src_path => |src_path| i: {
                 const sub_path = try wc.addString(src_path.sub_path);
                 break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
-                    .flags = .{},
                     .owner = try s.builderToPackage(src_path.owner),
                     .sub_path = sub_path,
                 }));
@@ -187,7 +186,6 @@ const Serialize = struct {
             .dependency => |dependency| i: {
                 const sub_path = try wc.addString(dependency.sub_path);
                 break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
-                    .flags = .{},
                     .owner = try s.builderToPackage(dependency.dependency.builder),
                     .sub_path = sub_path,
                 }));

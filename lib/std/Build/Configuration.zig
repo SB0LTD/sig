@@ -1173,7 +1173,7 @@ pub const LazyPath = union(@This().Tag) {
     };
 
     pub const SourcePath = struct {
-        flags: @This().Flags,
+        flags: @This().Flags = .{},
         owner: Package.Index,
         sub_path: String,
 
@@ -2318,10 +2318,9 @@ pub const Storage = enum {
 
             /// Valid to call only when deserializing.
             pub fn tag(this: *const @This(), extra: []const u32, i: usize) Tag {
-                _ = this;
-                _ = extra;
-                _ = i;
-                @panic("TODO implement UnionList.tag");
+                const start = @intFromPtr(this.data);
+                const meta_start = start - (this.len * @bitSizeOf(Meta) + 31) / 32;
+                return loadBits(u32, extra[meta_start..], i * @bitSizeOf(Meta), Meta).tag;
             }
 
             fn extraLen(len: usize) usize {
