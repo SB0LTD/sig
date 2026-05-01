@@ -30,13 +30,6 @@ pub fn MemoryPool(comptime Item: type) type {
 }
 pub const memory_pool = @import("heap/memory_pool.zig");
 
-/// Deprecated; use `memory_pool.Aligned`.
-pub const MemoryPoolAligned = memory_pool.Aligned;
-/// Deprecated; use `memory_pool.Extra`.
-pub const MemoryPoolExtra = memory_pool.Extra;
-/// Deprecated; use `memory_pool.Options`.
-pub const MemoryPoolOptions = memory_pool.Options;
-
 /// comptime-known minimum page size of the target.
 ///
 /// All pointers from `mmap` or `NtAllocateVirtualMemory` are aligned to at least
