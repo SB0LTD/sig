@@ -9718,8 +9718,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
             metadata_formatter.need_comma = true;
             defer metadata_formatter.need_comma = undefined;
             try w.print(
-                \\{f} ={f}{f}{f}{f}{f}{f}{f}{f} {s} {f}{f}{f}{f}
-                \\
+                \\{f} ={f}{f}{f}{f}{f}{f}{f}{f} {s} {f}{f}
             , .{
                 variable.global.fmt(self),
                 Linkage.fmtOptional(
@@ -9735,6 +9734,14 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                 @tagName(variable.mutability),
                 global.type.fmt(self, .percent),
                 variable.init.fmt(self, .{ .space = true }),
+            });
+            if (variable.section != .none) {
+                try w.print(", section {f}", .{variable.section.fmtQ(self)});
+            }
+            try w.print(
+                \\{f}{f}
+                \\
+            , .{
                 variable.alignment.fmt(", "),
                 try metadata_formatter.fmt("!dbg ", global.dbg, null),
             });
@@ -9828,6 +9835,9 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
         {
             metadata_formatter.need_comma = false;
             defer metadata_formatter.need_comma = undefined;
+            if (function.section != .none) {
+                try w.print(" section {f}", .{function.section.fmtQ(self)});
+            }
             try w.print("{f}{f}", .{
                 function.alignment.fmt(" "),
                 try metadata_formatter.fmt(" !dbg ", global.dbg, null),
