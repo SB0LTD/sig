@@ -317,10 +317,10 @@ pub const HeaderInstallation = union(enum) {
             /// `exclude_extensions` takes precedence over `include_extensions`.
             include_extensions: ?[]const []const u8 = &.{".h"},
 
-            pub fn dupe(opts: Directory.Options, b: *std.Build) Directory.Options {
+            pub fn dupe(opts: Directory.Options, graph: *std.Build.Graph) Directory.Options {
                 return .{
-                    .exclude_extensions = b.dupeStrings(opts.exclude_extensions),
-                    .include_extensions = if (opts.include_extensions) |incs| b.dupeStrings(incs) else null,
+                    .exclude_extensions = graph.dupeStrings(opts.exclude_extensions),
+                    .include_extensions = if (opts.include_extensions) |incs| graph.dupeStrings(incs) else null,
                 };
             }
         };

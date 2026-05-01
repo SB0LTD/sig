@@ -34,7 +34,6 @@ available_options_map: std.array_hash_map.String(AvailableOption) = .empty,
 invalid_user_input: bool,
 default_step: *Step,
 top_level_steps: std.StringArrayHashMapUnmanaged(*Step.TopLevel),
-install_prefix: []const u8,
 debug_log_scopes: []const []const u8 = &.{},
 /// Number of stack frames captured when a `StackTrace` is recorded for debug purposes,
 /// in particular at `Step` creation.
@@ -217,7 +216,6 @@ pub fn create(
         .user_input_options = UserInputOptionsMap.init(arena),
         .top_level_steps = .{},
         .default_step = undefined,
-        .install_prefix = undefined,
         .install_tls = .{
             .step = .init(.{
                 .tag = .top_level,
@@ -506,7 +504,7 @@ const OrderedUserValue = union(enum) {
                 hasher.update(sp.sub_path);
             },
             .generated => |gen| {
-                hasher.update(gen.file.step.owner.pkg_hash);
+                hasher.update(std.mem.asBytes(&gen.index));
                 hasher.update(std.mem.asBytes(&gen.up));
                 hasher.update(gen.sub_path);
             },
@@ -1728,9 +1726,9 @@ fn findPkgHashOrFatal(b: *Build, name: []const u8) []const u8 {
     for (b.available_deps) |dep| {
         if (mem.eql(u8, dep[0], name)) return dep[1];
     }
-
-    const full_path = b.pathFromRoot("build.zig.zon");
-    std.debug.panic("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file", .{ name, full_path });
+    std.log.info("all dependencies used by build.zig must be declared in corresponding build.zig.zon", .{});
+    if (b.pkg_hash.len == 0) std.debug.panic("no dependency named {s}", .{name});
+    std.debug.panic("no dependency named {s} in {s} ({s})", .{ name, b.dep_prefix, b.pkg_hash });
 }
 
 inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, comptime dep_name: []const u8) []const u8 {
@@ -1931,10 +1929,10 @@ fn userLazyPathsAreTheSame(lhs_lp: LazyPath, rhs_lp: LazyPath) bool {
             if (lhs_sp.owner != rhs_sp.owner) return false;
             if (std.mem.eql(u8, lhs_sp.sub_path, rhs_sp.sub_path)) return false;
         },
-        .generated => |lhs_gen| {
-            const rhs_gen = rhs_lp.generated;
+        .generated => |*lhs_gen| {
+            const rhs_gen = &rhs_lp.generated;
 
-            if (lhs_gen.file != rhs_gen.file) return false;
+            if (lhs_gen.index != rhs_gen.index) return false;
             if (lhs_gen.up != rhs_gen.up) return false;
             if (std.mem.eql(u8, lhs_gen.sub_path, rhs_gen.sub_path)) return false;
         },
@@ -1962,7 +1960,6 @@ fn dependencyInner(
     pkg_deps: AvailableDeps,
     args: anytype,
 ) *Dependency {
-    const io = b.graph.io;
     const user_input_options = userInputOptionsFromArgs(b.allocator, args);
     if (b.graph.dependency_cache.getContext(.{
         .build_root_string = build_root_string,
@@ -1970,13 +1967,7 @@ fn dependencyInner(
     }, .{ .allocator = b.graph.arena })) |dep|
         return dep;
 
-    const build_root: std.Build.Cache.Directory = .{
-        .path = build_root_string,
-        .handle = Io.Dir.cwd().openDir(io, build_root_string, .{}) catch |err|
-            process.fatal("unable to open {s}: {t}", .{ build_root_string, err }),
-    };
-
-    const sub_builder = b.createChild(name, build_root, pkg_hash, pkg_deps, user_input_options) catch
+    const sub_builder = b.createChild(name, pkg_hash, pkg_deps, user_input_options) catch
         @panic("unhandled error");
     if (build_zig) |bz| {
         sub_builder.runBuild(bz) catch @panic("unhandled error");
@@ -2142,7 +2133,7 @@ pub const LazyPath = union(enum) {
                 .sub_path = try fs.path.resolve(arena, &.{ src.sub_path, sub_path }),
             } },
             .generated => |gen| .{ .generated = .{
-                .file = gen.file,
+                .index = gen.index,
                 .up = gen.up,
                 .sub_path = try fs.path.resolve(arena, &.{ gen.sub_path, sub_path }),
             } },
