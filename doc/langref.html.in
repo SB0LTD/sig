@@ -3763,7 +3763,7 @@ void do_a_thing(struct Foo *foo) {
           <tr>
             <th scope="row">{#syntax#}@Int(x, y){#endsyntax#}</th>
             <td>-</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.builtin.Signedness{#endsyntax#}, {#syntax#}y{#endsyntax#} is a {#syntax#}u16{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.lang.Signedness{#endsyntax#}, {#syntax#}y{#endsyntax#} is a {#syntax#}u16{#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}@typeInfo(x){#endsyntax#}</th>
@@ -4373,7 +4373,7 @@ comptime {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer, an enum, or a packed struct.
       </p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
+      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").lang.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicStore|@atomicRmw||@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
@@ -4387,8 +4387,8 @@ comptime {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer, an enum, or a packed struct.
       </p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      <p>{#syntax#}AtomicRmwOp{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicRmwOp{#endsyntax#}.</p>
+      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").lang.AtomicOrder{#endsyntax#}.</p>
+      <p>{#syntax#}AtomicRmwOp{#endsyntax#} can be found with {#syntax#}@import("std").lang.AtomicRmwOp{#endsyntax#}.</p>
       {#see_also|@atomicStore|@atomicLoad|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
@@ -4401,7 +4401,7 @@ comptime {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer, an enum, or a packed struct.
       </p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
+      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").lang.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
@@ -4459,7 +4459,7 @@ comptime {
       {#header_open|@branchHint#}
       <pre>{#syntax#}@branchHint(hint: BranchHint) void{#endsyntax#}</pre>
       <p>Hints to the optimizer how likely a given branch of control flow is to be reached.</p>
-      <p>{#syntax#}BranchHint{#endsyntax#} can be found with {#syntax#}@import("std").builtin.BranchHint{#endsyntax#}.</p>
+      <p>{#syntax#}BranchHint{#endsyntax#} can be found with {#syntax#}@import("std").lang.BranchHint{#endsyntax#}.</p>
       <p>This function is only valid as the first statement in a control flow branch, or the first statement in a function.</p>
       {#header_close#}
 
@@ -4526,7 +4526,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@call#}
-      <pre>{#syntax#}@call(modifier: std.builtin.CallModifier, function: anytype, args: anytype) anytype{#endsyntax#}</pre>
+      <pre>{#syntax#}@call(modifier: std.lang.CallModifier, function: anytype, args: anytype) anytype{#endsyntax#}</pre>
       <p>
       Calls a function, in the same way that invoking an expression with parentheses does:
       </p>
@@ -4536,7 +4536,7 @@ comptime {
       {#syntax#}@call{#endsyntax#} allows more flexibility than normal function call syntax does. The
       {#syntax#}CallModifier{#endsyntax#} enum is reproduced here:
       </p>
-      {#code|builtin.CallModifier struct.zig#}
+      {#code|lang.CallModifier struct.zig#}
 
       {#header_close#}
 
@@ -4576,7 +4576,7 @@ comptime {
       an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
+      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").lang.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak#}
       {#header_close#}
 
@@ -4608,7 +4608,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
+      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").lang.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgStrong#}
       {#header_close#}
 
@@ -4670,28 +4670,28 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@cVaArg#}
-      <pre>{#syntax#}@cVaArg(operand: *std.builtin.VaList, comptime T: type) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@cVaArg(operand: *std.lang.VaList, comptime T: type) T{#endsyntax#}</pre>
       <p>
       Implements the C macro {#syntax#}va_arg{#endsyntax#}.
       </p>
       {#see_also|@cVaCopy|@cVaEnd|@cVaStart#}
       {#header_close#}
       {#header_open|@cVaCopy#}
-      <pre>{#syntax#}@cVaCopy(src: *std.builtin.VaList) std.builtin.VaList{#endsyntax#}</pre>
+      <pre>{#syntax#}@cVaCopy(src: *std.lang.VaList) std.lang.VaList{#endsyntax#}</pre>
       <p>
       Implements the C macro {#syntax#}va_copy{#endsyntax#}.
       </p>
       {#see_also|@cVaArg|@cVaEnd|@cVaStart#}
       {#header_close#}
       {#header_open|@cVaEnd#}
-      <pre>{#syntax#}@cVaEnd(src: *std.builtin.VaList) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@cVaEnd(src: *std.lang.VaList) void{#endsyntax#}</pre>
       <p>
       Implements the C macro {#syntax#}va_end{#endsyntax#}.
       </p>
       {#see_also|@cVaArg|@cVaCopy|@cVaStart#}
       {#header_close#}
       {#header_open|@cVaStart#}
-      <pre>{#syntax#}@cVaStart() std.builtin.VaList{#endsyntax#}</pre>
+      <pre>{#syntax#}@cVaStart() std.lang.VaList{#endsyntax#}</pre>
       <p>
       Implements the C macro {#syntax#}va_start{#endsyntax#}. Only valid inside a variadic function.
       </p>
@@ -4800,7 +4800,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@errorReturnTrace#}
-      <pre>{#syntax#}@errorReturnTrace() ?*builtin.StackTrace{#endsyntax#}</pre>
+      <pre>{#syntax#}@errorReturnTrace() ?*std.lang.StackTrace{#endsyntax#}</pre>
       <p>
       If the binary is built with error return tracing, and this function is invoked in a
       function that calls a function with an error or error union return type, returns a
@@ -4818,7 +4818,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@export#}
-      <pre>{#syntax#}@export(comptime ptr: *const anyopaque, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@export(comptime ptr: *const anyopaque, comptime options: std.lang.ExportOptions) void{#endsyntax#}</pre>
       <p>Creates a symbol in the output object file which refers to the target of <code>ptr</code>.</p>
       <p><code>ptr</code> must point to a global variable or a comptime-known constant.</p>
       <p>
@@ -4844,7 +4844,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@extern#}
-      <pre>{#syntax#}@extern(T: type, comptime options: std.builtin.ExternOptions) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@extern(T: type, comptime options: std.lang.ExternOptions) T{#endsyntax#}</pre>
       <p>
       Creates a reference to an external symbol in the output object file.
       T must be a pointer type.
@@ -5165,8 +5165,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       Invokes the panic handler function. By default the panic handler function
       calls the public {#syntax#}panic{#endsyntax#} function exposed in the root source file, or
-      if there is not one specified, the {#syntax#}std.builtin.default_panic{#endsyntax#}
-      function from {#syntax#}std/builtin.zig{#endsyntax#}.
+      if there is not one specified, the {#syntax#}std.lang.default_panic{#endsyntax#}
+      function from {#syntax#}std/lang.zig{#endsyntax#}.
       </p>
       <p>Generally it is better to use {#syntax#}@import("std").debug.panic{#endsyntax#}.
           However, {#syntax#}@panic{#endsyntax#} can be useful for 2 scenarios:
@@ -5205,7 +5205,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       address to prefetch. This function does not dereference the pointer, it is perfectly legal
       to pass a pointer to invalid memory to this function and no Illegal Behavior will result.
       </p>
-      <p>{#syntax#}PrefetchOptions{#endsyntax#} can be found with {#syntax#}@import("std").builtin.PrefetchOptions{#endsyntax#}.</p>
+      <p>{#syntax#}PrefetchOptions{#endsyntax#} can be found with {#syntax#}@import("std").lang.PrefetchOptions{#endsyntax#}.</p>
       {#header_close#}
 
       {#header_open|@ptrCast#}
@@ -5328,7 +5328,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       The floating point mode is inherited by child scopes, and can be overridden in any scope.
       You can set the floating point mode in a struct or module scope by using a comptime block.
       </p>
-      <p>{#syntax#}FloatMode{#endsyntax#} can be found with {#syntax#}@import("std").builtin.FloatMode{#endsyntax#}.</p>
+      <p>{#syntax#}FloatMode{#endsyntax#} can be found with {#syntax#}@import("std").lang.FloatMode{#endsyntax#}.</p>
       {#see_also|Floating Point Operations#}
       {#header_close#}
 
@@ -5464,7 +5464,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@reduce#}
-      <pre>{#syntax#}@reduce(comptime op: std.builtin.ReduceOp, value: anytype) E{#endsyntax#}</pre>
+      <pre>{#syntax#}@reduce(comptime op: std.lang.ReduceOp, value: anytype) E{#endsyntax#}</pre>
       <p>
       Transforms a {#link|vector|Vectors#} into a scalar value (of type <code>E</code>)
       by performing a sequential horizontal reduction of its elements using the
@@ -5494,7 +5494,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@src#}
-      <pre>{#syntax#}@src() std.builtin.SourceLocation{#endsyntax#}</pre>
+      <pre>{#syntax#}@src() std.lang.SourceLocation{#endsyntax#}</pre>
       <p>
       Returns a {#syntax#}SourceLocation{#endsyntax#} struct representing the function's name and location in the source code. This must be called in a function.
       </p>
@@ -5721,7 +5721,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@Int#}
-      <pre>{#syntax#}@Int(comptime signedness: std.builtin.Signedness, comptime bits: u16) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@Int(comptime signedness: std.lang.Signedness, comptime bits: u16) type{#endsyntax#}</pre>
       <p>Returns an integer type with the given signedness and bit width.</p>
       <p>For instance, {#syntax#}@Int(.unsigned, 18){#endsyntax#} returns the type {#syntax#}u18{#endsyntax#}.</p>
       {#header_close#}
@@ -5733,8 +5733,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
 
       {#header_open|@Pointer#}
       <pre>{#syntax#}@Pointer(
-    comptime size: std.builtin.Type.Pointer.Size,
-    comptime attrs: std.builtin.Type.Pointer.Attributes,
+    comptime size: std.lang.Type.Pointer.Size,
+    comptime attrs: std.lang.Type.Pointer.Attributes,
     comptime Element: type,
     comptime sentinel: ?Element,
 ) type{#endsyntax#}</pre>
@@ -5744,32 +5744,32 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@Fn#}
       <pre>{#syntax#}@Fn(
     comptime param_types: []const type,
-    comptime param_attrs: *const [param_types.len]std.builtin.Type.Fn.Param.Attributes,
+    comptime param_attrs: *const [param_types.len]std.lang.Type.Fn.Param.Attributes,
     comptime ReturnType: type,
-    comptime attrs: std.builtin.Type.Fn.Attributes,
+    comptime attrs: std.lang.Type.Fn.Attributes,
 ) type{#endsyntax#}</pre>
       <p>Returns a {#link|function|Functions#} type with the properties specified by the arguments.</p>
       {#header_close#}
 
       {#header_open|@Struct#}
       <pre>{#syntax#}@Struct(
-    comptime layout: std.builtin.Type.ContainerLayout,
+    comptime layout: std.lang.Type.ContainerLayout,
     comptime BackingInt: ?type,
     comptime field_names: []const []const u8,
     comptime field_types: *const [field_names.len]type,
-    comptime field_attrs: *const [field_names.len]std.builtin.Type.StructField.Attributes,
+    comptime field_attrs: *const [field_names.len]std.lang.Type.StructField.Attributes,
 ) type{#endsyntax#}</pre>
       <p>Returns a {#link|struct#} type with the properties specified by the arguments.</p>
       {#header_close#}
 
       {#header_open|@Union#}
       <pre>{#syntax#}@Union(
-    comptime layout: std.builtin.Type.ContainerLayout,
+    comptime layout: std.lang.Type.ContainerLayout,
     /// Either the integer tag type, or the integer backing type, depending on `layout`.
     comptime ArgType: ?type,
     comptime field_names: []const []const u8,
     comptime field_types: *const [field_names.len]type,
-    comptime field_attrs: *const [field_names.len]std.builtin.Type.UnionField.Attributes,
+    comptime field_attrs: *const [field_names.len]std.lang.Type.UnionField.Attributes,
 ) type{#endsyntax#}</pre>
       <p>Returns a {#link|union#} type with the properties specified by the arguments.</p>
       {#header_close#}
@@ -5777,7 +5777,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@Enum#}
       <pre>{#syntax#}@Enum(
     comptime TagInt: type,
-    comptime mode: std.builtin.Type.Enum.Mode,
+    comptime mode: std.lang.Type.Enum.Mode,
     comptime field_names: []const []const u8,
     comptime field_values: *const [field_names.len]TagInt,
 ) type{#endsyntax#}</pre>
@@ -5785,7 +5785,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@typeInfo#}
-      <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.Type{#endsyntax#}</pre>
+      <pre>{#syntax#}@typeInfo(comptime T: type) std.lang.Type{#endsyntax#}</pre>
       <p>
       Provides type reflection.
       </p>
