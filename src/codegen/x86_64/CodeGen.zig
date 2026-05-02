@@ -173952,7 +173952,7 @@ fn setFrameLoc(
     offset.* += self.frame_allocs.items(.abi_size)[frame_i];
 }
 
-fn computeFrameLayout(self: *CodeGen, cc: std.builtin.CallingConvention.Tag) !FrameLayout {
+fn computeFrameLayout(self: *CodeGen, cc: std.lang.CallingConvention.Tag) !FrameLayout {
     const frame_allocs_len = self.frame_allocs.len;
     try self.frame_locs.resize(self.gpa, frame_allocs_len);
     const stack_frame_order = try self.gpa.alloc(FrameIndex, frame_allocs_len - FrameIndex.named_count);
@@ -174294,7 +174294,7 @@ pub fn spillEflagsIfOccupied(self: *CodeGen) !void {
     }
 }
 
-pub fn spillCallerPreservedRegs(self: *CodeGen, cc: std.builtin.CallingConvention.Tag, ignore_reg: Register) !void {
+pub fn spillCallerPreservedRegs(self: *CodeGen, cc: std.lang.CallingConvention.Tag, ignore_reg: Register) !void {
     switch (cc) {
         inline .auto, .x86_64_sysv, .x86_64_win => |tag| inline for (comptime abi.getCallerPreservedRegs(tag)) |reg|
             if (reg != ignore_reg) try self.register_manager.getKnownReg(reg, null),
@@ -175917,7 +175917,7 @@ fn genLocalDebugInfo(cg: *CodeGen, air_tag: Air.Inst.Tag, ty: Type, mcv: MCValue
     };
 }
 
-fn airCall(self: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier, opts: CopyOptions) !void {
+fn airCall(self: *CodeGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier, opts: CopyOptions) !void {
     if (modifier == .always_tail) return self.fail("TODO implement tail calls for x86_64", .{});
 
     const call = self.air.unwrapCall(inst);
@@ -179498,7 +179498,7 @@ fn airBitCast(self: *CodeGen, inst: Air.Inst.Index) !void {
         );
         var offset = dst_limbs_len * 8;
         if (offset < abi_size) {
-            const dst_signedness: std.builtin.Signedness = if (dst_ty.isAbiInt(zcu))
+            const dst_signedness: std.lang.Signedness = if (dst_ty.isAbiInt(zcu))
                 dst_ty.intInfo(zcu).signedness
             else
                 .unsigned;
@@ -179640,8 +179640,8 @@ fn atomicOp(
     ptr_ty: Type,
     val_ty: Type,
     unused: bool,
-    rmw_op: ?std.builtin.AtomicRmwOp,
-    order: std.builtin.AtomicOrder,
+    rmw_op: ?std.lang.AtomicRmwOp,
+    order: std.lang.AtomicOrder,
 ) InnerError!MCValue {
     const pt = self.pt;
     const zcu = pt.zcu;
@@ -179714,7 +179714,7 @@ fn atomicOp(
             defer self.register_manager.unlockReg(dst_lock);
 
             try self.genSetReg(dst_reg, val_ty, val_mcv, .{});
-            if (rmw_op == std.builtin.AtomicRmwOp.Sub and mir_tag[1] == .xadd) {
+            if (rmw_op == std.lang.AtomicRmwOp.Sub and mir_tag[1] == .xadd) {
                 try self.genUnOpMir(.{ ._, .neg }, val_ty, dst_mcv);
             }
             try self.asmMemoryRegister(mir_tag, ptr_mem, registerAlias(dst_reg, val_abi_size));
@@ -179898,7 +179898,7 @@ fn atomicOp(
             };
             const val_lo_mem = try val_mem_mcv.mem(self, .{ .size = .qword });
             const val_hi_mem = try val_mem_mcv.address().offset(8).deref().mem(self, .{ .size = .qword });
-            if (rmw_op != std.builtin.AtomicRmwOp.Xchg) {
+            if (rmw_op != std.lang.AtomicRmwOp.Xchg) {
                 try self.asmRegisterRegister(.{ ._, .mov }, .rbx, .rax);
                 try self.asmRegisterRegister(.{ ._, .mov }, .rcx, .rdx);
             }
@@ -180033,7 +180033,7 @@ fn airAtomicLoad(self: *CodeGen, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ atomic_load.ptr, .none, .none });
 }
 
-fn airAtomicStore(self: *CodeGen, inst: Air.Inst.Index, order: std.builtin.AtomicOrder) !void {
+fn airAtomicStore(self: *CodeGen, inst: Air.Inst.Index, order: std.lang.AtomicOrder) !void {
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const ptr_ty = self.typeOf(bin_op.lhs);
@@ -181813,7 +181813,7 @@ fn nonBoolScalarBitSize(cg: *CodeGen, ty: Type) u32 {
     };
 }
 
-fn intInfo(cg: *CodeGen, ty: Type) ?std.builtin.Type.Int {
+fn intInfo(cg: *CodeGen, ty: Type) ?std.lang.Type.Int {
     const zcu = cg.pt.zcu;
     const ip = &zcu.intern_pool;
     var ty_index = ty.ip_index;
@@ -188528,7 +188528,7 @@ const Select = struct {
 
             const ConstSpec = struct {
                 ref: Select.Operand.Ref = .none,
-                to_signedness: ?std.builtin.Signedness = null,
+                to_signedness: ?std.lang.Signedness = null,
                 vectorize_to: ?Memory.Size = null,
             };
 
@@ -188537,7 +188537,7 @@ const Select = struct {
                 after: u2,
                 at: u2,
 
-                fn tag(spec: CallConvRegSpec, cg: *const CodeGen) std.builtin.CallingConvention.Tag {
+                fn tag(spec: CallConvRegSpec, cg: *const CodeGen) std.lang.CallingConvention.Tag {
                     return switch (spec.cc) {
                         .none => unreachable,
                         .ccc => cg.target.cCallingConvention().?,
@@ -188667,11 +188667,11 @@ const Select = struct {
                             .smax_mem, .umin_mem => .bool_false,
                         }) },
                         else => {
-                            const scalar_info: std.builtin.Type.Int = cg.intInfo(scalar_ty) orelse .{
+                            const scalar_info: std.lang.Type.Int = cg.intInfo(scalar_ty) orelse .{
                                 .signedness = .signed,
                                 .bits = cg.floatBits(scalar_ty).?,
                             };
-                            const res_scalar_info: std.builtin.Type.Int = .{
+                            const res_scalar_info: std.lang.Type.Int = .{
                                 .signedness = const_spec.to_signedness orelse scalar_info.signedness,
                                 .bits = switch (spec.kind) {
                                     else => scalar_info.bits,
@@ -188739,7 +188739,7 @@ const Select = struct {
                                         .positive = undefined,
                                     };
                                     defer allocator.free(big_int.limbs);
-                                    const signedness: std.builtin.Signedness = switch (spec.kind) {
+                                    const signedness: std.lang.Signedness = switch (spec.kind) {
                                         else => unreachable,
                                         .slimit_delta_mem => .signed,
                                         .umax_delta_mem => .unsigned,

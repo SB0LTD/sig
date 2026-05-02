@@ -20,7 +20,7 @@ const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const Type = @import("../../Type.zig");
 const CodeGenError = codegen.CodeGenError;
-const Endian = std.builtin.Endian;
+const Endian = std.lang.Endian;
 const Alignment = InternPool.Alignment;
 
 const build_options = @import("build_options");
@@ -1255,7 +1255,7 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
+fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.lang.CallModifier) !void {
     if (modifier == .always_tail) return self.fail("TODO implement tail calls for {}", .{self.target.cpu.arch});
 
     const call = self.air.unwrapCall(inst);
@@ -4702,7 +4702,7 @@ fn truncRegister(
     self: *Self,
     operand_reg: Register,
     dest_reg: Register,
-    int_signedness: std.builtin.Signedness,
+    int_signedness: std.lang.Signedness,
     int_bits: u16,
 ) !void {
     switch (int_bits) {

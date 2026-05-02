@@ -1901,7 +1901,7 @@ fn splitType(func: *Func, ty: Type) ![2]Type {
 fn truncateRegister(func: *Func, ty: Type, reg: Register) !void {
     const pt = func.pt;
     const zcu = pt.zcu;
-    const int_info = if (ty.isAbiInt(zcu)) ty.intInfo(zcu) else std.builtin.Type.Int{
+    const int_info = if (ty.isAbiInt(zcu)) ty.intInfo(zcu) else std.lang.Type.Int{
         .signedness = .unsigned,
         .bits = @intCast(ty.bitSize(zcu)),
     };
@@ -4788,7 +4788,7 @@ fn airFrameAddress(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, dst_mcv, .{ .none, .none, .none });
 }
 
-fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
+fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.lang.CallModifier) !void {
     if (modifier == .always_tail) return func.fail("TODO implement tail calls for riscv64", .{});
     const call = func.air.unwrapCall(inst);
     const arg_refs = call.args;
@@ -7691,7 +7691,7 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
     const pt = func.pt;
     const zcu = pt.zcu;
     const atomic_load = func.air.instructions.items(.data)[@intFromEnum(inst)].atomic_load;
-    const order: std.builtin.AtomicOrder = atomic_load.order;
+    const order: std.lang.AtomicOrder = atomic_load.order;
 
     const ptr_ty = func.typeOf(atomic_load.ptr);
     const elem_ty = ptr_ty.childType(zcu);
@@ -7737,7 +7737,7 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result_mcv, .{ atomic_load.ptr, .none, .none });
 }
 
-fn airAtomicStore(func: *Func, inst: Air.Inst.Index, order: std.builtin.AtomicOrder) !void {
+fn airAtomicStore(func: *Func, inst: Air.Inst.Index, order: std.lang.AtomicOrder) !void {
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const ptr_ty = func.typeOf(bin_op.lhs);

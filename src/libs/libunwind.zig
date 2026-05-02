@@ -29,7 +29,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const io = comp.io;
     const output_mode = .Lib;
     const target = &comp.root_mod.resolved_target.result;
-    const unwind_tables: std.builtin.UnwindTables =
+    const unwind_tables: std.lang.UnwindTables =
         if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .async;
     const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,

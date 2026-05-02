@@ -37,7 +37,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .watchos => if (target.abi == .simulator) "clang_rt.tsan_watchossim_dynamic" else "clang_rt.tsan_watchos_dynamic",
         else => "tsan",
     };
-    const link_mode: std.builtin.LinkMode = if (target.os.tag.isDarwin()) .dynamic else .static;
+    const link_mode: std.lang.LinkMode = if (target.os.tag.isDarwin()) .dynamic else .static;
     const output_mode = .Lib;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
@@ -48,7 +48,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
-    const unwind_tables: std.builtin.UnwindTables =
+    const unwind_tables: std.lang.UnwindTables =
         if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .async;
     const link_libcpp = target.os.tag.isDarwin();
 

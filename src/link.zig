@@ -1300,8 +1300,8 @@ pub const File = struct {
     };
 
     pub fn determinePermissions(
-        output_mode: std.builtin.OutputMode,
-        link_mode: std.builtin.LinkMode,
+        output_mode: std.lang.OutputMode,
+        link_mode: std.lang.LinkMode,
     ) Io.File.Permissions {
         // On common systems with a 0o022 umask, 0o777 will still result in a file created
         // with 0o755 permissions, but it works appropriately if the system is configured
@@ -1714,10 +1714,10 @@ pub const UnresolvedInput = union(enum) {
         must_link: bool = false,
         hidden: bool = false,
         allow_so_scripts: bool = false,
-        preferred_mode: std.builtin.LinkMode,
+        preferred_mode: std.lang.LinkMode,
         search_strategy: SearchStrategy,
 
-        fn fallbackMode(q: Query) std.builtin.LinkMode {
+        fn fallbackMode(q: Query) std.lang.LinkMode {
             assert(q.search_strategy != .no_fallback);
             return switch (q.preferred_mode) {
                 .dynamic => .static,
@@ -1843,7 +1843,7 @@ pub fn resolveInputs(
         name: []const u8,
         strategy: UnresolvedInput.SearchStrategy,
         checked_paths: []const u8,
-        preferred_mode: std.builtin.LinkMode,
+        preferred_mode: std.lang.LinkMode,
     }) = .empty;
 
     // Convert external system libs into a stack so that items can be
@@ -2077,7 +2077,7 @@ fn resolveLibInput(
     lib_directory: Directory,
     name_query: UnresolvedInput.NameQuery,
     target: *const std.Target,
-    link_mode: std.builtin.LinkMode,
+    link_mode: std.lang.LinkMode,
     color: std.zig.Color,
 ) Allocator.Error!ResolveLibInputResult {
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);
@@ -2161,7 +2161,7 @@ fn finishResolveLibInput(
     resolved_inputs: *std.ArrayList(Input),
     path: Path,
     file: Io.File,
-    link_mode: std.builtin.LinkMode,
+    link_mode: std.lang.LinkMode,
     query: UnresolvedInput.Query,
 ) ResolveLibInputResult {
     switch (link_mode) {
@@ -2237,7 +2237,7 @@ fn resolvePathInputLib(
     ld_script_bytes: *std.ArrayList(u8),
     target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
-    link_mode: std.builtin.LinkMode,
+    link_mode: std.lang.LinkMode,
     color: std.zig.Color,
 ) Allocator.Error!ResolveLibInputResult {
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);

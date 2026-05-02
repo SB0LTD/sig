@@ -20,7 +20,7 @@ pub const CrtFile = enum {
     scrt0_o,
 };
 
-pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {
+pub fn needsCrt0(output_mode: std.lang.OutputMode) ?CrtFile {
     // https://github.com/ziglang/zig/issues/23574#issuecomment-2869089897
     return switch (output_mode) {
         .Obj, .Lib => null,

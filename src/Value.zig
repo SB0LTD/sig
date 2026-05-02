@@ -1845,7 +1845,7 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value
     } }));
 }
 
-fn canonicalizeBasePtr(base_ptr: Value, want_size: std.builtin.Type.Pointer.Size, want_child: Type, pt: Zcu.PerThread) !Value {
+fn canonicalizeBasePtr(base_ptr: Value, want_size: std.lang.Type.Pointer.Size, want_child: Type, pt: Zcu.PerThread) !Value {
     const ptr_ty = base_ptr.typeOf(pt.zcu);
     const ptr_info = ptr_ty.ptrInfo(pt.zcu);
 

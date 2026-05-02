@@ -1340,7 +1340,7 @@ const Writer = struct {
         if (extra.data.flags.ensure_result_used) {
             try stream.writeAll("nodiscard ");
         }
-        try stream.print(".{s}, ", .{@tagName(@as(std.builtin.CallModifier, @enumFromInt(extra.data.flags.packed_modifier)))});
+        try stream.print(".{s}, ", .{@tagName(@as(std.lang.CallModifier, @enumFromInt(extra.data.flags.packed_modifier)))});
         switch (kind) {
             .direct => try self.writeInstRef(stream, extra.data.callee),
             .field => {

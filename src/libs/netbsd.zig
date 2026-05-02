@@ -19,7 +19,7 @@ pub const CrtFile = enum {
     scrt0_o,
 };
 
-pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {
+pub fn needsCrt0(output_mode: std.lang.OutputMode) ?CrtFile {
     // For shared libraries and PIC executables, we should actually link in a variant of crt1 that
     // is built with `-DSHARED` so that it calls `__cxa_finalize` in an ELF destructor. However, we
     // currently make no effort to respect `__cxa_finalize` on any other targets, so for now, we're

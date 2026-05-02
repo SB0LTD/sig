@@ -744,9 +744,9 @@ pub const Export = struct {
 
     pub const Options = struct {
         name: InternPool.NullTerminatedString,
-        linkage: std.builtin.GlobalLinkage = .strong,
+        linkage: std.lang.GlobalLinkage = .strong,
         section: InternPool.OptionalNullTerminatedString = .none,
-        visibility: std.builtin.SymbolVisibility = .default,
+        visibility: std.lang.SymbolVisibility = .default,
     };
 
     /// Index into `all_exports`.
@@ -4526,10 +4526,10 @@ fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void
     }
 }
 
-pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enum) {
+pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) {
     ok,
     bad_arch: []const std.Target.Cpu.Arch, // value is allowed archs for cc
-    bad_backend: std.builtin.CompilerBackend, // value is current backend
+    bad_backend: std.lang.CompilerBackend, // value is current backend
 } {
     const target = zcu.getTarget();
     const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);

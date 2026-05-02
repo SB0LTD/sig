@@ -3966,7 +3966,7 @@ pub fn getCoerced(pt: Zcu.PerThread, val: Value, new_ty: Type) Allocator.Error!V
     return .fromInterned(try ip.getCoerced(gpa, io, pt.tid, val.toIntern(), new_ty.toIntern()));
 }
 
-pub fn intType(pt: Zcu.PerThread, signedness: std.builtin.Signedness, bits: u16) Allocator.Error!Type {
+pub fn intType(pt: Zcu.PerThread, signedness: std.lang.Signedness, bits: u16) Allocator.Error!Type {
     return Type.fromInterned(try pt.intern(.{ .int_type = .{
         .signedness = signedness,
         .bits = bits,

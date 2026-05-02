@@ -2418,7 +2418,7 @@ pub const Inst = struct {
                 has_bit_range: bool,
                 _: u1 = 0,
             },
-            size: std.builtin.Type.Pointer.Size,
+            size: std.lang.Type.Pointer.Size,
             /// Index into extra. See `PtrType`.
             payload_index: u32,
         },
@@ -2426,7 +2426,7 @@ pub const Inst = struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
             src_node: Ast.Node.Offset,
-            signedness: std.builtin.Signedness,
+            signedness: std.lang.Signedness,
             bit_count: u16,
         },
         @"unreachable": struct {
@@ -3051,7 +3051,7 @@ pub const Inst = struct {
         callee: Ref,
 
         pub const Flags = packed struct {
-            /// std.builtin.CallModifier in packed form
+            /// std.lang.CallModifier in packed form
             pub const PackedModifier = u3;
             pub const PackedArgsLen = u27;
 
@@ -3063,7 +3063,7 @@ pub const Inst = struct {
             comptime {
                 if (@sizeOf(Flags) != 4 or @bitSizeOf(Flags) != 32)
                     @compileError("Layout of Call.Flags needs to be updated!");
-                if (@bitSizeOf(std.builtin.CallModifier) != @bitSizeOf(PackedModifier))
+                if (@bitSizeOf(std.lang.CallModifier) != @bitSizeOf(PackedModifier))
                     @compileError("Call.Flags.PackedModifier needs to be updated!");
             }
         };
@@ -3186,7 +3186,7 @@ pub const Inst = struct {
 
     pub const ReifySliceArgInfo = enum(u16) {
         /// Input element type is `type`.
-        /// Output element type is `std.builtin.Type.Fn.Param.Attributes`.
+        /// Output element type is `std.lang.Type.Fn.Param.Attributes`.
         type_to_fn_param_attrs,
         /// Input element type is `[]const u8`.
         /// Output element type is `type`.
@@ -3194,10 +3194,10 @@ pub const Inst = struct {
         /// Identical to `string_to_struct_field_type` aside from emitting slightly different error messages.
         string_to_union_field_type,
         /// Input element type is `[]const u8`.
-        /// Output element type is `std.builtin.Type.StructField.Attributes`.
+        /// Output element type is `std.lang.Type.StructField.Attributes`.
         string_to_struct_field_attrs,
         /// Input element type is `[]const u8`.
-        /// Output element type is `std.builtin.Type.UnionField.Attributes`.
+        /// Output element type is `std.lang.Type.UnionField.Attributes`.
         string_to_union_field_attrs,
     };
 
@@ -3468,7 +3468,7 @@ pub const Inst = struct {
             has_decls_len: bool,
             has_fields_len: bool,
             name_strategy: NameStrategy,
-            layout: std.builtin.Type.ContainerLayout,
+            layout: std.lang.Type.ContainerLayout,
             /// Always `false` if `layout != .@"packed"`.
             has_backing_int_type: bool,
             any_field_aligns: bool,
@@ -3688,7 +3688,7 @@ pub const Inst = struct {
                 };
             }
 
-            pub fn layout(k: Kind) std.builtin.Type.ContainerLayout {
+            pub fn layout(k: Kind) std.lang.Type.ContainerLayout {
                 return switch (k) {
                     .auto, .tagged_explicit, .tagged_enum, .tagged_enum_explicit => .auto,
                     .@"extern" => .@"extern",
@@ -5286,7 +5286,7 @@ pub const UnwrappedStructDecl = struct {
 
     decls: []const Inst.Index,
 
-    layout: std.builtin.Type.ContainerLayout,
+    layout: std.lang.Type.ContainerLayout,
     backing_int_type_body: ?[]const Inst.Index,
 
     field_names: []const NullTerminatedString,

@@ -512,7 +512,7 @@ pub const CType = union(enum) {
             },
         }
     }
-    fn classifyBitInt(signedness: std.builtin.Signedness, bits: u16, zcu: *const Zcu) IntClass {
+    fn classifyBitInt(signedness: std.lang.Signedness, bits: u16, zcu: *const Zcu) IntClass {
         const is_ez80 = zcu.getTarget().cpu.arch == .ez80;
         return switch (bits) {
             0 => .void,

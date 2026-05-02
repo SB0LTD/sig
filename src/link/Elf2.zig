@@ -1697,7 +1697,7 @@ pub fn identData(elf: *const Elf) std.elf.DATA {
     return @enumFromInt(elf.mf.memory_map.memory[std.elf.EI.DATA]);
 }
 
-pub fn targetEndian(elf: *const Elf) std.builtin.Endian {
+pub fn targetEndian(elf: *const Elf) std.lang.Endian {
     return switch (elf.identData()) {
         .NONE, _ => unreachable,
         .@"2LSB" => .little,

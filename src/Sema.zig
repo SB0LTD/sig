@@ -135,7 +135,7 @@ allow_memoize: bool = true,
 
 /// The `BranchHint` for the current branch of runtime control flow.
 /// This state is on `Sema` so that `cold` hints can be propagated up through blocks with less special handling.
-branch_hint: ?std.builtin.BranchHint = null,
+branch_hint: ?std.lang.BranchHint = null,
 
 const RuntimeIndex = enum(u32) {
     zero = 0,
@@ -383,7 +383,7 @@ pub const Block = struct {
     want_safety: ?bool = null,
 
     /// What mode to generate float operations in, set by @setFloatMode
-    float_mode: std.builtin.FloatMode = .strict,
+    float_mode: std.lang.FloatMode = .strict,
 
     /// If not `null`, this boolean is set when a `dbg_var_ptr`, `dbg_var_val`, or `dbg_arg_inline`.
     /// instruction is emitted. It signals that the innermost lexically
@@ -759,7 +759,7 @@ pub const Block = struct {
         });
     }
 
-    fn addReduce(block: *Block, operand: Air.Inst.Ref, operation: std.builtin.ReduceOp) !Air.Inst.Ref {
+    fn addReduce(block: *Block, operand: Air.Inst.Ref, operation: std.lang.ReduceOp) !Air.Inst.Ref {
         const sema = block.sema;
         const zcu = sema.pt.zcu;
         const allow_optimized = switch (sema.typeOf(operand).childType(zcu).zigTypeTag(zcu)) {
@@ -1023,7 +1023,7 @@ pub fn deinit(sema: *Sema) void {
 /// control flow happens here, Sema will convert it to runtime control flow by introducing post-hoc
 /// blocks where necessary.
 /// Returns the branch hint for this branch.
-fn analyzeBodyRuntimeBreak(sema: *Sema, block: *Block, body: []const Zir.Inst.Index) !std.builtin.BranchHint {
+fn analyzeBodyRuntimeBreak(sema: *Sema, block: *Block, body: []const Zir.Inst.Index) !std.lang.BranchHint {
     const parent_hint = sema.branch_hint;
     defer sema.branch_hint = parent_hint;
     sema.branch_hint = null;
@@ -2804,8 +2804,8 @@ fn analyzeValueAsCallconv(
     block: *Block,
     src: LazySrcLoc,
     val: Value,
-) !std.builtin.CallingConvention {
-    return interpretStdLangType(sema, block, src, val, std.builtin.CallingConvention);
+) !std.lang.CallingConvention {
+    return interpretStdLangType(sema, block, src, val, std.lang.CallingConvention);
 }
 
 fn interpretStdLangType(
@@ -6147,7 +6147,7 @@ fn zirCall(
     const extra = sema.code.extraData(ExtraType, inst_data.payload_index);
     const args_len = extra.data.flags.args_len;
 
-    const modifier: std.builtin.CallModifier = @enumFromInt(extra.data.flags.packed_modifier);
+    const modifier: std.lang.CallModifier = @enumFromInt(extra.data.flags.packed_modifier);
     const ensure_result_used = extra.data.flags.ensure_result_used;
     const pop_error_return_trace = extra.data.flags.pop_error_return_trace;
 
@@ -6322,7 +6322,7 @@ fn callBuiltin(
     block: *Block,
     call_src: LazySrcLoc,
     builtin_fn: Air.Inst.Ref,
-    modifier: std.builtin.CallModifier,
+    modifier: std.lang.CallModifier,
     args: []const Air.Inst.Ref,
     operation: CallOperation,
 ) !void {
@@ -6543,7 +6543,7 @@ fn analyzeCall(
     func_ty: Type,
     func_src: LazySrcLoc,
     call_src: LazySrcLoc,
-    modifier: std.builtin.CallModifier,
+    modifier: std.lang.CallModifier,
     ensure_result_used: bool,
     args_info: CallArgsInfo,
     call_dbg_node: ?Zir.Inst.Index,
@@ -8367,7 +8367,7 @@ fn zirFunc(
     // If this instruction has a body, then it's a function declaration, and we decide
     // the callconv based on whether it is exported. Otherwise, the callconv defaults
     // to `.auto`.
-    const cc: std.builtin.CallingConvention = if (has_body) cc: {
+    const cc: std.lang.CallingConvention = if (has_body) cc: {
         const func_decl_nav = sema.owner.unwrap().nav_val;
         const fn_is_exported = exported: {
             const decl_inst = ip.getNav(func_decl_nav).analysis.?.zir_index.resolve(ip) orelse return error.AnalysisFail;
@@ -8509,7 +8509,7 @@ pub fn handleExternLibName(
 /// These are calling conventions that are confirmed to work with variadic functions.
 /// Any calling conventions not included here are either not yet verified to work with variadic
 /// functions or there are no more other calling conventions that support variadic functions.
-const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention.Tag{
+const calling_conventions_supporting_var_args = [_]std.lang.CallingConvention.Tag{
     .x86_16_cdecl,
     .x86_64_sysv,
     .x86_64_x32,
@@ -8570,12 +8570,12 @@ const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention
     .xtensa_call0,
     .xtensa_windowed,
 };
-fn callConvSupportsVarArgs(cc: std.builtin.CallingConvention.Tag) bool {
+fn callConvSupportsVarArgs(cc: std.lang.CallingConvention.Tag) bool {
     return for (calling_conventions_supporting_var_args) |supported_cc| {
         if (cc == supported_cc) return true;
     } else false;
 }
-fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc: std.builtin.CallingConvention.Tag) CompileError!void {
+fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc: std.lang.CallingConvention.Tag) CompileError!void {
     const CallingConventionsSupportingVarArgsList = struct {
         arch: std.Target.Cpu.Arch,
         pub fn format(ctx: @This(), w: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -8612,7 +8612,7 @@ fn checkParamType(
     param_is_comptime: bool,
     param_is_noalias: bool,
     param_src: LazySrcLoc,
-    cc: std.builtin.CallingConvention,
+    cc: std.lang.CallingConvention,
 ) CompileError!void {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -8668,7 +8668,7 @@ fn checkReturnTypeAndCallConv(
     block: *Block,
     bare_ret_ty: Type,
     ret_ty_src: LazySrcLoc,
-    @"callconv": std.builtin.CallingConvention,
+    @"callconv": std.lang.CallingConvention,
     callconv_src: LazySrcLoc,
     /// non-`null` only if the function is varargs.
     opt_varargs_src: ?LazySrcLoc,
@@ -8772,7 +8772,7 @@ fn checkReturnTypeAndCallConv(
 fn validateResolvedFuncType(
     sema: *Sema,
     block: *Block,
-    @"callconv": std.builtin.CallingConvention,
+    @"callconv": std.lang.CallingConvention,
     param_types: []const InternPool.Index,
     ret_ty: Type,
     src: LazySrcLoc,
@@ -8823,7 +8823,7 @@ fn validateResolvedFuncType(
     }
 }
 
-fn callConvIsCallable(cc: std.builtin.CallingConvention.Tag) bool {
+fn callConvIsCallable(cc: std.lang.CallingConvention.Tag) bool {
     return switch (cc) {
         .naked,
 
@@ -8898,7 +8898,7 @@ fn funcCommon(
     block: *Block,
     src_node_offset: std.zig.Ast.Node.Offset,
     func_inst: Zir.Inst.Index,
-    cc: std.builtin.CallingConvention,
+    cc: std.lang.CallingConvention,
     /// this might be Type.generic_poison
     bare_return_type: Type,
     var_args: bool,
@@ -9896,7 +9896,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         else
             try sema.analyzeIsNonErr(block, operand_src, eu_maybe_ptr);
 
-        const non_err_hint: std.builtin.BranchHint = hint: {
+        const non_err_hint: std.lang.BranchHint = hint: {
             // don't analyze the non-error body if it's unreachable
             if (non_err_cond == .bool_false) {
                 break :hint undefined;
@@ -10488,14 +10488,14 @@ fn finishSwitchBr(
             const bags_required = std.math.divCeil(u32, hints.count + additional_count, hints_per_bag) catch unreachable;
             return hints.bags.ensureUnusedCapacity(gpa_inner, bags_required);
         }
-        fn appendAssumeCapacity(hints: *@This(), hint: std.builtin.BranchHint) void {
+        fn appendAssumeCapacity(hints: *@This(), hint: std.lang.BranchHint) void {
             const idx_in_bag = hints.count % hints_per_bag;
             var bag: u32 = if (idx_in_bag > 0) hints.bags.pop().? else 0;
-            bag |= @as(u32, @intFromEnum(hint)) << @intCast(@bitSizeOf(std.builtin.BranchHint) * idx_in_bag);
+            bag |= @as(u32, @intFromEnum(hint)) << @intCast(@bitSizeOf(std.lang.BranchHint) * idx_in_bag);
             hints.count += 1;
             return hints.bags.appendAssumeCapacity(bag);
         }
-        fn append(hints: *@This(), gpa_inner: Allocator, hint: std.builtin.BranchHint) Allocator.Error!void {
+        fn append(hints: *@This(), gpa_inner: Allocator, hint: std.lang.BranchHint) Allocator.Error!void {
             try hints.ensureUnusedCapacity(gpa_inner, 1);
             return hints.appendAssumeCapacity(hint);
         }
@@ -10574,7 +10574,7 @@ fn finishSwitchBr(
                 }
                 emit_bb = true;
 
-                const prong_hint: std.builtin.BranchHint = hint: {
+                const prong_hint: std.lang.BranchHint = hint: {
                     if (analyze_body) break :hint try sema.analyzeSwitchProng(
                         &case_block,
                         operand,
@@ -10717,7 +10717,7 @@ fn finishSwitchBr(
         case_block.instructions.clearRetainingCapacity();
         case_block.error_return_trace_index = child_block.error_return_trace_index;
 
-        const prong_hint: std.builtin.BranchHint = hint: {
+        const prong_hint: std.lang.BranchHint = hint: {
             if (any_analyze_body) break :hint try sema.analyzeSwitchProng(
                 &case_block,
                 operand,
@@ -10804,7 +10804,7 @@ fn finishSwitchBr(
                 if (emit_bb) try sema.emitBackwardBranch(block, else_prong_src);
                 emit_bb = true;
 
-                const prong_hint: std.builtin.BranchHint = hint: {
+                const prong_hint: std.lang.BranchHint = hint: {
                     if (analyze_body) break :hint try sema.analyzeSwitchProng(
                         &case_block,
                         operand,
@@ -10864,7 +10864,7 @@ fn finishSwitchBr(
 
             cases_len += 1;
 
-            const prong_hint: std.builtin.BranchHint = hint: {
+            const prong_hint: std.lang.BranchHint = hint: {
                 if (!else_case.is_inline) break :hint try sema.analyzeSwitchProng(
                     &case_block,
                     operand,
@@ -11937,7 +11937,7 @@ fn analyzeSwitchProng(
     else_err_ty: ?Type,
     switch_inst: Zir.Inst.Index,
     zir_switch: *const Zir.UnwrappedSwitchBlock,
-) CompileError!std.builtin.BranchHint {
+) CompileError!std.lang.BranchHint {
     const pt = sema.pt;
     const zcu = pt.zcu;
 
@@ -12328,7 +12328,7 @@ fn analyzeSwitchPayloadCapture(
 
         {
             // All branch hints are `.none`, so just add zero elems.
-            comptime assert(@intFromEnum(std.builtin.BranchHint.none) == 0);
+            comptime assert(@intFromEnum(std.lang.BranchHint.none) == 0);
             const need_elems = std.math.divCeil(usize, prong_count + 1, 10) catch unreachable;
             try cases_extra.appendNTimes(0, need_elems);
         }
@@ -16088,7 +16088,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.@"fn"))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.@"fn"))).toIntern(),
                 .val = (try pt.aggregateValue(fn_info_ty, &field_values)).toIntern(),
             })));
         },
@@ -16104,7 +16104,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.int))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.int))).toIntern(),
                 .val = (try pt.aggregateValue(int_info_ty, &field_values)).toIntern(),
             })));
         },
@@ -16117,7 +16117,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.float))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.float))).toIntern(),
                 .val = (try pt.aggregateValue(float_info_ty, &field_vals)).toIntern(),
             })));
         },
@@ -16162,7 +16162,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.pointer))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.pointer))).toIntern(),
                 .val = (try pt.aggregateValue(pointer_ty, &field_values)).toIntern(),
             })));
         },
@@ -16180,7 +16180,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.array))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.array))).toIntern(),
                 .val = (try pt.aggregateValue(array_field_ty, &field_values)).toIntern(),
             })));
         },
@@ -16196,7 +16196,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.vector))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.vector))).toIntern(),
                 .val = (try pt.aggregateValue(vector_field_ty, &field_values)).toIntern(),
             })));
         },
@@ -16209,7 +16209,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.optional))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.optional))).toIntern(),
                 .val = (try pt.aggregateValue(optional_field_ty, &field_values)).toIntern(),
             })));
         },
@@ -16300,7 +16300,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // Construct Type{ .error_set = errors_val }
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.error_set))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.error_set))).toIntern(),
                 .val = errors_val,
             })));
         },
@@ -16315,7 +16315,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.error_union))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.error_union))).toIntern(),
                 .val = (try pt.aggregateValue(error_union_field_ty, &field_values)).toIntern(),
             })));
         },
@@ -16418,7 +16418,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.@"enum"))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.@"enum"))).toIntern(),
                 .val = (try pt.aggregateValue(type_enum_ty, &field_values)).toIntern(),
             })));
         },
@@ -16539,7 +16539,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.@"union"))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.@"union"))).toIntern(),
                 .val = (try pt.aggregateValue(type_union_ty, &field_values)).toIntern(),
             })));
         },
@@ -16731,7 +16731,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.@"struct"))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.@"struct"))).toIntern(),
                 .val = (try pt.aggregateValue(type_struct_ty, &field_values)).toIntern(),
             })));
         },
@@ -16746,7 +16746,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.@"opaque"))).toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.@"opaque"))).toIntern(),
                 .val = (try pt.aggregateValue(type_opaque_ty, &field_values)).toIntern(),
             })));
         },
@@ -17323,7 +17323,7 @@ fn zirCondbr(
     // Reset, this may have been updated by the then block analysis
     sub_block.error_return_trace_index = parent_block.error_return_trace_index;
 
-    const false_hint: std.builtin.BranchHint = if (err_cond != null and
+    const false_hint: std.lang.BranchHint = if (err_cond != null and
         try sema.maybeErrorUnwrap(&sub_block, else_body, err_cond.?, cond_src, false))
     h: {
         // nothing to do here. weight against error branch
@@ -18040,7 +18040,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         break :blk try sema.validateAlign(block, align_src, align_bytes);
     } else .none;
 
-    const address_space: std.builtin.AddressSpace = if (inst_data.flags.has_addrspace) blk: {
+    const address_space: std.lang.AddressSpace = if (inst_data.flags.has_addrspace) blk: {
         const ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_i]);
         extra_i += 1;
         break :blk try sema.resolveAddressSpace(block, addrspace_src, ref, .pointer);
@@ -19605,12 +19605,12 @@ fn zirReifyPointer(
     const size_uncoerced = sema.resolveInst(extra.size);
     const size_coerced = try sema.coerce(block, size_ty, size_uncoerced, size_src);
     const size_val = try sema.resolveConstDefinedValue(block, size_src, size_coerced, .{ .simple = .pointer_size });
-    const size = try sema.interpretStdLangType(block, size_src, size_val, std.builtin.Type.Pointer.Size);
+    const size = try sema.interpretStdLangType(block, size_src, size_val, std.lang.Type.Pointer.Size);
 
     const attrs_uncoerced = sema.resolveInst(extra.attrs);
     const attrs_coerced = try sema.coerce(block, attrs_ty, attrs_uncoerced, attrs_src);
     const attrs_val = try sema.resolveConstDefinedValue(block, attrs_src, attrs_coerced, .{ .simple = .pointer_attrs });
-    const attrs = try sema.interpretStdLangType(block, attrs_src, attrs_val, std.builtin.Type.Pointer.Attributes);
+    const attrs = try sema.interpretStdLangType(block, attrs_src, attrs_val, std.lang.Type.Pointer.Attributes);
 
     const @"align": Alignment = if (attrs.@"align") |bytes| a: {
         break :a try sema.validateAlign(block, attrs_src, bytes);
@@ -19711,7 +19711,7 @@ fn zirReifyFn(
     const fn_attrs_uncoerced = sema.resolveInst(extra.fn_attrs);
     const fn_attrs_coerced = try sema.coerce(block, fn_attrs_ty, fn_attrs_uncoerced, fn_attrs_src);
     const fn_attrs_val = try sema.resolveConstDefinedValue(block, fn_attrs_src, fn_attrs_coerced, .{ .simple = .fn_attrs });
-    const fn_attrs = try sema.interpretStdLangType(block, fn_attrs_src, fn_attrs_val, std.builtin.Type.Fn.Attributes);
+    const fn_attrs = try sema.interpretStdLangType(block, fn_attrs_src, fn_attrs_val, std.lang.Type.Fn.Attributes);
 
     var noalias_bits: u32 = 0;
     const param_types_ip = try sema.arena.alloc(InternPool.Index, @intCast(params_len));
@@ -19721,7 +19721,7 @@ fn zirReifyFn(
             block,
             param_attrs_src,
             try param_attrs_arr.elemValue(pt, param_idx),
-            std.builtin.Type.Fn.Param.Attributes,
+            std.lang.Type.Fn.Param.Attributes,
         );
         try sema.checkParamType(
             block,
@@ -19831,7 +19831,7 @@ fn zirReifyStruct(
     const layout_uncoerced = sema.resolveInst(extra.layout);
     const layout_coerced = try sema.coerce(block, container_layout_ty, layout_uncoerced, layout_src);
     const layout_val = try sema.resolveConstDefinedValue(block, layout_src, layout_coerced, .{ .simple = .struct_layout });
-    const layout = try sema.interpretStdLangType(block, layout_src, layout_val, std.builtin.Type.ContainerLayout);
+    const layout = try sema.interpretStdLangType(block, layout_src, layout_val, std.lang.Type.ContainerLayout);
 
     const backing_int_ty_uncoerced = sema.resolveInst(extra.backing_ty);
     const backing_int_ty_coerced = try sema.coerce(block, .optional_type, backing_int_ty_uncoerced, backing_ty_src);
@@ -19912,15 +19912,15 @@ fn zirReifyStruct(
         const field_name = try sema.sliceToIpString(block, field_names_src, field_name_val, .{ .simple = .struct_field_names });
 
         const field_attr_comptime = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-            std.builtin.Type.StructField.Attributes,
+            std.lang.Type.StructField.Attributes,
             "comptime",
         ).?);
         const field_attr_align = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-            std.builtin.Type.StructField.Attributes,
+            std.lang.Type.StructField.Attributes,
             "align",
         ).?);
         const field_attr_default_value_ptr = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-            std.builtin.Type.StructField.Attributes,
+            std.lang.Type.StructField.Attributes,
             "default_value_ptr",
         ).?);
 
@@ -19997,15 +19997,15 @@ fn zirReifyStruct(
                 wip.field_types.get(ip)[field_idx] = field_ty.toIntern();
 
                 const field_attr_comptime = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-                    std.builtin.Type.StructField.Attributes,
+                    std.lang.Type.StructField.Attributes,
                     "comptime",
                 ).?);
                 const field_attr_align = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-                    std.builtin.Type.StructField.Attributes,
+                    std.lang.Type.StructField.Attributes,
                     "align",
                 ).?);
                 const field_attr_default_value_ptr = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-                    std.builtin.Type.StructField.Attributes,
+                    std.lang.Type.StructField.Attributes,
                     "default_value_ptr",
                 ).?);
 
@@ -20111,7 +20111,7 @@ fn zirReifyUnion(
     const layout_uncoerced = sema.resolveInst(extra.layout);
     const layout_coerced = try sema.coerce(block, container_layout_ty, layout_uncoerced, layout_src);
     const layout_val = try sema.resolveConstDefinedValue(block, layout_src, layout_coerced, .{ .simple = .union_layout });
-    const layout = try sema.interpretStdLangType(block, layout_src, layout_val, std.builtin.Type.ContainerLayout);
+    const layout = try sema.interpretStdLangType(block, layout_src, layout_val, std.lang.Type.ContainerLayout);
 
     const arg_ty_uncoerced = sema.resolveInst(extra.arg_ty);
     const arg_ty_coerced = try sema.coerce(block, .optional_type, arg_ty_uncoerced, arg_ty_src);
@@ -20195,7 +20195,7 @@ fn zirReifyUnion(
             block,
             field_attrs_src,
             try field_attrs_arr.elemValue(pt, field_idx),
-            std.builtin.Type.UnionField.Attributes,
+            std.lang.Type.UnionField.Attributes,
         );
         if (field_attrs.@"align") |bytes| {
             if (layout == .@"packed") {
@@ -20244,7 +20244,7 @@ fn zirReifyUnion(
                     block,
                     .unneeded,
                     try field_attrs_arr.elemValue(pt, field_idx),
-                    std.builtin.Type.UnionField.Attributes,
+                    std.lang.Type.UnionField.Attributes,
                 );
                 if (field_attrs.@"align") |bytes| {
                     // No source location; first loop checked this is valid.
@@ -20329,7 +20329,7 @@ fn zirReifyEnum(
     const mode_uncoerced = sema.resolveInst(extra.mode);
     const mode_coerced = try sema.coerce(block, enum_mode_ty, mode_uncoerced, mode_src);
     const mode_val = try sema.resolveConstDefinedValue(block, mode_src, mode_coerced, .{ .simple = .type });
-    const nonexhaustive = switch (try sema.interpretStdLangType(block, mode_src, mode_val, std.builtin.Type.Enum.Mode)) {
+    const nonexhaustive = switch (try sema.interpretStdLangType(block, mode_src, mode_val, std.lang.Type.Enum.Mode)) {
         .exhaustive => false,
         .nonexhaustive => true,
     };
@@ -21962,9 +21962,9 @@ fn checkArithmeticOp(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    scalar_tag: std.builtin.TypeId,
-    lhs_zig_ty_tag: std.builtin.TypeId,
-    rhs_zig_ty_tag: std.builtin.TypeId,
+    scalar_tag: std.lang.TypeId,
+    lhs_zig_ty_tag: std.lang.TypeId,
+    rhs_zig_ty_tag: std.lang.TypeId,
     zir_tag: Zir.Inst.Tag,
 ) CompileError!void {
     const is_int = scalar_tag == .int or scalar_tag == .comptime_int;
@@ -22387,7 +22387,7 @@ fn resolveExportOptions(
 
     const linkage_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, io, pt.tid, "linkage", .no_embedded_nulls), linkage_src);
     const linkage_val = try sema.resolveConstDefinedValue(block, linkage_src, linkage_operand, .{ .simple = .export_options });
-    const linkage = try sema.interpretStdLangType(block, linkage_src, linkage_val, std.builtin.GlobalLinkage);
+    const linkage = try sema.interpretStdLangType(block, linkage_src, linkage_val, std.lang.GlobalLinkage);
 
     const section_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, io, pt.tid, "section", .no_embedded_nulls), section_src);
     const section_opt_val = try sema.resolveConstDefinedValue(block, section_src, section_operand, .{ .simple = .export_options });
@@ -22398,7 +22398,7 @@ fn resolveExportOptions(
 
     const visibility_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, io, pt.tid, "visibility", .no_embedded_nulls), visibility_src);
     const visibility_val = try sema.resolveConstDefinedValue(block, visibility_src, visibility_operand, .{ .simple = .export_options });
-    const visibility = try sema.interpretStdLangType(block, visibility_src, visibility_val, std.builtin.SymbolVisibility);
+    const visibility = try sema.interpretStdLangType(block, visibility_src, visibility_val, std.lang.SymbolVisibility);
 
     if (name.len < 1) {
         return sema.fail(block, name_src, "exported symbol name cannot be empty", .{});
@@ -22425,12 +22425,12 @@ fn resolveStdLangEnum(
     zir_ref: Zir.Inst.Ref,
     comptime name: Zcu.StdLangDecl,
     reason: ComptimeReason,
-) CompileError!@field(std.builtin, @tagName(name)) {
+) CompileError!@field(std.lang, @tagName(name)) {
     const ty = try sema.getStdLangType(src, name);
     const air_ref = sema.resolveInst(zir_ref);
     const coerced = try sema.coerce(block, ty, air_ref, src);
     const val = try sema.resolveConstDefinedValue(block, src, coerced, reason);
-    return sema.interpretStdLangType(block, src, val, @field(std.builtin, @tagName(name)));
+    return sema.interpretStdLangType(block, src, val, @field(std.lang, @tagName(name)));
 }
 
 fn resolveAtomicOrder(
@@ -22439,7 +22439,7 @@ fn resolveAtomicOrder(
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
     reason: ComptimeReason,
-) CompileError!std.builtin.AtomicOrder {
+) CompileError!std.lang.AtomicOrder {
     return sema.resolveStdLangEnum(block, src, zir_ref, .AtomicOrder, reason);
 }
 
@@ -22448,7 +22448,7 @@ fn resolveAtomicRmwOp(
     block: *Block,
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
-) CompileError!std.builtin.AtomicRmwOp {
+) CompileError!std.lang.AtomicRmwOp {
     return sema.resolveStdLangEnum(block, src, zir_ref, .AtomicRmwOp, .{ .simple = .operand_atomicRmw_operation });
 }
 
@@ -22490,10 +22490,10 @@ fn zirCmpxchg(
     const success_order = try sema.resolveAtomicOrder(block, success_order_src, extra.success_order, .{ .simple = .atomic_order });
     const failure_order = try sema.resolveAtomicOrder(block, failure_order_src, extra.failure_order, .{ .simple = .atomic_order });
 
-    if (@intFromEnum(success_order) < @intFromEnum(std.builtin.AtomicOrder.monotonic)) {
+    if (@intFromEnum(success_order) < @intFromEnum(std.lang.AtomicOrder.monotonic)) {
         return sema.fail(block, success_order_src, "success atomic ordering must be monotonic or stricter", .{});
     }
-    if (@intFromEnum(failure_order) < @intFromEnum(std.builtin.AtomicOrder.monotonic)) {
+    if (@intFromEnum(failure_order) < @intFromEnum(std.lang.AtomicOrder.monotonic)) {
         return sema.fail(block, failure_order_src, "failure atomic ordering must be monotonic or stricter", .{});
     }
     if (@intFromEnum(failure_order) > @intFromEnum(success_order)) {
@@ -23200,7 +23200,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const air_ref = sema.resolveInst(extra.modifier);
     const modifier_ref = try sema.coerce(block, modifier_ty, air_ref, modifier_src);
     const modifier_val = try sema.resolveConstDefinedValue(block, modifier_src, modifier_ref, .{ .simple = .call_modifier });
-    var modifier = try sema.interpretStdLangType(block, modifier_src, modifier_val, std.builtin.CallModifier);
+    var modifier = try sema.interpretStdLangType(block, modifier_src, modifier_val, std.lang.CallModifier);
     switch (modifier) {
         // These can be upgraded to comptime or nosuspend calls.
         .auto, .never_tail, .no_suspend => {
@@ -24250,7 +24250,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
     var extra_index: usize = extra.end;
 
-    const cc: std.builtin.CallingConvention = if (extra.data.bits.has_cc_body) blk: {
+    const cc: std.lang.CallingConvention = if (extra.data.bits.has_cc_body) blk: {
         const body_len = sema.code.extra[extra_index];
         extra_index += 1;
         const body = sema.code.bodySlice(extra_index, body_len);
@@ -24398,7 +24398,7 @@ fn resolvePrefetchOptions(
     block: *Block,
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
-) CompileError!std.builtin.PrefetchOptions {
+) CompileError!std.lang.PrefetchOptions {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const comp = zcu.comp;
@@ -24422,10 +24422,10 @@ fn resolvePrefetchOptions(
     const cache = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, io, pt.tid, "cache", .no_embedded_nulls), cache_src);
     const cache_val = try sema.resolveConstDefinedValue(block, cache_src, cache, .{ .simple = .prefetch_options });
 
-    return std.builtin.PrefetchOptions{
-        .rw = try sema.interpretStdLangType(block, rw_src, rw_val, std.builtin.PrefetchOptions.Rw),
+    return std.lang.PrefetchOptions{
+        .rw = try sema.interpretStdLangType(block, rw_src, rw_val, std.lang.PrefetchOptions.Rw),
         .locality = @intCast(locality_val.toUnsignedInt(zcu)),
-        .cache = try sema.interpretStdLangType(block, cache_src, cache_val, std.builtin.PrefetchOptions.Cache),
+        .cache = try sema.interpretStdLangType(block, cache_src, cache_val, std.lang.PrefetchOptions.Cache),
     };
 }
 
@@ -24465,12 +24465,12 @@ fn resolveExternOptions(
 ) CompileError!struct {
     name: InternPool.NullTerminatedString,
     library_name: InternPool.OptionalNullTerminatedString,
-    linkage: std.builtin.GlobalLinkage,
-    visibility: std.builtin.SymbolVisibility,
+    linkage: std.lang.GlobalLinkage,
+    visibility: std.lang.SymbolVisibility,
     is_thread_local: bool,
     is_dll_import: bool,
-    relocation: std.builtin.ExternOptions.Relocation,
-    decoration: ?std.builtin.ExternOptions.Decoration,
+    relocation: std.lang.ExternOptions.Relocation,
+    decoration: ?std.lang.ExternOptions.Decoration,
 } {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -24500,11 +24500,11 @@ fn resolveExternOptions(
 
     const linkage_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, io, pt.tid, "linkage", .no_embedded_nulls), linkage_src);
     const linkage_val = try sema.resolveConstDefinedValue(block, linkage_src, linkage_ref, .{ .simple = .extern_options });
-    const linkage = try sema.interpretStdLangType(block, linkage_src, linkage_val, std.builtin.GlobalLinkage);
+    const linkage = try sema.interpretStdLangType(block, linkage_src, linkage_val, std.lang.GlobalLinkage);
 
     const visibility_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, io, pt.tid, "visibility", .no_embedded_nulls), visibility_src);
     const visibility_val = try sema.resolveConstDefinedValue(block, visibility_src, visibility_ref, .{ .simple = .extern_options });
-    const visibility = try sema.interpretStdLangType(block, visibility_src, visibility_val, std.builtin.SymbolVisibility);
+    const visibility = try sema.interpretStdLangType(block, visibility_src, visibility_val, std.lang.SymbolVisibility);
 
     const is_thread_local = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, io, pt.tid, "is_thread_local", .no_embedded_nulls), thread_local_src);
     const is_thread_local_val = try sema.resolveConstDefinedValue(block, thread_local_src, is_thread_local, .{ .simple = .extern_options });
@@ -24523,11 +24523,11 @@ fn resolveExternOptions(
 
     const relocation_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, io, pt.tid, "relocation", .no_embedded_nulls), relocation_src);
     const relocation_val = try sema.resolveConstDefinedValue(block, relocation_src, relocation_ref, .{ .simple = .extern_options });
-    const relocation = try sema.interpretStdLangType(block, relocation_src, relocation_val, std.builtin.ExternOptions.Relocation);
+    const relocation = try sema.interpretStdLangType(block, relocation_src, relocation_val, std.lang.ExternOptions.Relocation);
 
     const decoration_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, io, pt.tid, "decoration", .no_embedded_nulls), decoration_src);
     const decoration_val = try sema.resolveConstDefinedValue(block, decoration_src, decoration_ref, .{ .simple = .extern_options });
-    const decoration = try sema.interpretStdLangType(block, decoration_src, decoration_val, ?std.builtin.ExternOptions.Decoration);
+    const decoration = try sema.interpretStdLangType(block, decoration_src, decoration_val, ?std.lang.ExternOptions.Decoration);
 
     if (name.len == 0) {
         return sema.fail(block, name_src, "extern symbol name cannot be empty", .{});
@@ -24744,7 +24744,7 @@ fn zirStdLangValue(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         .calling_convention_inline => {
             const callconv_ty = try sema.getStdLangType(src, .CallingConvention);
             return .fromValue(Value.uninterpret(
-                @as(std.builtin.CallingConvention, .@"inline"),
+                @as(std.lang.CallingConvention, .@"inline"),
                 callconv_ty,
                 pt,
             ) catch |err| switch (err) {
@@ -24795,7 +24795,7 @@ fn zirBranchHint(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     // We only apply the first hint in a branch.
     // This allows user-provided hints to override implicit cold hints.
     if (sema.branch_hint == null) {
-        sema.branch_hint = try sema.interpretStdLangType(block, operand_src, hint_val, std.builtin.BranchHint);
+        sema.branch_hint = try sema.interpretStdLangType(block, operand_src, hint_val, std.lang.BranchHint);
     }
 }
 
@@ -27911,8 +27911,8 @@ const InMemoryCoercionResult = union(enum) {
     };
 
     const Int = struct {
-        actual_signedness: std.builtin.Signedness,
-        wanted_signedness: std.builtin.Signedness,
+        actual_signedness: std.lang.Signedness,
+        wanted_signedness: std.lang.Signedness,
         actual_bits: u16,
         wanted_bits: u16,
     };
@@ -27928,18 +27928,18 @@ const InMemoryCoercionResult = union(enum) {
     };
 
     const Size = struct {
-        actual: std.builtin.Type.Pointer.Size,
-        wanted: std.builtin.Type.Pointer.Size,
+        actual: std.lang.Type.Pointer.Size,
+        wanted: std.lang.Type.Pointer.Size,
     };
 
     const AddressSpace = struct {
-        actual: std.builtin.AddressSpace,
-        wanted: std.builtin.AddressSpace,
+        actual: std.lang.AddressSpace,
+        wanted: std.lang.AddressSpace,
     };
 
     const CC = struct {
-        actual: std.builtin.CallingConvention,
-        wanted: std.builtin.CallingConvention,
+        actual: std.lang.CallingConvention,
+        wanted: std.lang.CallingConvention,
     };
 
     const BitRange = struct {
@@ -28209,7 +28209,7 @@ const InMemoryCoercionResult = union(enum) {
     }
 };
 
-fn pointerSizeString(size: std.builtin.Type.Pointer.Size) []const u8 {
+fn pointerSizeString(size: std.lang.Type.Pointer.Size) []const u8 {
     return switch (size) {
         .one => "single pointer",
         .many => "many pointer",
@@ -28635,10 +28635,10 @@ fn coerceInMemoryAllowedFns(
 
 fn callconvCoerceAllowed(
     target: *const std.Target,
-    src_cc: std.builtin.CallingConvention,
-    dest_cc: std.builtin.CallingConvention,
+    src_cc: std.lang.CallingConvention,
+    dest_cc: std.lang.CallingConvention,
 ) bool {
-    const Tag = std.builtin.CallingConvention.Tag;
+    const Tag = std.lang.CallingConvention.Tag;
     if (@as(Tag, src_cc) != @as(Tag, dest_cc)) return false;
 
     switch (src_cc) {
@@ -28651,26 +28651,26 @@ fn callconvCoerceAllowed(
                 if (dest_stack_align < src_stack_align) return false;
             }
             switch (@TypeOf(src_data)) {
-                void, std.builtin.CallingConvention.CommonOptions => {},
-                std.builtin.CallingConvention.X86RegparmOptions => {
+                void, std.lang.CallingConvention.CommonOptions => {},
+                std.lang.CallingConvention.X86RegparmOptions => {
                     if (src_data.register_params != dest_data.register_params) return false;
                 },
-                std.builtin.CallingConvention.ArcInterruptOptions => {
+                std.lang.CallingConvention.ArcInterruptOptions => {
                     if (src_data.type != dest_data.type) return false;
                 },
-                std.builtin.CallingConvention.ArmInterruptOptions => {
+                std.lang.CallingConvention.ArmInterruptOptions => {
                     if (src_data.type != dest_data.type) return false;
                 },
-                std.builtin.CallingConvention.MicroblazeInterruptOptions => {
+                std.lang.CallingConvention.MicroblazeInterruptOptions => {
                     if (src_data.type != dest_data.type) return false;
                 },
-                std.builtin.CallingConvention.MipsInterruptOptions => {
+                std.lang.CallingConvention.MipsInterruptOptions => {
                     if (src_data.mode != dest_data.mode) return false;
                 },
-                std.builtin.CallingConvention.RiscvInterruptOptions => {
+                std.lang.CallingConvention.RiscvInterruptOptions => {
                     if (src_data.mode != dest_data.mode) return false;
                 },
-                std.builtin.CallingConvention.ShInterruptOptions => {
+                std.lang.CallingConvention.ShInterruptOptions => {
                     if (src_data.save != dest_data.save) return false;
                 },
                 else => comptime unreachable,
@@ -31115,7 +31115,7 @@ fn cmpNumeric(
     const dest_ty = if (dest_float_type) |ft| ft else blk: {
         const max_bits = @max(lhs_bits, rhs_bits);
         const casted_bits = std.math.cast(u16, max_bits) orelse return sema.fail(block, src, "{d} exceeds maximum integer bit count", .{max_bits});
-        const signedness: std.builtin.Signedness = if (dest_int_is_signed) .signed else .unsigned;
+        const signedness: std.lang.Signedness = if (dest_int_is_signed) .signed else .unsigned;
         break :blk try pt.intType(signedness, casted_bits);
     };
     const casted_lhs = try sema.coerce(block, dest_ty, lhs, lhs_src);
@@ -33101,7 +33101,7 @@ fn resolveAddressSpace(
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
     ctx: std.Target.AddressSpaceContext,
-) !std.builtin.AddressSpace {
+) !std.lang.AddressSpace {
     const air_ref = sema.resolveInst(zir_ref);
     return sema.analyzeAsAddressSpace(block, src, air_ref, ctx);
 }
@@ -33112,12 +33112,12 @@ pub fn analyzeAsAddressSpace(
     src: LazySrcLoc,
     air_ref: Air.Inst.Ref,
     ctx: std.Target.AddressSpaceContext,
-) !std.builtin.AddressSpace {
+) !std.lang.AddressSpace {
     const pt = sema.pt;
     const addrspace_ty = try sema.getStdLangType(src, .AddressSpace);
     const coerced = try sema.coerce(block, addrspace_ty, air_ref, src);
     const addrspace_val = try sema.resolveConstDefinedValue(block, src, coerced, .{ .simple = .@"addrspace" });
-    const address_space = try sema.interpretStdLangType(block, src, addrspace_val, std.builtin.AddressSpace);
+    const address_space = try sema.interpretStdLangType(block, src, addrspace_val, std.lang.AddressSpace);
     const target = pt.zcu.getTarget();
 
     if (!target.supportsAddressSpace(address_space, ctx)) {
@@ -33833,7 +33833,7 @@ pub fn getStdLangValue(sema: *Sema, src: LazySrcLoc, decl: Zcu.StdLangDecl) Sema
 pub const NavPtrModifiers = struct {
     @"align": Alignment,
     @"linksection": InternPool.OptionalNullTerminatedString,
-    @"addrspace": std.builtin.AddressSpace,
+    @"addrspace": std.lang.AddressSpace,
 };
 
 pub fn resolveNavPtrModifiers(
@@ -33872,7 +33872,7 @@ pub fn resolveNavPtrModifiers(
         break :ls try ip.getOrPutStringOpt(gpa, io, pt.tid, bytes, .no_embedded_nulls);
     };
 
-    const @"addrspace": std.builtin.AddressSpace = as: {
+    const @"addrspace": std.lang.AddressSpace = as: {
         const addrspace_ctx: std.Target.AddressSpaceContext = switch (zir_decl.kind) {
             .@"var" => .variable,
             else => switch (nav_ty.zigTypeTag(zcu)) {

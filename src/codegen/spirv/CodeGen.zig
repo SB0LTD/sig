@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
-const Signedness = std.builtin.Signedness;
+const Signedness = std.lang.Signedness;
 const assert = std.debug.assert;
 const log = std.log.scoped(.codegen);
 
@@ -569,7 +569,7 @@ const ArithmeticTypeInfo = struct {
     /// Null if this type is a scalar, or the length of the vector otherwise.
     vector_len: ?u32,
     /// Whether the inner type is signed. Only relevant for integers.
-    signedness: std.builtin.Signedness,
+    signedness: std.lang.Signedness,
 };
 
 fn arithmeticTypeInfo(cg: *CodeGen, ty: Type) ArithmeticTypeInfo {
@@ -2251,7 +2251,7 @@ fn buildBinary(cg: *CodeGen, opcode: Opcode, lhs: Temporary, rhs: Temporary) !Te
 /// or OpIMul and s_mul_hi or u_mul_hi on OpenCL.
 fn buildWideMul(
     cg: *CodeGen,
-    signedness: std.builtin.Signedness,
+    signedness: std.lang.Signedness,
     lhs: Temporary,
     rhs: Temporary,
 ) !struct { Temporary, Temporary } {
@@ -5976,7 +5976,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     return null;
 }
 
-fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !?Id {
+fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) !?Id {
     _ = modifier;
 
     const gpa = cg.module.gpa;

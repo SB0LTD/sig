@@ -1260,17 +1260,17 @@ pub const Inst = struct {
         },
         atomic_load: struct {
             ptr: Ref,
-            order: std.builtin.AtomicOrder,
+            order: std.lang.AtomicOrder,
         },
         prefetch: struct {
             ptr: Ref,
-            rw: std.builtin.PrefetchOptions.Rw,
+            rw: std.lang.PrefetchOptions.Rw,
             locality: u2,
-            cache: std.builtin.PrefetchOptions.Cache,
+            cache: std.lang.PrefetchOptions.Cache,
         },
         reduce: struct {
             operand: Ref,
-            operation: std.builtin.ReduceOp,
+            operation: std.lang.ReduceOp,
         },
         ty_nav: struct {
             ty: InternPool.Index,
@@ -1332,8 +1332,8 @@ pub const CondBr = struct {
     else_body_len: u32,
     branch_hints: BranchHints,
     pub const BranchHints = packed struct(u32) {
-        true: std.builtin.BranchHint = .none,
-        false: std.builtin.BranchHint = .none,
+        true: std.lang.BranchHint = .none,
+        false: std.lang.BranchHint = .none,
         then_cov: CoveragePoint = .none,
         else_cov: CoveragePoint = .none,
         _: u24 = 0,
@@ -1499,11 +1499,11 @@ pub const Cmpxchg = struct {
     /// 0b00000000000000000000000000XXX000 - failure_order
     flags: u32,
 
-    pub fn successOrder(self: Cmpxchg) std.builtin.AtomicOrder {
+    pub fn successOrder(self: Cmpxchg) std.lang.AtomicOrder {
         return @enumFromInt(@as(u3, @truncate(self.flags)));
     }
 
-    pub fn failureOrder(self: Cmpxchg) std.builtin.AtomicOrder {
+    pub fn failureOrder(self: Cmpxchg) std.lang.AtomicOrder {
         return @enumFromInt(@as(u3, @intCast(self.flags >> 3)));
     }
 };
@@ -1514,11 +1514,11 @@ pub const AtomicRmw = struct {
     /// 0b0000000000000000000000000XXXX000 - op
     flags: u32,
 
-    pub fn ordering(self: AtomicRmw) std.builtin.AtomicOrder {
+    pub fn ordering(self: AtomicRmw) std.lang.AtomicOrder {
         return @enumFromInt(@as(u3, @truncate(self.flags)));
     }
 
-    pub fn op(self: AtomicRmw) std.builtin.AtomicRmwOp {
+    pub fn op(self: AtomicRmw) std.lang.AtomicRmwOp {
         return @enumFromInt(@as(u4, @intCast(self.flags >> 3)));
     }
 };
@@ -2077,14 +2077,14 @@ pub const UnwrappedSwitch = struct {
     cases_start: u32,
 
     /// Asserts that `case_idx < us.cases_len`.
-    pub fn getHint(us: UnwrappedSwitch, case_idx: u32) std.builtin.BranchHint {
+    pub fn getHint(us: UnwrappedSwitch, case_idx: u32) std.lang.BranchHint {
         assert(case_idx < us.cases_len);
         return us.getHintInner(case_idx);
     }
-    pub fn getElseHint(us: UnwrappedSwitch) std.builtin.BranchHint {
+    pub fn getElseHint(us: UnwrappedSwitch) std.lang.BranchHint {
         return us.getHintInner(us.cases_len);
     }
-    fn getHintInner(us: UnwrappedSwitch, idx: u32) std.builtin.BranchHint {
+    fn getHintInner(us: UnwrappedSwitch, idx: u32) std.lang.BranchHint {
         const bag = us.air.extra.items[us.branch_hints_start..][idx / 10];
         const bits: u3 = @truncate(bag >> @intCast(3 * (idx % 10)));
         return @enumFromInt(bits);
@@ -2630,7 +2630,7 @@ pub const CompilerRtFunc = enum(u32) {
         };
     }
 
-    pub fn @"callconv"(f: CompilerRtFunc, target: *const std.Target) std.builtin.CallingConvention {
+    pub fn @"callconv"(f: CompilerRtFunc, target: *const std.Target) std.lang.CallingConvention {
         const use_gnu_f16_abi = switch (target.cpu.arch) {
             .wasm32,
             .wasm64,

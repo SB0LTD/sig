@@ -106,7 +106,7 @@ pub const Condition = enum(u5) {
     }
 
     pub fn fromCompareOperator(
-        signedness: std.builtin.Signedness,
+        signedness: std.lang.Signedness,
         op: std.math.CompareOperator,
     ) Condition {
         return switch (signedness) {

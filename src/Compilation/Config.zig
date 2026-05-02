@@ -4,8 +4,8 @@
 //! order to resolve per-Module defaults.
 
 have_zcu: bool,
-output_mode: std.builtin.OutputMode,
-link_mode: std.builtin.LinkMode,
+output_mode: std.lang.OutputMode,
+link_mode: std.lang.LinkMode,
 link_libc: bool,
 link_libcpp: bool,
 link_libunwind: bool,
@@ -53,13 +53,13 @@ lto: std.zig.LtoMode,
 incremental: bool,
 /// WASI-only. Type of WASI execution model ("command" or "reactor").
 /// Always set to `command` for non-WASI targets.
-wasi_exec_model: std.builtin.WasiExecModel,
+wasi_exec_model: std.lang.WasiExecModel,
 import_memory: bool,
 export_memory: bool,
 shared_memory: bool,
 is_test: bool,
 debug_format: DebugFormat,
-root_optimize_mode: std.builtin.OptimizeMode,
+root_optimize_mode: std.lang.OptimizeMode,
 root_strip: bool,
 root_error_tracing: bool,
 dll_export_fns: bool,
@@ -75,15 +75,15 @@ pub const DebugFormat = union(enum) {
 };
 
 pub const Options = struct {
-    output_mode: std.builtin.OutputMode,
+    output_mode: std.lang.OutputMode,
     resolved_target: Module.ResolvedTarget,
     is_test: bool,
     have_zcu: bool,
     emit_bin: bool,
-    root_optimize_mode: ?std.builtin.OptimizeMode = null,
+    root_optimize_mode: ?std.lang.OptimizeMode = null,
     root_strip: ?bool = null,
     root_error_tracing: ?bool = null,
-    link_mode: ?std.builtin.LinkMode = null,
+    link_mode: ?std.lang.LinkMode = null,
     ensure_libc_on_non_freestanding: bool = false,
     ensure_libcpp_on_non_freestanding: bool = false,
     any_non_single_threaded: bool = false,
@@ -109,7 +109,7 @@ pub const Options = struct {
     lto: ?std.zig.LtoMode = null,
     incremental: bool = false,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
-    wasi_exec_model: ?std.builtin.WasiExecModel = null,
+    wasi_exec_model: ?std.lang.WasiExecModel = null,
     import_memory: ?bool = null,
     export_memory: ?bool = null,
     shared_memory: ?bool = null,

@@ -1091,7 +1091,7 @@ fn computeNodeSectionOffset(coff: *Coff, ni: MappedFile.Node.Index) u32 {
     }
 }
 
-pub inline fn targetEndian(_: *const Coff) std.builtin.Endian {
+pub inline fn targetEndian(_: *const Coff) std.lang.Endian {
     return .little;
 }
 fn targetLoad(coff: *const Coff, ptr: anytype) @typeInfo(@TypeOf(ptr)).pointer.child {

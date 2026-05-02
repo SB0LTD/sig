@@ -307,7 +307,7 @@ const SymbolSpec = union(enum) {
     },
     systemreg,
     imm: struct {
-        type: std.builtin.Type.Int,
+        type: std.lang.Type.Int,
         multiple_of: ?comptime_int = null,
         min_valid: ?comptime_int = null,
         max_valid: ?comptime_int = null,

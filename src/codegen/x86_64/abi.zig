@@ -478,7 +478,7 @@ pub const Win64 = struct {
     pub const c_abi_sse_return_regs = sse_avx_regs[0..1];
 };
 
-pub fn getCalleePreservedRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
+pub fn getCalleePreservedRegs(cc: std.lang.CallingConvention.Tag) []const Register {
     return switch (cc) {
         .auto => zigcc.callee_preserved_regs,
         .x86_64_sysv => &SysV.callee_preserved_regs,
@@ -487,7 +487,7 @@ pub fn getCalleePreservedRegs(cc: std.builtin.CallingConvention.Tag) []const Reg
     };
 }
 
-pub fn getCallerPreservedRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
+pub fn getCallerPreservedRegs(cc: std.lang.CallingConvention.Tag) []const Register {
     return switch (cc) {
         .auto => zigcc.caller_preserved_regs,
         .x86_64_sysv => &SysV.caller_preserved_regs,
@@ -496,7 +496,7 @@ pub fn getCallerPreservedRegs(cc: std.builtin.CallingConvention.Tag) []const Reg
     };
 }
 
-pub fn getCAbiIntParamRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
+pub fn getCAbiIntParamRegs(cc: std.lang.CallingConvention.Tag) []const Register {
     return switch (cc) {
         .auto => zigcc.int_param_regs,
         .x86_64_sysv => &SysV.c_abi_int_param_regs,
@@ -505,7 +505,7 @@ pub fn getCAbiIntParamRegs(cc: std.builtin.CallingConvention.Tag) []const Regist
     };
 }
 
-pub fn getCAbiX87ParamRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
+pub fn getCAbiX87ParamRegs(cc: std.lang.CallingConvention.Tag) []const Register {
     return switch (cc) {
         .auto => zigcc.x87_param_regs,
         .x86_64_sysv => SysV.c_abi_x87_param_regs,
@@ -514,7 +514,7 @@ pub fn getCAbiX87ParamRegs(cc: std.builtin.CallingConvention.Tag) []const Regist
     };
 }
 
-pub fn getCAbiSseParamRegs(cc: std.builtin.CallingConvention.Tag, target: *const std.Target) []const Register {
+pub fn getCAbiSseParamRegs(cc: std.lang.CallingConvention.Tag, target: *const std.Target) []const Register {
     return switch (cc) {
         .auto => switch (target.cpu.arch) {
             else => unreachable,
@@ -527,7 +527,7 @@ pub fn getCAbiSseParamRegs(cc: std.builtin.CallingConvention.Tag, target: *const
     };
 }
 
-pub fn getCAbiIntReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
+pub fn getCAbiIntReturnRegs(cc: std.lang.CallingConvention.Tag) []const Register {
     return switch (cc) {
         .auto => zigcc.int_return_regs,
         .x86_64_sysv => &SysV.c_abi_int_return_regs,
@@ -536,7 +536,7 @@ pub fn getCAbiIntReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Regis
     };
 }
 
-pub fn getCAbiX87ReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
+pub fn getCAbiX87ReturnRegs(cc: std.lang.CallingConvention.Tag) []const Register {
     return switch (cc) {
         .auto => zigcc.x87_return_regs,
         .x86_64_sysv => SysV.c_abi_x87_return_regs,
@@ -545,7 +545,7 @@ pub fn getCAbiX87ReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Regis
     };
 }
 
-pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
+pub fn getCAbiSseReturnRegs(cc: std.lang.CallingConvention.Tag) []const Register {
     return switch (cc) {
         .auto => zigcc.sse_return_regs,
         .x86_64_sysv => SysV.c_abi_sse_return_regs,
@@ -554,7 +554,7 @@ pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Regis
     };
 }
 
-pub fn getCAbiLinkerScratchReg(cc: std.builtin.CallingConvention.Tag) Register {
+pub fn getCAbiLinkerScratchReg(cc: std.lang.CallingConvention.Tag) Register {
     return switch (cc) {
         .auto => zigcc.int_return_regs[zigcc.int_return_regs.len - 1],
         .x86_64_sysv => SysV.c_abi_int_return_regs[0],

@@ -173,7 +173,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
         .libc_so => {
             const optimize_mode = comp.compilerRtOptMode();
             const strip = comp.compilerRtStrip();
-            const output_mode: std.builtin.OutputMode = .Lib;
+            const output_mode: std.lang.OutputMode = .Lib;
             const config = try Compilation.Config.resolve(.{
                 .output_mode = output_mode,
                 .link_mode = .dynamic,
@@ -290,7 +290,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
     }
 }
 
-pub fn needsCrt0(output_mode: std.builtin.OutputMode, link_mode: std.builtin.LinkMode, pie: bool) ?CrtFile {
+pub fn needsCrt0(output_mode: std.lang.OutputMode, link_mode: std.lang.LinkMode, pie: bool) ?CrtFile {
     return switch (output_mode) {
         .Obj, .Lib => null,
         .Exe => switch (link_mode) {

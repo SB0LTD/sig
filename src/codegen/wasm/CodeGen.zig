@@ -951,7 +951,7 @@ fn resolveCallingConventionValues(
 }
 
 pub fn firstParamSRet(
-    cc: std.builtin.CallingConvention,
+    cc: std.lang.CallingConvention,
     return_type: Type,
     zcu: *const Zcu,
     target: *const std.Target,
@@ -970,7 +970,7 @@ pub fn firstParamSRet(
 
 /// Lowers a Zig type and its value based on a given calling convention to ensure
 /// it matches the ABI.
-fn lowerArg(cg: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: WValue) !void {
+fn lowerArg(cg: *CodeGen, cc: std.lang.CallingConvention, ty: Type, value: WValue) !void {
     if (cc != .wasm_mvp) {
         return cg.lowerToStack(value);
     }
@@ -1989,7 +1989,7 @@ fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, .none, &.{un_op});
 }
 
-fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) InnerError!void {
+fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) InnerError!void {
     if (modifier == .always_tail) return cg.fail("TODO implement tail calls for wasm", .{});
     const call = cg.air.unwrapCall(inst);
     const args = call.args;
@@ -7268,7 +7268,7 @@ fn airAtomicRmw(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ptr = try cg.resolveInst(pl_op.operand);
     const operand = try cg.resolveInst(extra.operand);
     const ty = cg.typeOfIndex(inst);
-    const op: std.builtin.AtomicRmwOp = extra.op();
+    const op: std.lang.AtomicRmwOp = extra.op();
 
     if (cg.useAtomicFeature()) {
         const int_ty: IntType = .fromType(cg, ty);

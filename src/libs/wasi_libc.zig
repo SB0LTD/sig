@@ -12,14 +12,14 @@ pub const CrtFile = enum {
     libc_a,
 };
 
-pub fn execModelCrtFile(wasi_exec_model: std.builtin.WasiExecModel) CrtFile {
+pub fn execModelCrtFile(wasi_exec_model: std.lang.WasiExecModel) CrtFile {
     return switch (wasi_exec_model) {
         .reactor => CrtFile.crt1_reactor_o,
         .command => CrtFile.crt1_command_o,
     };
 }
 
-pub fn execModelCrtFileFullName(wasi_exec_model: std.builtin.WasiExecModel) []const u8 {
+pub fn execModelCrtFileFullName(wasi_exec_model: std.lang.WasiExecModel) []const u8 {
     return switch (execModelCrtFile(wasi_exec_model)) {
         .crt1_reactor_o => "crt1-reactor.o",
         .crt1_command_o => "crt1-command.o",

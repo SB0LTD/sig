@@ -567,7 +567,7 @@ const CallAttr = enum {
     AlwaysInline,
 };
 
-fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) Allocator.Error!Builder.Value {
+fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) Allocator.Error!Builder.Value {
     const air_call = self.air.unwrapCall(inst);
     const args = air_call.args;
     const o = self.object;
@@ -6017,14 +6017,14 @@ fn airPrefetch(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Val
     const o = self.object;
     const prefetch = self.air.instructions.items(.data)[@intFromEnum(inst)].prefetch;
 
-    comptime assert(@intFromEnum(std.builtin.PrefetchOptions.Rw.read) == 0);
-    comptime assert(@intFromEnum(std.builtin.PrefetchOptions.Rw.write) == 1);
+    comptime assert(@intFromEnum(std.lang.PrefetchOptions.Rw.read) == 0);
+    comptime assert(@intFromEnum(std.lang.PrefetchOptions.Rw.write) == 1);
 
     comptime assert(prefetch.locality >= 0);
     comptime assert(prefetch.locality <= 3);
 
-    comptime assert(@intFromEnum(std.builtin.PrefetchOptions.Cache.instruction) == 0);
-    comptime assert(@intFromEnum(std.builtin.PrefetchOptions.Cache.data) == 1);
+    comptime assert(@intFromEnum(std.lang.PrefetchOptions.Cache.instruction) == 0);
+    comptime assert(@intFromEnum(std.lang.PrefetchOptions.Cache.data) == 1);
 
     // LLVM fails during codegen of instruction cache prefetchs for these architectures.
     // This is an LLVM bug as the prefetch intrinsic should be a noop if not supported
@@ -7106,7 +7106,7 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
 /// has different ABI than regular integer types, and there is no currently no
 /// way to determine whether a Zig integer type is meant to represent e.g. `int`
 /// or `_BitInt(32)`.
-pub fn ccAbiPromoteInt(cc: std.builtin.CallingConvention, zcu: *Zcu, ty: Type) ?std.builtin.Signedness {
+pub fn ccAbiPromoteInt(cc: std.lang.CallingConvention, zcu: *Zcu, ty: Type) ?std.lang.Signedness {
     switch (cc) {
         .auto, .@"inline", .async => return null,
         else => {},
@@ -7379,7 +7379,7 @@ fn intrinsicsAllowed(scalar_ty: Type, target: *const std.Target) bool {
     };
 }
 
-fn toLlvmAtomicOrdering(atomic_order: std.builtin.AtomicOrder) Builder.AtomicOrdering {
+fn toLlvmAtomicOrdering(atomic_order: std.lang.AtomicOrder) Builder.AtomicOrdering {
     return switch (atomic_order) {
         .unordered => .unordered,
         .monotonic => .monotonic,
@@ -7391,7 +7391,7 @@ fn toLlvmAtomicOrdering(atomic_order: std.builtin.AtomicOrder) Builder.AtomicOrd
 }
 
 fn toLlvmAtomicRmwBinOp(
-    op: std.builtin.AtomicRmwOp,
+    op: std.lang.AtomicRmwOp,
     is_signed: bool,
     is_float: bool,
 ) Builder.Function.Instruction.AtomicRmw.Operation {

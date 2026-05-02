@@ -54,8 +54,8 @@ cache: struct {
     bool_type: ?Id = null,
     void_type: ?Id = null,
     opaque_types: std.StringHashMapUnmanaged(Id) = .empty,
-    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, Id) = .empty,
-    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, Id) = .empty,
+    int_types: std.AutoHashMapUnmanaged(std.lang.Type.Int, Id) = .empty,
+    float_types: std.AutoHashMapUnmanaged(std.lang.Type.Float, Id) = .empty,
     vector_types: std.AutoHashMapUnmanaged(struct { Id, u32 }, Id) = .empty,
     array_types: std.AutoHashMapUnmanaged(struct { Id, Id }, Id) = .empty,
     struct_types: std.ArrayHashMapUnmanaged(StructType, Id, StructType.HashContext, true) = .empty,
@@ -582,7 +582,7 @@ pub fn backingIntBits(module: *Module, bits: u16) struct { u16, bool } {
     return .{ std.mem.alignForward(u16, bits, big_int_bits), true };
 }
 
-pub fn intType(module: *Module, signedness: std.builtin.Signedness, bits: u16) !Id {
+pub fn intType(module: *Module, signedness: std.lang.Signedness, bits: u16) !Id {
     assert(bits > 0);
 
     const target = module.zcu.getTarget();
@@ -918,7 +918,7 @@ pub fn debugString(module: *Module, string: []const u8) !Id {
     return entry.value_ptr.*;
 }
 
-pub fn storageClass(module: *Module, as: std.builtin.AddressSpace) spec.StorageClass {
+pub fn storageClass(module: *Module, as: std.lang.AddressSpace) spec.StorageClass {
     const target = module.zcu.getTarget();
     return switch (as) {
         .generic => .function,

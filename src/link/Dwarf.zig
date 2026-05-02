@@ -22,7 +22,7 @@ const target_info = @import("../target.zig");
 gpa: Allocator,
 bin_file: *link.File,
 format: DW.Format,
-endian: std.builtin.Endian,
+endian: std.lang.Endian,
 address_size: AddressSize,
 
 const_pool: link.ConstPool,
@@ -1963,7 +1963,7 @@ pub const WipNav = struct {
         fn writer(counter: *ExprLocCounter) *Writer {
             return &counter.dw.writer;
         }
-        fn endian(_: ExprLocCounter) std.builtin.Endian {
+        fn endian(_: ExprLocCounter) std.lang.Endian {
             return @import("builtin").cpu.arch.endian();
         }
         fn addrSym(counter: *ExprLocCounter, _: u32) Writer.Error!void {
@@ -1984,7 +1984,7 @@ pub const WipNav = struct {
             fn writer(ctx: @This()) *Writer {
                 return &ctx.wip_nav.debug_info.writer;
             }
-            fn endian(ctx: @This()) std.builtin.Endian {
+            fn endian(ctx: @This()) std.lang.Endian {
                 return ctx.wip_nav.dwarf.endian;
             }
             fn addrSym(ctx: @This(), sym_index: u32) (UpdateError || Writer.Error)!void {
@@ -2026,7 +2026,7 @@ pub const WipNav = struct {
             fn writer(ctx: @This()) *Writer {
                 return &ctx.wip_nav.debug_frame.writer;
             }
-            fn endian(ctx: @This()) std.builtin.Endian {
+            fn endian(ctx: @This()) std.lang.Endian {
                 return ctx.wip_nav.dwarf.endian;
             }
             fn addrSym(ctx: @This(), sym_index: u32) (UpdateError || Writer.Error)!void {
@@ -4164,7 +4164,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
             try wip_nav.strpFmt("{f}", .{val.toType().fmt(pt)});
             const cc: DW.CC = cc: {
                 if (zcu.getTarget().cCallingConvention()) |cc| {
-                    if (@as(std.builtin.CallingConvention.Tag, cc) == func_type.cc) {
+                    if (@as(std.lang.CallingConvention.Tag, cc) == func_type.cc) {
                         break :cc .normal;
                     }
                 }

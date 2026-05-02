@@ -29,7 +29,7 @@ pub const CodeGenError = GenerateSymbolError || error{
     CodegenFail,
 };
 
-fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
+fn devFeatureForBackend(backend: std.lang.CompilerBackend) dev.Feature {
     return switch (backend) {
         .other, .stage1 => unreachable,
         .stage2_aarch64 => .aarch64_backend,
@@ -47,7 +47,7 @@ fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
     };
 }
 
-fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
+fn importBackend(comptime backend: std.lang.CompilerBackend) type {
     return switch (backend) {
         .other, .stage1 => unreachable,
         .stage2_aarch64 => aarch64,
@@ -105,7 +105,7 @@ pub const AnyMir = union {
     wasm: if (dev.env.supports(.wasm_backend)) @import("codegen/wasm/Mir.zig") else noreturn,
     c: if (dev.env.supports(.c_backend)) @import("codegen/c.zig").Mir else noreturn,
 
-    pub inline fn tag(comptime backend: std.builtin.CompilerBackend) []const u8 {
+    pub inline fn tag(comptime backend: std.lang.CompilerBackend) []const u8 {
         return switch (backend) {
             .stage2_aarch64 => "aarch64",
             .stage2_riscv64 => "riscv64",

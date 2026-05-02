@@ -1737,7 +1737,7 @@ pub const Inst = struct {
             @typeInfo(Tag).@"enum".fields.len != 251)
         {
             const cond_src = (struct {
-                fn src() std.builtin.SourceLocation {
+                fn src() std.lang.SourceLocation {
                     return @src();
                 }
             }).src();

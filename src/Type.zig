@@ -19,7 +19,7 @@ const Type = @This();
 
 ip_index: InternPool.Index,
 
-pub fn zigTypeTag(ty: Type, zcu: *const Zcu) std.builtin.TypeId {
+pub fn zigTypeTag(ty: Type, zcu: *const Zcu) std.lang.TypeId {
     return zcu.intern_pool.zigTypeTag(ty.toIntern());
 }
 
@@ -903,7 +903,7 @@ pub fn ptrAlignment(ptr_ty: Type, zcu: *Zcu) Alignment {
     return Type.fromInterned(ptr_key.child).abiAlignment(zcu);
 }
 
-pub fn ptrAddressSpace(ty: Type, zcu: *const Zcu) std.builtin.AddressSpace {
+pub fn ptrAddressSpace(ty: Type, zcu: *const Zcu) std.lang.AddressSpace {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| ptr_type.flags.address_space,
         .opt_type => |child| zcu.intern_pool.indexToKey(child).ptr_type.flags.address_space,
@@ -1337,12 +1337,12 @@ pub fn isSinglePointer(ty: Type, zcu: *const Zcu) bool {
 }
 
 /// Asserts `ty` is a pointer.
-pub fn ptrSize(ty: Type, zcu: *const Zcu) std.builtin.Type.Pointer.Size {
+pub fn ptrSize(ty: Type, zcu: *const Zcu) std.lang.Type.Pointer.Size {
     return ty.ptrSizeOrNull(zcu).?;
 }
 
 /// Returns `null` if `ty` is not a pointer.
-pub fn ptrSizeOrNull(ty: Type, zcu: *const Zcu) ?std.builtin.Type.Pointer.Size {
+pub fn ptrSizeOrNull(ty: Type, zcu: *const Zcu) ?std.lang.Type.Pointer.Size {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_info| ptr_info.flags.size,
         else => null,
@@ -1627,7 +1627,7 @@ pub fn unionGetLayout(ty: Type, zcu: *const Zcu) Zcu.UnionLayout {
     return Type.getUnionLayout(union_obj, zcu);
 }
 
-pub fn containerLayout(ty: Type, zcu: *const Zcu) std.builtin.Type.ContainerLayout {
+pub fn containerLayout(ty: Type, zcu: *const Zcu) std.lang.Type.ContainerLayout {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
         .tuple_type => .auto,
@@ -1949,7 +1949,7 @@ pub fn fnReturnType(ty: Type, zcu: *const Zcu) Type {
 }
 
 /// Asserts the type is a function.
-pub fn fnCallingConvention(ty: Type, zcu: *const Zcu) std.builtin.CallingConvention {
+pub fn fnCallingConvention(ty: Type, zcu: *const Zcu) std.lang.CallingConvention {
     return zcu.intern_pool.indexToKey(ty.toIntern()).func_type.cc;
 }
 
@@ -2477,7 +2477,7 @@ pub fn explicitFieldAlignment(ty: Type, index: usize, zcu: *const Zcu) Alignment
 /// Asserts that the layout of `field_ty` is resolved. Asserts that `layout` is not `.@"packed"`.
 pub fn defaultStructFieldAlignment(
     field_ty: Type,
-    layout: std.builtin.Type.ContainerLayout,
+    layout: std.lang.Type.ContainerLayout,
     zcu: *const Zcu,
 ) Alignment {
     const overalign_big_int = switch (layout) {
@@ -3227,7 +3227,7 @@ pub fn validateExtern(ty: Type, position: ExternPosition, zcu: *const Zcu) bool 
         .optional => ty.isPtrLikeOptional(zcu),
     };
 }
-fn validateExternCallconv(cc: std.builtin.CallingConvention) bool {
+fn validateExternCallconv(cc: std.lang.CallingConvention) bool {
     return switch (cc) {
         // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
         // The goal is to experiment with more integrated CPU/GPU code.

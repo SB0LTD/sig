@@ -1191,7 +1191,7 @@ pub fn truncate(
     val: Value,
     ty: Type,
     dest_ty: Type,
-    dest_signedness: std.builtin.Signedness,
+    dest_signedness: std.lang.Signedness,
     dest_bits: u16,
 ) CompileError!Value {
     const pt = sema.pt;
@@ -1808,7 +1808,7 @@ fn intTruncate(
     sema: *Sema,
     val: Value,
     dest_ty: Type,
-    dest_signedness: std.builtin.Signedness,
+    dest_signedness: std.lang.Signedness,
     dest_bits: u16,
 ) !Value {
     const pt = sema.pt;

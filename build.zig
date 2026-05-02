@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = std.builtin;
 const BufMap = std.BufMap;
 const mem = std.mem;
 const fs = std.fs;
@@ -398,22 +397,22 @@ pub fn build(b: *std.Build) !void {
     const test_target_filters = b.option([]const []const u8, "test-target-filter", "Skip tests whose target triple do not match any filter") orelse &[0][]const u8{};
     const test_extra_targets = b.option(bool, "test-extra-targets", "Enable running module tests for additional targets") orelse false;
 
-    var chosen_opt_modes_buf: [4]builtin.OptimizeMode = undefined;
+    var chosen_opt_modes_buf: [4]std.lang.OptimizeMode = undefined;
     var chosen_mode_index: usize = 0;
     if (!skip_debug) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.Debug;
+        chosen_opt_modes_buf[chosen_mode_index] = .Debug;
         chosen_mode_index += 1;
     }
     if (!skip_release_safe) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.ReleaseSafe;
+        chosen_opt_modes_buf[chosen_mode_index] = .ReleaseSafe;
         chosen_mode_index += 1;
     }
     if (!skip_release_fast) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.ReleaseFast;
+        chosen_opt_modes_buf[chosen_mode_index] = .ReleaseFast;
         chosen_mode_index += 1;
     }
     if (!skip_release_small) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.ReleaseSmall;
+        chosen_opt_modes_buf[chosen_mode_index] = .ReleaseSmall;
         chosen_mode_index += 1;
     }
     const optimize_modes = chosen_opt_modes_buf[0..chosen_mode_index];
@@ -706,11 +705,11 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     //
     // * We lose a small amount of performance. This is essentially irrelevant for zig1.
     //
-    // * We lose the ability to perform trivial renames on certain `std.builtin` types without
+    // * We lose the ability to perform trivial renames on certain `std.lang` types without
     //   zig1.wasm updates. For instance, we cannot rename an enum from PascalCase fields to
     //   snake_case fields without an update.
     //
-    // * We gain the ability to add and remove fields to and from `std.builtin` types without
+    // * We gain the ability to add and remove fields to and from `std.lang` types without
     //   zig1.wasm updates. For instance, we can add a new tag to `CallingConvention` without
     //   an update.
     //
@@ -740,7 +739,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
 }
 
 const AddCompilerModOptions = struct {
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.OptimizeMode,
     target: std.Build.ResolvedTarget,
     strip: ?bool = null,
     valgrind: ?bool = null,
@@ -1029,7 +1028,7 @@ fn addCMakeLibraryList(mod: *std.Build.Module, list: []const u8) void {
 }
 
 const CMakeConfig = struct {
-    llvm_linkage: std.builtin.LinkMode,
+    llvm_linkage: std.lang.LinkMode,
     cmake_binary_dir: []const u8,
     cmake_prefix_path: []const u8,
     cmake_static_library_prefix: []const u8,

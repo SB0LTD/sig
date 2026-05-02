@@ -708,8 +708,8 @@ pub const CrtBasenames = struct {
     pub const GetArgs = struct {
         target: *const std.Target,
         link_libc: bool,
-        output_mode: std.builtin.OutputMode,
-        link_mode: std.builtin.LinkMode,
+        output_mode: std.lang.OutputMode,
+        link_mode: std.lang.LinkMode,
         pie: bool,
     };
 

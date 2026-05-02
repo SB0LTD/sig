@@ -3882,7 +3882,7 @@ pub fn flush(
 
 fn defaultEntrySymbolName(
     preloaded_strings: *const PreloadedStrings,
-    wasi_exec_model: std.builtin.WasiExecModel,
+    wasi_exec_model: std.lang.WasiExecModel,
 ) String {
     return switch (wasi_exec_model) {
         .reactor => preloaded_strings._initialize,
@@ -3962,7 +3962,7 @@ pub fn getExistingFuncType2(wasm: *const Wasm, params: []const std.wasm.Valtype,
 
 pub fn internFunctionType(
     wasm: *Wasm,
-    cc: std.builtin.CallingConvention,
+    cc: std.lang.CallingConvention,
     params: []const InternPool.Index,
     return_type: Zcu.Type,
     target: *const std.Target,
@@ -3976,7 +3976,7 @@ pub fn internFunctionType(
 
 pub fn getExistingFunctionType(
     wasm: *Wasm,
-    cc: std.builtin.CallingConvention,
+    cc: std.lang.CallingConvention,
     params: []const InternPool.Index,
     return_type: Zcu.Type,
     target: *const std.Target,
@@ -4210,7 +4210,7 @@ pub fn errorNameTableAddr(wasm: *Wasm) u32 {
 
 fn convertZcuFnType(
     comp: *Compilation,
-    cc: std.builtin.CallingConvention,
+    cc: std.lang.CallingConvention,
     params: []const InternPool.Index,
     return_type: Zcu.Type,
     target: *const std.Target,

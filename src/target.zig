@@ -3,7 +3,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const Type = @import("Type.zig");
-const AddressSpace = std.builtin.AddressSpace;
+const AddressSpace = std.lang.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
 const Compilation = @import("Compilation.zig");
 const Feature = @import("Zcu.zig").Feature;
@@ -31,7 +31,7 @@ pub fn canDynamicLink(target: *const std.Target) bool {
     };
 }
 
-pub fn libCNeedsLibUnwind(target: *const std.Target, link_mode: std.builtin.LinkMode) bool {
+pub fn libCNeedsLibUnwind(target: *const std.Target, link_mode: std.lang.LinkMode) bool {
     return target.isGnuLibC() and link_mode == .static;
 }
 
@@ -119,7 +119,7 @@ pub fn useEmulatedTls(target: *const std.Target) bool {
     };
 }
 
-pub fn hasValgrindSupport(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
+pub fn hasValgrindSupport(target: *const std.Target, backend: std.lang.CompilerBackend) bool {
     // We can't currently output the necessary Valgrind client request assembly when using the C
     // backend and compiling with an MSVC-like compiler.
     const ofmt_c_msvc = (target.abi == .msvc or target.abi == .itanium) and target.ofmt == .c;
@@ -265,7 +265,7 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
     };
 }
 
-pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat, backend: std.builtin.CompilerBackend) bool {
+pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat, backend: std.lang.CompilerBackend) bool {
     return switch (ofmt) {
         .elf, .coff => switch (backend) {
             .stage2_x86_64 => true,
@@ -299,7 +299,7 @@ pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
     return false;
 }
 
-pub fn supportsStackProbing(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
+pub fn supportsStackProbing(target: *const std.Target, backend: std.lang.CompilerBackend) bool {
     return switch (backend) {
         .stage2_aarch64, .stage2_x86_64 => true,
         .stage2_llvm => target.os.tag != .windows and target.os.tag != .uefi and
@@ -308,7 +308,7 @@ pub fn supportsStackProbing(target: *const std.Target, backend: std.builtin.Comp
     };
 }
 
-pub fn supportsStackProtector(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
+pub fn supportsStackProtector(target: *const std.Target, backend: std.lang.CompilerBackend) bool {
     switch (target.os.tag) {
         .plan9 => return false,
         else => {},
@@ -336,7 +336,7 @@ pub fn libcProvidesStackProtector(target: *const std.Target) bool {
 
 /// Returns true if `@returnAddress()` is supported by the target and has a
 /// reasonably performant implementation for the requested optimization mode.
-pub fn supportsReturnAddress(target: *const std.Target, optimize: std.builtin.OptimizeMode) bool {
+pub fn supportsReturnAddress(target: *const std.Target, optimize: std.lang.OptimizeMode) bool {
     return switch (target.cpu.arch) {
         // Emscripten currently implements `emscripten_return_address()` by calling
         // out into JavaScript and parsing a stack trace, which introduces significant
@@ -396,7 +396,7 @@ pub fn hasDebugInfo(target: *const std.Target) bool {
     };
 }
 
-pub fn defaultCompilerRtOptimizeMode(target: *const std.Target) std.builtin.OptimizeMode {
+pub fn defaultCompilerRtOptimizeMode(target: *const std.Target) std.lang.OptimizeMode {
     if (target.cpu.arch.isWasm() and target.os.tag == .freestanding) {
         return .ReleaseSmall;
     } else {
@@ -437,7 +437,7 @@ pub fn canBuildLibUbsanRt(target: *const std.Target) enum { no, yes, llvm_only, 
 
 /// Whether libzigc can fill-in the gaps of an existing libc
 /// or *is* the libc of the target.
-pub fn wantsZigC(target: *const std.Target, link_mode: std.builtin.LinkMode) bool {
+pub fn wantsZigC(target: *const std.Target, link_mode: std.lang.LinkMode) bool {
     return (target.isMuslLibC() and link_mode == .static) or target.isWasiLibC() or target.isMinGW();
 }
 
@@ -547,7 +547,7 @@ pub fn clangSupportsNoImplicitFloatArg(target: *const std.Target) bool {
     };
 }
 
-pub fn defaultUnwindTables(target: *const std.Target, libunwind: bool, libtsan: bool) std.builtin.UnwindTables {
+pub fn defaultUnwindTables(target: *const std.Target, libunwind: bool, libtsan: bool) std.lang.UnwindTables {
     if (target.os.tag == .windows) {
         // The old 32-bit x86 variant of SEH doesn't use tables.
         return if (target.cpu.arch != .x86) .async else .none;
@@ -824,7 +824,7 @@ pub fn functionPointerMask(target: *const std.Target) ?u64 {
         null;
 }
 
-pub fn supportsTailCall(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
+pub fn supportsTailCall(target: *const std.Target, backend: std.lang.CompilerBackend) bool {
     switch (backend) {
         .stage2_llvm => return @import("codegen/llvm.zig").supportsTailCall(target),
         .stage2_c => return true,
@@ -832,7 +832,7 @@ pub fn supportsTailCall(target: *const std.Target, backend: std.builtin.Compiler
     }
 }
 
-pub fn supportsThreads(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
+pub fn supportsThreads(target: *const std.Target, backend: std.lang.CompilerBackend) bool {
     _ = target;
     return switch (backend) {
         .stage2_aarch64 => false,
@@ -880,7 +880,7 @@ pub fn compilerRtIntAbbrev(bits: u16) []const u8 {
     };
 }
 
-pub fn fnCallConvAllowsZigTypes(cc: std.builtin.CallingConvention) bool {
+pub fn fnCallConvAllowsZigTypes(cc: std.lang.CallingConvention) bool {
     return switch (cc) {
         .auto, .async, .@"inline" => true,
         // For now we want to authorize PTX kernel to use zig objects, even if
@@ -891,7 +891,7 @@ pub fn fnCallConvAllowsZigTypes(cc: std.builtin.CallingConvention) bool {
     };
 }
 
-pub fn zigBackend(target: *const std.Target, use_llvm: bool) std.builtin.CompilerBackend {
+pub fn zigBackend(target: *const std.Target, use_llvm: bool) std.lang.CompilerBackend {
     if (use_llvm) return .stage2_llvm;
     if (target.ofmt == .c) return .stage2_c;
     return switch (target.cpu.arch) {
@@ -908,7 +908,7 @@ pub fn zigBackend(target: *const std.Target, use_llvm: bool) std.builtin.Compile
     };
 }
 
-pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, comptime feature: Feature) bool {
+pub inline fn backendSupportsFeature(backend: std.lang.CompilerBackend, comptime feature: Feature) bool {
     return switch (feature) {
         .panic_fn => switch (backend) {
             .stage2_aarch64,

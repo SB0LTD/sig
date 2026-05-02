@@ -1277,7 +1277,7 @@ fn buildSharedLib(
     try comp.updateSubCompilation(sub_compilation, misc_task, prog_node);
 }
 
-pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {
+pub fn needsCrt0(output_mode: std.lang.OutputMode) ?CrtFile {
     return switch (output_mode) {
         .Obj, .Lib => null,
         .Exe => .scrt1_o,

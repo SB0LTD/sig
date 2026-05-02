@@ -3,7 +3,7 @@
 target: *const std.Target,
 allocator: std.mem.Allocator,
 mir: Mir,
-cc: std.builtin.CallingConvention,
+cc: std.lang.CallingConvention,
 err_msg: ?*Zcu.ErrorMsg = null,
 src_loc: Zcu.LazySrcLoc,
 result_insts_len: ResultInstIndex = undefined,
