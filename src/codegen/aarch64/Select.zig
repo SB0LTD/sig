@@ -7981,7 +7981,7 @@ fn emit(isel: *Select, instruction: codegen.aarch64.encoding.Instruction) !void 
 fn emitPanic(isel: *Select, panic_id: Zcu.SimplePanicId) !void {
     const zcu = isel.pt.zcu;
     try isel.nav_relocs.append(zcu.gpa, .{
-        .nav = switch (zcu.intern_pool.indexToKey(zcu.builtin_decl_values.get(panic_id.toBuiltin()))) {
+        .nav = switch (zcu.intern_pool.indexToKey(zcu.std_lang_decl_values.get(panic_id.toStdLangDecl()))) {
             else => unreachable,
             inline .@"extern", .func => |func| func.owner_nav,
         },

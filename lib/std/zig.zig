@@ -876,7 +876,7 @@ pub const SimpleComptimeReason = enum(u32) {
     casted_to_comptime_enum,
     casted_to_comptime_int,
     casted_to_comptime_float,
-    std_builtin_decl,
+    std_lang_decl,
 
     pub fn message(r: SimpleComptimeReason) []const u8 {
         return switch (r) {
@@ -959,7 +959,7 @@ pub const SimpleComptimeReason = enum(u32) {
             .casted_to_comptime_enum      => "value casted to enum with 'comptime_int' tag type must be comptime-known",
             .casted_to_comptime_int       => "value casted to 'comptime_int' must be comptime-known",
             .casted_to_comptime_float     => "value casted to 'comptime_float' must be comptime-known",
-            .std_builtin_decl             => "'std.builtin' declaration values must be comptime-known",
+            .std_lang_decl                => "'std.lang' declaration values must be comptime-known",
             // zig fmt: on
         };
     }

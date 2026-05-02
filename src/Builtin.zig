@@ -57,11 +57,11 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
         \\pub const zig_version = std.SemanticVersion.parse(zig_version_string) catch unreachable;
         \\pub const zig_version_string = "{s}";
-        \\pub const zig_backend = std.builtin.CompilerBackend.{f};
+        \\pub const zig_backend = std.lang.CompilerBackend.{f};
         \\
-        \\pub const output_mode: std.builtin.OutputMode = .{f};
-        \\pub const link_mode: std.builtin.LinkMode = .{f};
-        \\pub const unwind_tables: std.builtin.UnwindTables = .{f};
+        \\pub const output_mode: std.lang.OutputMode = .{f};
+        \\pub const link_mode: std.lang.LinkMode = .{f};
+        \\pub const unwind_tables: std.lang.UnwindTables = .{f};
         \\pub const is_test = {};
         \\pub const single_threaded = {};
         \\pub const abi: std.Target.Abi = .{f};
@@ -239,7 +239,7 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
 
     try buffer.print(
         \\pub const object_format: std.Target.ObjectFormat = .{f};
-        \\pub const mode: std.builtin.OptimizeMode = .{f};
+        \\pub const mode: std.lang.OptimizeMode = .{f};
         \\pub const link_libc = {};
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
@@ -249,7 +249,7 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
-        \\pub const code_model: std.builtin.CodeModel = .{f};
+        \\pub const code_model: std.lang.CodeModel = .{f};
         \\pub const omit_frame_pointer = {};
         \\
     , .{
@@ -270,14 +270,14 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
 
     if (target.os.tag == .wasi) {
         try buffer.print(
-            \\pub const wasi_exec_model: std.builtin.WasiExecModel = .{f};
+            \\pub const wasi_exec_model: std.lang.WasiExecModel = .{f};
             \\
         , .{std.zig.fmtIdPU(@tagName(opts.wasi_exec_model))});
     }
 
     if (opts.is_test) {
         try buffer.appendSlice(
-            \\pub var test_functions: []const std.builtin.TestFn = &.{}; // overwritten later
+            \\pub var test_functions: []const std.lang.TestFn = &.{}; // overwritten later
             \\
         );
     }

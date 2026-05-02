@@ -586,7 +586,7 @@ fn addExtraAssumeCapacity(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
     return result;
 }
 
-/// For `std.builtin.CallingConvention.auto`.
+/// For `std.lang.CallingConvention.auto`.
 pub fn typeToValtype(ty: Type, zcu: *const Zcu, target: *const std.Target) std.wasm.Valtype {
     return switch (ty.zigTypeTag(zcu)) {
         .float => switch (ty.floatBits(target)) {

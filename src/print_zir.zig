@@ -693,7 +693,7 @@ const Writer = struct {
             .restore_err_ret_index => try self.writeRestoreErrRetIndex(stream, extended),
             .closure_get => try self.writeClosureGet(stream, extended),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, extended),
-            .builtin_value => try self.writeBuiltinValue(stream, extended),
+            .std_lang_value => try self.writeStdLangValue(stream, extended),
             .inplace_arith_result_ty => try self.writeInplaceArithResultTy(stream, extended),
 
             .dbg_empty_stmt => try stream.writeAll("))"),
@@ -2232,8 +2232,8 @@ const Writer = struct {
         try self.writeSrcNode(stream, src_node);
     }
 
-    fn writeBuiltinValue(self: *Writer, stream: *std.Io.Writer, extended: Zir.Inst.Extended.InstData) !void {
-        const val: Zir.Inst.BuiltinValue = @enumFromInt(extended.small);
+    fn writeStdLangValue(self: *Writer, stream: *std.Io.Writer, extended: Zir.Inst.Extended.InstData) !void {
+        const val: Zir.Inst.StdLangValue = @enumFromInt(extended.small);
         try stream.print("{s})) ", .{@tagName(val)});
         const src_node: Ast.Node.Offset = @enumFromInt(@as(i32, @bitCast(extended.operand)));
         try self.writeSrcNode(stream, src_node);

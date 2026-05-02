@@ -1083,13 +1083,13 @@ pub fn ensureMemoizedStateUpToDate(
     } else {
         if (prev_failed) return error.AnalysisFail;
         // We use an arbitrary element to check if the state has been resolved yet.
-        const to_check: Zcu.BuiltinDecl = switch (stage) {
+        const to_check: Zcu.StdLangDecl = switch (stage) {
             .main => .Type,
             .panic => .panic,
             .va_list => .VaList,
             .assembly => .assembly,
         };
-        if (zcu.builtin_decl_values.get(to_check) != .none) return;
+        if (zcu.std_lang_decl_values.get(to_check) != .none) return;
     }
 
     if (zcu.comp.debugIncremental()) {
@@ -3752,7 +3752,7 @@ pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
 
     // Our job is to correctly set the value of the `test_functions` declaration if it has been
     // analyzed and sent to codegen, It usually will have been, because the test runner will
-    // reference it, and `std.builtin` shouldn't have type errors. However, if it hasn't been
+    // reference it, and `std.lang` shouldn't have type errors. However, if it hasn't been
     // analyzed, we will just terminate early, since clearly the test runner hasn't referenced
     // `test_functions` so there's no point populating it. More to the the point, we potentially
     // *can't* populate it without doing some type resolution, and... let's try to leave Sema in

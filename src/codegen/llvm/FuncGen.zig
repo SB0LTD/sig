@@ -891,7 +891,7 @@ fn buildSimplePanic(fg: *FuncGen, panic_id: Zcu.SimplePanicId) Allocator.Error!v
     const o = fg.object;
     const zcu = o.zcu;
     const target = zcu.getTarget();
-    const panic_func = zcu.funcInfo(zcu.builtin_decl_values.get(panic_id.toBuiltin()));
+    const panic_func = zcu.funcInfo(zcu.std_lang_decl_values.get(panic_id.toStdLangDecl()));
     const fn_info = zcu.typeToFunc(.fromInterned(panic_func.ty)).?;
     const llvm_panic_fn_ty = try o.lowerType(.fromInterned(panic_func.ty));
 

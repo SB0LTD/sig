@@ -1755,7 +1755,7 @@ pub const Object = struct {
         }
 
         // If the first export specifies a linksection, set the exported variable's section to that
-        // one. This is kind of a hack because `std.builtin.ExportOptions.section` doesn't actually
+        // one. This is kind of a hack because `std.lang.ExportOptions.section` doesn't actually
         // make much sense: the linksection should be associated with the declaration itself rather
         // than some particular symbol it is exported as!
         if (export_indices[0].ptr(zcu).opts.section.toSlice(ip)) |section_slice| {
@@ -3378,7 +3378,7 @@ pub const Object = struct {
         }
 
         if (fn_info.cc == .auto and zcu.comp.config.any_error_tracing) {
-            // First parameter is a pointer to `std.builtin.StackTrace`.
+            // First parameter is a pointer to `std.lang.StackTrace`.
             const llvm_ptr_ty = try o.builder.ptrType(toLlvmAddressSpace(.generic, target));
             try llvm_params.append(o.gpa, llvm_ptr_ty);
         }

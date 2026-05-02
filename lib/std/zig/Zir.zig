@@ -2119,10 +2119,10 @@ pub const Inst = struct {
         /// Guaranteed to not have the `ptr_cast` flag.
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
-        /// Get a type or value from `std.builtin`.
+        /// Get a type or value from `std.lang`.
         /// `operand` is `src_node: Ast.Node.Offset`.
-        /// `small` is an `Inst.BuiltinValue`.
-        builtin_value,
+        /// `small` is an `Inst.StdLangValue`.
+        std_lang_value,
         /// Provide a `@branchHint` for the current block.
         /// `operand` is payload index to `UnNode`.
         /// `small` is unused.
@@ -3564,7 +3564,7 @@ pub const Inst = struct {
         }
     };
 
-    pub const BuiltinValue = enum(u16) {
+    pub const StdLangValue = enum(u16) {
         // Types
         atomic_order,
         atomic_rmw_op,
@@ -4368,7 +4368,7 @@ fn findTrackableInner(
                 .restore_err_ret_index,
                 .closure_get,
                 .field_parent_ptr,
-                .builtin_value,
+                .std_lang_value,
                 .branch_hint,
                 .inplace_arith_result_ty,
                 .tuple_decl,

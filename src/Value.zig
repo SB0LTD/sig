@@ -2199,19 +2199,19 @@ pub fn pointerDerivation(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread, op
 const InterpretMode = enum {
     /// In this mode, types are assumed to match what the compiler was built with in terms of field
     /// order, field types, etc. This improves compiler performance. However, it means that certain
-    /// modifications to `std.builtin` will result in compiler crashes.
+    /// modifications to `std.lang` will result in compiler crashes.
     direct,
     /// In this mode, various details of the type are allowed to differ from what the compiler was built
     /// with. Fields are matched by name rather than index; added struct fields are ignored, and removed
     /// struct fields use their default value if one exists. This is slower than `.direct`, but permits
-    /// making certain changes to `std.builtin` (in particular reordering/adding/removing fields), so it
-    /// is useful when applying breaking changes.
+    /// making certain changes to `std.lang` (in particular reordering/adding/removing fields), so it is
+    /// useful when applying breaking changes.
     by_name,
 };
 const interpret_mode: InterpretMode = @field(InterpretMode, @tagName(build_options.value_interpret_mode));
 
 /// Given a `Value` representing a comptime-known value of type `T`, unwrap it into an actual `T` known to the compiler.
-/// This is useful for accessing `std.builtin` structures received from comptime logic.
+/// This is useful for accessing `std.lang` structures received from comptime logic.
 pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMemory, UndefinedValue, TypeMismatch }!T {
     const zcu = pt.zcu;
     const io = zcu.comp.io;
@@ -2313,7 +2313,7 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
 }
 
 /// Given any `val` and a `Type` corresponding `@TypeOf(val)`, construct a `Value` representing it which can be used
-/// within the compilation. This is useful for passing `std.builtin` structures in the compiler back to the compilation.
+/// within the compilation. This is useful for passing `std.lang` structures in the compiler back to the compilation.
 /// This is the inverse of `interpret`.
 pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory, TypeMismatch }!Value {
     const T = @TypeOf(val);

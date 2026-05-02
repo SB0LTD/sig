@@ -2644,7 +2644,7 @@ const Block = struct {
             });
             return;
         }
-        const panic_fn_val = zcu.builtin_decl_values.get(panic_id.toBuiltin());
+        const panic_fn_val = zcu.std_lang_decl_values.get(panic_id.toStdLangDecl());
         _ = b.add(l, .{
             .tag = .call,
             .data = .{ .pl_op = .{

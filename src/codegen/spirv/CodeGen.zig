@@ -2358,7 +2358,7 @@ fn buildWideMul(
 /// The SPIR-V backend is not yet advanced enough to support the std testing infrastructure.
 /// In order to be able to run tests, we "temporarily" lower test kernels into separate entry-
 /// points. The test executor will then be able to invoke these to run the tests.
-/// Note that tests are lowered according to std.builtin.TestFn, which is `fn () anyerror!void`.
+/// Note that tests are lowered according to std.lang.TestFn, which is `fn () anyerror!void`.
 /// (anyerror!void has the same layout as anyerror).
 /// Each test declaration generates a function like.
 ///   %anyerror = OpTypeInt 0 16

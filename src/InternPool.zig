@@ -486,12 +486,12 @@ pub const AnalUnit = packed struct(u64) {
 pub const MemoizedStateStage = enum(u32) {
     /// Everything other than panics and `VaList`.
     main,
-    /// Everything within `std.builtin.Panic`.
+    /// Everything within `std.lang.Panic`.
     /// Since the panic handler is user-provided, this must be able to reference the other memoized state.
     panic,
-    /// Specifically `std.builtin.VaList`. See `Zcu.BuiltinDecl.stage`.
+    /// Specifically `std.lang.VaList`. See `Zcu.StdLangDecl.stage`.
     va_list,
-    /// Everything within `std.builtin.assembly`. See `Zcu.BuiltinDecl.stage`.
+    /// Everything within `std.lang.assembly`. See `Zcu.StdLangDecl.stage`.
     assembly,
 };
 

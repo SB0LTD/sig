@@ -333,7 +333,7 @@ all_type_references: std.ArrayList(TypeReference) = .empty,
 free_type_references: std.ArrayList(u32) = .empty,
 
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
-builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
+std_lang_decl_values: StdLangDecl.Memoized = .initFill(.none),
 
 incremental_debug_state: if (build_options.enable_debug_extensions) IncrementalDebugState else void =
     if (build_options.enable_debug_extensions) .init else {},
@@ -425,11 +425,11 @@ pub const EmbedTableAdapter = struct {
     }
 };
 
-/// Names of declarations in `std.builtin` whose values are memoized in a `BuiltinDecl.Memoized`.
+/// Names of declarations in `std.lang` whose values are memoized in a `StdLangDecl.Memoized`.
 /// The name must exactly match the declaration name, as comptime logic is used to compute the namespace accesses.
 /// Parent namespaces must be before their children in this enum. For instance, `.Type` must be before `.@"Type.Fn"`.
-/// Additionally, parent namespaces must be resolved in the same stage as their children; see `BuiltinDecl.stage`.
-pub const BuiltinDecl = enum {
+/// Additionally, parent namespaces must be resolved in the same stage as their children; see `StdLangDecl.stage`.
+pub const StdLangDecl = enum {
     Signedness,
     AddressSpace,
     CallingConvention,
@@ -508,7 +508,7 @@ pub const BuiltinDecl = enum {
     @"assembly.Clobbers",
 
     /// Determines what kind of validation will be done to the decl's value.
-    pub fn kind(decl: BuiltinDecl) enum { type, func, string } {
+    pub fn kind(decl: StdLangDecl) enum { type, func, string } {
         return switch (decl) {
             .returnError => .func,
 
@@ -593,7 +593,7 @@ pub const BuiltinDecl = enum {
     }
 
     /// Resolution of these values is done in three distinct stages:
-    /// * Resolution of `std.builtin.Panic` and everything under it
+    /// * Resolution of `std.lang.Panic` and everything under it
     /// * Resolution of `VaList`
     /// * Resolution of `assembly`
     /// * Everything else
@@ -606,12 +606,12 @@ pub const BuiltinDecl = enum {
     /// by itself.
     ///
     /// `assembly` is separate because its value depends on the target.
-    pub fn stage(decl: BuiltinDecl) InternPool.MemoizedStateStage {
+    pub fn stage(decl: StdLangDecl) InternPool.MemoizedStateStage {
         return switch (decl) {
             .VaList => .va_list,
             .assembly, .@"assembly.Clobbers" => .assembly,
             else => {
-                if (@intFromEnum(decl) <= @intFromEnum(BuiltinDecl.@"Type.Declaration")) {
+                if (@intFromEnum(decl) <= @intFromEnum(StdLangDecl.@"Type.Declaration")) {
                     return .main;
                 } else {
                     return .panic;
@@ -621,24 +621,24 @@ pub const BuiltinDecl = enum {
     }
 
     /// Based on the tag name, determines how to access this decl; either as a direct child of the
-    /// `std.builtin` namespace, or as a child of some preceding `BuiltinDecl` value.
-    pub fn access(decl: BuiltinDecl) union(enum) {
+    /// `std.lang` namespace, or as a child of some preceding `StdLangDecl` value.
+    pub fn access(decl: StdLangDecl) union(enum) {
         direct: []const u8,
-        nested: struct { BuiltinDecl, []const u8 },
+        nested: struct { StdLangDecl, []const u8 },
     } {
         @setEvalBranchQuota(2000);
         return switch (decl) {
             inline else => |tag| {
                 const name = @tagName(tag);
                 const split = (comptime std.mem.lastIndexOfScalar(u8, name, '.')) orelse return .{ .direct = name };
-                const parent = @field(BuiltinDecl, name[0..split]);
+                const parent = @field(StdLangDecl, name[0..split]);
                 comptime assert(@intFromEnum(parent) < @intFromEnum(tag)); // dependencies ordered correctly
                 return .{ .nested = .{ parent, name[split + 1 ..] } };
             },
         };
     }
 
-    const Memoized = std.enums.EnumArray(BuiltinDecl, InternPool.Index);
+    const Memoized = std.enums.EnumArray(StdLangDecl, InternPool.Index);
 };
 
 pub const SimplePanicId = enum {
@@ -662,7 +662,7 @@ pub const SimplePanicId = enum {
     memcpy_alias,
     noreturn_returned,
 
-    pub fn toBuiltin(id: SimplePanicId) BuiltinDecl {
+    pub fn toStdLangDecl(id: SimplePanicId) StdLangDecl {
         return switch (id) {
             // zig fmt: off
             .reached_unreachable        => .@"panic.reachedUnreachable",
@@ -3943,7 +3943,7 @@ pub fn addGlobalAssembly(zcu: *Zcu, unit: AnalUnit, source: []const u8) !void {
 
 pub const Feature = enum {
     /// When this feature is enabled, Sema will emit calls to
-    /// `std.builtin.panic` functions for things like safety checks and
+    /// `std.lang.panic` functions for things like safety checks and
     /// unreachables. Otherwise traps will be emitted.
     panic_fn,
     /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
@@ -4997,7 +4997,7 @@ fn addDependencyLoopErrorLine(
         }),
         .memoized_state => |stage| switch (stage) {
             .panic => try eb.printString("{f} requires panic handler for call here", .{fmt_source}),
-            else => try eb.printString("{f} requires 'std.builtin' declarations here", .{fmt_source}),
+            else => try eb.printString("{f} requires 'std.lang' declarations here", .{fmt_source}),
         },
         .func => |func| try eb.printString("{f} uses inferred error set of function '{f}' here", .{
             fmt_source, ip.getNav(zcu.funcInfo(func).owner_nav).fqn.fmt(ip),
@@ -5048,7 +5048,7 @@ fn formatDependencyLoopSourceUnit(data: FormatAnalUnit, w: *Io.Writer) Io.Writer
         .nav_ty => |nav| try w.print("type of declaration '{f}'", .{ip.getNav(nav).fqn.fmt(ip)}),
         .memoized_state => |stage| switch (stage) {
             .panic => try w.writeAll("panic handler"),
-            else => try w.writeAll("'std.builtin' declarations"),
+            else => try w.writeAll("'std.lang' declarations"),
         },
         .type_layout => |ty| try w.print("type '{f}'", .{
             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),

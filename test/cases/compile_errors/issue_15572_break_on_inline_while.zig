@@ -16,4 +16,4 @@ pub fn main() void {
 // error
 // target=x86_64-linux
 //
-// :9:28: error: incompatible types: 'builtin.Type.EnumField' and 'void'
+// :9:28: error: incompatible types: 'lang.Type.EnumField' and 'void'

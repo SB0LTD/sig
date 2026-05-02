@@ -1481,7 +1481,7 @@ pub const Asm = struct {
     /// Length of the assembly source in bytes.
     source_len: u32,
     inputs_len: u32,
-    /// A comptime `std.builtin.assembly.Clobbers` value for the target architecture.
+    /// A comptime `std.lang.assembly.Clobbers` value for the target architecture.
     clobbers: InternPool.Index,
     flags: Flags,
 
