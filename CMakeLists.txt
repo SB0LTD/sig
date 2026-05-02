@@ -253,7 +253,8 @@ set(ZIG_STAGE2_SOURCES
     lib/std/atomic.zig
     lib/std/base64.zig
     lib/std/buf_map.zig
-    lib/std/builtin.zig
+    lib/std/lang.zig
+    lib/std/lang/assembly.zig
     lib/std/c.zig
     lib/std/coff.zig
     lib/std/crypto.zig

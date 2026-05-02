@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const std = @import("std.zig");
 const root = @import("root");
 
-pub const assembly = @import("builtin/assembly.zig");
+pub const assembly = @import("lang/assembly.zig");
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
