@@ -86,7 +86,7 @@ fn DllMainCRTStartup(
     }
 
     if (@hasDecl(root, "DllMain")) {
-        return root.DllMain(hinstDLL, fdwReason, lpReserved);
+        return root.DllMain(@ptrCast(hinstDLL), fdwReason, lpReserved);
     }
 
     return .TRUE;
@@ -97,7 +97,7 @@ fn DllMain(
     fdwReason: std.os.windows.DWORD,
     lpReserved: std.os.windows.LPVOID,
 ) callconv(.winapi) std.os.windows.BOOL {
-    return root.DllMain(hinstDLL, fdwReason, lpReserved);
+    return root.DllMain(@ptrCast(hinstDLL), fdwReason, lpReserved);
 }
 
 fn wasm_freestanding_start() callconv(.c) void {
