@@ -5,6 +5,7 @@ const builtin = @import("builtin");
 const is_darwin = builtin.target.os.tag.isDarwin();
 const is_windows = builtin.target.os.tag == .windows;
 const is_haiku = builtin.target.os.tag == .haiku;
+const is_serenity = builtin.target.os.tag == .serenity;
 
 const std = @import("std");
 const Io = std.Io;
@@ -112,7 +113,7 @@ pub fn parse(allocator: Allocator, io: Io, libc_file: []const u8, target: *const
         return error.ParseError;
     }
 
-    if (self.gcc_dir == null and os_tag == .haiku) {
+    if (self.gcc_dir == null and (os_tag == .haiku or os_tag == .serenity)) {
         log.err("gcc_dir may not be empty for {s}", .{@tagName(os_tag)});
         return error.ParseError;
     }
@@ -207,8 +208,12 @@ pub fn findNative(gpa: Allocator, io: Io, args: FindNativeOptions) FindError!Lib
         try self.findNativeCrtDirWindows(gpa, io, args.target, sdk);
     } else if (is_haiku) {
         try self.findNativeIncludeDirPosix(gpa, io, args);
-        try self.findNativeGccDirHaiku(gpa, io, args);
+        try self.findNativeGccDirPosix(gpa, io, args);
         self.crt_dir = try gpa.dupe(u8, "/system/develop/lib");
+    } else if (is_serenity) {
+        try self.findNativeIncludeDirPosix(gpa, io, args);
+        try self.findNativeGccDirPosix(gpa, io, args);
+        self.crt_dir = try gpa.dupe(u8, "/usr/lib");
     } else if (builtin.target.os.tag == .illumos) {
         // There is only one libc, and its headers/libraries are always in the same spot.
         self.include_dir = try gpa.dupe(u8, "/usr/include");
@@ -314,7 +319,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, gpa: Allocator, io: Io, ar
     const include_dir_example_file = if (is_haiku) "posix/stdlib.h" else "stdlib.h";
     const sys_include_dir_example_file = if (is_windows)
         "sys\\types.h"
-    else if (is_haiku)
+    else if (is_haiku or is_serenity)
         "errno.h"
     else
         "sys/errno.h";
@@ -457,7 +462,7 @@ fn findNativeCrtDirPosix(self: *LibCInstallation, gpa: Allocator, io: Io, args: 
     });
 }
 
-fn findNativeGccDirHaiku(self: *LibCInstallation, gpa: Allocator, io: Io, args: FindNativeOptions) FindError!void {
+fn findNativeGccDirPosix(self: *LibCInstallation, gpa: Allocator, io: Io, args: FindNativeOptions) FindError!void {
     self.gcc_dir = try ccPrintFileName(gpa, io, .{
         .environ_map = args.environ_map,
         .search_basename = "crtbeginS.o",
@@ -949,6 +954,22 @@ pub const CrtBasenames = struct {
                 },
                 .static_exe, .static_pie => .{},
             },
+            .serenity => switch (mode) {
+                .dynamic_lib => .{
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                },
+                .dynamic_exe, .static_exe => .{
+                    .crt0 = "crt0.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                },
+                .dynamic_pie, .static_pie => .{
+                    .crt0 = "crt0.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                },
+            },
             else => .{},
         };
     }
@@ -993,7 +1014,7 @@ pub fn resolveCrtPaths(
                 .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
             };
         },
-        .haiku => {
+        .haiku, .serenity => {
             const gcc_dir_path: Path = .{
                 .root_dir = std.Build.Cache.Directory.cwd(),
                 .sub_path = lci.gcc_dir orelse return error.LibCInstallationMissingCrtDir,
