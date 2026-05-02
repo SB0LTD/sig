@@ -4829,7 +4829,7 @@ fn structuredBreak(cg: *CodeGen, target_block: Id) !void {
     assert(cg.control_flow == .structured);
 
     const gpa = cg.module.gpa;
-    const sblock = cg.control_flow.structured.block_stack.getLast();
+    const sblock = cg.control_flow.structured.block_stack.getLast().?;
     const merge_block = switch (sblock.*) {
         .selection => |*merge| blk: {
             const merge_label = cg.module.allocId();
@@ -5044,7 +5044,7 @@ fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, body: []const Air.Inst.Index) 
         .operand_2 = this_block,
     });
 
-    const sblock = cf.block_stack.getLast();
+    const sblock = cf.block_stack.getLast().?;
 
     if (ty.isNoReturn(zcu)) {
         // If this block is noreturn, this instruction is the last of a block,
