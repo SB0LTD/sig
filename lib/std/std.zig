@@ -65,8 +65,11 @@ pub const array_hash_map = @import("array_hash_map.zig");
 pub const atomic = @import("atomic.zig");
 pub const base64 = @import("base64.zig");
 pub const bit_set = @import("bit_set.zig");
+/// Deprecated; use `lang`.
+///
+/// To be removed after Zig 0.17.0.
 pub const builtin = lang;
-pub const lang = @import("builtin.zig");
+pub const lang = @import("lang.zig");
 pub const c = @import("c.zig");
 pub const coff = @import("coff.zig");
 pub const compress = @import("compress.zig");
