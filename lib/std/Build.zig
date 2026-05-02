@@ -99,19 +99,19 @@ pub const Graph = struct {
         return @enumFromInt(graph.generated_files.items.len - 1);
     }
 
-    pub fn dupeString(graph: *Graph, bytes: []const u8) []const u8 {
+    pub fn dupeString(graph: *const Graph, bytes: []const u8) []const u8 {
         return graph.arena.dupe(u8, bytes) catch @panic("OOM");
     }
 
-    pub fn dupePath(graph: *Graph, bytes: []const u8) []const u8 {
+    pub fn dupePath(graph: *const Graph, bytes: []const u8) []const u8 {
         const arena = graph.arena;
-        if (builtin.os.tag != .windows) return graph.arena.dupe(u8, bytes) catch @panic("OOM");
+        if (builtin.os.tag != .windows) return arena.dupe(u8, bytes) catch @panic("OOM");
         const the_copy = arena.dupe(u8, bytes) catch @panic("OOM");
         mem.replaceScalar(u8, the_copy, '/', '\\');
         return the_copy;
     }
 
-    pub fn dupeStrings(graph: *Graph, strings: []const []const u8) []const []const u8 {
+    pub fn dupeStrings(graph: *const Graph, strings: []const []const u8) []const []const u8 {
         const arena = graph.arena;
         const array = arena.alloc([]const u8, strings.len) catch @panic("OOM");
         for (array, strings) |*dest, source| dest.* = dupeString(graph, source);
@@ -2186,7 +2186,7 @@ pub const LazyPath = union(enum) {
     ///
     /// The `b` parameter is only used for its allocator. All *Build instances
     /// share the same allocator.
-    pub fn dupe(lazy_path: LazyPath, graph: *Graph) LazyPath {
+    pub fn dupe(lazy_path: LazyPath, graph: *const Graph) LazyPath {
         return switch (lazy_path) {
             .src_path => |sp| .{ .src_path = .{ .owner = sp.owner, .sub_path = sp.owner.dupePath(sp.sub_path) } },
             .cwd_relative => |p| .{ .cwd_relative = graph.dupePath(p) },
@@ -2245,9 +2245,9 @@ pub const InstallDir = union(enum) {
     custom: []const u8,
 
     /// Duplicates the install directory including the path if set to custom.
-    pub fn dupe(dir: InstallDir, builder: *Build) InstallDir {
+    pub fn dupe(dir: InstallDir, graph: *const Graph) InstallDir {
         if (dir == .custom) {
-            return .{ .custom = builder.dupe(dir.custom) };
+            return .{ .custom = graph.dupeString(dir.custom) };
         } else {
             return dir;
         }

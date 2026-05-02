@@ -19,6 +19,7 @@ pub fn make(
     const conf = &maker.scanned_config.configuration;
     const conf_step = step_index.ptr(conf);
     const conf_if = conf_step.extended.get(conf.extra).install_file;
+
     try step.singleUnchangingWatchInput(maker, arena, conf_if.source.get(conf));
     const p = try maker.installLazyPathSub(arena, conf_if.source, conf_if.dest_dir, conf_if.dest_sub_path.slice(conf), step_index);
     step.result_cached = p == .fresh;

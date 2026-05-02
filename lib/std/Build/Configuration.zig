@@ -1039,10 +1039,20 @@ pub const Step = extern struct {
 
     pub const InstallDir = struct {
         flags: @This().Flags,
+        source_dir: LazyPath.Index,
+        dest_dir: InstallDestDir,
+        dest_sub_path: Storage.FlagOptional(.flags, .dest_sub_path, String),
+        exclude_extensions: Storage.FlagLengthPrefixedList(.flags, .exclude_extensions, String),
+        include_extensions: Storage.FlagLengthPrefixedList(.flags, .include_extensions, String),
+        blank_extensions: Storage.FlagLengthPrefixedList(.flags, .blank_extensions, String),
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .install_dir,
-            _: u27 = 0,
+            dest_sub_path: bool,
+            exclude_extensions: bool,
+            include_extensions: bool,
+            blank_extensions: bool,
+            _: u23 = 0,
         };
     };
 
@@ -1069,10 +1079,19 @@ pub const Step = extern struct {
 
     pub const Options = struct {
         flags: @This().Flags,
+        generated_file: GeneratedFileIndex,
+        contents: Bytes,
+        args: Storage.FlagLengthPrefixedList(.flags, .args, Arg),
+
+        pub const Arg = extern struct {
+            name: String,
+            path: LazyPath.Index,
+        };
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .options,
-            _: u27 = 0,
+            args: bool,
+            _: u26 = 0,
         };
     };
 

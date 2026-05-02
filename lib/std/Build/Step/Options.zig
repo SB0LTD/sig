@@ -9,14 +9,18 @@ const Step = std.Build.Step;
 const LazyPath = std.Build.LazyPath;
 const Configuration = std.Build.Configuration;
 
-pub const base_tag: Step.Tag = .options;
-
 step: Step,
 generated_file: Configuration.GeneratedFileIndex,
-
 contents: std.ArrayList(u8),
 args: std.ArrayList(Arg),
 encountered_types: std.StringHashMapUnmanaged(void),
+
+pub const base_tag: Step.Tag = .options;
+
+pub const Arg = struct {
+    name: []const u8,
+    path: LazyPath,
+};
 
 pub fn create(owner: *std.Build) *Options {
     const graph = owner.graph;
@@ -28,7 +32,6 @@ pub fn create(owner: *std.Build) *Options {
             .tag = base_tag,
             .name = "options",
             .owner = owner,
-            .makeFn = make,
         }),
         .generated_file = graph.addGeneratedFile(&options.step),
         .contents = .empty,
@@ -438,241 +441,4 @@ pub fn createModule(options: *Options) *std.Build.Module {
 /// generated from the key-value pairs of the Options.
 pub fn getOutput(options: *Options) LazyPath {
     return .{ .generated = .{ .index = options.generated_file } };
-}
-
-fn make(step: *Step, make_options: Step.MakeOptions) !void {
-    // This step completes so quickly that no progress reporting is necessary.
-    _ = make_options;
-
-    const b = step.owner;
-    const io = b.graph.io;
-    const options: *Options = @fieldParentPtr("step", step);
-
-    for (options.args.items) |item| {
-        options.addOption(
-            []const u8,
-            item.name,
-            item.path.getPath2(b, step),
-        );
-    }
-    if (!step.inputs.populated()) for (options.args.items) |item| {
-        try step.addWatchInput(item.path);
-    };
-
-    const basename = "options.zig";
-
-    // Hash contents to file name.
-    var hash = b.graph.cache.hash;
-    // Random bytes to make unique. Refresh this with new random bytes when
-    // implementation is modified in a non-backwards-compatible way.
-    hash.add(@as(u32, 0xad95e922));
-    hash.addBytes(options.contents.items);
-    const sub_path = "c" ++ fs.path.sep_str ++ hash.final() ++ fs.path.sep_str ++ basename;
-
-    options.generated_file.path = try b.cache_root.join(b.allocator, &.{sub_path});
-
-    // Optimize for the hot path. Stat the file, and if it already exists,
-    // cache hit.
-    if (b.cache_root.handle.access(io, sub_path, .{})) |_| {
-        // This is the hot path, success.
-        step.result_cached = true;
-        return;
-    } else |outer_err| switch (outer_err) {
-        error.FileNotFound => {
-            var atomic_file = b.cache_root.handle.createFileAtomic(io, sub_path, .{
-                .replace = false,
-                .make_path = true,
-            }) catch |err| return step.fail("failed to create temporary path for '{f}{s}': {t}", .{
-                b.cache_root, sub_path, err,
-            });
-            defer atomic_file.deinit(io);
-
-            atomic_file.file.writeStreamingAll(io, options.contents.items) catch |err| {
-                return step.fail("failed to write options to temporary path for '{f}{s}': {t}", .{
-                    b.cache_root, sub_path, err,
-                });
-            };
-
-            atomic_file.link(io) catch |err| switch (err) {
-                error.PathAlreadyExists => {
-                    step.result_cached = true;
-                    return;
-                },
-                else => return step.fail("failed to link temporary file into '{f}{s}': {t}", .{
-                    b.cache_root, sub_path, err,
-                }),
-            };
-        },
-        else => |e| return step.fail("unable to access options file '{f}{s}': {t}", .{
-            b.cache_root, sub_path, e,
-        }),
-    }
-}
-
-const Arg = struct {
-    name: []const u8,
-    path: LazyPath,
-};
-
-test Options {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    const io = std.testing.io;
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const cwd = try std.process.currentPathAlloc(io, std.testing.allocator);
-    defer std.testing.allocator.free(cwd);
-
-    var graph: std.Build.Graph = .{
-        .io = io,
-        .arena = arena.allocator(),
-        .cache = .{
-            .io = io,
-            .gpa = arena.allocator(),
-            .manifest_dir = Io.Dir.cwd(),
-            .cwd = cwd,
-        },
-        .zig_exe = "test",
-        .environ_map = std.process.Environ.Map.init(arena.allocator()),
-        .global_cache_root = .{ .path = "test", .handle = Io.Dir.cwd() },
-        .host = .{
-            .query = .{},
-            .result = try std.zig.system.resolveTargetQuery(io, .{}),
-        },
-        .zig_lib_directory = std.Build.Cache.Directory.cwd(),
-        .time_report = false,
-    };
-
-    var builder = try std.Build.create(
-        &graph,
-        .{ .path = "test", .handle = Io.Dir.cwd() },
-        .{ .path = "test", .handle = Io.Dir.cwd() },
-        &.{},
-    );
-
-    const options = builder.addOptions();
-
-    const KeywordEnum = enum {
-        @"0.8.1",
-    };
-
-    const NormalEnum = enum {
-        foo,
-        bar,
-    };
-
-    const nested_array = [2][2]u16{
-        [2]u16{ 300, 200 },
-        [2]u16{ 300, 200 },
-    };
-    const nested_slice: []const []const u16 = &[_][]const u16{ &nested_array[0], &nested_array[1] };
-
-    const NormalStruct = struct {
-        hello: ?[]const u8,
-        world: bool = true,
-    };
-
-    const NestedStruct = struct {
-        normal_struct: NormalStruct,
-        normal_enum: NormalEnum = .foo,
-    };
-
-    options.addOption(usize, "option1", 1);
-    options.addOption(?usize, "option2", null);
-    options.addOption(?usize, "option3", 3);
-    options.addOption(comptime_int, "option4", 4);
-    options.addOption(comptime_float, "option5", 5.01);
-    options.addOption([]const u8, "string", "zigisthebest");
-    options.addOption(?[]const u8, "optional_string", null);
-    options.addOption([2][2]u16, "nested_array", nested_array);
-    options.addOption([]const []const u16, "nested_slice", nested_slice);
-    options.addOption(KeywordEnum, "keyword_enum", .@"0.8.1");
-    options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
-    options.addOption(NormalEnum, "normal1_enum", NormalEnum.foo);
-    options.addOption(NormalEnum, "normal2_enum", NormalEnum.bar);
-    options.addOption(NormalStruct, "normal1_struct", NormalStruct{
-        .hello = "foo",
-    });
-    options.addOption(NormalStruct, "normal2_struct", NormalStruct{
-        .hello = null,
-        .world = false,
-    });
-    options.addOption(NestedStruct, "nested_struct", NestedStruct{
-        .normal_struct = .{ .hello = "bar" },
-    });
-
-    try std.testing.expectEqualStrings(
-        \\pub const option1: usize = 1;
-        \\pub const option2: ?usize = null;
-        \\pub const option3: ?usize = 3;
-        \\pub const option4: comptime_int = 4;
-        \\pub const option5: comptime_float = 5.01;
-        \\pub const string: []const u8 = "zigisthebest";
-        \\pub const optional_string: ?[]const u8 = null;
-        \\pub const nested_array: [2][2]u16 = [2][2]u16 {
-        \\    [2]u16 {
-        \\        300,
-        \\        200,
-        \\    },
-        \\    [2]u16 {
-        \\        300,
-        \\        200,
-        \\    },
-        \\};
-        \\pub const nested_slice: []const []const u16 = &[_][]const u16 {
-        \\    &[_]u16 {
-        \\        300,
-        \\        200,
-        \\    },
-        \\    &[_]u16 {
-        \\        300,
-        \\        200,
-        \\    },
-        \\};
-        \\pub const @"Build.Step.Options.decltest.Options.KeywordEnum" = enum (u0) {
-        \\    @"0.8.1" = 0,
-        \\};
-        \\pub const keyword_enum: @"Build.Step.Options.decltest.Options.KeywordEnum" = .@"0.8.1";
-        \\pub const semantic_version: @import("std").SemanticVersion = .{
-        \\    .major = 0,
-        \\    .minor = 1,
-        \\    .patch = 2,
-        \\    .pre = "foo",
-        \\    .build = "bar",
-        \\};
-        \\pub const @"Build.Step.Options.decltest.Options.NormalEnum" = enum (u1) {
-        \\    foo = 0,
-        \\    bar = 1,
-        \\};
-        \\pub const normal1_enum: @"Build.Step.Options.decltest.Options.NormalEnum" = .foo;
-        \\pub const normal2_enum: @"Build.Step.Options.decltest.Options.NormalEnum" = .bar;
-        \\pub const @"Build.Step.Options.decltest.Options.NormalStruct" = struct {
-        \\    hello: ?[]const u8,
-        \\    world: bool = true,
-        \\};
-        \\pub const normal1_struct: @"Build.Step.Options.decltest.Options.NormalStruct" = .{
-        \\    .hello = "foo",
-        \\    .world = true,
-        \\};
-        \\pub const normal2_struct: @"Build.Step.Options.decltest.Options.NormalStruct" = .{
-        \\    .hello = null,
-        \\    .world = false,
-        \\};
-        \\pub const @"Build.Step.Options.decltest.Options.NestedStruct" = struct {
-        \\    normal_struct: @"Build.Step.Options.decltest.Options.NormalStruct",
-        \\    normal_enum: @"Build.Step.Options.decltest.Options.NormalEnum" = .foo,
-        \\};
-        \\pub const nested_struct: @"Build.Step.Options.decltest.Options.NestedStruct" = .{
-        \\    .normal_struct = .{
-        \\        .hello = "bar",
-        \\        .world = true,
-        \\    },
-        \\    .normal_enum = .foo,
-        \\};
-        \\
-    , options.contents.items);
-
-    _ = try std.zig.Ast.parse(arena.allocator(), try options.contents.toOwnedSliceSentinel(arena.allocator(), 0), .zig);
 }

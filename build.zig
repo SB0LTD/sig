@@ -208,7 +208,8 @@ pub fn build(b: *std.Build) !void {
         .single_threaded = single_threaded,
     });
     exe.pie = pie;
-    exe.entitlements = entitlements;
+    // https://codeberg.org/ziglang/zig/issues/32173
+    exe.entitlements = if (entitlements) |p| .{ .cwd_relative = p } else null;
     exe.use_new_linker = b.option(bool, "new-linker", "Use the new linker");
 
     const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
@@ -1498,11 +1499,13 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
         }),
     });
 
-    var dir = b.build_root.handle.openDir(io, "doc/langref", .{ .iterate = true }) catch |err| {
-        std.debug.panic("unable to open '{f}doc/langref' directory: {s}", .{
-            b.build_root, @errorName(err),
-        });
+    const langref_path: std.Build.Cache.Path = .{
+        .root_dir = b.build_root,
+        .sub_path = "doc/langref",
     };
+
+    var dir = langref_path.root_dir.handle.openDir(io, langref_path.sub_path, .{ .iterate = true }) catch |err|
+        std.debug.panic("unable to open directory {f}: {t}", .{ langref_path, err });
     defer dir.close(io);
 
     var wf = b.addWriteFiles();
