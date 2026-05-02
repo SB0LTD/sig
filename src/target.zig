@@ -85,7 +85,7 @@ pub fn supports_fpic(target: *const std.Target) bool {
 
 pub fn defaultPie(target: *const std.Target) bool {
     return switch (target.os.tag) {
-        .openbsd => true,
+        .openbsd, .serenity => true,
         else => target.os.tag.isDarwin(),
     };
 }
