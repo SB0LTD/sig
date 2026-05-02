@@ -4815,7 +4815,7 @@ fn structDeclInner(
     scope: *Scope,
     node: Ast.Node.Index,
     container_decl: Ast.full.ContainerDecl,
-    layout: std.builtin.Type.ContainerLayout,
+    layout: std.lang.Type.ContainerLayout,
     maybe_backing_int_node: Ast.Node.OptionalIndex,
     name_strat: Zir.Inst.NameStrategy,
 ) InnerError!Zir.Inst.Ref {
@@ -5020,7 +5020,7 @@ fn tupleDecl(
     scope: *Scope,
     node: Ast.Node.Index,
     container_decl: Ast.full.ContainerDecl,
-    layout: std.builtin.Type.ContainerLayout,
+    layout: std.lang.Type.ContainerLayout,
     backing_int_node: Ast.Node.OptionalIndex,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
@@ -5117,7 +5117,7 @@ fn unionDeclInner(
     scope: *Scope,
     node: Ast.Node.Index,
     members: []const Ast.Node.Index,
-    layout: std.builtin.Type.ContainerLayout,
+    layout: std.lang.Type.ContainerLayout,
     opt_arg_node: Ast.Node.OptionalIndex,
     auto_enum_tok: ?Ast.TokenIndex,
     name_strat: Zir.Inst.NameStrategy,
@@ -5324,7 +5324,7 @@ fn containerDecl(
 
     switch (tree.tokenTag(container_decl.ast.main_token)) {
         .keyword_struct => {
-            const layout: std.builtin.Type.ContainerLayout = if (container_decl.layout_token) |t| switch (tree.tokenTag(t)) {
+            const layout: std.lang.Type.ContainerLayout = if (container_decl.layout_token) |t| switch (tree.tokenTag(t)) {
                 .keyword_packed => .@"packed",
                 .keyword_extern => .@"extern",
                 else => unreachable,
@@ -5334,7 +5334,7 @@ fn containerDecl(
             return rvalue(gz, ri, result, node);
         },
         .keyword_union => {
-            const layout: std.builtin.Type.ContainerLayout = if (container_decl.layout_token) |t| switch (tree.tokenTag(t)) {
+            const layout: std.lang.Type.ContainerLayout = if (container_decl.layout_token) |t| switch (tree.tokenTag(t)) {
                 .keyword_packed => .@"packed",
                 .keyword_extern => .@"extern",
                 else => unreachable,
@@ -8060,7 +8060,7 @@ fn identifier(
 
         int_type: {
             if (ident_name_raw.len < 2) break :int_type;
-            const signedness: std.builtin.Signedness = switch (ident_name_raw[0]) {
+            const signedness: std.lang.Signedness = switch (ident_name_raw[0]) {
                 'u' => .unsigned,
                 'i' => .signed,
                 else => break :int_type,
@@ -9925,7 +9925,7 @@ fn callExpr(
     const astgen = gz.astgen;
 
     const callee = try calleeExpr(gz, scope, ri.rl, override_decl_literal_type, call.ast.fn_expr);
-    const modifier: std.builtin.CallModifier = blk: {
+    const modifier: std.lang.CallModifier = blk: {
         if (gz.nosuspend_node != .none) {
             break :blk .no_suspend;
         }
@@ -12350,7 +12350,7 @@ const GenZir = struct {
     fn setStruct(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
         src_node: Ast.Node.Index,
         name_strat: Zir.Inst.NameStrategy,
-        layout: std.builtin.Type.ContainerLayout,
+        layout: std.lang.Type.ContainerLayout,
         backing_int_type_body_len: ?u32,
         decls_len: u32,
         fields_len: u32,

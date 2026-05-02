@@ -1830,7 +1830,7 @@ pub const Visibility = enum(u2) {
     hidden = 1,
     protected = 2,
 
-    pub fn fromSymbolVisibility(sv: std.builtin.SymbolVisibility) Visibility {
+    pub fn fromSymbolVisibility(sv: std.lang.SymbolVisibility) Visibility {
         return switch (sv) {
             .default => .default,
             .hidden => .hidden,
