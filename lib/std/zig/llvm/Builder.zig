@@ -2310,7 +2310,7 @@ pub fn trailingStrtabString(self: *Builder) Allocator.Error!StrtabString {
 }
 
 pub fn trailingStrtabStringAssumeCapacity(self: *Builder) StrtabString {
-    const start = self.strtab_string_indices.getLast();
+    const start = self.strtab_string_indices.getLast().?;
     const bytes: []const u8 = self.strtab_string_bytes.items[start..];
     const gop = self.strtab_string_map.getOrPutAssumeCapacityAdapted(bytes, StrtabString.Adapter{ .builder = self });
     if (gop.found_existing) {
@@ -8905,7 +8905,7 @@ pub fn deinit(self: *Builder) void {
 
 pub fn finishModuleAsm(self: *Builder, aw: *Writer.Allocating) Allocator.Error!void {
     self.module_asm = aw.toArrayList();
-    if (self.module_asm.getLastOrNull()) |last| if (last != '\n')
+    if (self.module_asm.getLast()) |last| if (last != '\n')
         try self.module_asm.append(self.gpa, '\n');
 }
 
@@ -8951,7 +8951,7 @@ pub fn trailingString(self: *Builder) Allocator.Error!String {
 }
 
 pub fn trailingStringAssumeCapacity(self: *Builder) String {
-    const start = self.string_indices.getLast();
+    const start = self.string_indices.getLast().?;
     const bytes: []const u8 = self.string_bytes.items[start..];
     const gop = self.string_map.getOrPutAssumeCapacityAdapted(bytes, String.Adapter{ .builder = self });
     if (gop.found_existing) {
@@ -12150,7 +12150,7 @@ pub fn trailingMetadataString(self: *Builder) Allocator.Error!Metadata.String {
 }
 
 pub fn trailingMetadataStringAssumeCapacity(self: *Builder) Metadata.String {
-    const start = self.metadata_string_indices.getLast();
+    const start = self.metadata_string_indices.getLast().?;
     const bytes: []const u8 = self.metadata_string_bytes.items[start..];
     assert(bytes.len > 0);
     const gop = self.metadata_string_map.getOrPutAssumeCapacityAdapted(bytes, Metadata.String.Adapter{ .builder = self });
