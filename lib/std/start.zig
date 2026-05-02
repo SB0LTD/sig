@@ -23,6 +23,10 @@ comptime {
         const dll_main_crt_startup = if (builtin.abi.isGnu()) "DllMainCRTStartup" else "_DllMainCRTStartup";
         if (native_os == .windows and !builtin.link_libc and !@hasDecl(root, dll_main_crt_startup)) {
             @export(&DllMainCRTStartup, .{ .name = dll_main_crt_startup });
+        } else if (native_os == .windows and builtin.link_libc and @hasDecl(root, "DllMain")) {
+            if (!@typeInfo(@TypeOf(root.DllMain)).@"fn".calling_convention.eql(.winapi)) {
+                @export(&DllMain, .{ .name = "DllMain" });
+            }
         }
     } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
         if (builtin.link_libc and @hasDecl(root, "main")) {
@@ -86,6 +90,14 @@ fn DllMainCRTStartup(
     }
 
     return .TRUE;
+}
+
+fn DllMain(
+    hinstDLL: std.os.windows.HINSTANCE,
+    fdwReason: std.os.windows.DWORD,
+    lpReserved: std.os.windows.LPVOID,
+) callconv(.winapi) std.os.windows.BOOL {
+    return root.DllMain(hinstDLL, fdwReason, lpReserved);
 }
 
 fn wasm_freestanding_start() callconv(.c) void {
