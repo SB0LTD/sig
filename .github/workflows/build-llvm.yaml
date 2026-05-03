@@ -85,6 +85,7 @@ jobs:
           cmake -S llvm-src/llvm -B llvm-build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
             -DLLVM_ENABLE_PROJECTS="clang;lld" `
             -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SystemZ;VE;WebAssembly;X86;XCore" `
             -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="M68k;Xtensa;ARC;CSKY;SPIRV" `
