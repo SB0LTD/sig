@@ -163,7 +163,7 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
                     }
                 }
 
-                const BackingInt = std.meta.Int(.unsigned, @bitSizeOf(T));
+                const BackingInt = @Int(.unsigned, @bitSizeOf(T));
                 return expectEqual(
                     @as(BackingInt, @bitCast(expected)),
                     @as(BackingInt, @bitCast(actual)),

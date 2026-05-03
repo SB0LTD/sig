@@ -1794,7 +1794,7 @@ fn modularInverse(comptime T: type, comptime a: T, comptime p: T) T {
     // Use a signed type for EEA computation
     const type_info = @typeInfo(T);
     const SignedT = if (type_info == .int and type_info.int.signedness == .unsigned)
-        std.meta.Int(.signed, type_info.int.bits)
+        @Int(.signed, type_info.int.bits)
     else
         T;
 
@@ -1817,7 +1817,7 @@ fn modularInverse(comptime T: type, comptime a: T, comptime p: T) T {
 fn modularPow(comptime T: type, comptime a: T, s: T, comptime p: T) T {
     const type_info = @typeInfo(T);
     const bits = type_info.int.bits;
-    const WideT = std.meta.Int(.unsigned, bits * 2);
+    const WideT = @Int(.unsigned, bits * 2);
 
     var ret: T = 1;
     var base: T = a;
@@ -1846,14 +1846,14 @@ fn bitMask(comptime T: type, bit: T) T {
 
 /// Creates a mask from the sign bit of a signed integer.
 /// Returns all 1s (0xFF...FF) if x < 0, all 0s if x >= 0.
-fn signMask(comptime T: type, x: T) std.meta.Int(.unsigned, @typeInfo(T).int.bits) {
+fn signMask(comptime T: type, x: T) @Int(.unsigned, @typeInfo(T).int.bits) {
     const type_info = @typeInfo(T);
     if (type_info != .int) {
         @compileError("signMask requires an integer type");
     }
 
     const bits = type_info.int.bits;
-    const SignedT = std.meta.Int(.signed, bits);
+    const SignedT = @Int(.signed, bits);
 
     // Convert to signed if needed, arithmetic right shift to propagate sign bit
     const x_signed: SignedT = if (type_info.int.signedness == .signed) x else @bitCast(x);
@@ -1898,8 +1898,8 @@ fn montgomeryReduce(
     const m: OutT = @truncate(m_full);
 
     const yR = x -% @as(InT, m) * @as(InT, q);
-    const y_shifted = @as(std.meta.Int(.unsigned, @typeInfo(InT).Int.bits), @bitCast(yR)) >> r_bits;
-    return @bitCast(@as(std.meta.Int(.unsigned, @typeInfo(OutT).Int.bits), @truncate(y_shifted)));
+    const y_shifted = @as(@Int(.unsigned, @typeInfo(InT).Int.bits), @bitCast(yR)) >> r_bits;
+    return @bitCast(@as(@Int(.unsigned, @typeInfo(OutT).Int.bits), @truncate(y_shifted)));
 }
 
 /// Uniform sampling using SHAKE-128 with rejection sampling.

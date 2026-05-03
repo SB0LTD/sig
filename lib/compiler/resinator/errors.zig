@@ -43,7 +43,7 @@ pub const Diagnostics = struct {
         try self.errors.append(self.allocator, error_details);
     }
 
-    const SmallestStringIndexType = std.meta.Int(.unsigned, @min(
+    const SmallestStringIndexType = @Int(.unsigned, @min(
         @bitSizeOf(ErrorDetails.FileOpenError.FilenameStringIndex),
         @min(
             @bitSizeOf(ErrorDetails.IconReadError.FilenameStringIndex),
@@ -165,7 +165,7 @@ pub const ErrorDetails = struct {
         err: FileOpenErrorEnum,
         filename_string_index: FilenameStringIndex,
 
-        pub const FilenameStringIndex = std.meta.Int(.unsigned, 32 - @bitSizeOf(FileOpenErrorEnum));
+        pub const FilenameStringIndex = @Int(.unsigned, 32 - @bitSizeOf(FileOpenErrorEnum));
         pub const FileOpenErrorEnum = std.meta.FieldEnum(Io.File.OpenError || Io.File.StatError);
 
         pub fn enumFromError(err: (Io.File.OpenError || Io.File.StatError)) FileOpenErrorEnum {
@@ -180,7 +180,7 @@ pub const ErrorDetails = struct {
         icon_type: enum(u1) { cursor, icon },
         filename_string_index: FilenameStringIndex,
 
-        pub const FilenameStringIndex = std.meta.Int(.unsigned, 32 - @bitSizeOf(IconReadErrorEnum) - 1);
+        pub const FilenameStringIndex = @Int(.unsigned, 32 - @bitSizeOf(IconReadErrorEnum) - 1);
         pub const IconReadErrorEnum = std.meta.FieldEnum(ico.ReadError);
 
         pub fn enumFromError(err: ico.ReadError) IconReadErrorEnum {
@@ -197,14 +197,14 @@ pub const ErrorDetails = struct {
         bitmap_version: ico.BitmapHeader.Version = .unknown,
         _: Padding = 0,
 
-        pub const Padding = std.meta.Int(.unsigned, 15 - @bitSizeOf(ico.BitmapHeader.Version) - @bitSizeOf(ico.ImageFormat));
+        pub const Padding = @Int(.unsigned, 15 - @bitSizeOf(ico.BitmapHeader.Version) - @bitSizeOf(ico.ImageFormat));
     };
 
     pub const BitmapReadError = packed struct(u32) {
         err: BitmapReadErrorEnum,
         filename_string_index: FilenameStringIndex,
 
-        pub const FilenameStringIndex = std.meta.Int(.unsigned, 32 - @bitSizeOf(BitmapReadErrorEnum));
+        pub const FilenameStringIndex = @Int(.unsigned, 32 - @bitSizeOf(BitmapReadErrorEnum));
         pub const BitmapReadErrorEnum = std.meta.FieldEnum(bmp.ReadError);
 
         pub fn enumFromError(err: bmp.ReadError) BitmapReadErrorEnum {
@@ -218,14 +218,14 @@ pub const ErrorDetails = struct {
         dib_version: ico.BitmapHeader.Version,
         filename_string_index: FilenameStringIndex,
 
-        pub const FilenameStringIndex = std.meta.Int(.unsigned, 32 - @bitSizeOf(ico.BitmapHeader.Version));
+        pub const FilenameStringIndex = @Int(.unsigned, 32 - @bitSizeOf(ico.BitmapHeader.Version));
     };
 
     pub const AcceleratorError = packed struct(u32) {
         err: AcceleratorErrorEnum,
         _: Padding = 0,
 
-        pub const Padding = std.meta.Int(.unsigned, 32 - @bitSizeOf(AcceleratorErrorEnum));
+        pub const Padding = @Int(.unsigned, 32 - @bitSizeOf(AcceleratorErrorEnum));
         pub const AcceleratorErrorEnum = std.meta.FieldEnum(res.ParseAcceleratorKeyStringError);
 
         pub fn enumFromError(err: res.ParseAcceleratorKeyStringError) AcceleratorErrorEnum {

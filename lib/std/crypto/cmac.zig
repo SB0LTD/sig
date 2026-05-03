@@ -74,7 +74,7 @@ pub fn Cmac(comptime BlockCipher: type) type {
         }
 
         fn double(l: Block) Block {
-            const Int = std.meta.Int(.unsigned, block_length * 8);
+            const Int = @Int(.unsigned, block_length * 8);
             const l_ = mem.readInt(Int, &l, .big);
             const l_2 = switch (block_length) {
                 8 => (l_ << 1) ^ (0x1b & -%(l_ >> 63)), // mod x^64 + x^4 + x^3 + x + 1

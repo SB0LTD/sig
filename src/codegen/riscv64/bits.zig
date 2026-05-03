@@ -118,7 +118,7 @@ pub const Immediate = union(enum) {
         const int_info = @typeInfo(T).int;
         if (int_info.signedness != .unsigned) @compileError("Immediate.asBits needs unsigned T");
         return switch (imm) {
-            .signed => |x| @bitCast(@as(std.meta.Int(.signed, int_info.bits), @intCast(x))),
+            .signed => |x| @bitCast(@as(@Int(.signed, int_info.bits), @intCast(x))),
             .unsigned => |x| @intCast(x),
         };
     }

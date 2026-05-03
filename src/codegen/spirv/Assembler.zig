@@ -821,7 +821,7 @@ fn parseContextDependentFloat(ass: *Assembler, comptime width: u16) !void {
     const gpa = ass.cg.module.gpa;
 
     const Float = std.meta.Float(width);
-    const Int = std.meta.Int(.unsigned, width);
+    const Int = @Int(.unsigned, width);
 
     const tok = ass.currentToken();
     try ass.expectToken(.value);

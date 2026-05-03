@@ -47,7 +47,7 @@ pub fn fabsl(x: c_longdouble) callconv(.c) c_longdouble {
 
 inline fn generic_fabs(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    const TBits = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
+    const TBits = @Int(.unsigned, @typeInfo(T).float.bits);
     const float_bits: TBits = @bitCast(x);
     const remove_sign = ~@as(TBits, 0) >> 1;
     return @bitCast(float_bits & remove_sign);

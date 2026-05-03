@@ -751,11 +751,6 @@ pub fn fieldIndex(comptime T: type, comptime name: []const u8) ?comptime_int {
     return null;
 }
 
-/// Deprecated: use @Int
-pub fn Int(comptime signedness: std.builtin.Signedness, comptime bit_count: u16) type {
-    return @Int(signedness, bit_count);
-}
-
 pub fn Float(comptime bit_count: u8) type {
     return switch (bit_count) {
         16 => f16,

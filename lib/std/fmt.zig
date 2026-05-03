@@ -433,7 +433,7 @@ fn parseIntWithSign(
     // accumulate into Accumulate which is always 8 bits or larger.  this prevents
     // `buf_base` from overflowing Result.
     const info = @typeInfo(Result);
-    const Accumulate = std.meta.Int(info.int.signedness, @max(8, info.int.bits));
+    const Accumulate = @Int(info.int.signedness, @max(8, info.int.bits));
     var accumulate: Accumulate = 0;
 
     if (buf_start[0] == '_' or buf_start[buf_start.len - 1] == '_') return error.InvalidCharacter;

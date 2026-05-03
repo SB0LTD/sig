@@ -7225,7 +7225,7 @@ fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Alt(FormatStringCont
 
 fn undefPattern(comptime IntType: type) IntType {
     const int_info = @typeInfo(IntType).int;
-    const UnsignedType = std.meta.Int(.unsigned, int_info.bits);
+    const UnsignedType = @Int(.unsigned, int_info.bits);
     return @bitCast(@as(UnsignedType, (1 << (int_info.bits | 1)) / 3));
 }
 

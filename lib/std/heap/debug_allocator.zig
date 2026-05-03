@@ -189,7 +189,7 @@ pub fn DebugAllocator(comptime config: Config) type {
         const page_size = config.page_size;
         const page_align: mem.Alignment = .fromByteUnits(page_size);
         /// Integer type for pointing to slots in a small allocation
-        const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
+        const SlotIndex = @Int(.unsigned, math.log2(page_size) + 1);
 
         const total_requested_bytes_init = if (config.enable_memory_limit) @as(usize, 0) else {};
         const requested_memory_limit_init = if (config.enable_memory_limit) @as(usize, math.maxInt(usize)) else {};

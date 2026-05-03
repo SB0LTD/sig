@@ -129,7 +129,7 @@ fn int(self: *Encoder, comptime T: type, value: T) !void {
     const needs_padding: u1 = if (value == 0)
         1
     else if (bits_needed > 8) brk: {
-        const RightShift = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(bits_needed)) - 1);
+        const RightShift = @Int(.unsigned, @bitSizeOf(@TypeOf(bits_needed)) - 1);
         const right_shift: RightShift = @intCast(bits_needed - 9);
         break :brk if (value >> right_shift == 0x1ff) 1 else 0;
     } else 0;

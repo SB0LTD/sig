@@ -171,7 +171,7 @@ fn AesCcm(comptime BlockCipher: type, comptime tag_len: usize, comptime nonce_le
             block[0] = L - 1; // flags
             @memcpy(block[1..][0..nonce_length], &npub);
             // Counter goes in the last L bytes
-            const CounterInt = std.meta.Int(.unsigned, L * 8);
+            const CounterInt = @Int(.unsigned, L * 8);
             mem.writeInt(CounterInt, block[1 + nonce_length ..][0..L], @as(CounterInt, @intCast(counter)), .big);
         }
 
@@ -229,7 +229,7 @@ fn AesCcm(comptime BlockCipher: type, comptime tag_len: usize, comptime nonce_le
             @memcpy(block[1..][0..nonce_length], &npub);
 
             // Encode message length in last L bytes
-            const LengthInt = std.meta.Int(.unsigned, L * 8);
+            const LengthInt = @Int(.unsigned, L * 8);
             mem.writeInt(LengthInt, block[1 + nonce_length ..][0..L], @as(LengthInt, @intCast(msg_len)), .big);
         }
 

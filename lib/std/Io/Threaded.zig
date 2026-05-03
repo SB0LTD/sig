@@ -15574,7 +15574,7 @@ fn readIntFd(fd: posix.fd_t) !ErrInt {
     return @intCast(std.mem.readInt(u64, &buffer, .little));
 }
 
-const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);
+const ErrInt = @Int(.unsigned, @sizeOf(anyerror) * 8);
 
 fn destroyPipe(pipe: [2]posix.fd_t) void {
     if (pipe[0] != -1) closeFd(pipe[0]);

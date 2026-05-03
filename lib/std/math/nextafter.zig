@@ -90,7 +90,7 @@ fn nextAfterFloat(comptime T: type, x: T, y: T) T {
 
         return x_parts.toFloat();
     } else {
-        const Bits = std.meta.Int(.unsigned, @bitSizeOf(T));
+        const Bits = @Int(.unsigned, @bitSizeOf(T));
         var x_bits: Bits = @bitCast(x);
         if ((x > 0.0) == (y > x)) {
             x_bits += 1;
@@ -320,6 +320,6 @@ test "float" {
 /// Helps ensure that 0.0 doesn't compare equal to -0.0.
 fn bitwiseEqual(comptime T: type, x: T, y: T) bool {
     comptime assert(@typeInfo(T) == .float);
-    const Bits = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const Bits = @Int(.unsigned, @bitSizeOf(T));
     return @as(Bits, @bitCast(x)) == @as(Bits, @bitCast(y));
 }

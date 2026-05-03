@@ -232,7 +232,7 @@ fn testAtomicRmwInts() !void {
 }
 
 fn testAtomicRmwInt(comptime signedness: std.builtin.Signedness, comptime N: usize) !void {
-    const int = std.meta.Int(signedness, N);
+    const int = @Int(signedness, N);
 
     var x: int = 1;
     var res = @atomicRmw(int, &x, .Xchg, 3, .seq_cst);
@@ -293,8 +293,8 @@ test "atomicrmw with 128-bit ints" {
 }
 
 fn testAtomicRmwInt128(comptime signedness: std.builtin.Signedness) !void {
-    const uint = std.meta.Int(.unsigned, 128);
-    const int = std.meta.Int(signedness, 128);
+    const uint = @Int(.unsigned, 128);
+    const int = @Int(signedness, 128);
 
     const initial: int = @as(int, @bitCast(@as(uint, 0xaaaaaaaa_bbbbbbbb_cccccccc_dddddddd)));
     const replacement: int = 0x00000000_00000005_00000000_00000003;

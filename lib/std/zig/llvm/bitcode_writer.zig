@@ -404,7 +404,7 @@ fn charTo6Bit(c: u8) u8 {
 }
 
 fn BufType(comptime T: type, comptime min_len: usize) type {
-    return std.meta.Int(.unsigned, @max(min_len, @bitSizeOf(switch (@typeInfo(T)) {
+    return @Int(.unsigned, @max(min_len, @bitSizeOf(switch (@typeInfo(T)) {
         .comptime_int => u32,
         .int => |info| if (info.signedness == .unsigned)
             T
@@ -414,7 +414,7 @@ fn BufType(comptime T: type, comptime min_len: usize) type {
         .bool => u1,
         .@"struct" => |info| switch (info.layout) {
             .auto, .@"extern" => @compileError("Unsupported type: " ++ @typeName(T)),
-            .@"packed" => std.meta.Int(.unsigned, @bitSizeOf(T)),
+            .@"packed" => @Int(.unsigned, @bitSizeOf(T)),
         },
         else => @compileError("Unsupported type: " ++ @typeName(T)),
     })));
@@ -425,7 +425,7 @@ fn bufValue(value: anytype, comptime min_len: usize) BufType(@TypeOf(value), min
         .comptime_int, .int => @intCast(value),
         .@"enum" => @intFromEnum(value),
         .bool => @intFromBool(value),
-        .@"struct" => @intCast(@as(std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(value))), @bitCast(value))),
+        .@"struct" => @intCast(@as(@Int(.unsigned, @bitSizeOf(@TypeOf(value))), @bitCast(value))),
         else => unreachable,
     };
 }

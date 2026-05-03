@@ -40,7 +40,7 @@ pub fn ctrSlice(
     var counterBlock = iv;
     var i: usize = 0;
 
-    const CounterInt = std.meta.Int(.unsigned, counter_size * 8);
+    const CounterInt = @Int(.unsigned, counter_size * 8);
 
     const parallel_count = BlockCipher.block.parallel.optimal_parallel_blocks;
     const wide_block_length = parallel_count * block_length;

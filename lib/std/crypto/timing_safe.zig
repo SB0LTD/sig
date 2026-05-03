@@ -21,8 +21,8 @@ pub fn eql(comptime T: type, a: T, b: T) bool {
                 acc |= x ^ b[i];
             }
             const s = @typeInfo(C).int.bits;
-            const Cu = std.meta.Int(.unsigned, s);
-            const Cext = std.meta.Int(.unsigned, s + 1);
+            const Cu = @Int(.unsigned, s);
+            const Cext = @Int(.unsigned, s + 1);
             return @as(bool, @bitCast(@as(u1, @truncate((@as(Cext, @as(Cu, @bitCast(acc))) -% 1) >> s))));
         },
         .vector => |info| {
@@ -32,8 +32,8 @@ pub fn eql(comptime T: type, a: T, b: T) bool {
             }
             const acc = @reduce(.Or, a ^ b);
             const s = @typeInfo(C).int.bits;
-            const Cu = std.meta.Int(.unsigned, s);
-            const Cext = std.meta.Int(.unsigned, s + 1);
+            const Cu = @Int(.unsigned, s);
+            const Cext = @Int(.unsigned, s + 1);
             return @as(bool, @bitCast(@as(u1, @truncate((@as(Cext, @as(Cu, @bitCast(acc))) -% 1) >> s))));
         },
         else => {
@@ -50,7 +50,7 @@ pub fn compare(comptime T: type, a: []const T, b: []const T, endian: Endian) Ord
         .int => |cinfo| if (cinfo.signedness != .unsigned) @compileError("Elements to be compared must be unsigned") else cinfo.bits,
         else => @compileError("Elements to be compared must be integers"),
     };
-    const Cext = std.meta.Int(.unsigned, bits + 1);
+    const Cext = @Int(.unsigned, bits + 1);
     var gt: T = 0;
     var eq: T = 1;
     if (endian == .little) {

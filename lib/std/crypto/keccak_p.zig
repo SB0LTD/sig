@@ -9,7 +9,7 @@ const mode = @import("builtin").mode;
 /// The Keccak-f permutation.
 pub fn KeccakF(comptime f: u11) type {
     comptime assert(f >= 200 and f <= 1600 and f % 200 == 0); // invalid bit size
-    const T = std.meta.Int(.unsigned, f / 25);
+    const T = @Int(.unsigned, f / 25);
     const Block = [25]T;
 
     const PI = [_]u5{

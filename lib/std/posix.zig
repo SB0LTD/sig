@@ -804,7 +804,7 @@ pub fn dl_iterate_phdr(
             }
         }.callbackC, @ptrCast(@constCast(&context)))) {
             0 => return,
-            else => |err| return @as(Error, @errorCast(@errorFromInt(@as(std.meta.Int(.unsigned, @bitSizeOf(anyerror)), @intCast(err))))),
+            else => |err| return @as(Error, @errorCast(@errorFromInt(@as(@Int(.unsigned, @bitSizeOf(anyerror)), @intCast(err))))),
         }
     }
 
