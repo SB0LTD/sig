@@ -2468,7 +2468,7 @@ fn dirCreateFile(
     userdata: ?*anyopaque,
     dir: Dir,
     sub_path: []const u8,
-    flags: File.CreateFlags,
+    flags: Dir.CreateFileOptions,
 ) File.OpenError!File {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
     _ = ev;
@@ -2601,7 +2601,7 @@ fn dirOpenFile(
     userdata: ?*anyopaque,
     dir: Dir,
     sub_path: []const u8,
-    flags: File.OpenFlags,
+    flags: Dir.OpenFileOptions,
 ) File.OpenError!File {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
 
@@ -3936,7 +3936,7 @@ fn fileMemoryMapWrite(userdata: ?*anyopaque, mm: *File.MemoryMap) File.WritePosi
 
 fn processExecutableOpen(
     userdata: ?*anyopaque,
-    flags: File.OpenFlags,
+    flags: Dir.OpenFileOptions,
 ) process.OpenExecutableError!File {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
     // _NSGetExecutablePath() returns a path that might be a symlink to

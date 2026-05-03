@@ -142,20 +142,11 @@ pub fn stat(file: File, io: Io) StatError!Stat {
     return io.vtable.fileStat(io.userdata, file);
 }
 
-/// Deprecated, renamed to `Dir.OpenFileOptions.Mode`.
-pub const OpenMode = Dir.OpenFileOptions.Mode;
-
 pub const Lock = enum {
     none,
     shared,
     exclusive,
 };
-
-/// Deprecated, renamed to `Dir.OpenFileOptions`
-pub const OpenFlags = Dir.OpenFileOptions;
-
-/// Deprecated, renamed to `Dir.CreateFileOptions`.
-pub const CreateFlags = Dir.CreateFileOptions;
 
 pub const OpenError = error{
     PipeBusy,

@@ -877,7 +877,7 @@ fn dirAccess(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8, options: Dir
     _ = options;
     @panic("TODO");
 }
-fn dirCreateFile(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
+fn dirCreateFile(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8, flags: Dir.CreateFileOptions) File.OpenError!File {
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
     _ = k;
     _ = dir;
@@ -885,7 +885,7 @@ fn dirCreateFile(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8, flags: F
     _ = flags;
     @panic("TODO");
 }
-fn dirOpenFile(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
+fn dirOpenFile(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8, flags: Dir.OpenFileOptions) File.OpenError!File {
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
     _ = k;
     _ = dir;

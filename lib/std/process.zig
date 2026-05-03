@@ -3,6 +3,7 @@ const native_os = builtin.os.tag;
 
 const std = @import("std.zig");
 const Io = std.Io;
+const Dir = std.Io.Dir;
 const File = std.Io.File;
 const fs = std.fs;
 const mem = std.mem;
@@ -784,7 +785,7 @@ pub fn executableDirPathAlloc(io: Io, allocator: Allocator) ExecutablePathAllocE
 
 pub const OpenExecutableError = File.OpenError || ExecutablePathError || File.LockError;
 
-pub fn openExecutable(io: Io, flags: File.OpenFlags) OpenExecutableError!File {
+pub fn openExecutable(io: Io, flags: Dir.OpenFileOptions) OpenExecutableError!File {
     return io.vtable.processExecutableOpen(io.userdata, flags);
 }
 

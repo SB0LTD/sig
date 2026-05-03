@@ -2922,7 +2922,7 @@ pub fn failingDirAccess(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8, o
     return error.FileNotFound;
 }
 
-pub fn failingDirCreateFile(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8, options: File.CreateFlags) File.OpenError!File {
+pub fn failingDirCreateFile(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8, options: Dir.CreateFileOptions) File.OpenError!File {
     _ = userdata;
     _ = dir;
     _ = sub_path;
@@ -2938,7 +2938,7 @@ pub fn failingDirCreateFileAtomic(userdata: ?*anyopaque, dir: Dir, sub_path: []c
     return error.NoSpaceLeft;
 }
 
-pub fn failingDirOpenFile(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
+pub fn failingDirOpenFile(userdata: ?*anyopaque, dir: Dir, sub_path: []const u8, flags: Dir.OpenFileOptions) File.OpenError!File {
     _ = userdata;
     _ = dir;
     _ = sub_path;
@@ -3275,7 +3275,7 @@ pub fn unreachableFileMemoryMapWrite(userdata: ?*anyopaque, mm: *File.MemoryMap)
     unreachable;
 }
 
-pub fn failingProcessExecutableOpen(userdata: ?*anyopaque, flags: File.OpenFlags) std.process.OpenExecutableError!File {
+pub fn failingProcessExecutableOpen(userdata: ?*anyopaque, flags: Dir.OpenFileOptions) std.process.OpenExecutableError!File {
     _ = userdata;
     _ = flags;
     return error.FileNotFound;

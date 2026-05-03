@@ -59,7 +59,7 @@ pub fn joinStringZ(p: Path, gpa: Allocator, sub_path: []const u8) Allocator.Erro
     return p.root_dir.joinZ(gpa, parts);
 }
 
-pub fn openFile(p: Path, io: Io, sub_path: []const u8, flags: Io.File.OpenFlags) !Io.File {
+pub fn openFile(p: Path, io: Io, sub_path: []const u8, flags: Io.Dir.OpenFileOptions) !Io.File {
     var buf: [fs.max_path_bytes]u8 = undefined;
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
         break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
