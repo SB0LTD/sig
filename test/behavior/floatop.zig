@@ -1539,6 +1539,17 @@ fn testNeg(comptime T: type) !void {
     };
 }
 
+test "negate f80" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    var f: f80 = 0.0;
+    const a: u80 = @bitCast(f);
+    try expect(a == 0);
+    f = -f;
+    const b: u80 = @bitCast(f);
+    try expect(b == 0x8000_00000000_00000000);
+}
+
 test "eval @setFloatMode at compile-time" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 

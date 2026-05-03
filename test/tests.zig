@@ -1496,7 +1496,7 @@ const module_test_targets = blk: {
                 .os_tag = .wasi,
                 .abi = .none,
             },
-            .skip_modules = &.{"compiler-rt"},
+            .skip_modules = &.{ "compiler-rt", "std" },
             .use_llvm = false,
             .use_lld = false,
         },

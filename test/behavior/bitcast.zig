@@ -552,3 +552,42 @@ test "@bitCast of extern struct containing pointer" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "@bitCast of extern struct to float" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const S = struct {
+        const S = extern struct {
+            x: u16,
+            y: u16,
+        };
+        fn doTheTest() !void {
+            var s: S = .{ .x = 0, .y = 0 };
+            _ = &s;
+            const a: f32 = @bitCast(s);
+            try expect(a == 0);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "@bitCast of float to extern struct" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const S = struct {
+        const S = extern struct {
+            x: u32,
+        };
+        fn doTheTest() !void {
+            var a: f32 = -0.0;
+            _ = &a;
+            const s: S = @bitCast(a);
+            try expect(s.x == 0x80000000);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
