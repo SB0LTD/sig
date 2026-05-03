@@ -178,6 +178,24 @@ test Tag {
     try std.testing.expectEqual(Tag.init(@enumFromInt(3), true, .context_specific), t);
 }
 
+test "Tag.encode produces the exact bytes from X.690" {
+    const cases = [_]struct { number: u16, expected: []const u8 }{
+        .{ .number = 0, .expected = &.{0x00} },
+        .{ .number = 30, .expected = &.{0x1e} },
+        .{ .number = 31, .expected = &.{ 0x1f, 0x1f } },
+        .{ .number = 127, .expected = &.{ 0x1f, 0x7f } },
+        .{ .number = 128, .expected = &.{ 0x1f, 0x81, 0x00 } },
+        .{ .number = 16383, .expected = &.{ 0x1f, 0xff, 0x7f } },
+        .{ .number = 16384, .expected = &.{ 0x1f, 0x81, 0x80, 0x00 } },
+        .{ .number = 65535, .expected = &.{ 0x1f, 0x83, 0xff, 0x7f } },
+    };
+    for (cases) |c| {
+        const tag = Tag.init(@enumFromInt(c.number), false, .universal);
+        var buf: [Tag.max_encoded_len]u8 = undefined;
+        try std.testing.expectEqualSlices(u8, c.expected, tag.encodeToSlice(&buf));
+    }
+}
+
 test "Tag.encode/decode round trip" {
     for ([_]u16{ 0, 30, 31, 32, 127, 128, 16383, 16384, 65535 }) |n| {
         const tag = Tag.init(@enumFromInt(n), false, .universal);
