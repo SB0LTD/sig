@@ -85,7 +85,7 @@ pub fn currentPathAlloc(io: Io, allocator: Allocator) CurrentPathAllocError![:0]
         error.NameTooLong => unreachable,
         else => |e| return e,
     };
-    return allocator.dupeZ(u8, buffer[0..n]);
+    return allocator.dupeSentinel(u8, buffer[0..n], 0);
 }
 
 test currentPathAlloc {
@@ -734,7 +734,7 @@ pub fn executablePathAlloc(io: Io, allocator: Allocator) ExecutablePathAllocErro
         error.NameTooLong => unreachable,
         else => |e| return e,
     };
-    return allocator.dupeZ(u8, buffer[0..n]);
+    return allocator.dupeSentinel(u8, buffer[0..n], 0);
 }
 
 pub const ExecutablePathError = ExecutablePathBaseError || error{NameTooLong};

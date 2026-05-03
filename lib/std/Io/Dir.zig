@@ -944,7 +944,7 @@ pub const RealPathFileAllocError = RealPathFileError || Allocator.Error;
 pub fn realPathFileAlloc(dir: Dir, io: Io, sub_path: []const u8, allocator: Allocator) RealPathFileAllocError![:0]u8 {
     var buffer: [max_path_bytes]u8 = undefined;
     const n = try realPathFile(dir, io, sub_path, &buffer);
-    return allocator.dupeZ(u8, buffer[0..n]);
+    return allocator.dupeSentinel(u8, buffer[0..n], 0);
 }
 
 /// Same as `realPathFile` except `absolute_path` is asserted to be an absolute
@@ -974,7 +974,7 @@ pub fn realPathFileAbsolute(io: Io, absolute_path: []const u8, out_buffer: []u8)
 pub fn realPathFileAbsoluteAlloc(io: Io, absolute_path: []const u8, allocator: Allocator) RealPathFileAllocError![:0]u8 {
     var buffer: [max_path_bytes]u8 = undefined;
     const n = try realPathFileAbsolute(io, absolute_path, &buffer);
-    return allocator.dupeZ(u8, buffer[0..n]);
+    return allocator.dupeSentinel(u8, buffer[0..n], 0);
 }
 
 pub const DeleteFileError = error{

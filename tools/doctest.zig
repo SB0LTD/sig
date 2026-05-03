@@ -607,7 +607,7 @@ fn printSourceBlock(arena: Allocator, out: *Writer, source_bytes: []const u8, na
 
 fn tokenizeAndPrint(arena: Allocator, out: *Writer, raw_src: []const u8) !void {
     const src_non_terminated = mem.trim(u8, raw_src, " \r\n");
-    const src = try arena.dupeZ(u8, src_non_terminated);
+    const src = try arena.dupeSentinel(u8, src_non_terminated, 0);
 
     try out.writeAll("<code>");
     var tokenizer = std.zig.Tokenizer.init(src);

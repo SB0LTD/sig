@@ -679,7 +679,7 @@ fn tokenizeAndPrintRaw(
     raw_src: []const u8,
 ) !void {
     const src_non_terminated = mem.trim(u8, raw_src, " \r\n");
-    const src = try allocator.dupeZ(u8, src_non_terminated);
+    const src = try allocator.dupeSentinel(u8, src_non_terminated, 0);
 
     try out.writeAll("<code>");
     var tokenizer = std.zig.Tokenizer.init(src);

@@ -307,7 +307,7 @@ pub fn build(b: *std.Build) !void {
             },
         }
     };
-    const version = try b.allocator.dupeZ(u8, version_slice);
+    const version = try b.allocator.dupeSentinel(u8, version_slice, 0);
     exe_options.addOption([:0]const u8, "version", version);
 
     if (enable_llvm) {

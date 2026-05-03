@@ -1869,7 +1869,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
     const comp: *Compilation = comp: {
         // We put the `Compilation` itself in the arena. Freeing the arena will free the module.
         // It's initialized later after we prepare the initialization options.
-        const root_name = try arena.dupeZ(u8, options.root_name);
+        const root_name = try arena.dupeSentinel(u8, options.root_name, 0);
 
         // The "any" values provided by resolved config only account for
         // explicitly-provided settings. We now make them additionally account
