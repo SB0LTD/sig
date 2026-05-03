@@ -66,6 +66,31 @@ test "integer round trip across signed and unsigned boundaries" {
     }
 }
 
+test "encode skips null optional fields" {
+    const Value = struct { a: ?u8, b: u8 };
+    const allocator = std.testing.allocator;
+    const actual = try encode(allocator, Value{ .a = null, .b = 5 });
+    defer allocator.free(actual);
+
+    try std.testing.expectEqualSlices(u8, &.{ 0x30, 0x03, 0x02, 0x01, 0x05 }, actual);
+}
+
+test "encode preserves outer sequence tag after implicit field tags" {
+    const Value = struct {
+        a: u8,
+        b: u8,
+
+        pub const asn1_tags = .{
+            .a = asn1.FieldTag.initImplicit(0, .context_specific),
+        };
+    };
+    const allocator = std.testing.allocator;
+    const actual = try encode(allocator, Value{ .a = 1, .b = 2 });
+    defer allocator.free(actual);
+
+    try std.testing.expectEqualSlices(u8, &.{ 0x30, 0x06, 0x80, 0x01, 0x01, 0x02, 0x01, 0x02 }, actual);
+}
+
 test {
     _ = Decoder;
     _ = Encoder;
