@@ -1641,12 +1641,28 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!?Node.Index {
 
         {
             const tok_len = tok_tag.lexeme().?.len;
-            const char_before = p.source[p.tokenStart(oper_token) - 1];
-            const char_after = p.source[p.tokenStart(oper_token) + tok_len];
+            const tok_start = p.tokenStart(oper_token);
+            const char_before = p.source[tok_start - 1];
+            const char_after = p.source[tok_start + tok_len];
             if (tok_tag == .ampersand and char_after == '&') {
                 // without types we don't know if '&&' was intended as 'bitwise_and address_of', or a c-style logical_and
                 // The best the parser can do is recommend changing it to 'and' or ' & &'
                 try p.warnMsg(.{ .tag = .invalid_ampersand_ampersand, .token = oper_token });
+            } else if (tok_tag == .asterisk and char_after == '*') {
+                // The operator is really '**' (array/string repeat).
+                // Evaluate whitespace symmetry over the full two-character
+                // span so that `{0} ** 8` is accepted.
+                const after_double = p.source[tok_start + 2];
+                if (std.ascii.isWhitespace(char_before) != std.ascii.isWhitespace(after_double)) {
+                    try p.warnMsg(.{ .tag = .mismatched_binary_op_whitespace, .token = oper_token });
+                }
+            } else if (tok_tag == .asterisk_asterisk) {
+                // For the '**' (array repeat) operator, use the full
+                // 2-char span for the whitespace symmetry check.
+                const after_double = p.source[tok_start + 2];
+                if (std.ascii.isWhitespace(char_before) != std.ascii.isWhitespace(after_double)) {
+                    try p.warnMsg(.{ .tag = .mismatched_binary_op_whitespace, .token = oper_token });
+                }
             } else if (std.ascii.isWhitespace(char_before) != std.ascii.isWhitespace(char_after)) {
                 try p.warnMsg(.{ .tag = .mismatched_binary_op_whitespace, .token = oper_token });
             }
