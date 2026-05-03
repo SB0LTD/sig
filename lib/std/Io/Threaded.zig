@@ -13851,7 +13851,7 @@ fn netLookupFallible(
         const name_c = name_buffer[0..name.len :0];
 
         var port_buffer: [8]u8 = undefined;
-        const port_c = std.fmt.bufPrintZ(&port_buffer, "{d}", .{options.port}) catch unreachable;
+        const port_c = std.fmt.bufPrintSentinel(&port_buffer, "{d}", .{options.port}, 0) catch unreachable;
 
         const hints: posix.addrinfo = .{
             .flags = .{ .CANONNAME = options.canonical_name_buffer != null, .NUMERICSERV = true },

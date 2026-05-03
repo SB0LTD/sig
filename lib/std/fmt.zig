@@ -602,11 +602,6 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErro
     return w.buffered();
 }
 
-/// Deprecated in favor of `bufPrintSentinel`
-pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![:0]u8 {
-    return try bufPrintSentinel(buf, fmt, args, 0);
-}
-
 pub fn bufPrintSentinel(
     buf: []u8,
     comptime fmt: []const u8,
