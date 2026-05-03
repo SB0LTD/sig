@@ -122,10 +122,20 @@ fn int(comptime T: type, value: []const u8) error{ NonCanonical, LargeValue }!T 
 
     const had_sign_byte = value.len >= 2 and value[0] == 0x00;
     const bytes = if (had_sign_byte) value[1..] else value;
-    if (bytes.len > @sizeOf(T)) return error.LargeValue;
+    const der_negative = !had_sign_byte and bytes[0] & 0x80 != 0;
 
-    const sign_extend = info.signedness == .signed and !had_sign_byte and bytes[0] & 0x80 != 0;
-    var buf: [@sizeOf(T)]u8 = @splat(if (sign_extend) 0xff else 0);
+    switch (info.signedness) {
+        .unsigned => {
+            if (der_negative) return error.LargeValue;
+            if (bytes.len > @sizeOf(T)) return error.LargeValue;
+        },
+        .signed => {
+            const max_len: usize = if (had_sign_byte) @sizeOf(T) - 1 else @sizeOf(T);
+            if (bytes.len > max_len) return error.LargeValue;
+        },
+    }
+
+    var buf: [@sizeOf(T)]u8 = @splat(if (der_negative) 0xff else 0);
     @memcpy(buf[buf.len - bytes.len ..], bytes);
     return std.mem.readInt(T, &buf, .big);
 }
@@ -137,7 +147,8 @@ test int {
 
     const big = [_]u8{ 0xef, 0xff };
     try expectError(error.LargeValue, int(u8, &big));
-    try expectEqual(0xefff, int(u16, &big));
+    try expectError(error.LargeValue, int(u16, &big));
+    try expectEqual(@as(i16, -4097), try int(i16, &big));
 
     try expectEqual(@as(u16, 255), try int(u16, &.{ 0x00, 0xff }));
     try expectEqual(@as(u16, 0x8000), try int(u16, &.{ 0x00, 0x80, 0x00 }));
@@ -148,6 +159,14 @@ test int {
     try expectEqual(@as(i16, -129), try int(i16, &.{ 0xff, 0x7f }));
     try expectEqual(@as(i16, 255), try int(i16, &.{ 0x00, 0xff }));
     try expectEqual(@as(i32, 0x7fffffff), try int(i32, &.{ 0x7f, 0xff, 0xff, 0xff }));
+
+    try expectError(error.LargeValue, int(i8, &.{ 0x00, 0xff }));
+    try expectError(error.LargeValue, int(i16, &.{ 0x00, 0x80, 0x00 }));
+    try expectError(error.LargeValue, int(i32, &.{ 0x00, 0x80, 0x00, 0x00, 0x00 }));
+
+    try expectError(error.LargeValue, int(u8, &.{0xff}));
+    try expectError(error.LargeValue, int(u16, &.{0x80}));
+    try expectError(error.LargeValue, int(u32, &.{ 0x80, 0x00, 0x00, 0x00 }));
 }
 
 test Decoder {
