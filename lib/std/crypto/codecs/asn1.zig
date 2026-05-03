@@ -366,6 +366,15 @@ pub const BitString = struct {
     }
 };
 
+test BitString {
+    const bs = BitString{ .bytes = &.{ 0x6e, 0x5d, 0xc0 }, .right_padding = 6 };
+    const allocator = std.testing.allocator;
+    const buf = try der.encode(allocator, bs);
+    defer allocator.free(buf);
+    try std.testing.expectEqualSlices(u8, &.{ 0x03, 0x04, 0x06, 0x6e, 0x5d, 0xc0 }, buf);
+    try std.testing.expectEqualDeep(bs, try der.decode(BitString, buf));
+}
+
 pub fn Opaque(comptime tag: Tag) type {
     return struct {
         bytes: []const u8,
