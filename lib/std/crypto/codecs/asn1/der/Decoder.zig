@@ -111,21 +111,23 @@ pub fn view(self: Decoder, elem: Element) []const u8 {
 }
 
 fn int(comptime T: type, value: []const u8) error{ NonCanonical, LargeValue }!T {
-    if (@typeInfo(T).int.bits % 8 != 0) @compileError("T must be byte aligned");
+    const info = @typeInfo(T).int;
+    if (info.bits % 8 != 0) @compileError("T must be byte aligned");
 
-    var bytes = value;
-    if (bytes.len >= 2) {
-        if (bytes[0] == 0) {
-            if (@clz(bytes[1]) > 0) return error.NonCanonical;
-            bytes.ptr += 1;
-        }
-        if (bytes[0] == 0xff and @clz(bytes[1]) == 0) return error.NonCanonical;
+    if (value.len == 0) return error.NonCanonical;
+    if (value.len >= 2) {
+        if (value[0] == 0x00 and value[1] & 0x80 == 0) return error.NonCanonical;
+        if (value[0] == 0xff and value[1] & 0x80 != 0) return error.NonCanonical;
     }
 
+    const had_sign_byte = value.len >= 2 and value[0] == 0x00;
+    const bytes = if (had_sign_byte) value[1..] else value;
     if (bytes.len > @sizeOf(T)) return error.LargeValue;
-    if (@sizeOf(T) == 1) return @bitCast(bytes[0]);
 
-    return std.mem.readVarInt(T, bytes, .big);
+    const sign_extend = info.signedness == .signed and !had_sign_byte and bytes[0] & 0x80 != 0;
+    var buf: [@sizeOf(T)]u8 = @splat(if (sign_extend) 0xff else 0);
+    @memcpy(buf[buf.len - bytes.len ..], bytes);
+    return std.mem.readInt(T, &buf, .big);
 }
 
 test int {
@@ -136,6 +138,16 @@ test int {
     const big = [_]u8{ 0xef, 0xff };
     try expectError(error.LargeValue, int(u8, &big));
     try expectEqual(0xefff, int(u16, &big));
+
+    try expectEqual(@as(u16, 255), try int(u16, &.{ 0x00, 0xff }));
+    try expectEqual(@as(u16, 0x8000), try int(u16, &.{ 0x00, 0x80, 0x00 }));
+
+    try expectEqual(@as(i8, -1), try int(i8, &.{0xff}));
+    try expectEqual(@as(i16, -1), try int(i16, &.{0xff}));
+    try expectEqual(@as(i16, -128), try int(i16, &.{0x80}));
+    try expectEqual(@as(i16, -129), try int(i16, &.{ 0xff, 0x7f }));
+    try expectEqual(@as(i16, 255), try int(i16, &.{ 0x00, 0xff }));
+    try expectEqual(@as(i32, 0x7fffffff), try int(i32, &.{ 0x7f, 0xff, 0xff, 0xff }));
 }
 
 test Decoder {

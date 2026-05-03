@@ -49,6 +49,23 @@ test decode {
     try std.testing.expectEqualDeep(test_case.value, decoded);
 }
 
+test "integer round trip across signed and unsigned boundaries" {
+    const allocator = std.testing.allocator;
+    inline for (.{ u8, u16, u32, i8, i16, i32 }) |T| {
+        const cases = comptime blk: {
+            const min = std.math.minInt(T);
+            const max = std.math.maxInt(T);
+            break :blk [_]T{ 0, 1, max, min, @divTrunc(max, 2), @divTrunc(min, 2) };
+        };
+        for (cases) |value| {
+            const buf = try encode(allocator, value);
+            defer allocator.free(buf);
+            const decoded = try decode(T, buf);
+            try std.testing.expectEqual(value, decoded);
+        }
+    }
+}
+
 test {
     _ = Decoder;
     _ = Encoder;
