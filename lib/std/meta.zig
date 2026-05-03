@@ -791,14 +791,7 @@ pub fn ArgsTuple(comptime Function: type) type {
         argument_field_list[i] = T;
     }
 
-    return Tuple(&argument_field_list);
-}
-
-/// Deprecated; use `@Tuple` instead.
-///
-/// To be removed after Zig 0.16.0 releases.
-pub fn Tuple(comptime types: []const type) type {
-    return @Tuple(types);
+    return @Tuple(&argument_field_list);
 }
 
 const TupleTester = struct {
@@ -834,33 +827,13 @@ test ArgsTuple {
     TupleTester.assertTuple(.{u32}, ArgsTuple(fn (comptime a: u32) []const u8));
 }
 
-test Tuple {
-    TupleTester.assertTuple(.{}, Tuple(&[_]type{}));
-    TupleTester.assertTuple(.{u32}, Tuple(&[_]type{u32}));
-    TupleTester.assertTuple(.{ u32, f16 }, Tuple(&[_]type{ u32, f16 }));
-    TupleTester.assertTuple(.{ u32, f16, []const u8, void }, Tuple(&[_]type{ u32, f16, []const u8, void }));
-}
-
-test "Tuple deduplication" {
-    const T1 = std.meta.Tuple(&.{ u32, f32, i8 });
-    const T2 = std.meta.Tuple(&.{ u32, f32, i8 });
-    const T3 = std.meta.Tuple(&.{ u32, f32, i7 });
-
-    if (T1 != T2) {
-        @compileError("std.meta.Tuple doesn't deduplicate tuple types.");
-    }
-    if (T1 == T3) {
-        @compileError("std.meta.Tuple fails to generate different types.");
-    }
-}
-
 test "ArgsTuple forwarding" {
-    const T1 = std.meta.Tuple(&.{ u32, f32, i8 });
+    const T1 = @Tuple(&.{ u32, f32, i8 });
     const T2 = std.meta.ArgsTuple(fn (u32, f32, i8) void);
     const T3 = std.meta.ArgsTuple(fn (u32, f32, i8) callconv(.c) noreturn);
 
     if (T1 != T2) {
-        @compileError("std.meta.ArgsTuple produces different types than std.meta.Tuple");
+        @compileError("std.meta.ArgsTuple produces different types than @Tuple");
     }
     if (T1 != T3) {
         @compileError("std.meta.ArgsTuple produces different types for the same argument lists.");

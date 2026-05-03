@@ -663,7 +663,7 @@ test "parse into tuple" {
         float: f64,
         string: []const u8,
     };
-    const T = std.meta.Tuple(&.{
+    const T = @Tuple(&.{
         i64,
         f64,
         bool,
@@ -673,7 +673,7 @@ test "parse into tuple" {
             foo: i32,
             bar: []const u8,
         },
-        std.meta.Tuple(&.{ u8, []const u8, u8 }),
+        @Tuple(&.{ u8, []const u8, u8 }),
         Union,
     });
     const str =
