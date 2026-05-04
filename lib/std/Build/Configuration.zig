@@ -1038,10 +1038,15 @@ pub const Step = extern struct {
 
     pub const Fmt = struct {
         flags: @This().Flags,
+        paths: Storage.FlagLengthPrefixedList(.flags, .paths, LazyPath.Index),
+        exclude_paths: Storage.FlagLengthPrefixedList(.flags, .exclude_paths, LazyPath.Index),
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .fmt,
-            _: u27 = 0,
+            paths: bool,
+            exclude_paths: bool,
+            check: bool,
+            _: u24 = 0,
         };
     };
 

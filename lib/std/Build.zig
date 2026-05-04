@@ -115,8 +115,7 @@ pub const Graph = struct {
     }
 
     pub fn dupeStrings(graph: *const Graph, strings: []const []const u8) []const []const u8 {
-        const arena = graph.arena;
-        const array = arena.alloc([]const u8, strings.len) catch @panic("OOM");
+        const array = graph.alloc([]const u8, strings.len);
         for (array, strings) |*dest, source| dest.* = dupeString(graph, source);
         return array;
     }
@@ -133,6 +132,21 @@ pub const Graph = struct {
                 .sub_path = wc.addString(sub_path) catch @panic("OOM"),
             },
         };
+    }
+
+    /// Allocates using the global process arena, failing the build on
+    /// allocation failure.
+    pub fn alloc(graph: *const Graph, comptime T: type, n: usize) []T {
+        return graph.arena.allocAdvancedWithRetAddr(T, null, n, @returnAddress()) catch @panic("OOM");
+    }
+
+    /// Allocates using the global process arena, failing the build on
+    /// allocation failure.
+    pub fn create(graph: *const Graph, comptime T: type) *T {
+        return if (@sizeOf(T) == 0)
+            comptime @ptrFromInt(mem.alignBackward(usize, std.math.maxInt(usize), @alignOf(T)))
+        else
+            @ptrCast(graph.arena.allocBytesWithAlignment(.of(T), @sizeOf(T), @returnAddress()) catch @panic("OOM"));
     }
 };
 
@@ -953,9 +967,10 @@ pub fn getUninstallStep(b: *Build) *Step {
 /// these options when calling the dependency's build.zig script as a function.
 /// `null` is returned when an option is left to default.
 pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw: []const u8) ?T {
-    const arena = b.allocator;
-    const name = b.dupe(name_raw);
-    const description = b.dupe(description_raw);
+    const graph = b.graph;
+    const arena = graph.arena;
+    const name = graph.dupeString(name_raw);
+    const description = graph.dupeString(description_raw);
     const type_id = comptime typeToEnum(T);
     const enum_options = if (type_id == .@"enum" or type_id == .enum_list) blk: {
         const EnumType = if (type_id == .enum_list) @typeInfo(T).pointer.child else T;
@@ -1105,7 +1120,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
             .list => |lst| {
                 const Child = @typeInfo(T).pointer.child;
-                const new_list = arena.alloc(Child, lst.items.len) catch @panic("OOM");
+                const new_list = graph.alloc(Child, lst.items.len);
                 for (new_list, lst.items) |*new_item, str| {
                     new_item.* = std.meta.stringToEnum(Child, str) orelse {
                         log.err("expected -D{s} to be of type {s}", .{ name, @typeName(Child) });
@@ -1130,7 +1145,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             .scalar => |s| return arena.dupe(LazyPath, &[_]LazyPath{.{ .cwd_relative = s }}) catch @panic("OOM"),
             .lazy_path => |lp| return arena.dupe(LazyPath, &[_]LazyPath{lp}) catch @panic("OOM"),
             .list => |lst| {
-                const new_list = arena.alloc(LazyPath, lst.items.len) catch @panic("OOM");
+                const new_list = graph.alloc(LazyPath, lst.items.len);
                 for (new_list, lst.items) |*new_item, str| {
                     new_item.* = .{ .cwd_relative = str };
                 }
@@ -1553,7 +1568,7 @@ pub fn truncateFile(b: *Build, dest_path: []const u8) (Io.Dir.CreateDirError || 
 /// References a file or directory relative to the source root.
 pub fn path(b: *Build, sub_path: []const u8) LazyPath {
     if (fs.path.isAbsolute(sub_path)) {
-        panic("sub_path is expected to be relative to the build root, but was this absolute path: '{s}'. It is best avoid absolute paths, but if you must, it is supported by LazyPath.cwd_relative", .{
+        panic("sub_path is expected to be relative to the build root, but was this absolute path: '{s}'. Absolute paths can cause problems but can be created via Graph.cwdRelativePath", .{
             sub_path,
         });
     }
@@ -1561,6 +1576,14 @@ pub fn path(b: *Build, sub_path: []const u8) LazyPath {
         .owner = b,
         .sub_path = sub_path,
     } };
+}
+
+/// Creates a list of files and/or directories relative to the source root.
+pub fn pathList(b: *Build, sub_paths: []const []const u8) []const LazyPath {
+    const graph = b.graph;
+    const result = graph.alloc(LazyPath, sub_paths.len);
+    for (result, sub_paths) |*d, s| d.* = path(b, s);
+    return result;
 }
 
 pub fn pathJoin(b: *Build, paths: []const []const u8) []u8 {
@@ -2022,10 +2045,11 @@ fn dependencyInner(
     pkg_deps: AvailableDeps,
     args: anytype,
 ) *Dependency {
-    const io = b.graph.io;
-    const arena = b.graph.arena;
+    const graph = b.graph;
+    const io = graph.io;
+    const arena = graph.arena;
     const user_input_options = userInputOptionsFromArgs(arena, args);
-    if (b.graph.dependency_cache.getContext(.{
+    if (graph.dependency_cache.getContext(.{
         .build_root_string = build_root_string,
         .user_input_options = user_input_options,
     }, .{ .allocator = arena })) |dep| return dep;
@@ -2048,10 +2072,10 @@ fn dependencyInner(
         }
     }
 
-    const dep = arena.create(Dependency) catch @panic("OOM");
+    const dep = graph.create(Dependency);
     dep.* = .{ .builder = sub_builder };
 
-    b.graph.dependency_cache.putContext(b.graph.arena, .{
+    graph.dependency_cache.putContext(arena, .{
         .build_root_string = build_root_string,
         .user_input_options = user_input_options,
     }, dep, .{ .allocator = arena }) catch @panic("OOM");

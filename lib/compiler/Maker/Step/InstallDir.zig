@@ -11,7 +11,7 @@ pub fn make(
     step_index: Configuration.Step.Index,
     maker: *Maker,
     progress_node: std.Progress.Node,
-) !void {
+) Step.ExtendedMakeError!void {
     const graph = maker.graph;
     const arena = maker.graph.arena; // TODO don't leak into process arena
     const io = graph.io;

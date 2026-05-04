@@ -427,8 +427,8 @@ pub fn build(b: *std.Build) !void {
     else
         null;
 
-    const fmt_include_paths = &.{ "lib", "src", "test", "tools", "build.zig", "build.zig.zon" };
-    const fmt_exclude_paths = &.{ "test/cases", "test/behavior/zon" };
+    const fmt_include_paths = b.pathList(&.{ "lib", "src", "test", "tools", "build.zig", "build.zig.zon" });
+    const fmt_exclude_paths = b.pathList(&.{ "test/cases", "test/behavior/zon" });
     const do_fmt = b.addFmt(.{
         .paths = fmt_include_paths,
         .exclude_paths = fmt_exclude_paths,

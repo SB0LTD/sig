@@ -7,12 +7,12 @@ const Step = @import("../Step.zig");
 const Maker = @import("../../Maker.zig");
 
 
-fn make(
+pub fn make(
     options: *Options,
     step_index: Configuration.Step.Index,
     maker: *Maker,
     progress_node: std.Progress.Node,
-) !void {
+) Step.ExtendedMakeError!void {
     // This step completes so quickly that no progress reporting is necessary.
     _ = progress_node;
 

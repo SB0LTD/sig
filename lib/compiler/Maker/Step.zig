@@ -311,7 +311,7 @@ pub fn captureChildProcess(
 ) !std.process.RunResult {
     const gpa = maker.gpa;
     const graph = maker.graph;
-    const arena = graph.arena;
+    const arena = graph.arena; // TODO stop leaking into process arena
     const io = graph.io;
 
     // If an error occurs, it's happened in this command:

@@ -27,9 +27,12 @@
   - but artifact install steps also add paths for dyn libs on windows
 * no more "artifact arg" to run step. if you want to run the post-install binary, get the lazy path
   from the install step.
-
+* build system fmt step with check=false does not acquire a write lock on source files #35204 
+* fmt step: import zig fmt code directly rather than child proc
 
 ## Release Notes
+
+### Run Step: Passthru Args
 
 In the Run step, passthru args are all together now, not observable in
 configure phase whether run args are provided.
@@ -51,3 +54,14 @@ those arguments. In exchange, it means that when changing those arguments,
 build scripts no longer must be rebuilt from source.
 
 closes #31397
+
+### Fmt Step: Options
+
+`paths` and `exclude_paths` are now LazyPath lists. There is a convenience method to create them: `b.pathList`.
+
+```diff
+-    const fmt_include_paths = &.{ "lib", "src", "test", "tools", "build.zig", "build.zig.zon" };
+-    const fmt_exclude_paths = &.{ "test/cases", "test/behavior/zon" };
++    const fmt_include_paths = b.pathList(&.{ "lib", "src", "test", "tools", "build.zig", "build.zig.zon" });
++    const fmt_exclude_paths = b.pathList(&.{ "test/cases", "test/behavior/zon" });
+```
