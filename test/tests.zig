@@ -2612,6 +2612,10 @@ fn addOneModuleTest(
     if (mem.eql(u8, options.name, "compiler-rt") or mem.eql(u8, options.name, "libc")) {
         these_tests.root_module.stack_protector = false;
     }
+    // https://github.com/llvm/llvm-project/issues/195561
+    if (target.cpu.arch.isPowerPC()) {
+        these_tests.root_module.stack_protector = false;
+    }
     if (options.build_options) |build_options| {
         these_tests.root_module.addOptions("build_options", build_options);
     }
@@ -2856,6 +2860,11 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
                 .use_lld = c_abi_target.use_lld,
                 .max_rss = options.max_rss,
             });
+
+            // https://github.com/llvm/llvm-project/issues/195561
+            if (target.cpu.arch.isPowerPC()) {
+                test_step.root_module.stack_protector = false;
+            }
 
             // This test is intentionally trying to check if the external ABI is
             // done properly. LTO would be a hindrance to this.
