@@ -83,7 +83,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
     }
 
     const name = if (options.style.getPath()) |s|
-        owner.fmt("configure {t} header {s} to {s}", .{ options.style, s.getDisplayName(), include_path })
+        owner.fmt("configure {t} header {f} to {s}", .{ options.style, s.fmt(graph), include_path })
     else
         owner.fmt("configure {t} header to {s}", .{ options.style, include_path });
 

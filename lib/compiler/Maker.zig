@@ -1779,6 +1779,7 @@ pub fn relativePath(maker: *const Maker, relative: Configuration.LazyPath.Relati
     const graph = maker.graph;
     const c = &maker.scanned_config.configuration;
     const sub_path = relative.sub_path.slice(c);
+    if (relative.flags.base == .zig_exe and sub_path.len != 0) @panic("TODO");
     return switch (relative.flags.base) {
         .cwd => .{
             .root_dir = .cwd(),
@@ -1794,6 +1795,14 @@ pub fn relativePath(maker: *const Maker, relative: Configuration.LazyPath.Relati
         },
         .build_root => .{
             .root_dir = graph.build_root_directory,
+            .sub_path = sub_path,
+        },
+        .zig_exe => .{
+            .root_dir = .cwd(),
+            .sub_path = graph.zig_exe,
+        },
+        .zig_lib => .{
+            .root_dir = graph.zig_lib_directory,
             .sub_path = sub_path,
         },
     };

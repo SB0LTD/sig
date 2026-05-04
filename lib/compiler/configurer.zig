@@ -62,10 +62,22 @@ pub fn main(init: process.Init.Minimal) !void {
     assert(try graph.wip_configuration.addString("") == .empty);
     assert(try graph.wip_configuration.addString("root") == .root);
 
-    const builder = try std.Build.create(&graph, dependencies.root_deps);
+    var arg_i: usize = 1; // Skip own executable name.
+
+    const build_root_sub_path = expectArgOrFatal(args, &arg_i, "--build-root");
+
+    const cwd: Io.Dir = .cwd();
+
+    const build_root: std.Build.Cache.Path = .{
+        .root_dir = .{
+            .handle = try cwd.openDir(io, build_root_sub_path, .{}),
+            .path = build_root_sub_path,
+        },
+    };
+
+    const builder = try std.Build.create(&graph, build_root, dependencies.root_deps);
 
     var color: Color = .auto;
-    var arg_i: usize = 1; // Skip own executable name.
 
     while (nextArg(args, &arg_i)) |arg| {
         if (mem.cutPrefix(u8, arg, "-D")) |option_contents| {
@@ -98,6 +110,8 @@ pub fn main(init: process.Init.Minimal) !void {
             // but it is handled by the parent process. The build runner
             // only sees this flag.
             graph.system_package_mode = true;
+        } else if (mem.eql(u8, arg, "--verbose")) {
+            graph.verbose = true;
         } else {
             fatalWithHint("unrecognized argument: {s}", .{arg});
         }
@@ -181,6 +195,12 @@ const Serialize = struct {
                 break :i try wc.addExtra(@as(Configuration.LazyPath.Relative, .{
                     .flags = .{ .base = .cwd },
                     .sub_path = sub_path,
+                }));
+            },
+            .relative => |relative| i: {
+                break :i try wc.addExtra(@as(Configuration.LazyPath.Relative, .{
+                    .flags = .{ .base = relative.base },
+                    .sub_path = relative.sub_path,
                 }));
             },
             .dependency => |dependency| i: {
@@ -840,6 +860,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                     .install_dir => @panic("TODO"),
                     .remove_dir => @panic("TODO"),
                     .fail => @panic("TODO"),
+                    .find_program => @panic("TODO"),
                     .fmt => @panic("TODO"),
                     .translate_c => @panic("TODO"),
                     .write_file => @panic("TODO"),
@@ -1036,6 +1057,13 @@ fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
+}
+
+fn expectArgOrFatal(args: []const [:0]const u8, index_ptr: *usize, first: []const u8) []const u8 {
+    const next_arg = nextArg(args, index_ptr) orelse fatal("missing {q} argument", .{first});
+    if (!mem.eql(u8, first, next_arg)) fatal("expected {q} instead of {q}", .{ first, next_arg });
+    const arg = nextArg(args, index_ptr) orelse fatal("expected argument after {q}", .{first});
+    return arg;
 }
 
 const ErrorStyle = enum {

@@ -714,7 +714,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
             if (code != 0) {
                 log.err(
                     "the following command exited with error code {d}:\n{s}",
-                    .{ code, try std.zig.allocPrintCmd(arena, .inherit, null, argv.items) },
+                    .{ code, try std.zig.allocPrintCmd(arena, argv.items, .{}) },
                 );
                 return error.WasmCompilationFailed;
             }
@@ -722,21 +722,21 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         .signal => |sig| {
             log.err(
                 "the following command terminated with signal {t}:\n{s}",
-                .{ sig, try std.zig.allocPrintCmd(arena, .inherit, null, argv.items) },
+                .{ sig, try std.zig.allocPrintCmd(arena, argv.items, .{}) },
             );
             return error.WasmCompilationFailed;
         },
         .stopped => |sig| {
             log.err(
                 "the following command stopped unexpectedly with signal {t}:\n{s}",
-                .{ sig, try std.zig.allocPrintCmd(arena, .inherit, null, argv.items) },
+                .{ sig, try std.zig.allocPrintCmd(arena, argv.items, .{}) },
             );
             return error.WasmCompilationFailed;
         },
         .unknown => {
             log.err(
                 "the following command terminated unexpectedly:\n{s}",
-                .{try std.zig.allocPrintCmd(arena, .inherit, null, argv.items)},
+                .{try std.zig.allocPrintCmd(arena, argv.items, .{})},
             );
             return error.WasmCompilationFailed;
         },
@@ -746,14 +746,14 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         try result_error_bundle.renderToStderr(io, .{}, .auto);
         log.err("the following command failed with {d} compilation errors:\n{s}", .{
             result_error_bundle.errorMessageCount(),
-            try std.zig.allocPrintCmd(arena, .inherit, null, argv.items),
+            try std.zig.allocPrintCmd(arena, argv.items, .{}),
         });
         return error.WasmCompilationFailed;
     }
 
     const base_path = result orelse {
         log.err("child process failed to report result\n{s}", .{
-            try std.zig.allocPrintCmd(arena, .inherit, null, argv.items),
+            try std.zig.allocPrintCmd(arena, argv.items, .{}),
         });
         return error.WasmCompilationFailed;
     };

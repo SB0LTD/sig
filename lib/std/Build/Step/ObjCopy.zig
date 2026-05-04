@@ -116,12 +116,12 @@ pub fn create(
     objcopy.* = ObjCopy{
         .step = Step.init(.{
             .tag = base_tag,
-            .name = owner.fmt("objcopy {s}", .{input_file.getDisplayName()}),
+            .name = owner.fmt("objcopy {f}", .{input_file.fmt(graph)}),
             .owner = owner,
             .makeFn = make,
         }),
         .input_file = input_file,
-        .basename = options.basename orelse input_file.getDisplayName(),
+        .basename = options.basename orelse std.fmt.allocPrint("{f}", .{input_file.fmt(graph)}) catch @panic("OOM"),
         .output_file = graph.addGeneratedFile(&objcopy.step),
         .output_file_debug = if (options.strip != .none and options.extract_to_separate_file)
             .init(graph.addGeneratedFile(&objcopy.step))

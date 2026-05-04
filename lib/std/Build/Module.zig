@@ -118,10 +118,10 @@ pub const CSourceFile = struct {
     /// By default, determines language of each file individually based on its file extension
     language: ?CSourceLanguage = null,
 
-    pub fn dupe(file: CSourceFile, b: *std.Build) CSourceFile {
+    pub fn dupe(file: CSourceFile, graph: *const std.Build.Graph) CSourceFile {
         return .{
-            .file = file.file.dupe(b),
-            .flags = b.dupeStrings(file.flags),
+            .file = file.file.dupe(graph),
+            .flags = graph.dupeStrings(file.flags),
             .language = file.language,
         };
     }
@@ -146,10 +146,12 @@ pub const RcSourceFile = struct {
     include_paths: []const LazyPath = &.{},
 
     pub fn dupe(file: RcSourceFile, b: *std.Build) RcSourceFile {
-        const include_paths = b.allocator.alloc(LazyPath, file.include_paths.len) catch @panic("OOM");
-        for (include_paths, file.include_paths) |*dest, lazy_path| dest.* = lazy_path.dupe(b);
+        const graph = b.owner.graph;
+        const arena = graph.arena;
+        const include_paths = arena.alloc(LazyPath, file.include_paths.len) catch @panic("OOM");
+        for (include_paths, file.include_paths) |*dest, lazy_path| dest.* = lazy_path.dupe(graph);
         return .{
-            .file = file.file.dupe(b),
+            .file = file.file.dupe(graph),
             .flags = b.dupeStrings(file.flags),
             .include_paths = include_paths,
         };
@@ -290,15 +292,18 @@ pub fn init(
 }
 
 pub fn create(owner: *std.Build, options: CreateOptions) *Module {
-    const m = owner.allocator.create(Module) catch @panic("OOM");
+    const graph = owner.graph;
+    const arena = graph.arena;
+    const m = arena.create(Module) catch @panic("OOM");
     m.init(owner, .{ .options = options });
     return m;
 }
 
 /// Adds an existing module to be used with `@import`.
 pub fn addImport(m: *Module, name: []const u8, module: *Module) void {
-    const b = m.owner;
-    m.import_table.put(b.allocator, b.dupe(name), module) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.import_table.put(arena, graph.dupeString(name), module) catch @panic("OOM");
 }
 
 /// Creates a new module and adds it to be used with `@import`.
@@ -338,7 +343,8 @@ pub fn linkSystemLibrary(
     name: []const u8,
     options: LinkSystemLibraryOptions,
 ) void {
-    const b = m.owner;
+    const graph = m.owner.graph;
+    const arena = graph.arena;
 
     const target = m.requireKnownTarget();
     if (std.zig.target.isLibCLibName(target, name)) {
@@ -350,9 +356,9 @@ pub fn linkSystemLibrary(
         return;
     }
 
-    m.link_objects.append(b.allocator, .{
+    m.link_objects.append(arena, .{
         .system_lib = .{
-            .name = b.dupe(name),
+            .name = graph.dupeString(name),
             .needed = options.needed,
             .weak = options.weak,
             .use_pkg_config = options.use_pkg_config,
@@ -363,8 +369,9 @@ pub fn linkSystemLibrary(
 }
 
 pub fn linkFramework(m: *Module, name: []const u8, options: LinkFrameworkOptions) void {
-    const b = m.owner;
-    m.frameworks.put(b.allocator, b.dupe(name), options) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.frameworks.put(arena, graph.dupeString(name), options) catch @panic("OOM");
 }
 
 pub const AddCSourceFilesOptions = struct {
@@ -380,7 +387,8 @@ pub const AddCSourceFilesOptions = struct {
 /// Handy when you have many non-Zig source files and want them all to have the same flags.
 pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
     const b = m.owner;
-    const allocator = b.allocator;
+    const graph = m.owner.graph;
+    const arena = graph.arena;
 
     for (options.files) |path| {
         if (std.fs.path.isAbsolute(path)) {
@@ -391,48 +399,50 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
         }
     }
 
-    const c_source_files = allocator.create(CSourceFiles) catch @panic("OOM");
+    const c_source_files = arena.create(CSourceFiles) catch @panic("OOM");
     c_source_files.* = .{
         .root = options.root orelse b.path(""),
         .files = b.dupeStrings(options.files),
         .flags = b.dupeStrings(options.flags),
         .language = options.language,
     };
-    m.link_objects.append(allocator, .{ .c_source_files = c_source_files }) catch @panic("OOM");
+    m.link_objects.append(arena, .{ .c_source_files = c_source_files }) catch @panic("OOM");
 }
 
 pub fn addCSourceFile(m: *Module, source: CSourceFile) void {
-    const b = m.owner;
-    const allocator = b.allocator;
-    const c_source_file = allocator.create(CSourceFile) catch @panic("OOM");
-    c_source_file.* = source.dupe(b);
-    m.link_objects.append(allocator, .{ .c_source_file = c_source_file }) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    const c_source_file = arena.create(CSourceFile) catch @panic("OOM");
+    c_source_file.* = source.dupe(graph);
+    m.link_objects.append(arena, .{ .c_source_file = c_source_file }) catch @panic("OOM");
 }
 
 /// Resource files must have the extension `.rc`.
 /// Can be called regardless of target. The .rc file will be ignored
 /// if the target object format does not support embedded resources.
 pub fn addWin32ResourceFile(m: *Module, source: RcSourceFile) void {
-    const b = m.owner;
-    const allocator = b.allocator;
+    const graph = m.owner.graph;
+    const arena = graph.arena;
     const target = m.requireKnownTarget();
     // Only the PE/COFF format has a Resource Table, so for any other target
     // the resource file is ignored.
     if (target.ofmt != .coff) return;
 
-    const rc_source_file = allocator.create(RcSourceFile) catch @panic("OOM");
-    rc_source_file.* = source.dupe(b);
-    m.link_objects.append(allocator, .{ .win32_resource_file = rc_source_file }) catch @panic("OOM");
+    const rc_source_file = arena.create(RcSourceFile) catch @panic("OOM");
+    rc_source_file.* = source.dupe(graph);
+    m.link_objects.append(arena, .{ .win32_resource_file = rc_source_file }) catch @panic("OOM");
 }
 
 pub fn addAssemblyFile(m: *Module, source: LazyPath) void {
-    const b = m.owner;
-    m.link_objects.append(b.allocator, .{ .assembly_file = source.dupe(b) }) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.link_objects.append(arena, .{ .assembly_file = source.dupe(graph) }) catch @panic("OOM");
 }
 
 pub fn addObjectFile(m: *Module, object: LazyPath) void {
-    const b = m.owner;
-    m.link_objects.append(b.allocator, .{ .static_path = object.dupe(b) }) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.link_objects.append(arena, .{ .static_path = object.dupe(graph) }) catch @panic("OOM");
 }
 
 pub fn addObject(m: *Module, object: *Step.Compile) void {
@@ -446,55 +456,63 @@ pub fn linkLibrary(m: *Module, library: *Step.Compile) void {
 }
 
 pub fn addAfterIncludePath(m: *Module, lazy_path: LazyPath) void {
-    const b = m.owner;
-    m.include_dirs.append(b.allocator, .{ .path_after = lazy_path.dupe(b) }) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.include_dirs.append(arena, .{ .path_after = lazy_path.dupe(graph) }) catch @panic("OOM");
 }
 
 pub fn addSystemIncludePath(m: *Module, lazy_path: LazyPath) void {
-    const b = m.owner;
-    m.include_dirs.append(b.allocator, .{ .path_system = lazy_path.dupe(b) }) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.include_dirs.append(arena, .{ .path_system = lazy_path.dupe(graph) }) catch @panic("OOM");
 }
 
 pub fn addIncludePath(m: *Module, lazy_path: LazyPath) void {
-    const b = m.owner;
-    m.include_dirs.append(b.allocator, .{ .path = lazy_path.dupe(b) }) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.include_dirs.append(arena, .{ .path = lazy_path.dupe(graph) }) catch @panic("OOM");
 }
 
 pub fn addConfigHeader(m: *Module, config_header: *Step.ConfigHeader) void {
-    const allocator = m.owner.allocator;
-    m.include_dirs.append(allocator, .{ .config_header_step = config_header }) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.include_dirs.append(arena, .{ .config_header_step = config_header }) catch @panic("OOM");
 }
 
 pub fn addSystemFrameworkPath(m: *Module, directory_path: LazyPath) void {
-    const b = m.owner;
-    m.include_dirs.append(b.allocator, .{ .framework_path_system = directory_path.dupe(b) }) catch
-        @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.include_dirs.append(arena, .{ .framework_path_system = directory_path.dupe(graph) }) catch @panic("OOM");
 }
 
 pub fn addFrameworkPath(m: *Module, directory_path: LazyPath) void {
-    const b = m.owner;
-    m.include_dirs.append(b.allocator, .{ .framework_path = directory_path.dupe(b) }) catch
-        @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.include_dirs.append(arena, .{ .framework_path = directory_path.dupe(graph) }) catch @panic("OOM");
 }
 
 pub fn addEmbedPath(m: *Module, lazy_path: LazyPath) void {
-    const b = m.owner;
-    m.include_dirs.append(b.allocator, .{ .embed_path = lazy_path.dupe(b) }) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.include_dirs.append(arena, .{ .embed_path = lazy_path.dupe(graph) }) catch @panic("OOM");
 }
 
 pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {
-    const b = m.owner;
-    m.lib_paths.append(b.allocator, directory_path.dupe(b)) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.lib_paths.append(arena, directory_path.dupe(graph)) catch @panic("OOM");
 }
 
 pub fn addRPath(m: *Module, directory_path: LazyPath) void {
-    const b = m.owner;
-    m.rpaths.append(b.allocator, .{ .lazy_path = directory_path.dupe(b) }) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.rpaths.append(arena, .{ .lazy_path = directory_path.dupe(graph) }) catch @panic("OOM");
 }
 
 pub fn addRPathSpecial(m: *Module, bytes: []const u8) void {
-    const b = m.owner;
-    m.rpaths.append(b.allocator, .{ .special = b.dupe(bytes) }) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.rpaths.append(arena, .{ .special = graph.dupeString(bytes) }) catch @panic("OOM");
 }
 
 /// Equvialent to the following C code, applied to all C source files owned by
@@ -505,19 +523,23 @@ pub fn addRPathSpecial(m: *Module, bytes: []const u8) void {
 /// `name` and `value` need not live longer than the function call.
 pub fn addCMacro(m: *Module, name: []const u8, value: []const u8) void {
     const b = m.owner;
-    m.c_macros.append(b.allocator, b.fmt("-D{s}={s}", .{ name, value })) catch @panic("OOM");
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+    m.c_macros.append(arena, b.fmt("-D{s}={s}", .{ name, value })) catch @panic("OOM");
 }
 
 fn linkLibraryOrObject(m: *Module, other: *Step.Compile) void {
-    const allocator = m.owner.allocator;
+    const graph = m.owner.graph;
+    const arena = graph.arena;
+
     _ = other.getEmittedBin(); // Indicate there is a dependency on the outputted binary.
 
     if (other.rootModuleTarget().os.tag == .windows and other.isDynamicLibrary()) {
         _ = other.getEmittedImplib(); // Indicate dependency on the outputted implib.
     }
 
-    m.link_objects.append(allocator, .{ .other_step = other }) catch @panic("OOM");
-    m.include_dirs.append(allocator, .{ .other_step = other }) catch @panic("OOM");
+    m.link_objects.append(arena, .{ .other_step = other }) catch @panic("OOM");
+    m.include_dirs.append(arena, .{ .other_step = other }) catch @panic("OOM");
 }
 
 fn requireKnownTarget(m: *Module) *const std.Target {

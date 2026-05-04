@@ -2129,10 +2129,11 @@ fn spawnChildAndCollect(
 
     // If an error occurs, it's caused by this command:
     assert(step.result_failed_command == null);
-    step.result_failed_command = try std.zig.allocPrintCmd(arena, child_cwd, .{
-        .child = environ_map,
-        .parent = &graph.environ_map,
-    }, argv);
+    step.result_failed_command = try std.zig.allocPrintCmd(arena, argv, .{
+        .cwd = child_cwd,
+        .child_env = environ_map,
+        .parent_env = &graph.environ_map,
+    });
 
     try step.handleChildProcUnsupported(maker);
 

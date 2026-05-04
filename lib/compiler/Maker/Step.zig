@@ -70,6 +70,7 @@ pub const Extended = union(enum) {
     compile: Compile,
     config_header: Todo,
     fail: Todo,
+    find_program: Todo,
     fmt: Todo,
     install_artifact: InstallArtifact,
     install_dir: Todo,
@@ -89,6 +90,7 @@ pub const Extended = union(enum) {
             .compile => .{ .compile = .{} },
             .config_header => .{ .config_header = .{} },
             .fail => .{ .fail = .{} },
+            .find_program => .{ .find_program = .{} },
             .fmt => .{ .fmt = .{} },
             .install_artifact => .{ .install_artifact = .{} },
             .install_dir => .{ .install_dir = .{} },
@@ -314,7 +316,7 @@ pub fn captureChildProcess(
 
     // If an error occurs, it's happened in this command:
     assert(s.result_failed_command == null);
-    s.result_failed_command = try std.zig.allocPrintCmd(gpa, .inherit, null, argv);
+    s.result_failed_command = try std.zig.allocPrintCmd(gpa, argv, .{});
 
     try handleChildProcUnsupported(s, maker);
     try graph.handleVerbose(.inherit, null, argv);
@@ -382,7 +384,7 @@ pub fn evalZigProcess(
 
     // If an error occurs, it's happened in this command:
     assert(s.result_failed_command == null);
-    s.result_failed_command = try std.zig.allocPrintCmd(gpa, .inherit, null, argv);
+    s.result_failed_command = try std.zig.allocPrintCmd(gpa, argv, .{});
 
     if (s.getZigProcess()) |zp| update: {
         assert(watch);

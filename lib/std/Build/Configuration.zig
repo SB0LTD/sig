@@ -402,6 +402,12 @@ pub const Wip = struct {
         defer wip.next_generated_file_index += 1;
         return @enumFromInt(wip.next_generated_file_index);
     }
+
+    /// Returned slice expires upon next append to the configuration.
+    pub fn stringSlice(wip: *const Wip, s: String) [:0]const u8 {
+        const start_slice = wip.string_bytes.items[@intFromEnum(s)..];
+        return start_slice[0..std.mem.indexOfScalar(u8, start_slice, 0).? :0];
+    }
 };
 
 pub const SystemIntegration = extern struct {
@@ -445,6 +451,7 @@ pub const Step = extern struct {
         compile: Compile,
         config_header: ConfigHeader,
         fail: Fail,
+        find_program: FindProgram,
         fmt: Fmt,
         install_artifact: InstallArtifact,
         install_dir: InstallDir,
@@ -479,6 +486,7 @@ pub const Step = extern struct {
         compile,
         config_header,
         fail,
+        find_program,
         fmt,
         install_artifact,
         install_dir,
@@ -1037,6 +1045,17 @@ pub const Step = extern struct {
         };
     };
 
+    pub const FindProgram = struct {
+        flags: @This().Flags,
+        names: StringList,
+        generated_file: GeneratedFileIndex,
+
+        pub const Flags = packed struct(u32) {
+            tag: Tag = .find_program,
+            _: u27 = 0,
+        };
+    };
+
     pub const InstallDir = struct {
         flags: @This().Flags,
         source_dir: LazyPath.Index,
@@ -1516,6 +1535,8 @@ pub const Path = extern struct {
         local_cache,
         global_cache,
         build_root,
+        zig_exe,
+        zig_lib,
     };
 
     pub fn toCachePath(path: Path, c: *const Configuration, arena: Allocator) std.Build.Cache.Path {

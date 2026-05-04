@@ -4987,7 +4987,7 @@ fn cmdBuild(
     const argv_index_zig_lib_dir = make_argv.items.len - 1;
 
     make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--build-root", undefined };
-    const argv_index_build_file = make_argv.items.len - 1;
+    const make_argv_index_build_root = make_argv.items.len - 1;
 
     make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--local-cache", undefined };
     const argv_index_cache_dir = make_argv.items.len - 1;
@@ -5000,6 +5000,9 @@ fn cmdBuild(
 
     make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--seed", default_seed };
     const argv_index_seed = make_argv.items.len - 1;
+
+    configure_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--build-root", undefined };
+    const conf_argv_index_build_root = configure_argv.items.len - 1;
 
     var color: Color = .auto;
     var n_jobs: ?u32 = null;
@@ -5065,6 +5068,10 @@ fn cmdBuild(
                     i += 1;
                     override_global_cache_dir = args[i];
                     continue;
+                } else if (mem.eql(u8, arg, "--verbose")) {
+                    // Intentionally is added both to make and configure but
+                    // does not go into the cache hash.
+                    configure_argv.appendAssumeCapacity(arg);
                 } else if (mem.eql(u8, arg, "-freference-trace")) {
                     reference_trace = 256;
                 } else if (mem.eql(u8, arg, "--fetch")) {
@@ -5283,9 +5290,11 @@ fn cmdBuild(
     defer _ = make_runner_task.cancel(io) catch {};
 
     make_argv.items[argv_index_zig_lib_dir] = dirs.zig_lib.path orelse cwd_path;
-    make_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
+    make_argv.items[make_argv_index_build_root] = build_root.directory.path orelse cwd_path;
     make_argv.items[argv_index_global_cache_dir] = dirs.global_cache.path orelse cwd_path;
     make_argv.items[argv_index_cache_dir] = dirs.local_cache.path orelse cwd_path;
+
+    configure_argv.items[conf_argv_index_build_root] = build_root.directory.path orelse cwd_path;
 
     // Dummy http client that is not actually used when fetch_command is unsupported.
     // Prevents bootstrap from depending on a bunch of unnecessary stuff.

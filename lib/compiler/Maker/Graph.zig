@@ -75,10 +75,11 @@ pub fn handleVerbose(
 ) error{OutOfMemory}!void {
     if (!graph.verbose) return;
     const arena = graph.arena;
-    const text = try std.zig.allocPrintCmd(arena, cwd, if (opt_env) |env| .{
-        .child = env,
-        .parent = &graph.environ_map,
-    } else null, argv);
+    const text = try std.zig.allocPrintCmd(arena, argv, .{
+        .cwd = cwd,
+        .parent_env = &graph.environ_map,
+        .child_env = opt_env,
+    });
     defer arena.free(text);
     std.log.scoped(.verbose).info("{s}", .{text});
 }

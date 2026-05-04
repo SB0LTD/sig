@@ -16,6 +16,8 @@ const IoMode = enum { threaded, evented };
 const ValueInterpretMode = enum { direct, by_name };
 
 pub fn build(b: *std.Build) !void {
+    const arena = b.graph.arena;
+
     const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
     const target = b.standardTargetOptions(.{
         .default_target = .{
@@ -35,7 +37,7 @@ pub fn build(b: *std.Build) !void {
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
     const enable_superhtml = b.option(bool, "enable-superhtml", "Check langref output HTML validity") orelse false;
 
-    const langref_file = generateLangRef(b);
+    const langref_file = try generateLangRef(b);
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
     const check_langref = superHtmlCheck(b, langref_file);
     if (enable_superhtml) install_langref.step.dependOn(check_langref);
@@ -262,7 +264,7 @@ pub fn build(b: *std.Build) !void {
         var code: u8 = undefined;
         const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
             "git",
-            "-C", b.build_root.path orelse ".", // affects the --git-dir argument
+            "-C", b.fmt("{f}", .{b.root}), // affects the --git-dir argument
             "--git-dir", ".git", // affected by the -C argument
             "describe", "--match",    "*.*.*", //
             "--tags",   "--abbrev=9",
@@ -308,7 +310,7 @@ pub fn build(b: *std.Build) !void {
             },
         }
     };
-    const version = try b.allocator.dupeSentinel(u8, version_slice, 0);
+    const version = try arena.dupeSentinel(u8, version_slice, 0);
     exe_options.addOption([:0]const u8, "version", version);
 
     if (enable_llvm) {
@@ -316,7 +318,7 @@ pub fn build(b: *std.Build) !void {
             const io = b.graph.io;
             const cwd: Io.Dir = .cwd();
             if (findConfigH(b, config_h_path_option)) |config_h_path| {
-                const file_contents = cwd.readFileAlloc(io, config_h_path, b.allocator, .limited(max_config_h_bytes)) catch unreachable;
+                const file_contents = cwd.readFileAlloc(io, config_h_path, arena, .limited(max_config_h_bytes)) catch unreachable;
                 break :blk parseConfigH(b, file_contents);
             } else {
                 std.log.warn("config.h could not be located automatically. Consider providing it explicitly via \"-Dconfig_h\"", .{});
@@ -976,11 +978,12 @@ fn addCxxKnownPath(
     errtxt: ?[]const u8,
     need_cpp_includes: bool,
 ) !void {
-    if (!std.process.can_spawn)
-        return error.RequiredLibraryNotFound;
+    if (!std.process.can_spawn) return error.RequiredLibraryNotFound;
+
+    const arena = b.graph.arena;
 
     const path_padded = run: {
-        var args = std.array_list.Managed([]const u8).init(b.allocator);
+        var args = std.array_list.Managed([]const u8).init(arena);
         try args.append(ctx.cxx_compiler);
         var it = std.mem.tokenizeAny(u8, ctx.cxx_compiler_arg1, &std.ascii.whitespace);
         while (it.next()) |arg| try args.append(arg);
@@ -1049,6 +1052,7 @@ const CMakeConfig = struct {
 const max_config_h_bytes = 1 * 1024 * 1024;
 
 fn findConfigH(b: *std.Build, config_h_path_option: ?[]const u8) ?[]const u8 {
+    const arena = b.graph.arena;
     const io = b.graph.io;
     const cwd: Io.Dir = .cwd();
 
@@ -1073,7 +1077,7 @@ fn findConfigH(b: *std.Build, config_h_path_option: ?[]const u8) ?[]const u8 {
         if (config_h_or_err) |*file| {
             file.close(io);
             return fs.path.join(
-                b.allocator,
+                arena,
                 &[_][]const u8{ check_dir, "config.h" },
             ) catch unreachable;
         } else |e| switch (e) {
@@ -1198,7 +1202,8 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
 }
 
 fn toNativePathSep(b: *std.Build, s: []const u8) []u8 {
-    const duplicated = b.allocator.dupe(u8, s) catch unreachable;
+    const arena = b.graph.arena;
+    const duplicated = arena.dupe(u8, s) catch unreachable;
     for (duplicated) |*byte| switch (byte.*) {
         '/' => byte.* = fs.path.sep,
         else => {},
@@ -1487,8 +1492,9 @@ const llvm_libs_xtensa = [_][]const u8{
     "LLVMXtensaInfo",
 };
 
-fn generateLangRef(b: *std.Build) std.Build.LazyPath {
+fn generateLangRef(b: *std.Build) !std.Build.LazyPath {
     const io = b.graph.io;
+    const arena = b.graph.arena;
 
     const doctest_exe = b.addExecutable(.{
         .name = "doctest",
@@ -1499,10 +1505,7 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
         }),
     });
 
-    const langref_path: std.Build.Cache.Path = .{
-        .root_dir = b.build_root,
-        .sub_path = "doc/langref",
-    };
+    const langref_path = try b.root.join(arena, "doc/langref");
 
     var dir = langref_path.root_dir.handle.openDir(io, langref_path.sub_path, .{ .iterate = true }) catch |err|
         std.debug.panic("unable to open directory {f}: {t}", .{ langref_path, err });
@@ -1518,17 +1521,22 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
 
         const out_basename = b.fmt("{s}.out", .{std.fs.path.stem(entry.name)});
         const cmd = b.addRunArtifact(doctest_exe);
-        cmd.addArgs(&.{
-            "--zig",        b.graph.zig_exe,
-            // TODO: enhance doctest to use "--listen=-" rather than operating
-            // in a temporary directory
-            "--cache-root", b.cache_root.path orelse ".",
-        });
-        cmd.addArgs(&.{ "--zig-lib-dir", b.fmt("{f}", .{b.graph.zig_lib_directory}) });
-        cmd.addArgs(&.{"-i"});
+
+        cmd.addArg("--zig");
+        cmd.addFileArg(.zig_exe);
+
+        // TODO: enhance doctest to use "--listen=-" rather than operating in a
+        // temporary directory
+        cmd.addArg("--cache-root");
+        cmd.addFileArg(.cache_root);
+
+        cmd.addArg("--zig-lib-dir");
+        cmd.addFileArg(.zig_lib);
+
+        cmd.addArg("-i");
         cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
 
-        cmd.addArgs(&.{"-o"});
+        cmd.addArg("-o");
         _ = wf.addCopyFile(cmd.addOutputFileArg(out_basename), out_basename);
     }
 

@@ -17,6 +17,7 @@
 
 * implement {q} or delete {q} uses
 * make the generated dependencies.zig be dependencies.zon and don't put absolute paths in there
+  - and adjust dependencyInner to not openDir()
 
 ## Followup Issues
 * reduce the size of Maker.Step.Extended (make Run smaller) probably by using an arena per make

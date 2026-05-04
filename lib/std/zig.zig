@@ -1165,15 +1165,13 @@ pub const ClangCliParam = struct {
     }
 };
 
-pub fn allocPrintCmd(
-    gpa: Allocator,
-    cwd: std.process.Child.Cwd,
-    opt_env: ?struct {
-        child: *const std.process.Environ.Map,
-        parent: *const std.process.Environ.Map,
-    },
-    argv: []const []const u8,
-) Allocator.Error![]u8 {
+pub const AllocPrintCmdOptions = struct {
+    cwd: std.process.Child.Cwd = .inherit,
+    parent_env: ?*const std.process.Environ.Map = null,
+    child_env: ?*const std.process.Environ.Map = null,
+};
+
+pub fn allocPrintCmd(gpa: Allocator, argv: []const []const u8, options: AllocPrintCmdOptions) Allocator.Error![]u8 {
     const shell = struct {
         fn escape(writer: *Io.Writer, string: []const u8, is_argv0: bool) !void {
             for (string) |c| {
@@ -1212,18 +1210,17 @@ pub fn allocPrintCmd(
     var aw: Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     const writer = &aw.writer;
-    switch (cwd) {
+    switch (options.cwd) {
         .inherit => {},
         .path => |path| writer.print("cd {s} && ", .{path}) catch return error.OutOfMemory,
         .dir => @panic("TODO"),
     }
-    if (opt_env) |env| {
-        var it = env.child.iterator();
-        while (it.next()) |entry| {
-            const key = entry.key_ptr.*;
-            const value = entry.value_ptr.*;
-            if (env.parent.get(key)) |process_value| {
-                if (std.mem.eql(u8, value, process_value)) continue;
+    if (options.child_env) |child_env| {
+        for (child_env.keys(), child_env.values()) |key, value| {
+            if (options.parent_env) |parent_env| {
+                if (parent_env.get(key)) |process_value| {
+                    if (std.mem.eql(u8, value, process_value)) continue;
+                }
             }
             writer.print("{s}=", .{key}) catch return error.OutOfMemory;
             shell.escape(writer, value, false) catch return error.OutOfMemory;

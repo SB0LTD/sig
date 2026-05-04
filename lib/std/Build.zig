@@ -34,6 +34,8 @@ available_options_map: std.array_hash_map.String(AvailableOption) = .empty,
 invalid_user_input: bool,
 default_step: *Step,
 top_level_steps: std.StringArrayHashMapUnmanaged(*Step.TopLevel),
+/// Path to the directory containing build.zig.
+root: Cache.Path,
 debug_log_scopes: []const []const u8 = &.{},
 /// Number of stack frames captured when a `StackTrace` is recorded for debug purposes,
 /// in particular at `Step` creation.
@@ -85,6 +87,7 @@ pub const Graph = struct {
     dependency_cache: InitializedDepMap = .empty,
     allow_so_scripts: ?bool = null,
     time_report: bool = false,
+    verbose: bool = false,
     /// Similar to the `Io.Terminal.Mode` returned by `Io.lockStderr`, but also
     /// respects the '--color' flag.
     stderr_mode: ?Io.Terminal.Mode = null,
@@ -116,6 +119,20 @@ pub const Graph = struct {
         const array = arena.alloc([]const u8, strings.len) catch @panic("OOM");
         for (array, strings) |*dest, source| dest.* = dupeString(graph, source);
         return array;
+    }
+
+    /// An absolute path or a path relative to the current working directory of
+    /// the build runner process.
+    ///
+    /// Use of this function indicates a dependency on the host system.
+    pub fn cwdRelativePath(graph: *Graph, sub_path: []const u8) LazyPath {
+        const wc = &graph.wip_configuration;
+        return .{
+            .relative = .{
+                .base = .cwd,
+                .sub_path = wc.addString(sub_path) catch @panic("OOM"),
+            },
+        };
     }
 };
 
@@ -170,13 +187,6 @@ const InitializedDepContext = struct {
     }
 };
 
-pub const RunError = error{
-    ReadFailure,
-    ExitCodeFailure,
-    ProcessTerminated,
-    ExecNotSupported,
-} || std.process.SpawnError;
-
 const UserInputOptionsMap = StringHashMap(UserInputOption);
 
 const AvailableOption = struct {
@@ -204,6 +214,7 @@ const UserValue = union(enum) {
 
 pub fn create(
     graph: *Graph,
+    root: Cache.Path,
     available_deps: AvailableDeps,
 ) error{OutOfMemory}!*Build {
     const arena = graph.arena;
@@ -211,6 +222,7 @@ pub fn create(
     const b = try arena.create(Build);
     b.* = .{
         .graph = graph,
+        .root = root,
         .invalid_user_input = false,
         .allocator = arena,
         .user_input_options = UserInputOptionsMap.init(arena),
@@ -247,6 +259,7 @@ pub fn create(
 fn createChild(
     parent: *Build,
     dep_name: []const u8,
+    root: Cache.Path,
     pkg_hash: []const u8,
     pkg_deps: AvailableDeps,
     user_input_options: UserInputOptionsMap,
@@ -255,6 +268,7 @@ fn createChild(
     const child = try allocator.create(Build);
     child.* = .{
         .graph = parent.graph,
+        .root = root,
         .allocator = allocator,
         .install_tls = .{
             .step = .init(.{
@@ -1143,7 +1157,7 @@ pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
         .description = b.dupe(description),
     };
     const gop = b.top_level_steps.getOrPut(b.allocator, name) catch @panic("OOM");
-    if (gop.found_existing) std.debug.panic("A top-level step with name \"{s}\" already exists", .{name});
+    if (gop.found_existing) panic("A top-level step with name \"{s}\" already exists", .{name});
 
     gop.key_ptr.* = step_info.step.name;
     gop.value_ptr.* = step_info;
@@ -1366,7 +1380,8 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
 }
 
 pub fn addUserInputFlag(b: *Build, name_raw: []const u8) error{OutOfMemory}!bool {
-    const name = b.dupe(name_raw);
+    const graph = b.graph;
+    const name = graph.dupeString(name_raw);
     const gop = try b.user_input_options.getOrPut(name);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{
@@ -1388,7 +1403,7 @@ pub fn addUserInputFlag(b: *Build, name_raw: []const u8) error{OutOfMemory}!bool
             return true;
         },
         .lazy_path => |lp| {
-            log.err("Flag '-D{s}' conflicts with option '-D{s}={s}'.", .{ name, name, lp.getDisplayName() });
+            log.err("Flag '-D{s}' conflicts with option '-D{s}={f}'.", .{ name, name, lp.fmt(graph) });
             return true;
         },
 
@@ -1538,7 +1553,7 @@ pub fn truncateFile(b: *Build, dest_path: []const u8) (Io.Dir.CreateDirError || 
 /// References a file or directory relative to the source root.
 pub fn path(b: *Build, sub_path: []const u8) LazyPath {
     if (fs.path.isAbsolute(sub_path)) {
-        std.debug.panic("sub_path is expected to be relative to the build root, but was this absolute path: '{s}'. It is best avoid absolute paths, but if you must, it is supported by LazyPath.cwd_relative", .{
+        panic("sub_path is expected to be relative to the build root, but was this absolute path: '{s}'. It is best avoid absolute paths, but if you must, it is supported by LazyPath.cwd_relative", .{
             sub_path,
         });
     }
@@ -1560,117 +1575,164 @@ pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
     return std.fmt.allocPrint(b.allocator, format, args) catch @panic("OOM");
 }
 
-fn supportedWindowsProgramExtension(ext: []const u8) bool {
-    inline for (@typeInfo(std.process.WindowsExtension).@"enum".fields) |field| {
-        if (std.ascii.eqlIgnoreCase(ext, "." ++ field.name)) return true;
-    }
-    return false;
+/// Creates an anonymous `Step` that searches for an executable on the host that
+/// has more than one possible name.
+///
+/// Names are searched in order, observing search prefixes first and then PATH
+/// environment variable.
+///
+/// Returns the `LazyPath` of the found executable. The search only takes place
+/// if the `LazyPath` will be used by a depending `Step`.
+pub fn findProgram(b: *Build, names: []const []const u8) LazyPath {
+    const graph = b.graph;
+    const wc = &graph.wip_configuration;
+    const string_list = wc.addStringList(names) catch @panic("OOM");
+    _ = string_list;
+    @panic("TODO");
 }
 
-fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
-    const io = b.graph.io;
-    const arena = b.allocator;
-
-    if (b.build_root.handle.realPathFileAlloc(io, full_path, arena)) |p| {
-        return p;
-    } else |err| switch (err) {
-        error.OutOfMemory => @panic("OOM"),
-        else => {},
-    }
-
-    if (builtin.os.tag == .windows) {
-        if (b.graph.environ_map.get("PATHEXT")) |PATHEXT| {
-            var it = mem.tokenizeScalar(u8, PATHEXT, fs.path.delimiter);
-
-            while (it.next()) |ext| {
-                if (!supportedWindowsProgramExtension(ext)) continue;
-
-                return b.build_root.handle.realPathFileAlloc(
-                    io,
-                    b.fmt("{s}{s}", .{ full_path, ext }),
-                    arena,
-                ) catch |err| switch (err) {
-                    error.OutOfMemory => @panic("OOM"),
-                    else => continue,
-                };
-            }
-        }
-    }
-
-    return null;
-}
-
-pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) LazyPath {
-    _ = b;
-    _ = names;
-    _ = paths;
-    @panic("TODO rework findProgram to be based on LazyPath");
-}
-
+/// Deprecated; use `runFallible`.
 pub fn runAllowFail(
     b: *Build,
     argv: []const []const u8,
-    out_code: *u8,
-    stderr_behavior: std.process.SpawnOptions.StdIo,
-) RunError![]u8 {
-    assert(argv.len != 0);
+    exit_code: *u8,
+    stderr_behavior: process.SpawnOptions.StdIo,
+) anyerror![]u8 {
+    if (!process.can_spawn) return error.ExecNotSupported;
+    switch (runFallible(b, argv, .{
+        .stderr_behavior = stderr_behavior,
+    })) {
+        .success => |stdout| return stdout,
+        .spawn_failed => |err| return err,
+        .bad_exit_code => |code| {
+            exit_code.* = code;
+            return error.ExitCodeFailure;
+        },
+        .crashed => {
+            exit_code.* = 255;
+            return error.ProcessTerminated;
+        },
+    }
+}
 
-    if (!process.can_spawn)
-        return error.ExecNotSupported;
+pub const RunOptions = struct {
+    stderr_behavior: process.SpawnOptions.StdIo = .inherit,
+    /// Fail the configuration if stdout is larger than this.
+    stdout_limit: Io.Limit = .limited(1_000_000),
+    /// Set to change the current working directory when spawning the child
+    /// process.
+    cwd: process.Child.Cwd = .inherit,
+    /// Replaces the child environment when provided. The PATH value from here
+    /// is not used to resolve `argv[0]`; that resolution always uses parent
+    /// environment.
+    environ_map: ?*const process.Environ.Map = null,
+    expand_arg0: process.ArgExpansion = .no_expand,
+};
+
+pub const RunResult = union(enum) {
+    /// Thild process exited with code 0, writing this stdout.
+    success: []u8,
+    /// The child process could not be created.
+    spawn_failed: process.SpawnError,
+    /// The child process indicated failure.
+    bad_exit_code: u8,
+    /// The child process terminated abnormally.
+    crashed,
+};
+
+/// Executes the provided command immediately, allowing failure.
+///
+/// If the program exits successfully, stdout is returned. Otherwise, returns
+/// an indication of failure.
+///
+/// See also:
+/// * `run`.
+pub fn runFallible(b: *Build, argv: []const []const u8, options: RunOptions) RunResult {
+    assert(argv.len != 0);
 
     const graph = b.graph;
     const io = graph.io;
     const arena = graph.arena;
 
-    const max_output_size = 400 * 1024;
+    const print_opts: std.zig.AllocPrintCmdOptions = .{
+        .cwd = options.cwd,
+        .child_env = options.environ_map,
+        .parent_env = &graph.environ_map,
+    };
+
     if (graph.verbose) {
-        const text = std.zig.allocPrintCmd(arena, .inherit, null, argv);
+        const text = std.zig.allocPrintCmd(arena, argv, print_opts) catch @panic("OOM");
         std.log.scoped(.verbose).info("{s}", .{text});
     }
 
-    var child = try std.process.spawn(io, .{
+    var child = process.spawn(io, .{
         .argv = argv,
-        .environ_map = &graph.environ_map,
         .stdin = .ignore,
         .stdout = .pipe,
-        .stderr = stderr_behavior,
-    });
+        .stderr = options.stderr_behavior,
+        .cwd = options.cwd,
+        .environ_map = &graph.environ_map,
+        .expand_arg0 = options.expand_arg0,
+    }) catch |err| return .{ .spawn_failed = err };
 
     var stdout_reader = child.stdout.?.readerStreaming(io, &.{});
-    const stdout = stdout_reader.interface.allocRemaining(arena, .limited(max_output_size)) catch {
-        return error.ReadFailure;
+    const stdout = stdout_reader.interface.allocRemaining(arena, options.stdout_limit) catch |err| switch (err) {
+        error.ReadFailed => panic("failed to read from child: {t}", .{stdout_reader.err.?}),
+        else => |e| panic("failed to read from child: {t}", .{e}),
     };
-    errdefer arena.free(stdout);
 
-    const term = try child.wait(io);
-    switch (term) {
-        .exited => |code| {
-            if (code != 0) {
-                out_code.* = @as(u8, @truncate(code));
-                return error.ExitCodeFailure;
-            }
-            return stdout;
+    const term = child.wait(io) catch @panic("unexpected");
+
+    return switch (term) {
+        .exited => |code| switch (code) {
+            0 => .{ .success = stdout },
+            else => .{ .bad_exit_code = code },
         },
-        .signal, .stopped => |sig| {
-            out_code.* = @as(u8, @truncate(@intFromEnum(sig)));
-            return error.ProcessTerminated;
-        },
-        .unknown => |code| {
-            out_code.* = @as(u8, @truncate(code));
-            return error.ProcessTerminated;
-        },
+        .signal, .stopped, .unknown => .crashed,
+    };
+}
+
+/// Executes the provided command immediately.
+///
+/// If the program exits successfully, stdout is returned. Otherwise, fails the
+/// build with a helpful message.
+///
+/// See also:
+/// * `runFallible`.
+pub fn run(b: *Build, argv: []const []const u8) []u8 {
+    const graph = b.graph;
+    const arena = graph.arena;
+    switch (b.runFallible(argv, .{
+        .stderr_behavior = .inherit,
+    })) {
+        .success => |stdout| return stdout,
+        .spawn_failed => |err| process.fatal("the following command failed with {t}:\n{s}", .{
+            err, std.zig.allocPrintCmd(arena, argv, .{}) catch @panic("OOM"),
+        }),
+        .bad_exit_code => |code| process.fatal("the following command exited with code {d}:\n{s}", .{
+            code, std.zig.allocPrintCmd(arena, argv, .{}) catch @panic("OOM"),
+        }),
+        .crashed => process.fatal("the following command crashed:\n{s}", .{
+            std.zig.allocPrintCmd(arena, argv, .{}) catch @panic("OOM"),
+        }),
     }
 }
 
-/// This is a helper function to be called from build.zig scripts, *not* from
-/// inside step make() functions. If any errors occur, it fails the build with
-/// a helpful message.
-pub fn run(b: *Build, argv: []const []const u8) []u8 {
-    var code: u8 = undefined;
-    return b.runAllowFail(argv, &code, .inherit) catch |err| process.fatal(
-        "the following command failed with {t}:\n{s}",
-        .{ err, Step.allocPrintCmd(b.allocator, .inherit, null, argv) catch @panic("OOM") },
-    );
+/// Adds additional paths, equivalent to the `--search-prefix` arguments
+/// provided by the user. Paths added with this function have lower precedence
+/// than the ones specified by the user on the command line.
+///
+/// It is generally best practice to avoid calling this function, instead
+/// relying on the user to provide these paths via the standard build system
+/// interface. However, when integrating with other build systems, the user may
+/// have already provided the information to the other build system, and thus
+/// it is desirable to use that same information without requiring the user to
+/// provide it again.
+pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
+    _ = b;
+    _ = search_prefix;
+    @panic("TODO");
+    //b.search_prefixes.append(b.allocator, b.dupePath(search_prefix)) catch @panic("OOM");
 }
 
 pub const Dependency = struct {
@@ -1727,8 +1789,8 @@ fn findPkgHashOrFatal(b: *Build, name: []const u8) []const u8 {
         if (mem.eql(u8, dep[0], name)) return dep[1];
     }
     std.log.info("all dependencies used by build.zig must be declared in corresponding build.zig.zon", .{});
-    if (b.pkg_hash.len == 0) std.debug.panic("no dependency named {s}", .{name});
-    std.debug.panic("no dependency named {s} in {s} ({s})", .{ name, b.dep_prefix, b.pkg_hash });
+    if (b.pkg_hash.len == 0) panic("no dependency named {s}", .{name});
+    panic("no dependency named {s} in {s} ({s})", .{ name, b.dep_prefix, b.pkg_hash });
 }
 
 inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, comptime dep_name: []const u8) []const u8 {
@@ -1741,7 +1803,7 @@ inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, c
         if (@hasDecl(pkg, "build_zig") and pkg.build_zig == asking_build_zig) break .{ pkg_hash, pkg.deps };
     } else .{ "", deps.root_deps };
     if (!std.mem.eql(u8, b_pkg_hash, b.pkg_hash)) {
-        std.debug.panic("'{}' is not the struct that corresponds to '{s}'", .{
+        panic("'{}' is not the struct that corresponds to '{s}'", .{
             asking_build_zig, b.pathFromRoot("build.zig"),
         });
     }
@@ -1750,7 +1812,7 @@ inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, c
     };
 
     const full_path = b.pathFromRoot("build.zig.zon");
-    std.debug.panic("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file", .{ dep_name, full_path });
+    panic("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file", .{ dep_name, full_path });
 }
 
 fn markNeededLazyDep(b: *Build, pkg_hash: []const u8) void {
@@ -1799,7 +1861,7 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
         if (mem.eql(u8, decl.name, pkg_hash)) {
             const pkg = @field(deps.packages, decl.name);
             if (@hasDecl(pkg, "available")) {
-                std.debug.panic("dependency '{s}{s}' is marked as lazy in build.zig.zon which means it must use the lazyDependency function instead", .{ b.dep_prefix, name });
+                panic("dependency '{s}{s}' is marked as lazy in build.zig.zon which means it must use the lazyDependency function instead", .{ b.dep_prefix, name });
             }
             return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg_hash, pkg.deps, args);
         }
@@ -1866,7 +1928,7 @@ pub fn dependencyFromBuildZig(
     }
 
     const full_path = b.pathFromRoot("build.zig.zon");
-    std.debug.panic("'{}' is not a build.zig struct of a dependency in '{s}'", .{ build_zig, full_path });
+    panic("'{}' is not a build.zig struct of a dependency in '{s}'", .{ build_zig, full_path });
 }
 
 fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
@@ -1960,14 +2022,23 @@ fn dependencyInner(
     pkg_deps: AvailableDeps,
     args: anytype,
 ) *Dependency {
-    const user_input_options = userInputOptionsFromArgs(b.allocator, args);
+    const io = b.graph.io;
+    const arena = b.graph.arena;
+    const user_input_options = userInputOptionsFromArgs(arena, args);
     if (b.graph.dependency_cache.getContext(.{
         .build_root_string = build_root_string,
         .user_input_options = user_input_options,
-    }, .{ .allocator = b.graph.arena })) |dep|
-        return dep;
+    }, .{ .allocator = arena })) |dep| return dep;
 
-    const sub_builder = b.createChild(name, pkg_hash, pkg_deps, user_input_options) catch
+    const dep_root: Cache.Path = .{
+        .root_dir = .{
+            .path = build_root_string,
+            .handle = Io.Dir.cwd().openDir(io, build_root_string, .{}) catch |err|
+                process.fatal("unable to open {s}: {t}", .{ build_root_string, err }),
+        },
+    };
+
+    const sub_builder = b.createChild(name, dep_root, pkg_hash, pkg_deps, user_input_options) catch
         @panic("unhandled error");
     if (build_zig) |bz| {
         sub_builder.runBuild(bz) catch @panic("unhandled error");
@@ -1977,13 +2048,13 @@ fn dependencyInner(
         }
     }
 
-    const dep = b.allocator.create(Dependency) catch @panic("OOM");
+    const dep = arena.create(Dependency) catch @panic("OOM");
     dep.* = .{ .builder = sub_builder };
 
     b.graph.dependency_cache.putContext(b.graph.arena, .{
         .build_root_string = build_root_string,
         .user_input_options = user_input_options,
-    }, dep, .{ .allocator = b.graph.arena }) catch @panic("OOM");
+    }, dep, .{ .allocator = arena }) catch @panic("OOM");
     return dep;
 }
 
@@ -2046,20 +2117,26 @@ pub const LazyPath = union(enum) {
         sub_path: []const u8 = "",
     },
 
-    /// An absolute path or a path relative to the current working directory of
-    /// the build runner process.
-    ///
-    /// This is uncommon but used for system environment paths such as `--zig-lib-dir` which
-    /// ignore the file system path of build.zig and instead are relative to the directory from
-    /// which `zig build` was invoked.
-    ///
-    /// Use of this tag indicates a dependency on the host system.
+    /// Deprecated; call `Graph.cwdRelativePath` instead.
     cwd_relative: []const u8,
 
     dependency: struct {
         dependency: *Dependency,
         sub_path: []const u8,
     },
+
+    relative: struct {
+        base: Configuration.Path.Base,
+        sub_path: Configuration.String = .empty,
+    },
+
+    /// Path to the Zig executable being used to execute "zig build".
+    pub const zig_exe: LazyPath = .{ .relative = .{ .base = .zig_exe } };
+    /// Path to the "lib/" directory from the Zig installation being used to
+    /// execute "zig build".
+    pub const zig_lib: LazyPath = .{ .relative = .{ .base = .zig_lib } };
+    /// Path to the project's local cache directory (usually called ".zig-cache").
+    pub const cache_root: LazyPath = .{ .relative = .{ .base = .local_cache } };
 
     /// Returns a lazy path referring to the directory containing this path.
     ///
@@ -2147,21 +2224,33 @@ pub const LazyPath = union(enum) {
         };
     }
 
-    /// Returns a string that can be shown to represent the file source.
-    /// Either returns the path, `"generated"`, or `"dependency"`.
-    pub fn getDisplayName(lazy_path: LazyPath) []const u8 {
-        return switch (lazy_path) {
-            .src_path => |sp| sp.sub_path,
-            .cwd_relative => |p| p,
-            .generated => "generated",
-            .dependency => "dependency",
-        };
+    pub const Format = struct {
+        graph: *const Graph,
+        lazy_path: *const LazyPath,
+
+        pub fn format(f: Format, w: *Io.Writer) Io.Writer.Error!void {
+            switch (f.lazy_path.*) {
+                .src_path => |sp| try w.writeAll(sp.sub_path),
+                .cwd_relative => |p| try w.writeAll(p),
+                .generated => try w.writeAll("generated"),
+                .dependency => try w.writeAll("dependency"),
+                .relative => |r| {
+                    const wc = &f.graph.wip_configuration;
+                    try w.writeAll(@tagName(r.base));
+                    try w.writeAll(wc.stringSlice(r.sub_path));
+                },
+            }
+        }
+    };
+
+    pub fn fmt(lp: *const LazyPath, graph: *const Graph) Format {
+        return .{ .graph = graph, .lazy_path = lp };
     }
 
     /// Adds dependencies this file source implies to the given step.
     pub fn addStepDependencies(lazy_path: LazyPath, other_step: *Step) void {
         switch (lazy_path) {
-            .src_path, .cwd_relative, .dependency => {},
+            .src_path, .cwd_relative, .relative, .dependency => {},
             .generated => |gen| {
                 const graph = other_step.owner.graph;
                 const generated_owner_step = graph.generated_files.items[@intFromEnum(gen.index)];
@@ -2190,6 +2279,7 @@ pub const LazyPath = union(enum) {
         return switch (lazy_path) {
             .src_path => |sp| .{ .src_path = .{ .owner = sp.owner, .sub_path = sp.owner.dupePath(sp.sub_path) } },
             .cwd_relative => |p| .{ .cwd_relative = graph.dupePath(p) },
+            .relative => |r| .{ .relative = r },
             .generated => |gen| .{ .generated = .{
                 .index = gen.index,
                 .up = gen.up,
