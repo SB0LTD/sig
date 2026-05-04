@@ -695,6 +695,9 @@ const PosixThreadImpl = struct {
             .linux => {
                 return LinuxThreadImpl.getCpuCount();
             },
+            .emscripten => {
+                return @as(usize, @intCast(std.os.emscripten.emscripten_num_logical_cores()));
+            },
             .openbsd => {
                 var count: c_int = undefined;
                 var count_size: usize = @sizeOf(c_int);
