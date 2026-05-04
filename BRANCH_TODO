@@ -65,3 +65,7 @@ closes #31397
 +    const fmt_include_paths = b.pathList(&.{ "lib", "src", "test", "tools", "build.zig", "build.zig.zon" });
 +    const fmt_exclude_paths = b.pathList(&.{ "test/cases", "test/behavior/zon" });
 ```
+
+### std.Build API
+
+* `b.build_root` (Directory) -> `b.root` (Path)

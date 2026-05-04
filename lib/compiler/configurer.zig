@@ -39,6 +39,11 @@ pub fn main(init: process.Init.Minimal) !void {
 
     const args = try init.args.toSlice(arena);
 
+    var arg_i: usize = 1; // Skip own executable name.
+
+    const zig_exe = expectArgOrFatal(args, &arg_i, "--zig");
+    const build_root_sub_path = expectArgOrFatal(args, &arg_i, "--build-root");
+
     var graph: std.Build.Graph = .{
         .io = io,
         .arena = arena,
@@ -49,6 +54,7 @@ pub fn main(init: process.Init.Minimal) !void {
             .result = try std.zig.system.resolveTargetQuery(io, .{}),
         },
         .generated_files = .empty,
+        .zig_exe = zig_exe,
 
         // Created before running the user's configure script so that some things
         // can be added during script execution such as strings.
@@ -61,10 +67,6 @@ pub fn main(init: process.Init.Minimal) !void {
     };
     assert(try graph.wip_configuration.addString("") == .empty);
     assert(try graph.wip_configuration.addString("root") == .root);
-
-    var arg_i: usize = 1; // Skip own executable name.
-
-    const build_root_sub_path = expectArgOrFatal(args, &arg_i, "--build-root");
 
     const cwd: Io.Dir = .cwd();
 

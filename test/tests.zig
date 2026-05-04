@@ -2890,7 +2890,7 @@ pub fn addCases(
 
     var cases = @import("src/Cases.zig").init(gpa, arena, io);
 
-    var dir = try b.build_root.handle.openDir(io, "test/cases", .{ .iterate = true });
+    var dir = try b.root.openDir(io, "test/cases", .{ .iterate = true });
     defer dir.close(io);
 
     cases.addFromDir(dir, b);
@@ -2948,7 +2948,7 @@ pub fn addIncrementalTests(b: *std.Build, test_step: *Step, test_filters: []cons
         }),
     });
 
-    var dir = try b.build_root.handle.openDir(io, "test/incremental", .{ .iterate = true });
+    var dir = try b.root.openDir(io, "test/incremental", .{ .iterate = true });
     defer dir.close(io);
 
     var it = try dir.walk(b.graph.arena);

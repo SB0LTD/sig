@@ -4982,6 +4982,7 @@ fn cmdBuild(
     _ = make_argv.addOneAssumeCapacity(); // maker executable
 
     make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--zig", self_exe_path };
+    configure_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--zig", self_exe_path };
 
     make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--zig-lib-dir", undefined };
     const argv_index_zig_lib_dir = make_argv.items.len - 1;

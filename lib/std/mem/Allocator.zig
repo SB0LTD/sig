@@ -169,7 +169,7 @@ pub fn create(a: Allocator, comptime T: type) Error!*T {
         const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), @alignOf(T));
         return @ptrFromInt(ptr);
     }
-    const ptr: *T = @ptrCast(try a.allocBytesWithAlignment(.of(T), @sizeOf(T), @returnAddress()));
+    const ptr: *T = @ptrCast(try a.allocBytesAligned(.of(T), @sizeOf(T), @returnAddress()));
     return ptr;
 }
 
@@ -285,10 +285,10 @@ fn allocWithSizeAndAlignment(
     return_address: usize,
 ) Error![*]align(alignment.toByteUnits()) u8 {
     const byte_count = math.mul(usize, size, n) catch return error.OutOfMemory;
-    return self.allocBytesWithAlignment(alignment, byte_count, return_address);
+    return self.allocBytesAligned(alignment, byte_count, return_address);
 }
 
-fn allocBytesWithAlignment(
+pub fn allocBytesAligned(
     self: Allocator,
     comptime alignment: Alignment,
     byte_count: usize,

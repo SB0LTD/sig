@@ -80,6 +80,7 @@ pub const Graph = struct {
     arena: Allocator,
     system_integration_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
+    zig_exe: []const u8,
     environ_map: process.Environ.Map,
     needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .empty,
     /// Information about the native target. Computed before build() is invoked.
@@ -143,10 +144,7 @@ pub const Graph = struct {
     /// Allocates using the global process arena, failing the build on
     /// allocation failure.
     pub fn create(graph: *const Graph, comptime T: type) *T {
-        return if (@sizeOf(T) == 0)
-            comptime @ptrFromInt(mem.alignBackward(usize, std.math.maxInt(usize), @alignOf(T)))
-        else
-            @ptrCast(graph.arena.allocBytesWithAlignment(.of(T), @sizeOf(T), @returnAddress()) catch @panic("OOM"));
+        return @ptrCast(graph.arena.allocBytesAligned(.of(T), @sizeOf(T), @returnAddress()) catch @panic("OOM"));
     }
 };
 
