@@ -882,6 +882,7 @@ pub extern "c" fn emscripten_hide_mouse() void;
 pub extern "c" fn emscripten_set_canvas_size(width: c_int, height: c_int) void;
 pub extern "c" fn emscripten_get_canvas_size(width: *c_int, height: *c_int, isFullscreen: *c_int) void;
 pub extern "c" fn emscripten_get_now() f64;
+pub extern "c" fn emscripten_num_logical_cores() c_int;
 pub extern "c" fn emscripten_random() f32;
 pub const em_idb_onload_func = ?*const fn (?*anyopaque, ?*anyopaque, c_int) callconv(.c) void;
 pub extern "c" fn emscripten_idb_async_load(db_name: [*:0]const u8, file_id: [*:0]const u8, arg: ?*anyopaque, onload: em_idb_onload_func, onerror: em_arg_callback_func) void;
