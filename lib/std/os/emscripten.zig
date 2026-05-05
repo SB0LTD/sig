@@ -467,8 +467,8 @@ pub const SHUT = struct {
 pub const SIG = linux.SIG;
 
 pub const Sigaction = extern struct {
-    pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+    pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+    pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -484,7 +484,7 @@ pub fn sigemptyset() sigset_t {
     return @splat(0);
 }
 pub const siginfo_t = extern struct {
-    signo: i32,
+    signo: SIG,
     errno: i32,
     code: i32,
     fields: siginfo_fields_union,

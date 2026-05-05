@@ -2610,7 +2610,8 @@ pub const SHUT = switch (native_os) {
 
 /// Signal types
 pub const SIG = switch (native_os) {
-    .linux, .emscripten => linux.SIG,
+    .linux => linux.SIG,
+    .emscripten => emscripten.SIG,
     .windows => enum(u32) {
         /// interrupt
         INT = 2,
