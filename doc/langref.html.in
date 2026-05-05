@@ -1459,7 +1459,15 @@ a >>= b{#endsyntax#}</pre></td>
           </td>
           <td>
             <ul>
-              <li>Moves all bits to the right, inserting zeroes at the most-significant bit.</li>
+              <li>When LHS is unsigned, performs a <strong>logical
+              shift</strong>, moving all bits to the right, inserting zeroes at
+              the most-significant bit.</li>
+
+              <li>When LHS is signed, performs an <strong>arithmetic
+              shift</strong>, moving all bits to the right, inserting ones at
+              the most-significant bit if and only if the most significant bit
+              is one.</li>
+
               <li>{#syntax#}b{#endsyntax#} must be
                 {#link|comptime-known|comptime#} or have a type with log2 number
                 of bits as {#syntax#}a{#endsyntax#}.</li>
