@@ -54,9 +54,6 @@ pub const VTable = struct {
     /// If it returns `null` it means `result` has been already populated and
     /// `await` will be a no-op.
     ///
-    /// When this function returns non-null, the implementation guarantees that
-    /// a unit of concurrency has been assigned to the returned task.
-    ///
     /// Thread-safe.
     async: *const fn (
         /// Corresponds to `Io.userdata`.
@@ -111,10 +108,6 @@ pub const VTable = struct {
         result_alignment: std.mem.Alignment,
     ) void,
 
-    /// When this function returns, implementation guarantees that `start` has
-    /// either already been called, or a unit of concurrency has been assigned
-    /// to the task of calling the function.
-    ///
     /// Thread-safe.
     groupAsync: *const fn (
         /// Corresponds to `Io.userdata`.
@@ -1251,8 +1244,11 @@ pub const Group = struct {
     /// cancelation propagation boundary.
     ///
     /// Once this function is called, there are resources associated with the
-    /// group. To release those resources, `Group.await` or `Group.cancel` must
-    /// eventually be called.
+    /// group. To release those resources, `await` or `cancel` must eventually
+    /// be called.
+    ///
+    /// `function` is not guaranteed to have been called until `await` or
+    /// `cancel` is called.
     pub fn async(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
         const Args = @TypeOf(args);
         const TypeErased = struct {
@@ -1290,6 +1286,9 @@ pub const Group = struct {
     /// will also cause `error.Canceled` to be returned when the group
     /// does ultimately finish.
     ///
+    /// After this function returns, all tasks of the `Group` created with
+    /// `async` or `concurrent` are guaranteed to have run.
+    ///
     /// Idempotent. Not threadsafe.
     ///
     /// It is safe to call this function concurrently with `Group.async` or
@@ -1303,6 +1302,9 @@ pub const Group = struct {
 
     /// Equivalent to `await` but immediately requests cancelation on all
     /// members of the group.
+    ///
+    /// After this function returns, all tasks of the `Group` created with
+    /// `async` or `concurrent` are guaranteed to have run.
     ///
     /// For a description of cancelation and cancelation points, see `Future.cancel`.
     ///
