@@ -792,25 +792,6 @@ const module_test_targets = blk: {
             .skip_modules = &.{"std"},
             .extra_target = true,
         },
-        .{
-            .target = .{
-                .cpu_arch = .powerpc,
-                .os_tag = .linux,
-                .abi = .gnueabi,
-            },
-            .link_libc = true,
-            .extra_target = true,
-        },
-        .{
-            .target = .{
-                .cpu_arch = .powerpc,
-                .os_tag = .linux,
-                .abi = .gnueabihf,
-            },
-            .link_libc = true,
-            // https://github.com/ziglang/zig/issues/2256
-            .skip_modules = &.{"std"},
-        },
 
         .{
             .target = .{

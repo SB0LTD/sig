@@ -190,8 +190,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .powerpc, .os_tag = .haiku, .abi = .eabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .linux, .abi = .eabi },
     .{ .cpu_arch = .powerpc, .os_tag = .linux, .abi = .eabihf },
-    .{ .cpu_arch = .powerpc, .os_tag = .linux, .abi = .gnueabi },
-    .{ .cpu_arch = .powerpc, .os_tag = .linux, .abi = .gnueabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .linux, .abi = .musleabi },
     .{ .cpu_arch = .powerpc, .os_tag = .linux, .abi = .musleabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .netbsd, .abi = .eabi },
