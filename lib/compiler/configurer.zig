@@ -861,7 +861,12 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                     },
                     .install_dir => @panic("TODO"),
                     .remove_dir => @panic("TODO"),
-                    .fail => @panic("TODO"),
+                    .fail => e: {
+                        const sf: *Step.Fail = @fieldParentPtr("step", step);
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.Fail, .{
+                            .msg = sf.error_msg,
+                        })));
+                    },
                     .find_program => @panic("TODO"),
                     .fmt => @panic("TODO"),
                     .translate_c => @panic("TODO"),

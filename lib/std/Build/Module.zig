@@ -145,14 +145,13 @@ pub const RcSourceFile = struct {
     /// as `/I <resolved path>`.
     include_paths: []const LazyPath = &.{},
 
-    pub fn dupe(file: RcSourceFile, b: *std.Build) RcSourceFile {
-        const graph = b.owner.graph;
+    pub fn dupe(file: RcSourceFile, graph: *const std.Build.Graph) RcSourceFile {
         const arena = graph.arena;
         const include_paths = arena.alloc(LazyPath, file.include_paths.len) catch @panic("OOM");
         for (include_paths, file.include_paths) |*dest, lazy_path| dest.* = lazy_path.dupe(graph);
         return .{
             .file = file.file.dupe(graph),
-            .flags = b.dupeStrings(file.flags),
+            .flags = graph.dupeStrings(file.flags),
             .include_paths = include_paths,
         };
     }

@@ -27,8 +27,11 @@
   - but artifact install steps also add paths for dyn libs on windows
 * no more "artifact arg" to run step. if you want to run the post-install binary, get the lazy path
   from the install step.
-* build system fmt step with check=false does not acquire a write lock on source files #35204 
 * fmt step: import zig fmt code directly rather than child proc
+
+## Already Filed Followup Issues
+* build system fmt step with check=false does not acquire a write lock on source files #35204 
+* enhance CheckFile step output when there is not a match #35208
 
 ## Release Notes
 

@@ -2433,8 +2433,10 @@ pub fn addCliTests(b: *std.Build) *Step {
         });
         run_test.addArg("--build-file");
         run_test.addFileArg(b.path("test/cli/options/build.zig"));
+
         run_test.addArg("--cache-dir");
-        run_test.addFileArg(.{ .cwd_relative = b.cache_root.join(b.allocator, &.{}) catch @panic("OOM") });
+        run_test.addFileArg(.cache_root);
+
         run_test.setName("test build options");
 
         step.dependOn(&run_test.step);
@@ -2966,10 +2968,11 @@ pub fn addIncrementalTests(b: *std.Build, test_step: *Step, test_filters: []cons
 
             run.addArg(b.graph.zig_exe);
             run.addFileArg(b.path("test/incremental/").path(b, entry.path));
-            run.addArgs(&.{
-                "--zig-lib-dir", b.graph.zig_lib_directory.path orelse ".",
-                "--target",      target_str,
-            });
+
+            run.addArg("--zig-lib-dir");
+            run.addFileArg(.zig_lib);
+
+            run.addArgs(&.{ "--target", target_str });
 
             run.addArg("--quiet"); // don't fill stderr telling us about skipped tests etc
 

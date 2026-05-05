@@ -1,35 +1,25 @@
 //! Fail the build with a given message.
-const std = @import("std");
-const Step = std.Build.Step;
 const Fail = @This();
 
+const std = @import("std");
+const Step = std.Build.Step;
+const Configuration = std.Build.Configuration;
+
 step: Step,
-error_msg: []const u8,
+error_msg: Configuration.String,
 
 pub const base_tag: Step.Tag = .fail;
 
 pub fn create(owner: *std.Build, error_msg: []const u8) *Fail {
-    const fail = owner.allocator.create(Fail) catch @panic("OOM");
-
+    const graph = owner.graph;
+    const fail = graph.create(Fail);
     fail.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .tag = base_tag,
             .name = "fail",
             .owner = owner,
-            .makeFn = make,
         }),
-        .error_msg = owner.dupe(error_msg),
+        .error_msg = graph.addString(error_msg),
     };
-
     return fail;
-}
-
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    _ = options; // No progress to report.
-
-    const fail: *Fail = @fieldParentPtr("step", step);
-
-    try step.result_error_msgs.append(step.owner.allocator, fail.error_msg);
-
-    return error.MakeFailed;
 }

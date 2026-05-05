@@ -1011,10 +1011,17 @@ pub const Step = extern struct {
 
     pub const CheckFile = struct {
         flags: @This().Flags,
+        file: LazyPath.Index,
+        expected_exact: Storage.FlagOptional(.flags, .expected_exact, Bytes),
+        expected_matches: Storage.FlagLengthPrefixedList(.flags, .expected_matches, Bytes),
+        max_bytes: Storage.FlagOptional(.flags, .max_bytes, u32),
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .check_file,
-            _: u27 = 0,
+            expected_exact: bool,
+            expected_matches: bool,
+            max_bytes: bool,
+            _: u24 = 0,
         };
     };
 
@@ -1028,7 +1035,8 @@ pub const Step = extern struct {
     };
 
     pub const Fail = struct {
-        flags: @This().Flags,
+        flags: @This().Flags = .{},
+        msg: String,
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .fail,

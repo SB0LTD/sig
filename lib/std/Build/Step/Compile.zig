@@ -296,7 +296,7 @@ pub const HeaderInstallation = union(enum) {
         source: LazyPath,
         dest_rel_path: []const u8,
 
-        pub fn dupe(file: File, graph: *std.Build.Graph) File {
+        pub fn dupe(file: File, graph: *const std.Build.Graph) File {
             return .{
                 .source = file.source.dupe(graph),
                 .dest_rel_path = graph.dupePath(file.dest_rel_path),
@@ -317,7 +317,7 @@ pub const HeaderInstallation = union(enum) {
             /// `exclude_extensions` takes precedence over `include_extensions`.
             include_extensions: ?[]const []const u8 = &.{".h"},
 
-            pub fn dupe(opts: Directory.Options, graph: *std.Build.Graph) Directory.Options {
+            pub fn dupe(opts: Directory.Options, graph: *const std.Build.Graph) Directory.Options {
                 return .{
                     .exclude_extensions = graph.dupeStrings(opts.exclude_extensions),
                     .include_extensions = if (opts.include_extensions) |incs| graph.dupeStrings(incs) else null,
@@ -325,11 +325,11 @@ pub const HeaderInstallation = union(enum) {
             }
         };
 
-        pub fn dupe(dir: Directory, b: *std.Build) Directory {
+        pub fn dupe(dir: Directory, graph: *const std.Build.Graph) Directory {
             return .{
-                .source = dir.source.dupe(b),
-                .dest_rel_path = b.dupePath(dir.dest_rel_path),
-                .options = dir.options.dupe(b),
+                .source = dir.source.dupe(graph),
+                .dest_rel_path = graph.dupePath(dir.dest_rel_path),
+                .options = dir.options.dupe(graph),
             };
         }
     };
@@ -340,10 +340,10 @@ pub const HeaderInstallation = union(enum) {
         };
     }
 
-    pub fn dupe(installation: HeaderInstallation, b: *std.Build) HeaderInstallation {
+    pub fn dupe(installation: HeaderInstallation, graph: *const std.Build.Graph) HeaderInstallation {
         return switch (installation) {
-            .file => |f| .{ .file = f.dupe(b) },
-            .directory => |d| .{ .directory = d.dupe(b) },
+            .file => |f| .{ .file = f.dupe(graph) },
+            .directory => |d| .{ .directory = d.dupe(graph) },
         };
     }
 };

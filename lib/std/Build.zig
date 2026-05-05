@@ -146,6 +146,22 @@ pub const Graph = struct {
     pub fn create(graph: *const Graph, comptime T: type) *T {
         return @ptrCast(graph.arena.allocBytesAligned(.of(T), @sizeOf(T), @returnAddress()) catch @panic("OOM"));
     }
+
+    pub fn addBytesList(graph: *Graph, bytes_list: []const []const u8) []const Configuration.Bytes {
+        const result = graph.alloc(Configuration.Bytes, bytes_list.len);
+        for (result, bytes_list) |*d, s| d.* = addBytes(graph, s);
+        return result;
+    }
+
+    pub fn addBytes(graph: *Graph, bytes: []const u8) Configuration.Bytes {
+        const wc = &graph.wip_configuration;
+        return wc.addBytes(bytes) catch @panic("OOM");
+    }
+
+    pub fn addString(graph: *Graph, bytes: []const u8) Configuration.String {
+        const wc = &graph.wip_configuration;
+        return wc.addString(bytes) catch @panic("OOM");
+    }
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -530,12 +546,16 @@ const OrderedUserValue = union(enum) {
                 hasher.update(sp.sub_path);
             },
             .generated => |gen| {
-                hasher.update(std.mem.asBytes(&gen.index));
-                hasher.update(std.mem.asBytes(&gen.up));
+                hasher.update(@ptrCast(&gen.index));
+                hasher.update(@ptrCast(&gen.up));
                 hasher.update(gen.sub_path);
             },
             .cwd_relative => |rel_path| {
                 hasher.update(rel_path);
+            },
+            .relative => |r| {
+                hasher.update(@ptrCast(&r.base));
+                hasher.update(@ptrCast(&r.sub_path));
             },
             .dependency => |dep| {
                 hasher.update(dep.dependency.builder.pkg_hash);
@@ -1824,16 +1844,19 @@ inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, c
         if (@hasDecl(pkg, "build_zig") and pkg.build_zig == asking_build_zig) break .{ pkg_hash, pkg.deps };
     } else .{ "", deps.root_deps };
     if (!std.mem.eql(u8, b_pkg_hash, b.pkg_hash)) {
-        panic("'{}' is not the struct that corresponds to '{s}'", .{
-            asking_build_zig, b.pathFromRoot("build.zig"),
+        const build_zig_path = b.root.join("build.zig") catch @panic("OOM");
+        panic("{} is not the struct that corresponds to {f}", .{
+            asking_build_zig, build_zig_path,
         });
     }
     comptime for (b_pkg_deps) |dep| {
         if (std.mem.eql(u8, dep[0], dep_name)) return dep[1];
     };
 
-    const full_path = b.pathFromRoot("build.zig.zon");
-    panic("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file", .{ dep_name, full_path });
+    const full_path = b.root.join("build.zig.zon") catch @panic("OOM");
+    panic("no dependency named {s} in {f}. All packages used in build.zig must be declared in this file", .{
+        dep_name, full_path,
+    });
 }
 
 fn markNeededLazyDep(b: *Build, pkg_hash: []const u8) void {
@@ -1935,6 +1958,8 @@ pub fn dependencyFromBuildZig(
 ) *Dependency {
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
+    const graph = b.graph;
+    const arena = graph.arena;
 
     find_dep: {
         const pkg, const pkg_hash = inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
@@ -1948,8 +1973,8 @@ pub fn dependencyFromBuildZig(
         return dependencyInner(b, dep_name, pkg.build_root, pkg.build_zig, pkg_hash, pkg.deps, args);
     }
 
-    const full_path = b.pathFromRoot("build.zig.zon");
-    panic("'{}' is not a build.zig struct of a dependency in '{s}'", .{ build_zig, full_path });
+    const full_path = b.root.join(arena, "build.zig.zon") catch @panic("OOM");
+    panic("{} is not a build.zig struct of a dependency in {f}", .{ build_zig, full_path });
 }
 
 fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
@@ -2024,6 +2049,7 @@ fn userLazyPathsAreTheSame(lhs_lp: LazyPath, rhs_lp: LazyPath) bool {
 
             if (!std.mem.eql(u8, lhs_rel_path, rhs_rel_path)) return false;
         },
+        .relative => |lhs| return lhs.eql(rhs_lp.relative),
         .dependency => |lhs_dep| {
             const rhs_dep = rhs_lp.dependency;
 
@@ -2150,6 +2176,10 @@ pub const LazyPath = union(enum) {
     relative: struct {
         base: Configuration.Path.Base,
         sub_path: Configuration.String = .empty,
+
+        pub fn eql(a: @This(), b: @This()) bool {
+            return a.base == b.base and a.sub_path == b.sub_path;
+        }
     },
 
     /// Path to the Zig executable being used to execute "zig build".
@@ -2177,11 +2207,11 @@ pub const LazyPath = union(enum) {
                 },
             } },
             .generated => |generated| .{ .generated = if (dirnameAllowEmpty(generated.sub_path)) |sub_dirname| .{
-                .file = generated.file,
+                .index = generated.index,
                 .up = generated.up,
                 .sub_path = sub_dirname,
             } else .{
-                .file = generated.file,
+                .index = generated.index,
                 .up = generated.up + 1,
                 .sub_path = "",
             } },
@@ -2207,6 +2237,9 @@ pub const LazyPath = union(enum) {
                         @panic("misconfigured build script");
                     }
                 },
+            },
+            .relative => .{
+                .relative = @panic("TODO"),
             },
             .dependency => |dep| .{ .dependency = .{
                 .dependency = dep.dependency,
@@ -2238,6 +2271,9 @@ pub const LazyPath = union(enum) {
             } },
             .cwd_relative => |cwd_relative| .{
                 .cwd_relative = try fs.path.resolve(arena, &.{ cwd_relative, sub_path }),
+            },
+            .relative => .{
+                .relative = @panic("TODO"),
             },
             .dependency => |dep| .{ .dependency = .{
                 .dependency = dep.dependency,

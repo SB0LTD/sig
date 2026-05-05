@@ -69,7 +69,7 @@ pub const Extended = union(enum) {
     check_file: Todo,
     compile: Compile,
     config_header: Todo,
-    fail: Todo,
+    fail: Fail,
     find_program: Todo,
     fmt: Todo,
     install_artifact: InstallArtifact,
@@ -131,6 +131,27 @@ pub const Extended = union(enum) {
             _ = step_index;
             _ = maker;
             _ = progress_node;
+        }
+    };
+
+    pub const Fail = struct {
+        pub fn make(
+            this: *@This(),
+            step_index: Configuration.Step.Index,
+            maker: *Maker,
+            progress_node: std.Progress.Node,
+        ) Step.ExtendedMakeError!void {
+            _ = this;
+            _ = progress_node;
+            const graph = maker.graph;
+            const arena = graph.arena; // TODO don't leak into the process arena
+            const conf = &maker.scanned_config.configuration;
+            const step = maker.stepByIndex(step_index);
+            const conf_step = step_index.ptr(conf);
+            const conf_fail = conf_step.extended.get(conf.extra).fail;
+
+            try step.result_error_msgs.append(arena, conf_fail.msg.slice(conf));
+            return error.MakeFailed;
         }
     };
 };
