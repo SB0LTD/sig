@@ -956,7 +956,7 @@ const Thread = struct {
             comptime assert(builtin.cpu.has(.wasm, .atomics));
             // TODO implement cancelation for WASM futex waits by signaling the futex
             if (!uncancelable) try Thread.checkCancel();
-            const to: i64 = if (timeout_ns) |ns| ns else -1;
+            const to: i64 = if (timeout_ns) |ns| std.math.cast(i64, ns) orelse std.math.maxInt(i64) else -1;
             const signed_expect: i32 = @bitCast(expect);
             const result = asm volatile (
                 \\local.get %[ptr]
