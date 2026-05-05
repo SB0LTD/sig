@@ -2415,6 +2415,32 @@ fn failWithModRemNegative(sema: *Sema, block: *Block, src: LazySrcLoc, lhs_ty: T
     });
 }
 
+fn failWithInvalidSwitchTagCapture(sema: *Sema, block: *Block, tag_capture_src: LazySrcLoc, operand_ty: Type) CompileError {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+
+    if (operand_ty.zigTypeTag(zcu) == .@"union") {
+        assert(operand_ty.containerLayout(zcu) == .@"packed");
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(tag_capture_src, "cannot capture tag of packed union", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.addDeclaredHereNote(msg, operand_ty);
+            if (operand_ty.srcLocOrNull(zcu)) |ty_src| {
+                try sema.errNote(ty_src, msg, "consider using a tagged union", .{});
+            }
+            break :msg msg;
+        });
+    }
+    return sema.failWithOwnedErrorMsg(block, msg: {
+        const msg = try sema.errMsg(tag_capture_src, "cannot capture tag of non-union type '{f}'", .{
+            operand_ty.fmt(pt),
+        });
+        errdefer msg.destroy(sema.gpa);
+        try sema.addDeclaredHereNote(msg, operand_ty);
+        break :msg msg;
+    });
+}
+
 fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, non_optional_ty: Type) CompileError {
     const pt = sema.pt;
     const msg = msg: {
@@ -10022,7 +10048,7 @@ fn analyzeSwitchBlock(
 
         const case_vals = validated_switch.case_vals;
 
-        const body, const capture, const has_tag_capture = find_prong: {
+        const case_idx, const body, const capture, const has_tag_capture = find_prong: {
             var case_val_idx: usize = 0;
             var case_it = zir_switch.iterateCases();
             var extra_index = zir_switch.end;
@@ -10045,12 +10071,12 @@ fn analyzeSwitchBlock(
                     }
                     continue;
                 }
-                break :find_prong .{ prong_body, prong_info.capture, prong_info.has_tag_capture };
+                break :find_prong .{ case.index, prong_body, prong_info.capture, prong_info.has_tag_capture };
             }
             if (has_else) {
                 // This *has* to be checked after iterating all regular cases because
                 // we allow simple noreturn else prongs when switching on error sets!
-                break :find_prong .{ else_case.body, else_case.capture, else_case.has_tag_capture };
+                break :find_prong .{ else_case.index, else_case.body, else_case.capture, else_case.has_tag_capture };
             }
             unreachable; // malformed validated switch
         };
@@ -10095,6 +10121,13 @@ fn analyzeSwitchBlock(
 
             const tag_inst: Zir.Inst.Index = if (has_tag_capture) inst: {
                 const tag_inst = zir_switch.tag_capture_placeholder.unwrap() orelse switch_inst;
+                if (!tagged_union_originally) {
+                    const tag_capture_src = block.src(.{ .switch_tag_capture = .{
+                        .switch_node_offset = src_node_offset,
+                        .case_idx = case_idx,
+                    } });
+                    return sema.failWithInvalidSwitchTagCapture(block, tag_capture_src, operand_ty);
+                }
                 sema.inst_map.putAssumeCapacity(tag_inst, .fromValue(item_opv));
                 break :inst tag_inst;
             } else undefined;
@@ -11963,26 +11996,7 @@ fn analyzeSwitchCaptures(
             .base_node_inst = capture_src.base_node_inst,
             .offset = .{ .switch_tag_capture = capture_src.offset.switch_capture },
         };
-        if (operand_ty.zigTypeTag(zcu) == .@"union") {
-            assert(operand_ty.containerLayout(zcu) == .@"packed");
-            return sema.failWithOwnedErrorMsg(case_block, msg: {
-                const msg = try sema.errMsg(tag_capture_src, "cannot capture tag of packed union", .{});
-                errdefer msg.destroy(sema.gpa);
-                try sema.addDeclaredHereNote(msg, operand_ty);
-                if (operand_ty.srcLocOrNull(zcu)) |ty_src| {
-                    try sema.errNote(ty_src, msg, "consider using a tagged union", .{});
-                }
-                break :msg msg;
-            });
-        }
-        return sema.failWithOwnedErrorMsg(case_block, msg: {
-            const msg = try sema.errMsg(tag_capture_src, "cannot capture tag of non-union type '{f}'", .{
-                operand_ty.fmt(pt),
-            });
-            errdefer msg.destroy(sema.gpa);
-            try sema.addDeclaredHereNote(msg, operand_ty);
-            break :msg msg;
-        });
+        return sema.failWithInvalidSwitchTagCapture(case_block, tag_capture_src, operand_ty);
     }
 
     return .{ .payload_ref = payload_ref, .tag_ref = .none };
