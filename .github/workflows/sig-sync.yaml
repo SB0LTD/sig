@@ -5,6 +5,10 @@ on:
     types: [upstream-push]
   workflow_dispatch:
 
+concurrency:
+  group: sig-sync
+  cancel-in-progress: true
+
 permissions:
   contents: write
   actions: write
