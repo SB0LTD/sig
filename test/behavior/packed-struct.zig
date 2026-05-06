@@ -1240,3 +1240,9 @@ test "packed struct store of comparison result" {
     try expect(result2.a);
     try expect(!result2.b);
 }
+
+test "initialize packed struct field to undefined at comptime" {
+    const S = packed struct(u8) { x: u8 };
+    const val: S = .{ .x = undefined };
+    _ = val;
+}
