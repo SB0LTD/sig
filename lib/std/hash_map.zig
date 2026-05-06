@@ -1271,7 +1271,7 @@ pub fn HashMapUnmanaged(
             // map, which is assumed to exist as key_ptr must be valid.  This
             // item must be at index 0.
             const idx = if (@sizeOf(K) > 0)
-                (key_ptr - self.keys())
+                @as([*]K, @ptrCast(key_ptr)) - self.keys()
             else
                 0;
 
@@ -2174,4 +2174,23 @@ test "rehash" {
             try expectEqual(map.get(i).?, i);
         }
     }
+}
+
+test "removeByPtr, key is array" {
+    const gpa = testing.allocator;
+
+    var map: AutoHashMapUnmanaged([2]u32, u32) = .empty;
+    defer map.deinit(gpa);
+
+    const key: [2]u32 = .{ 1, 2 };
+    try map.put(gpa, key, 3);
+
+    try expectEqual(1, map.count());
+    try expectEqual(3, map.get(key));
+
+    const key_ptr = map.getKeyPtr(key).?;
+    map.removeByPtr(key_ptr);
+
+    try expectEqual(0, map.count());
+    try expectEqual(null, map.get(key));
 }
