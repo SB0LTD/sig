@@ -21,6 +21,8 @@
 
 #if defined(__aarch64__) || (defined(zig_msvc) && defined(_M_ARM64))
 #define zig_aarch64
+#elif defined(__alpha__)
+#define zig_alpha
 #elif defined(__thumb__) || (defined(zig_msvc) && defined(_M_ARM))
 #define zig_thumb
 #define zig_arm
@@ -36,6 +38,10 @@
 #elif defined(__loongarch64)
 #define zig_loongarch64
 #define zig_loongarch
+#elif defined(__m68k__)
+#define zig_m68k
+#elif defined(__m88k__)
+#define zig_m88k
 #elif defined(__mips64)
 #define zig_mips64
 #define zig_mips
@@ -79,6 +85,8 @@
 #elif defined(__I86__)
 #define zig_x86_16
 #define zig_x86
+#elif defined(__xtensa__)
+#define zig_xtensa
 #elif defined (__ez80)
 #define zig_ez80
 #define zig_z80
@@ -390,7 +398,9 @@
 
 #elif defined(zig_gnuc_asm)
 
-#if defined(zig_thumb)
+#if defined(zig_alpha)
+#define zig_trap() __asm__ volatile("call_pal 0x000000")
+#elif defined(zig_thumb)
 #define zig_trap() __asm__ volatile("udf #0xfe")
 #elif defined(zig_arm) || defined(zig_aarch64)
 #define zig_trap() __asm__ volatile("udf #0xfdee")
@@ -398,6 +408,10 @@
 #define zig_trap() __asm__ volatile("r27:26 = memd(#0xbadc0fee)")
 #elif defined(zig_kvx) || defined(zig_loongarch) || defined(zig_powerpc)
 #define zig_trap() __asm__ volatile(".word 0x0")
+#elif defined(zig_m68k)
+#define zig_trap() __asm__ volatile("illegal")
+#elif defined(zig_m88k)
+#define zig_trap() __asm__ volatile("tb0 0, %%r0, 511")
 #elif defined(zig_mips)
 #define zig_trap() __asm__ volatile(".word 0x3d")
 #elif defined(zig_or1k)
@@ -412,6 +426,8 @@
 #define zig_trap() __asm__ volatile("int $0x3")
 #elif defined(zig_x86)
 #define zig_trap() __asm__ volatile("ud2")
+#elif defined(zig_xtensa)
+#define zig_trap() __asm__ volatile("ill")
 #elif defined(zig_z80)
 #define zig_trap() __asm__ volatile("rst 00h")
 #else
@@ -428,7 +444,9 @@
 #define zig_breakpoint() __debugbreak()
 #elif defined(zig_gnuc_asm)
 
-#if defined(zig_arm)
+#if defined(zig_alpha)
+#define zig_breakpoint() __asm__ volatile("call_pal 0x000080")
+#elif defined(zig_arm)
 #define zig_breakpoint() __asm__ volatile("bkpt #0x0")
 #elif defined(zig_aarch64)
 #define zig_breakpoint() __asm__ volatile("brk #0xf000")
@@ -436,6 +454,8 @@
 #define zig_breakpoint() __asm__ volatile("brkpt")
 #elif defined(zig_kvx) || defined(zig_loongarch)
 #define zig_breakpoint() __asm__ volatile("break 0x0")
+#elif defined(zig_m88k)
+#define zig_breakpoint() __asm__ volatile("illop1")
 #elif defined(zig_mips)
 #define zig_breakpoint() __asm__ volatile("break")
 #elif defined(zig_or1k)
@@ -450,6 +470,8 @@
 #define zig_breakpoint() __asm__ volatile("ta 0x1")
 #elif defined(zig_x86)
 #define zig_breakpoint() __asm__ volatile("int $0x3")
+#elif defined(zig_xtensa)
+#define zig_breakpoint() __asm__ volatile("break 1, 1")
 #else
 #define zig_breakpoint() zig_breakpoint_unavailable
 #endif
