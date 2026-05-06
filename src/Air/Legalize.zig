@@ -853,14 +853,24 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                     .@"union" => unreachable,
                     .@"struct" => switch (agg_ty.containerLayout(zcu)) {
                         .auto, .@"extern" => {},
-                        .@"packed" => switch (agg_ty.structFieldCount(zcu)) {
-                            0 => unreachable,
-                            // An `aggregate_init` of a packed struct with 1 field is just a fancy bitcast.
-                            1 => continue :inst l.replaceInst(inst, .bitcast, .{ .ty_op = .{
-                                .ty = .fromType(agg_ty),
-                                .operand = @enumFromInt(l.air_extra.items[ty_pl.payload]),
-                            } }),
-                            else => continue :inst l.replaceInst(inst, .block, try l.packedAggregateInitBlockPayload(inst)),
+                        .@"packed" => {
+                            // If any field accounts for the full bit size of the struct, this init
+                            // is just equivalent to a bitcast of that field. This usually means the
+                            // field count is 1, but not always, as there could be zero-bit fields.
+                            const struct_bits = agg_ty.bitSize(zcu);
+                            for (0..agg_ty.structFieldCount(zcu)) |field_index| {
+                                const field_bits = agg_ty.fieldType(field_index, zcu).bitSize(zcu);
+                                if (field_bits == struct_bits) {
+                                    // Just bitcast this field.
+                                    continue :inst l.replaceInst(inst, .bitcast, .{ .ty_op = .{
+                                        .ty = .fromType(agg_ty),
+                                        .operand = @enumFromInt(l.air_extra.items[ty_pl.payload + field_index]),
+                                    } });
+                                }
+                            }
+                            // Otherwise, we will need to use a sequence of bitcasts and shifts to
+                            // combine multiple values' bits.
+                            continue :inst l.replaceInst(inst, .block, try l.packedAggregateInitBlockPayload(inst));
                         },
                     },
                 }
@@ -2513,8 +2523,10 @@ fn packedAggregateInitBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Erro
     while (field_idx > 0) {
         field_idx -= 1;
         const field_ty = agg_ty.fieldType(field_idx, zcu);
-        const field_uint_ty = try pt.intType(.unsigned, @intCast(field_ty.bitSize(zcu)));
-        const field_bit_size_ref: Air.Inst.Ref = .fromValue(try pt.intValue(shift_ty, field_ty.bitSize(zcu)));
+        const field_bits: u16 = @intCast(field_ty.bitSize(zcu));
+        assert(field_bits < num_bits);
+        const field_uint_ty = try pt.intType(.unsigned, field_bits);
+        const field_bit_size_ref: Air.Inst.Ref = .fromValue(try pt.intValue(shift_ty, field_bits));
         const field_val: Air.Inst.Ref = @enumFromInt(l.air_extra.items[orig_ty_pl.payload + field_idx]);
 
         const shifted = main_block.addBinOp(l, .shl_exact, cur_uint, field_bit_size_ref).toRef();

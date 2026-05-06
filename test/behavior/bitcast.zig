@@ -591,3 +591,19 @@ test "@bitCast of float to extern struct" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "@bitCast of packed struct with void field to integer" {
+    const S = packed struct(u8) {
+        v: void,
+        x: u8,
+
+        fn doTheTest(x: u8) !void {
+            // Intentionally using `@as` to avoid RLS which masks the bug
+            const foo = @as(@This(), .{ .v = {}, .x = x });
+            const as_int: u8 = @bitCast(foo);
+            try expect(as_int == x);
+        }
+    };
+    try S.doTheTest(123);
+    try comptime S.doTheTest(123);
+}
