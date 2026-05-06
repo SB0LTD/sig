@@ -6639,6 +6639,19 @@ pub fn addCCArgs(
         }
     }
 
+    if (target.cpu.arch.isPowerPC()) {
+        // We do not -- and probably never will -- support the IBM 128-bit `long double` format.
+        // LLVM and Clang also do not have complete support for it, producing wrong values in some
+        // cases. So just enforce IEEE `long double` everywhere - either binary64 or binary128
+        // depending on what the OS/ABI requires.
+        try argv.appendSlice(&.{
+            "-mabi=ieeelongdouble",
+            // Clang has some truly goofy logic for emitting warnings about the
+            // "current library" not supporting IEEE `long double`.
+            "-Wno-unsupported-abi",
+        });
+    }
+
     // We might want to support -mfloat-abi=softfp for Arm and CSKY here in the future.
     if (target_util.clangSupportsFloatAbiArg(target)) {
         const fabi = @tagName(target.abi.float());
