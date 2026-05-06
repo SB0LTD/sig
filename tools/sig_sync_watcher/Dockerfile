@@ -1,4 +1,4 @@
-ARG BOOTSTRAP_TAG=bootstrap-sig-v10
+ARG BOOTSTRAP_TAG=bootstrap-sig-v12
 
 FROM ubuntu:24.04 AS builder
 
