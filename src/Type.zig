@@ -1094,13 +1094,18 @@ pub fn abiSize(ty: Type, zcu: *const Zcu) u64 {
         },
         .opt_type => |child_ty_ip| {
             const child_ty: Type = .fromInterned(child_ty_ip);
-            if (child_ty.classify(zcu) == .no_possible_value) return 0;
-            if (ty.optionalReprIsPayload(zcu)) return child_ty.abiSize(zcu);
-            // Optional types are represented as a struct with the child type as the first
-            // field and a boolean as the second. Since the child type's abi alignment is
-            // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
-            // to the child type's ABI alignment.
-            return child_ty.abiSize(zcu) + child_ty.abiAlignment(zcu).toByteUnits().?;
+            switch (child_ty.classify(zcu)) {
+                .no_possible_value => return 0, // we are OPV
+                .fully_comptime => return 0, // we are also fully_comptime (same justification as error unions, see below)
+                .one_possible_value, .partially_comptime, .runtime => {
+                    if (ty.optionalReprIsPayload(zcu)) return child_ty.abiSize(zcu);
+                    // Optional types are represented as a struct with the child type as the first
+                    // field and a boolean as the second. Since the child type's abi alignment is
+                    // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
+                    // to the child type's ABI alignment.
+                    return child_ty.abiSize(zcu) + child_ty.abiAlignment(zcu).toByteUnits().?;
+                },
+            }
         },
         .error_set_type, .inferred_error_set_type => errorAbiSize(zcu),
         .error_union_type => |error_union| {

@@ -2301,3 +2301,16 @@ test "struct queries typeinfo of struct containing pointer back to first struct"
     };
     _ = @as(static.A, undefined);
 }
+
+test "pointer to runtime field of struct containing struct containing comptime-only optional" {
+    const Foo = struct {
+        padding: struct { a: u8, b: ?comptime_int },
+        number: u8,
+    };
+
+    const foo: Foo = .{ .padding = undefined, .number = 123 };
+
+    var ptr: *const u8 = undefined;
+    ptr = &foo.number;
+    try expect(ptr.* == 123);
+}
