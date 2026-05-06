@@ -981,6 +981,7 @@ pub fn reset(step: *Step, gpa: Allocator) void {
     step.result_peak_rss = 0;
     step.result_failed_command = null;
     step.test_results = .{};
+    step.clearWatchInputs();
 
     step.result_error_bundle.deinit(gpa);
     step.result_error_bundle = std.zig.ErrorBundle.empty;
