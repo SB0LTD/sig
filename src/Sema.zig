@@ -21154,6 +21154,16 @@ fn ptrCastFull(
             break :len if (opt_src_len) |l| .{ .constant = l } else .equal_runtime_src_slice;
         }
         if (!src_elem_ty.comptimeOnly(zcu) and !dest_elem_ty.comptimeOnly(zcu)) {
+            if (src_elem_ty.zigTypeTag(zcu) == .@"opaque") {
+                return sema.failWithOwnedErrorMsg(block, msg: {
+                    const msg = try sema.errMsg(src, "cannot infer length of slice of '{f}' from pointer to opaque type '{f}' with unknown size", .{
+                        dest_elem_ty.fmt(pt), src_elem_ty.fmt(pt),
+                    });
+                    errdefer msg.destroy(gpa);
+                    try sema.addDeclaredHereNote(msg, src_elem_ty);
+                    break :msg msg;
+                });
+            }
             const src_elem_size = src_elem_ty.abiSize(zcu);
             const dest_elem_size = dest_elem_ty.abiSize(zcu);
             if (dest_elem_size == 0) {
