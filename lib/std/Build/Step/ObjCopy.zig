@@ -6,11 +6,11 @@ const Configuration = std.Build.Configuration;
 
 step: Step,
 input_file: std.Build.LazyPath,
-basename: []const u8,
+basename: ?[]const u8,
 output_file: Configuration.GeneratedFileIndex,
 output_file_debug: Configuration.OptionalGeneratedFileIndex,
 
-format: ?RawFormat,
+format: ?Format,
 only_section: ?[]const u8,
 pad_to: ?u64,
 strip: Strip,
@@ -22,38 +22,9 @@ set_section_flags: ?SetSectionFlags,
 
 pub const base_tag: Step.Tag = .obj_copy;
 
-pub const RawFormat = enum {
-    bin,
-    hex,
-    elf,
-};
-
-pub const Strip = enum {
-    none,
-    debug,
-    debug_and_symbols,
-};
-
-pub const SectionFlags = packed struct {
-    /// add SHF_ALLOC
-    alloc: bool = false,
-    /// if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing
-    contents: bool = false,
-    /// if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing (same as contents)
-    load: bool = false,
-    /// readonly: clear default SHF_WRITE flag
-    readonly: bool = false,
-    /// add SHF_EXECINSTR
-    code: bool = false,
-    /// add SHF_EXCLUDE
-    exclude: bool = false,
-    /// add SHF_X86_64_LARGE. Fatal error if target is not x86_64
-    large: bool = false,
-    /// add SHF_MERGE
-    merge: bool = false,
-    /// add SHF_STRINGS
-    strings: bool = false,
-};
+pub const Format = enum { binary, hex, elf };
+pub const Strip = Configuration.Step.ObjCopy.Strip;
+pub const SectionFlags = Configuration.Step.ObjCopy.SectionFlags;
 
 pub const AddSection = struct {
     section_name: []const u8,
@@ -72,7 +43,7 @@ pub const SetSectionFlags = struct {
 
 pub const Options = struct {
     basename: ?[]const u8 = null,
-    format: ?RawFormat = null,
+    format: ?Format = null,
     only_section: ?[]const u8 = null,
     pad_to: ?u64 = null,
 
@@ -95,7 +66,6 @@ pub fn create(
     options: Options,
 ) *ObjCopy {
     const graph = owner.graph;
-    const arena = graph.arena;
     const obj_copy = graph.create(ObjCopy);
     obj_copy.* = .{
         .step = .init(.{
@@ -104,8 +74,7 @@ pub fn create(
             .owner = owner,
         }),
         .input_file = input_file,
-        .basename = options.basename orelse
-            std.fmt.allocPrint(arena, "{f}", .{input_file.fmt(graph)}) catch @panic("OOM"),
+        .basename = options.basename,
         .output_file = graph.addGeneratedFile(&obj_copy.step),
         .output_file_debug = if (options.strip != .none and options.extract_to_separate_file)
             .init(graph.addGeneratedFile(&obj_copy.step))

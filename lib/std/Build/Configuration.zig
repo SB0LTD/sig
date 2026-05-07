@@ -1102,10 +1102,87 @@ pub const Step = extern struct {
 
     pub const ObjCopy = struct {
         flags: @This().Flags,
+        input_file: LazyPath.Index,
+        output_file: GeneratedFileIndex,
+        basename: Storage.FlagOptional(.flags, .basename, String),
+        debug_file: Storage.FlagOptional(.flags, .debug_file, GeneratedFileIndex),
+        debug_basename: Storage.FlagOptional(.flags, .debug_basename, String),
+        only_section: Storage.FlagOptional(.flags, .only_section, String),
+        pad_to: Storage.FlagOptional(.flags, .pad_to, u64),
+        add_section: Storage.FlagLengthPrefixedList(.flags, .add_section, AddSection),
+        update_section: Storage.FlagLengthPrefixedList(.flags, .update_section, UpdateSection),
+
+        pub const Format = enum(u2) {
+            binary,
+            hex,
+            elf,
+            default,
+
+            pub fn init(f: ?std.Build.Step.ObjCopy.Format) @This() {
+                return switch (f orelse return .default) {
+                    .binary => .binary,
+                    .hex => .hex,
+                    .elf => .elf,
+                };
+            }
+        };
+
+        pub const Strip = enum(u2) {
+            none,
+            debug,
+            debug_and_symbols,
+        };
+
+        pub const AddSection = extern struct {
+            section_name: String,
+            file_path: LazyPath.Index,
+        };
+
+        pub const UpdateSection = extern struct {
+            section_name: String,
+            flags: @This().Flags,
+
+            pub const Flags = packed struct(u32) {
+                section_flags: SectionFlags,
+                alignment: Alignment,
+                _: u17 = 0,
+            };
+        };
+
+        pub const SectionFlags = packed struct(u9) {
+            /// add SHF_ALLOC
+            alloc: bool = false,
+            /// if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing
+            contents: bool = false,
+            /// if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing (same as contents)
+            load: bool = false,
+            /// readonly: clear default SHF_WRITE flag
+            readonly: bool = false,
+            /// add SHF_EXECINSTR
+            code: bool = false,
+            /// add SHF_EXCLUDE
+            exclude: bool = false,
+            /// add SHF_X86_64_LARGE. Fatal error if target is not x86_64
+            large: bool = false,
+            /// add SHF_MERGE
+            merge: bool = false,
+            /// add SHF_STRINGS
+            strings: bool = false,
+        };
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .obj_copy,
-            _: u27 = 0,
+            basename: bool,
+            debug_file: bool,
+            debug_basename: bool,
+            format: Format,
+            strip: Strip,
+            compress_debug: bool,
+            only_section: bool,
+            pad_to: bool,
+            add_section: bool,
+            update_section: bool,
+            _: u15 = 0,
         };
     };
 
@@ -1655,6 +1732,26 @@ pub const Bytes = extern struct {
 
     pub fn slice(bytes: Bytes, c: *const Configuration) []const u8 {
         return c.string_bytes[bytes.index..][0..bytes.len];
+    }
+};
+
+/// Stored as a power-of-two, with one special value to indicate none.
+pub const Alignment = enum(u6) {
+    @"1" = 0,
+    @"2" = 1,
+    @"4" = 2,
+    @"8" = 3,
+    @"16" = 4,
+    @"32" = 5,
+    @"64" = 6,
+    none = std.math.maxInt(u6),
+    _,
+
+    pub fn toBytes(a: @This()) ?u64 {
+        return switch (a) {
+            .none => null,
+            else => @as(u64, 1) << @intFromEnum(a),
+        };
     }
 };
 

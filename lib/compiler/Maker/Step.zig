@@ -23,6 +23,7 @@ pub const Run = @import("Step/Run.zig");
 pub const InstallArtifact = @import("Step/InstallArtifact.zig");
 pub const InstallFile = @import("Step/InstallFile.zig");
 pub const UpdateSourceFiles = @import("Step/UpdateSourceFiles.zig");
+pub const ObjCopy = @import("Step/ObjCopy.zig");
 
 /// Avoid false sharing.
 _: void align(std.atomic.cache_line) = {},
@@ -76,7 +77,7 @@ pub const Extended = union(enum) {
     install_artifact: InstallArtifact,
     install_dir: Todo,
     install_file: InstallFile,
-    obj_copy: Todo,
+    obj_copy: ObjCopy,
     options: Todo,
     remove_dir: Todo,
     run: Run,
@@ -306,8 +307,9 @@ pub fn make(
 }
 
 /// Prepares the step for being re-evaluated.
-pub fn reset(step: *Step, gpa: Allocator) void {
+pub fn reset(step: *Step, maker: *Maker) void {
     assert(step.state == .precheck_done);
+    const gpa = maker.gpa;
 
     if (step.result_failed_command) |cmd| gpa.free(cmd);
 
@@ -318,7 +320,7 @@ pub fn reset(step: *Step, gpa: Allocator) void {
     step.result_peak_rss = 0;
     step.result_failed_command = null;
     step.test_results = .{};
-    step.clearWatchInputs();
+    step.clearWatchInputs(maker);
 
     step.result_error_bundle.deinit(gpa);
     step.result_error_bundle = std.zig.ErrorBundle.empty;
@@ -732,7 +734,7 @@ fn failWithCacheError(
 pub fn writeManifest(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
     if (s.test_results.isSuccess()) {
         man.writeManifest() catch |err| {
-            try s.addError(maker, "unable to write cache manifest: {t}", .{err});
+            try s.addError(maker, "failed writing cache manifest: {t}", .{err});
         };
     }
 }

@@ -612,7 +612,7 @@ pub fn main(init: process.Init.Minimal) !void {
                         step.state = .precheck_done;
                         const deps = step_index.ptr(c).deps.slice(c);
                         step.pending_deps = @intCast(deps.len);
-                        step.reset(gpa);
+                        step.reset(&maker);
                     }
                     continue :rebuild;
                 },
@@ -1506,10 +1506,9 @@ fn constructGraphAndCheckForDependencyLoop(
 /// invalidated.
 pub fn invalidateResult(maker: *Maker, step: *Step) bool {
     if (step.state == .precheck_done) return false;
-    const gpa = maker.gpa;
     assert(step.pending_deps == 0);
     step.state = .precheck_done;
-    step.reset(gpa);
+    step.reset(maker);
     for (step.dependants.items) |dependant_index| {
         const dependant = maker.stepByIndex(dependant_index);
         _ = invalidateResult(maker, dependant);

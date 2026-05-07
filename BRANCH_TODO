@@ -20,6 +20,7 @@
   - and adjust dependencyInner to not openDir()
 
 ## Followup Issues
+* stop leaking into global process arena
 * reduce the size of Maker.Step.Extended (make Run smaller) probably by using an arena per make
 * link_eh_frame_hdr should be DefaultingBool
 * make --foo, --no-foo CLI args uniform (make them -f args instead)
