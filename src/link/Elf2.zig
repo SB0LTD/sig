@@ -2082,10 +2082,7 @@ fn loadObject(
 
     const ii: Node.InputIndex = @enumFromInt(elf.inputs.items.len);
     log.debug("loadObject({f}{f})", .{ path.fmtEscapeString(), fmtMemberString(member) });
-    const ident = try r.peek(std.elf.EI.OSABI);
-    if (!std.mem.eql(u8, ident[0..std.elf.MAGIC.len], std.elf.MAGIC)) return error.BadMagic;
-    if (!std.mem.eql(u8, ident[std.elf.MAGIC.len..], elf.mf.memory_map.memory[std.elf.MAGIC.len..ident.len]))
-        return diags.failParse(path, "bad ident", .{});
+    try elf.checkInputIdent(path, r);
     try elf.symtab.ensureUnusedCapacity(gpa, 1);
     try elf.inputs.ensureUnusedCapacity(gpa, 1);
     elf.inputs.addOneAssumeCapacity().* = .{
@@ -2321,10 +2318,7 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
     const r = &fr.interface;
 
     log.debug("loadDso({f})", .{path.fmtEscapeString()});
-    const ident = try r.peek(std.elf.EI.NIDENT);
-    if (!std.mem.eql(u8, ident[0..std.elf.MAGIC.len], std.elf.MAGIC)) return error.BadMagic;
-    if (!std.mem.eql(u8, ident[std.elf.MAGIC.len..], elf.mf.memory_map.memory[std.elf.MAGIC.len..ident.len]))
-        return diags.failParse(path, "bad ident", .{});
+    try elf.checkInputIdent(path, r);
     const target_endian = elf.targetEndian();
     switch (elf.identClass()) {
         .NONE, _ => unreachable,
@@ -2393,6 +2387,59 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
 fn loadDsoExact(elf: *Elf, name: []const u8) !void {
     log.debug("loadDsoExact({f})", .{std.zig.fmtString(name)});
     try elf.needed.put(elf.base.comp.gpa, try elf.string(.dynstr, name), {});
+}
+
+/// Validates that the `std.elf.Ident` present at the start of `r` is a compatible link input.
+///
+/// Returns an error if it is incompatible, or if the ident is broken or missing.
+///
+/// Does not advance the position of `r`. Requires `r` to have a 16-byte buffer.
+fn checkInputIdent(
+    elf: *const Elf,
+    path: std.Build.Cache.Path,
+    r: *Io.Reader,
+) !void {
+    const diags = &elf.base.comp.link_diags;
+
+    const ident = try r.peekStructPointer(std.elf.Ident);
+    const target: *const std.elf.Ident = @ptrCast(elf.mf.memory_map.memory[0..@sizeOf(std.elf.Ident)]);
+
+    if (!std.mem.eql(u8, &ident.magic, std.elf.MAGIC)) {
+        return error.BadMagic;
+    }
+
+    if (ident.class != target.class) return diags.failParse(
+        path,
+        "bad ELF class ({?s})",
+        .{std.enums.tagName(std.elf.CLASS, ident.class)},
+    );
+    if (ident.data != target.data) return diags.failParse(
+        path,
+        "bad ELF data encoding ({?s})",
+        .{std.enums.tagName(std.elf.DATA, ident.data)},
+    );
+    if (ident.version != target.version) return diags.failParse(
+        path,
+        "bad ELF version ({d})",
+        .{ident.version},
+    );
+
+    // OSABI is a bit more complex. On Linux, `.NONE` and `.GNU` are both valid and both common.
+    // It sounds reasonable to allow the value we chose *and* allow `.NONE`.
+    const expect_abiversion: u8 = abiver: {
+        if (ident.osabi == .NONE) break :abiver 0;
+        if (ident.osabi == target.osabi) break :abiver target.abiversion;
+        return diags.failParse(
+            path,
+            "bad ELF OS/ABI ({?s})",
+            .{std.enums.tagName(std.elf.OSABI, ident.osabi)},
+        );
+    };
+    if (ident.abiversion != expect_abiversion) return diags.failParse(
+        path,
+        "bad ELF ABI version ({d})",
+        .{ident.abiversion},
+    );
 }
 
 pub fn prelink(elf: *Elf, prog_node: std.Progress.Node) !void {
