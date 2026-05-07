@@ -967,7 +967,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                     },
                     .check_file => @panic("TODO"),
                     .config_header => @panic("TODO"),
-                    .objcopy => @panic("TODO"),
+                    .obj_copy => @panic("TODO"),
                     .options => @panic("TODO"),
                 },
             });

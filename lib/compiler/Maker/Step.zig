@@ -22,6 +22,7 @@ pub const Compile = @import("Step/Compile.zig");
 pub const Run = @import("Step/Run.zig");
 pub const InstallArtifact = @import("Step/InstallArtifact.zig");
 pub const InstallFile = @import("Step/InstallFile.zig");
+pub const UpdateSourceFiles = @import("Step/UpdateSourceFiles.zig");
 
 /// Avoid false sharing.
 _: void align(std.atomic.cache_line) = {},
@@ -75,13 +76,13 @@ pub const Extended = union(enum) {
     install_artifact: InstallArtifact,
     install_dir: Todo,
     install_file: InstallFile,
-    objcopy: Todo,
+    obj_copy: Todo,
     options: Todo,
     remove_dir: Todo,
     run: Run,
     top_level: TopLevel,
     translate_c: Todo,
-    update_source_files: Todo,
+    update_source_files: UpdateSourceFiles,
     write_file: Todo,
 
     pub fn init(tag: Configuration.Step.Tag) Extended {
@@ -95,7 +96,7 @@ pub const Extended = union(enum) {
             .install_artifact => .{ .install_artifact = .{} },
             .install_dir => .{ .install_dir = .{} },
             .install_file => .{ .install_file = .{} },
-            .objcopy => .{ .objcopy = .{} },
+            .obj_copy => .{ .obj_copy = .{} },
             .options => .{ .options = .{} },
             .remove_dir => .{ .remove_dir = .{} },
             .run => .{ .run = .{} },

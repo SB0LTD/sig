@@ -31,7 +31,7 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
     const graph = owner.graph;
     const arena = graph.arena;
     const translate_c = arena.create(TranslateC) catch @panic("OOM");
-    const source = options.root_source_file.dupe(owner);
+    const source = options.root_source_file.dupe(graph);
     translate_c.* = .{
         .step = Step.init(.{
             .tag = base_tag,

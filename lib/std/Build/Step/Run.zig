@@ -421,7 +421,7 @@ pub fn addPrefixedOutputDirectoryArg(
     output.* = .{
         .prefix = graph.dupeString(prefix),
         .basename = graph.dupeString(basename),
-        .generated_file = .{ .step = &run.step },
+        .generated_file = graph.addGeneratedFile(&run.step),
     };
     run.argv.append(arena, .{ .output_directory = output }) catch @panic("OOM");
 
@@ -429,7 +429,7 @@ pub fn addPrefixedOutputDirectoryArg(
         run.setName(std.fmt.allocPrint(arena, "{s} ({s})", .{ run.step.name, basename }) catch @panic("OOM"));
     }
 
-    return .{ .generated = .{ .file = &output.generated_file } };
+    return .{ .generated = .{ .index = output.generated_file } };
 }
 
 pub fn addDirectoryArg(run: *Run, lazy_directory: std.Build.LazyPath) void {

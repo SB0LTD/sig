@@ -1,17 +1,26 @@
-const std = @import("std");
 const ObjCopy = @This();
 
-const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
-const File = std.Io.File;
-const InstallDir = std.Build.InstallDir;
+const std = @import("std");
 const Step = std.Build.Step;
-const elf = std.elf;
-const fs = std.fs;
-const sort = std.sort;
 const Configuration = std.Build.Configuration;
 
-pub const base_tag: Step.Tag = .objcopy;
+step: Step,
+input_file: std.Build.LazyPath,
+basename: []const u8,
+output_file: Configuration.GeneratedFileIndex,
+output_file_debug: Configuration.OptionalGeneratedFileIndex,
+
+format: ?RawFormat,
+only_section: ?[]const u8,
+pad_to: ?u64,
+strip: Strip,
+compress_debug: bool,
+
+add_section: ?AddSection,
+set_section_alignment: ?SetSectionAlignment,
+set_section_flags: ?SetSectionFlags,
+
+pub const base_tag: Step.Tag = .obj_copy;
 
 pub const RawFormat = enum {
     bin,
@@ -28,28 +37,20 @@ pub const Strip = enum {
 pub const SectionFlags = packed struct {
     /// add SHF_ALLOC
     alloc: bool = false,
-
     /// if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing
     contents: bool = false,
-
     /// if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing (same as contents)
     load: bool = false,
-
     /// readonly: clear default SHF_WRITE flag
     readonly: bool = false,
-
     /// add SHF_EXECINSTR
     code: bool = false,
-
     /// add SHF_EXCLUDE
     exclude: bool = false,
-
     /// add SHF_X86_64_LARGE. Fatal error if target is not x86_64
     large: bool = false,
-
     /// add SHF_MERGE
     merge: bool = false,
-
     /// add SHF_STRINGS
     strings: bool = false,
 };
@@ -68,22 +69,6 @@ pub const SetSectionFlags = struct {
     section_name: []const u8,
     flags: SectionFlags,
 };
-
-step: Step,
-input_file: std.Build.LazyPath,
-basename: []const u8,
-output_file: Configuration.GeneratedFileIndex,
-output_file_debug: Configuration.OptionalGeneratedFileIndex,
-
-format: ?RawFormat,
-only_section: ?[]const u8,
-pad_to: ?u64,
-strip: Strip,
-compress_debug: bool,
-
-add_section: ?AddSection,
-set_section_alignment: ?SetSectionAlignment,
-set_section_flags: ?SetSectionFlags,
 
 pub const Options = struct {
     basename: ?[]const u8 = null,
@@ -111,20 +96,19 @@ pub fn create(
 ) *ObjCopy {
     const graph = owner.graph;
     const arena = graph.arena;
-
-    const objcopy = arena.create(ObjCopy) catch @panic("OOM");
-    objcopy.* = ObjCopy{
-        .step = Step.init(.{
+    const obj_copy = graph.create(ObjCopy);
+    obj_copy.* = .{
+        .step = .init(.{
             .tag = base_tag,
             .name = owner.fmt("objcopy {f}", .{input_file.fmt(graph)}),
             .owner = owner,
-            .makeFn = make,
         }),
         .input_file = input_file,
-        .basename = options.basename orelse std.fmt.allocPrint("{f}", .{input_file.fmt(graph)}) catch @panic("OOM"),
-        .output_file = graph.addGeneratedFile(&objcopy.step),
+        .basename = options.basename orelse
+            std.fmt.allocPrint(arena, "{f}", .{input_file.fmt(graph)}) catch @panic("OOM"),
+        .output_file = graph.addGeneratedFile(&obj_copy.step),
         .output_file_debug = if (options.strip != .none and options.extract_to_separate_file)
-            .init(graph.addGeneratedFile(&objcopy.step))
+            .init(graph.addGeneratedFile(&obj_copy.step))
         else
             .none,
         .format = options.format,
@@ -136,115 +120,14 @@ pub fn create(
         .set_section_alignment = options.set_section_alignment,
         .set_section_flags = options.set_section_flags,
     };
-    input_file.addStepDependencies(&objcopy.step);
-    return objcopy;
+    input_file.addStepDependencies(&obj_copy.step);
+    return obj_copy;
 }
 
-pub fn getOutput(objcopy: *const ObjCopy) std.Build.LazyPath {
-    return .{ .generated = .{ .index = objcopy.output_file } };
-}
-pub fn getOutputSeparatedDebug(objcopy: *const ObjCopy) ?std.Build.LazyPath {
-    return if (objcopy.output_file_debug.unwrap()) |index| .{ .generated = .{ .index = index } } else null;
+pub fn getOutput(obj_copy: *const ObjCopy) std.Build.LazyPath {
+    return .{ .generated = .{ .index = obj_copy.output_file } };
 }
 
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    const prog_node = options.progress_node;
-    const b = step.owner;
-    const io = b.graph.io;
-    const objcopy: *ObjCopy = @fieldParentPtr("step", step);
-    try step.singleUnchangingWatchInput(objcopy.input_file);
-
-    var man = b.graph.cache.obtain();
-    defer man.deinit();
-
-    const full_src_path = objcopy.input_file.getPath2(b, step);
-    _ = try man.addFile(full_src_path, null);
-    man.hash.addOptionalBytes(objcopy.only_section);
-    man.hash.addOptional(objcopy.pad_to);
-    man.hash.addOptional(objcopy.format);
-    man.hash.add(objcopy.compress_debug);
-    man.hash.add(objcopy.strip);
-    man.hash.add(objcopy.output_file_debug != null);
-
-    if (try step.cacheHit(&man)) {
-        // Cache hit, skip subprocess execution.
-        const digest = man.final();
-        objcopy.output_file.path = try b.cache_root.join(b.allocator, &.{
-            "o", &digest, objcopy.basename,
-        });
-        if (objcopy.output_file_debug) |*file| {
-            file.path = try b.cache_root.join(b.allocator, &.{
-                "o", &digest, b.fmt("{s}.debug", .{objcopy.basename}),
-            });
-        }
-        return;
-    }
-
-    const digest = man.final();
-    const cache_path = "o" ++ fs.path.sep_str ++ digest;
-    const full_dest_path = try b.cache_root.join(b.allocator, &.{ cache_path, objcopy.basename });
-    const full_dest_path_debug = try b.cache_root.join(b.allocator, &.{ cache_path, b.fmt("{s}.debug", .{objcopy.basename}) });
-    b.cache_root.handle.createDirPath(io, cache_path) catch |err| {
-        return step.fail("unable to make path {s}: {s}", .{ cache_path, @errorName(err) });
-    };
-
-    var argv = std.array_list.Managed([]const u8).init(b.allocator);
-    try argv.appendSlice(&.{ b.graph.zig_exe, "objcopy" });
-
-    if (objcopy.only_section) |only_section| {
-        try argv.appendSlice(&.{ "-j", only_section });
-    }
-    switch (objcopy.strip) {
-        .none => {},
-        .debug => try argv.appendSlice(&.{"--strip-debug"}),
-        .debug_and_symbols => try argv.appendSlice(&.{"--strip-all"}),
-    }
-    if (objcopy.pad_to) |pad_to| {
-        try argv.appendSlice(&.{ "--pad-to", b.fmt("{d}", .{pad_to}) });
-    }
-    if (objcopy.format) |format| switch (format) {
-        .bin => try argv.appendSlice(&.{ "-O", "binary" }),
-        .hex => try argv.appendSlice(&.{ "-O", "hex" }),
-        .elf => try argv.appendSlice(&.{ "-O", "elf" }),
-    };
-    if (objcopy.compress_debug) {
-        try argv.appendSlice(&.{"--compress-debug-sections"});
-    }
-    if (objcopy.output_file_debug != null) {
-        try argv.appendSlice(&.{b.fmt("--extract-to={s}", .{full_dest_path_debug})});
-    }
-    if (objcopy.add_section) |section| {
-        try argv.append("--add-section");
-        try argv.appendSlice(&.{b.fmt("{s}={s}", .{ section.section_name, section.file_path.getPath2(b, step) })});
-    }
-    if (objcopy.set_section_alignment) |set_align| {
-        try argv.append("--set-section-alignment");
-        try argv.appendSlice(&.{b.fmt("{s}={d}", .{ set_align.section_name, set_align.alignment })});
-    }
-    if (objcopy.set_section_flags) |set_flags| {
-        const f = set_flags.flags;
-        // trailing comma is allowed
-        try argv.append("--set-section-flags");
-        try argv.appendSlice(&.{b.fmt("{s}={s}{s}{s}{s}{s}{s}{s}{s}{s}", .{
-            set_flags.section_name,
-            if (f.alloc) "alloc," else "",
-            if (f.contents) "contents," else "",
-            if (f.load) "load," else "",
-            if (f.readonly) "readonly," else "",
-            if (f.code) "code," else "",
-            if (f.exclude) "exclude," else "",
-            if (f.large) "large," else "",
-            if (f.merge) "merge," else "",
-            if (f.strings) "strings," else "",
-        })});
-    }
-
-    try argv.appendSlice(&.{ full_src_path, full_dest_path });
-
-    try argv.append("--listen=-");
-    _ = try step.evalZigProcess(argv.items, prog_node, false, options.web_server, options.gpa);
-
-    objcopy.output_file.path = full_dest_path;
-    if (objcopy.output_file_debug) |*file| file.path = full_dest_path_debug;
-    try man.writeManifest();
+pub fn getOutputSeparatedDebug(obj_copy: *const ObjCopy) ?std.Build.LazyPath {
+    return if (obj_copy.output_file_debug.unwrap()) |index| .{ .generated = .{ .index = index } } else null;
 }

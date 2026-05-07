@@ -456,7 +456,7 @@ pub const Step = extern struct {
         install_artifact: InstallArtifact,
         install_dir: InstallDir,
         install_file: InstallFile,
-        objcopy: Objcopy,
+        obj_copy: ObjCopy,
         options: Options,
         remove_dir: RemoveDir,
         run: Run,
@@ -491,7 +491,7 @@ pub const Step = extern struct {
         install_artifact,
         install_dir,
         install_file,
-        objcopy,
+        obj_copy,
         options,
         remove_dir,
         run,
@@ -1100,11 +1100,11 @@ pub const Step = extern struct {
         };
     };
 
-    pub const Objcopy = struct {
+    pub const ObjCopy = struct {
         flags: @This().Flags,
 
         pub const Flags = packed struct(u32) {
-            tag: Tag = .objcopy,
+            tag: Tag = .obj_copy,
             _: u27 = 0,
         };
     };
@@ -1147,10 +1147,26 @@ pub const Step = extern struct {
 
     pub const UpdateSourceFiles = struct {
         flags: @This().Flags,
+        embeds: Storage.FlagLengthPrefixedList(.flags, .embeds, Embed),
+        copies: Storage.FlagLengthPrefixedList(.flags, .copies, Copy),
+
+        pub const Embed = extern struct {
+            /// Relative to build root.
+            dest_path: String,
+            bytes: Bytes,
+        };
+
+        pub const Copy = extern struct {
+            /// Relative to build root.
+            dest_path: String,
+            src_path: LazyPath.Index,
+        };
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .update_source_files,
-            _: u27 = 0,
+            embeds: bool,
+            copies: bool,
+            _: u25 = 0,
         };
     };
 

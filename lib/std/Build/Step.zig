@@ -72,7 +72,7 @@ pub fn Type(comptime tag: Tag) type {
         .run => Run,
         .check_file => CheckFile,
         .config_header => ConfigHeader,
-        .objcopy => ObjCopy,
+        .obj_copy => ObjCopy,
         .options => Options,
     };
 }

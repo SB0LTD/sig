@@ -28,6 +28,8 @@
 * no more "artifact arg" to run step. if you want to run the post-install binary, get the lazy path
   from the install step.
 * fmt step: import zig fmt code directly rather than child proc
+* UpdateSourceFiles: introduce Group
+* WriteFiles: introduce Group
 
 ## Already Filed Followup Issues
 * build system fmt step with check=false does not acquire a write lock on source files #35204 
