@@ -835,7 +835,7 @@ pub fn dl_iterate_phdr(
     while (it.next()) |entry| {
         const phdrs: []elf.ElfN.Phdr = if (entry.addr != 0) phdrs: {
             const ehdr: *elf.ElfN.Ehdr = @ptrFromInt(entry.addr);
-            assert(mem.eql(u8, ehdr.ident[0..4], elf.MAGIC));
+            assert(mem.eql(u8, &ehdr.ident.magic, elf.MAGIC));
             const phdrs: [*]elf.ElfN.Phdr = @ptrFromInt(entry.addr + ehdr.phoff);
             break :phdrs phdrs[0..ehdr.phnum];
         } else getSelfPhdrs();

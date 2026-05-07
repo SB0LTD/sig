@@ -1150,14 +1150,13 @@ fn initHeaders(
             elf.nodes.appendAssumeCapacity(.ehdr);
 
             const ehdr: *ElfN.Ehdr = @ptrCast(@alignCast(elf.ni.ehdr.slice(&elf.mf)));
-            const EI = std.elf.EI;
-            @memcpy(ehdr.ident[0..std.elf.MAGIC.len], std.elf.MAGIC);
-            ehdr.ident[EI.CLASS] = @intFromEnum(class);
-            ehdr.ident[EI.DATA] = @intFromEnum(data);
-            ehdr.ident[EI.VERSION] = 1;
-            ehdr.ident[EI.OSABI] = @intFromEnum(osabi);
-            ehdr.ident[EI.ABIVERSION] = 0;
-            @memset(ehdr.ident[EI.PAD..], 0);
+            ehdr.ident = .{
+                .class = class,
+                .data = data,
+                .version = 1,
+                .osabi = osabi,
+                .abiversion = 0,
+            };
             ehdr.type = @"type";
             ehdr.machine = machine;
             ehdr.version = 1;

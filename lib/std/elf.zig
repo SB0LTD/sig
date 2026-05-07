@@ -1043,7 +1043,7 @@ pub const Elf32 = struct {
     pub const Addr = u32;
     pub const Off = u32;
     pub const Ehdr = extern struct {
-        ident: [EI.NIDENT]u8,
+        ident: Ident,
         type: ET,
         machine: EM,
         version: Word,
@@ -1133,7 +1133,7 @@ pub const Elf64 = struct {
     pub const Addr = u64;
     pub const Off = u64;
     pub const Ehdr = extern struct {
-        ident: [EI.NIDENT]u8,
+        ident: Ident,
         type: ET,
         machine: EM,
         version: Word,
@@ -1610,6 +1610,20 @@ pub const Sym = switch (@sizeOf(usize)) {
 };
 /// Deprecated, use `std.elf.ElfN.Addr`
 pub const Addr = ElfN.Addr;
+
+pub const Ident = extern struct {
+    magic: [MAGIC.len]u8 = MAGIC.*,
+    class: CLASS,
+    data: DATA,
+    version: u8,
+    osabi: OSABI,
+    abiversion: u8,
+    pad: [7]u8 = @splat(0),
+
+    comptime {
+        assert(@sizeOf(Ident) == EI.NIDENT);
+    }
+};
 
 /// Deprecated, use `@intFromEnum(std.elf.CLASS.NONE)`
 pub const ELFCLASSNONE = @intFromEnum(CLASS.NONE);
