@@ -1123,13 +1123,13 @@ fn initHeaders(
     const expected_nodes_len = expected_nodes_len: switch (@"type") {
         .NONE, .CORE, _ => unreachable,
         .REL => {
+            // Each phdr is actually going to be an shdr.
             defer phnum = 0;
             break :expected_nodes_len 5 + phnum;
         },
-        .EXEC, .DYN => break :expected_nodes_len 8 + phnum * 2 +
-            @intFromBool(maybe_interp != null) +
-            @as(usize, 4) * @intFromBool(have_dynamic_section) +
-            @intFromBool(comp.config.any_non_single_threaded),
+        .EXEC, .DYN => break :expected_nodes_len 10 +
+            phnum * 2 - 1 + // each phdr also has a matching shdr, except for the PT_PHDR phdr
+            @as(usize, 4) * @intFromBool(have_dynamic_section), // .dynstr, .dynsym, .rela.dyn, .rela.plt
     };
     try elf.nodes.ensureTotalCapacity(gpa, expected_nodes_len);
     try elf.shdrs.ensureTotalCapacity(gpa, shnum);
