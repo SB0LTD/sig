@@ -2386,7 +2386,9 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
 }
 fn loadDsoExact(elf: *Elf, name: []const u8) !void {
     log.debug("loadDsoExact({f})", .{std.zig.fmtString(name)});
-    try elf.needed.put(elf.base.comp.gpa, try elf.string(.dynstr, name), {});
+    if (elf.si.dynamic != .null) {
+        try elf.needed.put(elf.base.comp.gpa, try elf.string(.dynstr, name), {});
+    }
 }
 
 /// Validates that the `std.elf.Ident` present at the start of `r` is a compatible link input.
