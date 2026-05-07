@@ -132,14 +132,23 @@ fn detectFromInstallation(arena: Allocator, target: *const std.Target, lci: *con
     }
     if (target.os.tag == .haiku) {
         const include_dir_path = lci.include_dir.?;
-        const os_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, "os" });
-        list.appendAssumeCapacity(os_dir);
-        // Errors.h
-        const os_support_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, "os/support" });
-        list.appendAssumeCapacity(os_support_dir);
+
+        const subdirs = &[_][]const u8{
+            "os",                   "os/app",                  "os/device",               "os/drivers",
+            "os/game",              "os/interface",            "os/kernel",               "os/locale",
+            "os/mail",              "os/media",                "os/midi",                 "os/midi2",
+            "os/net",               "os/opengl",               "os/storage",              "os/support",
+            "os/translation",       "os/add-ons/graphics",     "os/add-ons/input_server", "os/add-ons/mail_daemon",
+            "os/add-ons/registrar", "os/add-ons/screen_saver", "os/add-ons/tracker",      "os/be_apps/NetPositive",
+            "os/be_apps/Tracker",   "bsd",                     "glibc",                   "gnu",
+        };
+        for (subdirs) |subdir| {
+            const path = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, subdir });
+            try list.append(path);
+        }
 
         const config_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, "config" });
-        list.appendAssumeCapacity(config_dir);
+        try list.append(config_dir);
     }
 
     var sysroot: ?[]const u8 = null;
