@@ -445,7 +445,7 @@ test "global union with single field is correctly initialized" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     glbl = Foo1{
-        .f = @typeInfo(Foo1).@"union".fields[0].type{ .x = 123 },
+        .f = @typeInfo(Foo1).@"union".field_types[0]{ .x = 123 },
     };
     try expect(glbl.f.x == 123);
 }
@@ -563,8 +563,8 @@ test "tagged union type" {
     const baz = Baz.B;
 
     try expect(baz == Baz.B);
-    try expect(@typeInfo(TaggedFoo).@"union".fields.len == 3);
-    try expect(@typeInfo(Baz).@"enum".fields.len == 4);
+    try expect(@typeInfo(TaggedFoo).@"union".field_names.len == 3);
+    try expect(@typeInfo(Baz).@"enum".field_names.len == 4);
     try expect(@sizeOf(TaggedFoo) == @sizeOf(FooNoVoid));
     try expect(@sizeOf(Baz) == 1);
 }

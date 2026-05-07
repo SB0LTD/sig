@@ -89,18 +89,18 @@ fn unreserveNode(p: *Parse, node_index: usize) void {
 }
 
 fn addExtra(p: *Parse, extra: anytype) Allocator.Error!ExtraIndex {
-    const fields = std.meta.fields(@TypeOf(extra));
-    try p.extra_data.ensureUnusedCapacity(p.gpa, fields.len);
+    const info = @typeInfo(@TypeOf(extra)).@"struct";
+    try p.extra_data.ensureUnusedCapacity(p.gpa, info.field_names.len);
     const result: ExtraIndex = @enumFromInt(p.extra_data.items.len);
-    inline for (fields) |field| {
-        const data: u32 = switch (field.type) {
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        const data: u32 = switch (field_type) {
             Node.Index,
             Node.OptionalIndex,
             OptionalTokenIndex,
             ExtraIndex,
-            => @intFromEnum(@field(extra, field.name)),
+            => @intFromEnum(@field(extra, field_name)),
             TokenIndex,
-            => @field(extra, field.name),
+            => @field(extra, field_name),
             else => @compileError("unexpected field type"),
         };
         p.extra_data.appendAssumeCapacity(data);

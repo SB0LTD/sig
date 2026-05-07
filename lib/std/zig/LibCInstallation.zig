@@ -43,12 +43,13 @@ pub const FindError = error{
 pub fn parse(allocator: Allocator, io: Io, libc_file: []const u8, target: *const std.Target) !LibCInstallation {
     var self: LibCInstallation = .{};
 
-    const fields = std.meta.fields(LibCInstallation);
+    const field_names = comptime std.meta.fieldNames(LibCInstallation);
     const FoundKey = struct {
         found: bool,
         allocated: ?[:0]u8,
     };
-    var found_keys: [fields.len]FoundKey = @splat(.{ .found = false, .allocated = null });
+
+    var found_keys: [field_names.len]FoundKey = @splat(.{ .found = false, .allocated = null });
     errdefer {
         self = .{};
         for (found_keys) |found_key| {
@@ -65,22 +66,22 @@ pub fn parse(allocator: Allocator, io: Io, libc_file: []const u8, target: *const
         var line_it = std.mem.splitScalar(u8, line, '=');
         const name = line_it.first();
         const value = line_it.rest();
-        inline for (fields, 0..) |field, i| {
-            if (std.mem.eql(u8, name, field.name)) {
+        inline for (field_names, 0..) |field_name, i| {
+            if (std.mem.eql(u8, name, field_name)) {
                 found_keys[i].found = true;
                 if (value.len == 0) {
-                    @field(self, field.name) = null;
+                    @field(self, field_name) = null;
                 } else {
                     found_keys[i].allocated = try allocator.dupeSentinel(u8, value, 0);
-                    @field(self, field.name) = found_keys[i].allocated;
+                    @field(self, field_name) = found_keys[i].allocated;
                 }
                 break;
             }
         }
     }
-    inline for (fields, 0..) |field, i| {
+    inline for (field_names, 0..) |field_name, i| {
         if (!found_keys[i].found) {
-            log.err("missing field: {s}", .{field.name});
+            log.err("missing field: {s}", .{field_name});
             return error.ParseError;
         }
     }
@@ -235,9 +236,8 @@ pub fn findNative(gpa: Allocator, io: Io, args: FindNativeOptions) FindError!Lib
 
 /// Must be the same allocator passed to `parse` or `findNative`.
 pub fn deinit(self: *LibCInstallation, allocator: Allocator) void {
-    const fields = std.meta.fields(LibCInstallation);
-    inline for (fields) |field| {
-        if (@field(self, field.name)) |payload| {
+    inline for (@typeInfo(LibCInstallation).@"struct".field_names) |field_name| {
+        if (@field(self, field_name)) |payload| {
             allocator.free(payload);
         }
     }

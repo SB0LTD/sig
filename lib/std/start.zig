@@ -24,7 +24,7 @@ comptime {
         if (native_os == .windows and !builtin.link_libc and !@hasDecl(root, dll_main_crt_startup)) {
             @export(&DllMainCRTStartup, .{ .name = dll_main_crt_startup });
         } else if (native_os == .windows and builtin.link_libc and @hasDecl(root, "DllMain")) {
-            if (!@typeInfo(@TypeOf(root.DllMain)).@"fn".calling_convention.eql(.winapi)) {
+            if (!@typeInfo(@TypeOf(root.DllMain)).@"fn".attrs.@"callconv".eql(.winapi)) {
                 @export(&DllMain, .{ .name = "DllMain" });
             }
         }
@@ -32,11 +32,11 @@ comptime {
         if (builtin.link_libc and @hasDecl(root, "main")) {
             if (is_wasm) {
                 @export(&mainWithoutEnv, .{ .name = "__main_argc_argv" });
-            } else if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {
+            } else if (!@typeInfo(@TypeOf(root.main)).@"fn".attrs.@"callconv".eql(.c)) {
                 @export(&main, .{ .name = "main" });
             }
         } else if (native_os == .windows and builtin.link_libc and @hasDecl(root, "wWinMain")) {
-            if (!@typeInfo(@TypeOf(root.wWinMain)).@"fn".calling_convention.eql(.c)) {
+            if (!@typeInfo(@TypeOf(root.wWinMain)).@"fn".attrs.@"callconv".eql(.c)) {
                 @export(&wWinMain, .{ .name = "wWinMain" });
             }
         } else if (native_os == .windows) {
@@ -728,8 +728,8 @@ var safe_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{})
 
 inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.Block) u8 {
     const fn_info = @typeInfo(@TypeOf(root.main)).@"fn";
-    if (fn_info.params.len == 0) return wrapMain(root.main());
-    if (fn_info.params[0].type.? == std.process.Init.Minimal) return wrapMain(root.main(.{
+    if (fn_info.param_types.len == 0) return wrapMain(root.main());
+    if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{
         .args = .{ .vector = args },
         .environ = .{ .block = environ },
     }));
@@ -809,7 +809,7 @@ inline fn wrapMain(result: anytype) u8 {
 
 fn call_wWinMain() std.os.windows.INT {
     const peb = std.os.windows.peb();
-    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).@"fn".params[0].type.?;
+    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).@"fn".param_types[0].?;
     const hInstance: MAIN_HINSTANCE = @ptrCast(peb.ImageBaseAddress);
     const lpCmdLine: [*:0]u16 = @ptrCast(peb.ProcessParameters.CommandLine.Buffer);
 

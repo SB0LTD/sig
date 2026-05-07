@@ -351,17 +351,17 @@ const Analysis = struct {
     extra: std.ArrayList(u32),
 
     fn addExtra(a: *Analysis, extra: anytype) Allocator.Error!u32 {
-        const fields = std.meta.fields(@TypeOf(extra));
-        try a.extra.ensureUnusedCapacity(a.gpa, fields.len);
+        const field_count = std.meta.fieldNames(@TypeOf(extra)).len;
+        try a.extra.ensureUnusedCapacity(a.gpa, field_count);
         return addExtraAssumeCapacity(a, extra);
     }
 
     fn addExtraAssumeCapacity(a: *Analysis, extra: anytype) u32 {
-        const fields = std.meta.fields(@TypeOf(extra));
+        const info = @typeInfo(@TypeOf(extra)).@"struct";
         const result = @as(u32, @intCast(a.extra.items.len));
-        inline for (fields) |field| {
-            a.extra.appendAssumeCapacity(switch (field.type) {
-                u32 => @field(extra, field.name),
+        inline for (info.field_names, info.field_types) |field_name, field_type| {
+            a.extra.appendAssumeCapacity(switch (field_type) {
+                u32 => @field(extra, field_name),
                 else => @compileError("bad field type"),
             });
         }
@@ -1002,7 +1002,7 @@ fn analyzeInstBlock(
                 const block_scope = data.block_scopes.get(inst).?;
                 const num_deaths = data.live_set.count() - block_scope.live_set.count();
 
-                try a.extra.ensureUnusedCapacity(gpa, num_deaths + std.meta.fields(Block).len);
+                try a.extra.ensureUnusedCapacity(gpa, num_deaths + std.meta.fieldNames(Block).len);
                 const extra_index = a.addExtraAssumeCapacity(Block{
                     .death_count = num_deaths,
                 });
@@ -1265,7 +1265,7 @@ fn analyzeInstCondBr(
             // Write the mirrored deaths to `extra`
             const then_death_count = @as(u32, @intCast(then_mirrored_deaths.items.len));
             const else_death_count = @as(u32, @intCast(else_mirrored_deaths.items.len));
-            try a.extra.ensureUnusedCapacity(gpa, std.meta.fields(CondBr).len + then_death_count + else_death_count);
+            try a.extra.ensureUnusedCapacity(gpa, std.meta.fieldNames(CondBr).len + then_death_count + else_death_count);
             const extra_index = a.addExtraAssumeCapacity(CondBr{
                 .then_death_count = then_death_count,
                 .else_death_count = else_death_count,

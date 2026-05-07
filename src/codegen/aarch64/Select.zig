@@ -8891,14 +8891,8 @@ pub const Value = struct {
 
         pub const Tag = @typeInfo(Parent).@"union".tag_type.?;
         pub const Payload = Payload: {
-            const fields = @typeInfo(Parent).@"union".fields;
-            var types: [fields.len]type = undefined;
-            var names: [fields.len][]const u8 = undefined;
-            for (fields, &types, &names) |f, *ty, *name| {
-                ty.* = f.type;
-                name.* = f.name;
-            }
-            break :Payload @Union(.auto, null, &names, &types, &@splat(.{}));
+            const info = @typeInfo(Parent).@"union";
+            break :Payload @Union(.auto, null, info.field_names, info.field_types[0..], &@splat(.{}));
         };
     };
 
@@ -8916,14 +8910,8 @@ pub const Value = struct {
 
         pub const Tag = @typeInfo(Location).@"union".tag_type.?;
         pub const Payload = Payload: {
-            const fields = @typeInfo(Location).@"union".fields;
-            var types: [fields.len]type = undefined;
-            var names: [fields.len][]const u8 = undefined;
-            for (fields, &types, &names) |f, *ty, *name| {
-                ty.* = f.type;
-                name.* = f.name;
-            }
-            break :Payload @Union(.auto, null, &names, &types, &@splat(.{}));
+            const info = @typeInfo(Location).@"union";
+            break :Payload @Union(.auto, null, info.field_names, info.field_types[0..], &@splat(.{}));
         };
     };
 
@@ -11257,7 +11245,7 @@ fn dumpValuesInner(isel: *Select, which: WhichValues) !void {
     var reverse_live_registers: std.AutoHashMapUnmanaged(Value.Index, Register.Alias) = .empty;
     defer reverse_live_registers.deinit(gpa);
     {
-        try reverse_live_registers.ensureTotalCapacity(gpa, @typeInfo(Register.Alias).@"enum".fields.len);
+        try reverse_live_registers.ensureTotalCapacity(gpa, @typeInfo(Register.Alias).@"enum".field_names.len);
         var live_reg_it = isel.live_registers.iterator();
         while (live_reg_it.next()) |live_reg_entry| switch (live_reg_entry.value.*) {
             _ => reverse_live_registers.putAssumeCapacityNoClobber(live_reg_entry.value.*, live_reg_entry.key),

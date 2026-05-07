@@ -736,8 +736,8 @@ pub fn parseTargetQueryOrReportFatalError(
             help: {
                 var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
-                inline for (@typeInfo(std.Target.ObjectFormat).@"enum".fields) |field| {
-                    help_text.print(" {s}\n", .{field.name}) catch break :help;
+                inline for (@typeInfo(std.Target.ObjectFormat).@"enum".field_names) |field_name| {
+                    help_text.print(" {s}\n", .{field_name}) catch break :help;
                 }
                 std.log.info("available object formats:\n{s}", .{help_text.items});
             }
@@ -747,8 +747,8 @@ pub fn parseTargetQueryOrReportFatalError(
             help: {
                 var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
-                inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".fields) |field| {
-                    help_text.print(" {s}\n", .{field.name}) catch break :help;
+                inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".field_names) |field_name| {
+                    help_text.print(" {s}\n", .{field_name}) catch break :help;
                 }
                 std.log.info("available architectures:\n{s} native\n", .{help_text.items});
             }

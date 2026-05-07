@@ -731,11 +731,11 @@ pub fn lower(mir: *const Mir, wasm: *Wasm, code: *std.ArrayList(u8)) std.mem.All
 }
 
 pub fn extraData(self: *const Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
-    const fields = std.meta.fields(T);
+    const info = @typeInfo(T).@"struct";
     var i: usize = index;
     var result: T = undefined;
-    inline for (fields) |field| {
-        @field(result, field.name) = switch (field.type) {
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        @field(result, field_name) = switch (field_type) {
             u32 => self.extra[i],
             i32 => @bitCast(self.extra[i]),
             Wasm.UavsObjIndex,
@@ -743,7 +743,7 @@ pub fn extraData(self: *const Mir, comptime T: type, index: usize) struct { data
             InternPool.Nav.Index,
             InternPool.Index,
             => @enumFromInt(self.extra[i]),
-            else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
+            else => @compileError("Unsupported field type " ++ @typeName(field_type)),
         };
         i += 1;
     }

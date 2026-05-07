@@ -144,7 +144,7 @@ pub const OBJECT = struct {
         Session = 5,
         _,
 
-        pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+        pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".field_names.len;
     };
 
     pub const NAME_INFORMATION = extern struct {
@@ -575,7 +575,7 @@ pub const FILE = struct {
         MupProvider = 83,
         _,
 
-        pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".fields.len;
+        pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".field_names.len;
     };
 
     pub const BASIC_INFORMATION = extern struct {
@@ -881,7 +881,7 @@ pub const DIRECTORY = struct {
         NotifyFull = 3,
         _,
 
-        pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".fields.len;
+        pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".field_names.len;
     };
 };
 
@@ -930,14 +930,8 @@ pub const CONSOLE = struct {
 
                     pub const Tag = @typeInfo(WITH).@"union".tag_type.?;
                     pub const Payload = PAYLOAD: {
-                        const with_fields = @typeInfo(WITH).@"union".fields;
-                        var field_names: [with_fields.len][]const u8 = undefined;
-                        var field_types: [with_fields.len]type = undefined;
-                        for (with_fields, &field_names, &field_types) |field, *field_name, *field_type| {
-                            field_name.* = field.name;
-                            field_type.* = field.type;
-                        }
-                        break :PAYLOAD @Union(.@"extern", null, &field_names, &field_types, &@splat(.{}));
+                        const with_info = @typeInfo(WITH).@"union";
+                        break :PAYLOAD @Union(.@"extern", null, with_info.field_names, with_info.field_types[0..], &@splat(.{}));
                     };
                 };
             };
@@ -2122,7 +2116,7 @@ pub const HEAP = opaque {
                     Custom,
                     _,
 
-                    pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+                    pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".field_names.len;
                 };
 
                 pub const VA_CALLBACKS = extern struct {
@@ -3369,7 +3363,7 @@ pub const FS_INFORMATION_CLASS = enum(c_int) {
     Guid = 15,
     _,
 
-    pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".fields.len;
+    pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".field_names.len;
 };
 
 pub const SECTION_INHERIT = enum(c_int) {
@@ -3493,7 +3487,7 @@ pub const MEM = struct {
             ImageMachine,
             _,
 
-            pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+            pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".field_names.len;
         };
     };
 };
@@ -4467,7 +4461,7 @@ pub const KEY = struct {
             Layer = 5,
             _,
 
-            pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+            pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".field_names.len;
         };
 
         pub const PARTIAL_INFORMATION = extern struct {

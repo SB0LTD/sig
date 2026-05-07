@@ -644,12 +644,12 @@ test "non-exhaustive enum" {
                 else => true,
             });
 
-            try expect(@typeInfo(E).@"enum".fields.len == 2);
+            try expect(@typeInfo(E).@"enum".field_names.len == 2);
             e = @as(E, @enumFromInt(12));
             try expect(@intFromEnum(e) == 12);
             e = @as(E, @enumFromInt(y));
             try expect(@intFromEnum(e) == 52);
-            try expect(@typeInfo(E).@"enum".is_exhaustive == false);
+            try expect(@typeInfo(E).@"enum".mode == .nonexhaustive);
         }
     };
     try S.doTheTest(52);
@@ -668,8 +668,9 @@ test "empty non-exhaustive enum" {
             });
             try expect(@intFromEnum(e) == y);
 
-            try expect(@typeInfo(E).@"enum".fields.len == 0);
-            try expect(@typeInfo(E).@"enum".is_exhaustive == false);
+            try expect(@typeInfo(E).@"enum".field_names.len == 0);
+            try expect(@typeInfo(E).@"enum".field_values.len == 0);
+            try expect(@typeInfo(E).@"enum".mode == .nonexhaustive);
         }
     };
     try S.doTheTest(42);
@@ -704,8 +705,9 @@ test "single field non-exhaustive enum" {
             });
 
             try expect(@intFromEnum(@as(E, @enumFromInt(y))) == y);
-            try expect(@typeInfo(E).@"enum".fields.len == 1);
-            try expect(@typeInfo(E).@"enum".is_exhaustive == false);
+            try expect(@typeInfo(E).@"enum".field_names.len == 1);
+            try expect(@typeInfo(E).@"enum".field_values.len == 1);
+            try expect(@typeInfo(E).@"enum".mode == .nonexhaustive);
         }
     };
     try S.doTheTest(23);

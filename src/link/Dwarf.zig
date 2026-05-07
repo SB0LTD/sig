@@ -5110,16 +5110,16 @@ pub fn resolveRelocs(dwarf: *Dwarf) RelocError!void {
 }
 
 fn DeclValEnum(comptime T: type) type {
-    const decls = @typeInfo(T).@"struct".decls;
-    @setEvalBranchQuota(10 * decls.len);
-    var field_names: [decls.len][]const u8 = undefined;
+    const decl_names = @typeInfo(T).@"struct".decl_names;
+    @setEvalBranchQuota(10 * decl_names.len);
+    var field_names: [decl_names.len][]const u8 = undefined;
     var fields_len = 0;
     var min_value: ?comptime_int = null;
     var max_value: ?comptime_int = null;
-    for (decls) |decl| {
-        if (std.mem.startsWith(u8, decl.name, "HP_") or std.mem.endsWith(u8, decl.name, "_user")) continue;
-        const value = @field(T, decl.name);
-        field_names[fields_len] = decl.name;
+    for (decl_names) |decl_name| {
+        if (std.mem.startsWith(u8, decl_name, "HP_") or std.mem.endsWith(u8, decl_name, "_user")) continue;
+        const value = @field(T, decl_name);
+        field_names[fields_len] = decl_name;
         fields_len += 1;
         if (min_value == null or min_value.? > value) min_value = value;
         if (max_value == null or max_value.? < value) max_value = value;

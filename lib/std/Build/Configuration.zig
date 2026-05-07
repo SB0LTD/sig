@@ -2884,7 +2884,10 @@ pub const Storage = enum {
             }
 
             pub fn cast(this: @This(), c: *const Configuration, comptime S: type) ?S {
-                const wanted_tag = @typeInfo(S.Flags).@"struct".fields[0].defaultValue().?;
+                const wanted_tag = blk: {
+                    const info = @typeInfo(S.Flags).@"struct";
+                    break :blk info.field_attrs[0].defaultValue(info.field_types[0]).?;
+                };
                 const base_flags: BaseFlags = @bitCast(c.extra[@intFromEnum(this)]);
                 if (base_flags.tag != wanted_tag) return null;
                 var i: usize = @intFromEnum(this);
@@ -3047,8 +3050,8 @@ pub const Storage = enum {
         switch (@typeInfo(T)) {
             .@"struct" => |info| {
                 var result: T = undefined;
-                inline for (info.fields) |field| {
-                    @field(result, field.name) = dataField(buffer, i, &result, field.type);
+                inline for (info.field_names, info.field_types) |field_name, field_type| {
+                    @field(result, field_name) = dataField(buffer, i, &result, field_type);
                 }
                 return result;
             },
@@ -3058,7 +3061,7 @@ pub const Storage = enum {
                     inline else => |comptime_tag| @unionInit(
                         T,
                         @tagName(comptime_tag),
-                        data(buffer, i, info.fields[@intFromEnum(comptime_tag)].type),
+                        data(buffer, i, info.field_types[@intFromEnum(comptime_tag)]),
                     ),
                 };
             },
@@ -3125,7 +3128,7 @@ pub const Storage = enum {
                                             buffer,
                                             i,
                                             container,
-                                            @typeInfo(Field.Union).@"union".fields[@intFromEnum(comptime_tag)].type,
+                                            @typeInfo(Field.Union).@"union".field_types[@intFromEnum(comptime_tag)],
                                         ),
                                     ),
                                 },
@@ -3167,7 +3170,7 @@ pub const Storage = enum {
                         .multi_list => {
                             const data_start = i.* + 1;
                             const len = buffer[data_start - 1];
-                            defer i.* = data_start + len * @typeInfo(Field.Elem).@"struct".fields.len;
+                            defer i.* = data_start + len * @typeInfo(Field.Elem).@"struct".field_names.len;
                             return .{ .mal = .{
                                 .bytes = @ptrCast(@constCast(buffer[data_start..][0..len])),
                                 .len = len,
@@ -3205,10 +3208,10 @@ pub const Storage = enum {
 
     /// Returns new end index.
     fn setExtra(buffer: []u32, index: usize, extra: anytype) usize {
-        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
+        const info = @typeInfo(@TypeOf(extra)).@"struct";
         var i = index;
-        inline for (fields) |field| {
-            i += setExtraField(buffer, i, field.type, @field(extra, field.name));
+        inline for (info.field_names, info.field_types) |field_name, field_type| {
+            i += setExtraField(buffer, i, field_type, @field(extra, field_name));
         }
         return i;
     }
@@ -3236,7 +3239,7 @@ pub const Storage = enum {
                     .flag_length_prefixed_list,
                     .flag_list,
                     => 1 + @divExact(@sizeOf(Field.Elem), @sizeOf(u32)) * field.slice.len,
-                    .multi_list => 1 + field.mal.len * @typeInfo(Field.Elem).@"struct".fields.len,
+                    .multi_list => 1 + field.mal.len * @typeInfo(Field.Elem).@"struct".field_names.len,
                     .union_list => Field.extraLen(field.len),
                     .flag_union => switch (field.u) {
                         inline else => |v| extraFieldLen(v),
@@ -3249,10 +3252,10 @@ pub const Storage = enum {
     }
 
     fn extraLen(extra: anytype) usize {
-        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
+        const field_names = @typeInfo(@TypeOf(extra)).@"struct".field_names;
         var i: usize = 0;
-        inline for (fields) |field| {
-            i += Storage.extraFieldLen(@field(extra, field.name));
+        inline for (field_names) |name| {
+            i += Storage.extraFieldLen(@field(extra, name));
         }
         return i;
     }
@@ -3324,12 +3327,12 @@ pub const Storage = enum {
                         .multi_list => {
                             const len: u32 = @intCast(value.mal.len);
                             buffer[i] = len;
-                            const fields = @typeInfo(Field.Elem).@"struct".fields;
-                            inline for (0..fields.len) |field_i| @memcpy(
+                            const field_names = @typeInfo(Field.Elem).@"struct".field_names;
+                            inline for (0..field_names.len) |field_i| @memcpy(
                                 buffer[i + 1 + field_i * len ..][0..len],
                                 @as([]const u32, @ptrCast(value.mal.items(@enumFromInt(field_i)))),
                             );
-                            return 1 + fields.len * len;
+                            return 1 + field_names.len * len;
                         },
                         .union_list => {
                             if (value.len == 0) return 0;

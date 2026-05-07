@@ -145,8 +145,8 @@ pub const ErrorDetails = struct {
 
     comptime {
         // all fields in the extra union should be 32 bits or less
-        for (std.meta.fields(Extra)) |field| {
-            std.debug.assert(@bitSizeOf(field.type) <= 32);
+        for (std.meta.fieldTypes(Extra)) |field_type| {
+            std.debug.assert(@bitSizeOf(field_type) <= 32);
         }
     }
 
@@ -257,18 +257,18 @@ pub const ErrorDetails = struct {
 
         pub fn writeCommaSeparated(self: ExpectedTypes, writer: *std.Io.Writer) !void {
             const struct_info = @typeInfo(ExpectedTypes).@"struct";
-            const num_real_fields = struct_info.fields.len - 1;
+            const num_real_fields = struct_info.field_names.len - 1;
             const num_padding_bits = @bitSizeOf(ExpectedTypes) - num_real_fields;
             const mask = std.math.maxInt(struct_info.backing_integer.?) >> num_padding_bits;
             const relevant_bits_only = @as(struct_info.backing_integer.?, @bitCast(self)) & mask;
             const num_set_bits = @popCount(relevant_bits_only);
 
             var i: usize = 0;
-            inline for (struct_info.fields) |field_info| {
-                if (field_info.type != bool) continue;
+            inline for (struct_info.field_names, struct_info.field_types) |field_name, field_type| {
+                if (field_type != bool) continue;
                 if (i == num_set_bits) return;
-                if (@field(self, field_info.name)) {
-                    try writer.writeAll(strings.get(field_info.name).?);
+                if (@field(self, field_name)) {
+                    try writer.writeAll(strings.get(field_name).?);
                     i += 1;
                     if (num_set_bits > 2 and i != num_set_bits) {
                         try writer.writeAll(", ");
@@ -857,24 +857,20 @@ pub const ErrorDetails = struct {
 
 /// Convenience struct only useful when the code page can be inferred from the token
 pub const ErrorDetailsWithoutCodePage = blk: {
-    const details_info = @typeInfo(ErrorDetails);
-    const fields = details_info.@"struct".fields;
-    var field_names: [fields.len - 1][]const u8 = undefined;
-    var field_types: [fields.len - 1]type = undefined;
-    var field_attrs: [fields.len - 1]std.builtin.Type.StructField.Attributes = undefined;
+    const details_info = @typeInfo(ErrorDetails).@"struct";
+    const field_count = details_info.field_names.len;
+    var field_names: [field_count - 1][]const u8 = undefined;
+    var field_types: [field_count - 1]type = undefined;
+    var field_attrs: [field_count - 1]std.builtin.Type.Struct.FieldAttributes = undefined;
     var i: usize = 0;
-    for (fields) |field| {
-        if (std.mem.eql(u8, field.name, "code_page")) continue;
-        field_names[i] = field.name;
-        field_types[i] = field.type;
-        field_attrs[i] = .{
-            .@"comptime" = field.is_comptime,
-            .@"align" = field.alignment,
-            .default_value_ptr = field.default_value_ptr,
-        };
+    for (details_info.field_names, details_info.field_types, details_info.field_attrs) |field_name, field_type, field_attr| {
+        if (std.mem.eql(u8, field_name, "code_page")) continue;
+        field_names[i] = field_name;
+        field_types[i] = field_type;
+        field_attrs[i] = field_attr;
         i += 1;
     }
-    std.debug.assert(i == fields.len - 1);
+    std.debug.assert(i == field_count - 1);
     break :blk @Struct(.auto, null, &field_names, &field_types, &field_attrs);
 };
 

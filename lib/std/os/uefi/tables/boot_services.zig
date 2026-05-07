@@ -1271,7 +1271,7 @@ fn ProtocolInterfaces(HandleType: type, Interfaces: type) type {
         @compileError("expected tuple of protocol interfaces, got " ++ @typeName(Interfaces));
     const interfaces_info = interfaces_type_info.@"struct";
 
-    var tuple_types: [interfaces_info.fields.len * 2 + 2]type = undefined;
+    var tuple_types: [interfaces_info.field_names.len * 2 + 2]type = undefined;
     tuple_types[0] = HandleType;
     tuple_types[tuple_types.len - 1] = ?*const Guid;
 

@@ -7,7 +7,7 @@ pub fn main() void {
 }
 const S = struct { foo: u32, nested: struct { x: u16 } };
 const U = union(enum) { a, b, c: S };
-const E = enum(u8) { a = @typeInfo(U).@"union".fields.len, b = 0, c };
+const E = enum(u8) { a = @typeInfo(U).@"union".field_names.len, b = 0, c };
 const O = opaque {
     comptime {
         _ = @as(S, undefined);
@@ -27,7 +27,7 @@ pub fn main() void {
 }
 const S = struct { foo: u32, nested: struct { x: u16 } };
 const U = union(enum) { a, b, c: S };
-const E = enum(u8) { a = @typeInfo(U).@"union".fields.len, b = 0, c };
+const E = enum(u8) { a = @typeInfo(U).@"union".field_names.len, b = 0, c };
 const O = opaque {
     comptime {
         _ = @as(S, undefined);

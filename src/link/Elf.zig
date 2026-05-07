@@ -1194,7 +1194,7 @@ fn parseDso(
     // TODO: save this work for later
     const nsyms = parsed.symbols.len;
     try so.symbols.ensureTotalCapacityPrecise(gpa, nsyms);
-    try so.symbols_extra.ensureTotalCapacityPrecise(gpa, nsyms * @typeInfo(Symbol.Extra).@"struct".fields.len);
+    try so.symbols_extra.ensureTotalCapacityPrecise(gpa, nsyms * @typeInfo(Symbol.Extra).@"struct".field_names.len);
     try so.symbols_resolver.ensureTotalCapacityPrecise(gpa, nsyms);
     so.symbols_resolver.appendNTimesAssumeCapacity(0, nsyms);
 
@@ -2354,9 +2354,9 @@ fn sortPhdrs(
         phdr.* = slice[entry.phndx];
     }
 
-    inline for (@typeInfo(ProgramHeaderIndexes).@"struct".fields) |field| {
-        if (@field(special_indexes, field.name).int()) |special_index| {
-            @field(special_indexes, field.name) = @enumFromInt(backlinks[special_index]);
+    inline for (@typeInfo(ProgramHeaderIndexes).@"struct".field_names) |field_name| {
+        if (@field(special_indexes, field_name).int()) |special_index| {
+            @field(special_indexes, field_name) = @enumFromInt(backlinks[special_index]);
         }
     }
 
@@ -2474,9 +2474,9 @@ pub fn sortShdrs(
         }
     }
 
-    inline for (@typeInfo(SectionIndexes).@"struct".fields) |field| {
-        if (@field(section_indexes, field.name)) |special_index| {
-            @field(section_indexes, field.name) = backlinks[special_index];
+    inline for (@typeInfo(SectionIndexes).@"struct".field_names) |field_name| {
+        if (@field(section_indexes, field_name)) |special_index| {
+            @field(section_indexes, field_name) = backlinks[special_index];
         }
     }
 

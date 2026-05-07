@@ -49,9 +49,10 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
 }
 
 fn printStruct(sc: *const ScannedConfig, s: *Serializer.Struct, comptime S: type, v: S) !void {
-    inline for (@typeInfo(S).@"struct".fields) |field| {
-        try s.fieldPrefix(field.name);
-        try printValue(sc, s.container.serializer, field.type, @field(v, field.name));
+    const info = @typeInfo(S).@"struct";
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        try s.fieldPrefix(field_name);
+        try printValue(sc, s.container.serializer, field_type, @field(v, field_name));
     }
 }
 

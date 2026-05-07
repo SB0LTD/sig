@@ -512,9 +512,9 @@ test "empty struct in tuple" {
 
     const T = struct { struct {} };
     const info = @typeInfo(T);
-    try std.testing.expectEqual(@as(usize, 1), info.@"struct".fields.len);
-    try std.testing.expectEqualStrings("0", info.@"struct".fields[0].name);
-    try std.testing.expect(@typeInfo(info.@"struct".fields[0].type) == .@"struct");
+    try std.testing.expectEqual(@as(usize, 1), info.@"struct".field_names.len);
+    try std.testing.expectEqualStrings("0", info.@"struct".field_names[0]);
+    try std.testing.expect(@typeInfo(info.@"struct".field_types[0]) == .@"struct");
 }
 
 test "empty union in tuple" {
@@ -524,9 +524,9 @@ test "empty union in tuple" {
 
     const T = struct { union {} };
     const info = @typeInfo(T);
-    try std.testing.expectEqual(@as(usize, 1), info.@"struct".fields.len);
-    try std.testing.expectEqualStrings("0", info.@"struct".fields[0].name);
-    try std.testing.expect(@typeInfo(info.@"struct".fields[0].type) == .@"union");
+    try std.testing.expectEqual(@as(usize, 1), info.@"struct".field_names.len);
+    try std.testing.expectEqualStrings("0", info.@"struct".field_names[0]);
+    try std.testing.expect(@typeInfo(info.@"struct".field_types[0]) == .@"union");
 }
 
 test "field pointer of underaligned tuple" {
@@ -551,11 +551,11 @@ test "field pointer of underaligned tuple" {
 test "OPV tuple fields aren't comptime" {
     const T = struct { void };
     const t_info = @typeInfo(T);
-    try expect(!t_info.@"struct".fields[0].is_comptime);
+    try expect(!t_info.@"struct".field_attrs[0].@"comptime");
 
     const T2 = @Tuple(&.{void});
     const t2_info = @typeInfo(T2);
-    try expect(!t2_info.@"struct".fields[0].is_comptime);
+    try expect(!t2_info.@"struct".field_attrs[0].@"comptime");
 }
 
 test "array of tuples that end with a zero-bit field followed by padding" {

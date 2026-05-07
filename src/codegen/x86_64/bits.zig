@@ -722,7 +722,7 @@ pub const FrameIndex = enum(u32) {
     // Other indices are used for local variable stack slots
     _,
 
-    pub const named_count = @typeInfo(FrameIndex).@"enum".fields.len;
+    pub const named_count = @typeInfo(FrameIndex).@"enum".field_names.len;
 
     pub fn isNamed(fi: FrameIndex) bool {
         return @intFromEnum(fi) < named_count;

@@ -173,8 +173,9 @@ fn addValueInner(config_header: *ConfigHeader, name: []const u8, comptime T: typ
 }
 
 pub fn addValues(config_header: *ConfigHeader, values: anytype) void {
-    inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |field| {
-        addValue(config_header, field.name, field.type, @field(values, field.name));
+    const info = @typeInfo(@TypeOf(values)).@"struct";
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        addValue(config_header, field_name, field_type, @field(values, field_name));
     }
 }
 

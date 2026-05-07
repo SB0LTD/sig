@@ -2288,23 +2288,23 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
 
         .@"struct" => |@"struct"| switch (interpret_mode) {
             .direct => {
-                if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
+                if (ty.structFieldCount(zcu) != @"struct".field_names.len) return error.TypeMismatch;
                 var result: T = undefined;
-                inline for (@"struct".fields, 0..) |field, field_idx| {
+                inline for (@"struct".field_names, @"struct".field_types, 0..) |field_name, field_type, field_idx| {
                     const field_val = try val.fieldValue(pt, field_idx);
-                    @field(result, field.name) = try field_val.interpret(field.type, pt);
+                    @field(result, field_name) = try field_val.interpret(field_type, pt);
                 }
                 return result;
             },
             .by_name => {
                 const struct_obj = zcu.typeToStruct(ty) orelse return error.TypeMismatch;
                 var result: T = undefined;
-                inline for (@"struct".fields) |field| {
-                    const field_name_ip = try ip.getOrPutString(zcu.gpa, io, pt.tid, field.name, .no_embedded_nulls);
-                    @field(result, field.name) = if (struct_obj.nameIndex(ip, field_name_ip)) |field_idx| f: {
+                inline for (@"struct".field_names, @"struct".field_types, @"struct".field_attrs) |field_name, field_type, field_attr| {
+                    const field_name_ip = try ip.getOrPutString(zcu.gpa, io, pt.tid, field_name, .no_embedded_nulls);
+                    @field(result, field_name) = if (struct_obj.nameIndex(ip, field_name_ip)) |field_idx| f: {
                         const field_val = try val.fieldValue(pt, field_idx);
-                        break :f try field_val.interpret(field.type, pt);
-                    } else (field.defaultValue() orelse return error.TypeMismatch);
+                        break :f try field_val.interpret(field_type, pt);
+                    } else (field_attr.defaultValue(field_type) orelse return error.TypeMismatch);
                 }
                 return result;
             },
@@ -2385,11 +2385,11 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
 
         .@"struct" => |@"struct"| switch (interpret_mode) {
             .direct => {
-                if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
-                var field_vals: [@"struct".fields.len]InternPool.Index = undefined;
-                inline for (&field_vals, @"struct".fields, 0..) |*field_val, field, field_idx| {
+                if (ty.structFieldCount(zcu) != @"struct".field_names.len) return error.TypeMismatch;
+                var field_vals: [@"struct".field_names.len]InternPool.Index = undefined;
+                inline for (&field_vals, @"struct".field_names, 0..) |*field_val, field_name, field_idx| {
                     const field_ty = ty.fieldType(field_idx, zcu);
-                    field_val.* = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
+                    field_val.* = (try uninterpret(@field(val, field_name), field_ty, pt)).toIntern();
                 }
                 return pt.aggregateValue(ty, &field_vals);
             },
@@ -2399,11 +2399,11 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
                 const field_vals = try zcu.gpa.alloc(InternPool.Index, want_fields_len);
                 defer zcu.gpa.free(field_vals);
                 @memset(field_vals, .none);
-                inline for (@"struct".fields) |field| {
-                    const field_name_ip = try ip.getOrPutString(zcu.gpa, io, pt.tid, field.name, .no_embedded_nulls);
+                inline for (@"struct".field_names) |field_name| {
+                    const field_name_ip = try ip.getOrPutString(zcu.gpa, io, pt.tid, field_name, .no_embedded_nulls);
                     if (struct_obj.nameIndex(ip, field_name_ip)) |field_idx| {
                         const field_ty = ty.fieldType(field_idx, zcu);
-                        field_vals[field_idx] = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
+                        field_vals[field_idx] = (try uninterpret(@field(val, field_name), field_ty, pt)).toIntern();
                     }
                 }
                 for (field_vals, 0..) |*field_val, field_idx| {

@@ -1042,9 +1042,9 @@ test "peer type resolution: error set supersets" {
         const ty = @TypeOf(a, b);
         const error_set_info = @typeInfo(ty);
         try expect(error_set_info == .error_set);
-        try expect(error_set_info.error_set.?.len == 2);
-        try expect(mem.eql(u8, error_set_info.error_set.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[1].name, "Two"));
+        try expect(error_set_info.error_set.error_names.?.len == 2);
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[0], "One"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[1], "Two"));
     }
 
     // B superset of A
@@ -1052,9 +1052,9 @@ test "peer type resolution: error set supersets" {
         const ty = @TypeOf(b, a);
         const error_set_info = @typeInfo(ty);
         try expect(error_set_info == .error_set);
-        try expect(error_set_info.error_set.?.len == 2);
-        try expect(mem.eql(u8, error_set_info.error_set.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[1].name, "Two"));
+        try expect(error_set_info.error_set.error_names.?.len == 2);
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[0], "One"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[1], "Two"));
     }
 }
 
@@ -1070,20 +1070,20 @@ test "peer type resolution: disjoint error sets" {
         const ty = @TypeOf(a, b);
         const error_set_info = @typeInfo(ty);
         try expect(error_set_info == .error_set);
-        try expect(error_set_info.error_set.?.len == 3);
-        try expect(mem.eql(u8, error_set_info.error_set.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[1].name, "Two"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[2].name, "Three"));
+        try expect(error_set_info.error_set.error_names.?.len == 3);
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[0], "One"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[1], "Two"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[2], "Three"));
     }
 
     {
         const ty = @TypeOf(b, a);
         const error_set_info = @typeInfo(ty);
         try expect(error_set_info == .error_set);
-        try expect(error_set_info.error_set.?.len == 3);
-        try expect(mem.eql(u8, error_set_info.error_set.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[1].name, "Two"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[2].name, "Three"));
+        try expect(error_set_info.error_set.error_names.?.len == 3);
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[0], "One"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[1], "Two"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[2], "Three"));
     }
 }
 
@@ -1101,10 +1101,10 @@ test "peer type resolution: error union and error set" {
         try expect(info == .error_union);
 
         const error_set_info = @typeInfo(info.error_union.error_set);
-        try expect(error_set_info.error_set.?.len == 3);
-        try expect(mem.eql(u8, error_set_info.error_set.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[1].name, "Two"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[2].name, "Three"));
+        try expect(error_set_info.error_set.error_names.?.len == 3);
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[0], "One"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[1], "Two"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[2], "Three"));
     }
 
     {
@@ -1113,10 +1113,10 @@ test "peer type resolution: error union and error set" {
         try expect(info == .error_union);
 
         const error_set_info = @typeInfo(info.error_union.error_set);
-        try expect(error_set_info.error_set.?.len == 3);
-        try expect(mem.eql(u8, error_set_info.error_set.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[1].name, "Two"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[2].name, "Three"));
+        try expect(error_set_info.error_set.error_names.?.len == 3);
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[0], "One"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[1], "Two"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[2], "Three"));
     }
 }
 
@@ -1135,9 +1135,9 @@ test "peer type resolution: error union after non-error" {
         try expect(info.error_union.payload == u32);
 
         const error_set_info = @typeInfo(info.error_union.error_set);
-        try expect(error_set_info.error_set.?.len == 2);
-        try expect(mem.eql(u8, error_set_info.error_set.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[1].name, "Two"));
+        try expect(error_set_info.error_set.error_names.?.len == 2);
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[0], "One"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[1], "Two"));
     }
 
     {
@@ -1147,9 +1147,9 @@ test "peer type resolution: error union after non-error" {
         try expect(info.error_union.payload == u32);
 
         const error_set_info = @typeInfo(info.error_union.error_set);
-        try expect(error_set_info.error_set.?.len == 2);
-        try expect(mem.eql(u8, error_set_info.error_set.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.error_set.?[1].name, "Two"));
+        try expect(error_set_info.error_set.error_names.?.len == 2);
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[0], "One"));
+        try expect(mem.eql(u8, error_set_info.error_set.error_names.?[1], "Two"));
     }
 }
 
@@ -2552,9 +2552,9 @@ test "peer type resolution: tuples with comptime fields" {
     inline for (.{ ti1, ti2 }) |ti| {
         const s = ti.@"struct";
         comptime assert(s.is_tuple);
-        comptime assert(s.fields.len == 2);
-        comptime assert(s.fields[0].type == u32);
-        comptime assert(s.fields[1].type == i16);
+        comptime assert(s.field_names.len == 2);
+        comptime assert(s.field_types[0] == u32);
+        comptime assert(s.field_types[1] == i16);
     }
 
     var t = true;
@@ -2665,11 +2665,11 @@ test "peer type resolution: pointer attributes are combined correctly" {
     const NonAllowZero = comptime blk: {
         const ptr = @typeInfo(@TypeOf(r1, r2, r3, r4)).pointer;
         break :blk @Pointer(ptr.size, .{
-            .@"const" = ptr.is_const,
-            .@"volatile" = ptr.is_volatile,
+            .@"const" = ptr.attrs.@"const",
+            .@"volatile" = ptr.attrs.@"volatile",
             .@"allowzero" = false,
-            .@"align" = ptr.alignment,
-            .@"addrspace" = ptr.address_space,
+            .@"align" = ptr.attrs.@"align",
+            .@"addrspace" = ptr.attrs.@"addrspace",
         }, ptr.child, ptr.sentinel());
     };
     try expectEqualSlices(u8, std.mem.span(@volatileCast(@as(NonAllowZero, @ptrCast(r1)))), "foo");
