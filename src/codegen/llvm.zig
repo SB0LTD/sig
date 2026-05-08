@@ -1,5 +1,24 @@
+const std = @import("std");
+const Io = std.Io;
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const DW = std.dwarf;
+const Builder = std.zig.llvm.Builder;
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 
+const Air = @import("../Air.zig");
+const codegen = @import("../codegen.zig");
+const Compilation = @import("../Compilation.zig");
+const dev = @import("../dev.zig");
+const InternPool = @import("../InternPool.zig");
+const link = @import("../link.zig");
+const Package = @import("../Package.zig");
+const target_util = @import("../target.zig");
+const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
+const Zcu = @import("../Zcu.zig");
+const aarch64_c_abi = @import("aarch64/abi.zig");
 const FuncGen = @import("llvm/FuncGen.zig");
 const buildAllocaInner = FuncGen.buildAllocaInner;
 const isByRef = FuncGen.isByRef;
@@ -7,34 +26,12 @@ const firstParamSRet = FuncGen.firstParamSRet;
 const lowerFnRetTy = FuncGen.lowerFnRetTy;
 const iterateParamTypes = FuncGen.iterateParamTypes;
 const ccAbiPromoteInt = FuncGen.ccAbiPromoteInt;
-const aarch64_c_abi = @import("aarch64/abi.zig");
 
-const std = @import("std");
-const Io = std.Io;
-const assert = std.debug.assert;
-const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.codegen);
-const DW = std.dwarf;
-const Builder = std.zig.llvm.Builder;
-
-const build_options = @import("build_options");
 const bindings = if (build_options.have_llvm)
     @import("llvm/bindings.zig")
 else
     @compileError("LLVM unavailable");
-
-const link = @import("../link.zig");
-const Compilation = @import("../Compilation.zig");
-const Zcu = @import("../Zcu.zig");
-const InternPool = @import("../InternPool.zig");
-const Package = @import("../Package.zig");
-const Air = @import("../Air.zig");
-const Value = @import("../Value.zig");
-const Type = @import("../Type.zig");
-const codegen = @import("../codegen.zig");
-const dev = @import("../dev.zig");
-
-const target_util = @import("../target.zig");
 
 pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
     return comptime &.initMany(&.{
@@ -1946,15 +1943,32 @@ pub const Object = struct {
         const gop = try o.debug_file_map.getOrPut(gpa, file_index);
         errdefer assert(o.debug_file_map.remove(file_index));
         if (gop.found_existing) return gop.value_ptr.*;
-        const path = o.zcu.fileByIndex(file_index).path;
-        const abs_path = try path.toAbsolute(o.zcu.comp.dirs, gpa);
-        defer gpa.free(abs_path);
 
-        gop.value_ptr.* = try o.builder.debugFile(
-            try o.builder.metadataString(std.fs.path.basename(abs_path)),
-            try o.builder.metadataString(std.fs.path.dirname(abs_path) orelse ""),
-        );
-        return gop.value_ptr.*;
+        const dirs = o.zcu.comp.dirs;
+        const path = o.zcu.fileByIndex(file_index).path;
+        const root_path: ?[]const u8 = switch (path.root) {
+            .zig_lib => dirs.zig_lib.path,
+            .global_cache => dirs.global_cache.path,
+            .local_cache => dirs.local_cache.path,
+            .none => null,
+        };
+
+        const file = if (root_path) |root|
+            try o.builder.debugFile(
+                try o.builder.metadataString(path.sub_path),
+                try o.builder.metadataString(root),
+            )
+        else blk: {
+            const relative = try std.fs.path.relative(gpa, dirs.cwd, null, dirs.cwd, path.sub_path);
+            defer gpa.free(relative);
+            break :blk try o.builder.debugFile(
+                try o.builder.metadataString(relative),
+                try o.builder.metadataString(dirs.cwd),
+            );
+        };
+
+        gop.value_ptr.* = file;
+        return file;
     }
 
     pub fn getDebugType(o: *Object, pt: Zcu.PerThread, ty: Type) Allocator.Error!Builder.Metadata {
