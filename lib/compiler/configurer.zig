@@ -859,7 +859,28 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .dest_sub_path = try wc.addString(sif.dest_rel_path),
                         })));
                     },
-                    .install_dir => @panic("TODO"),
+                    .install_dir => e: {
+                        const sid: *Step.InstallDir = @fieldParentPtr("step", step);
+                        const dest_sub_path: ?[]const u8 = if (sid.options.install_subdir.len != 0)
+                            sid.options.install_subdir
+                        else
+                            null;
+                        const include_extensions = sid.options.include_extensions orelse &.{};
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.InstallDir, .{
+                            .flags = .{
+                                .dest_sub_path = dest_sub_path != null,
+                                .exclude_extensions = sid.options.exclude_extensions.len != 0,
+                                .include_extensions = include_extensions.len != 0,
+                                .blank_extensions = sid.options.blank_extensions.len != 0,
+                            },
+                            .source_dir = try s.addLazyPath(sid.options.source_dir),
+                            .dest_dir = try addInstallDir(wc, sid.options.install_dir),
+                            .dest_sub_path = .{ .value = try s.addOptionalString(dest_sub_path) },
+                            .exclude_extensions = .{ .slice = try s.initStringList(sid.options.exclude_extensions) },
+                            .include_extensions = .{ .slice = try s.initStringList(include_extensions) },
+                            .blank_extensions = .{ .slice = try s.initStringList(sid.options.blank_extensions) },
+                        })));
+                    },
                     .remove_dir => @panic("TODO"),
                     .fail => e: {
                         const sf: *Step.Fail = @fieldParentPtr("step", step);

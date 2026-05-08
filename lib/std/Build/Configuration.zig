@@ -210,9 +210,11 @@ pub const Wip = struct {
     }
 
     pub fn addBytes(wip: *Wip, bytes: []const u8) Allocator.Error!Bytes {
-        _ = wip;
-        _ = bytes;
-        @panic("TODO");
+        try wip.string_bytes.appendSlice(wip.gpa, bytes);
+        return .{
+            .index = @intCast(wip.string_bytes.items.len - bytes.len),
+            .len = @intCast(bytes.len),
+        };
     }
 
     pub fn addSemVer(wip: *Wip, sv: std.SemanticVersion) Allocator.Error!String {
