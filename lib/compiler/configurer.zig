@@ -1064,7 +1064,63 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .max_bytes = .{ .value = cf.max_bytes },
                         })));
                     },
-                    .config_header => @panic("TODO"),
+                    .config_header => e: {
+                        const ch: *Step.ConfigHeader = @fieldParentPtr("step", step);
+                        const lazy_path: ?std.Build.LazyPath = ch.style.getPath();
+                        const pairs = try arena.alloc(Configuration.Step.ConfigHeader.Value.Pair, ch.values.count());
+                        for (pairs, ch.values.keys(), ch.values.values()) |*pair, key, value| pair.* = .{
+                            .key = try wc.addString(key),
+                            .index = switch (value) {
+                                .undef => .undef,
+                                .defined => .defined,
+                                .boolean => |x| switch (x) {
+                                    false => .bool_false,
+                                    true => .bool_true,
+                                },
+                                .int => |x| switch (x) {
+                                    0 => .int_0,
+                                    1 => .int_1,
+                                    else => @enumFromInt(try wc.addExtra(
+                                        Configuration.Step.ConfigHeader.Value.initSigned(x),
+                                    )),
+                                },
+                                .ident => |x| @enumFromInt(try wc.addExtra(@as(Configuration.Step.ConfigHeader.Value, .{
+                                    .flags = .{
+                                        .tag = .ident,
+                                        .small = 0,
+                                    },
+                                    .i64 = .{ .value = null },
+                                    .u64 = .{ .value = null },
+                                    .ident = .{ .value = try wc.addString(x) },
+                                    .string = .{ .value = null },
+                                }))),
+                                .string => |x| @enumFromInt(try wc.addExtra(@as(Configuration.Step.ConfigHeader.Value, .{
+                                    .flags = .{
+                                        .tag = .string,
+                                        .small = 0,
+                                    },
+                                    .i64 = .{ .value = null },
+                                    .u64 = .{ .value = null },
+                                    .ident = .{ .value = null },
+                                    .string = .{ .value = try wc.addString(x) },
+                                }))),
+                            },
+                        };
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.ConfigHeader, .{
+                            .flags = .{
+                                .template_file = lazy_path != null,
+                                .style = .init(ch.style),
+                                .input_size_limit = ch.input_size_limit != null,
+                                .include_guard = ch.include_guard != .none,
+                            },
+                            .template_file = .{ .value = try s.addOptionalLazyPath(lazy_path) },
+                            .generated_dir = ch.generated_dir,
+                            .input_size_limit = .{ .value = ch.input_size_limit },
+                            .include_path = try wc.addString(ch.include_path),
+                            .include_guard = .{ .value = ch.include_guard.unwrap() },
+                            .values = .{ .slice = pairs },
+                        })));
+                    },
                     .obj_copy => e: {
                         const oc: *Step.ObjCopy = @fieldParentPtr("step", step);
 

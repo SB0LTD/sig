@@ -76,3 +76,4 @@ closes #31397
 ### std.Build API
 
 * `b.build_root` (Directory) -> `b.root` (Path)
+* `ConfigHeader.Options`: `include_guard_override` -> `include_guard`

@@ -5,16 +5,17 @@ const Io = std.Io;
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
 const Configuration = std.Build.Configuration;
+const allocPrint = std.fmt.allocPrint;
 
 step: Step,
-values: std.array_hash_map.String(Value),
+values: std.array_hash_map.String(Value) = .empty,
 /// This directory contains the generated file under the name `include_path`.
 generated_dir: Configuration.GeneratedFileIndex,
 
 style: Style,
-max_bytes: usize,
+input_size_limit: ?u64,
 include_path: []const u8,
-include_guard_override: ?[]const u8,
+include_guard: Configuration.OptionalString,
 
 pub const base_tag: Step.Tag = .config_header;
 
@@ -51,42 +52,45 @@ pub const Value = union(enum) {
 
 pub const Options = struct {
     style: Style = .blank,
-    max_bytes: usize = 2 * 1024 * 1024,
+    max_bytes: ?u64 = null,
     include_path: ?[]const u8 = null,
+    include_guard: ?[]const u8 = null,
     first_ret_addr: ?usize = null,
-    include_guard_override: ?[]const u8 = null,
 };
 
 pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
     const graph = owner.graph;
     const arena = graph.arena;
-    const config_header = arena.create(ConfigHeader) catch @panic("OOM");
+    const wc = &graph.wip_configuration;
+    const config_header = graph.create(ConfigHeader);
 
-    var include_path: []const u8 = "config.h";
+    const include_path: []const u8 = p: {
+        if (options.include_path) |p|
+            break :p graph.dupeString(p);
 
-    if (options.style.getPath()) |s| default_include_path: {
-        const wc = &graph.wip_configuration;
-        const sub_path = switch (s) {
-            .src_path => |sp| sp.sub_path,
-            .generated => break :default_include_path,
-            .cwd_relative => |sub_path| sub_path,
-            .relative => |r| wc.stringSlice(r.sub_path),
-            .dependency => |dependency| dependency.sub_path,
-        };
-        const basename = std.fs.path.basename(sub_path);
-        if (std.mem.endsWith(u8, basename, ".h.in")) {
-            include_path = basename[0 .. basename.len - 3];
+        if (options.style.getPath()) |s| default: {
+            const sub_path = switch (s) {
+                .src_path => |sp| sp.sub_path,
+                .generated => break :default,
+                .cwd_relative => |sub_path| sub_path,
+                .relative => |r| wc.stringSlice(r.sub_path),
+                .dependency => |dependency| dependency.sub_path,
+            };
+            const basename = Io.Dir.path.basename(sub_path);
+            if (std.mem.endsWith(u8, basename, ".h.in"))
+                break :p graph.dupeString(basename[0 .. basename.len - 3]);
         }
-    }
-
-    if (options.include_path) |p| {
-        include_path = p;
-    }
+        break :p "config.h";
+    };
 
     const name = if (options.style.getPath()) |s|
-        owner.fmt("configure {t} header {f} to {s}", .{ options.style, s.fmt(graph), include_path })
+        allocPrint(arena, "configure {t} header {f} to {s}", .{
+            options.style, s.fmt(graph), include_path,
+        }) catch @panic("OOM")
     else
-        owner.fmt("configure {t} header to {s}", .{ options.style, include_path });
+        allocPrint(arena, "configure {t} header to {s}", .{
+            options.style, include_path,
+        }) catch @panic("OOM");
 
     config_header.* = .{
         .step = .init(.{
@@ -96,11 +100,9 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
             .first_ret_addr = options.first_ret_addr orelse @returnAddress(),
         }),
         .style = options.style,
-        .values = .empty,
-
-        .max_bytes = options.max_bytes,
-        .include_path = graph.dupeString(include_path),
-        .include_guard_override = options.include_guard_override,
+        .input_size_limit = options.max_bytes,
+        .include_path = include_path,
+        .include_guard = if (options.include_guard) |s| .init(wc.addString(s) catch @panic("OOM")) else .none,
         .generated_dir = graph.addGeneratedFile(&config_header.step),
     };
 
@@ -179,6 +181,7 @@ pub fn addValues(config_header: *ConfigHeader, values: anytype) void {
 pub fn getOutputDir(ch: *ConfigHeader) std.Build.LazyPath {
     return .{ .generated = .{ .index = ch.generated_dir } };
 }
+
 pub fn getOutputFile(ch: *ConfigHeader) std.Build.LazyPath {
     return ch.getOutputDir().path(ch.step.owner, ch.include_path);
 }

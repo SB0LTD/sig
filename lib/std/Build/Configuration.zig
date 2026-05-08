@@ -1029,10 +1029,112 @@ pub const Step = extern struct {
 
     pub const ConfigHeader = struct {
         flags: @This().Flags,
+        template_file: Storage.FlagOptional(.flags, .template_file, LazyPath.Index),
+        generated_dir: GeneratedFileIndex,
+        input_size_limit: Storage.FlagOptional(.flags, .input_size_limit, u64),
+        include_path: String,
+        include_guard: Storage.FlagOptional(.flags, .include_guard, String),
+        values: Storage.LengthPrefixedList(Value.Pair),
+
+        pub const Style = enum(u3) {
+            autoconf_undef,
+            autoconf_at,
+            cmake,
+            blank,
+            nasm,
+
+            pub fn init(s: std.Build.Step.ConfigHeader.Style) Style {
+                return switch (s) {
+                    .autoconf_undef => .autoconf_undef,
+                    .autoconf_at => .autoconf_at,
+                    .cmake => .cmake,
+                    .blank => .blank,
+                    .nasm => .nasm,
+                };
+            }
+        };
+
+        pub const Value = struct {
+            flags: @This().Flags,
+            i64: Storage.EnumOptional(.flags, .tag, .i64, i64),
+            u64: Storage.EnumOptional(.flags, .tag, .u64, u64),
+            ident: Storage.EnumOptional(.flags, .tag, .ident, String),
+            string: Storage.EnumOptional(.flags, .tag, .string, String),
+
+            pub const Flags = packed struct(u32) {
+                tag: Value.Tag,
+                small: u29,
+            };
+
+            pub const Tag = enum(u3) {
+                ident,
+                string,
+                small_unsigned,
+                small_signed,
+                i64,
+                u64,
+            };
+
+            pub const Pair = extern struct {
+                key: String,
+                index: Value.Index,
+            };
+
+            pub const Index = enum(u32) {
+                int_0 = max_u32 - 5,
+                int_1 = max_u32 - 4,
+                bool_false = max_u32 - 3,
+                bool_true = max_u32 - 2,
+                undef = max_u32 - 1,
+                defined = max_u32,
+                _,
+            };
+
+            pub fn initSigned(x: i64) @This() {
+                return switch (x) {
+                    0 => unreachable, // should have been an Index
+                    1 => unreachable, // should have been an Index
+                    2...std.math.maxInt(u29) => .{
+                        .flags = .{
+                            .tag = .small_unsigned,
+                            .small = @intCast(x),
+                        },
+                        .i64 = .{ .value = null },
+                        .u64 = .{ .value = null },
+                        .ident = .{ .value = null },
+                        .string = .{ .value = null },
+                    },
+                    std.math.minInt(i29)...-1 => .{
+                        .flags = .{
+                            .tag = .small_signed,
+                            .small = @bitCast(@as(i29, @intCast(x))),
+                        },
+                        .i64 = .{ .value = null },
+                        .u64 = .{ .value = null },
+                        .ident = .{ .value = null },
+                        .string = .{ .value = null },
+                    },
+                    else => .{
+                        .flags = .{
+                            .tag = .i64,
+                            .small = 0,
+                        },
+                        .i64 = .{ .value = x },
+                        .u64 = .{ .value = null },
+                        .ident = .{ .value = null },
+                        .string = .{ .value = null },
+                    },
+                };
+            }
+        };
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .config_header,
-            _: u27 = 0,
+            template_file: bool,
+            style: Style,
+            input_size_limit: bool,
+            include_guard: bool,
+            _: u21 = 0,
         };
     };
 
