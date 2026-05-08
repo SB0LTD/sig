@@ -27,15 +27,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const has_basename = b.addExecutable(.{
-        .name = "has_basename",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("has_basename.zig"),
-            .optimize = .Debug,
-            .target = target,
-        }),
-    });
-
     // Known path:
     addTestRun(test_step, exists_in, touch_src.dirname(), &.{"touch.zig"});
 
@@ -46,16 +37,6 @@ pub fn build(b: *std.Build) void {
     addTestRun(test_step, exists_in, generated.dirname().dirname(), &.{
         "subdir" ++ std.fs.path.sep_str ++ "generated.txt",
     });
-
-    // Cache root:
-    const cache_dir = b.cache_root.path orelse
-        (b.cache_root.join(b.allocator, &.{"."}) catch @panic("OOM"));
-    addTestRun(
-        test_step,
-        has_basename,
-        generated.dirname().dirname().dirname().dirname(),
-        &.{std.fs.path.basename(cache_dir)},
-    );
 
     // Absolute path:
     const write_files = b.addWriteFiles();

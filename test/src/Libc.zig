@@ -31,7 +31,9 @@ pub fn addLibcTestCase(
     supports_wasi_libc: bool,
     options: LibcTestCaseOption,
 ) void {
-    const name = libc.b.dupe(path[0 .. path.len - std.fs.path.extension(path).len]);
+    const graph = libc.b.graph;
+    const arena = graph.arena;
+    const name = arena.dupe(u8, path[0 .. path.len - std.fs.path.extension(path).len]) catch @panic("OOM");
     std.mem.replaceScalar(u8, name, '/', '.');
     libc.test_cases.append(libc.b.allocator, .{
         .name = name,

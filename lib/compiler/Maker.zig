@@ -1804,6 +1804,10 @@ pub fn relativePath(maker: *const Maker, relative: Configuration.LazyPath.Relati
             .root_dir = graph.zig_lib_directory,
             .sub_path = sub_path,
         },
+        .install_prefix => maker.install_paths.prefix,
+        .install_lib => maker.install_paths.lib,
+        .install_bin => maker.install_paths.bin,
+        .install_include => maker.install_paths.include,
     };
 }
 

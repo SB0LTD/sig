@@ -1643,6 +1643,10 @@ pub const Path = extern struct {
         build_root,
         zig_exe,
         zig_lib,
+        install_prefix,
+        install_lib,
+        install_bin,
+        install_include,
     };
 
     pub fn toCachePath(path: Path, c: *const Configuration, arena: Allocator) std.Build.Cache.Path {

@@ -119,34 +119,34 @@ pub fn add(write_file: *WriteFile, sub_path: []const u8, bytes: []const u8) std.
     };
 }
 
-/// Place the file into the generated directory within the local cache,
-/// along with all the rest of the files added to this step. The parameter
-/// here is the destination path relative to the local cache directory
-/// associated with this WriteFile. It may be a basename, or it may
-/// include sub-directories, in which case this step will ensure the
-/// required sub-path exists.
-/// This is the option expected to be used most commonly with `addCopyFile`.
+/// Copies the provided file into the generated directory within the local
+/// cache, along with all the rest of the files added to this step.
+///
+/// `sub_path` is the destination path relative to the local cache directory
+/// associated with this WriteFile. It may be a basename, or it may include
+/// subdirectories, which are created as needed.
 pub fn addCopyFile(write_file: *WriteFile, source: std.Build.LazyPath, sub_path: []const u8) std.Build.LazyPath {
-    const b = write_file.step.owner;
-    const gpa = b.allocator;
-    const file = File{
-        .sub_path = b.dupePath(sub_path),
+    const graph = write_file.step.owner.graph;
+    const duped_path = graph.dupePath(sub_path);
+    const arena = graph.arena;
+
+    write_file.files.append(arena, .{
+        .sub_path = duped_path,
         .contents = .{ .copy = source },
-    };
-    write_file.files.append(gpa, file) catch @panic("OOM");
+    }) catch @panic("OOM");
 
     write_file.maybeUpdateName();
     source.addStepDependencies(&write_file.step);
-    return .{
-        .generated = .{
-            .index = write_file.generated_directory,
-            .sub_path = file.sub_path,
-        },
-    };
+
+    return .{ .generated = .{
+        .index = write_file.generated_directory,
+        .sub_path = duped_path,
+    } };
 }
 
-/// Copy files matching the specified exclude/include patterns to the specified subdirectory
-/// relative to this step's generated directory.
+/// Copy files matching the specified exclude/include patterns to the specified
+/// subdirectory relative to this step's generated directory.
+///
 /// The returned value is a lazy path to the generated subdirectory.
 pub fn addCopyDirectory(
     write_file: *WriteFile,

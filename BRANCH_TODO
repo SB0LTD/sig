@@ -1,3 +1,4 @@
+* pass overridden pkg-dir to maker
 * finish migrating the rest of the build steps
 * inspect b4ffb402c082605c4b324e88120306fc8fb3cf32 diff and apply changes as needed (merge conflict)
 * make zig-pkg path root configurable in maker (make sure --system still works)

@@ -108,7 +108,10 @@ pub const Graph = struct {
     }
 
     pub fn dupePath(graph: *const Graph, bytes: []const u8) []const u8 {
-        const arena = graph.arena;
+        return dupePathInner(graph.arena, bytes);
+    }
+
+    fn dupePathInner(arena: Allocator, bytes: []const u8) []const u8 {
         if (builtin.os.tag != .windows) return arena.dupe(u8, bytes) catch @panic("OOM");
         const the_copy = arena.dupe(u8, bytes) catch @panic("OOM");
         mem.replaceScalar(u8, the_copy, '/', '\\');
@@ -2331,21 +2334,24 @@ pub const LazyPath = union(enum) {
 
     /// Copies the internal strings.
     ///
-    /// The `b` parameter is only used for its allocator. All *Build instances
-    /// share the same allocator.
+    /// The `graph` parameter is only used for the global arena allocator.
     pub fn dupe(lazy_path: LazyPath, graph: *const Graph) LazyPath {
+        return dupeInner(lazy_path, graph.arena);
+    }
+
+    fn dupeInner(lazy_path: LazyPath, arena: Allocator) LazyPath {
         return switch (lazy_path) {
             .src_path => |sp| .{ .src_path = .{ .owner = sp.owner, .sub_path = sp.owner.dupePath(sp.sub_path) } },
-            .cwd_relative => |p| .{ .cwd_relative = graph.dupePath(p) },
+            .cwd_relative => |p| .{ .cwd_relative = Graph.dupePathInner(arena, p) },
             .relative => |r| .{ .relative = r },
             .generated => |gen| .{ .generated = .{
                 .index = gen.index,
                 .up = gen.up,
-                .sub_path = graph.dupePath(gen.sub_path),
+                .sub_path = Graph.dupePathInner(arena, gen.sub_path),
             } },
             .dependency => |dep| .{ .dependency = .{
                 .dependency = dep.dependency,
-                .sub_path = graph.dupePath(dep.sub_path),
+                .sub_path = Graph.dupePathInner(arena, dep.sub_path),
             } },
         };
     }

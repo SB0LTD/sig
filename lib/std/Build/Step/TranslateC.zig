@@ -1,24 +1,24 @@
 const TranslateC = @This();
 
 const std = @import("std");
-const Step = std.Build.Step;
-const LazyPath = std.Build.LazyPath;
 const fs = std.fs;
 const mem = std.mem;
+const allocPrint = std.fmt.allocPrint;
+const Step = std.Build.Step;
+const LazyPath = std.Build.LazyPath;
 const Configuration = std.Build.Configuration;
-
-pub const base_tag: Step.Tag = .translate_c;
 
 step: Step,
 source: std.Build.LazyPath,
-include_dirs: std.array_list.Managed(std.Build.Module.IncludeDir),
+include_dirs: std.ArrayList(std.Build.Module.IncludeDir),
 system_libs: std.ArrayList(std.Build.Module.SystemLib),
-c_macros: std.array_list.Managed([]const u8),
-out_basename: []const u8,
+c_macros: std.ArrayList([]const u8),
 target: std.Build.ResolvedTarget,
 optimize: std.builtin.OptimizeMode,
 output_file: Configuration.GeneratedFileIndex,
 link_libc: bool,
+
+pub const base_tag: Step.Tag = .translate_c;
 
 pub const Options = struct {
     root_source_file: std.Build.LazyPath,
@@ -29,20 +29,17 @@ pub const Options = struct {
 
 pub fn create(owner: *std.Build, options: Options) *TranslateC {
     const graph = owner.graph;
-    const arena = graph.arena;
-    const translate_c = arena.create(TranslateC) catch @panic("OOM");
+    const translate_c = graph.create(TranslateC);
     const source = options.root_source_file.dupe(graph);
     translate_c.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .tag = base_tag,
             .name = "translate-c",
             .owner = owner,
-            .makeFn = make,
         }),
         .source = source,
-        .include_dirs = std.array_list.Managed(std.Build.Module.IncludeDir).init(arena),
-        .c_macros = std.array_list.Managed([]const u8).init(arena),
-        .out_basename = undefined,
+        .include_dirs = .empty,
+        .c_macros = .empty,
         .target = options.target,
         .optimize = options.optimize,
         .output_file = graph.addGeneratedFile(&translate_c.step),
@@ -90,8 +87,8 @@ pub fn createModule(translate_c: *TranslateC) *std.Build.Module {
 }
 
 fn setUpModule(translate_c: *TranslateC, module: *std.Build.Module) *std.Build.Module {
-    const b = translate_c.step.owner;
-    const arena = b.graph.arena;
+    const graph = translate_c.step.owner.graph;
+    const arena = graph.arena;
 
     if (translate_c.link_libc) module.link_libc = true;
 
@@ -103,42 +100,49 @@ fn setUpModule(translate_c: *TranslateC, module: *std.Build.Module) *std.Build.M
 }
 
 pub fn addAfterIncludePath(translate_c: *TranslateC, lazy_path: LazyPath) void {
-    const b = translate_c.step.owner;
-    translate_c.include_dirs.append(.{ .path_after = lazy_path.dupe(b) }) catch
+    const graph = translate_c.step.owner.graph;
+    const arena = graph.arena;
+    translate_c.include_dirs.append(arena, .{ .path_after = lazy_path.dupe(graph) }) catch
         @panic("OOM");
     lazy_path.addStepDependencies(&translate_c.step);
 }
 
 pub fn addSystemIncludePath(translate_c: *TranslateC, lazy_path: LazyPath) void {
-    const b = translate_c.step.owner;
-    translate_c.include_dirs.append(.{ .path_system = lazy_path.dupe(b) }) catch
+    const graph = translate_c.step.owner.graph;
+    const arena = graph.arena;
+    translate_c.include_dirs.append(arena, .{ .path_system = lazy_path.dupe(graph) }) catch
         @panic("OOM");
     lazy_path.addStepDependencies(&translate_c.step);
 }
 
 pub fn addIncludePath(translate_c: *TranslateC, lazy_path: LazyPath) void {
-    const b = translate_c.step.owner;
-    translate_c.include_dirs.append(.{ .path = lazy_path.dupe(b) }) catch
+    const graph = translate_c.step.owner.graph;
+    const arena = graph.arena;
+    translate_c.include_dirs.append(arena, .{ .path = lazy_path.dupe(graph) }) catch
         @panic("OOM");
     lazy_path.addStepDependencies(&translate_c.step);
 }
 
 pub fn addConfigHeader(translate_c: *TranslateC, config_header: *Step.ConfigHeader) void {
-    translate_c.include_dirs.append(.{ .config_header_step = config_header }) catch
+    const graph = translate_c.step.owner.graph;
+    const arena = graph.arena;
+    translate_c.include_dirs.append(arena, .{ .config_header_step = config_header }) catch
         @panic("OOM");
     translate_c.step.dependOn(&config_header.step);
 }
 
 pub fn addSystemFrameworkPath(translate_c: *TranslateC, directory_path: LazyPath) void {
-    const b = translate_c.step.owner;
-    translate_c.include_dirs.append(.{ .framework_path_system = directory_path.dupe(b) }) catch
+    const graph = translate_c.step.owner.graph;
+    const arena = graph.arena;
+    translate_c.include_dirs.append(arena, .{ .framework_path_system = directory_path.dupe(graph) }) catch
         @panic("OOM");
     directory_path.addStepDependencies(&translate_c.step);
 }
 
 pub fn addFrameworkPath(translate_c: *TranslateC, directory_path: LazyPath) void {
-    const b = translate_c.step.owner;
-    translate_c.include_dirs.append(.{ .framework_path = directory_path.dupe(b) }) catch
+    const graph = translate_c.step.owner.graph;
+    const arena = graph.arena;
+    translate_c.include_dirs.append(arena, .{ .framework_path = directory_path.dupe(graph) }) catch
         @panic("OOM");
     directory_path.addStepDependencies(&translate_c.step);
 }
@@ -154,135 +158,17 @@ pub fn addCheckFile(translate_c: *TranslateC, expected_matches: []const []const 
 /// If the value is omitted, it is set to 1.
 /// `name` and `value` need not live longer than the function call.
 pub fn defineCMacro(translate_c: *TranslateC, name: []const u8, value: ?[]const u8) void {
-    const macro = translate_c.step.owner.fmt("{s}={s}", .{ name, value orelse "1" });
-    translate_c.c_macros.append(macro) catch @panic("OOM");
+    const graph = translate_c.step.owner.graph;
+    const arena = graph.arena;
+    const macro = allocPrint(arena, "{s}={s}", .{ name, value orelse "1" }) catch @panic("OOM");
+    translate_c.c_macros.append(arena, macro) catch @panic("OOM");
 }
 
 /// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
 pub fn defineCMacroRaw(translate_c: *TranslateC, name_and_value: []const u8) void {
-    translate_c.c_macros.append(translate_c.step.owner.dupe(name_and_value)) catch @panic("OOM");
-}
-
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    const prog_node = options.progress_node;
-    const b = step.owner;
-    const translate_c: *TranslateC = @fieldParentPtr("step", step);
-    const arena = b.graph.arena;
-
-    var argv_list = std.array_list.Managed([]const u8).init(b.allocator);
-    try argv_list.append(b.graph.zig_exe);
-    try argv_list.append("translate-c");
-    if (translate_c.link_libc) {
-        try argv_list.append("-lc");
-    }
-
-    try argv_list.append("--cache-dir");
-    try argv_list.append(b.cache_root.path orelse ".");
-
-    try argv_list.append("--global-cache-dir");
-    try argv_list.append(b.graph.global_cache_root.path orelse ".");
-
-    if (!translate_c.target.query.isNative()) {
-        try argv_list.append("-target");
-        try argv_list.append(try translate_c.target.query.zigTriple(b.allocator));
-    }
-
-    switch (translate_c.optimize) {
-        .Debug => {}, // Skip since it's the default.
-        else => try argv_list.append(b.fmt("-O{s}", .{@tagName(translate_c.optimize)})),
-    }
-
-    for (translate_c.include_dirs.items) |include_dir| {
-        try include_dir.appendZigProcessFlags(b, &argv_list, step);
-    }
-
-    for (translate_c.c_macros.items) |c_macro| {
-        try argv_list.append("-D");
-        try argv_list.append(c_macro);
-    }
-
-    var prev_search_strategy: std.Build.Module.SystemLib.SearchStrategy = .paths_first;
-    var prev_preferred_link_mode: std.builtin.LinkMode = .dynamic;
-
-    for (translate_c.system_libs.items) |*system_lib| {
-        var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .empty;
-        const system_lib_gop = try seen_system_libs.getOrPut(arena, system_lib.name);
-        if (system_lib_gop.found_existing) {
-            try argv_list.appendSlice(system_lib_gop.value_ptr.*);
-            continue;
-        } else {
-            system_lib_gop.value_ptr.* = &.{};
-        }
-
-        if (system_lib.search_strategy != prev_search_strategy or
-            system_lib.preferred_link_mode != prev_preferred_link_mode)
-        {
-            switch (system_lib.search_strategy) {
-                .no_fallback => switch (system_lib.preferred_link_mode) {
-                    .dynamic => try argv_list.append("-search_dylibs_only"),
-                    .static => try argv_list.append("-search_static_only"),
-                },
-                .paths_first => switch (system_lib.preferred_link_mode) {
-                    .dynamic => try argv_list.append("-search_paths_first"),
-                    .static => try argv_list.append("-search_paths_first_static"),
-                },
-                .mode_first => switch (system_lib.preferred_link_mode) {
-                    .dynamic => try argv_list.append("-search_dylibs_first"),
-                    .static => try argv_list.append("-search_static_first"),
-                },
-            }
-            prev_search_strategy = system_lib.search_strategy;
-            prev_preferred_link_mode = system_lib.preferred_link_mode;
-        }
-
-        const prefix: []const u8 = prefix: {
-            if (system_lib.needed) break :prefix "-needed-l";
-            if (system_lib.weak) break :prefix "-weak-l";
-            break :prefix "-l";
-        };
-        switch (system_lib.use_pkg_config) {
-            .no => try argv_list.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
-            .yes, .force => {
-                if (Step.Compile.runPkgConfig(&translate_c.step, system_lib.name)) |result| {
-                    try argv_list.appendSlice(result.cflags);
-                    try argv_list.appendSlice(result.libs);
-                    try seen_system_libs.put(arena, system_lib.name, result.cflags);
-                } else |err| switch (err) {
-                    error.PkgConfigInvalidOutput,
-                    error.PkgConfigCrashed,
-                    error.PkgConfigFailed,
-                    error.PkgConfigNotInstalled,
-                    error.PackageNotFound,
-                    => switch (system_lib.use_pkg_config) {
-                        .yes => {
-                            // pkg-config failed, so fall back to linking the library
-                            // by name directly.
-                            try argv_list.append(b.fmt("{s}{s}", .{
-                                prefix,
-                                system_lib.name,
-                            }));
-                        },
-                        .force => {
-                            std.debug.panic("pkg-config failed for library {s}", .{system_lib.name});
-                        },
-                        .no => unreachable,
-                    },
-
-                    else => |e| return e,
-                }
-            },
-        }
-    }
-
-    const c_source_path = translate_c.source.getPath2(b, step);
-    try argv_list.append(c_source_path);
-
-    try argv_list.append("--listen=-");
-    const output_dir = try step.evalZigProcess(argv_list.items, prog_node, false, options.web_server, options.gpa);
-
-    const basename = std.fs.path.stem(std.fs.path.basename(c_source_path));
-    translate_c.out_basename = b.fmt("{s}.zig", .{basename});
-    translate_c.output_file.path = output_dir.?.joinString(b.allocator, translate_c.out_basename) catch @panic("OOM");
+    const graph = translate_c.step.owner.graph;
+    const arena = graph.arena;
+    translate_c.c_macros.append(arena, translate_c.step.owner.dupe(name_and_value)) catch @panic("OOM");
 }
 
 pub fn linkSystemLibrary(
@@ -290,9 +176,10 @@ pub fn linkSystemLibrary(
     name: []const u8,
     options: std.Build.Module.LinkSystemLibraryOptions,
 ) void {
-    const b = translate_c.step.owner;
-    translate_c.system_libs.append(b.allocator, .{
-        .name = b.dupe(name),
+    const graph = translate_c.step.owner.graph;
+    const arena = graph.arena;
+    translate_c.system_libs.append(arena, .{
+        .name = graph.dupeString(name),
         .needed = options.needed,
         .weak = options.weak,
         .use_pkg_config = options.use_pkg_config,

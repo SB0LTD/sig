@@ -79,6 +79,11 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
             try printStruct(sc, &sub_struct, Configuration.Step.Run.Arg, field_value.get(c));
             try sub_struct.end();
         },
+        Configuration.Step.ObjCopy.UpdateSection.Flags => {
+            var sub_struct = try s.beginStruct(.{});
+            try printStruct(sc, &sub_struct, Field, field_value);
+            try sub_struct.end();
+        },
         Configuration.LazyPath.Index => {
             switch (field_value.get(c)) {
                 inline else => |u| {
