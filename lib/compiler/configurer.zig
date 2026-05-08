@@ -1037,7 +1037,20 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                         }));
                         break :e @enumFromInt(extra_index);
                     },
-                    .check_file => @panic("TODO"),
+                    .check_file => e: {
+                        const cf: *Step.CheckFile = @fieldParentPtr("step", step);
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.CheckFile, .{
+                            .flags = .{
+                                .expected_exact = cf.expected_exact != null,
+                                .expected_matches = cf.expected_matches.len != 0,
+                                .max_bytes = cf.max_bytes != null,
+                            },
+                            .file = try s.addLazyPath(cf.file),
+                            .expected_exact = .{ .value = cf.expected_exact },
+                            .expected_matches = .{ .slice = cf.expected_matches },
+                            .max_bytes = .{ .value = cf.max_bytes },
+                        })));
+                    },
                     .config_header => @panic("TODO"),
                     .obj_copy => @panic("TODO"),
                     .options => @panic("TODO"),
