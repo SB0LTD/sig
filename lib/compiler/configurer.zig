@@ -1066,7 +1066,24 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                     },
                     .config_header => @panic("TODO"),
                     .obj_copy => @panic("TODO"),
-                    .options => @panic("TODO"),
+                    .options => e: {
+                        const so: *Step.Options = @fieldParentPtr("step", step);
+
+                        const args = try arena.alloc(Configuration.Step.Options.Arg, so.args.items.len);
+                        for (args, so.args.items) |*dest, src| dest.* = .{
+                            .name = src.name,
+                            .path = try s.addLazyPath(src.path),
+                        };
+
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.Options, .{
+                            .flags = .{
+                                .args = so.args.items.len != 0,
+                            },
+                            .generated_file = so.generated_file,
+                            .contents = try wc.addBytes(so.contents.items),
+                            .args = .{ .slice = args },
+                        })));
+                    },
                 },
             });
         }

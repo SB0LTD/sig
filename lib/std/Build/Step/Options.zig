@@ -11,14 +11,14 @@ const Configuration = std.Build.Configuration;
 
 step: Step,
 generated_file: Configuration.GeneratedFileIndex,
-contents: std.ArrayList(u8),
-args: std.ArrayList(Arg),
+contents: std.ArrayList(u8) = .empty,
+args: std.ArrayList(Arg) = .empty,
 encountered_types: std.StringHashMapUnmanaged(void),
 
 pub const base_tag: Step.Tag = .options;
 
 pub const Arg = struct {
-    name: []const u8,
+    name: Configuration.String,
     path: LazyPath,
 };
 
@@ -34,8 +34,6 @@ pub fn create(owner: *std.Build) *Options {
             .owner = owner,
         }),
         .generated_file = graph.addGeneratedFile(&options.step),
-        .contents = .empty,
-        .args = .empty,
         .encountered_types = .empty,
     };
 
@@ -416,16 +414,14 @@ fn printStructValue(
     }
 }
 
-/// The value is the path in the cache dir.
-/// Adds a dependency automatically.
-pub fn addOptionPath(
-    options: *Options,
-    name: []const u8,
-    path: LazyPath,
-) void {
-    const arena = options.step.owner.allocator;
+/// The added option has type `[]const u8` and value of the provided path.
+pub fn addOptionPath(options: *Options, name: []const u8, path: LazyPath) void {
+    const graph = options.step.owner.graph;
+    const arena = graph.arena;
+    const wc = &graph.wip_configuration;
+
     options.args.append(arena, .{
-        .name = options.step.owner.dupe(name),
+        .name = try wc.addString(name),
         .path = path.dupe(options.step.owner),
     }) catch @panic("OOM");
     path.addStepDependencies(&options.step);
