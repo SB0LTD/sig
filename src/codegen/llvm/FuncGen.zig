@@ -767,17 +767,36 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier
         },
     };
 
+    const cc_info = llvm.toLlvmCallConv(fn_info.cc, target).?;
+
     {
         // Add argument attributes.
         it = iterateParamTypes(o, fn_info);
         it.llvm_index += @intFromBool(sret);
         it.llvm_index += @intFromBool(err_return_tracing);
+        var remaining_inreg_int = cc_info.inreg_int_params;
+        var remaining_inreg_float = cc_info.inreg_float_params;
         while (try it.next()) |lowering| switch (lowering) {
             .byval => {
                 const param_index = it.zig_index - 1;
                 const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[param_index]);
                 if (!isByRef(param_ty, zcu)) {
                     try o.addByValParamAttrs(pt, &attributes, param_ty, param_index, fn_info, it.llvm_index - 1);
+                }
+
+                if (remaining_inreg_int > 0 and
+                    (param_ty.isPtrAtRuntime(zcu) or
+                        (param_ty.isAbiInt(zcu) and param_ty.abiSize(zcu) <= Type.usize.abiSize(zcu))))
+                {
+                    try attributes.addParamAttr(it.llvm_index - 1, .inreg, &o.builder);
+                    remaining_inreg_int -= 1;
+                }
+
+                if (remaining_inreg_float > 0 and
+                    param_ty.zigTypeTag(zcu) == .float)
+                {
+                    try attributes.addParamAttr(it.llvm_index - 1, .inreg, &o.builder);
+                    remaining_inreg_float -= 1;
                 }
             },
             .byref => {
@@ -833,7 +852,7 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier
             .always_tail => .musttail,
             .no_suspend, .always_inline, .compile_time => unreachable,
         },
-        llvm.toLlvmCallConvTag(fn_info.cc, target).?,
+        cc_info.llvm_cc,
         try attributes.finish(&o.builder),
         try o.lowerType(zig_fn_ty),
         llvm_fn,

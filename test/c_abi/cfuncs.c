@@ -5892,3 +5892,30 @@ struct byval_tail_callsite_attr_Rect {
 double c_byval_tail_callsite_attr(struct byval_tail_callsite_attr_Rect in) {
     return in.size.width;
 }
+
+#ifdef __i386__
+void __attribute__((fastcall)) zig_fastcall_check(int a, float b, void *c, double d, int e);
+void __attribute__((fastcall)) c_fastcall_check(int a, float b, void *c, double d, int e) {
+    assert_or_panic(a == 1);
+    assert_or_panic(b == 2.0);
+    assert_or_panic((uintptr_t)c == 3);
+    assert_or_panic(d == 4.0);
+    assert_or_panic(e == 5);
+    zig_fastcall_check(a, b, c, d, e);
+}
+
+void __attribute__((vectorcall)) zig_vectorcall_check(int a, float b, double c, void *d, float e, double f, double g, float h, float i, int j);
+void __attribute__((vectorcall)) c_vectorcall_check(int a, float b, double c, void *d, float e, double f, double g, float h, float i, int j) {
+    assert_or_panic(a == 1);
+    assert_or_panic(b == 2.0);
+    assert_or_panic(c == 3.0);
+    assert_or_panic((uintptr_t)d == 4);
+    assert_or_panic(e == 5.0);
+    assert_or_panic(f == 6.0);
+    assert_or_panic(g == 7.0);
+    assert_or_panic(h == 8.0);
+    assert_or_panic(i == 9.0);
+    assert_or_panic(j == 10);
+    zig_vectorcall_check(a, b, c, d, e, f, g, h, i, j);
+}
+#endif
