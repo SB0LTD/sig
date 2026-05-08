@@ -14401,7 +14401,7 @@ pub fn setTimestampToPosix(set_ts: File.SetTimestamp) posix.timespec {
 }
 
 pub fn pathToPosix(file_path: []const u8, buffer: *[posix.PATH_MAX]u8) Dir.PathNameError![:0]u8 {
-    if (std.mem.containsAtLeastScalar2(u8, file_path, 0, 1)) return error.BadPathName;
+    if (std.mem.containsAtLeastScalar(u8, file_path, 0, 1)) return error.BadPathName;
     // >= rather than > to make room for the null byte
     if (file_path.len >= buffer.len) return error.NameTooLong;
     @memcpy(buffer[0..file_path.len], file_path);

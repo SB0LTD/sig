@@ -1691,7 +1691,7 @@ test countScalar {
 //
 /// See also: `containsAtLeastScalar`
 pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: usize, needle: []const T) bool {
-    if (needle.len == 1) return containsAtLeastScalar(T, haystack, expected_count, needle[0]);
+    if (needle.len == 1) return containsAtLeastScalar(T, haystack, needle[0], expected_count);
     assert(needle.len > 0);
     if (expected_count == 0) return true;
 
@@ -1722,17 +1722,12 @@ test containsAtLeast {
     try testing.expect(!containsAtLeast(u8, "   radar      radar   ", 3, "radar"));
 }
 
-/// Deprecated in favor of `containsAtLeastScalar2`.
-pub fn containsAtLeastScalar(comptime T: type, list: []const T, minimum: usize, element: T) bool {
-    return containsAtLeastScalar2(T, list, element, minimum);
-}
-
 /// Returns true if `element` appears at least `minimum` number of times in `list`.
 //
 /// Related:
 /// * `containsAtLeast`
 /// * `countScalar`
-pub fn containsAtLeastScalar2(comptime T: type, list: []const T, element: T, minimum: usize) bool {
+pub fn containsAtLeastScalar(comptime T: type, list: []const T, element: T, minimum: usize) bool {
     const n = list.len;
     var i: usize = 0;
     var found: usize = 0;
@@ -1760,14 +1755,14 @@ pub fn containsAtLeastScalar2(comptime T: type, list: []const T, element: T, min
     return false;
 }
 
-test containsAtLeastScalar2 {
-    try testing.expect(containsAtLeastScalar2(u8, "aa", 'a', 0));
-    try testing.expect(containsAtLeastScalar2(u8, "aa", 'a', 1));
-    try testing.expect(containsAtLeastScalar2(u8, "aa", 'a', 2));
-    try testing.expect(!containsAtLeastScalar2(u8, "aa", 'a', 3));
+test containsAtLeastScalar {
+    try testing.expect(containsAtLeastScalar(u8, "aa", 'a', 0));
+    try testing.expect(containsAtLeastScalar(u8, "aa", 'a', 1));
+    try testing.expect(containsAtLeastScalar(u8, "aa", 'a', 2));
+    try testing.expect(!containsAtLeastScalar(u8, "aa", 'a', 3));
 
-    try testing.expect(containsAtLeastScalar2(u8, "adadda", 'd', 3));
-    try testing.expect(!containsAtLeastScalar2(u8, "adadda", 'd', 4));
+    try testing.expect(containsAtLeastScalar(u8, "adadda", 'd', 3));
+    try testing.expect(!containsAtLeastScalar(u8, "adadda", 'd', 4));
 }
 
 /// Reads an integer from memory with size equal to bytes.len.
