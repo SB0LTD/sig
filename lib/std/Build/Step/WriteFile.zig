@@ -13,8 +13,9 @@ const Configuration = std.Build.Configuration;
 
 step: Step,
 
-files: std.ArrayList(File),
-directories: std.ArrayList(Directory),
+embeds: std.ArrayList(Embed) = .empty,
+copies: std.ArrayList(Copy) = .empty,
+directories: std.ArrayList(Directory) = .empty,
 generated_directory: Configuration.GeneratedFileIndex,
 mode: Mode = .whole_cached,
 
@@ -37,158 +38,152 @@ pub const Mode = union(enum) {
     mutate: std.Build.LazyPath,
 };
 
-pub const File = struct {
-    sub_path: []const u8,
-    contents: Contents,
+pub const Embed = Configuration.Step.WriteFile.Embed;
+
+pub const Copy = struct {
+    sub_path: Configuration.String,
+    src_file: std.Build.LazyPath,
 };
 
 pub const Directory = struct {
-    source: std.Build.LazyPath,
-    sub_path: []const u8,
-    options: Options,
-
-    pub const Options = struct {
-        /// File paths that end in any of these suffixes will be excluded from copying.
-        exclude_extensions: []const []const u8 = &.{},
-        /// Only file paths that end in any of these suffixes will be included in copying.
-        /// `null` means that all suffixes will be included.
-        /// `exclude_extensions` takes precedence over `include_extensions`.
-        include_extensions: ?[]const []const u8 = null,
-
-        pub fn dupe(opts: Options, graph: *std.Build.Graph) Options {
-            return .{
-                .exclude_extensions = graph.dupeStrings(opts.exclude_extensions),
-                .include_extensions = if (opts.include_extensions) |incs| graph.dupeStrings(incs) else null,
-            };
-        }
-
-        pub fn pathIncluded(opts: Options, path: []const u8) bool {
-            for (opts.exclude_extensions) |ext| {
-                if (std.mem.endsWith(u8, path, ext))
-                    return false;
-            }
-            if (opts.include_extensions) |incs| {
-                for (incs) |inc| {
-                    if (std.mem.endsWith(u8, path, inc))
-                        return true;
-                } else {
-                    return false;
-                }
-            }
-            return true;
-        }
-    };
-};
-
-pub const Contents = union(enum) {
-    bytes: []const u8,
-    copy: std.Build.LazyPath,
+    sub_path: Configuration.String,
+    src_path: std.Build.LazyPath,
+    exclude_extensions: Configuration.OptionalStringList,
+    include_extensions: Configuration.OptionalStringList,
 };
 
 pub fn create(owner: *std.Build) *WriteFile {
     const graph = owner.graph;
-    const arena = graph.arena;
-    const write_file = arena.create(WriteFile) catch @panic("OOM");
-    write_file.* = .{
-        .step = Step.init(.{
+    const wf = graph.create(WriteFile);
+    wf.* = .{
+        .step = .init(.{
             .tag = base_tag,
             .name = "WriteFile",
             .owner = owner,
         }),
-        .files = .empty,
-        .directories = .empty,
-        .generated_directory = graph.addGeneratedFile(&write_file.step),
+        .generated_directory = graph.addGeneratedFile(&wf.step),
     };
-    return write_file;
+    return wf;
 }
 
-pub fn add(write_file: *WriteFile, sub_path: []const u8, bytes: []const u8) std.Build.LazyPath {
-    const graph = write_file.step.owner.graph;
+/// Writes `contents` to a file at `sub_path` relative to the output
+/// directory.
+///
+/// `sub_path` may be a basename, or it may include subdirectories, which are
+/// created as needed.
+pub fn add(wf: *WriteFile, sub_path: []const u8, contents: []const u8) std.Build.LazyPath {
+    const graph = wf.step.owner.graph;
+    const wc = &graph.wip_configuration;
     const arena = graph.arena;
-    const file: File = .{
-        .sub_path = graph.dupePath(sub_path),
-        .contents = .{ .bytes = graph.dupeString(bytes) },
-    };
-    write_file.files.append(arena, file) catch @panic("OOM");
-    write_file.maybeUpdateName();
+
+    wf.embeds.append(arena, .{
+        .sub_path = wc.addString(sub_path) catch @panic("OOM"),
+        .contents = wc.addBytes(contents) catch @panic("OOM"),
+    }) catch @panic("OOM");
+
+    wf.maybeUpdateName();
+
     return .{
         .generated = .{
-            .index = write_file.generated_directory,
-            .sub_path = file.sub_path,
+            .index = wf.generated_directory,
+            .sub_path = graph.dupeString(sub_path),
         },
     };
 }
 
-/// Copies the provided file into the generated directory within the local
-/// cache, along with all the rest of the files added to this step.
+/// Copies the provided file to `sub_path` relative to the output directory.
 ///
-/// `sub_path` is the destination path relative to the local cache directory
-/// associated with this WriteFile. It may be a basename, or it may include
-/// subdirectories, which are created as needed.
-pub fn addCopyFile(write_file: *WriteFile, source: std.Build.LazyPath, sub_path: []const u8) std.Build.LazyPath {
-    const graph = write_file.step.owner.graph;
-    const duped_path = graph.dupePath(sub_path);
+/// `sub_path` may be a basename, or it may include subdirectories, which are
+/// created as needed.
+pub fn addCopyFile(wf: *WriteFile, src_file: std.Build.LazyPath, sub_path: []const u8) std.Build.LazyPath {
+    const graph = wf.step.owner.graph;
+    const wc = &graph.wip_configuration;
     const arena = graph.arena;
 
-    write_file.files.append(arena, .{
-        .sub_path = duped_path,
-        .contents = .{ .copy = source },
+    wf.copies.append(arena, .{
+        .sub_path = wc.addString(sub_path) catch @panic("OOM"),
+        .src_file = src_file.dupe(graph),
     }) catch @panic("OOM");
 
-    write_file.maybeUpdateName();
-    source.addStepDependencies(&write_file.step);
+    wf.maybeUpdateName();
+
+    src_file.addStepDependencies(&wf.step);
 
     return .{ .generated = .{
-        .index = write_file.generated_directory,
-        .sub_path = duped_path,
+        .index = wf.generated_directory,
+        .sub_path = graph.dupePath(sub_path),
     } };
 }
+
+pub const CopyDirectoryOptions = struct {
+    /// File paths that end in any of these suffixes will be excluded from copying.
+    exclude_extensions: []const []const u8 = &.{},
+    /// Only file paths that end in any of these suffixes will be included in copying.
+    /// `null` means that all suffixes will be included.
+    /// `exclude_extensions` takes precedence over `include_extensions`.
+    include_extensions: ?[]const []const u8 = null,
+};
 
 /// Copy files matching the specified exclude/include patterns to the specified
 /// subdirectory relative to this step's generated directory.
 ///
 /// The returned value is a lazy path to the generated subdirectory.
 pub fn addCopyDirectory(
-    write_file: *WriteFile,
-    source: std.Build.LazyPath,
+    wf: *WriteFile,
+    src_path: std.Build.LazyPath,
     sub_path: []const u8,
-    options: Directory.Options,
+    options: CopyDirectoryOptions,
 ) std.Build.LazyPath {
-    const graph = write_file.step.owner.graph;
+    const graph = wf.step.owner.graph;
+    const wc = &graph.wip_configuration;
     const arena = graph.arena;
-    const dir = Directory{
-        .source = source.dupe(graph),
-        .sub_path = graph.dupePath(sub_path),
-        .options = options.dupe(graph),
-    };
-    write_file.directories.append(arena, dir) catch @panic("OOM");
 
-    write_file.maybeUpdateName();
-    source.addStepDependencies(&write_file.step);
+    wf.directories.append(arena, .{
+        .sub_path = wc.addString(sub_path) catch @panic("OOM"),
+        .src_path = src_path.dupe(graph),
+        .exclude_extensions = if (options.exclude_extensions.len != 0)
+            .init(wc.addStringList(options.exclude_extensions) catch @panic("OOM"))
+        else
+            .none,
+        .include_extensions = if (options.include_extensions) |list|
+            .init(wc.addStringList(list) catch @panic("OOM"))
+        else
+            .none,
+    }) catch @panic("OOM");
+
+    wf.maybeUpdateName();
+
+    src_path.addStepDependencies(&wf.step);
+
     return .{
         .generated = .{
-            .index = write_file.generated_directory,
-            .sub_path = dir.sub_path,
+            .index = wf.generated_directory,
+            .sub_path = graph.dupePath(sub_path),
         },
     };
 }
 
 /// Returns a `LazyPath` representing the base directory that contains all the
 /// files from this `WriteFile`.
-pub fn getDirectory(write_file: *WriteFile) std.Build.LazyPath {
-    return .{ .generated = .{ .index = write_file.generated_directory } };
+pub fn getDirectory(wf: *WriteFile) std.Build.LazyPath {
+    return .{ .generated = .{ .index = wf.generated_directory } };
 }
 
-fn maybeUpdateName(write_file: *WriteFile) void {
-    if (write_file.files.items.len == 1 and write_file.directories.items.len == 0) {
+fn maybeUpdateName(wf: *WriteFile) void {
+    const graph = wf.step.owner.graph;
+    const wc = &graph.wip_configuration;
+    const files_count = wf.embeds.items.len + wf.copies.items.len;
+    if (files_count == 1 and wf.directories.items.len == 0) {
         // First time adding a file; update name.
-        if (std.mem.eql(u8, write_file.step.name, "WriteFile")) {
-            write_file.step.name = write_file.step.owner.fmt("WriteFile {s}", .{write_file.files.items[0].sub_path});
+        const sub_path = if (wf.embeds.items.len == 1) wf.embeds.items[0].sub_path else wf.copies.items[0].sub_path;
+        if (std.mem.eql(u8, wf.step.name, "WriteFile")) {
+            wf.step.name = wf.step.owner.fmt("WriteFile {s}", .{wc.stringSlice(sub_path)});
         }
-    } else if (write_file.directories.items.len == 1 and write_file.files.items.len == 0) {
+    } else if (wf.directories.items.len == 1 and files_count == 0) {
         // First time adding a directory; update name.
-        if (std.mem.eql(u8, write_file.step.name, "WriteFile")) {
-            write_file.step.name = write_file.step.owner.fmt("WriteFile {s}", .{write_file.directories.items[0].sub_path});
+        const dir_name = wc.stringSlice(wf.directories.items[0].sub_path);
+        if (std.mem.eql(u8, wf.step.name, "WriteFile")) {
+            wf.step.name = wf.step.owner.fmt("WriteFile {s}", .{dir_name});
         }
     }
 }

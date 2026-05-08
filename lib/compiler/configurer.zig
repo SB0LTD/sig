@@ -891,7 +891,47 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                     .find_program => @panic("TODO"),
                     .fmt => @panic("TODO"),
                     .translate_c => @panic("TODO"),
-                    .write_file => @panic("TODO"),
+                    .write_file => e: {
+                        const wf: *Step.WriteFile = @fieldParentPtr("step", step);
+
+                        const copies = try arena.alloc(Configuration.Step.WriteFile.Copy, wf.copies.items.len);
+                        for (copies, wf.copies.items) |*dest, src| dest.* = .{
+                            .sub_path = src.sub_path,
+                            .src_file = try s.addLazyPath(src.src_file),
+                        };
+
+                        const directories = try arena.alloc(
+                            Configuration.Step.WriteFile.Directory,
+                            wf.directories.items.len,
+                        );
+                        for (directories, wf.directories.items) |*dest, src| dest.* = .{
+                            .sub_path = src.sub_path,
+                            .src_path = try s.addLazyPath(src.src_path),
+                            .exclude_extensions = src.exclude_extensions,
+                            .include_extensions = src.include_extensions,
+                        };
+
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.WriteFile, .{
+                            .flags = .{
+                                .embeds = wf.embeds.items.len != 0,
+                                .copies = copies.len != 0,
+                                .directories = directories.len != 0,
+                                .mode = switch (wf.mode) {
+                                    .whole_cached => .whole_cached,
+                                    .tmp => .tmp,
+                                    .mutate => .mutate,
+                                },
+                            },
+                            .generated_directory = wf.generated_directory,
+                            .embeds = .{ .slice = wf.embeds.items },
+                            .copies = .{ .slice = copies },
+                            .directories = .{ .slice = directories },
+                            .mutate_path = .{ .value = switch (wf.mode) {
+                                .mutate => |lp| try s.addLazyPath(lp),
+                                .whole_cached, .tmp => null,
+                            } },
+                        })));
+                    },
                     .update_source_files => @panic("TODO"),
                     .run => e: {
                         const run: *Step.Run = @fieldParentPtr("step", step);

@@ -1251,10 +1251,42 @@ pub const Step = extern struct {
 
     pub const WriteFile = struct {
         flags: @This().Flags,
+        generated_directory: GeneratedFileIndex,
+        embeds: Storage.FlagLengthPrefixedList(.flags, .embeds, Embed),
+        copies: Storage.FlagLengthPrefixedList(.flags, .copies, Copy),
+        directories: Storage.FlagLengthPrefixedList(.flags, .directories, Directory),
+        mutate_path: Storage.EnumOptional(.flags, .mode, .mutate, LazyPath.Index),
+
+        pub const Embed = extern struct {
+            sub_path: String,
+            contents: Bytes,
+        };
+
+        pub const Copy = extern struct {
+            sub_path: String,
+            src_file: LazyPath.Index,
+        };
+
+        pub const Directory = extern struct {
+            sub_path: String,
+            src_path: LazyPath.Index,
+            exclude_extensions: OptionalStringList,
+            include_extensions: OptionalStringList,
+        };
+
+        pub const Mode = enum(u2) {
+            whole_cached,
+            tmp,
+            mutate,
+        };
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .write_file,
-            _: u27 = 0,
+            embeds: bool,
+            copies: bool,
+            directories: bool,
+            mode: Mode,
+            _: u22 = 0,
         };
     };
 
@@ -2370,8 +2402,11 @@ pub const Storage = enum {
         };
     }
 
-    /// A field in flags determines whether the length is zero or nonzero. If the length is
-    /// nonzero, then there is a length field followed by the list.
+    /// A field in flags determines whether the length is zero or nonzero. If
+    /// the length is nonzero, then there is a length field followed by the
+    /// list. The elements need well-defined memory layout but can otherwise be
+    /// any multiple of u32 length. The length is the number of elements, not
+    /// the number of u32s.
     pub fn FlagLengthPrefixedList(
         comptime flags_arg: @EnumLiteral(),
         comptime flag_arg: @EnumLiteral(),
@@ -2767,14 +2802,16 @@ pub const Storage = enum {
                             const len: u32 = @intCast(value.slice.len);
                             if (len == 0) return 0; // Flag bit hides the length prefix.
                             buffer[i] = len;
-                            @memcpy(buffer[i + 1 ..][0..len], @as([]const u32, @ptrCast(value.slice)));
-                            return len + 1;
+                            const buf_len = len * @divExact(@sizeOf(Field.Elem), @sizeOf(u32));
+                            @memcpy(buffer[i + 1 ..][0..buf_len], @as([]const u32, @ptrCast(value.slice)));
+                            return 1 + buf_len;
                         },
                         .length_prefixed_list => {
                             const len: u32 = @intCast(value.slice.len);
                             buffer[i] = len;
-                            @memcpy(buffer[i + 1 ..][0..len], @as([]const u32, @ptrCast(value.slice)));
-                            return len + 1;
+                            const buf_len = len * @divExact(@sizeOf(Field.Elem), @sizeOf(u32));
+                            @memcpy(buffer[i + 1 ..][0..buf_len], @as([]const u32, @ptrCast(value.slice)));
+                            return 1 + buf_len;
                         },
                         .flag_list => {
                             const len: u32 = @intCast(value.slice.len);
