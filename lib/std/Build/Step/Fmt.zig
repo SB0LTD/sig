@@ -26,8 +26,7 @@ pub const Options = struct {
 
 pub fn create(owner: *std.Build, options: Options) *Fmt {
     const graph = owner.graph;
-    const arena = graph.arena;
-    const fmt = arena.create(Fmt) catch @panic("OOM");
+    const fmt = graph.create(Fmt);
 
     fmt.* = .{
         .step = .init(.{

@@ -889,7 +889,18 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                         })));
                     },
                     .find_program => @panic("TODO"),
-                    .fmt => @panic("TODO"),
+                    .fmt => e: {
+                        const sf: *Step.Fmt = @fieldParentPtr("step", step);
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.Fmt, .{
+                            .flags = .{
+                                .paths = sf.paths.len != 0,
+                                .exclude_paths = sf.exclude_paths.len != 0,
+                                .check = sf.check,
+                            },
+                            .paths = .{ .slice = try s.initLazyPathList(sf.paths) },
+                            .exclude_paths = .{ .slice = try s.initLazyPathList(sf.exclude_paths) },
+                        })));
+                    },
                     .translate_c => @panic("TODO"),
                     .write_file => e: {
                         const wf: *Step.WriteFile = @fieldParentPtr("step", step);
