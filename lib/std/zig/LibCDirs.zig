@@ -146,9 +146,6 @@ fn detectFromInstallation(arena: Allocator, target: *const std.Target, lci: *con
             const path = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, subdir });
             try list.append(path);
         }
-
-        const config_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, "config" });
-        try list.append(config_dir);
     }
 
     var sysroot: ?[]const u8 = null;
