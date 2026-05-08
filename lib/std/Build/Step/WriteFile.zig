@@ -4,15 +4,10 @@
 const WriteFile = @This();
 
 const std = @import("std");
-const Io = std.Io;
-const Dir = std.Io.Dir;
 const Step = std.Build.Step;
-const ArrayList = std.ArrayList;
-const assert = std.debug.assert;
 const Configuration = std.Build.Configuration;
 
 step: Step,
-
 embeds: std.ArrayList(Embed) = .empty,
 copies: std.ArrayList(Copy) = .empty,
 directories: std.ArrayList(Directory) = .empty,

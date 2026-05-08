@@ -35,7 +35,7 @@ pub fn make(
     for (conf_usf.embeds.slice) |*embed| {
         const dest_path: Path = .{
             .root_dir = build_root,
-            .sub_path = embed.dest_path.slice(conf),
+            .sub_path = embed.sub_path.slice(conf),
         };
         if (Io.Dir.path.dirname(dest_path.sub_path)) |dirname| {
             const dirname_path: Path = .{
@@ -47,7 +47,7 @@ pub fn make(
         }
         dest_path.root_dir.handle.writeFile(io, .{
             .sub_path = dest_path.sub_path,
-            .data = embed.bytes.slice(conf),
+            .data = embed.contents.slice(conf),
         }) catch |err| return step.fail(maker, "failed to write file {f}: {t}", .{ dest_path, err });
         any_miss = true;
         progress_node.completeOne();
@@ -56,7 +56,7 @@ pub fn make(
     for (conf_usf.copies.slice) |*copy| {
         const dest_path: Path = .{
             .root_dir = build_root,
-            .sub_path = copy.dest_path.slice(conf),
+            .sub_path = copy.sub_path.slice(conf),
         };
         if (Io.Dir.path.dirname(dest_path.sub_path)) |dirname| {
             const dirname_path: Path = .{
@@ -66,7 +66,7 @@ pub fn make(
             dirname_path.root_dir.handle.createDirPath(io, dirname_path.sub_path) catch |err|
                 return step.fail(maker, "failed to create path {f}: {t}", .{ dirname_path, err });
         }
-        const src_lazy_path = copy.src_path.get(conf);
+        const src_lazy_path = copy.src_file.get(conf);
         const source_path = try maker.resolveLazyPath(arena, src_lazy_path, step_index);
         if (!step.inputs.populated()) try step.addWatchInput(maker, arena, src_lazy_path);
 

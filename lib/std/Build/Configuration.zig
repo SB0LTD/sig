@@ -1229,17 +1229,8 @@ pub const Step = extern struct {
         embeds: Storage.FlagLengthPrefixedList(.flags, .embeds, Embed),
         copies: Storage.FlagLengthPrefixedList(.flags, .copies, Copy),
 
-        pub const Embed = extern struct {
-            /// Relative to build root.
-            dest_path: String,
-            bytes: Bytes,
-        };
-
-        pub const Copy = extern struct {
-            /// Relative to build root.
-            dest_path: String,
-            src_path: LazyPath.Index,
-        };
+        pub const Embed = WriteFile.Embed;
+        pub const Copy = WriteFile.Copy;
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .update_source_files,

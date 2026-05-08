@@ -464,6 +464,15 @@ const Serialize = struct {
         return result;
     }
 
+    fn initCopyList(s: *Serialize, list: []const Step.WriteFile.Copy) ![]const Configuration.Step.WriteFile.Copy {
+        const result = try s.arena.alloc(Configuration.Step.WriteFile.Copy, list.len);
+        for (result, list) |*dest, src| dest.* = .{
+            .sub_path = src.sub_path,
+            .src_file = try s.addLazyPath(src.src_file),
+        };
+        return result;
+    }
+
     fn initOptionalStringList(s: *Serialize, list: []const ?[]const u8) ![]const Configuration.OptionalString {
         const wc = s.wc;
         const result = try s.arena.alloc(Configuration.OptionalString, list.len);
@@ -905,12 +914,6 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                     .write_file => e: {
                         const wf: *Step.WriteFile = @fieldParentPtr("step", step);
 
-                        const copies = try arena.alloc(Configuration.Step.WriteFile.Copy, wf.copies.items.len);
-                        for (copies, wf.copies.items) |*dest, src| dest.* = .{
-                            .sub_path = src.sub_path,
-                            .src_file = try s.addLazyPath(src.src_file),
-                        };
-
                         const directories = try arena.alloc(
                             Configuration.Step.WriteFile.Directory,
                             wf.directories.items.len,
@@ -925,7 +928,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                         break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.WriteFile, .{
                             .flags = .{
                                 .embeds = wf.embeds.items.len != 0,
-                                .copies = copies.len != 0,
+                                .copies = wf.copies.items.len != 0,
                                 .directories = directories.len != 0,
                                 .mode = switch (wf.mode) {
                                     .whole_cached => .whole_cached,
@@ -935,7 +938,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             },
                             .generated_directory = wf.generated_directory,
                             .embeds = .{ .slice = wf.embeds.items },
-                            .copies = .{ .slice = copies },
+                            .copies = .{ .slice = try s.initCopyList(wf.copies.items) },
                             .directories = .{ .slice = directories },
                             .mutate_path = .{ .value = switch (wf.mode) {
                                 .mutate => |lp| try s.addLazyPath(lp),
@@ -943,7 +946,17 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             } },
                         })));
                     },
-                    .update_source_files => @panic("TODO"),
+                    .update_source_files => e: {
+                        const usf: *Step.UpdateSourceFiles = @fieldParentPtr("step", step);
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.UpdateSourceFiles, .{
+                            .flags = .{
+                                .embeds = usf.embeds.items.len != 0,
+                                .copies = usf.copies.items.len != 0,
+                            },
+                            .embeds = .{ .slice = usf.embeds.items },
+                            .copies = .{ .slice = try s.initCopyList(usf.copies.items) },
+                        })));
+                    },
                     .run => e: {
                         const run: *Step.Run = @fieldParentPtr("step", step);
                         var expect_stderr_exact: ?Configuration.Bytes = null;
