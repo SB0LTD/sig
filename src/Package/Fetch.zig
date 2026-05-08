@@ -1182,10 +1182,10 @@ const FileType = enum {
 
     /// Parameter is a content-disposition header value.
     fn fromContentDisposition(cd_header: []const u8) ?FileType {
-        const attach_end = ascii.indexOfIgnoreCase(cd_header, "attachment;") orelse
+        const attach_end = ascii.findIgnoreCase(cd_header, "attachment;") orelse
             return null;
 
-        var value_start = ascii.indexOfIgnoreCasePos(cd_header, attach_end + 1, "filename") orelse
+        var value_start = ascii.findIgnoreCasePos(cd_header, attach_end + 1, "filename") orelse
             return null;
         value_start += "filename".len;
         if (cd_header[value_start] == '*') {
