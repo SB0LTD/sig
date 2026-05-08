@@ -73,18 +73,6 @@ pub fn Integer(comptime size: u16) type {
         /// The bit mask, as a single integer
         mask: MaskInt,
 
-        /// Deprecated: use `.empty`.
-        /// Creates a bit set with no elements present.
-        pub fn initEmpty() Self {
-            return .{ .mask = 0 };
-        }
-
-        /// Deprecated: use `.full`.
-        /// Creates a bit set with all elements present.
-        pub fn initFull() Self {
-            return .{ .mask = ~@as(MaskInt, 0) };
-        }
-
         /// A bit set with no elements present.
         pub const empty: Self = .{ .mask = 0 };
 
@@ -402,18 +390,6 @@ pub fn Array(comptime MaskIntType: type, comptime size: usize) type {
         /// The bit masks, ordered with lower indices first.
         /// Padding bits at the end are undefined.
         masks: [num_masks]MaskInt,
-
-        /// Deprecated: use `.empty`.
-        /// Creates a bit set with no elements present.
-        pub fn initEmpty() Self {
-            return .empty;
-        }
-
-        /// Deprecated: use `.full`.
-        /// Creates a bit set with all elements present.
-        pub fn initFull() Self {
-            return .full;
-        }
 
         /// A bit set with no elements present.
         pub const empty: Self = .{ .masks = @splat(0) };

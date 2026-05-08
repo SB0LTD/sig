@@ -284,18 +284,6 @@ pub fn EnumSet(comptime E: type) type {
         /// A set containing all possible keys.
         pub const full: Self = .{ .bits = .full };
 
-        /// Deprecated: use `.empty`.
-        /// Returns a set containing no keys.
-        pub fn initEmpty() Self {
-            return .empty;
-        }
-
-        /// Deprecated: use `.full`.
-        /// Returns a set containing all possible keys.
-        pub fn initFull() Self {
-            return .full;
-        }
-
         /// Returns a set containing multiple keys.
         pub fn initMany(keys: []const Key) Self {
             var set: Self = .empty;

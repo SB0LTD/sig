@@ -187562,9 +187562,7 @@ const Temp = struct {
         const max = std.math.maxInt(@typeInfo(Index).@"enum".tag_type);
         const Set = std.bit_set.Static(max);
         const SafetySet = if (std.debug.runtime_safety) Set else struct {
-            inline fn initEmpty() @This() {
-                return .{};
-            }
+            pub const empty: @This() = .{};
 
             inline fn isSet(_: @This(), index: usize) bool {
                 assert(index < max);
