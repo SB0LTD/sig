@@ -1170,6 +1170,8 @@ pub const Step = extern struct {
             merge: bool = false,
             /// add SHF_STRINGS
             strings: bool = false,
+
+            pub const default: @This() = .{};
         };
 
         pub const Flags = packed struct(u32) {
@@ -1775,6 +1777,11 @@ pub const Alignment = enum(u6) {
     @"64" = 6,
     none = std.math.maxInt(u6),
     _,
+
+    pub fn init(optional_alignment: ?std.mem.Alignment) @This() {
+        const a = optional_alignment orelse return .none;
+        return @enumFromInt(@intFromEnum(a));
+    }
 
     pub fn toBytes(a: @This()) ?u64 {
         return switch (a) {

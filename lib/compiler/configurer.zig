@@ -1065,7 +1065,52 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                         })));
                     },
                     .config_header => @panic("TODO"),
-                    .obj_copy => @panic("TODO"),
+                    .obj_copy => e: {
+                        const oc: *Step.ObjCopy = @fieldParentPtr("step", step);
+
+                        const debug_basename: ?Configuration.String = if (oc.debug_file) |df|
+                            df.basename.unwrap()
+                        else
+                            null;
+
+                        const debug_file: ?Configuration.GeneratedFileIndex = if (oc.debug_file) |df|
+                            df.output_file
+                        else
+                            null;
+
+                        const add_sections = try arena.alloc(
+                            Configuration.Step.ObjCopy.AddSection,
+                            oc.add_sections.items.len,
+                        );
+                        for (add_sections, oc.add_sections.items) |*dest, src| dest.* = .{
+                            .section_name = src.section_name,
+                            .file_path = try s.addLazyPath(src.file_path),
+                        };
+
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.ObjCopy, .{
+                            .flags = .{
+                                .basename = oc.basename != .none,
+                                .debug_file = debug_file != null,
+                                .debug_basename = debug_basename != null,
+                                .format = .init(oc.format),
+                                .strip = oc.strip,
+                                .compress_debug = oc.compress_debug,
+                                .only_section = oc.only_section != .none,
+                                .pad_to = oc.pad_to != null,
+                                .add_section = add_sections.len != 0,
+                                .update_section = oc.update_sections.items.len != 0,
+                            },
+                            .input_file = try s.addLazyPath(oc.input_file),
+                            .output_file = oc.output_file,
+                            .basename = .{ .value = oc.basename.unwrap() },
+                            .debug_file = .{ .value = debug_file },
+                            .debug_basename = .{ .value = debug_basename },
+                            .only_section = .{ .value = oc.only_section.unwrap() },
+                            .pad_to = .{ .value = oc.pad_to },
+                            .add_section = .{ .slice = add_sections },
+                            .update_section = .{ .slice = oc.update_sections.items },
+                        })));
+                    },
                     .options => e: {
                         const so: *Step.Options = @fieldParentPtr("step", step);
 

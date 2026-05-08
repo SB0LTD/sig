@@ -6,19 +6,18 @@ const Configuration = std.Build.Configuration;
 
 step: Step,
 input_file: std.Build.LazyPath,
-basename: ?[]const u8,
+basename: Configuration.OptionalString,
 output_file: Configuration.GeneratedFileIndex,
-output_file_debug: Configuration.OptionalGeneratedFileIndex,
+debug_file: ?DebugFile,
 
 format: ?Format,
-only_section: ?[]const u8,
+only_section: Configuration.OptionalString,
 pad_to: ?u64,
 strip: Strip,
 compress_debug: bool,
 
-add_section: ?AddSection,
-set_section_alignment: ?SetSectionAlignment,
-set_section_flags: ?SetSectionFlags,
+add_sections: std.ArrayList(AddSection) = .empty,
+update_sections: std.ArrayList(Configuration.Step.ObjCopy.UpdateSection) = .empty,
 
 pub const base_tag: Step.Tag = .obj_copy;
 
@@ -27,18 +26,13 @@ pub const Strip = Configuration.Step.ObjCopy.Strip;
 pub const SectionFlags = Configuration.Step.ObjCopy.SectionFlags;
 
 pub const AddSection = struct {
-    section_name: []const u8,
+    section_name: Configuration.String,
     file_path: std.Build.LazyPath,
 };
 
-pub const SetSectionAlignment = struct {
-    section_name: []const u8,
-    alignment: u32,
-};
-
-pub const SetSectionFlags = struct {
-    section_name: []const u8,
-    flags: SectionFlags,
+pub const DebugFile = struct {
+    basename: Configuration.OptionalString,
+    output_file: Configuration.GeneratedFileIndex,
 };
 
 pub const Options = struct {
@@ -53,50 +47,80 @@ pub const Options = struct {
     /// Put the stripped out debug sections in a separate file.
     /// note: the `basename` is baked into the elf file to specify the link to the separate debug file.
     /// see https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
-    extract_to_separate_file: bool = false,
+    ///
+    /// Makes `getOutputSeparatedDebug` return non-null.
+    separate_debug_file: ?SeparateDebugFile = null,
 
-    add_section: ?AddSection = null,
-    set_section_alignment: ?SetSectionAlignment = null,
-    set_section_flags: ?SetSectionFlags = null,
+    pub const SeparateDebugFile = struct {
+        basename: ?[]const u8,
+    };
 };
 
-pub fn create(
-    owner: *std.Build,
-    input_file: std.Build.LazyPath,
-    options: Options,
-) *ObjCopy {
+pub fn create(owner: *std.Build, input_file: std.Build.LazyPath, options: Options) *ObjCopy {
     const graph = owner.graph;
-    const obj_copy = graph.create(ObjCopy);
-    obj_copy.* = .{
+    const wc = &graph.wip_configuration;
+    const oc = graph.create(ObjCopy);
+    oc.* = .{
         .step = .init(.{
             .tag = base_tag,
             .name = owner.fmt("objcopy {f}", .{input_file.fmt(graph)}),
             .owner = owner,
         }),
         .input_file = input_file,
-        .basename = options.basename,
-        .output_file = graph.addGeneratedFile(&obj_copy.step),
-        .output_file_debug = if (options.strip != .none and options.extract_to_separate_file)
-            .init(graph.addGeneratedFile(&obj_copy.step))
-        else
-            .none,
+        .basename = if (options.basename) |s| .init(wc.addString(s) catch @panic("OOM")) else .none,
+        .output_file = graph.addGeneratedFile(&oc.step),
+        .debug_file = if (options.separate_debug_file) |df| .{
+            .basename = if (df.basename) |s| .init(wc.addString(s) catch @panic("OOM")) else .none,
+            .output_file = graph.addGeneratedFile(&oc.step),
+        } else null,
         .format = options.format,
-        .only_section = options.only_section,
+        .only_section = if (options.only_section) |s| .init(wc.addString(s) catch @panic("OOM")) else .none,
         .pad_to = options.pad_to,
         .strip = options.strip,
         .compress_debug = options.compress_debug,
-        .add_section = options.add_section,
-        .set_section_alignment = options.set_section_alignment,
-        .set_section_flags = options.set_section_flags,
     };
-    input_file.addStepDependencies(&obj_copy.step);
-    return obj_copy;
+    input_file.addStepDependencies(&oc.step);
+    return oc;
 }
 
-pub fn getOutput(obj_copy: *const ObjCopy) std.Build.LazyPath {
-    return .{ .generated = .{ .index = obj_copy.output_file } };
+pub const UpdateSectionOptions = struct {
+    alignment: ?std.mem.Alignment = null,
+    flags: SectionFlags = .default,
+};
+
+pub fn updateSection(oc: *ObjCopy, section_name: []const u8, options: UpdateSectionOptions) void {
+    const graph = oc.owner.graph;
+    const arena = graph.arena;
+    const wc = &graph.wip_configuration;
+    oc.update_sections.append(arena, .{
+        .flags = .{
+            .section_flags = options.flags,
+            .alignment = .init(options.alignment),
+        },
+        .section_name = wc.addString(section_name) catch @panic("OOM"),
+    }) catch @panic("OOM");
 }
 
-pub fn getOutputSeparatedDebug(obj_copy: *const ObjCopy) ?std.Build.LazyPath {
-    return if (obj_copy.output_file_debug.unwrap()) |index| .{ .generated = .{ .index = index } } else null;
+pub const AddSectionOptions = struct {
+    file_path: std.Build.LazyPath,
+};
+
+pub fn addSection(oc: *ObjCopy, section_name: []const u8, options: AddSectionOptions) void {
+    const graph = oc.owner.graph;
+    const arena = graph.arena;
+    const wc = &graph.wip_configuration;
+    oc.add_sections.append(arena, .{
+        .section_name = wc.addString(section_name) catch @panic("OOM"),
+        .file_path = options.file_path,
+    }) catch @panic("OOM");
+    options.file_path.addStepDependencies(&oc.step);
+}
+
+pub fn getOutput(oc: *const ObjCopy) std.Build.LazyPath {
+    return .{ .generated = .{ .index = oc.output_file } };
+}
+
+pub fn getOutputSeparatedDebug(oc: *const ObjCopy) ?std.Build.LazyPath {
+    const df = oc.debug_file orelse return null;
+    return .{ .generated = .{ .index = df.output_file } };
 }

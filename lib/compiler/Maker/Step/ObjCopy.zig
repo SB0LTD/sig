@@ -137,9 +137,7 @@ pub fn make(
         }
 
         const f = update.flags.section_flags;
-        const default_flags: Configuration.Step.ObjCopy.SectionFlags = .{};
-
-        if (f != default_flags) {
+        if (f != Configuration.Step.ObjCopy.SectionFlags.default) {
             // trailing comma is allowed
             argv.appendAssumeCapacity("--set-section-flags");
             argv.appendAssumeCapacity(try allocPrint(arena, "{s}={s}{s}{s}{s}{s}{s}{s}{s}{s}", .{
