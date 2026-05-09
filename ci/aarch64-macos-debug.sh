@@ -48,7 +48,13 @@ stage3-debug/bin/zig build test docs \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \
-  -Dskip-non-native \
+  -Dskip-spirv \
+  -Dskip-wasm \
+  -Dskip-linux \
+  -Dskip-freebsd \
+  -Dskip-netbsd \
+  -Dskip-openbsd \
+  -Dskip-windows \
   --search-prefix "$PREFIX" \
   --test-timeout 2m
 
