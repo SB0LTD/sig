@@ -1,4 +1,3 @@
-
 fn make(step: *Step, options: Step.MakeOptions) !void {
     _ = options;
     const b = step.owner;

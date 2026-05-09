@@ -106,7 +106,6 @@ pub fn make(
     try man.writeManifest();
 }
 
-
 fn render_autoconf_undef(
     step: *Step,
     contents: []const u8,

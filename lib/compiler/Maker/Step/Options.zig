@@ -6,7 +6,6 @@ const Configuration = std.Build.Configuration;
 const Step = @import("../Step.zig");
 const Maker = @import("../../Maker.zig");
 
-
 pub fn make(
     options: *Options,
     step_index: Configuration.Step.Index,
@@ -81,4 +80,3 @@ pub fn make(
         }),
     }
 }
-

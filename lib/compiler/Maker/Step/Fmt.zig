@@ -24,7 +24,7 @@ pub fn make(
     const conf_step = step_index.ptr(conf);
     const conf_fmt = conf_step.extended.get(conf.extra).fmt;
     const paths = conf_fmt.paths.slice;
-    const exclude_paths = conf_fmt.paths.exclude_paths;
+    const exclude_paths = conf_fmt.exclude_paths.slice;
 
     argv.clearRetainingCapacity();
     try argv.ensureUnusedCapacity(gpa, 2 + 1 + paths.len + 2 * exclude_paths.len);
@@ -32,23 +32,23 @@ pub fn make(
     argv.appendAssumeCapacity(graph.zig_exe);
     argv.appendAssumeCapacity("fmt");
 
-    if (fmt.check)
+    if (conf_fmt.flags.check)
         argv.appendAssumeCapacity("--check");
 
-    for (fmt.paths) |lp|
+    for (paths) |lp|
         argv.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lp, step_index));
 
-    for (fmt.exclude_paths) |lp| {
+    for (exclude_paths) |lp| {
         argv.appendAssumeCapacity("--exclude");
         argv.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lp, step_index));
     }
 
     const run_result = try step.captureChildProcess(maker, progress_node, argv.items);
-    if (fmt.check) switch (run_result.term) {
+    if (conf_fmt.flags.check) switch (run_result.term) {
         .exited => |code| if (code != 0 and run_result.stdout.len != 0) {
             var it = std.mem.tokenizeScalar(u8, run_result.stdout, '\n');
             while (it.next()) |bad_file_name| {
-                try step.addError("{s}: non-conforming formatting", .{bad_file_name});
+                try step.addError(maker, "{s}: non-conforming formatting", .{bad_file_name});
             }
         },
         else => {},

@@ -19,11 +19,12 @@ const WebServer = @import("WebServer.zig");
 const Maker = @import("../Maker.zig");
 
 pub const Compile = @import("Step/Compile.zig");
-pub const Run = @import("Step/Run.zig");
+pub const Fmt = @import("Step/Fmt.zig");
 pub const InstallArtifact = @import("Step/InstallArtifact.zig");
 pub const InstallFile = @import("Step/InstallFile.zig");
-pub const UpdateSourceFiles = @import("Step/UpdateSourceFiles.zig");
 pub const ObjCopy = @import("Step/ObjCopy.zig");
+pub const Run = @import("Step/Run.zig");
+pub const UpdateSourceFiles = @import("Step/UpdateSourceFiles.zig");
 
 /// Avoid false sharing.
 _: void align(std.atomic.cache_line) = {},
@@ -73,7 +74,7 @@ pub const Extended = union(enum) {
     config_header: Todo,
     fail: Fail,
     find_program: Todo,
-    fmt: Todo,
+    fmt: Fmt,
     install_artifact: InstallArtifact,
     install_dir: Todo,
     install_file: InstallFile,

@@ -1,4 +1,3 @@
-
 fn make(step: *Step, options: Step.MakeOptions) !void {
     const prog_node = options.progress_node;
     const b = step.owner;
