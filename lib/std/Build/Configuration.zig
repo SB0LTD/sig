@@ -1321,10 +1321,21 @@ pub const Step = extern struct {
 
     pub const TranslateC = struct {
         flags: @This().Flags,
+        src_path: LazyPath.Index,
+        output_file: GeneratedFileIndex,
+        include_dirs: Storage.UnionList(.flags, .include_dirs, Module.IncludeDir),
+        system_libs: Storage.FlagLengthPrefixedList(.flags, .system_libs, SystemLib.Index),
+        c_macros: Storage.FlagLengthPrefixedList(.flags, .c_macros, String),
+        target: ResolvedTarget.OptionalIndex,
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .translate_c,
-            _: u27 = 0,
+            include_dirs: bool,
+            system_libs: bool,
+            c_macros: bool,
+            link_libc: bool,
+            optimize: Module.Optimize,
+            _: u20 = 0,
         };
     };
 

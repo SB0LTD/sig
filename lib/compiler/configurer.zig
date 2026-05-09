@@ -451,6 +451,24 @@ const Serialize = struct {
         return result;
     }
 
+    fn initIncludeDirList(
+        s: *Serialize,
+        list: []const std.Build.Module.IncludeDir,
+    ) ![]const Configuration.Module.IncludeDir {
+        const result = try s.arena.alloc(Configuration.Module.IncludeDir, list.len);
+        for (result, list) |*dest, src| dest.* = switch (src) {
+            .path => |lp| .{ .path = try addLazyPath(s, lp) },
+            .path_system => |lp| .{ .path_system = try addLazyPath(s, lp) },
+            .path_after => |lp| .{ .path_after = try addLazyPath(s, lp) },
+            .framework_path => |lp| .{ .framework_path = try addLazyPath(s, lp) },
+            .framework_path_system => |lp| .{ .framework_path_system = try addLazyPath(s, lp) },
+            .embed_path => |lp| .{ .embed_path = try addLazyPath(s, lp) },
+            .other_step => |cs| .{ .other_step = stepIndex(s, &cs.step) },
+            .config_header_step => |chs| .{ .config_header_step = stepIndex(s, &chs.step) },
+        };
+        return result;
+    }
+
     fn initLazyPathList(s: *Serialize, list: []const std.Build.LazyPath) ![]const Configuration.LazyPath.Index {
         const result = try s.arena.alloc(Configuration.LazyPath.Index, list.len);
         for (result, list) |*dest, src| dest.* = try addLazyPath(s, src);
@@ -485,18 +503,6 @@ const Serialize = struct {
 
         const wc = s.wc;
         const arena = s.arena;
-
-        const include_dirs = try arena.alloc(Configuration.Module.IncludeDir, m.include_dirs.items.len);
-        for (include_dirs, m.include_dirs.items) |*dest, src| dest.* = switch (src) {
-            .path => |lp| .{ .path = try addLazyPath(s, lp) },
-            .path_system => |lp| .{ .path_system = try addLazyPath(s, lp) },
-            .path_after => |lp| .{ .path_after = try addLazyPath(s, lp) },
-            .framework_path => |lp| .{ .framework_path = try addLazyPath(s, lp) },
-            .framework_path_system => |lp| .{ .framework_path_system = try addLazyPath(s, lp) },
-            .embed_path => |lp| .{ .embed_path = try addLazyPath(s, lp) },
-            .other_step => |cs| .{ .other_step = stepIndex(s, &cs.step) },
-            .config_header_step => |chs| .{ .config_header_step = stepIndex(s, &chs.step) },
-        };
 
         const rpaths = try arena.alloc(Configuration.Module.RPath, m.rpaths.items.len);
         for (rpaths, m.rpaths.items) |*dest, src| dest.* = switch (src) {
@@ -542,7 +548,7 @@ const Serialize = struct {
                 .fuzz = .init(m.fuzz),
                 .code_model = m.code_model,
                 .c_macros = c_macros.len != 0,
-                .include_dirs = include_dirs.len != 0,
+                .include_dirs = m.include_dirs.items.len != 0,
                 .lib_paths = lib_paths.len != 0,
                 .rpaths = rpaths.len != 0,
                 .frameworks = frameworks.len != 0,
@@ -566,7 +572,7 @@ const Serialize = struct {
             .c_macros = .{ .slice = c_macros },
             .lib_paths = .{ .slice = lib_paths },
             .export_symbol_names = .{ .slice = export_symbol_names },
-            .include_dirs = .init(include_dirs),
+            .include_dirs = .init(try s.initIncludeDirList(m.include_dirs.items)),
             .rpaths = .init(rpaths),
             .link_objects = .init(link_objects),
             .frameworks = .{ .slice = frameworks },
@@ -910,7 +916,28 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .exclude_paths = .{ .slice = try s.initLazyPathList(sf.exclude_paths) },
                         })));
                     },
-                    .translate_c => @panic("TODO"),
+                    .translate_c => e: {
+                        const tc: *Step.TranslateC = @fieldParentPtr("step", step);
+
+                        const system_libs = try arena.alloc(Configuration.SystemLib.Index, tc.system_libs.items.len);
+                        for (system_libs, tc.system_libs.items) |*dest, *src| dest.* = try s.addSystemLib(src);
+
+                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.TranslateC, .{
+                            .flags = .{
+                                .include_dirs = tc.include_dirs.items.len != 0,
+                                .system_libs = system_libs.len != 0,
+                                .c_macros = tc.c_macros.items.len != 0,
+                                .link_libc = tc.link_libc,
+                                .optimize = .init(tc.optimize),
+                            },
+                            .src_path = try s.addLazyPath(tc.source),
+                            .output_file = tc.output_file,
+                            .include_dirs = .init(try s.initIncludeDirList(tc.include_dirs.items)),
+                            .system_libs = .{ .slice = system_libs },
+                            .c_macros = .{ .slice = tc.c_macros.items },
+                            .target = try addOptionalResolvedTarget(wc, tc.target),
+                        })));
+                    },
                     .write_file => e: {
                         const wf: *Step.WriteFile = @fieldParentPtr("step", step);
 

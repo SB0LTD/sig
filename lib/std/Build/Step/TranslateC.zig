@@ -10,9 +10,9 @@ const Configuration = std.Build.Configuration;
 
 step: Step,
 source: std.Build.LazyPath,
-include_dirs: std.ArrayList(std.Build.Module.IncludeDir),
-system_libs: std.ArrayList(std.Build.Module.SystemLib),
-c_macros: std.ArrayList([]const u8),
+include_dirs: std.ArrayList(std.Build.Module.IncludeDir) = .empty,
+system_libs: std.ArrayList(std.Build.Module.SystemLib) = .empty,
+c_macros: std.ArrayList(Configuration.String) = .empty,
 target: std.Build.ResolvedTarget,
 optimize: std.builtin.OptimizeMode,
 output_file: Configuration.GeneratedFileIndex,
@@ -38,13 +38,10 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
             .owner = owner,
         }),
         .source = source,
-        .include_dirs = .empty,
-        .c_macros = .empty,
         .target = options.target,
         .optimize = options.optimize,
         .output_file = graph.addGeneratedFile(&translate_c.step),
         .link_libc = options.link_libc,
-        .system_libs = .empty,
     };
     source.addStepDependencies(&translate_c.step);
     return translate_c;
@@ -160,15 +157,19 @@ pub fn addCheckFile(translate_c: *TranslateC, expected_matches: []const []const 
 pub fn defineCMacro(translate_c: *TranslateC, name: []const u8, value: ?[]const u8) void {
     const graph = translate_c.step.owner.graph;
     const arena = graph.arena;
+    const wc = &graph.wip_configuration;
     const macro = allocPrint(arena, "{s}={s}", .{ name, value orelse "1" }) catch @panic("OOM");
-    translate_c.c_macros.append(arena, macro) catch @panic("OOM");
+    const macro_string = wc.addString(macro) catch @panic("OOM");
+    translate_c.c_macros.append(arena, macro_string) catch @panic("OOM");
 }
 
-/// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
+/// name_and_value looks like [name]=[value].
 pub fn defineCMacroRaw(translate_c: *TranslateC, name_and_value: []const u8) void {
     const graph = translate_c.step.owner.graph;
     const arena = graph.arena;
-    translate_c.c_macros.append(arena, translate_c.step.owner.dupe(name_and_value)) catch @panic("OOM");
+    const wc = &graph.wip_configuration;
+    const macro_string = wc.addString(name_and_value) catch @panic("OOM");
+    translate_c.c_macros.append(arena, macro_string) catch @panic("OOM");
 }
 
 pub fn linkSystemLibrary(
