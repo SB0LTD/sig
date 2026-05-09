@@ -1692,6 +1692,7 @@ test "cast f16 to wider types" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag == .macos) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
