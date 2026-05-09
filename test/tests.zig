@@ -2722,6 +2722,10 @@ fn addOneModuleTest(
         // Don't run spirv binaries
         _ = these_tests.getEmittedBin();
         step.dependOn(&these_tests.step);
+    } else if (target.cpu.arch == .x86_64 and target.os.tag.isDarwin()) {
+        // https://codeberg.org/ziglang/zig/issues/35267
+        _ = these_tests.getEmittedBin();
+        step.dependOn(&these_tests.step);
     } else {
         const run = b.addRunArtifact(these_tests);
         run.skip_foreign_checks = true;
