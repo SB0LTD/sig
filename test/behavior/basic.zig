@@ -1437,3 +1437,14 @@ test "loading array from struct is not optimized away" {
     var s = S{};
     try s.doTheTest();
 }
+
+test "local variable name begins with primitive integer type" {
+    const u032_ = 123;
+    comptime assert(u032_ == 123);
+
+    const u0_ = 456;
+    comptime assert(u0_ == 456);
+
+    const i0_ = 789;
+    comptime assert(i0_ == 789);
+}

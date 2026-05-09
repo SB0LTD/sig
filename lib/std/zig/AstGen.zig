@@ -8069,14 +8069,6 @@ fn identifier(
             if (std.mem.eql(u8, ident_name_raw, "i0")) {
                 return astgen.failNode(ident, "signed integer cannot have bit width 0", .{});
             }
-            if (ident_name_raw[1] == '0') {
-                assert(ident_name_raw.len >= 3); // `u0` and `i0` handled
-                return astgen.failNode(
-                    ident,
-                    "primitive integer type '{s}' has leading zero",
-                    .{ident_name_raw},
-                );
-            }
             const bit_count = parseBitCount(ident_name_raw[1..]) catch |err| switch (err) {
                 error.Overflow => return astgen.failNode(
                     ident,
@@ -8085,6 +8077,14 @@ fn identifier(
                 ),
                 error.InvalidCharacter => break :int_type,
             };
+            if (ident_name_raw[1] == '0') {
+                assert(ident_name_raw.len >= 3); // `u0` and `i0` handled
+                return astgen.failNode(
+                    ident,
+                    "primitive integer type '{s}' has leading zero",
+                    .{ident_name_raw},
+                );
+            }
             const result = try gz.add(.{
                 .tag = .int_type,
                 .data = .{ .int_type = .{
