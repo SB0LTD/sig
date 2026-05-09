@@ -51,6 +51,11 @@ stage3-release/bin/zig build test docs \
   --zig-lib-dir "$PWD/../lib" \
   --test-timeout 2m
 
+# Ensure that the fuzzer at least compiles.
+# https://codeberg.org/ziglang/zig/issues/30728
+#stage3-release/bin/zig build test-std --fuzz=1K -Dno-lib -Dfuzz-only -Doptimize=ReleaseSafe
+#stage3-release/bin/zig build test-std --fuzz=1K -Dno-lib -Dfuzz-only -Doptimize=Debug
+
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \
   --prefix stage4-release \
