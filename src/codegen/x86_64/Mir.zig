@@ -1976,7 +1976,7 @@ pub fn emit(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    atom_index: u32,
+    atom_id: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
 ) codegen.CodeGenError!void {
@@ -1998,7 +1998,7 @@ pub fn emit(
         .bin_file = lf,
         .pt = pt,
         .pic = mod.pic,
-        .atom_index = atom_index,
+        .atom_id = atom_id,
         .debug_output = debug_output,
         .w = w,
 
@@ -2030,7 +2030,7 @@ pub fn emitLazy(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
-    atom_index: u32,
+    atom_id: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
 ) codegen.CodeGenError!void {
@@ -2049,7 +2049,7 @@ pub fn emitLazy(
         .bin_file = lf,
         .pt = pt,
         .pic = mod.pic,
-        .atom_index = atom_index,
+        .atom_id = atom_id,
         .debug_output = debug_output,
         .w = w,
 

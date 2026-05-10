@@ -305,6 +305,15 @@ pub const Node = extern struct {
             }
         }
 
+        pub fn realign(ni: Node.Index, mf: *MappedFile, new_alignment: std.mem.Alignment) void {
+            ni.get(mf).flags.alignment = new_alignment;
+
+            const old_offset, const old_size = ni.location(mf).resolve(mf);
+            if (!new_alignment.check(@intCast(old_offset)) or !new_alignment.check(@intCast(old_size))) {
+                @panic("TODO MappedFile.realign");
+            }
+        }
+
         pub fn writer(ni: Node.Index, mf: *MappedFile, gpa: std.mem.Allocator, w: *Writer) void {
             w.* = .{
                 .gpa = gpa,

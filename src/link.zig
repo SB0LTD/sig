@@ -759,12 +759,24 @@ pub const File = struct {
     /// must be attached to `Zcu.failed_codegen` rather than `Compilation.link_diags`.
     pub const UpdateNavError = codegen.CodeGenError;
 
+    /// Opaque identifier for a function currently being emitted.
+    ///
+    /// The function may be an interned function with a NAV, or it may be a lazy function.
+    ///
+    /// This type exists for type-safe interaction between codegen and link.
+    pub const AtomId = enum(u32) { _ };
+
+    /// Opaque identifier for some symbol in the output binary.
+    ///
+    /// This type exists for type-safe interaction between codegen and link.
+    pub const SymbolId = enum(u32) { _ };
+
     /// Called from within CodeGen to retrieve the symbol index of a global symbol.
     /// If no symbol exists yet with this name, a new undefined global symbol will
     /// be created. This symbol may get resolved once all relocatables are (re-)linked.
     /// Optionally, it is possible to specify where to expect the symbol defined if it
     /// is an import.
-    pub fn getGlobalSymbol(base: *File, name: []const u8, lib_name: ?[]const u8) UpdateNavError!u32 {
+    pub fn getGlobalSymbol(base: *File, name: []const u8, lib_name: ?[]const u8) UpdateNavError!SymbolId {
         log.debug("getGlobalSymbol '{s}' (expected in '{?s}')", .{ name, lib_name });
         switch (base.tag) {
             .lld => unreachable,
@@ -1008,7 +1020,7 @@ pub const File = struct {
 
         pub const Parent = union(enum) {
             none,
-            atom_index: u32,
+            atom_index: AtomId,
             debug_output: DebugInfoOutput,
         };
     };

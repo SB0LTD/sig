@@ -1029,7 +1029,7 @@ pub fn generateLazy(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
-    atom_index: u32,
+    atom_id: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
 ) codegen.CodeGenError!void {
@@ -1073,7 +1073,7 @@ pub fn generateLazy(
         else => |e| return e,
     };
 
-    try function.getTmpMir().emitLazy(bin_file, pt, src_loc, lazy_sym, atom_index, w, debug_output);
+    try function.getTmpMir().emitLazy(bin_file, pt, src_loc, lazy_sym, atom_id, w, debug_output);
 }
 
 const FormatNavData = struct {

@@ -461,14 +461,14 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                         }, self);
                     }
                     for (entry.external_relocs.items) |reloc| {
-                        const target_sym = self.symbol(reloc.target_sym);
+                        const target_sym = self.symbol(@intFromEnum(reloc.target_sym));
                         const r_offset = entry_off + reloc.source_off;
                         const r_addend: i64 = @intCast(reloc.target_off);
                         const r_type = relocation.dwarf.externalRelocType(target_sym.*, sect_index, dwarf.address_size, cpu_arch);
                         atom_ptr.addRelocAssumeCapacity(.{
                             .r_offset = r_offset,
                             .r_addend = r_addend,
-                            .r_info = (@as(u64, @intCast(reloc.target_sym)) << 32) | r_type,
+                            .r_info = (@as(u64, @intCast(@intFromEnum(reloc.target_sym))) << 32) | r_type,
                         }, self);
                     }
                 }
@@ -941,7 +941,7 @@ pub fn getNavVAddr(
     switch (reloc_info.parent) {
         .none => unreachable,
         .atom_index => |atom_index| {
-            const parent_atom = self.symbol(atom_index).atom(elf_file).?;
+            const parent_atom = self.symbol(@intFromEnum(atom_index)).atom(elf_file).?;
             const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
             try parent_atom.addReloc(elf_file.base.comp.gpa, .{
                 .r_offset = reloc_info.offset,
@@ -952,7 +952,7 @@ pub fn getNavVAddr(
         .debug_output => |debug_output| switch (debug_output) {
             .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
                 .source_off = @intCast(reloc_info.offset),
-                .target_sym = this_sym_index,
+                .target_sym = @enumFromInt(this_sym_index),
                 .target_off = reloc_info.addend,
             }),
             .none => unreachable,
@@ -973,7 +973,7 @@ pub fn getUavVAddr(
     switch (reloc_info.parent) {
         .none => unreachable,
         .atom_index => |atom_index| {
-            const parent_atom = self.symbol(atom_index).atom(elf_file).?;
+            const parent_atom = self.symbol(@intFromEnum(atom_index)).atom(elf_file).?;
             const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
             try parent_atom.addReloc(elf_file.base.comp.gpa, .{
                 .r_offset = reloc_info.offset,
@@ -984,7 +984,7 @@ pub fn getUavVAddr(
         .debug_output => |debug_output| switch (debug_output) {
             .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
                 .source_off = @intCast(reloc_info.offset),
-                .target_sym = sym_index,
+                .target_sym = @enumFromInt(sym_index),
                 .target_off = reloc_info.addend,
             }),
             .none => unreachable,
@@ -1013,7 +1013,7 @@ pub fn lowerUav(
         const sym = self.symbol(metadata.symbol_index);
         const existing_alignment = sym.atom(elf_file).?.alignment;
         if (uav_alignment.order(existing_alignment).compare(.lte))
-            return .{ .sym_index = metadata.symbol_index };
+            return .{ .sym_index = @enumFromInt(metadata.symbol_index) };
     }
 
     const osec = if (self.data_relro_index) |sym_index|
@@ -1051,7 +1051,10 @@ pub fn lowerUav(
         ) },
     };
     switch (res) {
-        .sym_index => |sym_index| try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index, .allocated = true }),
+        .sym_index => |sym_index| try self.uavs.put(gpa, uav, .{
+            .symbol_index = @intFromEnum(sym_index),
+            .allocated = true,
+        }),
         .fail => {},
     }
     return res;
@@ -1545,7 +1548,11 @@ pub fn updateFunc(
     var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
 
-    var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
+    var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(
+        pt,
+        func.owner_nav,
+        @enumFromInt(sym_index),
+    ) else null;
     defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
     codegen.emitFunction(
@@ -1553,7 +1560,7 @@ pub fn updateFunc(
         pt,
         zcu.navSrcLoc(func.owner_nav),
         func_index,
-        sym_index,
+        @enumFromInt(sym_index),
         mir,
         &aw.writer,
         if (debug_wip_nav) |*dn| .{ .dwarf = dn } else .none,
@@ -1660,7 +1667,7 @@ pub fn updateNav(
                 self.symbol(sym_index).flags.is_tls = true;
             }
             if (self.dwarf) |*dwarf| {
-                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index);
+                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, @enumFromInt(sym_index));
                 defer debug_wip_nav.deinit();
                 dwarf.finishWipNav(pt, nav_index, &debug_wip_nav) catch |err| switch (err) {
                     error.OutOfMemory, error.Overflow => |e| return e,
@@ -1678,7 +1685,7 @@ pub fn updateNav(
         var aw: std.Io.Writer.Allocating = .init(zcu.gpa);
         defer aw.deinit();
 
-        var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, nav_index, sym_index) else null;
+        var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, nav_index, @enumFromInt(sym_index)) else null;
         defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
         codegen.generateSymbol(
@@ -1687,7 +1694,7 @@ pub fn updateNav(
             zcu.navSrcLoc(nav_index),
             .fromInterned(nav.resolved.?.value),
             &aw.writer,
-            .{ .atom_index = sym_index },
+            .{ .atom_index = @enumFromInt(sym_index) },
         ) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
             else => |e| return e,
@@ -1757,7 +1764,7 @@ fn updateLazySymbol(
         &required_alignment,
         &aw.writer,
         .none,
-        .{ .atom_index = symbol_index },
+        .{ .atom_index = @enumFromInt(symbol_index) },
     ) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
         else => |e| return e,
@@ -1836,7 +1843,7 @@ fn lowerConst(
         src_loc,
         val,
         &aw.writer,
-        .{ .atom_index = sym_index },
+        .{ .atom_index = @enumFromInt(sym_index) },
     ) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
         else => |e| return e,
@@ -1858,7 +1865,7 @@ fn lowerConst(
 
     try elf_file.pwriteAll(code, atom_ptr.offset(elf_file));
 
-    return .{ .sym_index = sym_index };
+    return .{ .sym_index = @enumFromInt(sym_index) };
 }
 
 pub fn updateExports(

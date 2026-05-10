@@ -1151,13 +1151,13 @@ const CrossSectionReloc = struct {
 };
 const ExternalReloc = struct {
     source_off: u32 = 0,
-    target_sym: u32,
+    target_sym: link.File.SymbolId,
     target_off: u64 = 0,
 };
 
 pub const Loc = union(enum) {
     empty,
-    addr_reloc: u32,
+    addr_reloc: link.File.SymbolId,
     deref: *const Loc,
     constu: u64,
     consts: i64,
@@ -1506,7 +1506,7 @@ pub const WipNav = struct {
     entry: Entry.Index,
     any_children: bool,
     func: InternPool.Index,
-    func_sym_index: u32,
+    func_sym_index: link.File.SymbolId,
     func_high_pc: u32,
     blocks: std.ArrayList(struct {
         abbrev_code: u32,
@@ -1966,7 +1966,7 @@ pub const WipNav = struct {
         fn endian(_: ExprLocCounter) std.lang.Endian {
             return @import("builtin").cpu.arch.endian();
         }
-        fn addrSym(counter: *ExprLocCounter, _: u32) Writer.Error!void {
+        fn addrSym(counter: *ExprLocCounter, _: link.File.SymbolId) Writer.Error!void {
             try counter.dw.writer.splatByteAll(undefined, @intFromEnum(counter.address_size));
         }
         fn infoEntry(counter: *ExprLocCounter, _: Unit.Index, _: Entry.Index) Writer.Error!void {
@@ -1987,7 +1987,7 @@ pub const WipNav = struct {
             fn endian(ctx: @This()) std.lang.Endian {
                 return ctx.wip_nav.dwarf.endian;
             }
-            fn addrSym(ctx: @This(), sym_index: u32) (UpdateError || Writer.Error)!void {
+            fn addrSym(ctx: @This(), sym_index: link.File.SymbolId) (UpdateError || Writer.Error)!void {
                 try ctx.wip_nav.infoAddrSym(sym_index, 0);
             }
             fn infoEntry(
@@ -2004,7 +2004,7 @@ pub const WipNav = struct {
 
     fn infoAddrSym(
         wip_nav: *WipNav,
-        sym_index: u32,
+        sym_index: link.File.SymbolId,
         sym_off: u64,
     ) (UpdateError || Writer.Error)!void {
         const diw = &wip_nav.debug_info.writer;
@@ -2029,7 +2029,7 @@ pub const WipNav = struct {
             fn endian(ctx: @This()) std.lang.Endian {
                 return ctx.wip_nav.dwarf.endian;
             }
-            fn addrSym(ctx: @This(), sym_index: u32) (UpdateError || Writer.Error)!void {
+            fn addrSym(ctx: @This(), sym_index: link.File.SymbolId) (UpdateError || Writer.Error)!void {
                 try ctx.wip_nav.frameAddrSym(sym_index, 0);
             }
             fn infoEntry(
@@ -2046,7 +2046,7 @@ pub const WipNav = struct {
 
     fn frameAddrSym(
         wip_nav: *WipNav,
-        sym_index: u32,
+        sym_index: link.File.SymbolId,
         sym_off: u64,
     ) (UpdateError || Writer.Error)!void {
         const dfw = &wip_nav.debug_frame.writer;
@@ -2591,7 +2591,7 @@ pub fn initWipNav(
     dwarf: *Dwarf,
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
-    sym_index: u32,
+    sym_index: link.File.SymbolId,
 ) error{ OutOfMemory, CodegenFail }!WipNav {
     return initWipNavInner(dwarf, pt, nav_index, sym_index) catch |err| switch (err) {
         error.OutOfMemory => error.OutOfMemory,
@@ -2603,7 +2603,7 @@ fn initWipNavInner(
     dwarf: *Dwarf,
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
-    sym_index: u32,
+    sym_index: link.File.SymbolId,
 ) !WipNav {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;

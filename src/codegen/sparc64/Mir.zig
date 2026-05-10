@@ -380,7 +380,7 @@ pub fn emit(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    atom_index: u32,
+    atom_index: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
 ) (codegen.CodeGenError || std.Io.Writer.Error)!void {

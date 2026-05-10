@@ -4,6 +4,7 @@ const testing = std.testing;
 const Target = std.Target;
 
 const Zcu = @import("../../Zcu.zig");
+const link = @import("../../link.zig");
 const Mir = @import("Mir.zig");
 const abi = @import("abi.zig");
 
@@ -260,9 +261,9 @@ pub const FrameIndex = enum(u32) {
 /// A linker symbol not yet allocated in VM.
 pub const Symbol = struct {
     /// Index of the containing atom.
-    atom_index: u32,
+    atom_index: link.File.AtomId,
     /// Index into the linker's symbol table.
-    sym_index: u32,
+    sym_index: link.File.SymbolId,
 };
 
 pub const VType = packed struct(u8) {

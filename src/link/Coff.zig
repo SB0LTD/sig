@@ -1328,7 +1328,7 @@ pub fn getUavVAddr(
 
 pub fn getVAddr(coff: *Coff, reloc_info: link.File.RelocInfo, target_si: Symbol.Index) !u64 {
     try coff.addReloc(
-        @enumFromInt(reloc_info.parent.atom_index),
+        @enumFromInt(@intFromEnum(reloc_info.parent.atom_index)),
         reloc_info.offset,
         target_si,
         reloc_info.addend,
@@ -1581,7 +1581,7 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
             zcu.navSrcLoc(nav_index),
             .fromInterned(nav.resolved.?.value),
             &nw.interface,
-            .{ .atom_index = @intFromEnum(si) },
+            .{ .atom_index = @enumFromInt(@intFromEnum(si)) },
         ) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
             else => |e| return e,
@@ -1637,7 +1637,7 @@ pub fn lowerUav(
             coff.const_prog_node.increaseEstimatedTotalItems(1);
         }
     }
-    return .{ .sym_index = @intFromEnum(si) };
+    return .{ .sym_index = @enumFromInt(@intFromEnum(si)) };
 }
 
 pub fn updateFunc(
@@ -1715,7 +1715,7 @@ fn updateFuncInner(
         pt,
         zcu.navSrcLoc(func.owner_nav),
         func_index,
-        @intFromEnum(si),
+        @enumFromInt(@intFromEnum(si)),
         mir,
         &nw.interface,
         .none,
@@ -1930,7 +1930,7 @@ fn flushUav(
         src_loc,
         .fromInterned(uav_val),
         &nw.interface,
-        .{ .atom_index = @intFromEnum(si) },
+        .{ .atom_index = @enumFromInt(@intFromEnum(si)) },
     ) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
         else => |e| return e,
@@ -2146,7 +2146,7 @@ fn flushLazy(coff: *Coff, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
         &required_alignment,
         &nw.interface,
         .none,
-        .{ .atom_index = @intFromEnum(si) },
+        .{ .atom_index = @enumFromInt(@intFromEnum(si)) },
     );
     si.get(coff).size = @intCast(nw.interface.end);
     si.applyLocationRelocs(coff);
@@ -2339,7 +2339,7 @@ fn updateExportsInner(
     try coff.symbol_table.ensureUnusedCapacity(gpa, export_indices.len);
     const exported_si: Symbol.Index = switch (exported) {
         .nav => |nav| try coff.navSymbol(zcu, nav),
-        .uav => |uav| @enumFromInt(switch (try coff.lowerUav(
+        .uav => |uav| @enumFromInt(@intFromEnum(switch (try coff.lowerUav(
             pt,
             uav,
             Type.fromInterned(ip.typeOf(uav)).abiAlignment(zcu),
@@ -2350,7 +2350,7 @@ fn updateExportsInner(
                 defer em.destroy(gpa);
                 return coff.base.comp.link_diags.fail("{s}", .{em.msg});
             },
-        }),
+        })),
     };
     while (try coff.idle(pt.tid)) {}
     const exported_ni = exported_si.node(coff);

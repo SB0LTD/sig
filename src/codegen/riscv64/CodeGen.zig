@@ -130,7 +130,7 @@ air_bookkeeping: @TypeOf(air_bookkeeping_init) = air_bookkeeping_init,
 
 const air_bookkeeping_init = if (std.debug.runtime_safety) @as(usize, 0) else {};
 
-const SymbolOffset = struct { sym: u32, off: i32 = 0 };
+const SymbolOffset = struct { sym: link.File.SymbolId, off: i32 = 0 };
 const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
 
@@ -166,7 +166,7 @@ const MCValue = union(enum) {
     dead: u32,
     /// The value is undefined. Contains a symbol index to an undefined constant. Null means
     /// set the undefined value via immediate instead of a load.
-    undef: ?u32,
+    undef: ?link.File.SymbolId,
     /// A pointer-sized integer that fits in a register.
     /// If the type is a pointer, this is the pointer address in virtual address space.
     immediate: u64,
@@ -859,7 +859,7 @@ pub fn generateLazy(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
-    atom_index: u32,
+    atom_index: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
 ) (CodeGenError || std.Io.Writer.Error)!void {
@@ -1305,7 +1305,7 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
             }) catch |err|
                 return func.fail("{s} creating lazy symbol", .{@errorName(err)});
 
-            try func.genSetReg(Type.u64, data_reg, .{ .lea_symbol = .{ .sym = sym_index } });
+            try func.genSetReg(Type.u64, data_reg, .{ .lea_symbol = .{ .sym = @enumFromInt(sym_index) } });
 
             const cmp_reg, const cmp_lock = try func.allocReg(.int);
             defer func.register_manager.unlockReg(cmp_lock);
@@ -3595,8 +3595,8 @@ fn airRuntimeNavPtr(func: *Func, inst: Air.Inst.Index) !void {
             .tag = .pseudo_load_tlv,
             .data = .{ .reloc = .{
                 .register = dest_mcv.getReg().?,
-                .atom_index = try func.owner.getSymbolIndex(func),
-                .sym_index = tlv_sym_index,
+                .atom_index = @enumFromInt(try func.owner.getSymbolIndex(func)),
+                .sym_index = @enumFromInt(tlv_sym_index),
             } },
         });
     } else {
@@ -3606,8 +3606,8 @@ fn airRuntimeNavPtr(func: *Func, inst: Air.Inst.Index) !void {
             .tag = .pseudo_load_tlv,
             .data = .{ .reloc = .{
                 .register = tmp_reg,
-                .atom_index = try func.owner.getSymbolIndex(func),
-                .sym_index = tlv_sym_index,
+                .atom_index = @enumFromInt(try func.owner.getSymbolIndex(func)),
+                .sym_index = @enumFromInt(tlv_sym_index),
             } },
         });
         try func.genCopy(ptr_ty, dest_mcv, .{ .register = tmp_reg });
@@ -4958,7 +4958,7 @@ fn genCall(
                     .func => |func_val| {
                         if (func.bin_file.cast(.elf)) |elf_file| {
                             const zo = elf_file.zigObjectPtr().?;
-                            const sym_index = try zo.getOrCreateMetadataForNav(zcu, func_val.owner_nav);
+                            const sym_index: link.File.SymbolId = @enumFromInt(try zo.getOrCreateMetadataForNav(zcu, func_val.owner_nav));
 
                             if (func.mod.pic) {
                                 return func.fail("TODO: genCall pic", .{});
@@ -4978,7 +4978,7 @@ fn genCall(
                     .@"extern" => |@"extern"| {
                         const lib_name = @"extern".lib_name.toSlice(&zcu.intern_pool);
                         const name = @"extern".name.toSlice(&zcu.intern_pool);
-                        const atom_index = try func.owner.getSymbolIndex(func);
+                        const atom_index: link.File.AtomId = @enumFromInt(try func.owner.getSymbolIndex(func));
 
                         const elf_file = func.bin_file.cast(.elf).?;
                         _ = try func.addInst(.{
@@ -4986,7 +4986,7 @@ fn genCall(
                             .data = .{ .reloc = .{
                                 .register = .ra,
                                 .atom_index = atom_index,
-                                .sym_index = try elf_file.getGlobalSymbol(name, lib_name),
+                                .sym_index = @enumFromInt(try elf_file.getGlobalSymbol(name, lib_name)),
                             } },
                         });
                     },
@@ -6405,7 +6405,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
                             .tag = .pseudo_extern_fn_reloc,
                             .data = .{ .reloc = .{
                                 .register = random_link_reg,
-                                .atom_index = try func.owner.getSymbolIndex(func),
+                                .atom_index = @enumFromInt(try func.owner.getSymbolIndex(func)),
                                 .sym_index = sym_offset.sym,
                             } },
                         });
@@ -7036,7 +7036,7 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
         },
         .lea_symbol => |sym_off| {
             assert(sym_off.off == 0);
-            const atom_index = try func.owner.getSymbolIndex(func);
+            const atom_index: link.File.AtomId = @enumFromInt(try func.owner.getSymbolIndex(func));
 
             _ = try func.addInst(.{
                 .tag = .pseudo_load_symbol,
