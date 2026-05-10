@@ -77,3 +77,26 @@ closes #31397
 
 * `b.build_root` (Directory) -> `b.root` (Path)
 * `ConfigHeader.Options`: `include_guard_override` -> `include_guard`
+
+### Perf Data Point: `zig build -h` (cached)
+
+```
+Benchmark 1 (34 runs): master/zig build -h
+  measurement          mean ± σ            min … max           outliers         delta
+  wall_time           150ms ± 5.52ms     145ms …  165ms          4 (12%)        0%
+  peak_rss           84.8MB ±  275KB    84.2MB … 85.1MB          0 ( 0%)        0%
+  cpu_cycles          593M  ± 4.01M      588M  …  608M           2 ( 6%)        0%
+  instructions        995M  ± 52.5K      995M  …  995M           0 ( 0%)        0%
+  cache_references   25.8M  ±  165K     25.4M  … 26.1M           0 ( 0%)        0%
+  cache_misses        651K  ± 20.1K      619K  …  697K           0 ( 0%)        0%
+  branch_misses       918K  ± 7.44K      906K  …  935K           0 ( 0%)        0%
+Benchmark 2 (348 runs): branch/zig build -h
+  measurement          mean ± σ            min … max           outliers         delta
+  wall_time          14.3ms ±  744us    13.2ms … 23.3ms          8 ( 2%)        ⚡- 90.4% ±  0.4%
+  peak_rss           78.5MB ±  562KB    77.1MB … 81.4MB          7 ( 2%)        ⚡-  7.4% ±  0.2%
+  cpu_cycles         24.1M  ±  821K     22.8M  … 27.1M           3 ( 1%)        ⚡- 95.9% ±  0.1%
+  instructions       43.7M  ± 23.8K     43.7M  … 43.8M          56 (16%)        ⚡- 95.6% ±  0.0%
+  cache_references   1.46M  ± 14.6K     1.40M  … 1.50M          19 ( 5%)        ⚡- 94.3% ±  0.1%
+  cache_misses        142K  ± 4.87K      127K  …  157K           2 ( 1%)        ⚡- 78.1% ±  0.4%
+  branch_misses       126K  ± 1.37K      120K  …  129K          12 ( 3%)        ⚡- 86.3% ±  0.1%
+```

@@ -13,6 +13,7 @@ path_deps_sub: []String,
 unlazy_deps: []String,
 system_integrations: []SystemIntegration,
 available_options: []AvailableOption,
+search_prefixes: []String,
 extra: []u32,
 default_step: Step.Index,
 generated_files_len: u32,
@@ -26,6 +27,7 @@ pub const Header = extern struct {
     unlazy_deps_len: u32,
     system_integrations_len: u32,
     available_options_len: u32,
+    search_prefixes_len: u32,
     extra_len: u32,
 
     default_step: Step.Index,
@@ -47,6 +49,7 @@ pub const Wip = struct {
     available_options: std.ArrayList(AvailableOption) = .empty,
     steps: std.ArrayList(Step) = .empty,
     path_deps: std.MultiArrayList(Path) = .empty,
+    search_prefixes: std.ArrayList(String) = .empty,
     extra: std.ArrayList(u32) = .empty,
     next_generated_file_index: u32 = 0,
 
@@ -126,6 +129,7 @@ pub const Wip = struct {
         wip.available_options.deinit(gpa);
         wip.steps.deinit(gpa);
         wip.path_deps.deinit(gpa);
+        wip.search_prefixes.deinit(gpa);
         wip.extra.deinit(gpa);
         wip.* = undefined;
     }
@@ -143,6 +147,7 @@ pub const Wip = struct {
             .unlazy_deps_len = @intCast(wip.unlazy_deps.items.len),
             .system_integrations_len = @intCast(wip.system_integrations.items.len),
             .available_options_len = @intCast(wip.available_options.items.len),
+            .search_prefixes_len = @intCast(wip.search_prefixes.items.len),
             .extra_len = @intCast(wip.extra.items.len),
 
             .default_step = static.default_step,
@@ -157,6 +162,7 @@ pub const Wip = struct {
             @ptrCast(wip.unlazy_deps.items),
             @ptrCast(wip.system_integrations.items),
             @ptrCast(wip.available_options.items),
+            @ptrCast(wip.search_prefixes.items),
             @ptrCast(wip.extra.items),
         };
         try w.writeVecAll(&buffers);
@@ -3017,6 +3023,7 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
         .unlazy_deps = try arena.alloc(String, header.unlazy_deps_len),
         .system_integrations = try arena.alloc(SystemIntegration, header.system_integrations_len),
         .available_options = try arena.alloc(AvailableOption, header.available_options_len),
+        .search_prefixes = try arena.alloc(String, header.search_prefixes_len),
         .extra = try arena.alloc(u32, header.extra_len),
         .default_step = header.default_step,
         .generated_files_len = header.generated_files_len,
@@ -3029,6 +3036,7 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
         @ptrCast(result.unlazy_deps),
         @ptrCast(result.system_integrations),
         @ptrCast(result.available_options),
+        @ptrCast(result.search_prefixes),
         @ptrCast(result.extra),
     };
     try reader.readVecAll(&vecs);

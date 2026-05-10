@@ -446,6 +446,9 @@ pub fn main(init: process.Init.Minimal) !void {
                 else => {},
             }
         }
+        for (c.search_prefixes) |search_prefix| {
+            try graph.search_prefixes.append(arena, search_prefix.slice(c));
+        }
         break :sc .{
             .configuration = configuration,
             .top_level_steps = top_level_steps,

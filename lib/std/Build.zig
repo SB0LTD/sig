@@ -295,12 +295,12 @@ fn createChild(
     pkg_deps: AvailableDeps,
     user_input_options: UserInputOptionsMap,
 ) error{OutOfMemory}!*Build {
-    const allocator = parent.allocator;
-    const child = try allocator.create(Build);
+    const arena = parent.graph.arena;
+    const child = try arena.create(Build);
     child.* = .{
         .graph = parent.graph,
         .root = root,
-        .allocator = allocator,
+        .allocator = arena,
         .install_tls = .{
             .step = .init(.{
                 .tag = .top_level,
@@ -334,8 +334,8 @@ fn createChild(
         .pkg_hash = pkg_hash,
         .available_deps = pkg_deps,
     };
-    try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
-    try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
+    try child.top_level_steps.put(arena, child.install_tls.step.name, &child.install_tls);
+    try child.top_level_steps.put(arena, child.uninstall_tls.step.name, &child.uninstall_tls);
     child.default_step = &child.install_tls.step;
     return child;
 }
@@ -1773,10 +1773,16 @@ pub fn run(b: *Build, argv: []const []const u8) []u8 {
 /// it is desirable to use that same information without requiring the user to
 /// provide it again.
 pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
-    _ = b;
-    _ = search_prefix;
-    @panic("TODO");
-    //b.search_prefixes.append(b.allocator, b.dupePath(search_prefix)) catch @panic("OOM");
+    if (b.isRoot()) {
+        const graph = b.graph;
+        const wc = &graph.wip_configuration;
+        const string = wc.addString(search_prefix) catch @panic("OOM");
+        wc.search_prefixes.append(wc.gpa, string) catch @panic("OOM");
+    }
+}
+
+pub fn isRoot(b: *const Build) bool {
+    return b.pkg_hash.len == 0;
 }
 
 pub const Dependency = struct {

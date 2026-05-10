@@ -20,6 +20,12 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
     var serializer: Serializer = .{ .writer = w };
     var s = try serializer.beginStruct(.{});
 
+    {
+        var tf = try s.beginTupleField("search_prefixes", .{});
+        for (c.search_prefixes) |string| try tf.field(string.slice(c), .{});
+        try tf.end();
+    }
+
     try s.field("default_step", @intFromEnum(c.default_step), .{});
     {
         var sf = try s.beginStructField("top_level_steps", .{});
