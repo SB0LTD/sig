@@ -1507,7 +1507,7 @@ const targets = [_]ArchTarget{
             },
             .{
                 .zig_name = "variable_pointers",
-                .desc = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
+                .desc = "Enable SPV_KHR_variable_pointers extension and the VariablePointers capability",
                 .deps = &.{"v1_0"},
             },
         },

@@ -123,7 +123,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.variable_pointers)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
+        .description = "Enable SPV_KHR_variable_pointers extension and the VariablePointers capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
