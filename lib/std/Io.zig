@@ -1147,6 +1147,7 @@ pub const Duration = struct {
 
 /// Declares under what conditions an operation should return `error.Timeout`.
 pub const Timeout = union(enum) {
+    /// `.none` will wait forever
     none,
     duration: Clock.Duration,
     deadline: Clock.Timestamp,
