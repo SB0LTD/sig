@@ -2091,7 +2091,7 @@ fn initHeaders(
     }
 
     assert(elf.ni.shdr == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
-        .size = elf.ehdrField(.shentsize) * elf.ehdrField(.shnum),
+        .size = @as(u64, elf.ehdrField(.shentsize)) * @as(u64, elf.ehdrField(.shnum)),
         .alignment = elf.mf.flags.block_size,
         .moved = true,
         .resized = true,
@@ -3076,7 +3076,7 @@ fn loadObject(
             if (ehdr.machine != elf.ehdrField(.machine))
                 return diags.failParse(path, "bad machine", .{});
             if (ehdr.shoff == 0 or ehdr.shnum <= 1) return;
-            if (ehdr.shoff + ehdr.shentsize * ehdr.shnum > fl.size)
+            if (ehdr.shoff + @as(u64, ehdr.shentsize) * @as(u64, ehdr.shnum) > fl.size)
                 return diags.failParse(path, "bad section header location", .{});
             if (ehdr.shentsize < @sizeOf(ElfN.Shdr))
                 return diags.failParse(path, "unsupported shentsize", .{});
@@ -3638,7 +3638,7 @@ fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
                 },
             };
             assert(shndx < @intFromEnum(Section.Index.LORESERVE));
-            break :shndx .{ @enumFromInt(shndx), elf.targetLoad(&ehdr.shentsize) * shnum };
+            break :shndx .{ @enumFromInt(shndx), @as(u64, elf.targetLoad(&ehdr.shentsize)) * @as(u64, shnum) };
         },
     };
     _, const shdr_node_size = elf.ni.shdr.location(&elf.mf).resolve(&elf.mf);
