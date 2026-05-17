@@ -14,31 +14,14 @@ test {
     _ = TrailerFlags;
 }
 
-/// Returns the variant of an enum type, `T`, which is named `str`, or `null` if no such variant exists.
+/// Returns the variant of an enum type corresponding to the provided tag name,
+/// or `null` if no such variant exists.
 pub fn stringToEnum(comptime T: type, tag_name: []const u8) ?T {
-    // Using StaticStringMap here is more performant, but it will start to take too
-    // long to compile if the enum is large enough, due to the current limits of comptime
-    // performance when doing things like constructing lookup maps at comptime.
-    // TODO The '100' here is arbitrary and should be increased when possible:
-    // - https://github.com/ziglang/zig/issues/4055
-    // - https://github.com/ziglang/zig/issues/3863
-    if (@typeInfo(T).@"enum".field_names.len <= 100) {
-        return std.StaticStringMap(T).initEnum().get(tag_name);
-    } else {
-        inline for (@typeInfo(T).@"enum".field_names) |name| {
-            if (mem.eql(u8, tag_name, name)) {
-                return @field(T, name);
-            }
-        }
-        return null;
-    }
+    return std.StaticStringMap(T).initEnum().get(tag_name);
 }
 
 test stringToEnum {
-    const E1 = enum {
-        A,
-        B,
-    };
+    const E1 = enum { A, B };
     try testing.expect(E1.A == stringToEnum(E1, "A").?);
     try testing.expect(E1.B == stringToEnum(E1, "B").?);
     try testing.expect(null == stringToEnum(E1, "C"));
