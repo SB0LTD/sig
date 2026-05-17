@@ -39,7 +39,6 @@ pub fn run(
     const pc = &maker.pkg_config;
     const graph = maker.graph;
     const arena = graph.arena; // TODO don't leak into process arena
-    const wl_rpath_prefix = "-Wl,-rpath,";
 
     const pkg_name = match: {
         // First we have to map the library name to pkg config name. Unfortunately,
@@ -123,8 +122,8 @@ pub fn run(
             try zig_cflags.appendSlice(arena, &.{ "-D", macro });
         } else if (mem.startsWith(u8, arg, "-D")) {
             try zig_cflags.append(arena, arg);
-        } else if (mem.startsWith(u8, arg, wl_rpath_prefix)) {
-            try zig_cflags.appendSlice(arena, &.{ "-rpath", arg[wl_rpath_prefix.len..] });
+        } else if (mem.cutPrefix(u8, arg, "-Wl,-rpath,")) |rest| {
+            try zig_cflags.appendSlice(arena, &.{ "-rpath", rest });
         } else if (force or pc.debug) {
             return step.fail(maker, "{s} package {s} unknown flag: {s}", .{ pkg_config_exe, lib_name, arg });
         }
