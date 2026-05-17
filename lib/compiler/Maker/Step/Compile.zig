@@ -1037,7 +1037,7 @@ const PkgConfigResult = struct {
 /// Run pkg-config for the given library name and parse the output, returning the arguments
 /// that should be passed to zig to link the given library.
 fn runPkgConfig(compile: *const Compile, maker: *const Maker, lib_name: []const u8) !PkgConfigResult {
-    if (true) @panic("TODO");
+    if (true) @panic("TODO runPkgConfig");
     const graph = maker.graph;
     const wl_rpath_prefix = "-Wl,-rpath,";
 
@@ -1149,7 +1149,7 @@ fn runPkgConfig(compile: *const Compile, maker: *const Maker, lib_name: []const 
 }
 
 fn checkCompileErrors(compile: *Compile, maker: *Maker) !void {
-    if (true) @panic("TODO");
+    if (true) @panic("TODO checkCompileErrors");
     // Clear this field so that it does not get printed by the build runner.
     const actual_eb = compile.step.result_error_bundle;
     compile.step.result_error_bundle = .empty;
@@ -1452,7 +1452,7 @@ fn appendModuleFlags(
         if (target.query.get(conf)) |query| {
             try zig_args.ensureUnusedCapacity(gpa, 6);
 
-            if (true) @panic("TODO");
+            if (true) @panic("TODO appendModuleFlags");
 
             zig_args.appendAssumeCapacity("-target");
             zig_args.appendAssumeCapacity(try query.zigTriple(arena));
@@ -1535,12 +1535,12 @@ fn appendIncludeDirFlags(
         },
         .config_header_step => |ch| {
             zig_args.appendAssumeCapacity("-I");
-            if (true) @panic("TODO");
+            if (true) @panic("TODO appendIncludeDirFlags");
             ch.getOutputDir();
         },
         .other_step => |comp| {
             zig_args.appendAssumeCapacity("-I");
-            if (true) @panic("TODO");
+            if (true) @panic("TODO appendIncludeDirFlags");
             comp.installed_headers_include_tree.?.getDirectory();
         },
         .embed_path => |lazy_path| {

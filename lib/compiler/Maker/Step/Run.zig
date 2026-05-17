@@ -2296,12 +2296,12 @@ fn convertPathArg(run_index: Configuration.Step.Index, maker: *Maker, path: Path
 }
 
 fn addPathForDynLibs(artifact: Configuration.Step.Index) void {
-    if (true) @panic("TODO");
+    if (true) @panic("TODO addPathForDynLibs");
     for (artifact.getCompileDependencies(true)) |compile| {
         if (compile.root_module.resolved_target.?.result.os.tag == .windows and
             compile.isDynamicLibrary())
         {
-            @panic("TODO");
+            @panic("TODO addPathForDynLibs");
             //addPathDir(run, Dir.path.dirname(compile.getEmittedBin().getPath2(b, step)).?);
         }
     }

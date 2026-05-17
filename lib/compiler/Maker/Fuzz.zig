@@ -93,7 +93,7 @@ pub fn init(
         defer rebuild_group.cancel(io);
 
         for (all_steps) |step| {
-            if (true) @panic("TODO");
+            if (true) @panic("TODO update the fuzzer");
             const run = step.cast(std.Build.Step.Run) orelse continue;
             if (run.producer == null) continue;
             if (run.fuzz_tests.items.len == 0) continue;
@@ -110,7 +110,7 @@ pub fn init(
     errdefer gpa.free(run_steps);
 
     for (run_steps) |run_step_index| {
-        if (true) @panic("TODO");
+        if (true) @panic("TODO update the fuzzer");
         assert(run_step_index.fuzz_tests.items.len > 0);
         if (run_step_index.rebuilt_executable == null)
             fatal("one or more unit tests failed to be rebuilt in fuzz mode", .{});
@@ -144,7 +144,7 @@ pub fn start(fuzz: *Fuzz) void {
             fatal("unable to spawn coverage task: {t}", .{err});
     }
 
-    if (true) @panic("TODO");
+    if (true) @panic("TODO update the fuzzer");
 
     for (fuzz.run_steps) |run| {
         assert(run.rebuilt_executable != null);
@@ -221,7 +221,7 @@ fn fuzzWorkerRun(fuzz: *Fuzz, run: Configuration.Step.Index) void {
 }
 
 pub fn serveSourcesTar(fuzz: *Fuzz, req: *std.http.Server.Request) !void {
-    if (true) @panic("TODO");
+    if (true) @panic("TODO update the fuzzer");
     assert(fuzz.mode == .forever);
     const gpa = fuzz.maker.gpa;
 
@@ -373,7 +373,7 @@ fn coverageRunCancelable(fuzz: *Fuzz) Io.Cancelable!void {
     }
 }
 fn prepareTables(fuzz: *Fuzz, run_step_index: Configuration.Step.Index, coverage_id: u64) error{ OutOfMemory, AlreadyReported, Canceled }!void {
-    if (true) @panic("TODO");
+    if (true) @panic("TODO update the fuzzer");
     assert(fuzz.mode == .forever);
     const ws = fuzz.mode.forever.ws;
     const maker = fuzz.maker;
@@ -538,7 +538,7 @@ fn addEntryPoint(fuzz: *Fuzz, coverage_id: u64, addr: u64) error{ AlreadyReporte
 }
 
 pub fn waitAndPrintReport(fuzz: *Fuzz) Io.Cancelable!void {
-    if (true) @panic("TODO");
+    if (true) @panic("TODO update the fuzzer");
     assert(fuzz.mode == .limit);
     const maker = fuzz.maker;
     const graph = maker.graph;

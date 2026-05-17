@@ -1781,7 +1781,7 @@ pub fn relativePath(maker: *const Maker, relative: Configuration.LazyPath.Relati
     const graph = maker.graph;
     const c = &maker.scanned_config.configuration;
     const sub_path = relative.sub_path.slice(c);
-    if (relative.flags.base == .zig_exe and sub_path.len != 0) @panic("TODO");
+    if (relative.flags.base == .zig_exe and sub_path.len != 0) @panic("TODO relativePath zig_exe");
     return switch (relative.flags.base) {
         .cwd => .{
             .root_dir = .cwd(),
