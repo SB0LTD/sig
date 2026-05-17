@@ -23,6 +23,7 @@ const Step = @import("Maker/Step.zig");
 const Watch = @import("Maker/Watch.zig");
 const WebServer = @import("Maker/WebServer.zig");
 const ScannedConfig = @import("Maker/ScannedConfig.zig");
+const PkgConfig = @import("Maker/PkgConfig.zig");
 
 pub const std_options: std.Options = .{
     .side_channels_mitigations = .none,
@@ -48,6 +49,7 @@ web_server: if (!builtin.single_threaded) ?WebServer else ?noreturn,
 memory_blocked_steps: std.ArrayList(Configuration.Step.Index),
 /// Allocated into `gpa`.
 step_stack: std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
+pkg_config: PkgConfig,
 
 error_style: ErrorStyle,
 multiline_errors: MultilineErrors,
@@ -540,6 +542,11 @@ pub fn main(init: process.Init.Minimal) !void {
         .web_server = undefined, // set after `prepare`
         .memory_blocked_steps = .empty,
         .step_stack = .empty,
+        .pkg_config = .{
+            .mutex = .init,
+            .list = null,
+            .debug = debug_pkg_config,
+        },
 
         .error_style = error_style,
         .multiline_errors = multiline_errors,

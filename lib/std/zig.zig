@@ -772,6 +772,7 @@ pub const EnvVar = enum {
     CPLUS_INCLUDE_PATH,
     LIBRARY_PATH,
     CC,
+    PKG_CONFIG,
 
     // Terminal integration
     NO_COLOR,

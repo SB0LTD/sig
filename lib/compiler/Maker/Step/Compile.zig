@@ -14,6 +14,7 @@ const allocPrint = std.fmt.allocPrint;
 
 const Step = @import("../Step.zig");
 const Maker = @import("../../Maker.zig");
+const PkgConfig = @import("../PkgConfig.zig");
 
 /// Populated when there is compiler process that lives across multiple calls
 /// to `make`.
@@ -40,7 +41,7 @@ pub fn make(
     // Reset / repopulate persistent state.
     compile.zig_args.clearRetainingCapacity();
 
-    try lowerZigArgs(compile, compile_index, maker, &compile.zig_args, false);
+    try lowerZigArgs(compile, compile_index, maker, progress_node, &compile.zig_args, false);
 
     const maybe_output_dir = Step.evalZigProcess(
         compile_index,
@@ -148,10 +149,11 @@ const ModuleListContext = struct {
 fn lowerZigArgs(
     compile: *Compile,
     compile_index: Configuration.Step.Index,
-    maker: *const Maker,
+    maker: *Maker,
+    progress_node: std.Progress.Node,
     zig_args: *std.ArrayList([]const u8),
     fuzz: bool,
-) error{ OutOfMemory, MakeFailed }!void {
+) Step.ExtendedMakeError!void {
     const step = maker.stepByIndex(compile_index);
     const graph = maker.graph;
     const arena = graph.arena; // TODO don't leak into the process arena
@@ -312,40 +314,36 @@ fn lowerZigArgs(
                             if (system_lib.flags.weak) break :prefix "-weak-l";
                             break :prefix "-l";
                         };
-                        switch (system_lib.flags.use_pkg_config) {
-                            .no => try zig_args.append(gpa, try allocPrint(arena, "{s}{s}", .{
-                                prefix, system_lib_name,
-                            })),
-                            .yes, .force => {
-                                if (compile.runPkgConfig(maker, system_lib_name)) |result| {
+                        l: {
+                            pc: {
+                                const force = switch (system_lib.flags.use_pkg_config) {
+                                    .no => break :pc,
+                                    .yes => false,
+                                    .force => true,
+                                };
+
+                                const pkg_conf_node = progress_node.start("pkg-config", 0);
+                                defer pkg_conf_node.end();
+
+                                if (PkgConfig.run(maker, step, pkg_conf_node, system_lib_name, force)) |result| {
                                     try zig_args.appendSlice(gpa, result.cflags);
                                     try zig_args.appendSlice(gpa, result.libs);
                                     try seen_system_libs.put(arena, system_lib.name, result.cflags);
+                                    break :l;
                                 } else |err| switch (err) {
-                                    error.PkgConfigInvalidOutput,
-                                    error.PkgConfigCrashed,
-                                    error.PkgConfigFailed,
-                                    error.PkgConfigNotInstalled,
+                                    error.PkgConfigUnavailable,
                                     error.PackageNotFound,
-                                    => switch (system_lib.flags.use_pkg_config) {
-                                        .yes => {
-                                            // pkg-config failed, so fall back to linking the library
-                                            // by name directly.
-                                            try zig_args.append(gpa, try allocPrint(arena, "{s}{s}", .{
-                                                prefix, system_lib_name,
-                                            }));
-                                        },
-                                        .force => {
-                                            return step.fail(maker, "pkg-config failed for library {s}", .{
-                                                system_lib_name,
-                                            });
-                                        },
-                                        .no => unreachable,
+                                    => {
+                                        // pkg-config failed, so fall back to linking the library by name directly.
+                                        assert(!force);
+                                        break :pc;
                                     },
-
                                     else => |e| return e,
                                 }
-                            },
+                            }
+                            try zig_args.append(gpa, try allocPrint(arena, "{s}{s}", .{
+                                prefix, system_lib_name,
+                            }));
                         }
                     },
                     .other_step => |other_step_index| {
@@ -961,63 +959,9 @@ pub fn rebuildInFuzzMode(compile: *Compile, maker: *Maker, progress_node: std.Pr
 
     const zig_args = &compile.zig_args;
     zig_args.clearRetainingCapacity();
-    try lowerZigArgs(compile, maker, zig_args, true);
+    try lowerZigArgs(compile, maker, progress_node, zig_args, true);
     const maybe_output_bin_path = try compile.step.evalZigProcess(zig_args.items, progress_node, false, maker);
     return maybe_output_bin_path.?;
-}
-
-pub const PkgConfigError = error{
-    PkgConfigCrashed,
-    PkgConfigFailed,
-    PkgConfigNotInstalled,
-    PkgConfigInvalidOutput,
-};
-
-pub const PkgConfigPkg = struct {
-    name: []const u8,
-    desc: []const u8,
-};
-
-fn execPkgConfigList(maker: *Maker, out_code: *u8) (PkgConfigError || Maker.RunError)![]const PkgConfigPkg {
-    const graph = maker.graph;
-    const process_arena = graph.arena; // TODO don't leak into process arena
-    const pkg_config_exe = graph.environ_map.get("PKG_CONFIG") orelse "pkg-config";
-    const stdout = try maker.runAllowFail(&[_][]const u8{ pkg_config_exe, "--list-all" }, out_code, .ignore);
-    var list = std.array_list.Managed(PkgConfigPkg).init(process_arena);
-    errdefer list.deinit();
-    var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
-    while (line_it.next()) |line| {
-        if (mem.trim(u8, line, " \t").len == 0) continue;
-        var tok_it = mem.tokenizeAny(u8, line, " \t");
-        try list.append(PkgConfigPkg{
-            .name = tok_it.next() orelse return error.PkgConfigInvalidOutput,
-            .desc = tok_it.rest(),
-        });
-    }
-    return list.toOwnedSlice();
-}
-
-fn getPkgConfigList(b: *std.Build) ![]const PkgConfigPkg {
-    if (b.pkg_config_pkg_list) |res| {
-        return res;
-    }
-    var code: u8 = undefined;
-    if (execPkgConfigList(b, &code)) |list| {
-        b.pkg_config_pkg_list = list;
-        return list;
-    } else |err| {
-        const result = switch (err) {
-            error.ProcessTerminated => error.PkgConfigCrashed,
-            error.ExecNotSupported => error.PkgConfigFailed,
-            error.ExitCodeFailure => error.PkgConfigFailed,
-            error.FileNotFound => error.PkgConfigNotInstalled,
-            error.InvalidName => error.PkgConfigNotInstalled,
-            error.PkgConfigInvalidOutput => error.PkgConfigInvalidOutput,
-            else => return err,
-        };
-        b.pkg_config_pkg_list = result;
-        return result;
-    }
 }
 
 fn addBool(gpa: Allocator, args: *std.ArrayList([]const u8), arg: []const u8, opt: bool) !void {
@@ -1027,125 +971,6 @@ fn addBool(gpa: Allocator, args: *std.ArrayList([]const u8), arg: []const u8, op
 fn addFlag(gpa: Allocator, args: *std.ArrayList([]const u8), comptime name: []const u8, opt: ?bool) !void {
     const cond = opt orelse return;
     try args.append(gpa, if (cond) "-f" ++ name else "-fno-" ++ name);
-}
-
-const PkgConfigResult = struct {
-    cflags: []const []const u8,
-    libs: []const []const u8,
-};
-
-/// Run pkg-config for the given library name and parse the output, returning the arguments
-/// that should be passed to zig to link the given library.
-fn runPkgConfig(compile: *const Compile, maker: *const Maker, lib_name: []const u8) !PkgConfigResult {
-    if (true) @panic("TODO runPkgConfig");
-    const graph = maker.graph;
-    const wl_rpath_prefix = "-Wl,-rpath,";
-
-    const b = compile.step.owner;
-    const arena = b.allocator;
-    const pkg_name = match: {
-        // First we have to map the library name to pkg config name. Unfortunately,
-        // there are several examples where this is not straightforward:
-        // -lSDL2 -> pkg-config sdl2
-        // -lgdk-3 -> pkg-config gdk-3.0
-        // -latk-1.0 -> pkg-config atk
-        // -lpulse -> pkg-config libpulse
-        const pkgs = try getPkgConfigList(b);
-
-        // Exact match means instant winner.
-        for (pkgs) |pkg| {
-            if (mem.eql(u8, pkg.name, lib_name)) {
-                break :match pkg.name;
-            }
-        }
-
-        // Next we'll try ignoring case.
-        for (pkgs) |pkg| {
-            if (std.ascii.eqlIgnoreCase(pkg.name, lib_name)) {
-                break :match pkg.name;
-            }
-        }
-
-        // Prefixed "lib" or suffixed ".0".
-        for (pkgs) |pkg| {
-            if (std.ascii.findIgnoreCase(pkg.name, lib_name)) |pos| {
-                const prefix = pkg.name[0..pos];
-                const suffix = pkg.name[pos + lib_name.len ..];
-                if (prefix.len > 0 and !mem.eql(u8, prefix, "lib")) continue;
-                if (suffix.len > 0 and !mem.eql(u8, suffix, ".0")) continue;
-                break :match pkg.name;
-            }
-        }
-
-        // Trimming "-1.0".
-        if (mem.endsWith(u8, lib_name, "-1.0")) {
-            const trimmed_lib_name = lib_name[0 .. lib_name.len - "-1.0".len];
-            for (pkgs) |pkg| {
-                if (std.ascii.eqlIgnoreCase(pkg.name, trimmed_lib_name)) {
-                    break :match pkg.name;
-                }
-            }
-        }
-
-        return error.PackageNotFound;
-    };
-
-    var code: u8 = undefined;
-    const pkg_config_exe = graph.environ_map.get("PKG_CONFIG") orelse "pkg-config";
-    const stdout = if (b.runAllowFail(&[_][]const u8{
-        pkg_config_exe,
-        pkg_name,
-        "--cflags",
-        "--libs",
-    }, &code, .ignore)) |stdout| stdout else |err| switch (err) {
-        error.ProcessTerminated => return error.PkgConfigCrashed,
-        error.ExecNotSupported => return error.PkgConfigFailed,
-        error.ExitCodeFailure => return error.PkgConfigFailed,
-        error.FileNotFound => return error.PkgConfigNotInstalled,
-        else => return err,
-    };
-
-    var zig_cflags: std.ArrayList([]const u8) = .empty;
-    defer zig_cflags.deinit(arena);
-    var zig_libs: std.ArrayList([]const u8) = .empty;
-    defer zig_libs.deinit(arena);
-
-    var arg_it = mem.tokenizeAny(u8, stdout, " \r\n\t");
-    while (arg_it.next()) |arg| {
-        if (mem.eql(u8, arg, "-I")) {
-            const dir = arg_it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_cflags.appendSlice(arena, &.{ "-I", dir });
-        } else if (mem.startsWith(u8, arg, "-I")) {
-            try zig_cflags.append(arena, arg);
-        } else if (mem.eql(u8, arg, "-L")) {
-            const dir = arg_it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_libs.appendSlice(arena, &.{ "-L", dir });
-        } else if (mem.startsWith(u8, arg, "-L")) {
-            try zig_libs.append(arena, arg);
-        } else if (mem.eql(u8, arg, "-l")) {
-            const lib = arg_it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_libs.appendSlice(arena, &.{ "-l", lib });
-        } else if (mem.startsWith(u8, arg, "-l")) {
-            try zig_libs.append(arena, arg);
-        } else if (mem.eql(u8, arg, "-D")) {
-            const macro = arg_it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_cflags.appendSlice(arena, &.{ "-D", macro });
-        } else if (mem.startsWith(u8, arg, "-D")) {
-            try zig_cflags.append(arena, arg);
-        } else if (mem.startsWith(u8, arg, wl_rpath_prefix)) {
-            try zig_cflags.appendSlice(arena, &.{ "-rpath", arg[wl_rpath_prefix.len..] });
-        } else if (b.debug_pkg_config) {
-            return compile.step.fail(maker, "unknown pkg-config flag '{s}'", .{arg});
-        }
-    }
-
-    try zig_cflags.shrinkToLen(arena);
-    try zig_libs.shrinkToLen(arena);
-
-    return .{
-        .cflags = zig_cflags.toOwnedSliceAssert(),
-        .libs = zig_libs.toOwnedSliceAssert(),
-    };
 }
 
 fn checkCompileErrors(compile: *Compile, maker: *Maker) !void {
