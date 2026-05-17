@@ -23,6 +23,7 @@ pub const Fmt = @import("Step/Fmt.zig");
 pub const InstallArtifact = @import("Step/InstallArtifact.zig");
 pub const InstallFile = @import("Step/InstallFile.zig");
 pub const ObjCopy = @import("Step/ObjCopy.zig");
+pub const Options = @import("Step/Options.zig");
 pub const Run = @import("Step/Run.zig");
 pub const UpdateSourceFiles = @import("Step/UpdateSourceFiles.zig");
 
@@ -79,7 +80,7 @@ pub const Extended = union(enum) {
     install_dir: Todo,
     install_file: InstallFile,
     obj_copy: ObjCopy,
-    options: Todo,
+    options: Options,
     remove_dir: Todo,
     run: Run,
     top_level: TopLevel,
@@ -321,7 +322,8 @@ pub fn reset(step: *Step, maker: *Maker) void {
     step.result_peak_rss = 0;
     step.result_failed_command = null;
     step.test_results = .{};
-    step.clearWatchInputs(maker);
+    // We do not clearWatchInputs here because each step manages that choice
+    // independently.
 
     step.result_error_bundle.deinit(gpa);
     step.result_error_bundle = std.zig.ErrorBundle.empty;

@@ -20,6 +20,8 @@
 * make the generated dependencies.zig be dependencies.zon and don't put absolute paths in there
   - and adjust dependencyInner to not openDir()
 
+* re-evaluate https://codeberg.org/ziglang/zig/pulls/35224
+
 ## Followup Issues
 * stop leaking into global process arena
 * reduce the size of Maker.Step.Extended (make Run smaller) probably by using an arena per make
@@ -32,6 +34,7 @@
 * fmt step: import zig fmt code directly rather than child proc
 * UpdateSourceFiles: introduce Group
 * WriteFiles: introduce Group
+* re-examine the use case of adding file paths to Options steps
 
 ## Already Filed Followup Issues
 * build system fmt step with check=false does not acquire a write lock on source files #35204 
