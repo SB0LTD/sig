@@ -23,6 +23,7 @@ comptime {
         symbol(&dupLinux, "dup");
         symbol(&dup2Linux, "dup2");
         symbol(&dup3Linux, "dup3");
+        symbol(&dup3Linux, "__dup3");
 
         symbol(&getegidLinux, "getegid");
         symbol(&geteuidLinux, "geteuid");
