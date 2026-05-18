@@ -125,8 +125,6 @@ const debug_usage = normal_usage ++
     \\
     \\  changelist       Compute mappings from old ZIR to new ZIR
     \\  dump-zir         Dump a file containing cached ZIR
-    \\  detect-cpu       Compare Zig's CPU feature detection vs LLVM
-    \\  llvm-ints        Dump a list of LLVMABIAlignmentOfType for all integers
     \\
 ;
 
@@ -403,14 +401,10 @@ fn mainArgs(
         return Io.File.stdout().writeStreamingAll(io, usage);
     } else if (mem.eql(u8, cmd, "ast-check")) {
         return cmdAstCheck(arena, io, cmd_args);
-    } else if (mem.eql(u8, cmd, "detect-cpu")) {
-        return cmdDetectCpu(io, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "changelist")) {
         return cmdChangelist(arena, io, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "dump-zir")) {
         return cmdDumpZir(arena, io, cmd_args);
-    } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "llvm-ints")) {
-        return cmdDumpLlvmInts(gpa, arena, io, cmd_args);
     } else {
         std.log.info("{s}", .{usage});
         fatal("unknown command: {s}", .{args[1]});
@@ -6451,182 +6445,6 @@ fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8) !void {
             return cleanExit(io);
         },
     }
-}
-
-fn cmdDetectCpu(io: Io, args: []const []const u8) !void {
-    dev.check(.detect_cpu_command);
-
-    const detect_cpu_usage =
-        \\Usage: zig detect-cpu [--llvm]
-        \\
-        \\    Print the host CPU name and feature set to stdout.
-        \\
-        \\Options:
-        \\  -h, --help                    Print this help and exit
-        \\  --llvm                        Detect using LLVM API
-        \\
-    ;
-
-    var use_llvm = false;
-
-    {
-        var i: usize = 0;
-        while (i < args.len) : (i += 1) {
-            const arg = args[i];
-            if (mem.startsWith(u8, arg, "-")) {
-                if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    try Io.File.stdout().writeStreamingAll(io, detect_cpu_usage);
-                    return cleanExit(io);
-                } else if (mem.eql(u8, arg, "--llvm")) {
-                    use_llvm = true;
-                } else {
-                    fatal("unrecognized parameter: '{s}'", .{arg});
-                }
-            } else {
-                fatal("unexpected extra parameter: '{s}'", .{arg});
-            }
-        }
-    }
-
-    if (use_llvm) {
-        if (!build_options.have_llvm)
-            fatal("compiler does not use LLVM; cannot compare CPU features with LLVM", .{});
-
-        const llvm = @import("codegen/llvm/bindings.zig");
-        const name = llvm.GetHostCPUName() orelse fatal("LLVM could not figure out the host cpu name", .{});
-        const features = llvm.GetHostCPUFeatures() orelse fatal("LLVM could not figure out the host cpu feature set", .{});
-        const cpu = try detectNativeCpuWithLLVM(builtin.cpu.arch, name, features);
-        try printCpu(io, cpu);
-    } else {
-        const host_target = std.zig.resolveTargetQueryOrFatal(io, .{});
-        try printCpu(io, host_target.cpu);
-    }
-}
-
-fn detectNativeCpuWithLLVM(
-    arch: std.Target.Cpu.Arch,
-    llvm_cpu_name_z: ?[*:0]const u8,
-    llvm_cpu_features_opt: ?[*:0]const u8,
-) !std.Target.Cpu {
-    var result = std.Target.Cpu.baseline(arch, builtin.os);
-
-    if (llvm_cpu_name_z) |cpu_name_z| {
-        const llvm_cpu_name = mem.span(cpu_name_z);
-
-        for (arch.allCpuModels()) |model| {
-            const this_llvm_name = model.llvm_name orelse continue;
-            if (mem.eql(u8, this_llvm_name, llvm_cpu_name)) {
-                // Here we use the non-dependencies-populated set,
-                // so that subtracting features later in this function
-                // affect the prepopulated set.
-                result = std.Target.Cpu{
-                    .arch = arch,
-                    .model = model,
-                    .features = model.features,
-                };
-                break;
-            }
-        }
-    }
-
-    const all_features = arch.allFeaturesList();
-
-    if (llvm_cpu_features_opt) |llvm_cpu_features| {
-        var it = mem.tokenizeScalar(u8, mem.span(llvm_cpu_features), ',');
-        while (it.next()) |decorated_llvm_feat| {
-            var op: enum {
-                add,
-                sub,
-            } = undefined;
-            var llvm_feat: []const u8 = undefined;
-            if (mem.startsWith(u8, decorated_llvm_feat, "+")) {
-                op = .add;
-                llvm_feat = decorated_llvm_feat[1..];
-            } else if (mem.startsWith(u8, decorated_llvm_feat, "-")) {
-                op = .sub;
-                llvm_feat = decorated_llvm_feat[1..];
-            } else {
-                return error.InvalidLlvmCpuFeaturesFormat;
-            }
-            for (all_features, 0..) |feature, index_usize| {
-                const this_llvm_name = feature.llvm_name orelse continue;
-                if (mem.eql(u8, llvm_feat, this_llvm_name)) {
-                    const index: std.Target.Cpu.Feature.Set.Index = @intCast(index_usize);
-                    switch (op) {
-                        .add => result.features.addFeature(index),
-                        .sub => result.features.removeFeature(index),
-                    }
-                    break;
-                }
-            }
-        }
-    }
-
-    result.features.populateDependencies(all_features);
-    return result;
-}
-
-fn printCpu(io: Io, cpu: std.Target.Cpu) !void {
-    var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
-    const stdout_bw = &stdout_writer.interface;
-
-    if (cpu.model.llvm_name) |llvm_name| {
-        try stdout_bw.print("{s}\n", .{llvm_name});
-    }
-
-    const all_features = cpu.arch.allFeaturesList();
-    for (all_features, 0..) |feature, index_usize| {
-        const llvm_name = feature.llvm_name orelse continue;
-        const index: std.Target.Cpu.Feature.Set.Index = @intCast(index_usize);
-        const is_enabled = cpu.features.isEnabled(index);
-        const plus_or_minus = "-+"[@intFromBool(is_enabled)];
-        try stdout_bw.print("{c}{s}\n", .{ plus_or_minus, llvm_name });
-    }
-
-    try stdout_bw.flush();
-}
-
-fn cmdDumpLlvmInts(
-    gpa: Allocator,
-    arena: Allocator,
-    io: Io,
-    args: []const []const u8,
-) !void {
-    dev.check(.llvm_ints_command);
-
-    _ = gpa;
-
-    if (!build_options.have_llvm)
-        fatal("compiler does not use LLVM; cannot dump LLVM integer sizes", .{});
-
-    const triple = try arena.dupeSentinel(u8, args[0], 0);
-
-    const llvm = @import("codegen/llvm/bindings.zig");
-
-    for ([_]std.Target.Cpu.Arch{ .aarch64, .x86 }) |arch| {
-        @import("codegen/llvm.zig").initializeLLVMTarget(arch);
-    }
-
-    const target: *llvm.Target = t: {
-        var target: *llvm.Target = undefined;
-        var error_message: [*:0]const u8 = undefined;
-        if (llvm.Target.getFromTriple(triple, &target, &error_message) != .False) @panic("bad");
-        break :t target;
-    };
-    const tm = llvm.TargetMachine.create(target, triple, null, null, .None, .Default, .Default, false, false, .Default, null, false);
-    const dl = tm.createTargetDataLayout();
-    const context = llvm.Context.create();
-
-    var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
-    const stdout_bw = &stdout_writer.interface;
-    for ([_]u16{ 1, 8, 16, 32, 64, 128, 256 }) |bits| {
-        const int_type = context.intType(bits);
-        const alignment = dl.abiAlignmentOfType(int_type);
-        try stdout_bw.print("LLVMABIAlignmentOfType(i{d}) == {d}\n", .{ bits, alignment });
-    }
-    try stdout_bw.flush();
-
-    return cleanExit(io);
 }
 
 /// This is only enabled for debug builds.
