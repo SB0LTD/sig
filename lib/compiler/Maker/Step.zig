@@ -59,6 +59,7 @@ result_duration_ns: ?u64 = null,
 result_peak_rss: usize = 0,
 /// If the step is failed and this field is populated, this is the command which failed.
 /// This field may be populated even if the step succeeded.
+/// Memory owned by `Maker.gpa`.
 result_failed_command: ?[]const u8 = null,
 test_results: TestResults = .{},
 
@@ -313,14 +314,13 @@ pub fn reset(step: *Step, maker: *Maker) void {
     assert(step.state == .precheck_done);
     const gpa = maker.gpa;
 
-    if (step.result_failed_command) |cmd| gpa.free(cmd);
+    clearFailedCommand(step, gpa);
 
     step.result_error_msgs.clearRetainingCapacity();
     step.result_stderr = "";
     step.result_cached = false;
     step.result_duration_ns = null;
     step.result_peak_rss = 0;
-    step.result_failed_command = null;
     step.test_results = .{};
     // We do not clearWatchInputs here because each step manages that choice
     // independently.
@@ -347,8 +347,7 @@ pub fn captureChildProcess(s: *Step, maker: *Maker, options: CaptureChildProcess
     const arena = graph.arena; // TODO stop leaking into process arena
     const io = graph.io;
 
-    // If an error occurs, it's happened in this command:
-    assert(s.result_failed_command == null);
+    clearFailedCommand(s, gpa);
     s.result_failed_command = try std.zig.allocPrintCmd(gpa, options.argv, .{});
 
     try handleChildProcUnsupported(s, maker);
@@ -370,6 +369,11 @@ pub fn captureChildProcess(s: *Step, maker: *Maker, options: CaptureChildProcess
     if (result.stderr.len > 0) try s.result_error_msgs.append(arena, result.stderr);
 
     return result;
+}
+
+fn clearFailedCommand(s: *Step, gpa: Allocator) void {
+    if (s.result_failed_command) |cmd| gpa.free(cmd);
+    s.result_failed_command = null;
 }
 
 pub const FailError = error{ OutOfMemory, MakeFailed };
@@ -421,7 +425,7 @@ pub fn evalZigProcess(
     const io = graph.io;
 
     // If an error occurs, it's happened in this command:
-    assert(s.result_failed_command == null);
+    clearFailedCommand(s, gpa);
     s.result_failed_command = try std.zig.allocPrintCmd(gpa, argv, .{});
 
     if (s.getZigProcess()) |zp| update: {
