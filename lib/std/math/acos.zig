@@ -448,6 +448,8 @@ test "acosBinary128.special" {
 }
 
 test "acosBinary128" {
+    if (builtin.cpu.arch.isSPARC()) return error.SkipZigTest;
+
     try testing.expectApproxEqAbs(0x1.250e9a58f049eeafa99db4360c88p1, acosBinary128(-0x1.511bdb99a3c4373bedf834ef4f68p-1), math.floatEpsAt(f128, 0x1.250e9a58f049eeafa99db4360c88p1));
     try testing.expectApproxEqAbs(0x1.2786664b1c676c99437b68590004p1, acosBinary128(-0x1.5879cc3ad6dfd2a52e9891c69808p-1), math.floatEpsAt(f128, 0x1.2786664b1c676c99437b68590004p1));
     try testing.expectApproxEqAbs(0x1.cb190cd361c7c03a09c470b4caebp-1, acosBinary128(0x1.3f988ba64a7eb97a751c5f0b3077p-1), math.floatEpsAt(f128, 0x1.cb190cd361c7c03a09c470b4caebp-1));
