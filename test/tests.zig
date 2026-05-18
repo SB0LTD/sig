@@ -995,6 +995,23 @@ const module_test_targets = blk: {
             .link_libc = true,
         },
 
+        .{
+            .target = .{
+                .cpu_arch = .sparc64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        // SPARC linking support is currently incomplete.
+        // .{
+        //     .target = .{
+        //         .cpu_arch = .sparc64,
+        //         .os_tag = .linux,
+        //         .abi = .gnu,
+        //     },
+        //     .link_libc = true,
+        // },
+
         // Calls are normally lowered to branch instructions that only support +/- 16 MB range when
         // targeting Thumb. This easily becomes insufficient for our test binaries, so use long
         // calls to avoid out-of-range relocations.
