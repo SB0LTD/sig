@@ -833,7 +833,7 @@ fn makeStepNames(
     var pending_count: usize = 0;
     var total_compile_errors: usize = 0;
 
-    var cleanup_task = io.async(cleanTmpFiles, .{ io, step_stack.keys() });
+    var cleanup_task = io.async(cleanTmpFiles, .{ maker, step_stack.keys() });
     defer cleanup_task.await(io);
 
     for (step_stack.keys()) |step_index| {
@@ -1677,17 +1677,20 @@ fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
     fatal(f, args);
 }
 
-fn cleanTmpFiles(io: Io, steps: []const Configuration.Step.Index) void {
-    std.log.err("TODO implement cleanTmpFiles", .{});
-    if (true) return;
+fn cleanTmpFiles(maker: *Maker, steps: []const Configuration.Step.Index) void {
+    const graph = maker.graph;
+    const io = graph.io;
+    const conf = &maker.scanned_config.configuration;
 
     for (steps) |step_index| {
-        const wf = step_index.cast(std.Build.Step.WriteFile) orelse continue;
-        if (wf.mode != .tmp) continue;
-        const path = wf.generated_directory.path orelse continue;
-        Dir.cwd().deleteTree(io, path) catch |err| {
-            log.warn("failed to delete {s}: {t}", .{ path, err });
-        };
+        const conf_step = step_index.ptr(conf);
+        const wf = conf_step.extended.cast(conf, Configuration.Step.WriteFile) orelse continue;
+        if (wf.flags.mode != .tmp) continue;
+        const step = maker.stepByIndex(step_index);
+        if (step.state != .success) continue;
+        const tmp_path = generatedPath(maker, wf.generated_directory).*;
+        tmp_path.root_dir.handle.deleteTree(io, tmp_path.subPathOrDot()) catch |err|
+            log.warn("failed to delete temporary path {f}: {t}", .{ tmp_path, err });
     }
 }
 

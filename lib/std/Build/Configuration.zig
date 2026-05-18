@@ -2513,6 +2513,14 @@ pub const Storage = enum {
                 return base_flags.tag;
             }
 
+            pub fn cast(this: @This(), c: *const Configuration, comptime S: type) ?S {
+                const wanted_tag = @typeInfo(S.Flags).@"struct".fields[0].defaultValue().?;
+                const base_flags: BaseFlags = @bitCast(c.extra[@intFromEnum(this)]);
+                if (base_flags.tag != wanted_tag) return null;
+                var i: usize = @intFromEnum(this);
+                return data(c.extra, &i, S);
+            }
+
             pub fn get(this: @This(), buffer: []const u32) U {
                 var i: usize = @intFromEnum(this);
                 const base_flags: BaseFlags = @bitCast(buffer[i]);
