@@ -324,6 +324,8 @@ test "Group materializes error.Cancel" {
 }
 
 test "Group task receives cancelation unknowingly" {
+    if (builtin.cpu.arch.isSPARC() and builtin.os.tag == .linux) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/35347
+
     const S = struct {
         io: Io,
         err: ?Io.Cancelable!void,
