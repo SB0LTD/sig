@@ -329,13 +329,19 @@ pub fn reset(step: *Step, maker: *Maker) void {
     step.result_error_bundle = std.zig.ErrorBundle.empty;
 }
 
-/// Populates `s.result_failed_command`.
-pub fn captureChildProcess(
-    s: *Step,
-    maker: *Maker,
-    progress_node: std.Progress.Node,
+pub const CaptureChildProcessError = error{
+    FileNotFound,
+} || ExtendedMakeError;
+
+pub const CaptureChildProcessOptions = struct {
     argv: []const []const u8,
-) !std.process.RunResult {
+    progress_node: std.Progress.Node = .none,
+    environ_map: ?*const std.process.Environ.Map = null,
+    allow_failure: bool = false,
+};
+
+/// Populates `s.result_failed_command`.
+pub fn captureChildProcess(s: *Step, maker: *Maker, options: CaptureChildProcessOptions) !std.process.RunResult {
     const gpa = maker.gpa;
     const graph = maker.graph;
     const arena = graph.arena; // TODO stop leaking into process arena
@@ -343,20 +349,25 @@ pub fn captureChildProcess(
 
     // If an error occurs, it's happened in this command:
     assert(s.result_failed_command == null);
-    s.result_failed_command = try std.zig.allocPrintCmd(gpa, argv, .{});
+    s.result_failed_command = try std.zig.allocPrintCmd(gpa, options.argv, .{});
 
     try handleChildProcUnsupported(s, maker);
-    try graph.handleVerbose(.inherit, null, argv);
+    try graph.handleVerbose(.inherit, null, options.argv);
 
     const result = std.process.run(arena, io, .{
-        .argv = argv,
-        .environ_map = &graph.environ_map,
-        .progress_node = progress_node,
-    }) catch |err| return s.fail(maker, "failed to run {s}: {t}", .{ argv[0], err });
+        .argv = options.argv,
+        .environ_map = options.environ_map orelse &graph.environ_map,
+        .progress_node = options.progress_node,
+    }) catch |err| {
+        switch (err) {
+            error.OutOfMemory, error.Canceled => |e| return e,
+            error.FileNotFound => |e| if (options.allow_failure) return e,
+            else => {},
+        }
+        return s.fail(maker, "failed to run {s}: {t}", .{ options.argv[0], err });
+    };
 
-    if (result.stderr.len > 0) {
-        try s.result_error_msgs.append(arena, result.stderr);
-    }
+    if (result.stderr.len > 0) try s.result_error_msgs.append(arena, result.stderr);
 
     return result;
 }
@@ -679,12 +690,7 @@ pub inline fn handleChildProcUnsupported(s: *Step, maker: *Maker) FailError!void
 /// Asserts that the caller has already populated `s.result_failed_command`.
 pub fn handleChildProcessTerm(s: *Step, maker: *Maker, term: std.process.Child.Term) FailError!void {
     assert(s.result_failed_command != null);
-    return switch (term) {
-        .exited => |code| if (code != 0) s.fail(maker, "process exited with error code {d}", .{code}),
-        .signal => |sig| s.fail(maker, "process terminated with signal {t}", .{sig}),
-        .stopped => |sig| s.fail(maker, "process stopped with signal {t}", .{sig}),
-        .unknown => s.fail(maker, "process terminated unexpectedly", .{}),
-    };
+    if (!term.success()) return s.fail(maker, "process {f}", .{term});
 }
 
 /// Prefer `cacheHitAndWatch` unless you already added watch inputs

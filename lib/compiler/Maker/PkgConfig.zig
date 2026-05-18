@@ -1,6 +1,7 @@
 const std = @import("std");
 const Io = std.Io;
 const mem = std.mem;
+const assert = std.debug.assert;
 
 const Maker = @import("../Maker.zig");
 const Step = @import("Step.zig");
@@ -92,14 +93,15 @@ pub fn run(
     };
 
     const pkg_config_exe = getExe(graph);
-    const captured = try step.captureChildProcess(maker, progress_node, &.{
-        pkg_config_exe, pkg_name, "--cflags", "--libs",
+    const stdout = try captureChildProcess(maker, step, .{
+        .argv = &.{ pkg_config_exe, pkg_name, "--cflags", "--libs" },
+        .progress_node = progress_node,
+        .allow_failure = !force,
     });
-    try step.handleChildProcessTerm(maker, captured.term);
 
     var zig_cflags: std.ArrayList([]const u8) = .empty;
     var zig_libs: std.ArrayList([]const u8) = .empty;
-    var arg_it = mem.tokenizeAny(u8, captured.stdout, " \r\n\t");
+    var arg_it = mem.tokenizeAny(u8, stdout, " \r\n\t");
 
     while (arg_it.next()) |arg| {
         if (mem.eql(u8, arg, "-I")) {
@@ -168,19 +170,14 @@ fn getList(maker: *Maker, step: *Step, progress_node: std.Progress.Node, force: 
     if (pc.list) |list| return list;
 
     const pkg_config_exe = getExe(graph);
-    const captured = try step.captureChildProcess(maker, progress_node, &.{ pkg_config_exe, "--list-all" });
-    if (force) {
-        try step.handleChildProcessTerm(maker, captured.term);
-    } else switch (captured.term) {
-        .exited => |code| if (code != 0) return error.PkgConfigUnavailable,
-        else => {
-            try step.handleChildProcessTerm(maker, captured.term);
-            unreachable;
-        },
-    }
+    const stdout = try captureChildProcess(maker, step, .{
+        .argv = &.{ pkg_config_exe, "--list-all" },
+        .progress_node = progress_node,
+        .allow_failure = !force,
+    });
 
     var list: std.ArrayList(Pkg) = .empty;
-    var line_it = mem.tokenizeAny(u8, captured.stdout, "\r\n");
+    var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
     while (line_it.next()) |line| {
         if (mem.trim(u8, line, " \t").len == 0) continue;
         var tok_it = mem.tokenizeAny(u8, line, " \t");
@@ -199,4 +196,15 @@ fn getList(maker: *Maker, step: *Step, progress_node: std.Progress.Node, force: 
     const result = list.toOwnedSliceAssert();
     pc.list = result;
     return result;
+}
+
+fn captureChildProcess(maker: *Maker, step: *Step, options: Step.CaptureChildProcessOptions) ![]const u8 {
+    const captured = step.captureChildProcess(maker, options) catch |err| switch (err) {
+        error.FileNotFound => return error.PkgConfigUnavailable,
+        else => |e| return e,
+    };
+    assert(step.result_failed_command != null);
+    if (captured.term.success()) return captured.stdout;
+    if (!options.allow_failure) return step.fail(maker, "{s} {f}", .{ options.argv[0], captured.term });
+    return error.PkgConfigUnavailable;
 }

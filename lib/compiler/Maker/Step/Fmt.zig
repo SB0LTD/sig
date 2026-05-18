@@ -43,7 +43,15 @@ pub fn make(
         argv.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lp, step_index));
     }
 
-    const run_result = try step.captureChildProcess(maker, progress_node, argv.items);
+    const run_result = step.captureChildProcess(maker, .{
+        .progress_node = progress_node,
+        .argv = argv.items,
+        .allow_failure = false,
+    }) catch |err| switch (err) {
+        error.FileNotFound => unreachable,
+        else => |e| return e,
+    };
+
     if (conf_fmt.flags.check) switch (run_result.term) {
         .exited => |code| if (code != 0 and run_result.stdout.len != 0) {
             var it = std.mem.tokenizeScalar(u8, run_result.stdout, '\n');
