@@ -1,3 +1,4 @@
+* double check when targets get resolved (should be at configure time)
 * pass overridden pkg-dir to maker
 * finish migrating the rest of the build steps
 * inspect b4ffb402c082605c4b324e88120306fc8fb3cf32 diff and apply changes as needed (merge conflict)
@@ -7,6 +8,7 @@
 * solve the TODOs added in this branch
 * get zig tests passing
 * test a bunch of third party projects / help people migrate
+  * tetris
 
 * get the target from the parent process instead
 * [handle missing cache hits when chaining two run steps](https://codeberg.org/ziglang/zig/pulls/30762)
@@ -80,6 +82,7 @@ closes #31397
 
 * `b.build_root` (Directory) -> `b.root` (Path)
 * `ConfigHeader.Options`: `include_guard_override` -> `include_guard`
+* `LazyPath`: `getDisplayName` -> `format` or `fmt`
 
 ### Perf Data Point: `zig build -h` (cached)
 

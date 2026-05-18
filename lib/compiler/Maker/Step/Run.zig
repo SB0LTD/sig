@@ -184,6 +184,9 @@ pub fn make(
                     man.hash.addListOfBytes(run_args);
                 }
             },
+            .cc_args => {
+                @panic("TODO Run make cc_args");
+            },
         }
     }
 

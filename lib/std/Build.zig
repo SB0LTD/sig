@@ -129,13 +129,17 @@ pub const Graph = struct {
     ///
     /// Use of this function indicates a dependency on the host system.
     pub fn cwdRelativePath(graph: *Graph, sub_path: []const u8) LazyPath {
+        return @This().path(graph, .cwd, sub_path);
+    }
+
+    /// A path whose components and contents are known at some point during
+    /// `Step` resolution, relative to the provided base directory.
+    pub fn path(graph: *Graph, base: Configuration.Path.Base, sub_path: []const u8) LazyPath {
         const wc = &graph.wip_configuration;
-        return .{
-            .relative = .{
-                .base = .cwd,
-                .sub_path = wc.addString(sub_path) catch @panic("OOM"),
-            },
-        };
+        return .{ .relative = .{
+            .base = base,
+            .sub_path = wc.addString(sub_path) catch @panic("OOM"),
+        } };
     }
 
     /// Allocates using the global process arena, failing the build on
@@ -780,8 +784,10 @@ pub const AssemblyOptions = struct {
 /// it available to other packages which depend on this one.
 /// `createModule` can be used instead to create a private module.
 pub fn addModule(b: *Build, name: []const u8, options: Module.CreateOptions) *Module {
+    const graph = b.graph;
+    const arena = graph.arena;
     const module = Module.create(b, options);
-    b.modules.put(b.graph.arena, b.dupe(name), module) catch @panic("OOM");
+    b.modules.put(arena, graph.dupeString(name), module) catch @panic("OOM");
     return module;
 }
 
@@ -913,13 +919,15 @@ pub fn addWriteFile(b: *Build, file_path: []const u8, data: []const u8) *Step.Wr
 }
 
 pub fn addNamedWriteFiles(b: *Build, name: []const u8) *Step.WriteFile {
+    const graph = b.graph;
     const wf = Step.WriteFile.create(b);
-    b.named_writefiles.put(b.graph.arena, b.dupe(name), wf) catch @panic("OOM");
+    b.named_writefiles.put(graph.arena, graph.dupeString(name), wf) catch @panic("OOM");
     return wf;
 }
 
 pub fn addNamedLazyPath(b: *Build, name: []const u8, lp: LazyPath) void {
-    b.named_lazy_paths.put(b.graph.arena, b.dupe(name), lp.dupe(b)) catch @panic("OOM");
+    const graph = b.graph;
+    b.named_lazy_paths.put(graph.arena, graph.dupeString(name), lp.dupe(graph)) catch @panic("OOM");
 }
 
 /// Creates a step for mutating files inside a temporary directory created lazily
@@ -1183,16 +1191,18 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
 }
 
 pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
-    const step_info = b.allocator.create(Step.TopLevel) catch @panic("OOM");
+    const graph = b.graph;
+    const arena = graph.arena;
+    const step_info = arena.create(Step.TopLevel) catch @panic("OOM");
     step_info.* = .{
         .step = .init(.{
             .tag = .top_level,
             .name = name,
             .owner = b,
         }),
-        .description = b.dupe(description),
+        .description = graph.dupeString(description),
     };
-    const gop = b.top_level_steps.getOrPut(b.allocator, name) catch @panic("OOM");
+    const gop = b.top_level_steps.getOrPut(arena, name) catch @panic("OOM");
     if (gop.found_existing) panic("A top-level step with name \"{s}\" already exists", .{name});
 
     gop.key_ptr.* = step_info.step.name;
@@ -1302,6 +1312,9 @@ pub fn parseTargetQuery(options: std.Target.Query.ParseOptions) error{ParseFaile
 
 /// Exposes standard `zig build` options for choosing a target.
 pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs) Target.Query {
+    const graph = b.graph;
+    const arena = graph.arena;
+
     const maybe_triple = b.option(
         []const u8,
         "target",
@@ -1350,20 +1363,22 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
 
     for (whitelist) |q| {
         log.info("allowed target: -Dtarget={s} -Dcpu={s}", .{
-            q.zigTriple(b.allocator) catch @panic("OOM"),
-            q.serializeCpuAlloc(b.allocator) catch @panic("OOM"),
+            q.zigTriple(arena) catch @panic("OOM"),
+            q.serializeCpuAlloc(arena) catch @panic("OOM"),
         });
     }
     log.err("chosen target '{s}' does not match one of the allowed targets", .{
-        selected_target.zigTriple(b.allocator) catch @panic("OOM"),
+        selected_target.zigTriple(arena) catch @panic("OOM"),
     });
     b.markInvalidUserInput();
     return args.default_target;
 }
 
 pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8) error{OutOfMemory}!bool {
-    const name = b.dupe(name_raw);
-    const value = b.dupe(value_raw);
+    const graph = b.graph;
+    const arena = graph.arena;
+    const name = graph.dupeString(name_raw);
+    const value = graph.dupeString(value_raw);
     const gop = try b.user_input_options.getOrPut(name);
     if (!gop.found_existing) {
         gop.value_ptr.* = UserInputOption{
@@ -1378,7 +1393,7 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
     switch (gop.value_ptr.value) {
         .scalar => |s| {
             // turn it into a list
-            var list = std.array_list.Managed([]const u8).init(b.allocator);
+            var list = std.array_list.Managed([]const u8).init(arena);
             try list.append(s);
             try list.append(value);
             try b.user_input_options.put(name, .{
@@ -1608,15 +1623,21 @@ pub fn pathList(b: *Build, sub_paths: []const []const u8) []const LazyPath {
 }
 
 pub fn pathJoin(b: *Build, paths: []const []const u8) []u8 {
-    return fs.path.join(b.allocator, paths) catch @panic("OOM");
+    const graph = b.graph;
+    const arena = graph.arena;
+    return fs.path.join(arena, paths) catch @panic("OOM");
 }
 
 pub fn pathResolve(b: *Build, paths: []const []const u8) []u8 {
-    return fs.path.resolve(b.allocator, paths) catch @panic("OOM");
+    const graph = b.graph;
+    const arena = graph.arena;
+    return fs.path.resolve(arena, paths) catch @panic("OOM");
 }
 
 pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
-    return std.fmt.allocPrint(b.allocator, format, args) catch @panic("OOM");
+    const graph = b.graph;
+    const arena = graph.arena;
+    return std.fmt.allocPrint(arena, format, args) catch @panic("OOM");
 }
 
 /// Creates an anonymous `Step` that searches for an executable on the host that
@@ -2264,7 +2285,9 @@ pub const LazyPath = union(enum) {
     }
 
     pub fn path(lazy_path: LazyPath, b: *Build, sub_path: []const u8) LazyPath {
-        return lazy_path.join(b.allocator, sub_path) catch @panic("OOM");
+        const graph = b.graph;
+        const arena = graph.arena;
+        return lazy_path.join(arena, sub_path) catch @panic("OOM");
     }
 
     pub fn join(lazy_path: LazyPath, arena: Allocator, sub_path: []const u8) Allocator.Error!LazyPath {
@@ -2460,7 +2483,9 @@ pub fn systemIntegrationOption(
     name: []const u8,
     config: SystemIntegrationOptionConfig,
 ) bool {
-    const gop = b.graph.system_integration_options.getOrPut(b.allocator, name) catch @panic("OOM");
+    const graph = b.graph;
+    const arena = graph.arena;
+    const gop = graph.system_integration_options.getOrPut(arena, name) catch @panic("OOM");
     if (gop.found_existing) switch (gop.value_ptr.*) {
         .user_disabled => {
             gop.value_ptr.* = .declared_disabled;
@@ -2473,8 +2498,8 @@ pub fn systemIntegrationOption(
         .declared_disabled => return false,
         .declared_enabled => return true,
     } else {
-        gop.key_ptr.* = b.dupe(name);
-        if (config.default orelse b.graph.system_package_mode) {
+        gop.key_ptr.* = graph.dupeString(name);
+        if (config.default orelse graph.system_package_mode) {
             gop.value_ptr.* = .declared_enabled;
             return true;
         } else {

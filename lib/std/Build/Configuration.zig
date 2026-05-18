@@ -230,7 +230,7 @@ pub const Wip = struct {
         return addString(wip, writer.buffered());
     }
 
-    pub fn addTargetQuery(wip: *Wip, q: std.Target.Query) !TargetQuery.OptionalIndex {
+    pub fn addTargetQuery(wip: *Wip, q: *const std.Target.Query) !TargetQuery.OptionalIndex {
         if (q.isNative()) return .none;
         const gpa = wip.gpa;
         const cpu_name: ?String = switch (q.cpu_model) {
@@ -575,6 +575,7 @@ pub const Step = extern struct {
             /// Always a compile step.
             producer: Storage.FlagOptional(.flags, .producer, Step.Index),
             generated: Storage.FlagOptional(.flags, .generated, GeneratedFileIndex),
+            target_query: Storage.FlagOptional(.flags, .target_query, TargetQuery.Index),
 
             pub const Flags = packed struct(u32) {
                 tag: Arg.Tag,
@@ -585,10 +586,12 @@ pub const Step = extern struct {
                 producer: bool,
                 generated: bool,
                 dep_file: bool,
-                _: u22 = 0,
+                target_query: bool,
+                link_libc: bool,
+                _: u19 = 0,
             };
 
-            pub const Tag = enum(u3) {
+            pub const Tag = enum(u4) {
                 artifact,
                 /// `path` contains the file.
                 path_file,
@@ -599,6 +602,7 @@ pub const Step = extern struct {
                 output_file,
                 output_directory,
                 passthru,
+                cc_args,
             };
 
             pub const Index = IndexType(@This());

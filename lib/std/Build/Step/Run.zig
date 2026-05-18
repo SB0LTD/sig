@@ -143,6 +143,13 @@ pub const Arg = union(enum) {
     output_directory: *Output,
     /// The arguments passed after "--" on the "zig build" CLI.
     passthru,
+    /// Adds standard "-isystem" and "-iframework" arguments corresponding to the libc of the target.
+    cc_args: CcArgs,
+};
+
+pub const CcArgs = struct {
+    link_libc: bool,
+    target_query: Configuration.TargetQuery.OptionalIndex,
 };
 
 pub const PrefixedArtifact = struct {
@@ -527,6 +534,22 @@ pub fn addPassthruArgs(run: *Run) void {
     const graph = run.step.owner.graph;
     const arena = graph.arena;
     run.argv.append(arena, .passthru) catch @panic("OOM");
+}
+
+pub const AddCcArgs = struct {
+    link_libc: bool = false,
+    target_query: ?*const std.Target.Query = null,
+};
+
+/// Appends C compiler flags for the target and for including libc.
+pub fn addCcArgs(run: *Run, options: AddCcArgs) void {
+    const graph = run.step.owner.graph;
+    const arena = graph.arena;
+    const wc = &graph.wip_configuration;
+    run.argv.append(arena, .{ .cc_args = .{
+        .link_libc = options.link_libc,
+        .target_query = if (options.target_query) |q| wc.addTargetQuery(q) catch @panic("OOM") else .none,
+    } }) catch @panic("OOM");
 }
 
 pub fn setStdIn(run: *Run, stdin: StdIn) void {
