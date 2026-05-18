@@ -1334,6 +1334,67 @@ pub const ReaderIndirect = struct {
     }
 };
 
+/// A `Io.Writer` that writes its data to another `Io.Writer`, and only
+/// writes new data to its own buffer during `drain`.
+pub const WriterIndirect = struct {
+    out: *Io.Writer,
+    interface: Io.Writer,
+
+    pub fn init(out: *Io.Writer, buffer: []u8) WriterIndirect {
+        return .{
+            .out = out,
+            .interface = .{
+                .vtable = &.{
+                    .drain = drain,
+                },
+                .buffer = buffer,
+                .end = 0,
+            },
+        };
+    }
+
+    fn drain(w: *Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+        const w_indirect: *WriterIndirect = @alignCast(@fieldParentPtr("interface", w));
+
+        // Write all data in the buffer to `out`
+        try w_indirect.out.writeAll(w.buffer[0..w.end]);
+        w.end = 0;
+
+        // Refill buffer using data
+        {
+            const end_before_fill = w.end;
+            for (data[0 .. data.len - 1]) |bytes| {
+                const dest = w.buffer[w.end..];
+                const len = @min(bytes.len, dest.len);
+                @memcpy(dest[0..len], bytes[0..len]);
+                w.end += len;
+            }
+            const pattern = data[data.len - 1];
+            switch (pattern.len) {
+                0 => {},
+                1 => {
+                    const len = @min(w.buffer[w.end..].len, splat);
+                    @memset(w.buffer[w.end..][0..len], pattern[0]);
+                    w.end += len;
+                },
+                else => {
+                    const dest = w.buffer[w.end..];
+                    for (0..splat) |i| {
+                        const start_i = i * pattern.len;
+                        if (start_i >= dest.len) break;
+                        const remaining = dest[start_i..];
+                        const len = @min(pattern.len, remaining.len);
+                        @memcpy(remaining[0..len], pattern[0..len]);
+                        w.end += len;
+                    }
+                },
+            }
+
+            return w.end - end_before_fill;
+        }
+    }
+};
+
 test {
     _ = &Smith;
 }
