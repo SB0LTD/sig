@@ -1113,3 +1113,10 @@ test protectMemory {
     protectMemory(&test_page, .{}) catch return error.SkipZigTest;
     protectMemory(&test_page, .{ .read = true, .write = true }) catch return error.SkipZigTest;
 }
+
+test {
+    _ = Child;
+    _ = Args;
+    _ = Environ;
+    _ = Preopens;
+}
