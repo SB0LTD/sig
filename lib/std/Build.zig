@@ -1584,23 +1584,6 @@ pub fn addCheckFile(
     return Step.CheckFile.create(b, file_source, options);
 }
 
-pub fn truncateFile(b: *Build, dest_path: []const u8) (Io.Dir.CreateDirError || Io.Dir.StatFileError)!void {
-    const graph = b.graph;
-    const io = graph.io;
-    if (graph.verbose) log.info("truncate {s}", .{dest_path});
-    const cwd = Io.Dir.cwd();
-    var src_file = cwd.createFile(io, dest_path, .{}) catch |err| switch (err) {
-        error.FileNotFound => blk: {
-            if (fs.path.dirname(dest_path)) |dirname| {
-                try cwd.createDirPath(io, dirname);
-            }
-            break :blk try cwd.createFile(io, dest_path, .{});
-        },
-        else => |e| return e,
-    };
-    src_file.close(io);
-}
-
 /// References a file or directory relative to the source root.
 pub fn path(b: *Build, sub_path: []const u8) LazyPath {
     if (fs.path.isAbsolute(sub_path)) {

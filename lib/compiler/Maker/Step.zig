@@ -21,6 +21,7 @@ const Maker = @import("../Maker.zig");
 pub const Compile = @import("Step/Compile.zig");
 pub const Fmt = @import("Step/Fmt.zig");
 pub const InstallArtifact = @import("Step/InstallArtifact.zig");
+pub const InstallDir = @import("Step/InstallDir.zig");
 pub const InstallFile = @import("Step/InstallFile.zig");
 pub const ObjCopy = @import("Step/ObjCopy.zig");
 pub const Options = @import("Step/Options.zig");
@@ -79,11 +80,10 @@ pub const Extended = union(enum) {
     find_program: Todo,
     fmt: Fmt,
     install_artifact: InstallArtifact,
-    install_dir: Todo,
+    install_dir: InstallDir,
     install_file: InstallFile,
     obj_copy: ObjCopy,
     options: Options,
-    remove_dir: Todo,
     run: Run,
     top_level: TopLevel,
     translate_c: Todo,
@@ -103,7 +103,6 @@ pub const Extended = union(enum) {
             .install_file => .{ .install_file = .{} },
             .obj_copy => .{ .obj_copy = .{} },
             .options => .{ .options = .{} },
-            .remove_dir => .{ .remove_dir = .{} },
             .run => .{ .run = .{} },
             .top_level => .{ .top_level = .{} },
             .translate_c => .{ .translate_c = .{} },

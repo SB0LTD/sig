@@ -41,6 +41,7 @@
 ## Already Filed Followup Issues
 * build system fmt step with check=false does not acquire a write lock on source files #35204 
 * enhance CheckFile step output when there is not a match #35208
+* missing truncate functionality #35353
 
 ## Release Notes
 

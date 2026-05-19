@@ -1879,13 +1879,50 @@ pub fn installGenerated(
     return installPath(maker, arena, src_path, dest_path, asking_step_index);
 }
 
+pub fn truncatePath(
+    maker: *Maker,
+    arena: Allocator,
+    dest_path: Path,
+    asking_step_index: Configuration.Step.Index,
+) Step.ExtendedMakeError!void {
+    const graph = maker.graph;
+    const io = graph.io;
+    if (graph.verbose) try graph.handleVerbose(.inherit, null, &.{
+        "truncate", try dest_path.toString(arena),
+    });
+    // https://codeberg.org/ziglang/zig/issues/35353
+    const err = e: {
+        var file = f: {
+            break :f dest_path.root_dir.handle.createFile(io, dest_path.sub_path, .{}) catch |err| switch (err) {
+                error.FileNotFound => {
+                    const parent_path = dest_path.dirname() orelse break :e err;
+                    parent_path.root_dir.handle.createDirPath(io, parent_path.sub_path) catch |in| switch (in) {
+                        error.Canceled => |e| return e,
+                        else => |e| {
+                            const s = stepByIndex(maker, asking_step_index);
+                            return s.fail(maker, "failed creating directory {f}: {t}", .{ parent_path, e });
+                        },
+                    };
+                    break :f dest_path.root_dir.handle.createFile(io, dest_path.sub_path, .{}) catch |in| break :e in;
+                },
+                error.Canceled => |e| return e,
+                else => |e| break :e e,
+            };
+        };
+        file.close(io);
+        return;
+    };
+    const s = stepByIndex(maker, asking_step_index);
+    return s.fail(maker, "failed truncating file {f}: {t}", .{ dest_path, err });
+}
+
 pub fn installPath(
     maker: *Maker,
     arena: Allocator,
     src_path: Path,
     dest_path: Path,
     asking_step_index: Configuration.Step.Index,
-) !Dir.PrevStatus {
+) Step.ExtendedMakeError!Dir.PrevStatus {
     const graph = maker.graph;
     const io = graph.io;
     if (graph.verbose) try graph.handleVerbose(.inherit, null, &.{
@@ -1900,7 +1937,7 @@ pub fn installPath(
         .{},
     ) catch |err| {
         const s = stepByIndex(maker, asking_step_index);
-        return s.fail(maker, "unable to update file from {f} to {f}: {t}", .{ src_path, dest_path, err });
+        return s.fail(maker, "failed updating file from {f} to {f}: {t}", .{ src_path, dest_path, err });
     };
 }
 
@@ -1910,7 +1947,7 @@ pub fn installDir(
     arena: Allocator,
     dest_path: Path,
     asking_step_index: Configuration.Step.Index,
-) !Dir.CreatePathStatus {
+) Step.ExtendedMakeError!Dir.CreatePathStatus {
     const graph = maker.graph;
     const io = graph.io;
     if (graph.verbose) try graph.handleVerbose(.inherit, null, &.{
@@ -1918,7 +1955,7 @@ pub fn installDir(
     });
     return dest_path.root_dir.handle.createDirPathStatus(io, dest_path.sub_path, .default_dir) catch |err| {
         const s = stepByIndex(maker, asking_step_index);
-        return s.fail(maker, "unable to create dir {f}: {t}", .{ dest_path, err });
+        return s.fail(maker, "failed creating dir {f}: {t}", .{ dest_path, err });
     };
 }
 

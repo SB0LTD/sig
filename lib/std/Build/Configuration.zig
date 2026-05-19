@@ -466,7 +466,6 @@ pub const Step = extern struct {
         install_file: InstallFile,
         obj_copy: ObjCopy,
         options: Options,
-        remove_dir: RemoveDir,
         run: Run,
         top_level: TopLevel,
         translate_c: TranslateC,
@@ -501,7 +500,6 @@ pub const Step = extern struct {
         install_file,
         obj_copy,
         options,
-        remove_dir,
         run,
         top_level,
         translate_c,
@@ -1197,8 +1195,9 @@ pub const Step = extern struct {
             dest_sub_path: bool,
             exclude_extensions: bool,
             include_extensions: bool,
+            include_extensions_active: bool,
             blank_extensions: bool,
-            _: u23 = 0,
+            _: u22 = 0,
         };
     };
 
@@ -1317,15 +1316,6 @@ pub const Step = extern struct {
             tag: Tag = .options,
             args: bool,
             _: u26 = 0,
-        };
-    };
-
-    pub const RemoveDir = struct {
-        flags: @This().Flags,
-
-        pub const Flags = packed struct(u32) {
-            tag: Tag = .remove_dir,
-            _: u27 = 0,
         };
     };
 
