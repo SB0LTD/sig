@@ -1124,9 +1124,6 @@ pub const RenamePreserveError = error{
 ///
 /// If `new_sub_path` already exists, `error.PathAlreadyExists` will be returned.
 ///
-/// Renaming a file over an existing directory or a directory over an existing
-/// file will fail with `error.IsDir` or `error.NotDir`
-///
 /// * On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// * On WASI, both paths should be encoded as valid UTF-8.
 /// * On other platforms, both paths are an opaque sequence of bytes with no particular encoding.

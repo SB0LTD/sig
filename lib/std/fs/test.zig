@@ -1074,6 +1074,45 @@ test "Dir.rename file <-> dir" {
     }.impl);
 }
 
+test "Dir.renamePreserve onto existing" {
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const io = ctx.io;
+
+            const test_file_path = try ctx.transformPath("test_file");
+            const target_file_path = try ctx.transformPath("target_file");
+            const test_dir_path = try ctx.transformPath("test_dir");
+            const target_dir_path = try ctx.transformPath("target_dir");
+
+            try ctx.dir.writeFile(io, .{ .sub_path = test_file_path, .data = "" });
+            try ctx.dir.writeFile(io, .{ .sub_path = target_file_path, .data = "" });
+            try ctx.dir.createDir(io, test_dir_path, .default_dir);
+            try ctx.dir.createDir(io, target_dir_path, .default_dir);
+
+            // file -> file
+            try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_file_path, ctx.dir, target_file_path, io));
+            // file -> dir
+            try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_file_path, ctx.dir, target_dir_path, io));
+
+            // TODO: fix dir renaming on non-Linux, non-Windows systems, see https://codeberg.org/ziglang/zig/issues/35340
+            if (native_os != .windows and native_os != .linux) return;
+
+            // dir -> file
+            try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_dir_path, ctx.dir, target_file_path, io));
+            // dir -> dir
+            try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_dir_path, ctx.dir, target_dir_path, io));
+
+            // dir -> non-empty dir
+            {
+                const target_dir = try ctx.dir.openDir(io, target_dir_path, .{});
+                defer target_dir.close(io);
+                try target_dir.writeFile(io, .{ .sub_path = "test_file", .data = "" });
+            }
+            try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_dir_path, ctx.dir, target_dir_path, io));
+        }
+    }.impl);
+}
+
 test "rename" {
     const io = testing.io;
 
