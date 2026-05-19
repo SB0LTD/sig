@@ -1,22 +1,19 @@
+* WriteFile step failing when making langref
 * double check when targets get resolved (should be at configure time)
-* pass overridden pkg-dir to maker
 * finish migrating the rest of the build steps
+* pass overridden pkg-dir to maker
 * inspect b4ffb402c082605c4b324e88120306fc8fb3cf32 diff and apply changes as needed (merge conflict)
 * make zig-pkg path root configurable in maker (make sure --system still works)
 * eliminate calls to getPath, getPath2, getPath3
 * test lazyImport
-* solve the TODOs added in this branch
 * get zig tests passing
+* solve the TODOs added in this branch
 * test a bunch of third party projects / help people migrate
   * tetris
 
-* get the target from the parent process instead
 * [handle missing cache hits when chaining two run steps](https://codeberg.org/ziglang/zig/pulls/30762)
 * [Absolute and cwd-relative paths in build cache](https://codeberg.org/ziglang/zig/issues/32097)
 
-* make more stuff use IndexType
-* make addExtra return Index using reflection
-* refactor with DefaultingEnum
 
 * implement {q} or delete {q} uses
 * make the generated dependencies.zig be dependencies.zon and don't put absolute paths in there
@@ -25,6 +22,10 @@
 * re-evaluate https://codeberg.org/ziglang/zig/pulls/35224
 
 ## Followup Issues
+* make more stuff use IndexType
+* make addExtra return Index using reflection
+* refactor with DefaultingEnum
+* get the target from the parent process instead
 * stop leaking into global process arena
 * reduce the size of Maker.Step.Extended (make Run smaller) probably by using an arena per make
 * link_eh_frame_hdr should be DefaultingBool
@@ -37,6 +38,7 @@
 * UpdateSourceFiles: introduce Group
 * WriteFiles: introduce Group
 * re-examine the use case of adding file paths to Options steps
+* extract the reusable Configure abstractions and reuse it for Zir etc
 
 ## Already Filed Followup Issues
 * build system fmt step with check=false does not acquire a write lock on source files #35204 
@@ -84,6 +86,8 @@ closes #31397
 * `b.build_root` (Directory) -> `b.root` (Path)
 * `ConfigHeader.Options`: `include_guard_override` -> `include_guard`
 * `LazyPath`: `getDisplayName` -> `format` or `fmt`
+* `LazyPath.basename` no longer takes parameters. The returned basename might
+  be unknown until make phase in which case returned string is length zero.
 
 ### Perf Data Point: `zig build -h` (cached)
 

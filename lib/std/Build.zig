@@ -2332,14 +2332,11 @@ pub const LazyPath = union(enum) {
         }
     }
 
-    pub fn basename(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
+    pub fn basename(lazy_path: LazyPath) []const u8 {
         return fs.path.basename(switch (lazy_path) {
             .src_path => |sp| sp.sub_path,
             .cwd_relative => |sub_path| sub_path,
-            .generated => |gen| if (gen.sub_path.len > 0)
-                gen.sub_path
-            else
-                gen.file.getPath2(src_builder, asking_step),
+            .generated => |gen| gen.sub_path,
             .dependency => |dep| dep.sub_path,
         });
     }
