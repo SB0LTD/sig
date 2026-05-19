@@ -1,4 +1,4 @@
-* WriteFile step failing when making langref
+* Run step getting wrong path_directory values
 * double check when targets get resolved (should be at configure time)
 * finish migrating the rest of the build steps
 * pass overridden pkg-dir to maker
@@ -39,6 +39,7 @@
 * WriteFiles: introduce Group
 * re-examine the use case of adding file paths to Options steps
 * extract the reusable Configure abstractions and reuse it for Zir etc
+* add the ability to delete files to UpdateSourceFiles
 
 ## Already Filed Followup Issues
 * build system fmt step with check=false does not acquire a write lock on source files #35204 

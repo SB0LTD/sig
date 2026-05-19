@@ -2545,8 +2545,10 @@ pub const Storage = enum {
         };
     }
 
-    /// The field contains a u32 length followed by that many items, each
-    /// element bitcastable to u32.
+    /// The field contains a u32 length followed by that many items. Each
+    /// element needs well-defined memory layout but can otherwise be any
+    /// multiple of u32 length. The length is number of elements, not the
+    /// number of u32s.
     pub fn LengthPrefixedList(comptime ElemArg: type) type {
         return struct {
             slice: []const Elem,
@@ -2759,19 +2761,21 @@ pub const Storage = enum {
                         },
                         .extended => @compileError("TODO"),
                         .length_prefixed_list => {
+                            const n = @divExact(@sizeOf(Field.Elem), @sizeOf(u32));
                             const data_start = i.* + 1;
-                            const len = buffer[data_start - 1];
-                            defer i.* = data_start + len;
-                            return .{ .slice = @ptrCast(buffer[data_start..][0..len]) };
+                            const buf_len = buffer[data_start - 1] * n;
+                            defer i.* = data_start + buf_len;
+                            return .{ .slice = @ptrCast(buffer[data_start..][0..buf_len]) };
                         },
                         .flag_length_prefixed_list => {
                             const flags = @field(container, @tagName(Field.flags));
                             const flag = @field(flags, @tagName(Field.flag));
                             if (!flag) return .{ .slice = &.{} };
+                            const n = @divExact(@sizeOf(Field.Elem), @sizeOf(u32));
                             const data_start = i.* + 1;
-                            const len = buffer[data_start - 1];
-                            defer i.* = data_start + len;
-                            return .{ .slice = @ptrCast(buffer[data_start..][0..len]) };
+                            const buf_len = buffer[data_start - 1] * n;
+                            defer i.* = data_start + buf_len;
+                            return .{ .slice = @ptrCast(buffer[data_start..][0..buf_len]) };
                         },
                         .flag_list => {
                             const flags = @field(container, @tagName(Field.flags));
