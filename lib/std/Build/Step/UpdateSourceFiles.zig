@@ -1,8 +1,3 @@
-//! Writes data to paths relative to the package root, effectively mutating the
-//! package's source files. Be careful with the latter functionality; it should
-//! not be used during the normal build process, but as a utility run by a
-//! developer with intention to update source files, which will then be
-//! committed to version control.
 const UpdateSourceFiles = @This();
 
 const std = @import("std");

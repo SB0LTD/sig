@@ -966,6 +966,16 @@ pub fn addWriteFiles(b: *Build) *Step.WriteFile {
     return Step.WriteFile.create(b);
 }
 
+/// Creates a step for writing data to paths relative to the build root,
+/// mutating the project's source files.
+///
+/// This build step was designed not to be used during the normal build
+/// process, but rather as a utility run by a developer with intention to
+/// update source files, which will then be committed to version control.
+///
+/// Example use cases:
+/// * precompiling assets which are tracked by version control
+/// * snapshot testing
 pub fn addUpdateSourceFiles(b: *Build) *Step.UpdateSourceFiles {
     return Step.UpdateSourceFiles.create(b);
 }
