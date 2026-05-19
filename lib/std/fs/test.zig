@@ -1075,6 +1075,8 @@ test "Dir.rename file <-> dir" {
 }
 
 test "Dir.renamePreserve onto existing" {
+    if (native_os == .windows) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/35359
+
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const io = ctx.io;
