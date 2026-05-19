@@ -1274,21 +1274,21 @@ fn appendModuleFlags(
 
     if (m.resolved_target.get(conf)) |target| {
         // Communicate the query via CLI since it's more compact.
-        if (target.query.get(conf)) |query| {
+        if (target.query.get(conf)) |compact_query| {
             try zig_args.ensureUnusedCapacity(gpa, 6);
 
-            if (true) @panic("TODO appendModuleFlags");
+            const query = compact_query.unwrap(conf);
 
             zig_args.appendAssumeCapacity("-target");
             zig_args.appendAssumeCapacity(try query.zigTriple(arena));
+
             zig_args.appendAssumeCapacity("-mcpu");
             zig_args.appendAssumeCapacity(try query.serializeCpuAlloc(arena));
 
-            if (query.dynamic_linker) |dynamic_linker| {
-                const dynamic_linker_slice = dynamic_linker.slice(conf);
-                if (dynamic_linker_slice.len != 0) {
+            if (query.dynamic_linker) |*dynamic_linker| {
+                if (dynamic_linker.get()) |dynamic_linker_path| {
                     zig_args.appendAssumeCapacity("--dynamic-linker");
-                    zig_args.appendAssumeCapacity(dynamic_linker_slice);
+                    zig_args.appendAssumeCapacity(dynamic_linker_path);
                 } else {
                     zig_args.appendAssumeCapacity("--no-dynamic-linker");
                 }
