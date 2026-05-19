@@ -358,7 +358,7 @@ const Serialize = struct {
                         .link_libc = false,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
-                    .suffix = .{ .value = try addOptionalString(s, a.suffix) },
+                    .suffix = .{ .value = if (a.suffix.len != 0) try wc.addString(a.suffix) else null },
                     .basename = .{ .value = null },
                     .path = .{ .value = try addLazyPath(s, a.lazy_path) },
                     .producer = .{ .value = null },
