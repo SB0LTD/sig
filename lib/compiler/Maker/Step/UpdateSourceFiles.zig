@@ -32,6 +32,8 @@ pub fn make(
 
     progress_node.setEstimatedTotalItems(conf_usf.embeds.slice.len + conf_usf.copies.slice.len);
 
+    step.clearWatchInputs(maker);
+
     for (conf_usf.embeds.slice) |*embed| {
         const dest_path: Path = .{
             .root_dir = build_root,
@@ -43,12 +45,12 @@ pub fn make(
                 .sub_path = dirname,
             };
             dirname_path.root_dir.handle.createDirPath(io, dirname_path.sub_path) catch |err|
-                return step.fail(maker, "failed to create path {f}: {t}", .{ dirname_path, err });
+                return step.fail(maker, "failed creating path {f}: {t}", .{ dirname_path, err });
         }
         dest_path.root_dir.handle.writeFile(io, .{
             .sub_path = dest_path.sub_path,
             .data = embed.contents.slice(conf),
-        }) catch |err| return step.fail(maker, "failed to write file {f}: {t}", .{ dest_path, err });
+        }) catch |err| return step.fail(maker, "failed writing file {f}: {t}", .{ dest_path, err });
         any_miss = true;
         progress_node.completeOne();
     }
@@ -64,11 +66,11 @@ pub fn make(
                 .sub_path = dirname,
             };
             dirname_path.root_dir.handle.createDirPath(io, dirname_path.sub_path) catch |err|
-                return step.fail(maker, "failed to create path {f}: {t}", .{ dirname_path, err });
+                return step.fail(maker, "failed creating path {f}: {t}", .{ dirname_path, err });
         }
         const src_lazy_path = copy.src_file.get(conf);
         const source_path = try maker.resolveLazyPath(arena, src_lazy_path, step_index);
-        if (!step.inputs.populated()) try step.addWatchInput(maker, arena, src_lazy_path);
+        try step.addWatchInput(maker, arena, src_lazy_path);
 
         const prev_status = source_path.root_dir.handle.updateFile(
             io,
@@ -76,7 +78,7 @@ pub fn make(
             dest_path.root_dir.handle,
             dest_path.sub_path,
             .{},
-        ) catch |err| return step.fail(maker, "unable to update file from {f} to {f}: {t}", .{
+        ) catch |err| return step.fail(maker, "failed updating file from {f} to {f}: {t}", .{
             source_path, dest_path, err,
         });
         any_miss = any_miss or prev_status == .stale;

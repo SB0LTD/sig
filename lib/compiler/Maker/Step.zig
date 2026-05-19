@@ -26,6 +26,7 @@ pub const ObjCopy = @import("Step/ObjCopy.zig");
 pub const Options = @import("Step/Options.zig");
 pub const Run = @import("Step/Run.zig");
 pub const UpdateSourceFiles = @import("Step/UpdateSourceFiles.zig");
+pub const WriteFile = @import("Step/WriteFile.zig");
 
 /// Avoid false sharing.
 _: void align(std.atomic.cache_line) = {},
@@ -87,7 +88,7 @@ pub const Extended = union(enum) {
     top_level: TopLevel,
     translate_c: Todo,
     update_source_files: UpdateSourceFiles,
-    write_file: Todo,
+    write_file: WriteFile,
 
     pub fn init(tag: Configuration.Step.Tag) Extended {
         return switch (tag) {
@@ -119,9 +120,10 @@ pub const Extended = union(enum) {
             progress_node: std.Progress.Node,
         ) Step.ExtendedMakeError!void {
             _ = todo;
-            _ = maker;
             _ = progress_node;
-            std.debug.panic("TODO implement another step type (index {d})", .{step_index});
+            const conf = &maker.scanned_config.configuration;
+            const conf_step = step_index.ptr(conf);
+            std.debug.panic("TODO implement another step type: {s}", .{conf_step.name.slice(conf)});
         }
     };
 
@@ -807,19 +809,17 @@ pub fn addWatchInput(step: *Step, maker: *Maker, arena: Allocator, lazy_file: La
 /// Paths derived from this directory should also be manually added via
 /// `addDirectoryWatchInputFromPath` if and only if this function returns
 /// `true`.
-pub fn addDirectoryWatchInput(step: *Step, lazy_directory: LazyPath) Allocator.Error!bool {
+pub fn addDirectoryWatchInput(step: *Step, maker: *Maker, lazy_directory: LazyPath) Allocator.Error!bool {
     switch (lazy_directory) {
-        .src_path => |src_path| try addDirectoryWatchInputFromBuilder(step, src_path.owner, src_path.sub_path),
-        .dependency => |d| try addDirectoryWatchInputFromBuilder(step, d.dependency.builder, d.sub_path),
-        .cwd_relative => |path_string| {
-            try addDirectoryWatchInputFromPath(step, .{
-                .root_dir = .{
-                    .path = null,
-                    .handle = .cwd(),
-                },
-                .sub_path = path_string,
-            });
+        .source_path => |source_path| {
+            const conf = &maker.scanned_config.configuration;
+            const graph = maker.graph;
+            const arena = graph.arena; // TODO don't leak into the process arena
+            const sub_path = source_path.sub_path.slice(conf);
+            const pkg_path = try maker.packagePath(arena, source_path.owner, sub_path);
+            try addDirectoryWatchInputFromPath(step, maker, pkg_path);
         },
+        .relative => |relative| try addDirectoryWatchInputFromPath(step, maker, maker.relativePath(relative)),
         // Nothing to watch because this dependency edge is modeled instead via `dependants`.
         .generated => return false,
     }
@@ -836,13 +836,6 @@ pub fn addDirectoryWatchInput(step: *Step, lazy_directory: LazyPath) Allocator.E
 /// `LazyPath` which this `path` is derived from is not `generated`.
 pub fn addDirectoryWatchInputFromPath(step: *Step, maker: *Maker, path: Path) !void {
     return addWatchInputFromPath(step, maker, path, ".");
-}
-
-fn addDirectoryWatchInputFromBuilder(step: *Step, package: Package, sub_path: []const u8) !void {
-    return addDirectoryWatchInputFromPath(step, .{
-        .root_dir = package.build_root,
-        .sub_path = sub_path,
-    });
 }
 
 fn addWatchInputPath(step: *Step, maker: *Maker, path: Path) Allocator.Error!void {

@@ -1,205 +1,294 @@
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    _ = options;
-    const b = step.owner;
-    const graph = b.graph;
-    const io = graph.io;
-    const arena = b.allocator;
-    const gpa = graph.cache.gpa;
-    const write_file: *WriteFile = @fieldParentPtr("step", step);
+const WriteFile = @This();
 
-    const open_dir_cache = try arena.alloc(Io.Dir, write_file.directories.items.len);
-    var open_dirs_count: usize = 0;
+const std = @import("std");
+const Io = std.Io;
+const assert = std.debug.assert;
+const Path = std.Build.Cache.Path;
+const allocPrint = std.fmt.allocPrint;
+const Configuration = std.Build.Configuration;
+
+const Step = @import("../Step.zig");
+const Maker = @import("../../Maker.zig");
+
+pub fn make(
+    wf: *WriteFile,
+    step_index: Configuration.Step.Index,
+    maker: *Maker,
+    progress_node: std.Progress.Node,
+) Step.ExtendedMakeError!void {
+    _ = wf;
+    const graph = maker.graph;
+    const gpa = maker.gpa;
+    const arena = maker.graph.arena; // TODO don't leak into process arena
+    const io = graph.io;
+    const step = maker.stepByIndex(step_index);
+    const conf = &maker.scanned_config.configuration;
+    const conf_step = step_index.ptr(conf);
+    const conf_wf = conf_step.extended.get(conf.extra).write_file;
+    const cache_root = graph.local_cache_root;
+    const directories = conf_wf.directories.slice;
+
+    const open_dir_cache = try arena.alloc(Io.Dir, directories.len);
+    var open_dirs_count: u32 = 0;
     defer Io.Dir.closeMany(io, open_dir_cache[0..open_dirs_count]);
 
-    switch (write_file.mode) {
+    // Doesn't yet include contents of directories.
+    var total_items: usize = conf_wf.embeds.slice.len + conf_wf.copies.slice.len + conf_wf.directories.slice.len;
+    progress_node.setEstimatedTotalItems(total_items);
+
+    switch (conf_wf.flags.mode) {
         .whole_cached => {
-            step.clearWatchInputs();
+            step.clearWatchInputs(maker);
 
-            // The cache is used here not really as a way to speed things up - because writing
-            // the data to a file would probably be very fast - but as a way to find a canonical
-            // location to put build artifacts.
+            // The cache is used here primarily as a way to find a canonical
+            // location to put build artifacts without parallel step execution
+            // clobbering each other.
 
-            // If, for example, a hard-coded path was used as the location to put WriteFile
-            // files, then two WriteFiles executing in parallel might clobber each other.
-
-            var man = b.graph.cache.obtain();
+            var man = graph.cache.obtain();
             defer man.deinit();
 
-            for (write_file.files.items) |file| {
-                man.hash.addBytes(file.sub_path);
-
-                switch (file.contents) {
-                    .bytes => |bytes| {
-                        man.hash.addBytes(bytes);
-                    },
-                    .copy => |lazy_path| {
-                        const path = lazy_path.getPath3(b, step);
-                        _ = try man.addFilePath(path, null);
-                        try step.addWatchInput(lazy_path);
-                    },
-                }
+            for (conf_wf.embeds.slice) |*embed| {
+                man.hash.addBytes(embed.sub_path.slice(conf));
+                man.hash.addBytes(embed.contents.slice(conf));
             }
 
-            for (write_file.directories.items, open_dir_cache) |dir, *open_dir_cache_elem| {
-                man.hash.addBytes(dir.sub_path);
-                for (dir.options.exclude_extensions) |ext| man.hash.addBytes(ext);
-                if (dir.options.include_extensions) |incs| for (incs) |inc| man.hash.addBytes(inc);
+            for (conf_wf.copies.slice) |*copy| {
+                man.hash.addBytes(copy.sub_path.slice(conf));
+                const src_lazy_path = copy.src_file.get(conf);
+                const source_path = try maker.resolveLazyPath(arena, src_lazy_path, step_index);
+                _ = try man.addFilePath(source_path, null);
+                try step.addWatchInput(maker, arena, src_lazy_path);
+            }
 
-                const need_derived_inputs = try step.addDirectoryWatchInput(dir.source);
-                const src_dir_path = dir.source.getPath3(b, step);
+            for (directories, open_dir_cache) |conf_dir, *opened_dir| {
+                const exclude_extensions = conf_dir.exclude_extensions.slice(conf) orelse &.{};
+                const include_extensions = conf_dir.include_extensions.slice(conf);
+
+                man.hash.addBytes(conf_dir.sub_path.slice(conf));
+                for (exclude_extensions) |ext| man.hash.addBytes(ext.slice(conf));
+                if (include_extensions) |includes| for (includes) |inc| {
+                    man.hash.addBytes(inc.slice(conf));
+                };
+
+                const src_lazy_path = conf_dir.src_path.get(conf);
+                const need_derived_inputs = try step.addDirectoryWatchInput(maker, src_lazy_path);
+                const src_dir_path = try maker.resolveLazyPath(arena, src_lazy_path, step_index);
 
                 var src_dir = src_dir_path.root_dir.handle.openDir(io, src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
-                    return step.fail("unable to open source directory '{f}': {s}", .{
-                        src_dir_path, @errorName(err),
-                    });
+                    return step.fail(maker, "failed opening source directory {f}: {t}", .{ src_dir_path, err });
                 };
-                open_dir_cache_elem.* = src_dir;
+                opened_dir.* = src_dir;
                 open_dirs_count += 1;
 
                 var it = try src_dir.walk(gpa);
                 defer it.deinit();
-                while (try it.next(io)) |entry| {
-                    if (!dir.options.pathIncluded(entry.path)) continue;
+                while (it.next(io) catch |err| switch (err) {
+                    error.Canceled, error.OutOfMemory => |e| return e,
+                    else => |e| return step.fail(maker, "failed iterating dir {f}: {t}", .{ src_dir_path, e }),
+                }) |entry| {
+                    if (!pathIncluded(conf, exclude_extensions, include_extensions, entry.path)) continue;
 
                     switch (entry.kind) {
                         .directory => {
                             if (need_derived_inputs) {
                                 const entry_path = try src_dir_path.join(arena, entry.path);
-                                try step.addDirectoryWatchInputFromPath(entry_path);
+                                try step.addDirectoryWatchInputFromPath(maker, entry_path);
                             }
                         },
                         .file => {
                             const entry_path = try src_dir_path.join(arena, entry.path);
                             _ = try man.addFilePath(entry_path, null);
+                            total_items += 1;
                         },
                         else => continue,
                     }
                 }
             }
 
-            if (try step.cacheHit(&man)) {
+            if (try step.cacheHit(maker, &man)) {
                 const digest = man.final();
-                write_file.generated_directory.path = try b.cache_root.join(arena, &.{ "o", &digest });
+                maker.generatedPath(conf_wf.generated_directory).* = .{
+                    .root_dir = cache_root,
+                    .sub_path = try Io.Dir.path.join(arena, &.{ "o", &digest }),
+                };
                 assert(step.result_cached);
                 return;
             }
 
             const digest = man.final();
-            const cache_path = "o" ++ Dir.path.sep_str ++ digest;
+            const out_path: Path = .{
+                .root_dir = cache_root,
+                .sub_path = try Io.Dir.path.join(arena, &.{ "o", &digest }),
+            };
 
-            write_file.generated_directory.path = try b.cache_root.join(arena, &.{cache_path});
+            progress_node.setEstimatedTotalItems(total_items);
+            try operate(maker, step_index, open_dir_cache, out_path, progress_node);
+            try step.writeManifest(maker, &man);
 
-            try operate(write_file, open_dir_cache, .{
-                .root_dir = b.cache_root,
-                .sub_path = cache_path,
-            });
-
-            try step.writeManifest(&man);
+            maker.generatedPath(conf_wf.generated_directory).* = out_path;
         },
         .tmp => {
             step.result_cached = false;
 
             var rand_int: u64 = undefined;
             io.random(@ptrCast(&rand_int));
-            const tmp_dir_sub_path = "tmp" ++ Dir.path.sep_str ++ std.fmt.hex(rand_int);
+            const hex_digest = std.fmt.hex(rand_int);
 
-            write_file.generated_directory.path = try b.cache_root.join(arena, &.{tmp_dir_sub_path});
+            const out_path: Path = .{
+                .root_dir = cache_root,
+                .sub_path = try Io.Dir.path.join(arena, &.{ "tmp", &hex_digest }),
+            };
 
-            try operate(write_file, open_dir_cache, .{
-                .root_dir = b.cache_root,
-                .sub_path = tmp_dir_sub_path,
-            });
+            try operate(maker, step_index, open_dir_cache, out_path, progress_node);
+
+            maker.generatedPath(conf_wf.generated_directory).* = out_path;
         },
-        .mutate => |lp| {
+        .mutate => {
             step.result_cached = false;
-            const root_path = try lp.getPath4(b, step);
-            write_file.generated_directory.path = try root_path.toString(arena);
-            try operate(write_file, open_dir_cache, root_path);
+            const root_path = try maker.resolveLazyPathIndex(arena, conf_wf.mutate_path.value.?, step_index);
+            try operate(maker, step_index, open_dir_cache, root_path, progress_node);
+            maker.generatedPath(conf_wf.generated_directory).* = root_path;
         },
     }
 }
 
-fn operate(write_file: *WriteFile, open_dir_cache: []const Io.Dir, root_path: std.Build.Cache.Path) !void {
-    const step = &write_file.step;
-    const b = step.owner;
-    const io = b.graph.io;
-    const gpa = b.graph.cache.gpa;
-    const arena = b.allocator;
+fn operate(
+    maker: *Maker,
+    step_index: Configuration.Step.Index,
+    open_dir_cache: []const Io.Dir,
+    root_path: std.Build.Cache.Path,
+    progress_node: std.Progress.Node,
+) !void {
+    const graph = maker.graph;
+    const gpa = maker.gpa;
+    const arena = maker.graph.arena; // TODO don't leak into process arena
+    const io = graph.io;
+    const step = maker.stepByIndex(step_index);
+    const conf = &maker.scanned_config.configuration;
+    const conf_step = step_index.ptr(conf);
+    const conf_wf = conf_step.extended.get(conf.extra).write_file;
 
-    var cache_dir = root_path.root_dir.handle.createDirPathOpen(io, root_path.sub_path, .{}) catch |err|
-        return step.fail("unable to make path {f}: {t}", .{ root_path, err });
-    defer cache_dir.close(io);
+    const root_directory: std.Build.Cache.Directory = .{
+        .handle = root_path.root_dir.handle.createDirPathOpen(io, root_path.sub_path, .{}) catch |err|
+            return step.fail(maker, "failed creating path {f}: {t}", .{ root_path, err }),
+        .path = try root_path.toString(arena),
+    };
+    defer root_directory.handle.close(io);
 
-    for (write_file.files.items) |file| {
-        if (Dir.path.dirname(file.sub_path)) |dirname| {
-            cache_dir.createDirPath(io, dirname) catch |err| {
-                return step.fail("unable to make path '{f}{c}{s}': {t}", .{
-                    root_path, Dir.path.sep, dirname, err,
-                });
+    for (conf_wf.embeds.slice) |*embed| {
+        const dest_path: Path = .{
+            .root_dir = root_directory,
+            .sub_path = embed.sub_path.slice(conf),
+        };
+        if (Io.Dir.path.dirname(dest_path.sub_path)) |dirname| {
+            const dirname_path: Path = .{
+                .root_dir = root_directory,
+                .sub_path = dirname,
             };
+            dirname_path.root_dir.handle.createDirPath(io, dirname_path.sub_path) catch |err|
+                return step.fail(maker, "failed creating path {f}: {t}", .{ dirname_path, err });
         }
-        switch (file.contents) {
-            .bytes => |bytes| {
-                cache_dir.writeFile(io, .{ .sub_path = file.sub_path, .data = bytes }) catch |err| {
-                    return step.fail("unable to write file '{f}{c}{s}': {t}", .{
-                        root_path, Dir.path.sep, file.sub_path, err,
-                    });
-                };
-            },
-            .copy => |file_source| {
-                const source_path = file_source.getPath2(b, step);
-                const prev_status = Io.Dir.updateFile(.cwd(), io, source_path, cache_dir, file.sub_path, .{}) catch |err| {
-                    return step.fail("unable to update file from '{s}' to '{f}{c}{s}': {t}", .{
-                        source_path, root_path, Dir.path.sep, file.sub_path, err,
-                    });
-                };
-                // At this point we already will mark the step as a cache miss.
-                // But this is kind of a partial cache hit since individual
-                // file copies may be avoided. Oh well, this information is
-                // discarded.
-                _ = prev_status;
-            },
-        }
+        dest_path.root_dir.handle.writeFile(io, .{
+            .sub_path = dest_path.sub_path,
+            .data = embed.contents.slice(conf),
+        }) catch |err| return step.fail(maker, "failed writing contents to file {f}: {t}", .{ dest_path, err });
+        progress_node.completeOne();
     }
 
-    for (write_file.directories.items, open_dir_cache) |dir, already_open_dir| {
-        const src_dir_path = dir.source.getPath3(b, step);
-        const dest_dirname = dir.sub_path;
-
-        if (dest_dirname.len != 0) {
-            cache_dir.createDirPath(io, dest_dirname) catch |err| {
-                return step.fail("unable to make path '{f}{c}{s}': {t}", .{
-                    root_path, Dir.path.sep, dest_dirname, err,
-                });
+    for (conf_wf.copies.slice) |*copy| {
+        const dest_path: Path = .{
+            .root_dir = root_directory,
+            .sub_path = copy.sub_path.slice(conf),
+        };
+        // Rather than passing make_path = true below, this optimizes for the
+        // more common case where the directory does not exist.
+        if (Io.Dir.path.dirname(dest_path.sub_path)) |dirname| {
+            const dirname_path: Path = .{
+                .root_dir = root_directory,
+                .sub_path = dirname,
             };
+            dirname_path.root_dir.handle.createDirPath(io, dirname_path.sub_path) catch |err|
+                return step.fail(maker, "failed creating path {f}: {t}", .{ dirname_path, err });
+        }
+        const source_path = try maker.resolveLazyPathIndex(arena, copy.src_file, step_index);
+        Io.Dir.copyFile(
+            source_path.root_dir.handle,
+            source_path.sub_path,
+            dest_path.root_dir.handle,
+            dest_path.sub_path,
+            io,
+            .{},
+        ) catch |err| return step.fail(maker, "failed copying file from {f} to {f}: {t}", .{
+            source_path, dest_path, err,
+        });
+        progress_node.completeOne();
+    }
+
+    for (conf_wf.directories.slice, open_dir_cache) |conf_dir, already_open_dir| {
+        const exclude_extensions = conf_dir.exclude_extensions.slice(conf) orelse &.{};
+        const include_extensions = conf_dir.include_extensions.slice(conf);
+
+        const src_dir_path = try maker.resolveLazyPathIndex(arena, conf_dir.src_path, step_index);
+        const dest_dir_path: Path = .{
+            .root_dir = root_directory,
+            .sub_path = conf_dir.sub_path.slice(conf),
+        };
+
+        if (dest_dir_path.sub_path.len != 0) {
+            dest_dir_path.root_dir.handle.createDirPath(io, dest_dir_path.sub_path) catch |err|
+                return step.fail(maker, "failed creating path {f}: {t}", .{ dest_dir_path, err });
         }
 
         var it = try already_open_dir.walk(gpa);
         defer it.deinit();
-        while (try it.next(io)) |entry| {
-            if (!dir.options.pathIncluded(entry.path)) continue;
+        while (it.next(io) catch |err| switch (err) {
+            error.Canceled, error.OutOfMemory => |e| return e,
+            else => |e| return step.fail(maker, "failed iterating dir {f}: {t}", .{ src_dir_path, e }),
+        }) |entry| {
+            if (!pathIncluded(conf, exclude_extensions, include_extensions, entry.path)) continue;
 
             const src_entry_path = try src_dir_path.join(arena, entry.path);
-            const dest_path = b.pathJoin(&.{ dest_dirname, entry.path });
+            const dest_path = try dest_dir_path.join(arena, entry.path);
             switch (entry.kind) {
-                .directory => try cache_dir.createDirPath(io, dest_path),
+                .directory => dest_path.root_dir.handle.createDirPath(io, dest_path.sub_path) catch |err| {
+                    return step.fail(maker, "failed creating path {f}: {t}", .{ dest_path, err });
+                },
                 .file => {
-                    const prev_status = Io.Dir.updateFile(
+                    Io.Dir.copyFile(
                         src_entry_path.root_dir.handle,
-                        io,
                         src_entry_path.sub_path,
-                        cache_dir,
-                        dest_path,
+                        dest_path.root_dir.handle,
+                        dest_path.sub_path,
+                        io,
                         .{},
-                    ) catch |err| {
-                        return step.fail("unable to update file from '{f}' to '{f}{c}{s}': {t}", .{
-                            src_entry_path, root_path, Dir.path.sep, dest_path, err,
-                        });
-                    };
-                    _ = prev_status;
+                    ) catch |err| return step.fail(maker, "failed copying file from {f} to {f}: {t}", .{
+                        src_entry_path, dest_path, err,
+                    });
+                    progress_node.completeOne();
                 },
                 else => continue,
             }
         }
     }
+}
+
+fn pathIncluded(
+    conf: *const Configuration,
+    exclude_extensions: []const Configuration.String,
+    include_extensions: ?[]const Configuration.String,
+    path: []const u8,
+) bool {
+    for (exclude_extensions) |ext| {
+        if (std.mem.endsWith(u8, path, ext.slice(conf)))
+            return false;
+    }
+    if (include_extensions) |incs| {
+        for (incs) |inc| {
+            if (std.mem.endsWith(u8, path, inc.slice(conf)))
+                return true;
+        } else {
+            return false;
+        }
+    }
+    return true;
 }
