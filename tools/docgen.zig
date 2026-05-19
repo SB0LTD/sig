@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const Io = std.Io;
 const Dir = std.Io.Dir;
+const Path = std.Build.Cache.Path;
 const process = std.process;
 const Progress = std.Progress;
 const print = std.debug.print;
@@ -73,8 +74,13 @@ pub fn main(init: std.process.Init) !void {
     var out_file_buffer: [4096]u8 = undefined;
     var out_file_writer = out_file.writer(io, &out_file_buffer);
 
-    var code_dir = try Dir.cwd().openDir(io, code_dir_path, .{});
-    defer code_dir.close(io);
+    var code_dir: Path = .{
+        .root_dir = .{
+            .handle = try Dir.cwd().openDir(io, code_dir_path, .{}),
+            .path = code_dir_path,
+        },
+    };
+    defer code_dir.root_dir.handle.close(io);
 
     var in_file_reader = in_file.reader(io, &.{});
     const input_file_bytes = try in_file_reader.interface.allocRemaining(arena, .limited(max_doc_file_size));
@@ -988,7 +994,7 @@ fn genHtml(
     io: Io,
     tokenizer: *Tokenizer,
     toc: *Toc,
-    code_dir: Dir,
+    code_dir: Path,
     out: *Writer,
 ) !void {
     for (toc.nodes) |node| {
@@ -1044,8 +1050,13 @@ fn genHtml(
                 });
                 defer allocator.free(out_basename);
 
-                const contents = code_dir.readFileAlloc(io, out_basename, allocator, .limited(std.math.maxInt(u32))) catch |err| {
-                    return parseError(tokenizer, code.token, "unable to open '{s}': {t}", .{ out_basename, err });
+                const out_path: Path = .{
+                    .root_dir = code_dir.root_dir,
+                    .sub_path = out_basename,
+                };
+
+                const contents = out_path.root_dir.handle.readFileAlloc(io, out_path.sub_path, allocator, .unlimited) catch |err| {
+                    return parseError(tokenizer, code.token, "failed opening {f}: {t}", .{ out_path, err });
                 };
                 defer allocator.free(contents);
 
