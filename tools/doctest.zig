@@ -311,7 +311,9 @@ fn printOutput(
                     .arch_os_abi = triple,
                 });
                 const target = try std.zig.system.resolveTargetQuery(io, target_query);
-                switch (getExternalExecutor(io, &host, &target, .{
+                switch (getExternalExecutor(io, &target, .{
+                    .host_cpu_arch = host.cpu.arch,
+                    .host_os_tag = host.os.tag,
                     .link_libc = code.link_libc,
                 })) {
                     .native => {},
@@ -526,7 +528,10 @@ fn printOutput(
         .lib => {
             const bin_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = code_name,
-                .target = &builtin.target,
+                .cpu_arch = builtin.target.cpu.arch,
+                .os_tag = builtin.target.os.tag,
+                .ofmt = builtin.target.ofmt,
+                .abi = builtin.target.abi,
                 .output_mode = .Lib,
             });
 
