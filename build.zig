@@ -1528,10 +1528,10 @@ fn generateLangRef(b: *std.Build) !std.Build.LazyPath {
         // TODO: enhance doctest to use "--listen=-" rather than operating in a
         // temporary directory
         cmd.addArg("--cache-root");
-        cmd.addFileArg(.cache_root);
+        cmd.addDirectoryArg(.cache_root);
 
         cmd.addArg("--zig-lib-dir");
-        cmd.addFileArg(.zig_lib);
+        cmd.addDirectoryArg(.zig_lib);
 
         cmd.addArg("-i");
         cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
