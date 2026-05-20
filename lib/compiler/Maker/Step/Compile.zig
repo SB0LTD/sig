@@ -119,7 +119,7 @@ fn updateGeneratedFile(
 /// the root module. The root module is guaranteed to be first.
 const ModuleList = std.AutoArrayHashMapUnmanaged(Configuration.Module.Index, Configuration.String);
 /// Keyed on the first key in the module list.
-const ModuleGraph = std.ArrayHashMapUnmanaged(ModuleList, void, ModuleListContext, false);
+pub const ModuleGraph = std.ArrayHashMapUnmanaged(ModuleList, void, ModuleListContext, false);
 
 const ModuleListContext = struct {
     pub fn eql(ctx: @This(), a: ModuleList, b: ModuleList) bool {
@@ -1164,7 +1164,7 @@ const CliNamedModules = struct {
     }
 };
 
-fn getCompileDependencies(
+pub fn getCompileDependencies(
     arena: Allocator,
     module_graph: *ModuleGraph,
     conf: *const Configuration,

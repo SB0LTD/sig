@@ -137,16 +137,9 @@ pub fn make(
                 const producer_index = arg.producer.value.?;
                 const producer_step = producer_index.ptr(conf);
                 const producer = producer_step.extended.get(conf.extra).compile;
-                const root_module = producer.root_module.get(conf);
-                const root_module_target = root_module.resolved_target.get(conf).?.result.get(conf);
-                const os_tag = root_module_target.flags.os_tag.unwrap().?;
                 const producer_make_comp_step = maker.stepByIndex(producer_index);
                 const producer_make_comp = &producer_make_comp_step.extended.compile;
 
-                if (os_tag == .windows) {
-                    // On Windows we don't have rpaths so we have to add .dll search paths to PATH
-                    addPathForDynLibs(producer_index);
-                }
                 const file_path = producer_make_comp.installed_path orelse maker.generatedPath(producer.generated_bin.value.?).*;
 
                 argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
@@ -953,7 +946,7 @@ const FuzzTestRunner = struct {
             if (i == std.math.maxInt(u32)) return;
             i += 1;
         }) {
-            const name_prefix = "f" ++ Io.Dir.path.sep_str ++ "in";
+            const name_prefix = "f" ++ Dir.path.sep_str ++ "in";
             in_name = std.fmt.bufPrint(&in_name_buf, name_prefix ++ "{x}", .{i}) catch unreachable;
             in_f = cache_root.handle.openFile(io, in_name, .{
                 .lock = .exclusive,
@@ -990,7 +983,7 @@ const FuzzTestRunner = struct {
         defer in_f.close(io);
 
         // Save it to a seperate file
-        const crash_name = "f" ++ Io.Dir.path.sep_str ++ "crash";
+        const crash_name = "f" ++ Dir.path.sep_str ++ "crash";
         const out = cache_root.handle.createFile(io, crash_name, .{
             .lock = .exclusive, // Multiple run steps could have found a crash at the same time
         }) catch |e| return step.fail(maker, "failed to create file '{f}{s}': {t}", .{
@@ -1922,7 +1915,7 @@ fn runCommand(
 
                 if (root_target.os.tag == .windows) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
-                    addPathForDynLibs(producer_index);
+                    try addPathForDynLibs(maker, producer_index, environ_map, argv[0]);
                 }
 
                 gpa.free(step.result_failed_command.?);
@@ -2298,14 +2291,39 @@ fn convertPathArg(run_index: Configuration.Step.Index, maker: *Maker, path: Path
     return Dir.path.join(arena, &.{ ".", child_cwd_rel });
 }
 
-fn addPathForDynLibs(artifact: Configuration.Step.Index) void {
-    if (true) @panic("TODO addPathForDynLibs");
-    for (artifact.getCompileDependencies(true)) |compile| {
-        if (compile.root_module.resolved_target.?.result.os.tag == .windows and
-            compile.isDynamicLibrary())
-        {
-            @panic("TODO addPathForDynLibs");
-            //addPathDir(run, Dir.path.dirname(compile.getEmittedBin().getPath2(b, step)).?);
+fn addPathForDynLibs(
+    maker: *Maker,
+    artifact: Configuration.Step.Index,
+    environ_map: *process.Environ.Map,
+    argv0: []const u8,
+) !void {
+    const conf = &maker.scanned_config.configuration;
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into process arena
+    const use_wine = graph.enable_wine and builtin.os.tag != .windows and std.ascii.endsWithIgnoreCase(argv0, ".exe");
+    const path_key = if (use_wine) "WINEPATH" else "PATH";
+    const path_delimiter: u8 = if (builtin.os.tag == .windows or use_wine)
+        Dir.path.delimiter_windows
+    else
+        Dir.path.delimiter;
+
+    var module_graph: Step.Compile.ModuleGraph = .empty;
+    const compile_deps = try Step.Compile.getCompileDependencies(arena, &module_graph, conf, artifact, true);
+
+    for (compile_deps) |dep_index| {
+        const conf_comp_step = dep_index.ptr(conf);
+        const conf_comp = conf_comp_step.extended.get(conf.extra).compile;
+        const root_module = conf_comp.root_module.get(conf);
+        const target = root_module.resolved_target.get(conf).?.result.get(conf);
+        if (target.flags.os_tag == .windows and conf_comp.isDynamicLibrary()) {
+            const dll_path = try maker.generatedPath(conf_comp.generated_bin.value.?).toString(arena);
+            const search_path = Dir.path.dirname(dll_path).?;
+            if (environ_map.get(path_key)) |prev_path| {
+                const new_path = try allocPrint(arena, "{s}{c}{s}", .{ prev_path, path_delimiter, search_path });
+                try environ_map.put(path_key, new_path);
+            } else {
+                try environ_map.put(path_key, search_path);
+            }
         }
     }
 }
