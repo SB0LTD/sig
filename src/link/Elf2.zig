@@ -3264,20 +3264,24 @@ fn loadObject(
                         };
 
                         if (input_sym.shndx == std.elf.SHN_UNDEF) switch (input_sym.info.bind) {
-                            _ => |bind| return diags.failParse(
+                            else => |bind| return diags.failParse(
                                 path,
                                 "symbol '{s}' has unsupported binding (0x{x})",
                                 .{ name, bind },
                             ),
                             .LOCAL => continue,
-                            .GLOBAL, .WEAK => |bind| {
+                            .GLOBAL, .WEAK, .GNU_UNIQUE => |bind| {
                                 si.* = elf.addGlobalSymbolAssumeCapacity(.{
                                     .node = .none,
                                     .name = try .string(elf, name),
                                     .value = input_sym.value,
                                     .size = input_sym.size,
                                     .type = sym_type,
-                                    .bind = if (bind == .WEAK) .weak else .strong,
+                                    .bind = switch (bind) {
+                                        .WEAK, .GNU_UNIQUE => .weak,
+                                        .GLOBAL => .strong,
+                                        else => unreachable,
+                                    },
                                     .visibility = input_sym.other.visibility,
                                     .shndx = .UNDEF,
                                 }) catch |err| switch (err) {
@@ -3290,7 +3294,7 @@ fn loadObject(
                         const input_section_node = (sections[input_sym.shndx].isi orelse continue).node(elf);
 
                         switch (input_sym.info.bind) {
-                            _ => |bind| return diags.failParse(
+                            else => |bind| return diags.failParse(
                                 path,
                                 "symbol '{s}' has unsupported binding (0x{x})",
                                 .{ name, bind },
@@ -3306,14 +3310,18 @@ fn loadObject(
                                 });
                                 si.* = .local(lsi);
                             },
-                            .GLOBAL, .WEAK => |bind| {
+                            .GLOBAL, .WEAK, .GNU_UNIQUE => |bind| {
                                 si.* = elf.addGlobalSymbolAssumeCapacity(.{
                                     .node = input_section_node,
                                     .name = try .string(elf, name),
                                     .value = input_sym.value,
                                     .size = input_sym.size,
                                     .type = sym_type,
-                                    .bind = if (bind == .WEAK) .weak else .strong,
+                                    .bind = switch (bind) {
+                                        .WEAK, .GNU_UNIQUE => .weak,
+                                        .GLOBAL => .strong,
+                                        else => unreachable,
+                                    },
                                     .visibility = input_sym.other.visibility,
                                     .shndx = elf.getNodeShndx(input_section_node),
                                 }) catch |err| switch (err) {
