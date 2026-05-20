@@ -1872,15 +1872,22 @@ fn analyzeNavVal(
     // that case and invalidate the dependee right now.
     if (zcu.clearOutdatedState(.wrap(.{ .nav_ty = nav_id }))) {
         assert(zir_decl.type_body == null); // otherwise we already resolved it with `Sema.ensureNavResolved`
-        zcu.resetUnit(.wrap(.{ .nav_ty = nav_id }));
-        try pt.addDependency(.wrap(.{ .nav_ty = nav_id }), .{ .nav_val = nav_id }); // inferred type depends on the value (that's us!)
+        const type_unit: AnalUnit = .wrap(.{ .nav_ty = nav_id });
+        const prev_type_failed = zcu.failed_analysis.contains(type_unit) or
+            zcu.transitive_failed_analysis.contains(type_unit);
+        zcu.resetUnit(type_unit);
+        try pt.addDependency(type_unit, .{ .nav_val = nav_id }); // inferred type depends on the value (that's us!)
         if (comp.debugIncremental()) {
-            const info = try zcu.incremental_debug_state.getUnitInfo(gpa, .wrap(.{ .nav_ty = nav_id }));
+            const info = try zcu.incremental_debug_state.getUnitInfo(gpa, type_unit);
             info.last_update_gen = zcu.generation;
             info.deps.clearRetainingCapacity();
         }
-        const type_changed: bool = if (old_nav.resolved) |r| r.type != nav_ty.toIntern() else true;
-        if (type_changed) {
+        const type_outdated: bool = type_outdated: {
+            if (prev_type_failed) break :type_outdated true;
+            const r = old_nav.resolved orelse break :type_outdated true;
+            break :type_outdated r.type != nav_ty.toIntern();
+        };
+        if (type_outdated) {
             try zcu.markDependeeOutdated(.marked_po, .{ .nav_ty = nav_id });
         } else {
             try zcu.markPoDependeeUpToDate(.{ .nav_ty = nav_id });
