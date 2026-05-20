@@ -1289,9 +1289,9 @@ fn appendModuleFlags(
         }
     }
 
-    if (m.resolved_target.get(conf)) |target| {
+    if (m.resolved_target.get(conf)) |resolved_target| {
         // Communicate the query via CLI since it's more compact.
-        if (target.query.get(conf)) |compact_query| {
+        if (resolved_target.query.get(conf)) |compact_query| {
             try zig_args.ensureUnusedCapacity(gpa, 6);
 
             const query = compact_query.unwrap(conf);

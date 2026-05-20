@@ -2178,6 +2178,7 @@ pub const TargetQuery = struct {
             };
         }
     };
+
     pub const Abi = enum(u5) {
         none,
         gnu,
@@ -2210,16 +2211,71 @@ pub const TargetQuery = struct {
         default,
 
         pub fn init(x: ?std.Target.Abi) @This() {
-            // TODO comptime assert the enums match
-            return @enumFromInt(@intFromEnum(x orelse return .default));
+            return switch (x orelse return .default) {
+                .none => .none,
+                .gnu => .gnu,
+                .gnuabin32 => .gnuabin32,
+                .gnuabi64 => .gnuabi64,
+                .gnueabi => .gnueabi,
+                .gnueabihf => .gnueabihf,
+                .gnuf32 => .gnuf32,
+                .gnusf => .gnusf,
+                .gnux32 => .gnux32,
+                .eabi => .eabi,
+                .eabihf => .eabihf,
+                .ilp32 => .ilp32,
+                .android => .android,
+                .androideabi => .androideabi,
+                .musl => .musl,
+                .muslabin32 => .muslabin32,
+                .muslabi64 => .muslabi64,
+                .musleabi => .musleabi,
+                .musleabihf => .musleabihf,
+                .muslf32 => .muslf32,
+                .muslsf => .muslsf,
+                .muslx32 => .muslx32,
+                .msvc => .msvc,
+                .itanium => .itanium,
+                .simulator => .simulator,
+                .ohos => .ohos,
+                .ohoseabi => .ohoseabi,
+            };
         }
 
         pub fn unwrap(this: @This()) ?std.Target.Abi {
-            // TODO comptime assert the enums match
-            if (this == .default) return null;
-            return @enumFromInt(@intFromEnum(this));
+            return switch (this) {
+                .none => .none,
+                .gnu => .gnu,
+                .gnuabin32 => .gnuabin32,
+                .gnuabi64 => .gnuabi64,
+                .gnueabi => .gnueabi,
+                .gnueabihf => .gnueabihf,
+                .gnuf32 => .gnuf32,
+                .gnusf => .gnusf,
+                .gnux32 => .gnux32,
+                .eabi => .eabi,
+                .eabihf => .eabihf,
+                .ilp32 => .ilp32,
+                .android => .android,
+                .androideabi => .androideabi,
+                .musl => .musl,
+                .muslabin32 => .muslabin32,
+                .muslabi64 => .muslabi64,
+                .musleabi => .musleabi,
+                .musleabihf => .musleabihf,
+                .muslf32 => .muslf32,
+                .muslsf => .muslsf,
+                .muslx32 => .muslx32,
+                .msvc => .msvc,
+                .itanium => .itanium,
+                .simulator => .simulator,
+                .ohos => .ohos,
+                .ohoseabi => .ohoseabi,
+                .default => null,
+            };
         }
     };
+
     pub const CpuArch = enum(u6) {
         aarch64,
         aarch64_be,
@@ -2233,6 +2289,7 @@ pub const TargetQuery = struct {
         bpfeb,
         bpfel,
         csky,
+        ez80,
         hexagon,
         hppa,
         hppa64,
@@ -2283,16 +2340,136 @@ pub const TargetQuery = struct {
         default,
 
         pub fn init(x: ?std.Target.Cpu.Arch) @This() {
-            // TODO comptime assert the enums match
-            return @enumFromInt(@intFromEnum(x orelse return .default));
+            return switch (x orelse return .default) {
+                .aarch64 => .aarch64,
+                .aarch64_be => .aarch64_be,
+                .alpha => .alpha,
+                .amdgcn => .amdgcn,
+                .arc => .arc,
+                .arceb => .arceb,
+                .arm => .arm,
+                .armeb => .armeb,
+                .avr => .avr,
+                .bpfeb => .bpfeb,
+                .bpfel => .bpfel,
+                .csky => .csky,
+                .ez80 => .ez80,
+                .hexagon => .hexagon,
+                .hppa => .hppa,
+                .hppa64 => .hppa64,
+                .kalimba => .kalimba,
+                .kvx => .kvx,
+                .lanai => .lanai,
+                .loongarch32 => .loongarch32,
+                .loongarch64 => .loongarch64,
+                .m68k => .m68k,
+                .microblaze => .microblaze,
+                .microblazeel => .microblazeel,
+                .mips => .mips,
+                .mipsel => .mipsel,
+                .mips64 => .mips64,
+                .mips64el => .mips64el,
+                .msp430 => .msp430,
+                .nvptx => .nvptx,
+                .nvptx64 => .nvptx64,
+                .or1k => .or1k,
+                .powerpc => .powerpc,
+                .powerpcle => .powerpcle,
+                .powerpc64 => .powerpc64,
+                .powerpc64le => .powerpc64le,
+                .propeller => .propeller,
+                .riscv32 => .riscv32,
+                .riscv32be => .riscv32be,
+                .riscv64 => .riscv64,
+                .riscv64be => .riscv64be,
+                .s390x => .s390x,
+                .sh => .sh,
+                .sheb => .sheb,
+                .sparc => .sparc,
+                .sparc64 => .sparc64,
+                .spirv32 => .spirv32,
+                .spirv64 => .spirv64,
+                .thumb => .thumb,
+                .thumbeb => .thumbeb,
+                .ve => .ve,
+                .wasm32 => .wasm32,
+                .wasm64 => .wasm64,
+                .x86_16 => .x86_16,
+                .x86 => .x86,
+                .x86_64 => .x86_64,
+                .xcore => .xcore,
+                .xtensa => .xtensa,
+                .xtensaeb => .xtensaeb,
+            };
         }
 
         pub fn unwrap(this: @This()) ?std.Target.Cpu.Arch {
-            // TODO comptime assert the enums match
-            if (this == .default) return null;
-            return @enumFromInt(@intFromEnum(this));
+            return switch (this) {
+                .aarch64 => .aarch64,
+                .aarch64_be => .aarch64_be,
+                .alpha => .alpha,
+                .amdgcn => .amdgcn,
+                .arc => .arc,
+                .arceb => .arceb,
+                .arm => .arm,
+                .armeb => .armeb,
+                .avr => .avr,
+                .bpfeb => .bpfeb,
+                .bpfel => .bpfel,
+                .csky => .csky,
+                .ez80 => .ez80,
+                .hexagon => .hexagon,
+                .hppa => .hppa,
+                .hppa64 => .hppa64,
+                .kalimba => .kalimba,
+                .kvx => .kvx,
+                .lanai => .lanai,
+                .loongarch32 => .loongarch32,
+                .loongarch64 => .loongarch64,
+                .m68k => .m68k,
+                .microblaze => .microblaze,
+                .microblazeel => .microblazeel,
+                .mips => .mips,
+                .mipsel => .mipsel,
+                .mips64 => .mips64,
+                .mips64el => .mips64el,
+                .msp430 => .msp430,
+                .nvptx => .nvptx,
+                .nvptx64 => .nvptx64,
+                .or1k => .or1k,
+                .powerpc => .powerpc,
+                .powerpcle => .powerpcle,
+                .powerpc64 => .powerpc64,
+                .powerpc64le => .powerpc64le,
+                .propeller => .propeller,
+                .riscv32 => .riscv32,
+                .riscv32be => .riscv32be,
+                .riscv64 => .riscv64,
+                .riscv64be => .riscv64be,
+                .s390x => .s390x,
+                .sh => .sh,
+                .sheb => .sheb,
+                .sparc => .sparc,
+                .sparc64 => .sparc64,
+                .spirv32 => .spirv32,
+                .spirv64 => .spirv64,
+                .thumb => .thumb,
+                .thumbeb => .thumbeb,
+                .ve => .ve,
+                .wasm32 => .wasm32,
+                .wasm64 => .wasm64,
+                .x86_16 => .x86_16,
+                .x86 => .x86,
+                .x86_64 => .x86_64,
+                .xcore => .xcore,
+                .xtensa => .xtensa,
+                .xtensaeb => .xtensaeb,
+
+                .default => null,
+            };
         }
     };
+
     pub const OsTag = enum(u6) {
         freestanding,
         other,
@@ -2390,7 +2567,6 @@ pub const TargetQuery = struct {
 
         pub fn unwrap(this: @This()) ?std.Target.Os.Tag {
             return switch (this) {
-                .default => null,
                 .freestanding => .freestanding,
                 .other => .other,
                 .contiki => .contiki,
@@ -2434,6 +2610,8 @@ pub const TargetQuery = struct {
                 .opengl => .opengl,
                 .vulkan => .vulkan,
                 .tios => .tios,
+
+                .default => null,
             };
         }
     };
