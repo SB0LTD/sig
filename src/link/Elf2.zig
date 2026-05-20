@@ -4273,10 +4273,13 @@ fn flushFileOffset(elf: *Elf, ni: MappedFile.Node.Index) !void {
         },
         .segment => |phndx| {
             switch (elf.phdrSlice()) {
-                inline else => |phdr| elf.targetStore(
-                    &phdr[phndx].offset,
-                    @intCast(ni.fileLocation(&elf.mf, false).offset),
-                ),
+                inline else => |phdr, class| {
+                    const ph = &phdr[phndx];
+                    elf.targetStore(&ph.offset, @intCast(ni.fileLocation(&elf.mf, false).offset));
+                    if (elf.targetLoad(&ph.type) == .PHDR) {
+                        @field(elf.ehdrPtr(), @tagName(class)).phoff = ph.offset;
+                    }
+                },
             }
             var child_it = ni.children(&elf.mf);
             while (child_it.next()) |child_ni| try elf.flushFileOffset(child_ni);
@@ -4296,14 +4299,18 @@ fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
         .segment => |phndx| {
             try elf.flushFileOffset(ni);
             switch (elf.phdrSlice()) {
-                inline else => |phdr, class| {
+                inline else => |phdr| {
                     const ph = &phdr[phndx];
                     switch (elf.targetLoad(&ph.type)) {
                         else => unreachable,
                         .NULL, .LOAD => return,
-                        .DYNAMIC, .INTERP => {},
-                        .PHDR => @field(elf.ehdrPtr(), @tagName(class)).phoff = ph.offset,
-                        .TLS, std.elf.PT.GNU_RELRO => {},
+
+                        .DYNAMIC,
+                        .INTERP,
+                        .PHDR,
+                        .TLS,
+                        .GNU_RELRO,
+                        => {},
                     }
                     elf.targetStore(&ph.vaddr, @intCast(elf.computeNodeVAddr(ni)));
                     ph.paddr = ph.vaddr;
