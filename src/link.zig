@@ -660,13 +660,12 @@ pub const File = struct {
                 base.file = mf.memory_map.file;
                 try mf.ensureTotalCapacity(@intCast(mf.nodes.items[0].location().resolve(mf)[1]));
             },
-            .c => if (base.file == null) {
-                dev.check(.c_linker);
+            .c, .spirv => if (base.file == null) {
+                dev.checkAny(&.{ .c_linker, .spirv_linker });
                 base.file = try base.emit.root_dir.handle.openFile(io, base.emit.sub_path, .{
                     .mode = .write_only,
                 });
             },
-            .spirv => dev.check(.spirv_linker),
             .plan9 => unreachable,
         }
     }
