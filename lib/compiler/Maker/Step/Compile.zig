@@ -291,18 +291,19 @@ fn lowerZigArgs(
                             system_lib.flags.preferred_link_mode != prev_preferred_link_mode) and
                             conf_comp.flags2.linkage != .static)
                         {
+                            try zig_args.ensureUnusedCapacity(gpa, 1);
                             switch (system_lib.flags.search_strategy) {
                                 .no_fallback => switch (system_lib.flags.preferred_link_mode) {
-                                    .dynamic => try zig_args.append(gpa, "-search_dylibs_only"),
-                                    .static => try zig_args.append(gpa, "-search_static_only"),
+                                    .dynamic => zig_args.appendAssumeCapacity("-search_dylibs_only"),
+                                    .static => zig_args.appendAssumeCapacity("-search_static_only"),
                                 },
                                 .paths_first => switch (system_lib.flags.preferred_link_mode) {
-                                    .dynamic => try zig_args.append(gpa, "-search_paths_first"),
-                                    .static => try zig_args.append(gpa, "-search_paths_first_static"),
+                                    .dynamic => zig_args.appendAssumeCapacity("-search_paths_first"),
+                                    .static => zig_args.appendAssumeCapacity("-search_paths_first_static"),
                                 },
                                 .mode_first => switch (system_lib.flags.preferred_link_mode) {
-                                    .dynamic => try zig_args.append(gpa, "-search_dylibs_first"),
-                                    .static => try zig_args.append(gpa, "-search_static_first"),
+                                    .dynamic => zig_args.appendAssumeCapacity("-search_dylibs_first"),
+                                    .static => zig_args.appendAssumeCapacity("-search_static_first"),
                                 },
                             }
                             prev_search_strategy = system_lib.flags.search_strategy;
@@ -1317,6 +1318,7 @@ fn appendModuleFlags(
         try zig_args.append(gpa, try allocPrint(arena, "--export={s}", .{symbol_name.slice(conf)}));
     }
 
+    try zig_args.ensureUnusedCapacity(gpa, 2 * m.include_dirs.len);
     for (0..m.include_dirs.len) |i|
         try appendIncludeDirFlags(m.include_dirs.get(conf.extra, i), zig_args, asking_step, maker);
 
@@ -1343,17 +1345,16 @@ fn appendModuleFlags(
     };
 }
 
-fn appendIncludeDirFlags(
+/// Assumes unused capacity for at least 2 items.
+pub fn appendIncludeDirFlags(
     include_dir: Configuration.Module.IncludeDir,
     zig_args: *std.ArrayList([]const u8),
     asking_step: Configuration.Step.Index,
     maker: *const Maker,
 ) !void {
-    const gpa = maker.gpa;
     const graph = maker.graph;
     const arena = graph.arena; // TODO don't leak into the process arena
 
-    try zig_args.ensureUnusedCapacity(gpa, 2);
     switch (include_dir) {
         .path => |lp| {
             zig_args.appendAssumeCapacity("-I");
@@ -1386,12 +1387,9 @@ fn appendIncludeDirFlags(
             comp.installed_headers_include_tree.?.getDirectory();
         },
         .embed_path => |lazy_path| {
-            try zig_args.append(
-                gpa,
-                try allocPrint(arena, "--embed-dir={f}", .{
-                    try maker.resolveLazyPathIndex(arena, lazy_path, asking_step),
-                }),
-            );
+            zig_args.appendAssumeCapacity(try allocPrint(arena, "--embed-dir={f}", .{
+                try maker.resolveLazyPathIndex(arena, lazy_path, asking_step),
+            }));
         },
     }
 }

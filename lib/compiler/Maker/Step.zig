@@ -26,6 +26,7 @@ pub const InstallFile = @import("Step/InstallFile.zig");
 pub const ObjCopy = @import("Step/ObjCopy.zig");
 pub const Options = @import("Step/Options.zig");
 pub const Run = @import("Step/Run.zig");
+pub const TranslateC = @import("Step/TranslateC.zig");
 pub const UpdateSourceFiles = @import("Step/UpdateSourceFiles.zig");
 pub const WriteFile = @import("Step/WriteFile.zig");
 
@@ -86,7 +87,7 @@ pub const Extended = union(enum) {
     options: Options,
     run: Run,
     top_level: TopLevel,
-    translate_c: Todo,
+    translate_c: TranslateC,
     update_source_files: UpdateSourceFiles,
     write_file: WriteFile,
 

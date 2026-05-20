@@ -1,121 +1,152 @@
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    const prog_node = options.progress_node;
-    const b = step.owner;
-    const translate_c: *TranslateC = @fieldParentPtr("step", step);
-    const arena = b.graph.arena;
+const TranslateC = @This();
 
-    var argv_list = std.array_list.Managed([]const u8).init(b.allocator);
-    try argv_list.append(b.graph.zig_exe);
-    try argv_list.append("translate-c");
-    if (translate_c.link_libc) {
-        try argv_list.append("-lc");
+const std = @import("std");
+const Io = std.Io;
+const Configuration = std.Build.Configuration;
+const allocPrint = std.fmt.allocPrint;
+const assert = std.debug.assert;
+
+const Step = @import("../Step.zig");
+const Maker = @import("../../Maker.zig");
+const PkgConfig = @import("../PkgConfig.zig");
+
+pub fn make(
+    translate_c: *TranslateC,
+    step_index: Configuration.Step.Index,
+    maker: *Maker,
+    progress_node: std.Progress.Node,
+) Step.ExtendedMakeError!void {
+    _ = translate_c;
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into the process arena
+    const step = maker.stepByIndex(step_index);
+    const conf = &maker.scanned_config.configuration;
+    const conf_step = step_index.ptr(conf);
+    const conf_tc = conf_step.extended.get(conf.extra).translate_c;
+    const cache_root = graph.local_cache_root;
+
+    var argv: std.ArrayList([]const u8) = .empty;
+
+    try argv.ensureUnusedCapacity(arena, 10);
+    argv.appendAssumeCapacity(graph.zig_exe);
+    argv.appendAssumeCapacity("translate-c");
+    if (conf_tc.flags.link_libc) {
+        argv.appendAssumeCapacity("-lc");
     }
 
-    try argv_list.append("--cache-dir");
-    try argv_list.append(b.cache_root.path orelse ".");
+    argv.appendAssumeCapacity("--cache-dir");
+    argv.appendAssumeCapacity(cache_root.path orelse ".");
 
-    try argv_list.append("--global-cache-dir");
-    try argv_list.append(b.graph.global_cache_root.path orelse ".");
+    argv.appendAssumeCapacity("--global-cache-dir");
+    argv.appendAssumeCapacity(graph.global_cache_root.path orelse ".");
 
-    if (!translate_c.target.query.isNative()) {
-        try argv_list.append("-target");
-        try argv_list.append(try translate_c.target.query.zigTriple(b.allocator));
+    if (conf_tc.target.get(conf).?.query.unwrap()) |compact_query| {
+        const query = compact_query.get(conf).unwrap(conf);
+        argv.appendAssumeCapacity("-target");
+        argv.appendAssumeCapacity(try query.zigTriple(arena));
     }
 
-    switch (translate_c.optimize) {
-        .Debug => {}, // Skip since it's the default.
-        else => try argv_list.append(b.fmt("-O{s}", .{@tagName(translate_c.optimize)})),
+    switch (conf_tc.flags.optimize) {
+        .debug, .default => {}, // Skip since it's the default.
+        else => argv.appendAssumeCapacity(try allocPrint(arena, "-O{t}", .{conf_tc.flags.optimize})),
     }
 
-    for (translate_c.include_dirs.items) |include_dir| {
-        try include_dir.appendZigProcessFlags(b, &argv_list, step);
-    }
+    try argv.ensureUnusedCapacity(arena, conf_tc.include_dirs.len * 2);
+    for (0..conf_tc.include_dirs.len) |i|
+        try Step.Compile.appendIncludeDirFlags(conf_tc.include_dirs.get(conf.extra, i), &argv, step_index, maker);
 
-    for (translate_c.c_macros.items) |c_macro| {
-        try argv_list.append("-D");
-        try argv_list.append(c_macro);
+    for (conf_tc.c_macros.slice) |c_macro| {
+        (try argv.addManyAsArray(arena, 2)).* = .{ "-D", c_macro.slice(conf) };
     }
 
     var prev_search_strategy: std.Build.Module.SystemLib.SearchStrategy = .paths_first;
     var prev_preferred_link_mode: std.builtin.LinkMode = .dynamic;
+    var seen_system_libs: std.AutoArrayHashMapUnmanaged(Configuration.String, []const []const u8) = .empty;
 
-    for (translate_c.system_libs.items) |*system_lib| {
-        var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .empty;
+    for (conf_tc.system_libs.slice) |system_lib_index| {
+        const system_lib = system_lib_index.get(conf);
+        const system_lib_name = system_lib.name.slice(conf);
         const system_lib_gop = try seen_system_libs.getOrPut(arena, system_lib.name);
         if (system_lib_gop.found_existing) {
-            try argv_list.appendSlice(system_lib_gop.value_ptr.*);
+            try argv.appendSlice(arena, system_lib_gop.value_ptr.*);
             continue;
         } else {
             system_lib_gop.value_ptr.* = &.{};
         }
 
-        if (system_lib.search_strategy != prev_search_strategy or
-            system_lib.preferred_link_mode != prev_preferred_link_mode)
+        if ((system_lib.flags.search_strategy != prev_search_strategy or
+            system_lib.flags.preferred_link_mode != prev_preferred_link_mode))
         {
-            switch (system_lib.search_strategy) {
-                .no_fallback => switch (system_lib.preferred_link_mode) {
-                    .dynamic => try argv_list.append("-search_dylibs_only"),
-                    .static => try argv_list.append("-search_static_only"),
+            try argv.ensureUnusedCapacity(arena, 1);
+            switch (system_lib.flags.search_strategy) {
+                .no_fallback => switch (system_lib.flags.preferred_link_mode) {
+                    .dynamic => argv.appendAssumeCapacity("-search_dylibs_only"),
+                    .static => argv.appendAssumeCapacity("-search_static_only"),
                 },
-                .paths_first => switch (system_lib.preferred_link_mode) {
-                    .dynamic => try argv_list.append("-search_paths_first"),
-                    .static => try argv_list.append("-search_paths_first_static"),
+                .paths_first => switch (system_lib.flags.preferred_link_mode) {
+                    .dynamic => argv.appendAssumeCapacity("-search_paths_first"),
+                    .static => argv.appendAssumeCapacity("-search_paths_first_static"),
                 },
-                .mode_first => switch (system_lib.preferred_link_mode) {
-                    .dynamic => try argv_list.append("-search_dylibs_first"),
-                    .static => try argv_list.append("-search_static_first"),
+                .mode_first => switch (system_lib.flags.preferred_link_mode) {
+                    .dynamic => argv.appendAssumeCapacity("-search_dylibs_first"),
+                    .static => argv.appendAssumeCapacity("-search_static_first"),
                 },
             }
-            prev_search_strategy = system_lib.search_strategy;
-            prev_preferred_link_mode = system_lib.preferred_link_mode;
+            prev_search_strategy = system_lib.flags.search_strategy;
+            prev_preferred_link_mode = system_lib.flags.preferred_link_mode;
         }
 
         const prefix: []const u8 = prefix: {
-            if (system_lib.needed) break :prefix "-needed-l";
-            if (system_lib.weak) break :prefix "-weak-l";
+            if (system_lib.flags.needed) break :prefix "-needed-l";
+            if (system_lib.flags.weak) break :prefix "-weak-l";
             break :prefix "-l";
         };
-        switch (system_lib.use_pkg_config) {
-            .no => try argv_list.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
-            .yes, .force => {
-                if (Step.Compile.runPkgConfig(&translate_c.step, system_lib.name)) |result| {
-                    try argv_list.appendSlice(result.cflags);
-                    try argv_list.appendSlice(result.libs);
-                    try seen_system_libs.put(arena, system_lib.name, result.cflags);
-                } else |err| switch (err) {
-                    error.PkgConfigInvalidOutput,
-                    error.PkgConfigCrashed,
-                    error.PkgConfigFailed,
-                    error.PkgConfigNotInstalled,
-                    error.PackageNotFound,
-                    => switch (system_lib.use_pkg_config) {
-                        .yes => {
-                            // pkg-config failed, so fall back to linking the library
-                            // by name directly.
-                            try argv_list.append(b.fmt("{s}{s}", .{
-                                prefix,
-                                system_lib.name,
-                            }));
-                        },
-                        .force => {
-                            std.debug.panic("pkg-config failed for library {s}", .{system_lib.name});
-                        },
-                        .no => unreachable,
-                    },
+        l: {
+            pc: {
+                const force = switch (system_lib.flags.use_pkg_config) {
+                    .no => break :pc,
+                    .yes => false,
+                    .force => true,
+                };
 
+                const pkg_conf_node = progress_node.start("pkg-config", 0);
+                defer pkg_conf_node.end();
+
+                if (PkgConfig.run(maker, step, pkg_conf_node, system_lib_name, force)) |result| {
+                    try argv.appendSlice(arena, result.cflags);
+                    try argv.appendSlice(arena, result.libs);
+                    try seen_system_libs.put(arena, system_lib.name, result.cflags);
+                    break :l;
+                } else |err| switch (err) {
+                    error.PkgConfigUnavailable,
+                    error.PackageNotFound,
+                    => {
+                        // pkg-config failed, so fall back to linking the library by name directly.
+                        assert(!force);
+                        break :pc;
+                    },
                     else => |e| return e,
                 }
-            },
+            }
+            try argv.append(arena, try allocPrint(arena, "{s}{s}", .{
+                prefix, system_lib_name,
+            }));
         }
     }
 
-    const c_source_path = translate_c.source.getPath2(b, step);
-    try argv_list.append(c_source_path);
+    try argv.ensureUnusedCapacity(arena, 2);
 
-    try argv_list.append("--listen=-");
-    const output_dir = try step.evalZigProcess(argv_list.items, prog_node, false, options.web_server, options.gpa);
+    const c_source_path = try maker.resolveLazyPathIndexAbs(arena, conf_tc.src_path, step_index);
+    argv.appendAssumeCapacity(c_source_path);
 
-    const basename = std.fs.path.stem(std.fs.path.basename(c_source_path));
-    translate_c.out_basename = b.fmt("{s}.zig", .{basename});
-    translate_c.output_file.path = output_dir.?.joinString(b.allocator, translate_c.out_basename) catch @panic("OOM");
+    argv.appendAssumeCapacity("--listen=-");
+    const output_dir_path = (Step.evalZigProcess(step_index, maker, argv.items, progress_node, false) catch |err| switch (err) {
+        error.NeedCompileErrorCheck => unreachable,
+        else => |e| return e,
+    }).?;
+
+    const stem = Io.Dir.path.stem(Io.Dir.path.basename(c_source_path));
+    const out_basename = try allocPrint(arena, "{s}.zig", .{stem});
+
+    maker.generatedPath(conf_tc.output_file).* = try output_dir_path.join(arena, out_basename);
 }
