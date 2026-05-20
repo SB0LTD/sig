@@ -3013,6 +3013,13 @@ fn loadArchive(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void
             continue;
         }
         load_object: {
+            if (std.mem.eql(u8, &header.ar_name, std.elf.SYMNAME) or
+                std.mem.eql(u8, &header.ar_name, std.elf.SYM64NAME) or
+                std.mem.eql(u8, &header.ar_name, std.elf.SYMDEFNAME) or
+                std.mem.eql(u8, &header.ar_name, std.elf.SYMDEFSORTEDNAME))
+            {
+                break :load_object;
+            }
             const member = header.name() orelse member: {
                 const strtab_offset = header.nameOffset() catch |err| switch (err) {
                     error.Overflow => break :member error.Overflow,
@@ -3028,7 +3035,6 @@ fn loadArchive(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void
             } catch |err| switch (err) {
                 error.Overflow => return diags.failParse(path, "bad member name offset", .{}),
             };
-            if (!std.mem.endsWith(u8, member, ".o")) break :load_object;
             try elf.loadObject(path, member, fr, .{ .offset = offset, .size = size });
         }
         try fr.seekTo(std.mem.alignForward(u64, offset + size, 2));
