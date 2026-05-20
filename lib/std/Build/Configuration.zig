@@ -2437,6 +2437,7 @@ pub const TargetQuery = struct {
             };
         }
     };
+
     pub const ObjectFormat = enum(u4) {
         c,
         coff,
@@ -2451,8 +2452,17 @@ pub const TargetQuery = struct {
         default,
 
         pub fn init(x: ?std.Target.ObjectFormat) @This() {
-            // TODO comptime assert the enums match
-            return @enumFromInt(@intFromEnum(x orelse return .default));
+            return switch (x orelse return .default) {
+                .c => .c,
+                .coff => .coff,
+                .elf => .elf,
+                .hex => .hex,
+                .macho => .macho,
+                .plan9 => .plan9,
+                .raw => .raw,
+                .spirv => .spirv,
+                .wasm => .wasm,
+            };
         }
 
         pub fn unwrap(this: @This()) ?std.Target.ObjectFormat {
