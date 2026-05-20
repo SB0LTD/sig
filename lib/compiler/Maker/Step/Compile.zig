@@ -2,6 +2,7 @@ const Compile = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const mem = std.mem;
 const Configuration = std.Build.Configuration;
 const Dir = std.Io.Dir;
 const Path = std.Build.Cache.Path;
@@ -9,7 +10,6 @@ const Module = std.Build.Configuration.Module;
 const Io = std.Io;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const assert = std.debug.assert;
-const mem = std.mem;
 const allocPrint = std.fmt.allocPrint;
 
 const Step = @import("../Step.zig");
@@ -51,7 +51,7 @@ pub fn make(
         (graph.incremental == true) and (maker.watch or maker.web_server != null),
     ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
-            try checkCompileErrors(compile, maker);
+            try checkCompileErrors(maker, compile_index);
             return;
         },
         else => |e| return e,
@@ -518,7 +518,7 @@ fn lowerZigArgs(
                         const import_cli_name = cli_named_modules.names.keys()[import_index];
                         zig_args.appendAssumeCapacity("--dep");
                         const name_slice = name.slice(conf);
-                        if (std.mem.eql(u8, import_cli_name, name_slice)) {
+                        if (mem.eql(u8, import_cli_name, name_slice)) {
                             zig_args.appendAssumeCapacity(import_cli_name);
                         } else {
                             zig_args.appendAssumeCapacity(try allocPrint(arena, "{s}={s}", .{
@@ -898,8 +898,8 @@ fn lowerZigArgs(
 
         // Write the args to zig-cache/args/<SHA256 hash of args> to avoid conflicts with
         // other zig build commands running in parallel.
-        const partially_quoted = try std.mem.join(arena, "\" \"", escaped_args.items);
-        const args = try std.mem.concat(arena, u8, &[_][]const u8{ "\"", partially_quoted, "\"" });
+        const partially_quoted = try mem.join(arena, "\" \"", escaped_args.items);
+        const args = try mem.concat(arena, u8, &[_][]const u8{ "\"", partially_quoted, "\"" });
 
         var args_hash: [Sha256.digest_length]u8 = undefined;
         Sha256.hash(args, &args_hash, .{});
@@ -943,24 +943,30 @@ fn lowerZigArgs(
     }
 }
 
-pub fn rebuildInFuzzMode(compile: *Compile, maker: *Maker, progress_node: std.Progress.Node) !Path {
+pub fn rebuildInFuzzMode(
+    compile: *Compile,
+    maker: *Maker,
+    step_index: Configuration.Step.Index,
+    progress_node: std.Progress.Node,
+) !Path {
     const gpa = maker.graph.gpa;
+    const step = maker.stepByIndex(step_index);
 
-    compile.step.result_error_msgs.clearRetainingCapacity();
-    compile.step.result_stderr = "";
+    step.result_error_msgs.clearRetainingCapacity();
+    step.result_stderr = "";
 
-    compile.step.result_error_bundle.deinit(gpa);
-    compile.step.result_error_bundle = std.zig.ErrorBundle.empty;
+    step.result_error_bundle.deinit(gpa);
+    step.result_error_bundle = std.zig.ErrorBundle.empty;
 
-    if (compile.step.result_failed_command) |cmd| {
+    if (step.result_failed_command) |cmd| {
         gpa.free(cmd);
-        compile.step.result_failed_command = null;
+        step.result_failed_command = null;
     }
 
     const zig_args = &compile.zig_args;
     zig_args.clearRetainingCapacity();
     try lowerZigArgs(compile, maker, progress_node, zig_args, true);
-    const maybe_output_bin_path = try compile.step.evalZigProcess(zig_args.items, progress_node, false, maker);
+    const maybe_output_bin_path = try step.evalZigProcess(zig_args.items, progress_node, false, maker);
     return maybe_output_bin_path.?;
 }
 
@@ -973,35 +979,43 @@ fn addFlag(gpa: Allocator, args: *std.ArrayList([]const u8), comptime name: []co
     try args.append(gpa, if (cond) "-f" ++ name else "-fno-" ++ name);
 }
 
-fn checkCompileErrors(compile: *Compile, maker: *Maker) !void {
-    if (true) @panic("TODO checkCompileErrors");
-    // Clear this field so that it does not get printed by the build runner.
-    const actual_eb = compile.step.result_error_bundle;
-    compile.step.result_error_bundle = .empty;
+fn checkCompileErrors(
+    maker: *Maker,
+    step_index: Configuration.Step.Index,
+) Step.ExtendedMakeError!void {
+    const step = maker.stepByIndex(step_index);
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into the process arena
+    const conf = &maker.scanned_config.configuration;
+    const conf_step = step_index.ptr(conf);
+    const conf_comp = conf_step.extended.get(conf.extra).compile;
 
-    const arena = compile.step.owner.allocator;
+    // Clear this field so that it does not get printed by the build runner.
+    const actual_eb = step.result_error_bundle;
+    step.result_error_bundle = .empty;
 
     const actual_errors = ae: {
         var aw: std.Io.Writer.Allocating = .init(arena);
         defer aw.deinit();
-        try actual_eb.renderToWriter(.{
+        actual_eb.renderToWriter(.{
             .include_reference_trace = false,
             .include_source_line = false,
-        }, &aw.writer);
+        }, &aw.writer) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
         break :ae try aw.toOwnedSlice();
     };
 
     // Render the expected lines into a string that we can compare verbatim.
     var expected_generated: std.ArrayList(u8) = .empty;
-    const expect_errors = compile.expect_errors.?;
-
     var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');
 
-    // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
-    switch (expect_errors) {
-        .starts_with => |expect_starts_with| {
-            if (std.mem.startsWith(u8, actual_errors, expect_starts_with)) return;
-            return compile.step.fail(maker,
+    switch (conf_comp.expect_errors.u) {
+        .none => unreachable,
+        .starts_with => |expect_starts_with_string| {
+            const expect_starts_with = expect_starts_with_string.slice(conf);
+            if (mem.startsWith(u8, actual_errors, expect_starts_with)) return;
+            return step.fail(maker,
                 \\
                 \\========= should start with: ============
                 \\{s}
@@ -1010,13 +1024,14 @@ fn checkCompileErrors(compile: *Compile, maker: *Maker) !void {
                 \\=========================================
             , .{ expect_starts_with, actual_errors });
         },
-        .contains => |expect_line| {
+        .contains => |expect_line_string| {
+            const expect_line = expect_line_string.slice(conf);
             while (actual_line_it.next()) |actual_line| {
                 if (!matchCompileError(actual_line, expect_line)) continue;
                 return;
             }
 
-            return compile.step.fail(maker,
+            return step.fail(maker,
                 \\
                 \\========= should contain: ===============
                 \\{s}
@@ -1025,12 +1040,13 @@ fn checkCompileErrors(compile: *Compile, maker: *Maker) !void {
                 \\=========================================
             , .{ expect_line, actual_errors });
         },
-        .stderr_contains => |expect_line| {
-            const actual_stderr: []const u8 = if (compile.step.result_error_msgs.items.len > 0)
-                compile.step.result_error_msgs.items[0]
+        .stderr_contains => |expect_line_string| {
+            const expect_line = expect_line_string.slice(conf);
+            const actual_stderr: []const u8 = if (step.result_error_msgs.items.len > 0)
+                step.result_error_msgs.items[0]
             else
                 &.{};
-            compile.step.result_error_msgs.clearRetainingCapacity();
+            step.result_error_msgs.clearRetainingCapacity();
 
             var stderr_line_it = mem.splitScalar(u8, actual_stderr, '\n');
 
@@ -1039,7 +1055,7 @@ fn checkCompileErrors(compile: *Compile, maker: *Maker) !void {
                 return;
             }
 
-            return compile.step.fail(maker,
+            return step.fail(maker,
                 \\
                 \\========= should contain: ===============
                 \\{s}
@@ -1049,7 +1065,8 @@ fn checkCompileErrors(compile: *Compile, maker: *Maker) !void {
             , .{ expect_line, actual_stderr });
         },
         .exact => |expect_lines| {
-            for (expect_lines) |expect_line| {
+            for (expect_lines.slice) |expect_line_string| {
+                const expect_line = expect_line_string.slice(conf);
                 const actual_line = actual_line_it.next() orelse {
                     try expected_generated.appendSlice(arena, expect_line);
                     try expected_generated.append(arena, '\n');
@@ -1066,7 +1083,7 @@ fn checkCompileErrors(compile: *Compile, maker: *Maker) !void {
 
             if (mem.eql(u8, expected_generated.items, actual_errors)) return;
 
-            return compile.step.fail(maker,
+            return step.fail(maker,
                 \\
                 \\========= expected: =====================
                 \\{s}
