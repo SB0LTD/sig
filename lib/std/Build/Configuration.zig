@@ -2696,7 +2696,7 @@ pub const TargetQuery = struct {
                 null,
             .android_api_level = tq.android_api_level.value,
             .abi = tq.flags.abi.unwrap(),
-            .dynamic_linker = .init(if (tq.dynamic_linker.value) |s| s.slice(c) else null),
+            .dynamic_linker = if (tq.dynamic_linker.value) |s| .init(s.slice(c)) else null,
             .ofmt = tq.flags.object_format.unwrap(),
         };
     }
