@@ -313,8 +313,6 @@ const Serialize = struct {
                         .producer = true,
                         .generated = false,
                         .dep_file = false,
-                        .target_query = false,
-                        .link_libc = false,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
                     .suffix = .{ .value = null },
@@ -322,7 +320,6 @@ const Serialize = struct {
                     .path = .{ .value = null },
                     .producer = .{ .value = stepIndex(s, &a.artifact.step) },
                     .generated = .{ .value = null },
-                    .target_query = .{ .value = null },
                 },
                 .lazy_path => |a| .{
                     .flags = .{
@@ -334,8 +331,6 @@ const Serialize = struct {
                         .producer = false,
                         .generated = false,
                         .dep_file = false,
-                        .target_query = false,
-                        .link_libc = false,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
                     .suffix = .{ .value = null },
@@ -343,7 +338,6 @@ const Serialize = struct {
                     .path = .{ .value = try addLazyPath(s, a.lazy_path) },
                     .producer = .{ .value = null },
                     .generated = .{ .value = null },
-                    .target_query = .{ .value = null },
                 },
                 .decorated_directory => |a| .{
                     .flags = .{
@@ -355,8 +349,6 @@ const Serialize = struct {
                         .producer = false,
                         .generated = false,
                         .dep_file = false,
-                        .target_query = false,
-                        .link_libc = false,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
                     .suffix = .{ .value = if (a.suffix.len != 0) try wc.addString(a.suffix) else null },
@@ -364,7 +356,6 @@ const Serialize = struct {
                     .path = .{ .value = try addLazyPath(s, a.lazy_path) },
                     .producer = .{ .value = null },
                     .generated = .{ .value = null },
-                    .target_query = .{ .value = null },
                 },
                 .file_content => |a| .{
                     .flags = .{
@@ -376,8 +367,6 @@ const Serialize = struct {
                         .producer = false,
                         .generated = false,
                         .dep_file = false,
-                        .target_query = false,
-                        .link_libc = false,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
                     .suffix = .{ .value = null },
@@ -385,7 +374,6 @@ const Serialize = struct {
                     .path = .{ .value = try addLazyPath(s, a.lazy_path) },
                     .producer = .{ .value = null },
                     .generated = .{ .value = null },
-                    .target_query = .{ .value = null },
                 },
                 .bytes => |a| .{
                     .flags = .{
@@ -397,8 +385,6 @@ const Serialize = struct {
                         .producer = false,
                         .generated = false,
                         .dep_file = false,
-                        .target_query = false,
-                        .link_libc = false,
                     },
                     .prefix = .{ .value = try wc.addString(a) },
                     .suffix = .{ .value = null },
@@ -406,7 +392,6 @@ const Serialize = struct {
                     .path = .{ .value = null },
                     .producer = .{ .value = null },
                     .generated = .{ .value = null },
-                    .target_query = .{ .value = null },
                 },
                 .output_file, .output_file_dep => |a, tag| .{
                     .flags = .{
@@ -418,8 +403,6 @@ const Serialize = struct {
                         .producer = false,
                         .generated = true,
                         .dep_file = tag == .output_file_dep,
-                        .target_query = false,
-                        .link_libc = false,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
                     .suffix = .{ .value = null },
@@ -427,7 +410,6 @@ const Serialize = struct {
                     .path = .{ .value = null },
                     .producer = .{ .value = null },
                     .generated = .{ .value = a.generated_file },
-                    .target_query = .{ .value = null },
                 },
                 .output_directory => |a| .{
                     .flags = .{
@@ -439,8 +421,6 @@ const Serialize = struct {
                         .producer = false,
                         .generated = true,
                         .dep_file = false,
-                        .target_query = false,
-                        .link_libc = false,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
                     .suffix = .{ .value = null },
@@ -448,7 +428,6 @@ const Serialize = struct {
                     .path = .{ .value = null },
                     .producer = .{ .value = null },
                     .generated = .{ .value = a.generated_file },
-                    .target_query = .{ .value = null },
                 },
                 .passthru => .{
                     .flags = .{
@@ -460,8 +439,6 @@ const Serialize = struct {
                         .producer = false,
                         .generated = false,
                         .dep_file = false,
-                        .target_query = false,
-                        .link_libc = false,
                     },
                     .prefix = .{ .value = null },
                     .suffix = .{ .value = null },
@@ -469,28 +446,6 @@ const Serialize = struct {
                     .path = .{ .value = null },
                     .producer = .{ .value = null },
                     .generated = .{ .value = null },
-                    .target_query = .{ .value = null },
-                },
-                .cc_args => |a| .{
-                    .flags = .{
-                        .tag = .cc_args,
-                        .prefix = false,
-                        .suffix = false,
-                        .basename = false,
-                        .path = false,
-                        .producer = false,
-                        .generated = false,
-                        .dep_file = false,
-                        .target_query = a.target_query != .none,
-                        .link_libc = a.link_libc,
-                    },
-                    .prefix = .{ .value = null },
-                    .suffix = .{ .value = null },
-                    .basename = .{ .value = null },
-                    .path = .{ .value = null },
-                    .producer = .{ .value = null },
-                    .generated = .{ .value = null },
-                    .target_query = .{ .value = a.target_query.unwrap() },
                 },
             });
         }

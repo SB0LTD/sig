@@ -586,7 +586,6 @@ pub const Step = extern struct {
             /// Always a compile step.
             producer: Storage.FlagOptional(.flags, .producer, Step.Index),
             generated: Storage.FlagOptional(.flags, .generated, GeneratedFileIndex),
-            target_query: Storage.FlagOptional(.flags, .target_query, TargetQuery.Index),
 
             pub const Flags = packed struct(u32) {
                 tag: Arg.Tag,
@@ -597,9 +596,7 @@ pub const Step = extern struct {
                 producer: bool,
                 generated: bool,
                 dep_file: bool,
-                target_query: bool,
-                link_libc: bool,
-                _: u19 = 0,
+                _: u21 = 0,
             };
 
             pub const Tag = enum(u4) {
@@ -613,7 +610,6 @@ pub const Step = extern struct {
                 output_file,
                 output_directory,
                 passthru,
-                cc_args,
             };
 
             pub const Index = IndexType(@This());
