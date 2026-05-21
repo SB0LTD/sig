@@ -852,9 +852,7 @@ pub const Abi = enum {
                 else => .none,
             },
             .haiku => switch (arch) {
-                .arm,
-                .powerpc,
-                => .eabihf,
+                .arm => .eabihf,
                 else => .none,
             },
             .hurd => .gnu,
@@ -2461,10 +2459,7 @@ pub const DynamicLinker = struct {
             .haiku => switch (cpu.arch) {
                 .arm,
                 .aarch64,
-                .m68k,
-                .powerpc,
                 .riscv64,
-                .sparc64,
                 .x86,
                 .x86_64,
                 => init("/system/runtime_loader"),

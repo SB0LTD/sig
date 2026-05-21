@@ -2600,25 +2600,6 @@ const signal_ucontext_t = switch (native_os) {
                 sp: u64,
                 pc: u64,
             },
-            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/m68k/signal.h
-            .m68k => extern struct {
-                pc: u32 align(8),
-                d: [8]u32,
-                a: [8]u32,
-            },
-            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/ppc/signal.h
-            .powerpc => extern struct {
-                pc: u32 align(8),
-                r: [13]u32, // Um, are you okay, Haiku?
-                _f: [14]f64,
-                _reserved: u32,
-                _fpscr: u32,
-                _ctr: u32,
-                _xer: u32,
-                _cr: u32,
-                _msr: u32,
-                lr: u32,
-            },
             // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/riscv64/signal.h
             .riscv64 => extern struct {
                 ra_sp_gp_tp: [4]u64,
@@ -2629,8 +2610,6 @@ const signal_ucontext_t = switch (native_os) {
                 t3_6: [4]u64,
                 pc: u64,
             },
-            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/sparc64/signal.h
-            .sparc64 => @compileError("sparc64-haiku mcontext_t missing"),
             // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/x86/signal.h
             .x86 => extern struct {
                 eip: u32,
