@@ -552,7 +552,7 @@ pub const Os = struct {
 
                             break :blk default_min;
                         },
-                        .max = .{ .major = 7, .minor = 8, .patch = 0 },
+                        .max = .{ .major = 7, .minor = 9, .patch = 0 },
                     },
                 },
 
