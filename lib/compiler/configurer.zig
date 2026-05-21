@@ -166,11 +166,11 @@ const Serialize = struct {
         const wc = s.wc;
         const gop = try s.package_map.getOrPut(arena, b);
         if (!gop.found_existing) {
-            gop.value_ptr.* = @enumFromInt(try wc.addExtra(@as(Configuration.Package, .{
+            gop.value_ptr.* = try wc.addExtra(Configuration.Package, .{
                 .hash = try wc.addString(b.pkg_hash),
                 .dep_prefix = try wc.addString(b.dep_prefix),
                 .root_path = try wc.addString(try b.root.toString(arena)),
-            })));
+            });
         }
         return gop.value_ptr.*;
     }
@@ -180,38 +180,38 @@ const Serialize = struct {
         return @enumFromInt(switch (lp orelse return .none) {
             .src_path => |src_path| i: {
                 const sub_path = try wc.addString(src_path.sub_path);
-                break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
+                break :i try wc.addExtraErased(Configuration.LazyPath.SourcePath, .{
                     .owner = try s.builderToPackage(src_path.owner),
                     .sub_path = sub_path,
-                }));
+                });
             },
             .generated => |generated| i: {
                 const sub_path = try wc.addString(generated.sub_path);
-                break :i try wc.addExtra(@as(Configuration.LazyPath.Generated, .{
+                break :i try wc.addExtraErased(Configuration.LazyPath.Generated, .{
                     .flags = .{ .up = @intCast(generated.up) },
                     .index = generated.index,
                     .sub_path = sub_path,
-                }));
+                });
             },
             .cwd_relative => |cwd_relative_sub_path| i: {
                 const sub_path = try wc.addString(cwd_relative_sub_path);
-                break :i try wc.addExtra(@as(Configuration.LazyPath.Relative, .{
+                break :i try wc.addExtraErased(Configuration.LazyPath.Relative, .{
                     .flags = .{ .base = .cwd },
                     .sub_path = sub_path,
-                }));
+                });
             },
             .relative => |relative| i: {
-                break :i try wc.addExtra(@as(Configuration.LazyPath.Relative, .{
+                break :i try wc.addExtraErased(Configuration.LazyPath.Relative, .{
                     .flags = .{ .base = relative.base },
                     .sub_path = relative.sub_path,
-                }));
+                });
             },
             .dependency => |dependency| i: {
                 const sub_path = try wc.addString(dependency.sub_path);
-                break :i try wc.addExtra(@as(Configuration.LazyPath.SourcePath, .{
+                break :i try wc.addExtraErased(Configuration.LazyPath.SourcePath, .{
                     .owner = try s.builderToPackage(dependency.dependency.builder),
                     .sub_path = sub_path,
-                }));
+                });
             },
         });
     }
@@ -249,21 +249,21 @@ const Serialize = struct {
     fn addCSourceFile(s: *Serialize, csf: *const std.Build.Module.CSourceFile) !Configuration.CSourceFile.Index {
         const wc = s.wc;
         const args = try initStringList(s, csf.flags);
-        return @enumFromInt(try wc.addExtra(@as(Configuration.CSourceFile, .{
+        return try wc.addExtra(Configuration.CSourceFile, .{
             .flags = .{
                 .args_len = @intCast(args.len),
                 .lang = .init(csf.language),
             },
             .file = try addLazyPath(s, csf.file),
             .args = .{ .slice = args },
-        })));
+        });
     }
 
     fn addCSourceFiles(s: *Serialize, csf: *const std.Build.Module.CSourceFiles) !Configuration.CSourceFiles.Index {
         const wc = s.wc;
         const sub_paths = try initStringList(s, csf.files);
         const args = try initStringList(s, csf.flags);
-        return @enumFromInt(try wc.addExtra(@as(Configuration.CSourceFiles, .{
+        return try wc.addExtra(Configuration.CSourceFiles, .{
             .flags = .{
                 .args_len = @intCast(args.len),
                 .lang = .init(csf.language),
@@ -271,14 +271,14 @@ const Serialize = struct {
             .root = try addLazyPath(s, csf.root),
             .sub_paths = .{ .slice = sub_paths },
             .args = .{ .slice = args },
-        })));
+        });
     }
 
     fn addRcSourceFile(s: *Serialize, rsf: *const std.Build.Module.RcSourceFile) !Configuration.RcSourceFile.Index {
         const wc = s.wc;
         const include_paths = try initLazyPathList(s, rsf.include_paths);
         const args = try initStringList(s, rsf.flags);
-        return @enumFromInt(try wc.addExtra(@as(Configuration.RcSourceFile, .{
+        return try wc.addExtra(Configuration.RcSourceFile, .{
             .flags = .{
                 .args_len = @intCast(args.len),
                 .include_paths = include_paths.len != 0,
@@ -286,7 +286,7 @@ const Serialize = struct {
             .file = try addLazyPath(s, rsf.file),
             .include_paths = .{ .slice = include_paths },
             .args = .{ .slice = args },
-        })));
+        });
     }
 
     fn addEnvironMap(s: *Serialize, opt_map: ?*std.process.Environ.Map) !?Configuration.EnvironMap.Index {
@@ -302,7 +302,7 @@ const Serialize = struct {
         const wc = s.wc;
         const result = try s.arena.alloc(Configuration.Step.Run.Arg.Index, args.len);
         for (result, args) |*dest, src| {
-            dest.* = @enumFromInt(try wc.addExtra(@as(Configuration.Step.Run.Arg, switch (src) {
+            dest.* = try wc.addExtra(Configuration.Step.Run.Arg, switch (src) {
                 .artifact => |a| .{
                     .flags = .{
                         .tag = .artifact,
@@ -492,7 +492,7 @@ const Serialize = struct {
                     .generated = .{ .value = null },
                     .target_query = .{ .value = a.target_query.unwrap() },
                 },
-            })));
+            });
         }
         return result;
     }
@@ -580,7 +580,7 @@ const Serialize = struct {
         const c_macros = try initStringList(s, m.c_macros.items);
         const export_symbol_names = try initStringList(s, m.export_symbol_names);
 
-        const module_index: Configuration.Module.Index = @enumFromInt(try wc.addExtra(@as(Configuration.Module, .{
+        const module_index: Configuration.Module.Index = try wc.addExtra(Configuration.Module, .{
             .flags = .{
                 .optimize = .init(m.optimize),
                 .strip = .init(m.strip),
@@ -622,7 +622,7 @@ const Serialize = struct {
             .rpaths = .init(rpaths),
             .link_objects = .init(link_objects),
             .frameworks = .{ .slice = frameworks },
-        })));
+        });
 
         // The import table is the only place that modules can form dependency
         // loops. Therefore, we populate the module indexes only after adding
@@ -699,12 +699,12 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                 .owner = try s.builderToPackage(step.owner),
                 .deps = deps,
                 .max_rss = .fromBytes(step.max_rss),
-                .extended = switch (step.tag) {
+                .extended = @enumFromInt(switch (step.tag) {
                     .top_level => e: {
                         const top_level: *Step.TopLevel = @fieldParentPtr("step", step);
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.TopLevel, .{
+                        break :e try wc.addExtraErased(Configuration.Step.TopLevel, .{
                             .description = try wc.addString(top_level.description),
-                        })));
+                        });
                     },
                     .compile => e: {
                         const c: *Step.Compile = @fieldParentPtr("step", step);
@@ -712,14 +712,14 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                         const installed_headers: []u32 = try arena.alloc(u32, c.installed_headers.items.len);
                         for (installed_headers, c.installed_headers.items) |*dst, src| switch (src) {
                             .file => |file| {
-                                dst.* = try wc.addExtra(@as(Configuration.Step.Compile.InstalledHeader.File, .{
+                                dst.* = try wc.addExtraErased(Configuration.Step.Compile.InstalledHeader.File, .{
                                     .source = try s.addLazyPath(file.source),
                                     .dest_sub_path = try wc.addString(file.dest_rel_path),
-                                }));
+                                });
                             },
                             .directory => |directory| {
                                 const include_extensions = directory.options.include_extensions orelse &.{};
-                                dst.* = try wc.addExtra(@as(Configuration.Step.Compile.InstalledHeader.Directory, .{
+                                dst.* = try wc.addExtraErased(Configuration.Step.Compile.InstalledHeader.Directory, .{
                                     .flags = .{
                                         .include_extensions = include_extensions.len != 0,
                                         .exclude_extensions = directory.options.exclude_extensions.len != 0,
@@ -728,11 +728,11 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                     .dest_sub_path = try wc.addString(directory.dest_rel_path),
                                     .exclude_extensions = .{ .slice = try s.initStringList(directory.options.exclude_extensions) },
                                     .include_extensions = .{ .slice = try s.initStringList(include_extensions) },
-                                }));
+                                });
                             },
                         };
 
-                        const extra_index = try wc.addExtra(@as(Configuration.Step.Compile, .{
+                        break :e try wc.addExtraErased(Configuration.Step.Compile, .{
                             .flags = .{
                                 .filters_len = c.filters.len != 0,
                                 .exec_cmd_args_len = exec_cmd_args.len != 0,
@@ -891,13 +891,11 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .generated_llvm_bc = .{ .value = c.generated_llvm_bc.unwrap() },
                             .generated_llvm_ir = .{ .value = c.generated_llvm_ir.unwrap() },
                             .generated_h = .{ .value = c.generated_h.unwrap() },
-                        }));
-
-                        break :e @enumFromInt(extra_index);
+                        });
                     },
                     .install_artifact => e: {
                         const ia: *Step.InstallArtifact = @fieldParentPtr("step", step);
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.InstallArtifact, .{
+                        break :e try wc.addExtraErased(Configuration.Step.InstallArtifact, .{
                             .flags = .{
                                 .dylib_symlinks = ia.dylib_symlinks,
                                 .bin_dir = ia.dest_dir != null,
@@ -911,15 +909,15 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .pdb_dir = .{ .value = try addInstallDirDefaultNull(wc, ia.pdb_dir) },
                             .h_dir = .{ .value = try addInstallDirDefaultNull(wc, ia.h_dir) },
                             .bin_sub_path = .{ .value = try s.addOptionalString(ia.dest_sub_path) },
-                        })));
+                        });
                     },
                     .install_file => e: {
                         const sif: *Step.InstallFile = @fieldParentPtr("step", step);
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.InstallFile, .{
+                        break :e try wc.addExtraErased(Configuration.Step.InstallFile, .{
                             .source = try s.addLazyPath(sif.source),
                             .dest_dir = try addInstallDir(wc, sif.dir),
                             .dest_sub_path = try wc.addString(sif.dest_rel_path),
-                        })));
+                        });
                     },
                     .install_dir => e: {
                         const sid: *Step.InstallDir = @fieldParentPtr("step", step);
@@ -928,7 +926,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                         else
                             null;
                         const include_extensions = sid.options.include_extensions orelse &.{};
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.InstallDir, .{
+                        break :e try wc.addExtraErased(Configuration.Step.InstallDir, .{
                             .flags = .{
                                 .dest_sub_path = dest_sub_path != null,
                                 .exclude_extensions = sid.options.exclude_extensions.len != 0,
@@ -942,18 +940,18 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .exclude_extensions = .{ .slice = try s.initStringList(sid.options.exclude_extensions) },
                             .include_extensions = .{ .slice = try s.initStringList(include_extensions) },
                             .blank_extensions = .{ .slice = try s.initStringList(sid.options.blank_extensions) },
-                        })));
+                        });
                     },
                     .fail => e: {
                         const sf: *Step.Fail = @fieldParentPtr("step", step);
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.Fail, .{
+                        break :e try wc.addExtraErased(Configuration.Step.Fail, .{
                             .msg = sf.error_msg,
-                        })));
+                        });
                     },
                     .find_program => @panic("TODO"),
                     .fmt => e: {
                         const sf: *Step.Fmt = @fieldParentPtr("step", step);
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.Fmt, .{
+                        break :e try wc.addExtraErased(Configuration.Step.Fmt, .{
                             .flags = .{
                                 .paths = sf.paths.len != 0,
                                 .exclude_paths = sf.exclude_paths.len != 0,
@@ -961,7 +959,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             },
                             .paths = .{ .slice = try s.initLazyPathList(sf.paths) },
                             .exclude_paths = .{ .slice = try s.initLazyPathList(sf.exclude_paths) },
-                        })));
+                        });
                     },
                     .translate_c => e: {
                         const tc: *Step.TranslateC = @fieldParentPtr("step", step);
@@ -969,7 +967,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                         const system_libs = try arena.alloc(Configuration.SystemLib.Index, tc.system_libs.items.len);
                         for (system_libs, tc.system_libs.items) |*dest, *src| dest.* = try s.addSystemLib(src);
 
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.TranslateC, .{
+                        break :e try wc.addExtraErased(Configuration.Step.TranslateC, .{
                             .flags = .{
                                 .include_dirs = tc.include_dirs.items.len != 0,
                                 .system_libs = system_libs.len != 0,
@@ -983,7 +981,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .system_libs = .{ .slice = system_libs },
                             .c_macros = .{ .slice = tc.c_macros.items },
                             .target = try addOptionalResolvedTarget(wc, tc.target),
-                        })));
+                        });
                     },
                     .write_file => e: {
                         const wf: *Step.WriteFile = @fieldParentPtr("step", step);
@@ -999,7 +997,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .include_extensions = src.include_extensions,
                         };
 
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.WriteFile, .{
+                        break :e try wc.addExtraErased(Configuration.Step.WriteFile, .{
                             .flags = .{
                                 .embeds = wf.embeds.items.len != 0,
                                 .copies = wf.copies.items.len != 0,
@@ -1018,18 +1016,18 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .mutate => |lp| try s.addLazyPath(lp),
                                 .whole_cached, .tmp => null,
                             } },
-                        })));
+                        });
                     },
                     .update_source_files => e: {
                         const usf: *Step.UpdateSourceFiles = @fieldParentPtr("step", step);
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.UpdateSourceFiles, .{
+                        break :e try wc.addExtraErased(Configuration.Step.UpdateSourceFiles, .{
                             .flags = .{
                                 .embeds = usf.embeds.items.len != 0,
                                 .copies = usf.copies.items.len != 0,
                             },
                             .embeds = .{ .slice = usf.embeds.items },
                             .copies = .{ .slice = try s.initCopyList(usf.copies.items) },
-                        })));
+                        });
                     },
                     .run => e: {
                         const run: *Step.Run = @fieldParentPtr("step", step);
@@ -1061,7 +1059,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             else => {},
                         }
 
-                        const extra_index = try wc.addExtra(@as(Configuration.Step.Run, .{
+                        break :e try wc.addExtraErased(Configuration.Step.Run, .{
                             .flags = .{
                                 .disable_zig_progress = run.disable_zig_progress,
                                 .skip_foreign_checks = run.skip_foreign_checks,
@@ -1121,12 +1119,11 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .bytes => |bytes| .{ .bytes = try wc.addBytes(bytes) },
                                 .lazy_path => |lp| .{ .lazy_path = try s.addLazyPath(lp) },
                             } },
-                        }));
-                        break :e @enumFromInt(extra_index);
+                        });
                     },
                     .check_file => e: {
                         const cf: *Step.CheckFile = @fieldParentPtr("step", step);
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.CheckFile, .{
+                        break :e try wc.addExtraErased(Configuration.Step.CheckFile, .{
                             .flags = .{
                                 .expected_exact = cf.expected_exact != null,
                                 .expected_matches = cf.expected_matches.len != 0,
@@ -1136,7 +1133,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .expected_exact = .{ .value = cf.expected_exact },
                             .expected_matches = .{ .slice = cf.expected_matches },
                             .max_bytes = .{ .value = cf.max_bytes },
-                        })));
+                        });
                     },
                     .config_header => e: {
                         const ch: *Step.ConfigHeader = @fieldParentPtr("step", step);
@@ -1154,11 +1151,9 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .int => |x| switch (x) {
                                     0 => .int_0,
                                     1 => .int_1,
-                                    else => @enumFromInt(try wc.addExtra(
-                                        Configuration.Step.ConfigHeader.Value.initSigned(x),
-                                    )),
+                                    else => try wc.addExtra(Configuration.Step.ConfigHeader.Value, .initSigned(x)),
                                 },
-                                .ident => |x| @enumFromInt(try wc.addExtra(@as(Configuration.Step.ConfigHeader.Value, .{
+                                .ident => |x| try wc.addExtra(Configuration.Step.ConfigHeader.Value, .{
                                     .flags = .{
                                         .tag = .ident,
                                         .small = 0,
@@ -1167,8 +1162,8 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                     .u64 = .{ .value = null },
                                     .ident = .{ .value = try wc.addString(x) },
                                     .string = .{ .value = null },
-                                }))),
-                                .string => |x| @enumFromInt(try wc.addExtra(@as(Configuration.Step.ConfigHeader.Value, .{
+                                }),
+                                .string => |x| try wc.addExtra(Configuration.Step.ConfigHeader.Value, .{
                                     .flags = .{
                                         .tag = .string,
                                         .small = 0,
@@ -1177,10 +1172,10 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                     .u64 = .{ .value = null },
                                     .ident = .{ .value = null },
                                     .string = .{ .value = try wc.addString(x) },
-                                }))),
+                                }),
                             },
                         };
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.ConfigHeader, .{
+                        break :e try wc.addExtraErased(Configuration.Step.ConfigHeader, .{
                             .flags = .{
                                 .template_file = lazy_path != null,
                                 .style = .init(ch.style),
@@ -1193,7 +1188,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .include_path = try wc.addString(ch.include_path),
                             .include_guard = .{ .value = ch.include_guard.unwrap() },
                             .values = .{ .slice = pairs },
-                        })));
+                        });
                     },
                     .obj_copy => e: {
                         const oc: *Step.ObjCopy = @fieldParentPtr("step", step);
@@ -1217,7 +1212,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .file_path = try s.addLazyPath(src.file_path),
                         };
 
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.ObjCopy, .{
+                        break :e try wc.addExtraErased(Configuration.Step.ObjCopy, .{
                             .flags = .{
                                 .basename = oc.basename != .none,
                                 .debug_file = debug_file != null,
@@ -1239,7 +1234,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .pad_to = .{ .value = oc.pad_to },
                             .add_section = .{ .slice = add_sections },
                             .update_section = .{ .slice = oc.update_sections.items },
-                        })));
+                        });
                     },
                     .options => e: {
                         const so: *Step.Options = @fieldParentPtr("step", step);
@@ -1250,16 +1245,16 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .path = try s.addLazyPath(src.path),
                         };
 
-                        break :e @enumFromInt(try wc.addExtra(@as(Configuration.Step.Options, .{
+                        break :e try wc.addExtraErased(Configuration.Step.Options, .{
                             .flags = .{
                                 .args = so.args.items.len != 0,
                             },
                             .generated_file = so.generated_file,
                             .contents = try wc.addBytes(so.contents.items),
                             .args = .{ .slice = args },
-                        })));
+                        });
                     },
-                },
+                }),
             });
         }
     }

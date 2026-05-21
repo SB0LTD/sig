@@ -254,7 +254,7 @@ pub const Wip = struct {
             null;
         const cpu_features_add_empty = q.cpu_features_add.isEmpty();
         const cpu_features_sub_empty = q.cpu_features_sub.isEmpty();
-        const result_index: TargetQuery.Index = @enumFromInt(try wip.addExtra(@as(TargetQuery, .{
+        const result_index: TargetQuery.Index = try wip.addExtra(TargetQuery, .{
             .flags = .{
                 .cpu_arch = .init(q.cpu_arch),
                 .cpu_model = .init(q.cpu_model),
@@ -277,7 +277,7 @@ pub const Wip = struct {
             .cpu_name = .{ .value = cpu_name },
             .os_version_min = .{ .u = os_version_min },
             .os_version_max = .{ .u = os_version_max },
-        })));
+        });
 
         // Deduplicate.
         const gop = try wip.targets_table.getOrPutContext(gpa, result_index, @as(TargetsTableContext, .{
@@ -329,7 +329,7 @@ pub const Wip = struct {
         };
         const dynamic_linker: ?String = if (t.dynamic_linker.get()) |dl| try wip.addString(dl) else null;
         const cpu_features_add_empty = t.cpu.features.isEmpty();
-        const result_index: TargetQuery.Index = @enumFromInt(try wip.addExtra(@as(TargetQuery, .{
+        const result_index = try wip.addExtra(TargetQuery, .{
             .flags = .{
                 .cpu_arch = .init(t.cpu.arch),
                 .cpu_model = .explicit,
@@ -352,7 +352,7 @@ pub const Wip = struct {
             .cpu_name = .{ .value = cpu_name },
             .os_version_min = .{ .u = os_version_min },
             .os_version_max = .{ .u = os_version_max },
-        })));
+        });
 
         // Deduplicate.
         const gop = try wip.targets_table.getOrPutContext(gpa, result_index, @as(TargetsTableContext, .{
@@ -366,10 +366,16 @@ pub const Wip = struct {
         }
     }
 
-    pub fn addExtra(wip: *Wip, extra: anytype) Allocator.Error!u32 {
-        const extra_len = Storage.extraLen(extra);
+    pub fn addExtra(wip: *Wip, comptime T: type, v: T) Allocator.Error!T.Index {
+        const extra_len = Storage.extraLen(v);
         try wip.extra.ensureUnusedCapacity(wip.gpa, extra_len);
-        return addExtraAssumeCapacity(wip, extra);
+        return addExtraReserved(wip, T, v);
+    }
+
+    pub fn addExtraErased(wip: *Wip, comptime T: type, v: T) Allocator.Error!u32 {
+        const extra_len = Storage.extraLen(v);
+        try wip.extra.ensureUnusedCapacity(wip.gpa, extra_len);
+        return addExtraReservedErased(wip, T, v);
     }
 
     /// Same as `addExtra` but uses a hash map to possibly return an already
@@ -382,7 +388,7 @@ pub const Wip = struct {
         try wip.dedupe_table.ensureUnusedCapacityContext(gpa, 1, @as(ExtraSlice.Context, .{
             .extra = wip.extra.items,
         }));
-        const new_index = addExtraAssumeCapacity(wip, v);
+        const new_index = addExtraReservedErased(wip, T, v);
         const len: u32 = @intCast(wip.extra.items.len - new_index);
         assert(len != 0);
         const gop = wip.dedupe_table.getOrPutAssumeCapacityContext(.{
@@ -398,9 +404,13 @@ pub const Wip = struct {
         return @enumFromInt(new_index);
     }
 
-    pub fn addExtraAssumeCapacity(wip: *Wip, extra: anytype) u32 {
+    pub fn addExtraReserved(wip: *Wip, comptime T: type, v: T) T.Index {
+        return @enumFromInt(addExtraReservedErased(wip, T, v));
+    }
+
+    pub fn addExtraReservedErased(wip: *Wip, comptime T: type, v: T) u32 {
         const result: u32 = @intCast(wip.extra.items.len);
-        wip.extra.items.len = Storage.setExtra(wip.extra.allocatedSlice(), result, extra);
+        wip.extra.items.len = Storage.setExtra(wip.extra.allocatedSlice(), result, v);
         return result;
     }
 
