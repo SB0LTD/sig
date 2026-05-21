@@ -2947,7 +2947,7 @@ fn uavMapIndex(
     } else {
         const node = uav_gop.value_ptr.lsi.index().ptr(elf).node;
         if (resolved_align.toStdMem().order(node.alignment(&elf.mf)).compare(.gt)) {
-            node.realign(&elf.mf, resolved_align.toStdMem());
+            try node.realign(&elf.mf, gpa, resolved_align.toStdMem());
         }
     }
     return umi;
