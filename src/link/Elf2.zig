@@ -2554,6 +2554,63 @@ fn initHeaders(
             elf.nodes.appendAssumeCapacity(.{ .segment = tls_phndx });
             elf.phdrs.items[tls_phndx] = elf.ni.tls;
         }
+
+        // Create any always-provided linker-defined symbols. The symbols marking the `INIT_ARRAY`/
+        // `FINI_ARRAY`/`PREINIT_ARRAY` sections are instead created by `createInitFiniArraySection`
+        // when needed (it seems to be legal to leave those undefined if the section doesn't exist).
+
+        try elf.ensureUnusedSymbolCapacity(4, .maybe_global);
+        // Despite the name, `__dso_handle` is necessary even in static binaries.
+        _ = elf.addGlobalSymbolAssumeCapacity(.{
+            .node = Section.Index.text.get(elf).ni,
+            .name = try .string(elf, "__dso_handle"),
+            .value = Section.Index.text.vaddr(elf),
+            .size = 0,
+            .type = .NOTYPE,
+            .bind = .strong,
+            .visibility = .HIDDEN,
+            .shndx = .text,
+        }) catch |err| switch (err) {
+            error.MultipleDefinitions => unreachable, // no inputs are processed yet
+        };
+        _ = elf.addGlobalSymbolAssumeCapacity(.{
+            .node = elf.shndx.plt.get(elf).ni,
+            .name = try .string(elf, "_PROCEDURE_LINKAGE_TABLE_"),
+            .value = elf.shndx.plt.vaddr(elf),
+            .size = 0,
+            .type = .NOTYPE,
+            .bind = .strong,
+            .visibility = .HIDDEN,
+            .shndx = elf.shndx.plt,
+        }) catch |err| switch (err) {
+            error.MultipleDefinitions => unreachable, // no inputs are processed yet
+        };
+        _ = elf.addGlobalSymbolAssumeCapacity(.{
+            .node = elf.shndx.got.get(elf).ni,
+            .name = try .string(elf, "_GLOBAL_OFFSET_TABLE_"),
+            .value = elf.shndx.got.vaddr(elf),
+            .size = 0,
+            .type = .NOTYPE,
+            .bind = .strong,
+            .visibility = .HIDDEN,
+            .shndx = elf.shndx.got,
+        }) catch |err| switch (err) {
+            error.MultipleDefinitions => unreachable, // no inputs are processed yet
+        };
+        if (have_dynamic_section) {
+            _ = elf.addGlobalSymbolAssumeCapacity(.{
+                .node = elf.shndx.dynamic.get(elf).ni,
+                .name = try .string(elf, "_DYNAMIC"),
+                .value = elf.shndx.dynamic.vaddr(elf),
+                .size = 0,
+                .type = .NOTYPE,
+                .bind = .strong,
+                .visibility = .HIDDEN,
+                .shndx = elf.shndx.dynamic,
+            }) catch |err| switch (err) {
+                error.MultipleDefinitions => unreachable, // no inputs are processed yet
+            };
+        }
     } else {
         assert(maybe_interp == null);
         assert(!have_dynamic_section);
