@@ -557,8 +557,6 @@ pub const SealedBox = struct {
 const htest = @import("test.zig");
 
 test "(x)salsa20" {
-    if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24299
-
     const key: [32]u8 = @splat(0x69);
     const nonce: [8]u8 = @splat(0x42);
     const msg: [20]u8 = @splat(0);
@@ -604,8 +602,6 @@ test "xsalsa20poly1305 secretbox" {
 }
 
 test "xsalsa20poly1305 box" {
-    if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24299
-
     const io = std.testing.io;
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
@@ -621,8 +617,6 @@ test "xsalsa20poly1305 box" {
 }
 
 test "xsalsa20poly1305 sealedbox" {
-    if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24299
-
     const io = std.testing.io;
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
