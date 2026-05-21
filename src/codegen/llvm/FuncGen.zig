@@ -7122,8 +7122,8 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
 }
 
 /// This function deliberately does not handle `_BitInt` because it typically
-/// has different ABI than regular integer types, and there is no currently no
-/// way to determine whether a Zig integer type is meant to represent e.g. `int`
+/// has different ABI than regular integer types, and there is currently no way
+/// to determine whether a Zig integer type is meant to represent e.g. `int`
 /// or `_BitInt(32)`.
 pub fn ccAbiPromoteInt(cc: std.lang.CallingConvention, zcu: *Zcu, ty: Type) ?std.lang.Signedness {
     switch (cc) {
@@ -7131,11 +7131,13 @@ pub fn ccAbiPromoteInt(cc: std.lang.CallingConvention, zcu: *Zcu, ty: Type) ?std
         else => {},
     }
 
-    const int_info = switch (ty.zigTypeTag(zcu)) {
+    const ty_tag = ty.zigTypeTag(zcu);
+    const int_info = switch (ty_tag) {
         .bool => Type.u1.intInfo(zcu),
         else => if (ty.isAbiInt(zcu)) ty.intInfo(zcu) else return null,
     };
-    assert(int_info.bits >= 0);
+
+    assert(int_info.bits == 0 or (int_info.bits == 1 and ty_tag == .bool) or std.math.isPowerOfTwo(int_info.bits));
 
     const target = zcu.getTarget();
     return switch (target.cpu.arch) {
@@ -7143,7 +7145,7 @@ pub fn ccAbiPromoteInt(cc: std.lang.CallingConvention, zcu: *Zcu, ty: Type) ?std
         .aarch64_be,
         => switch (target.os.tag) {
             .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (int_info.bits) {
-                8, 16 => int_info.signedness,
+                1, 8, 16 => int_info.signedness,
                 else => null,
             },
             else => null,
@@ -7151,7 +7153,7 @@ pub fn ccAbiPromoteInt(cc: std.lang.CallingConvention, zcu: *Zcu, ty: Type) ?std
 
         .avr,
         => switch (int_info.bits) {
-            8 => int_info.signedness,
+            1, 8 => int_info.signedness,
             else => null,
         },
 
@@ -7162,7 +7164,7 @@ pub fn ccAbiPromoteInt(cc: std.lang.CallingConvention, zcu: *Zcu, ty: Type) ?std
         .riscv64,
         .riscv64be,
         => switch (int_info.bits) {
-            8, 16 => int_info.signedness,
+            1, 8, 16 => int_info.signedness,
             32 => .signed,
             else => null,
         },
@@ -7172,7 +7174,7 @@ pub fn ccAbiPromoteInt(cc: std.lang.CallingConvention, zcu: *Zcu, ty: Type) ?std
         .mips64,
         .mips64el,
         => switch (int_info.bits) {
-            8, 16, 64 => int_info.signedness,
+            1, 8, 16, 64 => int_info.signedness,
             32 => .signed,
             else => null,
         },
@@ -7183,12 +7185,12 @@ pub fn ccAbiPromoteInt(cc: std.lang.CallingConvention, zcu: *Zcu, ty: Type) ?std
         .sparc64,
         .ve,
         => switch (int_info.bits) {
-            8, 16, 32 => int_info.signedness,
+            1, 8, 16, 32 => int_info.signedness,
             else => null,
         },
 
         else => switch (int_info.bits) {
-            8, 16 => int_info.signedness,
+            1, 8, 16 => int_info.signedness,
             else => null,
         },
     };
