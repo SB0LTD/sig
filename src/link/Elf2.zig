@@ -92,6 +92,8 @@ lazy: std.EnumArray(link.File.LazySymbol.Kind, struct {
 }),
 pending_uavs: std.ArrayList(Node.UavMapIndex),
 relocs: std.ArrayList(Reloc),
+/// Index matches the index into `shdrs`.
+section_by_name: std.array_hash_map.Auto(String(.shstrtab), void),
 
 /// Key is the name of a global symbol which has been moved to a new symtab index. Any relocation
 /// entries which target that symbol must be updated to reference the correct symbol index.
@@ -361,11 +363,10 @@ const Section = struct {
             return &elf.shdrs.items[@intFromEnum(s)];
         }
 
-        fn name(s: Index, elf: *Elf) [:0]const u8 {
-            const str: String(.shstrtab) = switch (elf.shdrPtr(s)) {
+        fn name(s: Index, elf: *Elf) String(.shstrtab) {
+            return switch (elf.shdrPtr(s)) {
                 inline else => |shdr| @enumFromInt(elf.targetLoad(&shdr.name)),
             };
-            return str.slice(elf);
         }
 
         fn vaddr(s: Index, elf: *Elf) u64 {
@@ -1372,7 +1373,7 @@ pub fn navSymbol(elf: *Elf, nav_index: InternPool.Nav.Index) !link.File.SymbolId
         return elf.externSymbol(.{
             .name = @"extern".name.toSlice(ip),
             .lib_name = @"extern".lib_name.toSlice(ip),
-            .type = navType(ip, nav.resolved.?, elf.base.comp.config.any_non_single_threaded),
+            .type = elf.navType(nav.resolved.?),
             .linkage = @"extern".linkage,
             .visibility = @"extern".visibility,
         });
@@ -1956,6 +1957,7 @@ fn create(
         }),
         .pending_uavs = .empty,
         .relocs = .empty,
+        .section_by_name = .empty,
         .changed_symtab_index = .empty,
         .const_prog_node = .none,
         .synth_prog_node = .none,
@@ -1992,6 +1994,7 @@ pub fn deinit(elf: *Elf) void {
     for (&elf.lazy.values) |*lazy| lazy.map.deinit(gpa);
     elf.pending_uavs.deinit(gpa);
     elf.relocs.deinit(gpa);
+    elf.section_by_name.deinit(gpa);
     elf.changed_symtab_index.deinit(gpa);
     elf.* = undefined;
 }
@@ -2561,6 +2564,12 @@ fn initHeaders(
         .addralign = elf.mf.flags.block_size,
     });
     assert(elf.nodes.len == expected_nodes_len);
+
+    try elf.section_by_name.ensureUnusedCapacity(gpa, elf.shdrs.items.len);
+    for (0..elf.shdrs.items.len) |shndx_raw| {
+        const shndx: Section.Index = @enumFromInt(shndx_raw);
+        elf.section_by_name.putAssumeCapacityNoClobber(shndx.name(elf), {});
+    }
 }
 
 pub fn startProgress(elf: *Elf, prog_node: std.Progress.Node) void {
@@ -2810,28 +2819,129 @@ fn dynsymPtr(elf: *Elf, index: u32) SymPtr {
     }
 }
 
-fn navType(
-    ip: *const InternPool,
-    nav_resolved: @typeInfo(@FieldType(InternPool.Nav, "resolved")).optional.child,
-    any_non_single_threaded: bool,
-) std.elf.STT {
+fn navType(elf: *const Elf, nav_resolved: InternPool.Nav.Resolved) std.elf.STT {
+    const any_non_single_threaded = elf.base.comp.config.any_non_single_threaded;
     return if (any_non_single_threaded and nav_resolved.@"threadlocal")
         .TLS
-    else if (ip.isFunctionType(nav_resolved.type))
+    else if (elf.base.comp.zcu.?.intern_pool.isFunctionType(nav_resolved.type))
         .FUNC
     else
         .OBJECT;
 }
-fn namedSection(elf: *const Elf, name: []const u8) ?Section.Index {
-    if (std.mem.eql(u8, name, ".rodata") or
-        std.mem.startsWith(u8, name, ".rodata.")) return .rodata;
-    if (std.mem.eql(u8, name, ".text") or
-        std.mem.startsWith(u8, name, ".text.")) return .text;
-    if (std.mem.eql(u8, name, ".data") or
-        std.mem.startsWith(u8, name, ".data.")) return .data;
-    if (std.mem.eql(u8, name, ".tdata") or
-        std.mem.startsWith(u8, name, ".tdata.")) return elf.shndx.tdata;
-    return null;
+fn mapInputSection(elf: *Elf, opts: struct {
+    name: []const u8,
+    flags: std.elf.SHF,
+    addralign: std.elf.Xword,
+    entsize: std.elf.Xword,
+}) !Section.Index {
+    const gpa = elf.base.comp.gpa;
+    if (opts.flags.INFO_LINK or
+        opts.flags.LINK_ORDER or
+        opts.flags.OS_NONCONFORMING or
+        (opts.flags.EXECINSTR and opts.flags.WRITE) or
+        (opts.flags.EXECINSTR and opts.flags.TLS))
+    {
+        return error.UnsupportedSectionFlags;
+    }
+    if (opts.flags.TLS and elf.ni.tls == .none) {
+        assert(!elf.base.comp.config.any_non_single_threaded);
+        return error.TlsSectionUnavailable;
+    }
+    const name: []const u8 = switch (elf.ehdrField(.type)) {
+        .NONE, .CORE, _ => unreachable,
+        .REL => opts.name,
+        .EXEC, .DYN => name: {
+            if (std.mem.startsWith(u8, opts.name, ".text.")) break :name ".text";
+            if (std.mem.startsWith(u8, opts.name, ".rodata.")) break :name ".rodata";
+            if (std.mem.startsWith(u8, opts.name, ".data.")) break :name ".data";
+            if (std.mem.startsWith(u8, opts.name, ".data.rel.ro.")) break :name ".data.rel.ro";
+            if (std.mem.startsWith(u8, opts.name, ".tdata.")) break :name ".tdata";
+            if (std.mem.startsWith(u8, opts.name, ".gcc_except_table.")) break :name ".gcc_except_table";
+            // TODO: actually generate a bss section!
+            if (std.mem.eql(u8, opts.name, ".bss")) break :name ".data";
+            if (std.mem.startsWith(u8, opts.name, ".bss.")) break :name ".data";
+            // TODO: actually generate a tbss section!
+            if (std.mem.eql(u8, opts.name, ".tbss")) break :name ".tdata";
+            if (std.mem.startsWith(u8, opts.name, ".tbss.")) break :name ".tdata";
+            break :name opts.name;
+        },
+    };
+    const existing_shndx: Section.Index = existing: {
+        const name_shstrtab = try elf.string(.shstrtab, name);
+        const gop = try elf.section_by_name.getOrPut(gpa, name_shstrtab);
+        if (gop.found_existing) {
+            break :existing @enumFromInt(gop.index);
+        }
+        errdefer assert(elf.section_by_name.pop().?.key == name_shstrtab);
+        const parent_node: MappedFile.Node.Index = parent: {
+            if (!opts.flags.ALLOC) break :parent elf.ni.file;
+            if (opts.flags.EXECINSTR) break :parent elf.ni.text;
+            if (opts.flags.TLS) break :parent elf.ni.tls;
+            if (opts.flags.WRITE) break :parent elf.ni.data;
+            break :parent elf.ni.rodata;
+        };
+        assert(gop.index == elf.shdrs.items.len);
+        return elf.addSection(parent_node, .{
+            .name = name,
+            .type = .NULL, // because initial size is 0
+            .flags = flags: {
+                // We need to decompress the section for linking.
+                var flags = opts.flags;
+                flags.COMPRESSED = false;
+                break :flags flags;
+            },
+            .node_align = .fromByteUnits(std.math.ceilPowerOfTwoAssert(
+                usize,
+                @intCast(@max(opts.addralign, 1)),
+            )),
+            .entsize = std.math.lossyCast(u32, opts.entsize),
+        });
+    };
+    // Validate that the input is compatible with this section...
+    switch (elf.shdrPtr(existing_shndx)) {
+        inline else => |shdr| {
+            const cur_flags = elf.targetLoad(&shdr.flags).shf;
+            if (cur_flags.EXECINSTR != opts.flags.EXECINSTR or
+                cur_flags.WRITE != opts.flags.WRITE or
+                cur_flags.TLS != opts.flags.TLS)
+            {
+                return error.SectionFlagsConflict;
+            }
+
+            switch (elf.targetLoad(&shdr.type)) {
+                .NULL, .PROGBITS => {},
+                else => return error.SectionTypeConflict,
+            }
+        },
+    }
+    // ...then realign the section's node if necessary...
+    if (opts.addralign > existing_shndx.get(elf).ni.alignment(&elf.mf).toByteUnits()) {
+        const new_alignment: std.mem.Alignment = .fromByteUnits(
+            std.math.ceilPowerOfTwoAssert(usize, @intCast(opts.addralign)),
+        );
+        try existing_shndx.get(elf).ni.realign(&elf.mf, gpa, new_alignment);
+    }
+    // ...and update the shdr as needed.
+    switch (elf.shdrPtr(existing_shndx)) {
+        inline else => |shdr| {
+            // Combine the section flags.
+            const cur_flags = elf.targetLoad(&shdr.flags).shf;
+            elf.targetStore(&shdr.flags, .{ .shf = .{
+                .EXECINSTR = cur_flags.EXECINSTR,
+                .WRITE = cur_flags.WRITE,
+                .TLS = cur_flags.TLS,
+                .ALLOC = cur_flags.ALLOC or opts.flags.ALLOC,
+                .STRINGS = cur_flags.STRINGS and opts.flags.STRINGS,
+                .MERGE = cur_flags.MERGE and opts.flags.MERGE,
+            } });
+            // Increase addralign to the maximum of the current value and the new value---the node
+            // alignment was already increased above.
+            if (opts.addralign > elf.targetLoad(&shdr.addralign)) {
+                elf.targetStore(&shdr.addralign, @intCast(opts.addralign));
+            }
+        },
+    }
+    return existing_shndx;
 }
 fn navMapIndex(elf: *Elf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Node.NavMapIndex {
     const gpa = zcu.gpa;
@@ -2845,17 +2955,40 @@ fn navMapIndex(elf: *Elf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Node.NavM
     const nav_gop = elf.navs.getOrPutAssumeCapacity(nav_index);
     const nmi: Node.NavMapIndex = @enumFromInt(nav_gop.index);
     if (!nav_gop.found_existing) {
-        const sym_type = navType(ip, nav.resolved.?, elf.base.comp.config.any_non_single_threaded);
         const shndx: Section.Index = section: {
             if (nav.resolved.?.@"linksection".toSlice(ip)) |@"linksection"| {
-                if (elf.namedSection(@"linksection")) |shndx| break :section shndx;
+                if (elf.mapInputSection(.{
+                    .name = @"linksection",
+                    .flags = .{
+                        .ALLOC = true,
+                        .EXECINSTR = ip.isFunctionType(nav.resolved.?.type),
+                        .WRITE = !nav.resolved.?.@"const",
+                        .TLS = elf.base.comp.config.any_non_single_threaded and
+                            nav.resolved.?.@"threadlocal",
+                    },
+                    .addralign = 1,
+                    .entsize = 0,
+                })) |shndx| {
+                    break :section shndx;
+                } else |err| switch (err) {
+                    error.TlsSectionUnavailable,
+                    error.UnsupportedSectionFlags,
+                    error.SectionTypeConflict,
+                    error.SectionFlagsConflict,
+                    => {}, // fall back to default behavior below
+
+                    else => |e| return e,
+                }
             }
-            break :section switch (sym_type) {
-                else => unreachable,
-                .FUNC => .text,
-                .OBJECT => .data,
-                .TLS => elf.shndx.tdata,
-            };
+            if (elf.base.comp.config.any_non_single_threaded and nav.resolved.?.@"threadlocal") {
+                break :section elf.shndx.tdata;
+            } else if (!nav.resolved.?.@"const") {
+                break :section .data;
+            } else if (ip.isFunctionType(nav.resolved.?.type)) {
+                break :section .text;
+            } else {
+                break :section .rodata;
+            }
         };
         const alignment: InternPool.Alignment = switch (Type.fromInterned(nav.resolved.?.type).zigTypeTag(zcu)) {
             .@"fn" => a: {
@@ -2887,7 +3020,7 @@ fn navMapIndex(elf: *Elf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Node.NavM
                 .name = try elf.string(.strtab, nav.fqn.toSlice(ip)),
                 .value = 0,
                 .size = 0,
-                .type = sym_type,
+                .type = elf.navType(nav.resolved.?),
                 .shndx = shndx,
             }),
             .first_reloc = .none,
@@ -3131,26 +3264,69 @@ fn loadObject(
                     node_fixed: bool,
                 } = switch (section.shdr.type) {
                     else => continue,
-                    .PROGBITS => .{
-                        .shndx = elf.namedSection(name) orelse continue,
-                        .has_file_bits = true,
-                        .node_fixed = false,
-                    },
-                    .NOBITS => .{
-                        .shndx = shndx: {
-                            // TODO: actually generate a .bss section. For now, just throw it into `.data`.
-                            if (std.mem.eql(u8, name, ".bss") or std.mem.startsWith(u8, name, ".bss.")) {
-                                break :shndx .data;
-                            }
-                            if (elf.shndx.tdata != .UNDEF and
-                                (std.mem.eql(u8, name, ".tbss") or std.mem.startsWith(u8, name, ".tbss.")))
-                            {
-                                break :shndx elf.shndx.tdata;
-                            }
+                    .PROGBITS, .NOBITS => opts: {
+                        const shndx = elf.mapInputSection(.{
+                            .name = name,
+                            .flags = section.shdr.flags.shf,
+                            .addralign = section.shdr.addralign,
+                            .entsize = section.shdr.entsize,
+                        }) catch |err| switch (err) {
+                            error.TlsSectionUnavailable => return diags.failParse(
+                                path,
+                                "thread-local storage section '{s}' is incompatible with '-fsingle-threaded'",
+                                .{name},
+                            ),
+                            error.UnsupportedSectionFlags => if (!section.shdr.flags.shf.ALLOC) {
+                                // It probably doesn't matter, just skip this section.
+                                continue;
+                            } else return diags.failParse(
+                                path,
+                                "unsupported flags for section '{s}'",
+                                .{name},
+                            ),
+                            error.SectionTypeConflict => if (!section.shdr.flags.shf.ALLOC) {
+                                // It probably doesn't matter, just skip this section.
+                                continue;
+                            } else return diags.failParse(
+                                path,
+                                "type of section '{s}' conflicts with other inputs",
+                                .{name},
+                            ),
+                            error.SectionFlagsConflict => if (!section.shdr.flags.shf.ALLOC) {
+                                // It probably doesn't matter, just skip this section.
+                                continue;
+                            } else return diags.failParse(
+                                path,
+                                "flags of section '{s}' conflict with other inputs",
+                                .{name},
+                            ),
+                            else => |e| return e,
+                        };
+                        if (section.shdr.flags.shf.COMPRESSED) {
+                            // SHF_COMPRESSED is only allowed on non-alloc sections.
+                            if (section.shdr.flags.shf.ALLOC) return diags.failParse(
+                                path,
+                                "section '{s}' has conflicting flags SHF_ALLOC and SHF_COMPRESSED",
+                                .{name},
+                            );
+                            // TODO: handle compressed input sections. We'll need to set a flag to
+                            // indicate that `flushInputSection` needs to decompress the section.
+                            // But because this section isn't SHF_ALLOC, it's probably okay to just
+                            // skip it for now.
                             continue;
-                        },
-                        .has_file_bits = false,
-                        .node_fixed = false,
+                        }
+                        break :opts .{
+                            .shndx = shndx,
+                            .has_file_bits = section.shdr.type == .PROGBITS,
+                            // For well-known sections, we know that it's fine to have e.g. random
+                            // padding, so there's no need to make the sections fixed. For custom
+                            // sections, however, we do want fixed nodes to avoid padding.
+                            .node_fixed = shndx != .text and
+                                shndx != .rodata and
+                                shndx != .data and
+                                shndx != .data_rel_ro and
+                                shndx != elf.shndx.tdata,
+                        };
                     },
                     inline .INIT_ARRAY, .FINI_ARRAY, .PREINIT_ARRAY => |@"type"| .{
                         .shndx = shndx: {
@@ -3372,11 +3548,17 @@ fn loadObject(
                                     .{rel.info.sym},
                                 );
                                 const target = symmap.items[rel.info.sym - 1];
-                                if (target == Symbol.Id.null) return diags.failParse(
-                                    path,
-                                    "unsupported symbol at index {d} required for relocation",
-                                    .{rel.info.sym},
-                                );
+                                if (target == Symbol.Id.null) {
+                                    // If this is not an SHF_ALLOC section, then let's let this
+                                    // slide for now, because it probably doesn't affect the final
+                                    // binary's functionality for this section to be a bit broken.
+                                    if (!loc_sec.shdr.flags.shf.ALLOC) continue;
+                                    return diags.failParse(
+                                        path,
+                                        "unsupported symbol at index {d} required for relocation",
+                                        .{rel.info.sym},
+                                    );
+                                }
                                 elf.addRelocAssumeCapacity(
                                     loc_node,
                                     rel.offset - loc_sec.shdr.addr,
@@ -3531,17 +3713,21 @@ fn createInitFiniArraySection(
     @"type": std.elf.SHT,
 ) !void {
     assert(shndx.* == .UNDEF);
+    const gpa = elf.base.comp.gpa;
     const addr_align: std.mem.Alignment = switch (elf.identClass()) {
         .NONE, _ => unreachable,
         .@"32" => .@"4",
         .@"64" => .@"8",
     };
+    assert(elf.section_by_name.count() == elf.shdrs.items.len);
+    try elf.section_by_name.ensureUnusedCapacity(gpa, 1);
     shndx.* = try elf.addSection(elf.ni.data_rel_ro, .{
         .name = "." ++ name,
         .type = @"type",
         .flags = .{ .WRITE = true, .ALLOC = true },
         .node_align = addr_align,
     });
+    elf.section_by_name.putAssumeCapacityNoClobber(shndx.name(elf), {});
     try elf.ensureUnusedSymbolCapacity(2, .maybe_global);
     _ = elf.addGlobalSymbolAssumeCapacity(.{
         .node = shndx.get(elf).ni,
@@ -3879,9 +4065,11 @@ fn ensureUnusedRelocCapacity(elf: *Elf, node: MappedFile.Node.Index, len: usize)
                 var bfa: std.heap.BufferFirstAllocator = .init(&bfa_buf, gpa);
                 const allocator = bfa.allocator();
 
-                const rela_name = try std.fmt.allocPrint(allocator, ".rela{s}", .{shndx.name(elf)});
+                const rela_name = try std.fmt.allocPrint(allocator, ".rela{s}", .{shndx.name(elf).slice(elf)});
                 defer allocator.free(rela_name);
 
+                assert(elf.section_by_name.count() == elf.shdrs.items.len);
+                try elf.section_by_name.ensureUnusedCapacity(gpa, 1);
                 const rela_shndx = try elf.addSection(.none, .{
                     .name = rela_name,
                     .type = .RELA,
@@ -3898,6 +4086,7 @@ fn ensureUnusedRelocCapacity(elf: *Elf, node: MappedFile.Node.Index, len: usize)
                     },
                     .node_align = elf.mf.flags.block_size,
                 });
+                elf.section_by_name.putAssumeCapacityNoClobber(rela_shndx.name(elf), {});
                 shndx.get(elf).rela_shndx = rela_shndx;
             }
             break :rela .{ shndx.get(elf).rela_shndx, len };
@@ -4272,7 +4461,7 @@ pub fn idle(elf: *Elf, tid: Zcu.PerThread.Id) !bool {
                     return comp.link_diags.fail(
                         "linker failed to read input section '{s}' from \"{f}{f}\": {t}",
                         .{
-                            elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf),
+                            elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf).slice(elf),
                             ii.path(elf).fmtEscapeString(),
                             fmtMemberString(ii.member(elf)),
                             e,
@@ -4325,13 +4514,13 @@ fn idleProgNode(
     var name: [std.Progress.Node.max_name_len]u8 = undefined;
     return prog_node.start(name: switch (node) {
         else => |tag| @tagName(tag),
-        .section => |shndx| shndx.name(elf),
+        .section => |shndx| shndx.name(elf).slice(elf),
         .input_section => |isi| {
             const ii = isi.input(elf);
             break :name std.fmt.bufPrint(&name, "{f}{f} {s}", .{
                 ii.path(elf).fmtEscapeString(),
                 fmtMemberString(ii.member(elf)),
-                elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf),
+                elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf).slice(elf),
             }) catch &name;
         },
         .nav => |nmi| {
@@ -4885,7 +5074,7 @@ fn updateExportsInner(
     const exported_lsi: Symbol.LocalIndex, const @"type": std.elf.STT = switch (exported) {
         .nav => |nav| .{
             (try elf.navMapIndex(zcu, nav)).symbol(elf),
-            navType(ip, ip.getNav(nav).resolved.?, elf.base.comp.config.any_non_single_threaded),
+            elf.navType(ip.getNav(nav).resolved.?),
         },
         .uav => |uav| .{ (try elf.uavMapIndex(uav, .none)).symbol(elf), .OBJECT },
     };
@@ -4987,13 +5176,13 @@ pub fn printNode(
                 try w.writeByte(')');
             },
         },
-        .section => |shndx| try w.print("({s})", .{shndx.name(elf)}),
+        .section => |shndx| try w.print("({s})", .{shndx.name(elf).slice(elf)}),
         .input_section => |isi| {
             const ii = isi.input(elf);
             try w.print("({f}{f}, {s})", .{
                 ii.path(elf).fmtEscapeString(),
                 fmtMemberString(ii.member(elf)),
-                elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf),
+                elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf).slice(elf),
             });
         },
         .nav => |nmi| {
