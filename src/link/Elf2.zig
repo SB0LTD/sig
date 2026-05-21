@@ -54,6 +54,14 @@ globals: struct {
 /// We use a separate hash map for this data rather than storing it in `navs` etc to save memory,
 /// because the vast majority of nodes which can export global symbols actually will not.
 node_global_symbols: std.array_hash_map.Auto(MappedFile.Node.Index, String(.strtab)),
+/// Contains all globals symbols defined in any needed DSO. This map serves two purposes:
+///
+/// * If we discover an undefined reference to one of these symbols, we will know the associated
+///   symbol type, which is important because it may cause us to create a PLT entry.
+///
+/// * When emitting a dynamic executable, we can detect which undefined references are resolved by a
+///   linked DSO, so can emit "undefined global symbol" errors for any other undefined references.
+dso_globals: std.array_hash_map.Auto(String(.strtab), std.elf.STT),
 shstrtab: StringTable,
 strtab: StringTable,
 dynstr: StringTable,
@@ -431,55 +439,60 @@ fn ensureUnusedSymbolCapacity(elf: *Elf, len: u32, kind: enum { all_local, maybe
                     try elf.shndx.dynsym.get(elf).ni.resize(&elf.mf, gpa, new_size);
                 }
 
-                try elf.got.plt.ensureUnusedCapacity(gpa, len);
-                const need_plt_capacity = elf.got.plt.count() + len;
+                try elf.ensureUnusedPltCapacity(len);
+            }
+        },
+    }
+}
+fn ensureUnusedPltCapacity(elf: *Elf, len: u32) !void {
+    const gpa = elf.base.comp.gpa;
 
-                switch (elf.ehdrField(.machine)) {
-                    else => |machine| @panic(@tagName(machine)),
-                    .X86_64 => {
-                        // Ensure the `.plt` section's node is big enough
-                        const plt_need_size: usize = 16 * (1 + need_plt_capacity);
-                        _, const plt_cur_size = elf.shndx.plt.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
-                        if (plt_cur_size < plt_need_size) {
-                            const new_size = plt_need_size +| plt_need_size / MappedFile.growth_factor;
-                            try elf.shndx.plt.get(elf).ni.resize(&elf.mf, gpa, new_size);
-                        }
+    try elf.got.plt.ensureUnusedCapacity(gpa, len);
+    const need_plt_capacity = elf.got.plt.count() + len;
 
-                        // Ensure the `.got.plt` section's node is big enough
-                        const got_plt_need_size: usize = switch (elf.identClass()) {
-                            .NONE, _ => unreachable,
-                            inline else => |class| @sizeOf(class.ElfN().Addr) * (3 + need_plt_capacity),
-                        };
-                        _, const got_plt_cur_size = elf.shndx.got_plt.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
-                        if (got_plt_cur_size < got_plt_need_size) {
-                            const new_size = got_plt_need_size +| got_plt_need_size / MappedFile.growth_factor;
-                            try elf.shndx.got_plt.get(elf).ni.resize(&elf.mf, gpa, new_size);
-                        }
+    switch (elf.ehdrField(.machine)) {
+        else => |machine| @panic(@tagName(machine)),
+        .X86_64 => {
+            // Ensure the `.plt` section's node is big enough
+            const plt_need_size: usize = 16 * (1 + need_plt_capacity);
+            _, const plt_cur_size = elf.shndx.plt.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
+            if (plt_cur_size < plt_need_size) {
+                const new_size = plt_need_size +| plt_need_size / MappedFile.growth_factor;
+                try elf.shndx.plt.get(elf).ni.resize(&elf.mf, gpa, new_size);
+            }
 
-                        // Ensure the `.plt.sec` section's node is big enough
-                        const plt_sec_need_size: usize = 16 * need_plt_capacity;
-                        _, const plt_sec_cur_size = elf.shndx.plt_sec.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
-                        if (plt_sec_cur_size < plt_sec_need_size) {
-                            const new_size = plt_sec_need_size +| plt_sec_need_size / MappedFile.growth_factor;
-                            try elf.shndx.plt_sec.get(elf).ni.resize(&elf.mf, gpa, new_size);
-                        }
+            // Ensure the `.got.plt` section's node is big enough
+            const got_plt_need_size: usize = switch (elf.identClass()) {
+                .NONE, _ => unreachable,
+                inline else => |class| @sizeOf(class.ElfN().Addr) * (3 + need_plt_capacity),
+            };
+            _, const got_plt_cur_size = elf.shndx.got_plt.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
+            if (got_plt_cur_size < got_plt_need_size) {
+                const new_size = got_plt_need_size +| got_plt_need_size / MappedFile.growth_factor;
+                try elf.shndx.got_plt.get(elf).ni.resize(&elf.mf, gpa, new_size);
+            }
 
-                        // Ensure the `.rela.plt` section's node is big enough
-                        const rela_plt_shndx = elf.shndx.got_plt.get(elf).rela_shndx;
-                        const rela_plt_need_size: usize = switch (elf.shdrPtr(rela_plt_shndx)) {
-                            inline else => |shdr| @intCast(elf.targetLoad(&shdr.entsize) * need_plt_capacity),
-                        };
-                        _, const rela_plt_cur_size = rela_plt_shndx.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
-                        if (rela_plt_cur_size < rela_plt_need_size) {
-                            const new_size = rela_plt_need_size +| rela_plt_need_size / MappedFile.growth_factor;
-                            try rela_plt_shndx.get(elf).ni.resize(&elf.mf, gpa, new_size);
-                        } else {
-                            // Still mark `.rela.plt` as resized so that the DT_PLTRELSZ entry can
-                            // be updated if we do indeed add a PLT entry.
-                            try rela_plt_shndx.get(elf).ni.resized(gpa, &elf.mf);
-                        }
-                    },
-                }
+            // Ensure the `.plt.sec` section's node is big enough
+            const plt_sec_need_size: usize = 16 * need_plt_capacity;
+            _, const plt_sec_cur_size = elf.shndx.plt_sec.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
+            if (plt_sec_cur_size < plt_sec_need_size) {
+                const new_size = plt_sec_need_size +| plt_sec_need_size / MappedFile.growth_factor;
+                try elf.shndx.plt_sec.get(elf).ni.resize(&elf.mf, gpa, new_size);
+            }
+
+            // Ensure the `.rela.plt` section's node is big enough
+            const rela_plt_shndx = elf.shndx.got_plt.get(elf).rela_shndx;
+            const rela_plt_need_size: usize = switch (elf.shdrPtr(rela_plt_shndx)) {
+                inline else => |shdr| @intCast(elf.targetLoad(&shdr.entsize) * need_plt_capacity),
+            };
+            _, const rela_plt_cur_size = rela_plt_shndx.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
+            if (rela_plt_cur_size < rela_plt_need_size) {
+                const new_size = rela_plt_need_size +| rela_plt_need_size / MappedFile.growth_factor;
+                try rela_plt_shndx.get(elf).ni.resize(&elf.mf, gpa, new_size);
+            } else {
+                // Still mark `.rela.plt` as resized so that the DT_PLTRELSZ entry can
+                // be updated if we do indeed add a PLT entry.
+                try rela_plt_shndx.get(elf).ni.resized(gpa, &elf.mf);
             }
         },
     }
@@ -700,6 +713,11 @@ fn addGlobalSymbolAssumeCapacity(elf: *Elf, opts: AddGlobalSymbolOptions) error{
         .weak => .WEAK,
     };
 
+    const @"type": std.elf.STT = switch (opts.type) {
+        .NOTYPE => elf.dso_globals.get(opts.name.strtab) orelse .NOTYPE,
+        else => |t| t,
+    };
+
     const sym_index: Symbol.Index = @enumFromInt(elf.symtab.items.len);
     elf.symtab.appendAssumeCapacity(.{
         .node = opts.node,
@@ -718,7 +736,7 @@ fn addGlobalSymbolAssumeCapacity(elf: *Elf, opts: AddGlobalSymbolOptions) error{
                 .name = @intFromEnum(opts.name.strtab),
                 .value = @intCast(opts.value),
                 .size = @intCast(opts.size),
-                .info = .{ .type = opts.type, .bind = bind },
+                .info = .{ .type = @"type", .bind = bind },
                 .other = .{ .visibility = opts.visibility },
                 .shndx = opts.shndx.toSection().?,
             };
@@ -754,7 +772,7 @@ fn addGlobalSymbolAssumeCapacity(elf: *Elf, opts: AddGlobalSymbolOptions) error{
                         .name = @intFromEnum(opts.name.dynstr),
                         .value = @intCast(opts.value),
                         .size = @intCast(opts.size),
-                        .info = .{ .type = opts.type, .bind = bind },
+                        .info = .{ .type = @"type", .bind = bind },
                         .other = .{ .visibility = opts.visibility },
                         .shndx = opts.shndx.toSection().?,
                     };
@@ -783,7 +801,7 @@ fn addGlobalSymbolAssumeCapacity(elf: *Elf, opts: AddGlobalSymbolOptions) error{
     if (new_global_ptr.dynsym_index != 0 and
         opts.visibility == .DEFAULT and
         opts.shndx == .UNDEF and
-        opts.type == .FUNC)
+        @"type" == .FUNC)
     {
         // We're adding an undefined global STT_FUNC symbol which could be resolved by another DSO.
         // We therefore might need a PLT entry, so let's add one now. TODO: it'd be good to remove
@@ -1935,6 +1953,7 @@ fn create(
             .weak_undef = .empty,
         },
         .node_global_symbols = .empty,
+        .dso_globals = .empty,
         .shstrtab = .{ .map = .empty },
         .strtab = .{ .map = .empty },
         .dynstr = .{ .map = .empty },
@@ -1981,6 +2000,7 @@ pub fn deinit(elf: *Elf) void {
     elf.globals.strong_undef.deinit(gpa);
     elf.globals.weak_undef.deinit(gpa);
     elf.node_global_symbols.deinit(gpa);
+    elf.dso_globals.deinit(gpa);
     elf.shstrtab.map.deinit(gpa);
     elf.strtab.map.deinit(gpa);
     elf.dynstr.map.deinit(gpa);
@@ -3183,7 +3203,14 @@ pub fn loadInput(elf: *Elf, input: link.Input) (Io.File.Reader.SizeError ||
                 else => |e| return e,
             };
         },
-        .dso_exact => |dso_exact| try elf.loadDsoExact(dso_exact.name),
+        .dso_exact => |dso_exact| {
+            log.debug("load dso_exact '{f}'", .{std.zig.fmtString(dso_exact.name)});
+            if (elf.shndx.dynamic != .UNDEF) {
+                try elf.needed.put(elf.base.comp.gpa, try elf.string(.dynstr, dso_exact.name), {});
+            }
+            // TODO: we need to get a resolved file path from the frontend, because we need to read
+            // the shared object to discover symbol types.
+        },
     }
 }
 fn loadArchive(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
@@ -3643,6 +3670,7 @@ fn loadObject(
 }
 fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
     const comp = elf.base.comp;
+    const gpa = comp.gpa;
     const diags = &comp.link_diags;
     const r = &fr.interface;
 
@@ -3657,66 +3685,145 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
             if (ehdr.type != .DYN) return diags.failParse(path, "unsupported dso type", .{});
             if (ehdr.machine != elf.ehdrField(.machine))
                 return diags.failParse(path, "bad machine", .{});
-            if (ehdr.phoff == 0 or ehdr.phnum <= 1)
-                return diags.failParse(path, "no program headers", .{});
-            try fr.seekTo(ehdr.phoff);
-            const dynamic_ph = for (0..ehdr.phnum) |_| {
-                const ph = try r.peekStruct(ElfN.Phdr, target_endian);
-                try r.discardAll(ehdr.phentsize);
-                switch (ph.type) {
-                    else => {},
-                    .DYNAMIC => break ph,
+            if (ehdr.shnum > 0) try fr.seekTo(ehdr.shoff);
+            const dynamic_sh: ElfN.Shdr, const dynsym_sh: ElfN.Shdr = sh: {
+                var dynamic_sh: ?ElfN.Shdr = null;
+                var dynsym_sh: ?ElfN.Shdr = null;
+                for (0..ehdr.shnum) |_| {
+                    const sh = try r.peekStruct(ElfN.Shdr, target_endian);
+                    try r.discardAll(ehdr.shentsize);
+                    switch (sh.type) {
+                        else => {},
+                        .DYNAMIC => dynamic_sh = sh,
+                        .DYNSYM => dynsym_sh = sh,
+                    }
                 }
-            } else return diags.failParse(path, "no dynamic segment", .{});
+                break :sh .{
+                    dynamic_sh orelse return diags.failParse(path, "missing SHT_DYNAMIC section", .{}),
+                    dynsym_sh orelse return diags.failParse(path, "missing SHT_DYNSYM section", .{}),
+                };
+            };
+            const dynstr_sh: ElfN.Shdr = sh: {
+                if (dynsym_sh.link >= ehdr.shnum) {
+                    return diags.failParse(path, "bad dynamic string table section index", .{});
+                }
+                try fr.seekTo(ehdr.shoff + dynsym_sh.link * ehdr.shentsize);
+                break :sh try r.peekStruct(ElfN.Shdr, target_endian);
+            };
+
+            if (dynamic_sh.entsize != @sizeOf(ElfN.Addr) * 2) {
+                return diags.failParse(path, "bad dynamic section entsize", .{});
+            }
             const dynnum = std.math.divExact(
                 u32,
-                @intCast(dynamic_ph.filesz),
+                @intCast(dynamic_sh.size),
                 @sizeOf(ElfN.Addr) * 2,
             ) catch return diags.failParse(
                 path,
-                "dynamic segment filesz (0x{x}) is not a multiple of entsize (0x{x})",
-                .{ dynamic_ph.filesz, @sizeOf(ElfN.Addr) * 2 },
+                "dynamic section size (0x{x}) is not a multiple of entsize (0x{x})",
+                .{ dynamic_sh.size, @sizeOf(ElfN.Addr) * 2 },
             );
-            var strtab: ?ElfN.Addr = null;
-            var strsz: ?ElfN.Addr = null;
-            var soname: ?ElfN.Addr = null;
-            try fr.seekTo(dynamic_ph.offset);
-            for (0..dynnum) |_| {
+
+            if (dynsym_sh.entsize < @sizeOf(ElfN.Sym)) {
+                return diags.failParse(path, "bad dynsym entsize", .{});
+            }
+            const symnum = std.math.divExact(
+                u32,
+                @intCast(dynsym_sh.size),
+                @intCast(dynsym_sh.entsize),
+            ) catch return diags.failParse(
+                path,
+                "dynsym size (0x{x}) is not a multiple of entsize (0x{x})",
+                .{ dynsym_sh.size, dynsym_sh.entsize },
+            );
+
+            const dynstr = try gpa.alloc(u8, @intCast(dynstr_sh.size));
+            defer gpa.free(dynstr);
+            try fr.seekTo(dynstr_sh.offset);
+            try r.readSliceAll(dynstr);
+
+            // Find the DT_SONAME dynamic entry so that it can become our DT_NEEDED entry.
+            try fr.seekTo(dynamic_sh.offset);
+            const soname: []const u8 = for (0..dynnum) |_| {
                 const tag = try r.takeInt(ElfN.Addr, target_endian);
                 const val = try r.takeInt(ElfN.Addr, target_endian);
-                switch (tag) {
-                    else => {},
-                    std.elf.DT_STRTAB => strtab = val,
-                    std.elf.DT_STRSZ => strsz = val,
-                    std.elf.DT_SONAME => soname = val,
+                if (tag == std.elf.DT_SONAME) {
+                    // val is a dynstr index
+                    if (val >= dynstr.len) {
+                        return diags.failParse(path, "bad soname string", .{});
+                    }
+                    break std.mem.sliceTo(dynstr[@intCast(val)..], 0);
+                }
+            } else std.fs.path.basename(path.sub_path);
+            try elf.needed.put(gpa, try elf.string(.dynstr, soname), {});
+
+            // Scan the symbol table and populate `elf.dso_globals`.
+            const first_global = @min(dynsym_sh.info, symnum);
+            try elf.dso_globals.ensureUnusedCapacity(gpa, symnum - first_global);
+            try elf.ensureUnusedPltCapacity(symnum - first_global);
+            try fr.seekTo(dynsym_sh.offset + first_global * dynsym_sh.entsize);
+            for (first_global..symnum) |_| {
+                const sym = try r.peekStruct(ElfN.Sym, target_endian);
+                try r.discardAll(@intCast(dynsym_sh.entsize));
+
+                switch (sym.info.bind) {
+                    else => continue,
+                    .GLOBAL, .WEAK, .GNU_UNIQUE => {},
+                }
+                // STV_HIDDEN/STV_INTERNAL symbols should be marked as STB_LOCAL and hence skipped
+                // above, but we might as well double-check.
+                switch (sym.other.visibility) {
+                    .HIDDEN, .INTERNAL => continue,
+                    .DEFAULT, .PROTECTED => {},
+                }
+
+                if (sym.name >= dynstr.len) {
+                    return diags.failParse(path, "bad symbol name string", .{});
+                }
+
+                const name = try elf.string(.strtab, std.mem.sliceTo(dynstr[sym.name..], 0));
+                const gop = elf.dso_globals.getOrPutAssumeCapacity(name);
+                if (!gop.found_existing or gop.value_ptr.* == .NOTYPE) {
+                    gop.value_ptr.* = sym.info.type;
+                }
+
+                // If there's already an undefined symbol by this name of type STT_NOTYPE, populate
+                // its type now.
+                update_sym_type: {
+                    const global_ptr = elf.globals.strong_undef.getPtr(name) orelse
+                        elf.globals.weak_undef.getPtr(name) orelse
+                        break :update_sym_type;
+
+                    if (global_ptr.dynsym_index == 0) break :update_sym_type;
+
+                    const sym_ptr = @field(elf.symPtr(global_ptr.symtab_index), @tagName(class));
+                    switch (elf.targetLoad(&sym_ptr.other).visibility) {
+                        .HIDDEN, .INTERNAL, .PROTECTED => break :update_sym_type,
+                        .DEFAULT => {},
+                    }
+
+                    const cur_info = elf.targetLoad(&sym_ptr.info);
+                    if (cur_info.type == .NOTYPE) {
+                        elf.targetStore(&sym_ptr.info, .{
+                            .bind = cur_info.bind,
+                            .type = sym.info.type,
+                        });
+
+                        const dynsym_ptr = @field(elf.dynsymPtr(global_ptr.dynsym_index), @tagName(class));
+                        elf.targetStore(&dynsym_ptr.info, .{
+                            .bind = elf.targetLoad(&dynsym_ptr.info).bind,
+                            .type = sym.info.type,
+                        });
+
+                        if (sym.info.type == .FUNC) {
+                            // We've just determined that this symbol actually needs a PLT entry.
+                            elf.addPltEntry(name, global_ptr.dynsym_index);
+                            // TODO: we therefore need to re-apply PLT32 relocs for that symbol!
+                        }
+                    }
                 }
             }
-            if (strtab == null or soname == null)
-                return elf.loadDsoExact(std.fs.path.basename(path.sub_path));
-            if (strsz) |size| if (soname.? >= size)
-                return diags.failParse(path, "bad soname string", .{});
-            try fr.seekTo(ehdr.phoff);
-            const ph = for (0..ehdr.phnum) |_| {
-                const ph = try r.peekStruct(ElfN.Phdr, target_endian);
-                try r.discardAll(ehdr.phentsize);
-                switch (ph.type) {
-                    else => {},
-                    .LOAD => if (strtab.? >= ph.vaddr and
-                        strtab.? + (strsz orelse 0) <= ph.vaddr + ph.filesz) break ph,
-                }
-            } else return diags.failParse(path, "strtab not part of a loaded segment", .{});
-            try fr.seekTo(strtab.? + soname.? - ph.vaddr + ph.offset);
-            return elf.loadDsoExact(r.peekSentinel(0) catch |err| switch (err) {
-                error.StreamTooLong => return diags.failParse(path, "soname too lang", .{}),
-                else => |e| return e,
-            });
         },
-    }
-}
-fn loadDsoExact(elf: *Elf, name: []const u8) !void {
-    log.debug("loadDsoExact({f})", .{std.zig.fmtString(name)});
-    if (elf.shndx.dynamic != .UNDEF) {
-        try elf.needed.put(elf.base.comp.gpa, try elf.string(.dynstr, name), {});
     }
 }
 
@@ -4434,14 +4541,14 @@ pub fn flush(
     _ = arena;
     _ = prog_node;
 
-    if (elf.ehdrField(.type) != .REL and
-        elf.shndx.dynamic == .UNDEF and
-        elf.globals.strong_undef.count() > 0)
-    {
+    if (comp.config.output_mode == .Exe) {
+        var any_undef = false;
         for (elf.globals.strong_undef.keys()) |name| {
+            if (elf.dso_globals.contains(name)) continue;
+            any_undef = true;
             comp.link_diags.addError("undefined global symbol '{s}'", .{name.slice(elf)});
         }
-        return error.LinkFailure;
+        if (any_undef) return error.LinkFailure;
     }
 
     while (try elf.idle(tid)) {}
