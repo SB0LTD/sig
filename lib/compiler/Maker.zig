@@ -427,7 +427,6 @@ pub fn main(init: process.Init.Minimal) !void {
         };
         const c = &configuration;
         var top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index) = .empty;
-        var modules: std.AutoArrayHashMapUnmanaged(Configuration.Module.Index, void) = .empty;
         for (configuration.steps, 0..) |*conf_step, step_index_usize| {
             if (conf_step.owner != .root) continue;
             const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
@@ -436,10 +435,6 @@ pub fn main(init: process.Init.Minimal) !void {
                 .top_level => {
                     const name = step_index.ptr(c).name.slice(c);
                     try top_level_steps.put(arena, name, step_index);
-                },
-                .compile => {
-                    const root_module = step_index.ptr(c).extended.get(configuration.extra).compile.root_module;
-                    try modules.put(arena, root_module, {});
                 },
                 else => {},
             }
@@ -450,7 +445,6 @@ pub fn main(init: process.Init.Minimal) !void {
         break :sc .{
             .configuration = configuration,
             .top_level_steps = top_level_steps,
-            .modules = modules,
         };
     };
 

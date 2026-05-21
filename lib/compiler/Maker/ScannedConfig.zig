@@ -9,7 +9,6 @@ const Graph = @import("Graph.zig");
 
 configuration: Configuration,
 top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index),
-modules: std.AutoArrayHashMapUnmanaged(Configuration.Module.Index, void),
 
 pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
     std.log.err("TODO also print paths", .{});
@@ -43,19 +42,6 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
             try step_field.end();
         }
         try tf.end();
-    }
-
-    {
-        var sf = try s.beginStructField("modules", .{});
-
-        for (sc.modules.keys()) |module_index| {
-            var int_buf: [50]u8 = undefined;
-            const int_str = std.fmt.bufPrint(&int_buf, "{d}", .{module_index}) catch unreachable;
-            var step_field = try sf.beginStructField(int_str, .{});
-            try printStruct(sc, &step_field, Configuration.Module, module_index.get(c));
-            try step_field.end();
-        }
-        try sf.end();
     }
 
     try s.end();
