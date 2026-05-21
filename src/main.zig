@@ -5082,17 +5082,12 @@ fn cmdBuild(
                     fetch_mode = std.meta.stringToEnum(Package.Fetch.JobQueue.Mode, sub_arg) orelse
                         fatal("expected [needed|all] after '--fetch=', found '{s}'", .{sub_arg});
                 } else if (mem.cutPrefix(u8, arg, "--fork=")) |sub_arg| {
-                    try forks.append(arena, .{
-                        .manifest_ast = undefined,
-                        .manifest = undefined,
-                        .error_bundle = undefined,
-                        .arena_allocator = undefined,
-                        .path = .{
-                            .root_dir = .cwd(),
-                            .sub_path = sub_arg,
-                        },
-                        .failed = false,
-                    });
+                    try forks.append(arena, .init(sub_arg));
+                    continue;
+                } else if (mem.eql(u8, arg, "--fork")) {
+                    if (i + 1 >= args.len) fatal("expected argument after: {s}", .{arg});
+                    i += 1;
+                    try forks.append(arena, .init(args[i]));
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "-freference-trace=")) |num| {
                     reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
@@ -5873,6 +5868,20 @@ const Fork = struct {
     error_bundle: std.zig.ErrorBundle.Wip,
     failed: bool,
     arena_allocator: std.heap.ArenaAllocator,
+
+    fn init(cwd_relative_path: []const u8) Fork {
+        return .{
+            .manifest_ast = undefined,
+            .manifest = undefined,
+            .error_bundle = undefined,
+            .arena_allocator = undefined,
+            .path = .{
+                .root_dir = .cwd(),
+                .sub_path = cwd_relative_path,
+            },
+            .failed = false,
+        };
+    }
 
     fn load(io: Io, gpa: Allocator, fork: *Fork, color: Color) Io.Cancelable!void {
         loadFallible(io, gpa, fork, color) catch |err| switch (err) {

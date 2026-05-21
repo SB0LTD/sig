@@ -728,19 +728,19 @@ fn failWithCacheError(
     switch (err) {
         error.CacheCheckFailed => switch (man.diagnostic) {
             .none => unreachable,
-            .manifest_create, .manifest_read, .manifest_lock => |e| return s.fail(maker, "failed to check cache: {t} {t}", .{
+            .manifest_create, .manifest_read, .manifest_lock => |e| return s.fail(maker, "failed checking cache: {t} {t}", .{
                 man.diagnostic, e,
             }),
             .file_open, .file_stat, .file_read, .file_hash => |op| {
                 const pp = man.files.keys()[op.file_index].prefixed_path;
                 const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-                return s.fail(maker, "failed to check cache: '{s}{c}{s}' {t} {t}", .{
+                return s.fail(maker, "failed checking cache: {s}{c}{s} {t} {t}", .{
                     prefix, Dir.path.sep, pp.sub_path, man.diagnostic, op.err,
                 });
             },
         },
         error.OutOfMemory, error.Canceled => |e| return e,
-        error.InvalidFormat => return s.fail(maker, "failed to check cache: invalid manifest file format", .{}),
+        error.InvalidFormat => return s.fail(maker, "failed checking cache: invalid manifest file format", .{}),
     }
 }
 
