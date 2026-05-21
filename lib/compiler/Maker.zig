@@ -123,10 +123,6 @@ pub fn main(init: process.Init.Minimal) !void {
         .local_cache_root = local_cache_directory,
         .zig_lib_directory = zig_lib_directory,
         .build_root_directory = build_root_directory,
-        .pkg_root = .{
-            .root_dir = build_root_directory,
-            .sub_path = "zig-pkg",
-        },
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = cwd });
@@ -1779,11 +1775,13 @@ pub fn packagePath(
         .root_dir = graph.build_root_directory,
         .sub_path = sub_path,
     };
-    const hash = package.hash.slice(c);
-    const pkg_root = graph.pkg_root;
+    // Currently, neither configurer nor Maker is aware of the standard zig
+    // package path, and the root path is stored as a bare string rather than
+    // relative to a known base directory. Without changing that, we must
+    // construct a cwd relative path here.
     return .{
-        .root_dir = pkg_root.root_dir,
-        .sub_path = try Dir.path.join(arena, &.{ pkg_root.sub_path, hash, sub_path }),
+        .root_dir = .cwd(),
+        .sub_path = try Dir.path.join(arena, &.{ package.root_path.slice(c), sub_path }),
     };
 }
 

@@ -18,7 +18,6 @@ global_cache_root: Directory,
 local_cache_root: Directory,
 zig_lib_directory: Directory,
 build_root_directory: Directory,
-pkg_root: Path,
 
 debug_compiler_runtime_libs: ?std.builtin.OptimizeMode = null,
 incremental: ?bool = null,

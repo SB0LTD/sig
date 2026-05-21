@@ -374,25 +374,28 @@ pub const Wip = struct {
 
     /// Same as `addExtra` but uses a hash map to possibly return an already
     /// existing index instead of appending to `extra`.
-    pub fn addDeduped(wip: *Wip, extra: anytype) Allocator.Error!u32 {
+    pub fn addDeduped(wip: *Wip, comptime T: type, v: T) Allocator.Error!T.Index {
         const gpa = wip.gpa;
         const revert_index = wip.extra.items.len;
-        const extra_len = Storage.extraLen(extra);
-        try wip.extra.ensureUnusedCapacity(gpa, extra_len);
-        const new_index = addExtraAssumeCapacity(wip, extra);
+        const upper_bound_len = Storage.extraLen(v);
+        try wip.extra.ensureUnusedCapacity(gpa, upper_bound_len);
+        try wip.dedupe_table.ensureUnusedCapacityContext(gpa, 1, @as(ExtraSlice.Context, .{
+            .extra = wip.extra.items,
+        }));
+        const new_index = addExtraAssumeCapacity(wip, v);
         const len: u32 = @intCast(wip.extra.items.len - new_index);
         assert(len != 0);
-        const gop = try wip.dedupe_table.getOrPutContext(gpa, .{
+        const gop = wip.dedupe_table.getOrPutAssumeCapacityContext(.{
             .index = new_index,
             .len = len,
         }, @as(ExtraSlice.Context, .{ .extra = wip.extra.items }));
 
         if (gop.found_existing) {
             wip.extra.items.len = revert_index;
-            return gop.key_ptr.index;
+            return @enumFromInt(gop.key_ptr.index);
         }
 
-        return new_index;
+        return @enumFromInt(new_index);
     }
 
     pub fn addExtraAssumeCapacity(wip: *Wip, extra: anytype) u32 {
@@ -1518,6 +1521,7 @@ pub const OptionalGeneratedFileIndex = enum(u32) {
 pub const Package = struct {
     dep_prefix: String,
     hash: String,
+    root_path: String,
 
     pub const Index = enum(u32) {
         root = max_u32,
@@ -2074,6 +2078,12 @@ pub const ResolvedTarget = struct {
     pub const OptionalIndex = enum(u32) {
         none = max_u32,
         _,
+
+        pub fn init(i: Index) OptionalIndex {
+            const result: OptionalIndex = @enumFromInt(@intFromEnum(i));
+            assert(result != .none);
+            return result;
+        }
 
         pub fn unwrap(this: @This()) ?Index {
             return switch (this) {

@@ -1896,6 +1896,7 @@ fn markNeededLazyDep(b: *Build, pkg_hash: []const u8) void {
 /// In other words, if this function returns `null` it means that the only
 /// purpose of completing the configure phase is to find out all the other lazy
 /// dependencies that are also required.
+///
 /// It is allowed to use this function for non-lazy dependencies, in which case
 /// it will never return `null`. This allows toggling laziness via
 /// build.zig.zon without changing build.zig logic.

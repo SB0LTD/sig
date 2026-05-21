@@ -4985,16 +4985,16 @@ fn cmdBuild(
     configure_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--zig", self_exe_path };
 
     make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--zig-lib-dir", undefined };
-    const argv_index_zig_lib_dir = make_argv.items.len - 1;
+    const make_argv_index_zig_lib_dir = make_argv.items.len - 1;
 
     make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--build-root", undefined };
     const make_argv_index_build_root = make_argv.items.len - 1;
 
     make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--local-cache", undefined };
-    const argv_index_cache_dir = make_argv.items.len - 1;
+    const make_argv_index_cache_dir = make_argv.items.len - 1;
 
     make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--global-cache", undefined };
-    const argv_index_global_cache_dir = make_argv.items.len - 1;
+    const make_argv_index_global_cache_dir = make_argv.items.len - 1;
 
     make_argv.addManyAsArrayAssumeCapacity(2).* = .{ "--configuration", undefined };
     const argv_index_configuration_file = make_argv.items.len - 1;
@@ -5285,10 +5285,20 @@ fn cmdBuild(
     } });
     defer _ = make_runner_task.cancel(io) catch {};
 
-    make_argv.items[argv_index_zig_lib_dir] = dirs.zig_lib.path orelse cwd_path;
+    const pkg_root: Path = if (override_pkg_dir) |p|
+        .initCwd(p)
+    else if (system_pkg_dir_path) |p|
+        .initCwd(p)
+    else
+        .{
+            .root_dir = build_root.directory,
+            .sub_path = "zig-pkg",
+        };
+
+    make_argv.items[make_argv_index_zig_lib_dir] = dirs.zig_lib.path orelse cwd_path;
     make_argv.items[make_argv_index_build_root] = build_root.directory.path orelse cwd_path;
-    make_argv.items[argv_index_global_cache_dir] = dirs.global_cache.path orelse cwd_path;
-    make_argv.items[argv_index_cache_dir] = dirs.local_cache.path orelse cwd_path;
+    make_argv.items[make_argv_index_global_cache_dir] = dirs.global_cache.path orelse cwd_path;
+    make_argv.items[make_argv_index_cache_dir] = dirs.local_cache.path orelse cwd_path;
 
     configure_argv.items[conf_argv_index_build_root] = build_root.directory.path orelse cwd_path;
 
@@ -5385,15 +5395,7 @@ fn cmdBuild(
                     .global_cache = dirs.global_cache,
                     .local_storage = &.{
                         .cache_root = .{ .root_dir = dirs.local_cache, .sub_path = "" },
-                        .pkg_root = if (override_pkg_dir) |p|
-                            .initCwd(p)
-                        else if (system_pkg_dir_path) |p|
-                            .initCwd(p)
-                        else
-                            .{
-                                .root_dir = build_root.directory,
-                                .sub_path = "zig-pkg",
-                            },
+                        .pkg_root = pkg_root,
                     },
                     .recursive = true,
                     .debug_hash = false,

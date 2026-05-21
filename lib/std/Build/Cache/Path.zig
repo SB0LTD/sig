@@ -24,7 +24,7 @@ pub fn cwd() Path {
 }
 
 pub fn initCwd(sub_path: []const u8) Path {
-    return .{ .root_dir = Cache.Directory.cwd(), .sub_path = sub_path };
+    return .{ .root_dir = .cwd(), .sub_path = sub_path };
 }
 
 pub fn join(p: Path, arena: Allocator, sub_path: []const u8) Allocator.Error!Path {

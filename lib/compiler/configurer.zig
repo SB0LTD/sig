@@ -169,6 +169,7 @@ const Serialize = struct {
             gop.value_ptr.* = @enumFromInt(try wc.addExtra(@as(Configuration.Package, .{
                 .hash = try wc.addString(b.pkg_hash),
                 .dep_prefix = try wc.addString(b.dep_prefix),
+                .root_path = try wc.addString(try b.root.toString(arena)),
             })));
         }
         return gop.value_ptr.*;
@@ -233,7 +234,7 @@ const Serialize = struct {
 
     fn addSystemLib(s: *Serialize, sl: *const std.Build.Module.SystemLib) !Configuration.SystemLib.Index {
         const wc = s.wc;
-        return @enumFromInt(try wc.addDeduped(@as(Configuration.SystemLib, .{
+        return try wc.addDeduped(Configuration.SystemLib, .{
             .flags = .{
                 .needed = sl.needed,
                 .weak = sl.weak,
@@ -242,7 +243,7 @@ const Serialize = struct {
                 .search_strategy = sl.search_strategy,
             },
             .name = try wc.addString(sl.name),
-        })));
+        });
     }
 
     fn addCSourceFile(s: *Serialize, csf: *const std.Build.Module.CSourceFile) !Configuration.CSourceFile.Index {
@@ -291,10 +292,10 @@ const Serialize = struct {
     fn addEnvironMap(s: *Serialize, opt_map: ?*std.process.Environ.Map) !?Configuration.EnvironMap.Index {
         const wc = s.wc;
         const map = opt_map orelse return null;
-        return @enumFromInt(try wc.addDeduped(@as(Configuration.EnvironMap, .{
+        return try wc.addDeduped(Configuration.EnvironMap, .{
             .keys = try wc.addStringList(map.array_hash_map.keys()),
             .values = try wc.addStringList(map.array_hash_map.values()),
-        })));
+        });
     }
 
     fn initArgsList(s: *Serialize, args: []const Step.Run.Arg) ![]const Configuration.Step.Run.Arg.Index {
@@ -643,9 +644,10 @@ const Serialize = struct {
         comptime assert(std.mem.eql(u8, @typeInfo(Configuration.Module).@"struct".fields[2].name, "import_table"));
         comptime assert(@typeInfo(Configuration.Module).@"struct".fields[2].type == Configuration.ImportTable.Index);
         assert(wc.extra.items[@intFromEnum(module_index) + 2] == @intFromEnum(Configuration.ImportTable.Index.invalid));
-        wc.extra.items[@intFromEnum(module_index) + 2] = try wc.addDeduped(@as(Configuration.ImportTable, .{
+        const import_table_index = try wc.addDeduped(Configuration.ImportTable, .{
             .imports = .{ .mal = imports },
-        }));
+        });
+        wc.extra.items[@intFromEnum(module_index) + 2] = @intFromEnum(import_table_index);
 
         return module_index;
     }
@@ -687,9 +689,9 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
             for (dep_steps, step.dependencies.items) |*dest, src|
                 dest.* = @enumFromInt(s.step_map.getIndex(src).?);
 
-            const deps: Configuration.Deps.Index = @enumFromInt(try wc.addDeduped(@as(Configuration.Deps, .{
+            const deps: Configuration.Deps.Index = try wc.addDeduped(Configuration.Deps, .{
                 .steps = .{ .slice = dep_steps },
-            })));
+            });
 
             try wc.steps.ensureTotalCapacity(gpa, s.step_map.entries.capacity);
             wc.steps.appendAssumeCapacity(.{
@@ -1278,10 +1280,10 @@ fn addOptionalResolvedTarget(
     optional_resolved_target: ?std.Build.ResolvedTarget,
 ) !Configuration.ResolvedTarget.OptionalIndex {
     const resolved_target = optional_resolved_target orelse return .none;
-    return @enumFromInt(try wc.addDeduped(@as(Configuration.ResolvedTarget, .{
+    return .init(try wc.addDeduped(Configuration.ResolvedTarget, .{
         .query = try wc.addTargetQuery(&resolved_target.query),
         .result = try wc.addTarget(resolved_target.result),
-    })));
+    }));
 }
 
 fn addInstallDir(wc: *Configuration.Wip, install_dir: ?std.Build.InstallDir) !Configuration.InstallDestDir {
