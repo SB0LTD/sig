@@ -2086,6 +2086,7 @@ pub const Cpu = struct {
                     else => generic(arch),
                 },
                 .xcore => &xcore.cpu.xs1b_generic,
+                .xtensa => &xtensa.cpu.esp32,
                 .wasm32, .wasm64 => &wasm.cpu.lime1,
 
                 else => generic(arch),
