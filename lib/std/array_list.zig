@@ -1391,10 +1391,17 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return self.allocatedSlice()[self.items.len..];
         }
 
-        /// Returns the last element from the list, or `null` if the list is empty.
+        /// Deprecated in favor of `last`.
         pub fn getLast(self: Self) ?T {
             if (self.items.len == 0) return null;
             return self.items[self.items.len - 1];
+        }
+
+        /// Returns a pointer to the last element from the list, or `null` if
+        /// the list is empty.
+        pub fn last(self: Self) ?*T {
+            if (self.items.len == 0) return null;
+            return &self.items[self.items.len - 1];
         }
 
         /// Called when memory growth is necessary. Returns a capacity larger than
@@ -2378,17 +2385,16 @@ test "Managed(?u32).pop()" {
     try testing.expect(list.pop() == null);
 }
 
-test "Managed(u32).getLast()" {
+test "last" {
     const a = testing.allocator;
 
-    var list = Managed(u32).init(a);
-    defer list.deinit();
+    var list: ArrayList(u32) = .empty;
+    defer list.deinit(a);
 
-    try testing.expectEqual(list.getLast(), null);
+    try testing.expectEqual(list.last(), null);
 
-    try list.append(2);
-    const const_list = list;
-    try testing.expectEqual(const_list.getLast().?, 2);
+    try list.append(a, 2);
+    try testing.expectEqual(list.last().?.*, 2);
 }
 
 test "return OutOfMemory when capacity would exceed maximum usize integer value" {
