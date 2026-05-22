@@ -2071,6 +2071,10 @@ pub const Cpu = struct {
                 .mips64, .mips64el => &mips.cpu.mips64r2,
                 .msp430 => &msp430.cpu.msp430,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_52,
+                .powerpc64 => switch (os.tag) {
+                    .openbsd => &powerpc.cpu.pwr9,
+                    else => generic(arch),
+                },
                 .powerpc64le => &powerpc.cpu.ppc64le,
                 .riscv32, .riscv32be => &riscv.cpu.baseline_rv32,
                 .riscv64, .riscv64be => &riscv.cpu.baseline_rv64,
