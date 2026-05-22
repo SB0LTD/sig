@@ -2086,8 +2086,7 @@ pub const Cpu = struct {
                 .powerpc64le => &powerpc.cpu.ppc64le,
                 .riscv32, .riscv32be => &riscv.cpu.baseline_rv32,
                 .riscv64, .riscv64be => &riscv.cpu.baseline_rv64,
-                // gcc/clang do not have a generic s390x model.
-                .s390x => &s390x.cpu.arch8,
+                .s390x => &s390x.cpu.arch11,
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
                 .sparc64 => &sparc.cpu.ultrasparc,
                 .x86 => &x86.cpu.pentium4,
