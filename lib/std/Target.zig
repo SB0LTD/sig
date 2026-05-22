@@ -2068,7 +2068,11 @@ pub const Cpu = struct {
                     .psp => &mips.cpu.allegrex,
                     else => &mips.cpu.mips32r2,
                 },
-                .mips64, .mips64el => &mips.cpu.mips64r2,
+                .mips64 => switch (os.tag) {
+                    .openbsd => &mips.cpu.octeon,
+                    else => &mips.cpu.mips64r2,
+                },
+                .mips64el => &mips.cpu.mips64r2,
                 .msp430 => &msp430.cpu.msp430,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_52,
                 .powerpc => switch (os.tag) {
