@@ -11186,14 +11186,8 @@ fn validateSwitchBlock(
                 operand_ty.assertHasLayout(zcu);
                 const union_obj = ip.loadUnionType(operand_ty.toIntern());
                 switch (union_obj.tag_usage) {
-                    .tagged => {
-                        break :item_ty .fromInterned(union_obj.enum_tag_type);
-                    },
-                    .none => {
-                        if (union_obj.layout == .@"packed") {
-                            break :item_ty operand_ty;
-                        }
-                    },
+                    .tagged => break :item_ty .fromInterned(union_obj.enum_tag_type),
+                    .none => if (union_obj.layout == .@"packed") break :item_ty operand_ty,
                     .safety => {},
                 }
                 return sema.failWithOwnedErrorMsg(block, msg: {
@@ -11208,27 +11202,47 @@ fn validateSwitchBlock(
 
             .@"struct" => {
                 operand_ty.assertHasLayout(zcu);
-                const layout = operand_ty.containerLayout(zcu);
-                if (layout == .@"packed") {
-                    break :item_ty operand_ty;
-                }
+                if (operand_ty.containerLayout(zcu) == .@"packed") break :item_ty operand_ty;
                 return sema.failWithOwnedErrorMsg(block, msg: {
-                    const msg = try sema.errMsg(operand_src, "switch on struct with {t} layout", .{layout});
+                    const msg = try sema.errMsg(operand_src, "switch on non-packed struct", .{});
                     errdefer msg.destroy(sema.gpa);
-                    if (operand_ty.srcLocOrNull(zcu)) |struct_src| {
-                        try sema.errNote(struct_src, msg, "consider 'packed struct' here", .{});
-                    }
+                    try sema.addDeclaredHereNote(msg, operand_ty);
                     break :msg msg;
                 });
             },
 
-            .pointer => {
-                if (!operand_ty.isSlice(zcu)) {
-                    break :item_ty operand_ty;
-                }
-            },
+            .pointer => if (!operand_ty.isSlice(zcu)) break :item_ty operand_ty,
 
-            else => {},
+            .optional => return sema.failWithOwnedErrorMsg(block, msg: {
+                const msg = try sema.errMsg(operand_src, "switch on optional type '{f}'", .{
+                    operand_ty.fmt(pt),
+                });
+                errdefer msg.destroy(gpa);
+                try sema.errNote(operand_src, msg, "consider using '.?', 'orelse', or 'if'", .{});
+                break :msg msg;
+            }),
+
+            .error_union => return sema.failWithOwnedErrorMsg(block, msg: {
+                const msg = try sema.errMsg(operand_src, "switch on error union type '{f}'", .{
+                    operand_ty.fmt(pt),
+                });
+                errdefer msg.destroy(gpa);
+                try sema.errNote(operand_src, msg, "consider using 'try', 'catch', or 'if'", .{});
+                break :msg msg;
+            }),
+
+            .noreturn,
+            .float,
+            .comptime_float,
+            .array,
+            .vector,
+            .undefined,
+            .null,
+            .@"opaque",
+            .frame,
+            .@"anyframe",
+            .spirv,
+            => {},
         }
         return sema.fail(block, operand_src, "switch on type '{f}'", .{operand_ty.fmt(pt)});
     };
