@@ -33,6 +33,7 @@ pub const AstRlAnnotate = @import("zig/AstRlAnnotate.zig");
 pub const LibCInstallation = @import("zig/LibCInstallation.zig");
 pub const WindowsSdk = @import("zig/WindowsSdk.zig");
 pub const LibCDirs = @import("zig/LibCDirs.zig");
+pub const PkgConfig = @import("zig/PkgConfig.zig");
 pub const target = @import("zig/target.zig");
 pub const llvm = @import("zig/llvm.zig");
 

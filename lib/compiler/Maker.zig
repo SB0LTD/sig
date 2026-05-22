@@ -532,11 +532,7 @@ pub fn main(init: process.Init.Minimal) !void {
         .web_server = undefined, // set after `prepare`
         .memory_blocked_steps = .empty,
         .step_stack = .empty,
-        .pkg_config = .{
-            .mutex = .init,
-            .list = null,
-            .debug = debug_pkg_config,
-        },
+        .pkg_config = .{ .debug = debug_pkg_config },
 
         .error_style = error_style,
         .multiline_errors = multiline_errors,
@@ -1882,7 +1878,6 @@ pub fn truncatePath(
     if (graph.verbose) try graph.handleVerbose(.inherit, null, &.{
         "truncate", try dest_path.toString(arena),
     });
-    // https://codeberg.org/ziglang/zig/issues/35353
     const err = e: {
         var file = f: {
             break :f dest_path.root_dir.handle.createFile(io, dest_path.sub_path, .{}) catch |err| switch (err) {
