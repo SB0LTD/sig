@@ -2087,7 +2087,10 @@ pub const Cpu = struct {
                 .riscv32, .riscv32be => &riscv.cpu.baseline_rv32,
                 .riscv64, .riscv64be => &riscv.cpu.baseline_rv64,
                 .s390x => &s390x.cpu.arch11,
-                .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
+                .sparc => switch (os.tag) {
+                    .linux => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
+                    else => generic(arch),
+                },
                 .sparc64 => &sparc.cpu.ultrasparc,
                 .x86 => &x86.cpu.pentium4,
                 .x86_64 => switch (os.tag) {
