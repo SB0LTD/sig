@@ -252,8 +252,8 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("math/log10.c", true, .{});
     cases.addLibcTestCase("math/log10f.c", true, .{});
     cases.addLibcTestCase("math/log10l.c", true, .{});
-    // cases.addLibcTestCase("math/log1p.c", true, .{});
-    // cases.addLibcTestCase("math/log1pf.c", true, .{});
+    cases.addLibcTestCase("math/log1p.c", true, .{});
+    cases.addLibcTestCase("math/log1pf.c", true, .{});
     // cases.addLibcTestCase("math/log1pl.c", true, .{});
     cases.addLibcTestCase("math/log2.c", true, .{});
     cases.addLibcTestCase("math/log2f.c", true, .{});
