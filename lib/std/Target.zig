@@ -2046,6 +2046,7 @@ pub const Cpu = struct {
                 },
                 .armeb, .thumbeb => &arm.cpu.baseline,
                 .aarch64 => switch (os.tag) {
+                    .haiku => &aarch64.cpu.cortex_a55,
                     .driverkit, .maccatalyst, .macos => &aarch64.cpu.apple_m1,
                     .ios, .tvos => &aarch64.cpu.apple_a7,
                     .visionos => &aarch64.cpu.apple_m2,
