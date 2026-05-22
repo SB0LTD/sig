@@ -103,7 +103,7 @@ A Spoon is a close derivative that stays continuously synchronized with its upst
 
 | | |
 |---|---|
-| **Latest upstream commit** | [`5d55999d`](https://codeberg.org/ziglang/zig/commit/5d55999d20c4d856ad9e0bd35a939e4aa3be3d0d) |
+| **Latest upstream commit** | [`dfbea20d`](https://codeberg.org/ziglang/zig/commit/dfbea20d45c9e9e843ad7b4a3d13479dc38d3977) |
 | **Last sync** | 2026-05-22 |
 | **Upstream** | [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) |
 | **Base version** | zig 0.17.0-dev · LLVM 22.1.3 |
