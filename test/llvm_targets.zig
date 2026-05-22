@@ -53,7 +53,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabihf },
     .{ .cpu_arch = .arm, .os_tag = .fuchsia, .abi = .eabihf },
-    .{ .cpu_arch = .arm, .os_tag = .haiku, .abi = .eabi },
     .{ .cpu_arch = .arm, .os_tag = .haiku, .abi = .eabihf },
     .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .androideabi },
     .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .eabi },
