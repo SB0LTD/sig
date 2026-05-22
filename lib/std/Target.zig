@@ -2071,6 +2071,10 @@ pub const Cpu = struct {
                 .mips64, .mips64el => &mips.cpu.mips64r2,
                 .msp430 => &msp430.cpu.msp430,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_52,
+                .powerpc => switch (os.tag) {
+                    .openbsd => &powerpc.cpu.@"750",
+                    else => generic(arch),
+                },
                 .powerpc64 => switch (os.tag) {
                     .openbsd => &powerpc.cpu.pwr9,
                     else => generic(arch),
