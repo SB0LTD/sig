@@ -425,6 +425,10 @@ pub fn main(init: process.Init.Minimal) !void {
             break :c Configuration.loadFile(arena, io, file) catch |err|
                 fatal("failed to load configuration file {s}: {t}", .{ configure_path, err });
         };
+        // Technically if the configuration is marked as poisoned, we could
+        // already delete the file now, but we leave it around in case the
+        // maker process fails or crashes and it's helpful to be able to repeat
+        // execution of the command line or otherwise inspect the configuration file.
         const c = &configuration;
         var top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index) = .empty;
         for (configuration.steps, 0..) |*conf_step, step_index_usize| {
@@ -445,6 +449,7 @@ pub fn main(init: process.Init.Minimal) !void {
         break :sc .{
             .configuration = configuration,
             .top_level_steps = top_level_steps,
+            .path = configure_path,
         };
     };
 
@@ -455,7 +460,7 @@ pub fn main(init: process.Init.Minimal) !void {
             else => |e| return e,
         };
         w.flush() catch return stdout_writer_allocation.err.?;
-        return;
+        return cleanExit(io, &scanned_config);
     } else if (steps_menu) {
         var w = initStdoutWriter(io);
         scanned_config.printSteps(&graph, w) catch |err| switch (err) {
@@ -463,12 +468,12 @@ pub fn main(init: process.Init.Minimal) !void {
             else => |e| return e,
         };
         w.flush() catch return stdout_writer_allocation.err.?;
-        return;
+        return cleanExit(io, &scanned_config);
     } else if (print_configuration) {
         var w = initStdoutWriter(io);
         scanned_config.print(w) catch return stdout_writer_allocation.err.?;
         w.flush() catch return stdout_writer_allocation.err.?;
-        return;
+        return cleanExit(io, &scanned_config);
     }
 
     if (webui_listen != null) {
@@ -1000,6 +1005,8 @@ fn makeStepNames(
         if (maker.error_style.verboseContext()) break :code 1; // failure; print build command
         break :code 2; // failure; do not print build command
     };
+    if (code == 0) removePoisonedConfiguration(io, maker.scanned_config);
+    cleanup_task.await(io); // There is a defer above but an exit below.
     _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
     process.exit(code);
 }
@@ -1999,4 +2006,18 @@ fn installSymLinksInner(
     major_only_path.root_dir.handle.symLinkAtomic(io, major_only_path.sub_path, name_only_path.sub_path, .{}) catch |err| {
         return step.fail(maker, "unable to symlink {f} -> {s}: {t}", .{ name_only_path, filename_major_only, err });
     };
+}
+
+fn cleanExit(io: Io, scanned_config: *const ScannedConfig) void {
+    removePoisonedConfiguration(io, scanned_config);
+    return process.cleanExit(io);
+}
+
+fn removePoisonedConfiguration(io: Io, scanned_config: *const ScannedConfig) void {
+    if (scanned_config.configuration.poisoned) {
+        // This configuration file was good for only 1 invocation of the maker
+        // process. Delete it to save space on disk.
+        Io.Dir.cwd().deleteFile(io, scanned_config.path) catch |err|
+            log.warn("failed deleting poisoned configuration file {s}: {t}", .{ scanned_config.path, err });
+    }
 }

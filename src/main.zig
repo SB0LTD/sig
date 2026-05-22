@@ -4970,6 +4970,7 @@ fn cmdBuild(
     var system_pkg_dir_path: ?[]const u8 = null;
     var debug_target: ?[]const u8 = null;
     var debug_libc_paths_file: ?[]const u8 = null;
+    var cache_poison: std.Build.Graph.CachePoison = .pure;
 
     const self_exe_path = try process.executablePathAlloc(io, arena);
     const default_seed = try std.fmt.allocPrint(arena, "0x{x}", .{randInt(io, u32)});
@@ -5039,6 +5040,21 @@ fn cmdBuild(
                     try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
                     configure_argv.appendAssumeCapacity(arg);
                     continue;
+                } else if (mem.eql(u8, arg, "--cache-poison")) {
+                    cache_poison = .poisoned;
+                    configure_argv.appendAssumeCapacity("--cache-poison=poisoned");
+                    continue;
+                } else if (mem.cutPrefix(u8, arg, "--cache-poison=")) |rest| {
+                    // Allow the configurer process to report parse failure.
+                    if (std.meta.stringToEnum(std.Build.Graph.CachePoison, rest)) |poison| {
+                        cache_poison = poison;
+                    }
+                    configure_argv.appendAssumeCapacity(arg);
+                    continue;
+                } else if (mem.eql(u8, arg, "--verbose")) {
+                    // Intentionally is added both to make and configure but
+                    // does not go into the cache hash.
+                    configure_argv.appendAssumeCapacity(arg);
                 } else if (mem.eql(u8, arg, "--build-file")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
@@ -5069,10 +5085,6 @@ fn cmdBuild(
                     i += 1;
                     override_global_cache_dir = args[i];
                     continue;
-                } else if (mem.eql(u8, arg, "--verbose")) {
-                    // Intentionally is added both to make and configure but
-                    // does not go into the cache hash.
-                    configure_argv.appendAssumeCapacity(arg);
                 } else if (mem.eql(u8, arg, "-freference-trace")) {
                     reference_trace = 256;
                 } else if (mem.eql(u8, arg, "--fetch")) {
@@ -5229,6 +5241,10 @@ fn cmdBuild(
     for (cached_passthru_configure.items) |i|
         config_man.hash.addBytes(configure_argv.items[i]);
 
+    // Prevents a `zig build` from getting a false positive cache hit following
+    // a `zig build --cache-poison=ignored`.
+    config_man.hash.add(cache_poison == .ignored);
+
     // Normally the build runner is compiled for the host target but here is
     // some code to help when debugging edits to the build runner so that you
     // can make sure it compiles successfully on other targets.
@@ -5338,7 +5354,7 @@ fn cmdBuild(
 
     // This loop is re-evaluated when the build script exits with an indication that it
     // could not continue due to missing lazy dependencies.
-    const configuration_path: Path = cp: while (true) {
+    const configuration_path: Path, const poisoned: bool = cp: while (true) {
         // We want to release all the locks before executing the child process, so we make a nice
         // big block here to ensure the cleanup gets run when we extract out our argv.
         {
@@ -5609,12 +5625,18 @@ fn cmdBuild(
             _ = try config_man.addFilePath(exe_path, null);
             configure_argv.items[0] = try exe_path.toString(arena);
 
-            if (try config_man.hit()) {
-                const digest = config_man.final();
-                break :cp .{
-                    .root_dir = dirs.local_cache,
-                    .sub_path = try std.fmt.allocPrint(arena, "o/{s}", .{&digest}),
-                };
+            switch (cache_poison) {
+                .pure, .disallowed, .ignored => if (try config_man.hit()) {
+                    const digest = config_man.final();
+                    break :cp .{
+                        .{
+                            .root_dir = dirs.local_cache,
+                            .sub_path = try std.fmt.allocPrint(arena, "o/{s}", .{&digest}),
+                        },
+                        false,
+                    };
+                },
+                .poisoned => {}, // Don't bother checking for cache hit.
             }
         }
 
@@ -5636,7 +5658,7 @@ fn cmdBuild(
         );
         defer config_tmp_file.close(io);
 
-        switch (term: {
+        const term = term: {
             const child_node = root_prog_node.start("Run Configure Script", 0);
             defer child_node.end();
             var child = std.process.spawn(io, .{
@@ -5647,101 +5669,86 @@ fn cmdBuild(
             defer child.kill(io);
             break :term child.wait(io) catch |err|
                 fatal("failed to wait configure script {s}: {t}", .{ configure_argv.items[0], err });
-        }) {
-            .exited => |code| {
-                if (code != 0) {
-                    // Failure to produce the configuration file.
-                    const cmd = try std.mem.join(arena, " ", configure_argv.items);
-                    fatal("the following configure command failed with exit code {d}:\n{s}", .{ code, cmd });
+        };
+        if (!term.success()) {
+            // Failure to produce the configuration file.
+            const cmd = try std.mem.join(arena, " ", configure_argv.items);
+            fatal("the following configure command {f}:\n{s}", .{ term, cmd });
+        }
+        // Even though the file is designed to be sent directly to make
+        // runner, we must load it now because:
+        // * If it contains additional file dependencies, we need to
+        //   add them to `config_man` before obtaining the final digest.
+        // * If it contains a set of lazy packages that need to be
+        //   fetched, we need to fetch those now and re-run configure.
+        var configuration = std.Build.Configuration.loadFile(arena, io, config_tmp_file) catch |err|
+            fatal("failed to load configuration file {f}: {t}", .{ config_tmp_path, err });
+
+        if (configuration.unlazy_deps.len != 0) {
+            if (!dev.env.supports(.fetch_command)) process.exit(1);
+            var any_errors = false;
+            for (configuration.unlazy_deps) |hash_string| {
+                const hash = hash_string.slice(&configuration);
+                assert(hash.len != 0);
+                if (hash.len > Package.Hash.max_len) {
+                    std.log.err("invalid digest (length {d} exceeds maximum): '{s}'", .{ hash.len, hash });
+                    any_errors = true;
+                    continue;
                 }
-                // Even though the file is designed to be sent directly to make
-                // runner, we must load it now because:
-                // * If it contains additional file dependencies, we need to
-                //   add them to `config_man` before obtaining the final digest.
-                // * If it contains a set of lazy packages that need to be
-                //   fetched, we need to fetch those now and re-run configure.
-                var configuration = std.Build.Configuration.loadFile(arena, io, config_tmp_file) catch |err|
-                    fatal("failed to load configuration file {f}: {t}", .{ config_tmp_path, err });
-
-                if (configuration.unlazy_deps.len != 0) {
-                    if (!dev.env.supports(.fetch_command)) process.exit(1);
-                    var any_errors = false;
-                    for (configuration.unlazy_deps) |hash_string| {
-                        const hash = hash_string.slice(&configuration);
-                        assert(hash.len != 0);
-                        if (hash.len > Package.Hash.max_len) {
-                            std.log.err("invalid digest (length {d} exceeds maximum): '{s}'", .{
-                                hash.len, hash,
-                            });
-                            any_errors = true;
-                            continue;
-                        }
-                        try unlazy_set.put(arena, .fromSlice(hash), {});
-                    }
-                    if (any_errors) process.exit(1);
-                    if (system_pkg_dir_path) |p| {
-                        // In this mode, the system needs to provide these packages; they
-                        // cannot be fetched by Zig.
-                        const s = fs.path.sep_str;
-                        for (unlazy_set.keys()) |*hash| {
-                            std.log.err("lazy dependency package not found: {s}" ++ s ++ "{s}", .{
-                                p, hash.toSlice(),
-                            });
-                        }
-                        std.log.info("remote package fetching disabled due to --system mode", .{});
-                        std.log.info("dependencies might be avoidable depending on build configuration", .{});
-                        process.exit(1);
-                    }
-                    continue :cp;
+                try unlazy_set.put(arena, .fromSlice(hash), {});
+            }
+            if (any_errors) process.exit(1);
+            if (system_pkg_dir_path) |p| {
+                // In this mode, the system needs to provide these packages; they
+                // cannot be fetched by Zig.
+                const s = fs.path.sep_str;
+                for (unlazy_set.keys()) |*hash| {
+                    std.log.err("lazy dependency package not found: {s}" ++ s ++ "{s}", .{ p, hash.toSlice() });
                 }
+                std.log.info("remote package fetching disabled due to --system mode", .{});
+                std.log.info("dependencies might be avoidable depending on build configuration", .{});
+                process.exit(1);
+            }
+            continue :cp;
+        }
 
-                for (configuration.path_deps_base, configuration.path_deps_sub) |base, sub| {
-                    const conf_path: std.Build.Configuration.Path = .{ .base = base, .sub = sub };
-                    try config_man.addPathPost(conf_path.toCachePath(&configuration, arena));
-                }
+        for (configuration.path_deps_base, configuration.path_deps_sub) |base, sub| {
+            const conf_path: std.Build.Configuration.Path = .{ .base = base, .sub = sub };
+            try config_man.addPathPost(conf_path.toCachePath(&configuration, arena));
+        }
 
-                const digest = config_man.final();
-                const final_path: Path = .{
-                    .root_dir = dirs.local_cache,
-                    .sub_path = try std.fmt.allocPrint(arena, "o/{s}", .{&digest}),
-                };
-                Io.Dir.rename(
-                    config_tmp_path.root_dir.handle,
-                    config_tmp_path.sub_path,
-                    final_path.root_dir.handle,
-                    final_path.sub_path,
-                    io,
-                ) catch |err| {
-                    fatal("failed to rename configuration file from {f} into {f}: {t}", .{
-                        config_tmp_path, final_path, err,
-                    });
-                };
-                config_man.writeManifest() catch |err| warn("failed to write cache manifest: {t}", .{err});
-
-                break :cp final_path;
-            },
-            .signal => |sig| {
-                const cmd = try std.mem.join(arena, " ", configure_argv.items);
-                fatal("the following configure command terminated with signal {t}:\n{s}", .{ sig, cmd });
-            },
-            .stopped => |sig| {
-                const cmd = try std.mem.join(arena, " ", configure_argv.items);
-                fatal("the following build command stopped with signal {t}:\n{s}", .{ sig, cmd });
-            },
-            .unknown => {
-                const cmd = try std.mem.join(arena, " ", configure_argv.items);
-                fatal("the following build command crashed:\n{s}", .{cmd});
-            },
+        // If it is poisoned, there is no point in moving it to cached
+        // location. Just leave it in the tmp directory.
+        if (configuration.poisoned) {
+            break :cp .{ config_tmp_path, true };
+        } else {
+            const digest = config_man.final();
+            const final_path: Path = .{
+                .root_dir = dirs.local_cache,
+                .sub_path = try std.fmt.allocPrint(arena, "o/{s}", .{&digest}),
+            };
+            Io.Dir.rename(
+                config_tmp_path.root_dir.handle,
+                config_tmp_path.sub_path,
+                final_path.root_dir.handle,
+                final_path.sub_path,
+                io,
+            ) catch |err| {
+                fatal("failed to rename configuration file from {f} into {f}: {t}", .{
+                    config_tmp_path, final_path, err,
+                });
+            };
+            config_man.writeManifest() catch |err| warn("failed to write cache manifest: {t}", .{err});
+            break :cp .{ final_path, false };
         }
     };
 
     {
         // Release all file system locks just before running the maker process.
-        var configuration_lock = config_man.toOwnedLock();
-        defer configuration_lock.release(io);
+        var configuration_lock = if (!poisoned) config_man.toOwnedLock() else null;
+        defer if (configuration_lock) |*l| l.release(io);
 
-        const make_runner = make_runner_task.await(io) catch |err|
-            fatal("failed to compile maker: {t}", .{err});
+        const make_runner = make_runner_task.await(io) catch |err| fatal("failed compiling maker: {t}", .{err});
 
         make_argv.items[0] = try make_runner.exe_path.toString(arena);
         make_argv.items[argv_index_configuration_file] = try configuration_path.toString(arena);
@@ -5749,33 +5756,24 @@ fn cmdBuild(
 
     if (!process.can_spawn) {
         const cmd = try std.mem.join(arena, " ", make_argv.items);
-        fatal("the following command cannot be executed ({t} does not support spawning a child process):\n{s}", .{ native_os, cmd });
+        fatal("the following command cannot be executed ({t} does not support spawning a child process):\n{s}", .{
+            native_os, cmd,
+        });
     }
 
-    switch (term: {
+    const term = term: {
         _ = try io.lockStderr(&.{}, .no_color);
         defer io.unlockStderr();
         var child = std.process.spawn(io, .{
             .argv = make_argv.items,
-        }) catch |err| fatal("failed to spawn maker {s}: {t}", .{ make_argv.items[0], err });
+        }) catch |err| fatal("failed spawning maker {s}: {t}", .{ make_argv.items[0], err });
         defer child.kill(io);
         break :term child.wait(io) catch |err|
-            fatal("failed to wait maker {s}: {t}", .{ make_argv.items[0], err });
-    }) {
-        .exited => |code| {
-            if (code == 0) return cleanExit(io);
-            const cmd = try std.mem.join(arena, " ", make_argv.items);
-            fatal("the following maker command failed with exit code {d}:\n{s}", .{ code, cmd });
-        },
-        .signal => |sig| {
-            const cmd = try std.mem.join(arena, " ", make_argv.items);
-            fatal("the following maker command terminated with signal {t}:\n{s}", .{ sig, cmd });
-        },
-        else => {
-            const cmd = try std.mem.join(arena, " ", make_argv.items);
-            fatal("the following maker command crashed:\n{s}", .{cmd});
-        },
-    }
+            fatal("failed waiting on maker {s}: {t}", .{ make_argv.items[0], err });
+    };
+    if (term.success()) return cleanExit(io);
+    const cmd = try std.mem.join(arena, " ", make_argv.items);
+    fatal("the following maker command {f}:\n{s}", .{ term, cmd });
 }
 
 const MakeRunner = struct {

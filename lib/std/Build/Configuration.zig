@@ -17,6 +17,7 @@ search_prefixes: []String,
 extra: []u32,
 default_step: Step.Index,
 generated_files_len: u32,
+poisoned: bool,
 
 /// The field order here matches `Configuration` which documents the order in
 /// the serialized format.
@@ -34,6 +35,12 @@ pub const Header = extern struct {
     /// There is not actually any data stored for this - it just provides a way
     /// for maker process to preallocate an array for these.
     generated_files_len: u32,
+    flags: Flags,
+
+    pub const Flags = packed struct(u32) {
+        poisoned: bool,
+        _: u31 = 0,
+    };
 };
 
 pub const Wip = struct {
@@ -52,6 +59,7 @@ pub const Wip = struct {
     search_prefixes: std.ArrayList(String) = .empty,
     extra: std.ArrayList(u32) = .empty,
     next_generated_file_index: u32 = 0,
+    cache_poison: bool = false,
 
     const DedupeTable = std.HashMapUnmanaged(ExtraSlice, void, ExtraSlice.Context, std.hash_map.default_max_load_percentage);
     const TargetsTable = std.HashMapUnmanaged(TargetQuery.Index, void, TargetsTableContext, std.hash_map.default_max_load_percentage);
@@ -137,6 +145,7 @@ pub const Wip = struct {
     pub const Static = struct {
         default_step: Step.Index,
         generated_files_len: u32,
+        poisoned: bool,
     };
 
     pub fn write(wip: *Wip, w: *Io.Writer, static: Static) Io.Writer.Error!void {
@@ -152,6 +161,9 @@ pub const Wip = struct {
 
             .default_step = static.default_step,
             .generated_files_len = static.generated_files_len,
+            .flags = .{
+                .poisoned = static.poisoned,
+            },
         };
         var buffers = [_][]const u8{
             @ptrCast(&header),
@@ -3325,6 +3337,7 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
         .extra = try arena.alloc(u32, header.extra_len),
         .default_step = header.default_step,
         .generated_files_len = header.generated_files_len,
+        .poisoned = header.flags.poisoned,
     };
     var vecs = [_][]u8{
         result.string_bytes,

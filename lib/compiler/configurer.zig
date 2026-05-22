@@ -114,6 +114,9 @@ pub fn main(init: process.Init.Minimal) !void {
             graph.system_package_mode = true;
         } else if (mem.eql(u8, arg, "--verbose")) {
             graph.verbose = true;
+        } else if (mem.cutPrefix(u8, arg, "--cache-poison=")) |rest| {
+            graph.cache_poison = std.meta.stringToEnum(std.Build.Graph.CachePoison, rest) orelse
+                fatalWithHint("expected --cache-poison=[pure|poisoned|disallowed|ignored]; found: {s}", .{arg});
         } else {
             fatalWithHint("unrecognized argument: {s}", .{arg});
         }
@@ -1222,6 +1225,10 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
     try wc.write(writer, .{
         .default_step = s.stepIndex(b.default_step),
         .generated_files_len = @intCast(graph.generated_files.items.len),
+        .poisoned = switch (graph.cache_poison) {
+            .pure, .disallowed, .ignored => false,
+            .poisoned => true,
+        },
     });
 }
 

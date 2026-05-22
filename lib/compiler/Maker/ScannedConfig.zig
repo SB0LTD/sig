@@ -9,6 +9,7 @@ const Graph = @import("Graph.zig");
 
 configuration: Configuration,
 top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index),
+path: []const u8,
 
 pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
     std.log.err("TODO also print paths", .{});
@@ -343,6 +344,11 @@ pub fn printUsage(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --build-runner [file]        Override path to build runner
         \\  --seed [integer]             For shuffling dependency traversal order (default: random)
+        \\  --cache-poison[=mode]        Override configuration caching behavior
+        \\      pure                     (default) Avoid false positive cache hits
+        \\      poisoned                 Don't cache the configuration
+        \\      disallowed               Panics when cache would be poisoned
+        \\      ignored                  A little poison never hurt anybody
         \\  --build-id[=style]           At a minor link-time expense, embeds a build ID in binaries
         \\      fast                     8-byte non-cryptographic hash (COFF, ELF, WASM)
         \\      sha1, tree               20-byte cryptographic hash (ELF, WASM)

@@ -98,6 +98,35 @@ pub const Graph = struct {
     generated_files: std.ArrayList(*Step),
     wip_configuration: Configuration.Wip,
 
+    cache_poison: CachePoison = .pure,
+
+    /// If the cache is poisoned means that the **configure logic** had side
+    /// effects, or otherwise did something that could not be tracked by the
+    /// cache system.
+    ///
+    /// This is not to be confused with whether individual steps may have side
+    /// effects when being evaluated; it has to do with the logic inside build.zig
+    /// itself. For example, a `Run` step that prints "hello world" has side
+    /// effects *at make time* and therefore does not warrant setting this flag,
+    /// while checking for the existence of `scdoc` *at configure time* in order to
+    /// choose the default value for a configuration option does.
+    ///
+    /// Keeping the cache pure will make `zig build` faster, bypassing the
+    /// configurer process when identical configuration would be generated.
+    ///
+    /// When the cache is poisoned, the maker process will delete the build
+    /// configuration file upon ingesting it since it cannot be reused.
+    pub const CachePoison = enum {
+        pure,
+        poisoned,
+        /// Indicates the user would like to see a stack trace if the cache
+        /// would become poisoned.
+        disallowed,
+        /// Indicates the user would like to ignore the cache being poisoned
+        /// and cache anyway, opting into cache hits on stale configuration.
+        ignored,
+    };
+
     pub fn addGeneratedFile(graph: *Graph, owner: *Step) Configuration.GeneratedFileIndex {
         graph.generated_files.append(graph.arena, owner) catch @panic("OOM");
         return @enumFromInt(graph.generated_files.items.len - 1);
@@ -168,6 +197,19 @@ pub const Graph = struct {
     pub fn addString(graph: *Graph, bytes: []const u8) Configuration.String {
         const wc = &graph.wip_configuration;
         return wc.addString(bytes) catch @panic("OOM");
+    }
+
+    /// Indicates that the **configure logic** had side effects, or otherwise
+    /// did something that could not be tracked by the cache system.
+    ///
+    /// See `CachePoison` documentation for more details.
+    pub fn poisonCache(graph: *Graph) void {
+        switch (graph.cache_poison) {
+            .pure => graph.cache_poison = .poisoned,
+            .poisoned => return,
+            .disallowed => @panic("cache poisoned"),
+            .ignored => log.warn("ignoring cache poisoning", .{}),
+        }
     }
 };
 
@@ -798,11 +840,23 @@ pub fn createModule(b: *Build, options: Module.CreateOptions) *Module {
     return Module.create(b, options);
 }
 
-/// Initializes a `Step.Run` with argv, which must at least have the path to the
-/// executable. More command line arguments can be added with `addArg`,
-/// `addArgs`, and `addArtifactArg`.
-/// Be careful using this function, as it introduces a system dependency.
-/// To run an executable built with zig build, see `Step.Compile.run`.
+/// Creates a step that executes a process on the host system.
+///
+/// `argv` is one or more command line arguments passed to the executed
+/// process. The first element is the name of the executable to run. More
+/// command line arguments can be added with methods of `Step.Run`, such as:
+/// * `Step.Run.addArgs`
+/// * `Step.Run.addArtifactArg`
+/// * `Step.Run.addFileArg`
+/// * `Step.Run.addOutputFileArg`
+///
+/// This function introduces a system dependency, compromising reproducibility
+/// and making it more difficult to set up one's computer in order to build the
+/// project from source.
+///
+/// See also:
+/// * `addRunArtifact`
+/// * `addRunFile`
 pub fn addSystemCommand(b: *Build, argv: []const []const u8) *Step.Run {
     assert(argv.len >= 1);
     const run_step = Step.Run.create(b, b.fmt("run {s}", .{argv[0]}));
@@ -818,8 +872,11 @@ pub fn addSystemCommand(b: *Build, argv: []const []const u8) *Step.Run {
 ///
 /// This is declarative; it constructs a build step that may or may not be run
 /// depending on the options provided by the user to the build command.
+///
+/// See also:
+/// * `addSystemCommand`
+/// * `addRunFile`
 pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
-
     // Avoid the common case of the step name looking like "run test test".
     const step_name = if (exe.kind.isTest() and mem.eql(u8, exe.name, "test"))
         b.fmt("run {t}", .{exe.kind})
@@ -876,6 +933,19 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
         run_step.addArtifactArg(exe);
     }
 
+    return run_step;
+}
+
+/// Creates a step that executes the provided file.
+///
+/// Add more command line arguments via methods of `Step.Run`.
+///
+/// See also:
+/// * `addSystemCommand`
+/// * `addRunArtifact`
+pub fn addRunFile(b: *Build, executable: LazyPath) *Step.Run {
+    const run_step = Step.Run.create(b, b.fmt("run {f}", .{executable.fmt(b.graph)}));
+    run_step.addFileArg(executable);
     return run_step;
 }
 
@@ -1641,11 +1711,41 @@ pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
 ///
 /// Returns the `LazyPath` of the found executable. The search only takes place
 /// if the `LazyPath` will be used by a depending `Step`.
-pub fn findProgram(b: *Build, names: []const []const u8) LazyPath {
+///
+/// This API is useful in the following cases:
+/// * The binary is not named the same across all systems (for example "python"
+///   vs "python3").
+/// * The binary may be produced by building from source rather than being
+///   globally installed and will therefore be possibly found in one of the
+///   search prefix paths.
+///
+/// See also:
+/// * `findProgram`
+pub fn findProgramLazy(b: *Build, names: []const []const u8) LazyPath {
     const graph = b.graph;
     const wc = &graph.wip_configuration;
     const string_list = wc.addStringList(names) catch @panic("OOM");
     _ = string_list;
+    @panic("TODO");
+}
+
+/// Immediately (in the configure phase), searches for an executable on the host
+/// that has more than one possible name.
+///
+/// Names are searched in order, observing search prefixes first and then PATH
+/// environment variable.
+///
+/// Calling this function poisons the configuration cache. For more
+/// information, see `Graph.CachePoison` documentation.
+///
+/// See also:
+/// * `findProgramLazy`
+pub fn findProgram(b: *Build, names: []const []const u8) ?[]const u8 {
+    const graph = b.graph;
+    const wc = &graph.wip_configuration;
+    const string_list = wc.addStringList(names) catch @panic("OOM");
+    _ = string_list;
+    graph.poisonCache();
     @panic("TODO");
 }
 
