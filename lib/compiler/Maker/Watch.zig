@@ -548,9 +548,11 @@ const Os = switch (builtin.os.tag) {
         }
 
         fn update(w: *Watch, steps: []const Configuration.Step.Index) !void {
-            const gpa = w.maker.gpa;
+            const maker = w.maker;
+            const gpa = maker.gpa;
             // Add missing marks and note persisted ones.
-            for (steps) |step| {
+            for (steps) |step_index| {
+                const step = maker.stepByIndex(step_index);
                 for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
                     const dir = dir: {
                         const gop = try w.dir_table.getOrPut(gpa, path);
@@ -579,7 +581,7 @@ const Os = switch (builtin.os.tag) {
                     for (files.items) |basename| {
                         const gop = try dir.reaction_set.getOrPut(gpa, basename);
                         if (!gop.found_existing) gop.value_ptr.* = .{};
-                        try gop.value_ptr.put(gpa, step, w.generation);
+                        try gop.value_ptr.put(gpa, step_index, w.generation);
                     }
                 }
             }
