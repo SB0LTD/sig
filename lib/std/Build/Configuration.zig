@@ -3360,7 +3360,7 @@ pub fn loadFile(arena: Allocator, io: Io, file: Io.File) LoadFileError!Configura
 pub const LoadError = Io.Reader.Error || Allocator.Error;
 
 pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
-    const header = try reader.takeStruct(Header, .little);
+    const header = try reader.takeStruct(Header, .native);
     const result: Configuration = .{
         .string_bytes = try arena.alloc(u8, header.string_bytes_len),
         .steps = try arena.alloc(Step, header.steps_len),
