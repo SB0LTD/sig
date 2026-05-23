@@ -623,7 +623,7 @@ pub fn main(init: process.Init.Minimal) !void {
         // Comptime-known guard to prevent including the logic below when `!Watch.have_impl`.
         if (!Watch.have_impl) unreachable;
 
-        try w.update(gpa, maker.step_stack.keys());
+        try w.update(maker.step_stack.keys());
 
         // Wait until a file system notification arrives. Read all such events
         // until the buffer is empty. Then wait for a debounce interval, resetting

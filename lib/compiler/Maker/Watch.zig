@@ -177,8 +177,9 @@ const Os = switch (builtin.os.tag) {
             }
         }
 
-        fn update(w: *Watch, gpa: Allocator, steps: []const Configuration.Step.Index) !void {
+        fn update(w: *Watch, steps: []const Configuration.Step.Index) !void {
             const maker = w.maker;
+            const gpa = maker.gpa;
 
             // Add missing marks and note persisted ones.
             for (steps) |step_index| {
@@ -465,8 +466,7 @@ const Os = switch (builtin.os.tag) {
             };
         };
 
-        fn init(cwd_path: []const u8) !Watch {
-            _ = cwd_path;
+        fn init(maker: *Maker) !Watch {
             return .{
                 .dir_table = .{},
                 .dir_count = 0,
@@ -478,6 +478,7 @@ const Os = switch (builtin.os.tag) {
                     else => {},
                 },
                 .generation = 0,
+                .maker = maker,
             };
         }
 
@@ -546,7 +547,8 @@ const Os = switch (builtin.os.tag) {
             return any_dirty;
         }
 
-        fn update(w: *Watch, gpa: Allocator, steps: []const Configuration.Step.Index) !void {
+        fn update(w: *Watch, steps: []const Configuration.Step.Index) !void {
+            const gpa = w.maker.gpa;
             // Add missing marks and note persisted ones.
             for (steps) |step| {
                 for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
@@ -677,8 +679,7 @@ const Os = switch (builtin.os.tag) {
         const EV = std.c.EV;
         const NOTE = std.c.NOTE;
 
-        fn init(cwd_path: []const u8) !Watch {
-            _ = cwd_path;
+        fn init(maker: *Maker) !Watch {
             return .{
                 .dir_table = .{},
                 .dir_count = 0,
@@ -687,10 +688,12 @@ const Os = switch (builtin.os.tag) {
                     .handles = .empty,
                 },
                 .generation = 0,
+                .maker = maker,
             };
         }
 
-        fn update(w: *Watch, gpa: Allocator, steps: []const Configuration.Step.Index) !void {
+        fn update(w: *Watch, steps: []const Configuration.Step.Index) !void {
+            const gpa = w.maker.gpa;
             const handles = &w.os.handles;
             for (steps) |step| {
                 for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
@@ -860,21 +863,21 @@ const Os = switch (builtin.os.tag) {
     .macos => struct {
         fse: FsEvents,
 
-        fn init(cwd_path: []const u8) !Watch {
+        fn init(maker: *Maker) !Watch {
             return .{
-                .os = .{ .fse = try .init(cwd_path) },
+                .os = .{ .fse = try .init(maker.graph.cache.cwd) },
                 .dir_count = 0,
                 .dir_table = undefined,
                 .generation = undefined,
+                .maker = maker,
             };
         }
-        fn update(w: *Watch, gpa: Allocator, steps: []const Configuration.Step.Index) !void {
-            try w.os.fse.setPaths(gpa, steps);
+        fn update(w: *Watch, steps: []const Configuration.Step.Index) !void {
+            try w.os.fse.setPaths(w.maker, steps);
             w.dir_count = w.os.fse.watch_roots.len;
         }
-        fn wait(w: *Watch, gpa: Allocator, io: Io, timeout: Timeout) !WaitResult {
-            _ = io;
-            return w.os.fse.wait(gpa, switch (timeout) {
+        fn wait(w: *Watch, timeout: Timeout) !WaitResult {
+            return w.os.fse.wait(w.maker, switch (timeout) {
                 .none => null,
                 .ms => |ms| @as(u64, ms) * std.time.ns_per_ms,
             });
@@ -938,8 +941,8 @@ fn markStepSetDirty(maker: *Maker, step_set: *StepSet, any_dirty: bool) bool {
     return any_dirty or this_any_dirty;
 }
 
-pub fn update(w: *Watch, gpa: Allocator, steps: []const Configuration.Step.Index) !void {
-    return Os.update(w, gpa, steps);
+pub fn update(w: *Watch, steps: []const Configuration.Step.Index) !void {
+    return Os.update(w, steps);
 }
 
 pub const Timeout = union(enum) {

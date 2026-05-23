@@ -17,6 +17,7 @@
 //! the logic that would avoid them is currently disabled, because the build system kind
 //! of relies on them at the time of writing to avoid redundant work -- see the comment at
 //! the top of `wait` for details.
+const FsEvents = @This();
 
 const enable_debug_logs = false;
 
@@ -30,7 +31,7 @@ paths_arena: std.heap.ArenaAllocator.State,
 watch_roots: [][:0]const u8,
 /// All of the paths being watched. Value is the set of steps which depend on the file/directory.
 /// Keys and values are in `paths_arena`, but this map is allocated into the GPA.
-watch_paths: std.StringArrayHashMapUnmanaged([]const *std.Build.Step),
+watch_paths: std.array_hash_map.String([]const std.Build.Configuration.Step.Index),
 
 /// The semaphore we use to block the thread calling `wait` until the callback determines a relevant
 /// event has occurred. This is retained across `wait` calls for simplicity and efficiency.
@@ -118,19 +119,22 @@ pub fn deinit(fse: *FsEvents, gpa: Allocator, io: Io) void {
     }
 }
 
-pub fn setPaths(fse: *FsEvents, gpa: Allocator, steps: []const *std.Build.Step) !void {
+pub fn setPaths(fse: *FsEvents, maker: *Maker, steps: []const std.Build.Configuration.Step.Index) !void {
+    const gpa = maker.gpa;
+
     var paths_arena_instance = fse.paths_arena.promote(gpa);
     defer fse.paths_arena = paths_arena_instance.state;
     const paths_arena = paths_arena_instance.allocator();
 
-    var need_dirs: std.StringArrayHashMapUnmanaged(void) = .empty;
+    var need_dirs: std.array_hash_map.String(void) = .empty;
     defer need_dirs.deinit(gpa);
 
     fse.watch_paths.clearRetainingCapacity();
 
-    // We take `step` by pointer for a slight memory optimization in a moment.
-    for (steps) |*step| {
-        for (step.*.inputs.table.keys(), step.*.inputs.table.values()) |path, *files| {
+    // We take `step_index` by pointer for a slight memory optimization in a moment.
+    for (steps) |*step_index| {
+        const step = maker.stepByIndex(step_index.*);
+        for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
             const resolved_dir = try std.fs.path.resolvePosix(paths_arena, &.{
                 fse.cwd_path, path.root_dir.path orelse ".", path.sub_path,
             });
@@ -143,14 +147,14 @@ pub fn setPaths(fse: *FsEvents, gpa: Allocator, steps: []const *std.Build.Step) 
                 const gop = try fse.watch_paths.getOrPut(gpa, watch_path);
                 if (gop.found_existing) {
                     const old_steps = gop.value_ptr.*;
-                    const new_steps = try paths_arena.alloc(*std.Build.Step, old_steps.len + 1);
+                    const new_steps = try paths_arena.alloc(std.Build.Configuration.Step.Index, old_steps.len + 1);
                     @memcpy(new_steps[0..old_steps.len], old_steps);
-                    new_steps[old_steps.len] = step.*;
+                    new_steps[old_steps.len] = step_index.*;
                     gop.value_ptr.* = new_steps;
                 } else {
                     // This is why we captured `step` by pointer! We can avoid allocating a slice of one
                     // step in the arena in the common case where a file is referenced by only one step.
-                    gop.value_ptr.* = step[0..1];
+                    gop.value_ptr.* = step_index[0..1];
                 }
             }
         }
@@ -206,8 +210,9 @@ pub fn setPaths(fse: *FsEvents, gpa: Allocator, steps: []const *std.Build.Step) 
     }
 }
 
-pub fn wait(fse: *FsEvents, gpa: Allocator, timeout_ns: ?u64) error{ OutOfMemory, StartFailed }!std.Build.Watch.WaitResult {
+pub fn wait(fse: *FsEvents, maker: *Maker, timeout_ns: ?u64) error{ OutOfMemory, StartFailed }!Watch.WaitResult {
     if (fse.watch_roots.len == 0) @panic("nothing to watch");
+    const gpa = maker.gpa;
 
     const rs = fse.resolved_symbols;
 
@@ -253,7 +258,7 @@ pub fn wait(fse: *FsEvents, gpa: Allocator, timeout_ns: ?u64) error{ OutOfMemory
 
     const callback_ctx: EventCallbackCtx = .{
         .fse = fse,
-        .gpa = gpa,
+        .maker = maker,
     };
     const event_stream = rs.FSEventStreamCreate(
         null,
@@ -321,7 +326,7 @@ const cf_alloc_callbacks = struct {
 
 const EventCallbackCtx = struct {
     fse: *FsEvents,
-    gpa: Allocator,
+    maker: *Maker,
 };
 
 fn eventCallback(
@@ -333,8 +338,8 @@ fn eventCallback(
     events_ids_ptr: [*]const FSEventStreamEventId,
 ) callconv(.c) void {
     const ctx: *const EventCallbackCtx = @ptrCast(@alignCast(client_callback_info));
+    const maker = ctx.maker;
     const fse = ctx.fse;
-    const gpa = ctx.gpa;
     const rs = fse.resolved_symbols;
     const events_paths_ptr_casted: [*]const [*:0]const u8 = @ptrCast(@alignCast(events_paths_ptr));
     const events_paths = events_paths_ptr_casted[0..num_events];
@@ -349,17 +354,13 @@ fn eventCallback(
             false => {
                 if (fse.watch_paths.get(event_path)) |steps| {
                     assert(steps.len > 0);
-                    for (steps) |s| {
-                        if (s.invalidateResult(gpa)) any_dirty = true;
-                    }
+                    if (invalidateSteps(maker, steps)) any_dirty = true;
                 }
                 if (std.fs.path.dirname(event_path)) |event_dirname| {
                     // Modifying '/foo/bar' triggers the watch on '/foo'.
                     if (fse.watch_paths.get(event_dirname)) |steps| {
                         assert(steps.len > 0);
-                        for (steps) |s| {
-                            if (s.invalidateResult(gpa)) any_dirty = true;
-                        }
+                        if (invalidateSteps(maker, steps)) any_dirty = true;
                     }
                 }
             },
@@ -372,9 +373,7 @@ fn eventCallback(
                 const changed_path = std.fs.path.dirname(event_path) orelse event_path;
                 for (fse.watch_paths.keys(), fse.watch_paths.values()) |watching_path, steps| {
                     if (dirStartsWith(watching_path, changed_path)) {
-                        for (steps) |s| {
-                            if (s.invalidateResult(gpa)) any_dirty = true;
-                        }
+                        if (invalidateSteps(maker, steps)) any_dirty = true;
                     }
                 }
             },
@@ -390,6 +389,15 @@ fn dirStartsWith(path: []const u8, prefix: []const u8) bool {
     if (!std.mem.startsWith(u8, path, prefix)) return false;
     if (path[prefix.len] != '/') return false; // `path` is `/foo/barx`, `prefix` is `/foo/bar`
     return true; // `path` is `/foo/bar/...`, `prefix` is `/foo/bar`
+}
+
+fn invalidateSteps(maker: *Maker, steps: []const std.Build.Configuration.Step.Index) bool {
+    var any_dirty = false;
+    for (steps) |step_index| {
+        const step = maker.stepByIndex(step_index);
+        if (maker.invalidateResult(step)) any_dirty = true;
+    }
+    return any_dirty;
 }
 
 const CFAllocatorRef = ?*const opaque {};
@@ -476,4 +484,5 @@ const Io = std.Io;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const watch_log = std.log.scoped(.watch);
-const FsEvents = @This();
+const Maker = @import("../../Maker.zig");
+const Watch = @import("../Watch.zig");
