@@ -2265,6 +2265,7 @@ pub const TargetQuery = struct {
         simulator,
         ohos,
         ohoseabi,
+        call0,
 
         default,
 
@@ -2297,6 +2298,7 @@ pub const TargetQuery = struct {
                 .simulator => .simulator,
                 .ohos => .ohos,
                 .ohoseabi => .ohoseabi,
+                .call0 => .call0,
             };
         }
 
@@ -2329,6 +2331,7 @@ pub const TargetQuery = struct {
                 .simulator => .simulator,
                 .ohos => .ohos,
                 .ohoseabi => .ohoseabi,
+                .call0 => .call0,
                 .default => null,
             };
         }
@@ -2357,6 +2360,7 @@ pub const TargetQuery = struct {
         loongarch32,
         loongarch64,
         m68k,
+        m88k,
         microblaze,
         microblazeel,
         mips,
@@ -2421,6 +2425,7 @@ pub const TargetQuery = struct {
                 .loongarch32 => .loongarch32,
                 .loongarch64 => .loongarch64,
                 .m68k => .m68k,
+                .m88k => .m88k,
                 .microblaze => .microblaze,
                 .microblazeel => .microblazeel,
                 .mips => .mips,
@@ -2485,6 +2490,7 @@ pub const TargetQuery = struct {
                 .loongarch32 => .loongarch32,
                 .loongarch64 => .loongarch64,
                 .m68k => .m68k,
+                .m88k => .m88k,
                 .microblaze => .microblaze,
                 .microblazeel => .microblazeel,
                 .mips => .mips,
