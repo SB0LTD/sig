@@ -3752,7 +3752,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .riscv32, .riscv32be => .{ .riscv32_ilp32 = .{} },
         .sparc64 => .{ .sparc64_sysv = .{} },
         .sparc => .{ .sparc_sysv = .{} },
-        .powerpc64 => if (target.abi.isGnu())
+        .powerpc64 => if (target.os.tag == .ps3 or target.abi.isGnu())
             .{ .powerpc64_elf = .{} }
         else
             .{ .powerpc64_elf_v2 = .{} },
