@@ -245,6 +245,7 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         .hppa64,
         .kalimba,
         .kvx,
+        .m88k,
         .microblaze,
         .microblazeel,
         .or1k,

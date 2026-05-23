@@ -751,6 +751,7 @@ pub const kvx = @import("Target/kvx.zig");
 pub const lanai = @import("Target/lanai.zig");
 pub const loongarch = @import("Target/loongarch.zig");
 pub const m68k = @import("Target/m68k.zig");
+pub const m88k = @import("Target/generic.zig");
 pub const microblaze = @import("Target/generic.zig");
 pub const mips = @import("Target/mips.zig");
 pub const msp430 = @import("Target/msp430.zig");
@@ -1091,6 +1092,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .kvx => .KVX,
         .lanai => .LANAI,
         .loongarch32, .loongarch64 => .LOONGARCH,
+        .m88k => .@"88K",
         .m68k => .@"68K",
         .microblaze, .microblazeel => .MICROBLAZE,
         .mips, .mips64, .mipsel, .mips64el => .MIPS,
@@ -1154,6 +1156,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .kalimba,
         .kvx,
         .lanai,
+        .m88k,
         .m68k,
         .microblaze,
         .microblazeel,
@@ -1364,6 +1367,7 @@ pub const Cpu = struct {
         loongarch32,
         loongarch64,
         m68k,
+        m88k,
         microblaze,
         microblazeel,
         mips,
@@ -1439,6 +1443,7 @@ pub const Cpu = struct {
             lanai,
             loongarch,
             m68k,
+            m88k,
             microblaze,
             mips,
             msp430,
@@ -1477,6 +1482,7 @@ pub const Cpu = struct {
                 .lanai => .lanai,
                 .loongarch32, .loongarch64 => .loongarch,
                 .m68k => .m68k,
+                .m88k => .m88k,
                 .microblaze, .microblazeel => .microblaze,
                 .mips, .mipsel, .mips64, .mips64el => .mips,
                 .msp430 => .msp430,
@@ -1710,6 +1716,7 @@ pub const Cpu = struct {
                 .hppa64,
                 .lanai,
                 .m68k,
+                .m88k,
                 .microblaze,
                 .mips,
                 .mips64,
@@ -1921,6 +1928,9 @@ pub const Cpu = struct {
                 .m68k_rtd,
                 .m68k_interrupt,
                 => &.{.m68k},
+
+                .m88k_sysv,
+                => &.{.m88k},
 
                 .microblaze_std,
                 .microblaze_interrupt,
@@ -2803,6 +2813,7 @@ pub const DynamicLinker = struct {
                 .arm,
                 .aarch64,
                 .hppa,
+                .m88k,
                 .mips64,
                 .mips64el,
                 .powerpc,
@@ -2910,6 +2921,7 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .lanai,
         .loongarch32,
         .m68k,
+        .m88k,
         .microblaze,
         .microblazeel,
         .mips,
@@ -3495,6 +3507,7 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .hppa,
             .lanai,
             .m68k,
+            .m88k,
             .mips,
             .mipsel,
             .nvptx,
@@ -3604,6 +3617,7 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .hppa,
             .lanai,
             .m68k,
+            .m88k,
             .mips,
             .mipsel,
             .nvptx,
@@ -3675,6 +3689,7 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
         .lanai,
         .loongarch32,
         .m68k,
+        .m88k,
         .mips,
         .mipsel,
         .powerpc,
@@ -3775,6 +3790,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .loongarch64 => .{ .loongarch64_lp64 = .{} },
         .loongarch32 => .{ .loongarch32_ilp32 = .{} },
         .m68k => .{ .m68k_gnu = .{} },
+        .m88k => .{ .m88k_sysv = .{} },
         .microblaze, .microblazeel => .{ .microblaze_std = .{} },
         .msp430 => .{ .msp430_eabi = .{} },
         .or1k => .{ .or1k_sysv = .{} },

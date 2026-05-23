@@ -8558,6 +8558,7 @@ const calling_conventions_supporting_var_args = [_]std.lang.CallingConvention.Ta
     .m68k_sysv,
     .m68k_gnu,
     .m68k_rtd,
+    .m88k_sysv,
     .msp430_eabi,
     .or1k_sysv,
     .s390x_sysv,

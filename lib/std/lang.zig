@@ -292,6 +292,8 @@ pub const CallingConvention = union(enum(u8)) {
     m68k_rtd: CommonOptions,
     m68k_interrupt: CommonOptions,
 
+    m88k_sysv: CommonOptions,
+
     /// The standard `microblaze`/`microblazeel` calling convention.
     microblaze_std: CommonOptions,
     microblaze_interrupt: MicroblazeInterruptOptions,
