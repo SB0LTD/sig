@@ -1117,6 +1117,38 @@ pub const Step = extern struct {
                 undef = max_u32 - 1,
                 defined = max_u32,
                 _,
+
+                pub fn unpack(this: @This(), c: *const Configuration) Unpacked {
+                    return switch (this) {
+                        .int_0 => .{ .u64 = 0 },
+                        .int_1 => .{ .u64 = 1 },
+                        .bool_false => .{ .bool = false },
+                        .bool_true => .{ .bool = true },
+                        .undef => .undef,
+                        .defined => .defined,
+                        _ => {
+                            const value = extraData(c, Value, @intFromEnum(this));
+                            return switch (value.flags.tag) {
+                                .ident => .{ .ident = value.ident.value.?.slice(c) },
+                                .string => .{ .string = value.string.value.?.slice(c) },
+                                .small_unsigned => .{ .u64 = value.flags.small },
+                                .small_signed => .{ .i64 = @as(i29, @bitCast(value.flags.small)) },
+                                .i64 => .{ .i64 = value.i64.value.? },
+                                .u64 => .{ .u64 = value.u64.value.? },
+                            };
+                        },
+                    };
+                }
+            };
+
+            pub const Unpacked = union(enum) {
+                bool: bool,
+                undef,
+                defined,
+                i64: i64,
+                u64: u64,
+                ident: []const u8,
+                string: []const u8,
             };
 
             pub fn initSigned(x: i64) @This() {
