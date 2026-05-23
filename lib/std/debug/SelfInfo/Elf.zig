@@ -161,6 +161,7 @@ pub const can_unwind: bool = s: {
         // Not supported yet: arm
         .openbsd => &.{
             .aarch64,
+            .m88k,
             .mips64,
             .mips64el,
             .riscv64,
