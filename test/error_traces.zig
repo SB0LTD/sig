@@ -580,12 +580,15 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext, os: std.Target.
 
     cases.addCase(.{
         .name = "trace through inline call",
+        // The main function has two inline calls to ensure
+        // that inlinees in PDBs are properly deduplicated.
         .source =
         \\pub fn main() !void {
-        \\    try foo();
+        \\    try foo(false);
+        \\    try foo(true);
         \\}
-        \\inline fn foo() !void {
-        \\    try bar();
+        \\inline fn foo(b: bool) !void {
+        \\    if (b) try bar();
         \\}
         \\fn bar() !void {
         \\    return error.ThisIsSoSad;
@@ -597,25 +600,25 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext, os: std.Target.
             // so our expected result is slightly different for Windows than on other operating
             // systems.
             .windows =>
-            \\source.zig:8:5: [address] in bar
+            \\source.zig:9:5: [address] in bar
             \\    return error.ThisIsSoSad;
             \\    ^
-            \\source.zig:5: [address] in foo
-            \\    try bar();
+            \\source.zig:6: [address] in foo
+            \\    if (b) try bar();
             \\
-            \\source.zig:2:5: [address] in main
-            \\    try foo();
+            \\source.zig:3:5: [address] in main
+            \\    try foo(true);
             \\    ^
             ,
             else =>
-            \\source.zig:8:5: [address] in bar
+            \\source.zig:9:5: [address] in bar
             \\    return error.ThisIsSoSad;
             \\    ^
-            \\source.zig:5:5: [address] in foo
-            \\    try bar();
-            \\    ^
-            \\source.zig:2:5: [address] in main
-            \\    try foo();
+            \\source.zig:6:12: [address] in foo
+            \\    if (b) try bar();
+            \\           ^
+            \\source.zig:3:5: [address] in main
+            \\    try foo(true);
             \\    ^
             ,
         },
