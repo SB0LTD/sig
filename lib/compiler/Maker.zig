@@ -1998,17 +1998,19 @@ fn installSymLinksInner(
 ) !void {
     const io = maker.graph.io;
     const step = stepByIndex(maker, asking_step_index);
+    const out_basename = Io.Dir.path.basename(output_path.sub_path);
+
     const out_dir = output_path.dirname().?;
-    // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = try out_dir.join(arena, filename_major_only);
-    output_path.root_dir.handle.symLinkAtomic(io, output_path.sub_path, major_only_path.sub_path, .{}) catch |err| {
-        return step.fail(maker, "unable to symlink {f} -> {f}: {t}", .{ output_path, major_only_path, err });
-    };
-    // sym link for libfoo.so to libfoo.so.1
     const name_only_path = try out_dir.join(arena, filename_name_only);
-    major_only_path.root_dir.handle.symLinkAtomic(io, major_only_path.sub_path, name_only_path.sub_path, .{}) catch |err| {
-        return step.fail(maker, "unable to symlink {f} -> {s}: {t}", .{ name_only_path, filename_major_only, err });
-    };
+
+    // libfoo.so.1 to libfoo.so.1.2.3
+    major_only_path.root_dir.handle.symLinkAtomic(io, out_basename, major_only_path.sub_path, .{}) catch |err|
+        return step.fail(maker, "failed symlinking {f} to {s}: {t}", .{ output_path, out_basename, err });
+
+    // libfoo.so to libfoo.so.1
+    name_only_path.root_dir.handle.symLinkAtomic(io, filename_major_only, name_only_path.sub_path, .{}) catch |err|
+        return step.fail(maker, "failed symlinking {f} to {s}: {t}", .{ name_only_path, filename_major_only, err });
 }
 
 fn cleanExit(io: Io, scanned_config: *const ScannedConfig) void {
