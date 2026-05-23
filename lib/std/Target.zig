@@ -2554,6 +2554,7 @@ pub const DynamicLinker = struct {
                     .m68k,
                     .microblaze,
                     .microblazeel,
+                    .or1k,
                     .powerpc64,
                     .powerpc64le,
                     .s390x,
@@ -2639,6 +2640,7 @@ pub const DynamicLinker = struct {
 
                     .aarch64,
                     .aarch64_be,
+                    .or1k,
                     => |arch| if (abi == .gnu) initFmt("/lib/ld-linux-{s}.so.1", .{@tagName(arch)}) else none,
 
                     // TODO: `-be` architecture support.
