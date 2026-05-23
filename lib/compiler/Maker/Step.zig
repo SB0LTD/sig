@@ -18,6 +18,7 @@ const assert = std.debug.assert;
 const WebServer = @import("WebServer.zig");
 const Maker = @import("../Maker.zig");
 
+pub const CheckFile = @import("Step/CheckFile.zig");
 pub const Compile = @import("Step/Compile.zig");
 pub const FindProgram = @import("Step/FindProgram.zig");
 pub const Fmt = @import("Step/Fmt.zig");
@@ -75,7 +76,7 @@ comptime {
 }
 
 pub const Extended = union(enum) {
-    check_file: Todo,
+    check_file: CheckFile,
     compile: Compile,
     config_header: Todo,
     fail: Fail,
