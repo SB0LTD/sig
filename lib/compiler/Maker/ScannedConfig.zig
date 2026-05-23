@@ -359,7 +359,7 @@ pub fn printUsage(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
         \\      none                     (default) No build ID
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
-        \\  --debug-maker[=mode]         Change maker executable optimization mode
+        \\  --maker-opt=[mode]           Change maker executable optimization mode (default: ReleaseSafe)
         \\  --verbose-link               Enable compiler debug output for linking
         \\  --verbose-air                Enable compiler debug output for Zig AIR
         \\  --verbose-llvm-ir            Enable compiler debug output for LLVM IR

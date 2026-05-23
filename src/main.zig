@@ -5116,10 +5116,7 @@ fn cmdBuild(
                     };
                 } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                     reference_trace = null;
-                } else if (mem.eql(u8, arg, "--debug-maker")) {
-                    maker_optimize_mode = .Debug;
-                    continue;
-                } else if (mem.cutPrefix(u8, arg, "--debug-maker=")) |rest| {
+                } else if (mem.cutPrefix(u8, arg, "--maker-opt=")) |rest| {
                     maker_optimize_mode = parseOptimizeMode(rest);
                     continue;
                 } else if (mem.eql(u8, arg, "--debug-log")) {
