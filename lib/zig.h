@@ -21,6 +21,8 @@
 
 #if defined(__aarch64__) || (defined(zig_msvc) && defined(_M_ARM64))
 #define zig_aarch64
+#elif defined(__alpha__)
+#define zig_alpha
 #elif defined(__thumb__) || (defined(zig_msvc) && defined(_M_ARM))
 #define zig_thumb
 #define zig_arm
@@ -390,7 +392,9 @@
 
 #elif defined(zig_gnuc_asm)
 
-#if defined(zig_thumb)
+#if defined(zig_alpha)
+#define zig_trap() __asm__ volatile("call_pal 0x000000")
+#elif defined(zig_thumb)
 #define zig_trap() __asm__ volatile("udf #0xfe")
 #elif defined(zig_arm) || defined(zig_aarch64)
 #define zig_trap() __asm__ volatile("udf #0xfdee")
@@ -428,7 +432,9 @@
 #define zig_breakpoint() __debugbreak()
 #elif defined(zig_gnuc_asm)
 
-#if defined(zig_arm)
+#if defined(zig_alpha)
+#define zig_breakpoint() __asm__ volatile("call_pal 0x000080")
+#elif defined(zig_arm)
 #define zig_breakpoint() __asm__ volatile("bkpt #0x0")
 #elif defined(zig_aarch64)
 #define zig_breakpoint() __asm__ volatile("brk #0xf000")
