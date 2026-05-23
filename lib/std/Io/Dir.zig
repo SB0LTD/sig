@@ -409,7 +409,10 @@ pub const PathNameError = error{
 };
 
 pub const AccessError = error{
+    /// The requested `AccessOptions` would be denied to the file, or search
+    /// permission is denied for one of the directories in the path prefix.
     AccessDenied,
+    /// Write permission was requested but the file is immutable.
     PermissionDenied,
     FileNotFound,
     InputOutput,

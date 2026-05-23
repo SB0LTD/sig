@@ -78,19 +78,20 @@ pub fn Type(comptime tag: Tag) type {
 }
 
 pub const CheckFile = @import("Step/CheckFile.zig");
+pub const Compile = @import("Step/Compile.zig");
 pub const ConfigHeader = @import("Step/ConfigHeader.zig");
 pub const Fail = @import("Step/Fail.zig");
+pub const FindProgram = @import("Step/FindProgram.zig");
 pub const Fmt = @import("Step/Fmt.zig");
 pub const InstallArtifact = @import("Step/InstallArtifact.zig");
 pub const InstallDir = @import("Step/InstallDir.zig");
 pub const InstallFile = @import("Step/InstallFile.zig");
 pub const ObjCopy = @import("Step/ObjCopy.zig");
-pub const Compile = @import("Step/Compile.zig");
 pub const Options = @import("Step/Options.zig");
 pub const Run = @import("Step/Run.zig");
 pub const TranslateC = @import("Step/TranslateC.zig");
-pub const WriteFile = @import("Step/WriteFile.zig");
 pub const UpdateSourceFiles = @import("Step/UpdateSourceFiles.zig");
+pub const WriteFile = @import("Step/WriteFile.zig");
 
 pub const TopLevel = struct {
     pub const base_tag: Step.Tag = .top_level;

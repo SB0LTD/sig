@@ -906,7 +906,13 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .msg = sf.error_msg,
                         });
                     },
-                    .find_program => @panic("TODO"),
+                    .find_program => e: {
+                        const fp: *Step.FindProgram = @fieldParentPtr("step", step);
+                        break :e try wc.addExtraErased(Configuration.Step.FindProgram, .{
+                            .names = fp.names,
+                            .found_path = fp.found_path,
+                        });
+                    },
                     .fmt => e: {
                         const sf: *Step.Fmt = @fieldParentPtr("step", step);
                         break :e try wc.addExtraErased(Configuration.Step.Fmt, .{

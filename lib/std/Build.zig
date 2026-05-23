@@ -1719,14 +1719,15 @@ pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
 ///   globally installed and will therefore be possibly found in one of the
 ///   search prefix paths.
 ///
+/// Windows file name extensions are searched automatically, respecting the
+/// PATHEXT environment variable, so they need not be included in this list.
+/// However, even on Windows, the names will be checked without appending
+/// extensions first, so that can be used as a priority system.
+///
 /// See also:
 /// * `findProgram`
-pub fn findProgramLazy(b: *Build, names: []const []const u8) LazyPath {
-    const graph = b.graph;
-    const wc = &graph.wip_configuration;
-    const string_list = wc.addStringList(names) catch @panic("OOM");
-    _ = string_list;
-    @panic("TODO");
+pub fn findProgramLazy(b: *Build, options: Step.FindProgram.Options) LazyPath {
+    return .{ .generated = .{ .index = Step.FindProgram.create(b, options).found_path } };
 }
 
 /// Immediately (in the configure phase), searches for an executable on the host

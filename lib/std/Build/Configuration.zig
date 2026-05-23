@@ -1192,9 +1192,9 @@ pub const Step = extern struct {
     };
 
     pub const FindProgram = struct {
-        flags: @This().Flags,
+        flags: @This().Flags = .{},
         names: StringList,
-        generated_file: GeneratedFileIndex,
+        found_path: GeneratedFileIndex,
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .find_program,

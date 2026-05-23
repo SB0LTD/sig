@@ -19,6 +19,7 @@ const WebServer = @import("WebServer.zig");
 const Maker = @import("../Maker.zig");
 
 pub const Compile = @import("Step/Compile.zig");
+pub const FindProgram = @import("Step/FindProgram.zig");
 pub const Fmt = @import("Step/Fmt.zig");
 pub const InstallArtifact = @import("Step/InstallArtifact.zig");
 pub const InstallDir = @import("Step/InstallDir.zig");
@@ -78,7 +79,7 @@ pub const Extended = union(enum) {
     compile: Compile,
     config_header: Todo,
     fail: Fail,
-    find_program: Todo,
+    find_program: FindProgram,
     fmt: Fmt,
     install_artifact: InstallArtifact,
     install_dir: InstallDir,
