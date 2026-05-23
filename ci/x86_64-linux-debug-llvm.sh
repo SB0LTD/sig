@@ -58,6 +58,7 @@ stage3-debug/bin/zig build \
   -Dno-lib
 
 stage3-debug/bin/zig build test docs \
+  --debug-maker \
   --maxrss ${ZSF_MAX_RSS:-0} \
   -Dlldb=$HOME/deps/lldb-zig/Debug-e0a42bb34/bin/lldb \
   -Dlibc-test-path=$HOME/deps/libc-test-f2bac77 \
