@@ -99,6 +99,8 @@ pub const Graph = struct {
     wip_configuration: Configuration.Wip,
 
     cache_poison: CachePoison = .pure,
+    /// Observing this data causes cache poisoning. See `CachePoison`.
+    search_prefixes: std.ArrayList([]const u8) = .empty,
 
     /// If the cache is poisoned means that the **configure logic** had side
     /// effects, or otherwise did something that could not be tracked by the
@@ -1706,9 +1708,6 @@ pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
 /// Creates an anonymous `Step` that searches for an executable on the host that
 /// has more than one possible name.
 ///
-/// Names are searched in order, observing search prefixes first and then PATH
-/// environment variable.
-///
 /// Returns the `LazyPath` of the found executable. The search only takes place
 /// if the `LazyPath` will be used by a depending `Step`.
 ///
@@ -1718,6 +1717,9 @@ pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
 /// * The binary may be produced by building from source rather than being
 ///   globally installed and will therefore be possibly found in one of the
 ///   search prefix paths.
+///
+/// Names are searched in order, observing search prefixes first and then PATH
+/// environment variable.
 ///
 /// Windows file name extensions are searched automatically, respecting the
 /// PATHEXT environment variable, so they need not be included in this list.
@@ -1730,24 +1732,98 @@ pub fn findProgramLazy(b: *Build, options: Step.FindProgram.Options) LazyPath {
     return .{ .generated = .{ .index = Step.FindProgram.create(b, options).found_path } };
 }
 
+pub const FindProgramOptions = Step.FindProgram.Options;
+
 /// Immediately (in the configure phase), searches for an executable on the host
 /// that has more than one possible name.
+///
+/// Calling this function poisons the configuration cache, so it is only
+/// appropriate when the existence of the program or its output needs to be
+/// observed by configuration logic. For more information, see
+/// `Graph.CachePoison` documentation.
 ///
 /// Names are searched in order, observing search prefixes first and then PATH
 /// environment variable.
 ///
-/// Calling this function poisons the configuration cache. For more
-/// information, see `Graph.CachePoison` documentation.
+/// Windows file name extensions are searched automatically, respecting the
+/// PATHEXT environment variable, so they need not be included in this list.
+/// However, even on Windows, the names will be checked without appending
+/// extensions first, so that can be used as a priority system.
 ///
 /// See also:
 /// * `findProgramLazy`
-pub fn findProgram(b: *Build, names: []const []const u8) ?[]const u8 {
+pub fn findProgram(b: *Build, options: FindProgramOptions) ?[]const u8 {
     const graph = b.graph;
-    const wc = &graph.wip_configuration;
-    const string_list = wc.addStringList(names) catch @panic("OOM");
-    _ = string_list;
+
+    // Because it observes search prefixes and contents of directories in PATH.
     graph.poisonCache();
-    @panic("TODO");
+
+    for (options.names) |name| {
+        if (Io.Dir.path.isAbsolute(name)) {
+            if (tryFindProgram(b, name)) |found| return found;
+        }
+        for (graph.search_prefixes.items) |search_prefix| {
+            const full_path = b.pathJoin(&.{ search_prefix, "bin", name });
+            if (tryFindProgram(b, full_path)) |found| return found;
+        }
+    }
+
+    if (b.graph.environ_map.get("PATH")) |PATH| {
+        for (options.names) |name| {
+            var it = mem.tokenizeScalar(u8, PATH, Io.Dir.path.delimiter);
+            while (it.next()) |p| {
+                const full_path = b.pathJoin(&.{ p, name });
+                if (tryFindProgram(b, full_path)) |found| return found;
+            }
+        }
+    }
+
+    return null;
+}
+
+fn supportedWindowsProgramExtension(ext: []const u8) bool {
+    inline for (@typeInfo(std.process.WindowsExtension).@"enum".fields) |field| {
+        if (std.ascii.eqlIgnoreCase(ext, "." ++ field.name)) return true;
+    }
+    return false;
+}
+
+fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
+    const graph = b.graph;
+    const io = graph.io;
+    const arena = graph.arena;
+
+    if (Io.Dir.cwd().access(io, full_path, .{ .execute = true })) |_| {
+        return full_path;
+    } else |err| switch (err) {
+        error.FileNotFound, error.AccessDenied, error.PermissionDenied => |e| {
+            if (graph.verbose) log.info("searched: {t} {s}", .{ e, full_path });
+        },
+        else => |e| return panic("failed accessing {s}: {t}", .{ full_path, e }),
+    }
+
+    if (builtin.os.tag == .windows) {
+        if (b.graph.environ_map.get("PATHEXT")) |PATHEXT| {
+            var it = mem.tokenizeScalar(u8, PATHEXT, fs.path.delimiter);
+
+            while (it.next()) |ext| {
+                if (!supportedWindowsProgramExtension(ext)) continue;
+
+                const extended_path = try mem.concat(arena, &.{ full_path, ext });
+
+                if (Io.Dir.cwd().access(io, extended_path, .{ .execute = true })) |_| {
+                    return extended_path;
+                } else |err| switch (err) {
+                    error.FileNotFound, error.AccessDenied, error.PermissionDenied => |e| {
+                        if (graph.verbose) log.info("searched: {t} {s}", .{ e, extended_path });
+                    },
+                    else => |e| return panic("failed accessing {s}: {t}", .{ extended_path, e }),
+                }
+            }
+        }
+    }
+
+    return null;
 }
 
 /// Deprecated; use `runFallible`.

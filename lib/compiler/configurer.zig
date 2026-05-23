@@ -117,6 +117,8 @@ pub fn main(init: process.Init.Minimal) !void {
         } else if (mem.cutPrefix(u8, arg, "--cache-poison=")) |rest| {
             graph.cache_poison = std.meta.stringToEnum(std.Build.Graph.CachePoison, rest) orelse
                 fatalWithHint("expected --cache-poison=[pure|poisoned|disallowed|ignored]; found: {s}", .{arg});
+        } else if (mem.eql(u8, arg, "--search-prefix")) {
+            try graph.search_prefixes.append(arena, nextArgOrFatal(args, &arg_i));
         } else {
             fatalWithHint("unrecognized argument: {s}", .{arg});
         }
@@ -1317,6 +1319,12 @@ fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
+}
+
+fn nextArgOrFatal(args: []const [:0]const u8, idx: *usize) [:0]const u8 {
+    return nextArg(args, idx) orelse {
+        fatalWithHint("expected argument after {q}", .{args[idx.* - 1]});
+    };
 }
 
 fn expectArgOrFatal(args: []const [:0]const u8, index_ptr: *usize, first: []const u8) []const u8 {

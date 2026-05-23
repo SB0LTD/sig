@@ -5014,7 +5014,7 @@ fn cmdBuild(
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
-                try configure_argv.ensureUnusedCapacity(arena, 1);
+                try configure_argv.ensureUnusedCapacity(arena, 2);
 
                 if (mem.startsWith(u8, arg, "-D") or
                     mem.startsWith(u8, arg, "-fsys=") or
@@ -5055,6 +5055,15 @@ fn cmdBuild(
                     // Intentionally is added both to make and configure but
                     // does not go into the cache hash.
                     configure_argv.appendAssumeCapacity(arg);
+                } else if (mem.eql(u8, arg, "--search-prefix")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    // This argument is cache poisonous: it does not go into
+                    // the cache and configurer must set the poison bit when
+                    // choosing to observe it.
+                    configure_argv.addManyAsArrayAssumeCapacity(2).* = .{ arg, args[i] };
+                    (try make_argv.addManyAsArray(arena, 2)).* = .{ arg, args[i] };
+                    continue;
                 } else if (mem.eql(u8, arg, "--build-file")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;

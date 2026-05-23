@@ -101,7 +101,7 @@ fn checkCandidate(
                 } else |err| switch (err) {
                     error.Canceled => |e| return e,
                     error.FileNotFound, error.AccessDenied, error.PermissionDenied => |e| {
-                        try err_msg.print(arena, "{s} {t}\n", .{ extended_path, e });
+                        try err_msg.print(arena, "{t} {s}\n", .{ e, extended_path });
                     },
                     else => |e| return step.fail(maker, "failed accessing {s}: {t}", .{ extended_path, e }),
                 }
