@@ -1702,8 +1702,7 @@ pub fn resolveLazyPath(
     arena: Allocator,
     lazy_path: Configuration.LazyPath,
     asking_step_index: Configuration.Step.Index,
-) Allocator.Error!Path {
-    _ = asking_step_index; // TODO use this to enhance debugability when this function fails
+) error{ OutOfMemory, MakeFailed }!Path {
     const c = &maker.scanned_config.configuration;
     return switch (lazy_path) {
         .source_path => |sp| try packagePath(maker, arena, sp.owner, sp.sub_path.slice(c)),
@@ -1712,8 +1711,10 @@ pub fn resolveLazyPath(
             const base = generatedPath(maker, gen.index);
             var file_path = base;
             for (0..gen.flags.up) |_| {
-                file_path.sub_path = Dir.path.dirname(file_path.sub_path) orelse
-                    fatal("invalid LazyPath traversal: up {d} times from {f}", .{ gen.flags.up, base });
+                file_path.sub_path = Dir.path.dirname(file_path.sub_path) orelse {
+                    const s = stepByIndex(maker, asking_step_index);
+                    return s.fail(maker, "invalid LazyPath traversal: up {d} times from {f}", .{ gen.flags.up, base });
+                };
             }
             return file_path.join(arena, gen.sub_path.slice(c));
         },
@@ -1725,7 +1726,7 @@ pub fn resolveLazyPathIndex(
     arena: Allocator,
     lazy_path_index: Configuration.LazyPath.Index,
     asking_step_index: Configuration.Step.Index,
-) Allocator.Error!Path {
+) error{ OutOfMemory, MakeFailed }!Path {
     const c = &maker.scanned_config.configuration;
     return resolveLazyPath(maker, arena, lazy_path_index.get(c), asking_step_index);
 }
@@ -1737,7 +1738,7 @@ pub fn resolveLazyPathAbs(
     arena: Allocator,
     lazy_path: Configuration.LazyPath,
     asking_step_index: Configuration.Step.Index,
-) Allocator.Error![]const u8 {
+) error{ OutOfMemory, MakeFailed }![]const u8 {
     const p = try resolveLazyPath(maker, arena, lazy_path, asking_step_index);
     const root_dir_path = p.root_dir.path orelse return p.subPathOrDot();
     if (p.sub_path.len == 0) return root_dir_path;
@@ -1751,7 +1752,7 @@ pub fn resolveLazyPathIndexAbs(
     arena: Allocator,
     lazy_path_index: Configuration.LazyPath.Index,
     asking_step_index: Configuration.Step.Index,
-) Allocator.Error![]const u8 {
+) error{ OutOfMemory, MakeFailed }![]const u8 {
     const c = &maker.scanned_config.configuration;
     return resolveLazyPathAbs(maker, arena, lazy_path_index.get(c), asking_step_index);
 }
