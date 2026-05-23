@@ -344,7 +344,9 @@ const targets = [_]std.Target.Query{
 
     .{ .cpu_arch = .xcore, .os_tag = .freestanding, .abi = .none },
 
+    .{ .cpu_arch = .xtensa, .os_tag = .freestanding, .abi = .call0 },
     .{ .cpu_arch = .xtensa, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .xtensa, .os_tag = .linux, .abi = .call0 },
     .{ .cpu_arch = .xtensa, .os_tag = .linux, .abi = .none },
 };
 

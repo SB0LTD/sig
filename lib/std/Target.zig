@@ -799,6 +799,7 @@ pub const Abi = enum {
     simulator,
     ohos,
     ohoseabi,
+    call0,
 
     // LLVM tags deliberately omitted:
     // - amplification

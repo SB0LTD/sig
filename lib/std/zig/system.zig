@@ -460,6 +460,10 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
         if (result.cpu.arch.isArm() and result.abi.float() == .soft) {
             result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
         }
+
+        if (result.cpu.arch.isXtensa() and result.abi == .call0) {
+            result.cpu.features.removeFeature(@intFromEnum(Target.xtensa.Feature.windowed));
+        }
     }
 
     // It's possible that we detect the native ABI, but fail to detect the OS version or were told

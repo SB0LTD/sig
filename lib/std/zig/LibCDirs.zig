@@ -288,6 +288,7 @@ fn libCGenericName(target: *const std.Target) [:0]const u8 {
         .msvc,
         .itanium,
         .simulator,
+        .call0,
         => unreachable,
     }
 }
