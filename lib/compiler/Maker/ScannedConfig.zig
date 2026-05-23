@@ -349,6 +349,7 @@ pub fn printUsage(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
         \\      poisoned                 Don't cache the configuration
         \\      disallowed               Panics when cache would be poisoned
         \\      ignored                  A little poison never hurt anybody
+        \\  --print-configuration        Render configuration as .zon to stdout
         \\  --build-id[=style]           At a minor link-time expense, embeds a build ID in binaries
         \\      fast                     8-byte non-cryptographic hash (COFF, ELF, WASM)
         \\      sha1, tree               20-byte cryptographic hash (ELF, WASM)
