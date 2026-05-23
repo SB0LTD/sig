@@ -3723,7 +3723,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .x86_64 => switch (target.os.tag) {
             .windows, .uefi => .{ .x86_64_win = .{} },
             else => switch (target.abi) {
-                .gnuabin32, .muslabin32 => .{ .x86_64_x32 = .{} },
+                .gnux32, .muslx32 => .{ .x86_64_x32 = .{} },
                 else => .{ .x86_64_sysv = .{} },
             },
         },
