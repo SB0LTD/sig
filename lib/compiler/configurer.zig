@@ -469,7 +469,7 @@ const Serialize = struct {
             .framework_path => |lp| .{ .framework_path = try addLazyPath(s, lp) },
             .framework_path_system => |lp| .{ .framework_path_system = try addLazyPath(s, lp) },
             .embed_path => |lp| .{ .embed_path = try addLazyPath(s, lp) },
-            .other_step => |cs| .{ .other_step = stepIndex(s, &cs.step) },
+            .other_step => |cs| .{ .path = try addLazyPath(s, cs.installed_headers_include_tree.?.getDirectory()) },
             .config_header_step => |chs| .{ .config_header_step = stepIndex(s, &chs.step) },
         };
         return result;

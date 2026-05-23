@@ -1680,8 +1680,6 @@ pub const Module = struct {
         path_after: LazyPath.Index,
         framework_path: LazyPath.Index,
         framework_path_system: LazyPath.Index,
-        /// Always `Step.Tag.compile`.
-        other_step: Step.Index,
         /// Always `Step.Tag.config_header`.
         config_header_step: Step.Index,
         embed_path: LazyPath.Index,

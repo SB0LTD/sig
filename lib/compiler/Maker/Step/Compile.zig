@@ -1354,6 +1354,7 @@ pub fn appendIncludeDirFlags(
 ) !void {
     const graph = maker.graph;
     const arena = graph.arena; // TODO don't leak into the process arena
+    const conf = &maker.scanned_config.configuration;
 
     switch (include_dir) {
         .path => |lp| {
@@ -1376,15 +1377,11 @@ pub fn appendIncludeDirFlags(
             zig_args.appendAssumeCapacity("-iframework");
             zig_args.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lp, asking_step));
         },
-        .config_header_step => |ch| {
+        .config_header_step => |ch_index| {
+            const conf_ch = ch_index.ptr(conf).extended.get(conf.extra).config_header;
+            const path = maker.generatedPath(conf_ch.generated_dir).*;
             zig_args.appendAssumeCapacity("-I");
-            if (true) @panic("TODO appendIncludeDirFlags");
-            ch.getOutputDir();
-        },
-        .other_step => |comp| {
-            zig_args.appendAssumeCapacity("-I");
-            if (true) @panic("TODO appendIncludeDirFlags");
-            comp.installed_headers_include_tree.?.getDirectory();
+            zig_args.appendAssumeCapacity(try path.toString(arena));
         },
         .embed_path => |lazy_path| {
             zig_args.appendAssumeCapacity(try allocPrint(arena, "--embed-dir={f}", .{
