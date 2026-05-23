@@ -1152,14 +1152,14 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// Shrinks capacity to match length.
         /// May invalidate element pointers.
-        /// If succeds it is safe to call toOwnedSliceAssert().
+        /// If succeds it is safe to call `toOwnedSliceAssert`.
         pub fn shrinkToLen(self: *Self, gpa: Allocator) Allocator.Error!void {
             try self.shrinkAndFreePrecise(gpa, self.items.len);
         }
 
         /// Shrinks or expands capacity to match length + 1.
         /// May invalidate element pointers.
-        /// If succeds it is safe to call toOwnedSliceSentinelAssert().
+        /// If succeds it is safe to call `toOwnedSliceSentinelAssert`.
         pub fn shrinkToLenSentinel(self: *Self, gpa: Allocator) Allocator.Error!void {
             std.debug.assert(self.items.len <= self.capacity);
             const required_len = self.items.len + 1;
