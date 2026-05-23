@@ -2106,6 +2106,7 @@ fn spawnChildAndCollect(
     const graph = maker.graph;
     const io = graph.io;
     const arena = graph.arena; // TODO don't leak into process arena
+    const gpa = maker.gpa;
     const conf = &maker.scanned_config.configuration;
     const conf_step = run_index.ptr(conf);
     const conf_run = conf_step.extended.get(conf.extra).run;
@@ -2122,7 +2123,7 @@ fn spawnChildAndCollect(
 
     // If an error occurs, it's caused by this command:
     assert(step.result_failed_command == null);
-    step.result_failed_command = try std.zig.allocPrintCmd(arena, argv, .{
+    step.result_failed_command = try std.zig.allocPrintCmd(gpa, argv, .{
         .cwd = child_cwd,
         .child_env = environ_map,
         .parent_env = &graph.environ_map,
