@@ -81,6 +81,8 @@
 #elif defined(__I86__)
 #define zig_x86_16
 #define zig_x86
+#elif defined(__xtensa__)
+#define zig_xtensa
 #elif defined (__ez80)
 #define zig_ez80
 #define zig_z80
@@ -416,6 +418,8 @@
 #define zig_trap() __asm__ volatile("int $0x3")
 #elif defined(zig_x86)
 #define zig_trap() __asm__ volatile("ud2")
+#elif defined(zig_xtensa)
+#define zig_trap() __asm__ volatile("ill")
 #elif defined(zig_z80)
 #define zig_trap() __asm__ volatile("rst 00h")
 #else
@@ -456,6 +460,8 @@
 #define zig_breakpoint() __asm__ volatile("ta 0x1")
 #elif defined(zig_x86)
 #define zig_breakpoint() __asm__ volatile("int $0x3")
+#elif defined(zig_xtensa)
+#define zig_breakpoint() __asm__ volatile("break 1, 1")
 #else
 #define zig_breakpoint() zig_breakpoint_unavailable
 #endif
