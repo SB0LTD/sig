@@ -242,21 +242,23 @@ pub fn addPrefixedArtifactArg(run: *Run, prefix: []const u8, artifact: *Step.Com
 /// Returns a `std.Build.LazyPath` which can be used as inputs to other APIs
 /// throughout the build system.
 ///
+/// `sub_path` is the name of the generated output file which may have zero or
+/// more path components.
+///
 /// Related:
 /// * `addPrefixedOutputFileArg` - same thing but prepends a string to the argument
 /// * `addFileArg` - for input files given to the child process
-pub fn addOutputFileArg(run: *Run, basename: []const u8) std.Build.LazyPath {
-    return run.addPrefixedOutputFileArg("", basename);
+pub fn addOutputFileArg(run: *Run, sub_path: []const u8) std.Build.LazyPath {
+    return run.addPrefixedOutputFileArg("", sub_path);
 }
 
 /// Provides a file path as a command line argument to the command being run.
-/// Asserts `basename` is not empty.
 ///
-/// For example, a prefix of "-o" and basename of "output.txt" will result in
+/// For example, a prefix of "-o" and `sub_path` of "output.txt" will result in
 /// the child process seeing something like this: "-ozig-cache/.../output.txt"
 ///
 /// The child process will see a single argument, regardless of whether the
-/// prefix or basename have spaces.
+/// prefix or `sub_path` have spaces.
 ///
 /// The returned `std.Build.LazyPath` can be used as inputs to other APIs
 /// throughout the build system.
@@ -267,23 +269,27 @@ pub fn addOutputFileArg(run: *Run, basename: []const u8) std.Build.LazyPath {
 pub fn addPrefixedOutputFileArg(
     run: *Run,
     prefix: []const u8,
-    basename: []const u8,
+    /// The name of the generated output file which may have zero or more path
+    /// components.
+    ///
+    /// Asserted to be non-empty.
+    sub_path: []const u8,
 ) std.Build.LazyPath {
     const b = run.step.owner;
     const graph = b.graph;
     const arena = graph.arena;
-    if (basename.len == 0) @panic("basename must not be empty");
+    assert(sub_path.len != 0);
 
-    const output = arena.create(Output) catch @panic("OOM");
+    const output = graph.create(Output);
     output.* = .{
         .prefix = graph.dupeString(prefix),
-        .basename = graph.dupeString(basename),
+        .basename = graph.dupeString(sub_path),
         .generated_file = graph.addGeneratedFile(&run.step),
     };
     run.argv.append(arena, .{ .output_file = output }) catch @panic("OOM");
 
     if (run.rename_step_with_output_arg) {
-        run.setName(b.fmt("{s} ({s})", .{ run.step.name, basename }));
+        run.setName(b.fmt("{s} ({s})", .{ run.step.name, sub_path }));
     }
 
     return .{ .generated = .{ .index = output.generated_file } };

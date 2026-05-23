@@ -1708,12 +1708,14 @@ pub fn resolveLazyPath(
         .source_path => |sp| try packagePath(maker, arena, sp.owner, sp.sub_path.slice(c)),
         .relative => |relative| relativePath(maker, relative),
         .generated => |gen| {
-            const base = generatedPath(maker, gen.index);
+            const base = generatedPath(maker, gen.index).*;
             var file_path = base;
             for (0..gen.flags.up) |_| {
                 file_path.sub_path = Dir.path.dirname(file_path.sub_path) orelse {
                     const s = stepByIndex(maker, asking_step_index);
-                    return s.fail(maker, "invalid LazyPath traversal: up {d} times from {f}", .{ gen.flags.up, base });
+                    return s.fail(maker, "invalid LazyPath traversal: up {d} times from {f}", .{
+                        gen.flags.up, base,
+                    });
                 };
             }
             return file_path.join(arena, gen.sub_path.slice(c));
