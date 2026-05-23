@@ -38,6 +38,8 @@
 #elif defined(__loongarch64)
 #define zig_loongarch64
 #define zig_loongarch
+#elif defined(__m68k__)
+#define zig_m68k
 #elif defined(__mips64)
 #define zig_mips64
 #define zig_mips
@@ -404,6 +406,8 @@
 #define zig_trap() __asm__ volatile("r27:26 = memd(#0xbadc0fee)")
 #elif defined(zig_kvx) || defined(zig_loongarch) || defined(zig_powerpc)
 #define zig_trap() __asm__ volatile(".word 0x0")
+#elif defined(zig_m68k)
+#define zig_trap() __asm__ volatile("illegal")
 #elif defined(zig_mips)
 #define zig_trap() __asm__ volatile(".word 0x3d")
 #elif defined(zig_or1k)
