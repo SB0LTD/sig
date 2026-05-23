@@ -2631,8 +2631,6 @@ pub const DynamicLinker = struct {
 
                     .arm,
                     .armeb,
-                    .thumb,
-                    .thumbeb,
                     => initFmt("/lib/ld-linux{s}.so.3", .{switch (abi) {
                         .gnueabi => "",
                         .gnueabihf => "-armhf",
