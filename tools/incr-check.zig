@@ -360,7 +360,10 @@ const Eval = struct {
 
                     const bin_name = try std.zig.EmitArtifact.bin.cacheName(arena, .{
                         .root_name = "root", // corresponds to the module name "root"
-                        .target = &eval.target,
+                        .cpu_arch = eval.target.cpu.arch,
+                        .os_tag = eval.target.os.tag,
+                        .ofmt = eval.target.ofmt,
+                        .abi = eval.target.abi,
                         .output_mode = .Exe,
                     });
                     const bin_path = try Dir.path.join(arena, &.{ result_dir, bin_name });
@@ -487,9 +490,12 @@ const Eval = struct {
         var argv_buf: [2][]const u8 = undefined;
         const argv: []const []const u8, const is_foreign: bool = sw: switch (std.zig.system.getExternalExecutor(
             io,
-            &eval.host,
             &eval.target,
-            .{ .link_libc = eval.backend == .cbe },
+            .{
+                .link_libc = eval.backend == .cbe,
+                .host_cpu_arch = eval.host.cpu.arch,
+                .host_os_tag = eval.host.os.tag,
+            },
         )) {
             .bad_dl, .bad_os_or_cpu => {
                 // This binary cannot be executed on this host.
