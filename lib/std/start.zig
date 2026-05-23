@@ -169,6 +169,7 @@ fn _start() callconv(.naked) noreturn {
             .kvx => ".cfi_undefined r14",
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
             .m68k => ".cfi_undefined %%pc",
+            .m88k => ".cfi_undefined %%r1",
             .microblaze, .microblazeel => ".cfi_undefined r15",
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
             .or1k => ".cfi_undefined r9",
@@ -330,6 +331,16 @@ fn _start() callconv(.naked) noreturn {
             \\ move.l %%a0, -(%%sp)
             \\ lea %[posixCallMainAndExit] - . - 8, %%a0
             \\ jsr (%%pc, %%a0)
+            ,
+            .m88k =>
+            // r1 = LR, r30 = FP, r31 = SP
+            \\ or %%r0, %%r0, %%r0
+            \\ or %%r0, %%r0, %%r0
+            \\ or %%30, %%r0, %%r0
+            \\ or %%r1, %%r0, %%r0
+            \\ or %%r2, %%r31, %%r0
+            \\ clr %%r31, %%r31, 4<0>
+            \\ br.n %[posixCallMainAndExit]
             ,
             .microblaze, .microblazeel =>
             // r1 = SP, r15 = LR, r19 = FP, r20 = GP
