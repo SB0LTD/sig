@@ -20,6 +20,7 @@ const Maker = @import("../Maker.zig");
 
 pub const CheckFile = @import("Step/CheckFile.zig");
 pub const Compile = @import("Step/Compile.zig");
+pub const ConfigHeader = @import("Step/ConfigHeader.zig");
 pub const FindProgram = @import("Step/FindProgram.zig");
 pub const Fmt = @import("Step/Fmt.zig");
 pub const InstallArtifact = @import("Step/InstallArtifact.zig");
@@ -78,7 +79,7 @@ comptime {
 pub const Extended = union(enum) {
     check_file: CheckFile,
     compile: Compile,
-    config_header: Todo,
+    config_header: ConfigHeader,
     fail: Fail,
     find_program: FindProgram,
     fmt: Fmt,
@@ -113,21 +114,6 @@ pub const Extended = union(enum) {
             .write_file => .{ .write_file = .{} },
         };
     }
-
-    pub const Todo = struct {
-        pub fn make(
-            todo: *Todo,
-            step_index: Configuration.Step.Index,
-            maker: *Maker,
-            progress_node: std.Progress.Node,
-        ) Step.ExtendedMakeError!void {
-            _ = todo;
-            _ = progress_node;
-            const conf = &maker.scanned_config.configuration;
-            const conf_step = step_index.ptr(conf);
-            std.debug.panic("TODO implement another step type: {s}", .{conf_step.name.slice(conf)});
-        }
-    };
 
     pub const TopLevel = struct {
         pub fn make(
@@ -750,8 +736,9 @@ fn failWithCacheError(
 /// separately from using the cache system.
 pub fn writeManifest(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
     if (s.test_results.isSuccess()) {
-        man.writeManifest() catch |err| {
-            try s.addError(maker, "failed writing cache manifest: {t}", .{err});
+        man.writeManifest() catch |err| switch (err) {
+            error.Canceled => |e| return e,
+            else => |e| try s.addError(maker, "failed writing cache manifest: {t}", .{e}),
         };
     }
 }
