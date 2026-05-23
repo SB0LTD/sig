@@ -2330,9 +2330,11 @@ const signal_ucontext_t = switch (native_os) {
         .alpha => extern struct {
             _cookie: i64,
             _mask: i64,
-            pc: u64,
-            _ps: i64,
-            r: [32]u64,
+            mcontext: extern struct {
+                pc: u64,
+                _ps: i64,
+                r: [32]u64,
+            },
         },
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/arm/include/signal.h
         .arm => extern struct {
