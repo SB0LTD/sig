@@ -2037,6 +2037,7 @@ fn findPkgHashOrFatal(b: *Build, name: []const u8) []const u8 {
 inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, comptime dep_name: []const u8) []const u8 {
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
+    const arena = b.graph.arena;
 
     const b_pkg_hash, const b_pkg_deps = comptime for (@typeInfo(deps.packages).@"struct".decls) |decl| {
         const pkg_hash = decl.name;
@@ -2044,7 +2045,7 @@ inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, c
         if (@hasDecl(pkg, "build_zig") and pkg.build_zig == asking_build_zig) break .{ pkg_hash, pkg.deps };
     } else .{ "", deps.root_deps };
     if (!std.mem.eql(u8, b_pkg_hash, b.pkg_hash)) {
-        const build_zig_path = b.root.join("build.zig") catch @panic("OOM");
+        const build_zig_path = b.root.join(arena, "build.zig") catch @panic("OOM");
         panic("{} is not the struct that corresponds to {f}", .{
             asking_build_zig, build_zig_path,
         });
@@ -2053,7 +2054,7 @@ inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, c
         if (std.mem.eql(u8, dep[0], dep_name)) return dep[1];
     };
 
-    const full_path = b.root.join("build.zig.zon") catch @panic("OOM");
+    const full_path = b.root.join(arena, "build.zig.zon") catch @panic("OOM");
     panic("no dependency named {s} in {f}. All packages used in build.zig must be declared in this file", .{
         dep_name, full_path,
     });
