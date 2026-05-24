@@ -249,7 +249,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.link_mode == .dynamic) return error.TargetCannotDynamicLink;
             break :b .static;
         }
-        if (target.os.tag == .fuchsia and options.output_mode == .Exe) {
+        if (!target_util.canStaticLinkExe(target) and options.output_mode == .Exe) {
             if (options.link_mode == .static) return error.TargetCannotStaticLinkExecutables;
             break :b .dynamic;
         }

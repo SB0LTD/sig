@@ -31,6 +31,15 @@ pub fn canDynamicLink(target: *const std.Target) bool {
     };
 }
 
+pub fn canStaticLinkExe(target: *const std.Target) bool {
+    return switch (target.os.tag) {
+        .fuchsia,
+        .haiku,
+        => false,
+        else => true,
+    };
+}
+
 pub fn libCNeedsLibUnwind(target: *const std.Target, link_mode: std.lang.LinkMode) bool {
     return target.isGnuLibC() and link_mode == .static;
 }
