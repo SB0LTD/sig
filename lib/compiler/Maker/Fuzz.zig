@@ -83,6 +83,7 @@ pub fn init(
     const graph = maker.graph;
     const gpa = graph.cache.gpa;
     const io = graph.io;
+    const conf = &maker.scanned_config.configuration;
 
     const run_steps: []const Configuration.Step.Index = steps: {
         var steps: std.ArrayList(Configuration.Step.Index) = .empty;
@@ -92,13 +93,13 @@ pub fn init(
         var rebuild_group: Io.Group = .init;
         defer rebuild_group.cancel(io);
 
-        for (all_steps) |step| {
-            if (true) @panic("TODO update the fuzzer");
-            const run = step.cast(std.Build.Step.Run) orelse continue;
-            if (run.producer == null) continue;
+        for (all_steps) |step_index| {
+            const conf_run = step_index.ptr(conf).extended.cast(conf, Configuration.Step.Run) orelse continue;
+            if (conf_run.producer.value == null) continue;
+            const run = &maker.stepByIndex(step_index).extended.run;
             if (run.fuzz_tests.items.len == 0) continue;
-            try steps.append(gpa, run);
-            rebuild_group.async(io, rebuildTestsWorkerRun, .{ run, gpa, rebuild_node });
+            try steps.append(gpa, step_index);
+            rebuild_group.async(io, rebuildTestsWorkerRun, .{ maker, step_index, rebuild_node });
         }
 
         if (steps.items.len == 0) fatal("no fuzz tests found", .{});
@@ -109,10 +110,10 @@ pub fn init(
     };
     errdefer gpa.free(run_steps);
 
-    for (run_steps) |run_step_index| {
-        if (true) @panic("TODO update the fuzzer");
-        assert(run_step_index.fuzz_tests.items.len > 0);
-        if (run_step_index.rebuilt_executable == null)
+    for (run_steps) |run_index| {
+        const run = &maker.stepByIndex(run_index).extended.run;
+        assert(run.fuzz_tests.items.len > 0);
+        if (run.rebuilt_executable == null)
             fatal("one or more unit tests failed to be rebuilt in fuzz mode", .{});
     }
 
@@ -144,11 +145,10 @@ pub fn start(fuzz: *Fuzz) void {
             fatal("unable to spawn coverage task: {t}", .{err});
     }
 
-    if (true) @panic("TODO update the fuzzer");
-
-    for (fuzz.run_steps) |run| {
+    for (fuzz.run_steps) |run_index| {
+        const run = &maker.stepByIndex(run_index).extended.run;
         assert(run.rebuilt_executable != null);
-        fuzz.group.async(io, fuzzWorkerRun, .{ fuzz, run });
+        fuzz.group.async(io, fuzzWorkerRun, .{ fuzz, run_index });
     }
 }
 
@@ -163,67 +163,111 @@ pub fn deinit(fuzz: *Fuzz) void {
     gpa.free(fuzz.run_steps);
 }
 
-fn rebuildTestsWorkerRun(run: Configuration.Step.Index, gpa: Allocator, parent_prog_node: std.Progress.Node) void {
-    rebuildTestsWorkerRunFallible(run, gpa, parent_prog_node) catch |err| {
-        const compile = run.producer.?;
-        log.err("step '{s}': failed to rebuild in fuzz mode: {t}", .{ compile.step.name, err });
+fn rebuildTestsWorkerRun(
+    maker: *Maker,
+    run_index: Configuration.Step.Index,
+    parent_prog_node: std.Progress.Node,
+) void {
+    rebuildTestsWorkerRunFallible(maker, run_index, parent_prog_node) catch |err| {
+        const conf = &maker.scanned_config.configuration;
+        const conf_run = run_index.ptr(conf).extended.cast(conf, Configuration.Step.Run).?;
+        const comp_index = conf_run.producer.value.?;
+        const step_name = comp_index.ptr(conf).name.slice(conf);
+        log.err("step {s}: failed to rebuild in fuzz mode: {t}", .{ step_name, err });
     };
 }
 
-fn rebuildTestsWorkerRunFallible(run: Configuration.Step.Index, gpa: Allocator, parent_prog_node: std.Progress.Node) !void {
-    const graph = run.step.owner.graph;
+fn rebuildTestsWorkerRunFallible(
+    maker: *Maker,
+    run_index: Configuration.Step.Index,
+    parent_prog_node: std.Progress.Node,
+) !void {
+    const graph = maker.graph;
     const io = graph.io;
-    const compile = run.producer.?;
-    const prog_node = parent_prog_node.start(compile.step.name, 0);
+    const gpa = maker.gpa;
+    const conf = &maker.scanned_config.configuration;
+    const run = &maker.stepByIndex(run_index).extended.run;
+    const conf_run = run_index.ptr(conf).extended.cast(conf, Configuration.Step.Run).?;
+    const comp_index = conf_run.producer.value.?;
+    const comp_step = maker.stepByIndex(comp_index);
+    const comp = &comp_step.extended.compile;
+    const conf_comp_step = comp_index.ptr(conf);
+    const conf_comp = conf_comp_step.extended.cast(conf, Configuration.Step.Compile).?;
+    const root_module = conf_comp.root_module.get(conf);
+    const target = root_module.resolved_target.get(conf).?.result.get(conf);
+
+    const prog_node = parent_prog_node.start(conf_comp_step.name.slice(conf), 0);
     defer prog_node.end();
 
-    const result = compile.rebuildInFuzzMode(gpa, prog_node);
+    const result = comp.rebuildInFuzzMode(maker, comp_index, prog_node);
 
-    const show_compile_errors = compile.step.result_error_bundle.errorMessageCount() > 0;
-    const show_error_msgs = compile.step.result_error_msgs.items.len > 0;
-    const show_stderr = compile.step.result_stderr.len > 0;
+    const show_compile_errors = comp_step.result_error_bundle.errorMessageCount() > 0;
+    const show_error_msgs = comp_step.result_error_msgs.items.len > 0;
+    const show_stderr = comp_step.result_stderr.len > 0;
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
         var buf: [256]u8 = undefined;
         const stderr = try io.lockStderr(&buf, graph.stderr_mode);
         defer io.unlockStderr();
-        Maker.printErrorMessages(gpa, &compile.step, .{}, stderr.terminal(), .verbose, .indent) catch {};
+        maker.printErrorMessages(comp_index, .{}, stderr.terminal(), .verbose, .indent) catch {};
     }
 
     const rebuilt_bin_path = result catch |err| switch (err) {
         error.MakeFailed => return,
         else => |other| return other,
     };
-    run.rebuilt_executable = try rebuilt_bin_path.join(gpa, compile.out_filename);
+    const compile_filename = try std.zig.binNameAlloc(gpa, .{
+        .root_name = conf_comp.root_name.slice(conf),
+        .cpu_arch = target.flags.cpu_arch.unwrap().?,
+        .os_tag = target.flags.os_tag.unwrap().?,
+        .ofmt = target.flags.object_format.unwrap().?,
+        .abi = target.flags.abi.unwrap().?,
+        .output_mode = switch (conf_comp.flags3.kind) {
+            .lib => .Lib,
+            .obj, .test_obj => .Obj,
+            .exe, .@"test" => .Exe,
+        },
+        .link_mode = conf_comp.flags2.linkage.unwrap(),
+        .version = if (conf_comp.version.value) |v|
+            std.SemanticVersion.parse(v.slice(conf)) catch unreachable
+        else
+            null,
+    });
+    defer gpa.free(compile_filename);
+
+    run.rebuilt_executable = try rebuilt_bin_path.join(gpa, compile_filename);
 }
 
-fn fuzzWorkerRun(fuzz: *Fuzz, run: Configuration.Step.Index) void {
-    const owner = run.step.owner;
-    const gpa = owner.allocator;
-    const graph = owner.graph;
+fn fuzzWorkerRun(fuzz: *Fuzz, run_index: Configuration.Step.Index) void {
+    const maker = fuzz.maker;
+    const graph = maker.graph;
     const io = graph.io;
+    const conf = &maker.scanned_config.configuration;
+    const run = &maker.stepByIndex(run_index).extended.run;
 
-    run.rerunInFuzzMode(run, fuzz, fuzz.prog_node) catch |err| switch (err) {
+    run.rerunInFuzzMode(run_index, fuzz, fuzz.prog_node) catch |err| switch (err) {
         error.MakeFailed => {
             var buf: [256]u8 = undefined;
             const stderr = io.lockStderr(&buf, graph.stderr_mode) catch |e| switch (e) {
                 error.Canceled => return,
             };
             defer io.unlockStderr();
-            Maker.printErrorMessages(gpa, &run.step, .{}, stderr.terminal(), .verbose, .indent) catch {};
+            maker.printErrorMessages(run_index, .{}, stderr.terminal(), .verbose, .indent) catch {};
             return;
         },
         else => {
-            log.err("step '{s}': failed to rerun in fuzz mode: {t}", .{ run.step.name, err });
+            const step_name = run_index.ptr(conf).name.slice(conf);
+            log.err("step {s}: failed to rerun in fuzz mode: {t}", .{ step_name, err });
             return;
         },
     };
 }
 
 pub fn serveSourcesTar(fuzz: *Fuzz, req: *std.http.Server.Request) !void {
-    if (true) @panic("TODO update the fuzzer");
     assert(fuzz.mode == .forever);
-    const gpa = fuzz.maker.gpa;
+    const maker = fuzz.maker;
+    const gpa = maker.gpa;
+    const conf = &maker.scanned_config.configuration;
 
     var arena_state: std.heap.ArenaAllocator = .init(gpa);
     defer arena_state.deinit();
@@ -233,8 +277,11 @@ pub fn serveSourcesTar(fuzz: *Fuzz, req: *std.http.Server.Request) !void {
     var dedup_table: DedupTable = .empty;
     defer dedup_table.deinit(gpa);
 
-    for (fuzz.run_steps) |run_step| {
-        const compile_inputs = run_step.producer.?.step.inputs.table;
+    for (fuzz.run_steps) |run_index| {
+        const conf_run = run_index.ptr(conf).extended.cast(conf, Configuration.Step.Run) orelse continue;
+        const comp_index = conf_run.producer.value.?;
+        const comp_step = maker.stepByIndex(comp_index);
+        const compile_inputs = comp_step.inputs.table;
         for (compile_inputs.keys(), compile_inputs.values()) |dir_path, *file_list| {
             try dedup_table.ensureUnusedCapacity(gpa, file_list.items.len);
             for (file_list.items) |sub_path| {
@@ -372,14 +419,15 @@ fn coverageRunCancelable(fuzz: *Fuzz) Io.Cancelable!void {
         fuzz.msg_queue.clearRetainingCapacity();
     }
 }
-fn prepareTables(fuzz: *Fuzz, run_step_index: Configuration.Step.Index, coverage_id: u64) error{ OutOfMemory, AlreadyReported, Canceled }!void {
-    if (true) @panic("TODO update the fuzzer");
+fn prepareTables(fuzz: *Fuzz, run_index: Configuration.Step.Index, coverage_id: u64) error{ OutOfMemory, AlreadyReported, Canceled }!void {
     assert(fuzz.mode == .forever);
     const ws = fuzz.mode.forever.ws;
     const maker = fuzz.maker;
     const graph = maker.graph;
     const io = graph.io;
     const gpa = maker.gpa;
+    const conf = &maker.scanned_config.configuration;
+    const cache_root = graph.local_cache_root;
 
     try fuzz.coverage_mutex.lock(io);
     defer fuzz.coverage_mutex.unlock(io);
@@ -405,37 +453,45 @@ fn prepareTables(fuzz: *Fuzz, run_step_index: Configuration.Step.Index, coverage
     };
     errdefer gop.value_ptr.coverage.deinit(gpa);
 
-    const rebuilt_exe_path = run_step_index.rebuilt_executable.?;
-    const target = run_step_index.producer.?.rootModuleTarget();
+    const run_step = maker.stepByIndex(run_index);
+    const conf_run_step = run_index.ptr(conf);
+    const conf_run = conf_run_step.extended.cast(conf, Configuration.Step.Run).?;
+    const comp_index = conf_run.producer.value.?;
+    const conf_comp_step = comp_index.ptr(conf);
+    const conf_comp = conf_comp_step.extended.cast(conf, Configuration.Step.Compile).?;
+    const rebuilt_exe_path = run_step.extended.run.rebuilt_executable.?;
+    const root_module = conf_comp.root_module.get(conf);
+    const target = root_module.resolved_target.get(conf).?.result.get(conf);
+
     var debug_info = std.debug.Info.load(
         gpa,
         io,
         rebuilt_exe_path,
         &gop.value_ptr.coverage,
-        target.ofmt,
-        target.cpu.arch,
+        target.flags.object_format.unwrap().?,
+        target.flags.cpu_arch.unwrap().?,
     ) catch |err| {
-        log.err("step '{s}': failed to load debug information for '{f}': {t}", .{
-            run_step_index.step.name, rebuilt_exe_path, err,
+        log.err("step {s}: failed to load debug information for {f}: {t}", .{
+            conf_run_step.name.slice(conf), rebuilt_exe_path, err,
         });
         return error.AlreadyReported;
     };
     defer debug_info.deinit(gpa);
 
     const coverage_file_path: Build.Cache.Path = .{
-        .root_dir = run_step_index.step.owner.cache_root,
+        .root_dir = cache_root,
         .sub_path = "v/" ++ std.fmt.hex(coverage_id),
     };
     var coverage_file = coverage_file_path.root_dir.handle.openFile(io, coverage_file_path.sub_path, .{}) catch |err| {
-        log.err("step '{s}': failed to load coverage file '{f}': {t}", .{
-            run_step_index.step.name, coverage_file_path, err,
+        log.err("step {s}: failed to load coverage file {f}: {t}", .{
+            conf_run_step.name.slice(conf), coverage_file_path, err,
         });
         return error.AlreadyReported;
     };
     defer coverage_file.close(io);
 
     const file_size = coverage_file.length(io) catch |err| {
-        log.err("unable to check len of coverage file '{f}': {t}", .{ coverage_file_path, err });
+        log.err("unable to check len of coverage file {f}: {t}", .{ coverage_file_path, err });
         return error.AlreadyReported;
     };
 
@@ -447,7 +503,7 @@ fn prepareTables(fuzz: *Fuzz, run_step_index: Configuration.Step.Index, coverage
         coverage_file.handle,
         0,
     ) catch |err| {
-        log.err("failed to map coverage file '{f}': {t}", .{ coverage_file_path, err });
+        log.err("failed to map coverage file {f}: {t}", .{ coverage_file_path, err });
         return error.AlreadyReported;
     };
     gop.value_ptr.mapped_memory = mapped_memory;
@@ -538,11 +594,12 @@ fn addEntryPoint(fuzz: *Fuzz, coverage_id: u64, addr: u64) error{ AlreadyReporte
 }
 
 pub fn waitAndPrintReport(fuzz: *Fuzz) Io.Cancelable!void {
-    if (true) @panic("TODO update the fuzzer");
     assert(fuzz.mode == .limit);
     const maker = fuzz.maker;
     const graph = maker.graph;
     const io = graph.io;
+    const cache_root = graph.local_cache_root;
+    const conf = &maker.scanned_config.configuration;
 
     try fuzz.group.await(io);
     fuzz.group = .init;
@@ -552,13 +609,15 @@ pub fn waitAndPrintReport(fuzz: *Fuzz) Io.Cancelable!void {
         if (msg != .coverage) continue;
 
         const cov = msg.coverage;
+        const run_step_name = cov.run.ptr(conf).name.slice(conf);
+        const run = &maker.stepByIndex(cov.run).extended.run;
         const coverage_file_path: std.Build.Cache.Path = .{
-            .root_dir = cov.run.step.owner.cache_root,
+            .root_dir = cache_root,
             .sub_path = "v/" ++ std.fmt.hex(cov.id),
         };
         var coverage_file = coverage_file_path.root_dir.handle.openFile(io, coverage_file_path.sub_path, .{}) catch |err| {
-            fatal("step '{s}': failed to load coverage file '{f}': {t}", .{
-                cov.run.step.name, coverage_file_path, err,
+            fatal("step {s}: failed to load coverage file {f}: {t}", .{
+                run_step_name, coverage_file_path, err,
             });
         };
         defer coverage_file.close(io);
@@ -569,14 +628,14 @@ pub fn waitAndPrintReport(fuzz: *Fuzz) Io.Cancelable!void {
 
         var header: fuzz_abi.SeenPcsHeader = undefined;
         r.interface.readSliceAll(std.mem.asBytes(&header)) catch |err| {
-            fatal("step '{s}': failed to read from coverage file '{f}': {t}", .{
-                cov.run.step.name, coverage_file_path, err,
+            fatal("step {s}: failed to read from coverage file {f}: {t}", .{
+                run_step_name, coverage_file_path, err,
             });
         };
 
         if (header.pcs_len == 0) {
-            fatal("step '{s}': corrupted coverage file '{f}': pcs_len was zero", .{
-                cov.run.step.name, coverage_file_path,
+            fatal("step {s}: corrupted coverage file {f}: pcs_len was zero", .{
+                run_step_name, coverage_file_path,
             });
         }
 
@@ -584,8 +643,8 @@ pub fn waitAndPrintReport(fuzz: *Fuzz) Io.Cancelable!void {
         const chunk_count = fuzz_abi.SeenPcsHeader.seenElemsLen(header.pcs_len);
         for (0..chunk_count) |_| {
             const seen = r.interface.takeInt(usize, .little) catch |err| {
-                fatal("step '{s}': failed to read from coverage file '{f}': {t}", .{
-                    cov.run.step.name, coverage_file_path, err,
+                fatal("step {s}: failed to read from coverage file {f}: {t}", .{
+                    run_step_name, coverage_file_path, err,
                 });
             };
             seen_count += @popCount(seen);
@@ -602,8 +661,8 @@ pub fn waitAndPrintReport(fuzz: *Fuzz) Io.Cancelable!void {
             \\Coverage: {}/{} -> {}/{} ({:.02}%)
             \\
         , .{
-            cov.run.step.name,
-            cov.run.fuzz_tests.items[0],
+            run_step_name,
+            run.fuzz_tests.items[0],
             cov.id,
             cov.cumulative.runs,
             header.n_runs,

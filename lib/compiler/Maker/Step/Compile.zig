@@ -947,11 +947,11 @@ fn lowerZigArgs(
 pub fn rebuildInFuzzMode(
     compile: *Compile,
     maker: *Maker,
-    step_index: Configuration.Step.Index,
+    compile_index: Configuration.Step.Index,
     progress_node: std.Progress.Node,
 ) !Path {
-    const gpa = maker.graph.gpa;
-    const step = maker.stepByIndex(step_index);
+    const gpa = maker.gpa;
+    const step = maker.stepByIndex(compile_index);
 
     step.result_error_msgs.clearRetainingCapacity();
     step.result_stderr = "";
@@ -966,8 +966,8 @@ pub fn rebuildInFuzzMode(
 
     const zig_args = &compile.zig_args;
     zig_args.clearRetainingCapacity();
-    try lowerZigArgs(compile, maker, progress_node, zig_args, true);
-    const maybe_output_bin_path = try step.evalZigProcess(zig_args.items, progress_node, false, maker);
+    try lowerZigArgs(compile, compile_index, maker, progress_node, zig_args, true);
+    const maybe_output_bin_path = try Step.evalZigProcess(compile_index, maker, zig_args.items, progress_node, false);
     return maybe_output_bin_path.?;
 }
 
@@ -980,10 +980,7 @@ fn addFlag(gpa: Allocator, args: *std.ArrayList([]const u8), comptime name: []co
     try args.append(gpa, if (cond) "-f" ++ name else "-fno-" ++ name);
 }
 
-fn checkCompileErrors(
-    maker: *Maker,
-    step_index: Configuration.Step.Index,
-) Step.ExtendedMakeError!void {
+fn checkCompileErrors(maker: *Maker, step_index: Configuration.Step.Index) Step.ExtendedMakeError!void {
     const step = maker.stepByIndex(step_index);
     const graph = maker.graph;
     const arena = graph.arena; // TODO don't leak into the process arena

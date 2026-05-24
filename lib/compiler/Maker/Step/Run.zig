@@ -67,6 +67,7 @@ pub fn make(
         }
     }
 
+    man.hash.add(graph.fuzzing);
     man.hash.add(conf_run.flags.color);
     man.hash.add(conf_run.flags.disable_zig_progress);
 
@@ -234,7 +235,8 @@ pub fn make(
     }
 
     // Whether the Run step has side effects *other than* updating the output arguments.
-    const has_side_effects = conf_run.flags.has_side_effects or any_cli_positionals or
+    // When fuzzing we need to always run the test runner to populate fuzz_tests.
+    const has_side_effects = graph.fuzzing or conf_run.flags.has_side_effects or any_cli_positionals or
         switch (conf_run.flags.stdio) {
             .infer_from_args => !any_output_args and
                 conf_run.captured_stdout.value == null and
@@ -1511,7 +1513,7 @@ const IndexedOutput = struct {
 pub fn rerunInFuzzMode(
     run: *Run,
     run_index: Configuration.Step.Index,
-    fuzz: *std.Build.Fuzz,
+    fuzz: *Fuzz,
     prog_node: std.Progress.Node,
 ) !void {
     const maker = fuzz.maker;
@@ -1524,6 +1526,7 @@ pub fn rerunInFuzzMode(
     const conf_step = run_index.ptr(conf);
     const conf_run = conf_step.extended.get(conf.extra).run;
     const argv_list = &run.argv;
+    const cache_root = graph.local_cache_root;
 
     argv_list.clearRetainingCapacity();
 
@@ -1597,6 +1600,15 @@ pub fn rerunInFuzzMode(
             .output_directory => unreachable,
             .passthru => unreachable,
         }
+    }
+
+    if (conf_run.flags.test_runner_mode) {
+        const cache_dir_string = try convertPathArg(run_index, maker, .{ .root_dir = cache_root });
+
+        try argv_list.ensureUnusedCapacity(gpa, 3);
+        argv_list.appendAssumeCapacity(try allocPrint(arena, "--cache-dir={s}", .{cache_dir_string}));
+        argv_list.appendAssumeCapacity(try allocPrint(arena, "--seed=0x{x}", .{graph.random_seed}));
+        argv_list.appendAssumeCapacity("--listen=-");
     }
 
     if (step.result_failed_command) |cmd| {

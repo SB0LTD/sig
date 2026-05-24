@@ -317,6 +317,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 if (webui_listen == null) webui_listen = .{ .ip6 = .loopback(0) };
             } else if (mem.eql(u8, arg, "--fuzz")) {
                 fuzz = .{ .forever = undefined };
+                graph.fuzzing = true;
                 if (webui_listen == null) webui_listen = .{ .ip6 = .loopback(0) };
             } else if (mem.startsWith(u8, arg, "--fuzz=")) {
                 const value = arg["--fuzz=".len..];
@@ -352,6 +353,7 @@ pub fn main(init: process.Init.Minimal) !void {
                         .amount = normalized_amount,
                     },
                 };
+                graph.fuzzing = true;
             } else if (mem.eql(u8, arg, "-fincremental")) {
                 graph.incremental = true;
             } else if (mem.eql(u8, arg, "-fno-incremental")) {
