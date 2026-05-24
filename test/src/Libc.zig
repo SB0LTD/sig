@@ -35,7 +35,7 @@ pub fn addLibcTestCase(
     const arena = graph.arena;
     const name = arena.dupe(u8, path[0 .. path.len - std.fs.path.extension(path).len]) catch @panic("OOM");
     std.mem.replaceScalar(u8, name, '/', '.');
-    libc.test_cases.append(libc.b.allocator, .{
+    libc.test_cases.append(arena, .{
         .name = name,
         .src_file = libc.libc_test_src_path.path(libc.b, path),
         .additional_src_file = if (options.additional_src_file) |additional_src_file| libc.libc_test_src_path.path(libc.b, additional_src_file) else null,
@@ -114,6 +114,7 @@ pub fn addTarget(libc: *const Libc, target: std.Build.ResolvedTarget) void {
             const run = libc.b.addRunArtifact(exe);
             run.setName(annotated_case_name);
             run.skip_foreign_checks = true;
+            run.disable_zig_progress = true; // can interfere with fd count assumptions
             run.expectStdErrEqual("");
             run.expectStdOutEqual("");
             run.expectExitCode(0);
