@@ -1,20 +1,15 @@
 const Step = @This();
-const builtin = @import("builtin");
 
 const std = @import("../std.zig");
-const Io = std.Io;
 const Build = std.Build;
-const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Cache = Build.Cache;
-const Path = Cache.Path;
-const ArrayList = std.ArrayList;
+const Configuration = std.Build.Configuration;
 
-tag: std.Build.Configuration.Step.Tag,
+tag: Configuration.Step.Tag,
 name: []const u8,
 owner: *Build,
 
-dependencies: ArrayList(*Step),
+dependencies: std.ArrayList(*Step),
 
 /// Set this field to declare an upper bound on the amount of bytes of memory it will
 /// take to run the step. Zero means no limit.
@@ -37,43 +32,30 @@ dependencies: ArrayList(*Step),
 /// total system memory available.
 max_rss: usize,
 
-state: State,
-
 /// The return address associated with creation of this step that can be useful
 /// to print along with debugging messages.
 debug_stack_trace: std.debug.StackTrace,
 
-pub const State = enum {
-    precheck_unstarted,
-    precheck_started,
-    /// This is also used to indicate "dirty" steps that have been modified
-    /// after a previous build completed, in which case, the step may or may
-    /// not have been completed before. Either way, one or more of its direct
-    /// file system inputs have been modified, meaning that the step needs to
-    /// be re-evaluated.
-    precheck_done,
-    dependency_failure,
-};
-
-pub const Tag = std.Build.Configuration.Step.Tag;
+pub const Tag = Configuration.Step.Tag;
 
 pub fn Type(comptime tag: Tag) type {
     return switch (tag) {
-        .top_level => Build.TopLevelStep,
-        .compile => Compile,
-        .install_artifact => InstallArtifact,
-        .install_file => InstallFile,
-        .install_dir => InstallDir,
-        .fail => Fail,
-        .fmt => Fmt,
-        .translate_c => TranslateC,
-        .write_file => WriteFile,
-        .update_source_files => UpdateSourceFiles,
-        .run => Run,
         .check_file => CheckFile,
+        .compile => Compile,
         .config_header => ConfigHeader,
+        .fail => Fail,
+        .find_program => FindProgram,
+        .fmt => Fmt,
+        .install_artifact => InstallArtifact,
+        .install_dir => InstallDir,
+        .install_file => InstallFile,
         .obj_copy => ObjCopy,
         .options => Options,
+        .run => Run,
+        .top_level => TopLevel,
+        .translate_c => TranslateC,
+        .update_source_files => UpdateSourceFiles,
+        .write_file => WriteFile,
     };
 }
 
@@ -116,7 +98,6 @@ pub fn init(options: StepOptions) Step {
         .name = arena.dupe(u8, options.name) catch @panic("OOM"),
         .owner = options.owner,
         .dependencies = .empty,
-        .state = .precheck_unstarted,
         .max_rss = options.max_rss,
         .debug_stack_trace = blk: {
             const addr_buf = arena.alloc(usize, options.owner.debug_stack_frames_count) catch @panic("OOM");
@@ -132,14 +113,12 @@ pub fn dependOn(step: *Step, other: *Step) void {
 }
 
 pub fn cast(step: *Step, comptime T: type) ?*T {
-    if (step.tag == T.base_tag) {
-        return @fieldParentPtr("step", step);
-    }
+    if (step.tag == T.base_tag) return @fieldParentPtr("step", step);
     return null;
 }
 
 /// For debugging purposes, prints identifying information about this Step.
-pub fn dump(step: *Step, t: Io.Terminal) void {
+pub fn dump(step: *Step, t: std.Io.Terminal) void {
     const w = t.writer;
     if (step.debug_stack_trace.return_addresses.len > 0) {
         w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
@@ -155,16 +134,18 @@ pub fn dump(step: *Step, t: Io.Terminal) void {
 
 test {
     _ = CheckFile;
+    _ = Compile;
+    _ = ConfigHeader;
     _ = Fail;
+    _ = FindProgram;
     _ = Fmt;
     _ = InstallArtifact;
     _ = InstallDir;
     _ = InstallFile;
     _ = ObjCopy;
-    _ = Compile;
     _ = Options;
     _ = Run;
     _ = TranslateC;
-    _ = WriteFile;
     _ = UpdateSourceFiles;
+    _ = WriteFile;
 }
