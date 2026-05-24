@@ -176,9 +176,12 @@ jobs:
             local NEW_VER=$((VER_NUM + 1))
             local NEW_TAG="bootstrap-sig-v${NEW_VER}"
 
-            echo "::notice::Triggering bootstrap rebuild: $OLD_TAG → $NEW_TAG"
+            echo "::notice::Triggering zig1.wasm regen + bootstrap rebuild: $OLD_TAG → $NEW_TAG"
 
-            # Dispatch the bootstrap build
+            # First regenerate zig1.wasm (uses upstream zig as fallback)
+            gh workflow run update-zig1-wasm.yaml 2>/dev/null || true
+
+            # Then dispatch the bootstrap build
             gh workflow run build-bootstrap.yaml -f version="$NEW_TAG"
 
             # Wait for the bootstrap build to complete (poll every 60s, max 3h)
@@ -327,17 +330,12 @@ jobs:
                 echo "Commit touches lib/ — validating bootstrap..."
                 if ! validate_bootstrap "$BOOTSTRAP_TAG"; then
                   NEED_REBUILD=true
-                  echo "::warning::Bootstrap stale after $SHORT — will rebuild"
+                  echo "::warning::Bootstrap stale after $SHORT — dispatching zig1.wasm regen + rebuild"
 
-                  NEW_TAG=$(trigger_bootstrap_rebuild "$BOOTSTRAP_TAG")
-                  if [ $? -eq 0 ] && [ -n "$NEW_TAG" ]; then
-                    BOOTSTRAP_TAG="$NEW_TAG"
-                    NEED_REBUILD=false
-                    echo "::notice::Bootstrap upgraded to $BOOTSTRAP_TAG"
-                  else
-                    echo "::error::Bootstrap rebuild failed — continuing with stale bootstrap"
-                    echo "::error::Releases may fail until bootstrap is manually rebuilt"
-                  fi
+                  # Non-blocking: dispatch regen and rebuild, don't wait
+                  gh workflow run update-zig1-wasm.yaml 2>/dev/null || true
+                  echo "::notice::Dispatched zig1.wasm regeneration — sync continues"
+                  echo "::notice::Bootstrap rebuild will be triggered after zig1.wasm is updated"
                 fi
               fi
 
