@@ -260,7 +260,7 @@ fn operate(
                         dest_path.root_dir.handle,
                         dest_path.sub_path,
                         io,
-                        .{},
+                        .{ .make_path = true }, // Directory entry may be filtered out above.
                     ) catch |err| return step.fail(maker, "failed copying file from {f} to {f}: {t}", .{
                         src_entry_path, dest_path, err,
                     });
