@@ -2103,7 +2103,7 @@ fn fullFnProtoComponents(tree: Ast, info: full.FnProto.Components) full.FnProto 
 }
 
 fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType {
-    const size: std.builtin.Type.Pointer.Size = switch (tree.tokenTag(info.main_token)) {
+    const size: std.lang.Type.Pointer.Size = switch (tree.tokenTag(info.main_token)) {
         .asterisk => .one,
         .l_bracket => switch (tree.tokenTag(info.main_token + 1)) {
             .asterisk => if (tree.tokenTag(info.main_token + 2) == .identifier) .c else .many,
@@ -2726,7 +2726,7 @@ pub const full = struct {
     };
 
     pub const PtrType = struct {
-        size: std.builtin.Type.Pointer.Size,
+        size: std.lang.Type.Pointer.Size,
         allowzero_token: ?TokenIndex,
         const_token: ?TokenIndex,
         volatile_token: ?TokenIndex,
