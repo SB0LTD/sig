@@ -1811,7 +1811,11 @@ fn runCommand(
                 };
 
                 const need_cross_libc = link_libc and root_target.os.tag == .linux and
-                    producer.flags2.linkage == .dynamic;
+                    switch (producer.flags2.linkage) {
+                        .static => false,
+                        .dynamic => true,
+                        .default => root_target.isGnuLibC(),
+                    };
                 switch (std.zig.system.getExternalExecutor(io, &root_target, .{
                     .host_cpu_arch = host.cpu.arch,
                     .host_os_tag = host.os.tag,
