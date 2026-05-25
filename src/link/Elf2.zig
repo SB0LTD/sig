@@ -3971,8 +3971,18 @@ fn prelinkInner(elf: *Elf) !void {
             const ElfN = ct_class.ElfN();
             const flags: ElfN.Addr = if (elf.options.z_now) std.elf.DF_BIND_NOW else 0;
             const flags_1: ElfN.Addr = if (elf.options.z_now) std.elf.DF_1_NOW else 0;
+            const rpath: String(.dynstr) = rpath: {
+                var buf: std.ArrayList(u8) = .empty;
+                defer buf.deinit(gpa);
+                for (elf.options.rpath_list, 0..) |path, i| {
+                    if (i > 0) try buf.append(gpa, ':');
+                    try buf.appendSlice(gpa, path);
+                }
+                break :rpath try elf.string(.dynstr, buf.items);
+            };
             const needed_len = elf.needed.count();
             const dynamic_len = needed_len + @intFromBool(elf.options.soname != null) +
+                @intFromBool(rpath != .empty) +
                 @intFromBool(flags != 0) + @intFromBool(flags_1 != 0) +
                 @as(usize, @intFromBool(elf.shndx.init_array != .UNDEF)) * 2 +
                 @as(usize, @intFromBool(elf.shndx.fini_array != .UNDEF)) * 2 +
@@ -3994,6 +4004,10 @@ fn prelinkInner(elf: *Elf) !void {
             dynamic_index += needed_len;
             if (elf.options.soname) |soname| {
                 dynamic_entries[dynamic_index] = .{ std.elf.DT_SONAME, @intFromEnum(try elf.string(.dynstr, soname)) };
+                dynamic_index += 1;
+            }
+            if (rpath != .empty) {
+                dynamic_entries[dynamic_index] = .{ std.elf.DT_RUNPATH, @intFromEnum(rpath) };
                 dynamic_index += 1;
             }
             if (flags != 0) {
