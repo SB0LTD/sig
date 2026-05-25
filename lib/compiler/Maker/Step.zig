@@ -312,8 +312,7 @@ pub fn reset(step: *Step, maker: *Maker) void {
     step.result_duration_ns = null;
     step.result_peak_rss = 0;
     step.test_results = .{};
-    // We do not clearWatchInputs here because each step manages that choice
-    // independently.
+    clearWatchInputs(step, maker);
 
     step.result_error_bundle.deinit(gpa);
     step.result_error_bundle = std.zig.ErrorBundle.empty;
