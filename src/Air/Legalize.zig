@@ -908,6 +908,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .legalize_vec_elem_val,
             .legalize_vec_store_elem,
             .legalize_compiler_rt_call,
+            .spirv_runtime_array_len,
             => {},
         }
     }

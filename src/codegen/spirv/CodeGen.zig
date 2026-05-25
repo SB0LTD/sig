@@ -271,7 +271,13 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
                 .vulkan, .opengl => {
                     if (ty.zigTypeTag(zcu) == .@"struct") {
                         switch (storage_class) {
-                            .uniform, .push_constant => try cg.module.decorate(ty_id, .block),
+                            .uniform,
+                            .push_constant,
+                            .storage_buffer,
+                            => {
+                                try cg.module.decorate(ty_id, .block);
+                                try cg.decorateBlockOffsets(ty, ty_id);
+                            },
                             else => {},
                         }
                     }
@@ -313,6 +319,18 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
             try cg.module.debugName(result_id, nav.fqn.toSlice(ip));
         },
         .invocation_global => {
+            // `@extern()` produces an invocation_global whose value is a
+            // comptime-known pointer to an underlying extern symbol's Nav.
+            // The pointer is inlined at use sites so we don't need a Function-scope wrapper here.
+            if (ip.indexToKey(val.toIntern()) == .ptr) alias: {
+                const ptr_key = ip.indexToKey(val.toIntern()).ptr;
+                if (ptr_key.base_addr != .nav or ptr_key.byte_offset != 0) break :alias;
+                const underlying_nav = ip.getNav(ptr_key.base_addr.nav);
+                if (!underlying_nav.resolved.?.is_extern_decl) break :alias;
+                cg.module.declPtr(spv_decl_index).end_dep = cg.module.decl_deps.items.len;
+                return;
+            }
+
             const ty_id = try cg.resolveType(ty, .indirect);
             const ptr_ty_id = try cg.module.ptrType(ty_id, .function);
 
@@ -358,6 +376,21 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
     }
 
     cg.module.declPtr(spv_decl_index).end_dep = cg.module.decl_deps.items.len;
+}
+
+fn decorateBlockOffsets(cg: *CodeGen, ty: Type, ty_id: spec.Id) !void {
+    const zcu = cg.module.zcu;
+    const ip = &zcu.intern_pool;
+    const struct_type = ip.loadStructType(ty.toIntern());
+    var it = struct_type.iterateRuntimeOrder(ip);
+    var member: u32 = 0;
+    while (it.next()) |field_index| {
+        const field_ty: Type = .fromInterned(struct_type.field_types.get(ip)[field_index]);
+        if (!field_ty.hasRuntimeBits(zcu)) continue;
+        const offset: u32 = @intCast(ty.structFieldOffset(field_index, zcu));
+        try cg.module.decorateMember(ty_id, member, .{ .offset = .{ .byte_offset = offset } });
+        member += 1;
+    }
 }
 
 pub fn fail(cg: *CodeGen, comptime format: []const u8, args: anytype) Error {
@@ -779,6 +812,7 @@ fn constant(cg: *CodeGen, ty: Type, val: Value, repr: Repr) Error!Id {
             .tuple_type,
             .union_type,
             .opaque_type,
+            .spirv_type,
             .enum_type,
             .func_type,
             .error_set_type,
@@ -1065,16 +1099,18 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
             const parent_ptr_id = try cg.derivePtr(oac.parent.*);
             const parent_ptr_ty = try oac.parent.ptrType(pt);
             const result_ty_id = try cg.resolveType(oac.new_ptr_ty, .direct);
-            const child_size = oac.new_ptr_ty.childType(zcu).abiSize(zcu);
 
-            if (parent_ptr_ty.childType(zcu).isVector(zcu) and oac.byte_offset % child_size == 0) {
+            if (parent_ptr_ty.childType(zcu).isVector(zcu)) {
                 // Vector element ptr accesses are derived as offset_and_cast.
                 // We can just use OpAccessChain.
-                return cg.accessChain(
-                    result_ty_id,
-                    parent_ptr_id,
-                    &.{@intCast(@divExact(oac.byte_offset, child_size))},
-                );
+                const child_size = oac.new_ptr_ty.childType(zcu).abiSize(zcu);
+                if (oac.byte_offset % child_size == 0) {
+                    return cg.accessChain(
+                        result_ty_id,
+                        parent_ptr_id,
+                        &.{@intCast(@divExact(oac.byte_offset, child_size))},
+                    );
+                }
             }
 
             if (oac.byte_offset == 0) {
@@ -1269,7 +1305,6 @@ fn resolveUnionType(cg: *CodeGen, ty: Type) !Id {
     const result_id = try cg.module.structType(
         member_types[0..layout.total_fields],
         member_names[0..layout.total_fields],
-        null,
         .none,
     );
 
@@ -1450,7 +1485,6 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
             return try cg.module.structType(
                 &.{ ptr_ty_id, size_ty_id },
                 &.{ "ptr", "len" },
-                null,
                 .none,
             );
         },
@@ -1471,7 +1505,6 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
 
                     const result_id = try cg.module.structType(
                         member_types[0..member_index],
-                        null,
                         null,
                         .none,
                     );
@@ -1494,9 +1527,6 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
             var member_names = std.array_list.Managed([]const u8).init(gpa);
             defer member_names.deinit();
 
-            var member_offsets = std.array_list.Managed(u32).init(gpa);
-            defer member_offsets.deinit();
-
             var it = struct_type.iterateRuntimeOrder(ip);
             while (it.next()) |field_index| {
                 const field_ty: Type = .fromInterned(struct_type.field_types.get(ip)[field_index]);
@@ -1505,13 +1535,11 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
                 const field_name = struct_type.field_names.get(ip)[field_index];
                 try member_types.append(try cg.resolveType(field_ty, .indirect));
                 try member_names.append(field_name.toSlice(ip));
-                try member_offsets.append(@intCast(ty.structFieldOffset(field_index, zcu)));
             }
 
             const result_id = try cg.module.structType(
                 member_types.items,
                 member_names.items,
-                member_offsets.items,
                 ty.toIntern(),
             );
 
@@ -1541,7 +1569,6 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
             return try cg.module.structType(
                 &.{ payload_ty_id, bool_ty_id },
                 &.{ "payload", "valid" },
-                null,
                 .none,
             );
         },
@@ -1576,13 +1603,84 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
                 // TODO: ABI padding?
             }
 
-            return try cg.module.structType(&member_types, &member_names, null, .none);
+            return try cg.module.structType(&member_types, &member_names, .none);
         },
         .@"opaque" => {
             if (target.os.tag != .opencl) return cg.fail("cannot generate opaque type", .{});
             const type_name = try cg.resolveTypeName(ty);
             defer gpa.free(type_name);
             return try cg.module.opaqueType(type_name);
+        },
+        .spirv => {
+            const ip_index = ty.toIntern();
+            const spirv_type = ip.loadSpirvType(ip_index);
+            switch (spirv_type.flags.tag) {
+                .sampler => return try cg.module.samplerType(ip_index),
+                .image => {
+                    const sampled_type_id = blk: {
+                        if (spirv_type.ty == .none) break :blk try cg.module.intType(.unsigned, 32);
+                        break :blk try cg.resolveType(Type.fromInterned(spirv_type.ty), .direct);
+                    };
+                    return try cg.module.imageType(
+                        ip_index,
+                        sampled_type_id,
+                        switch (spirv_type.flags.dim) {
+                            .@"1d" => .@"1d",
+                            .@"2d" => .@"2d",
+                            .@"3d" => .@"3d",
+                            .cube => .cube,
+                        },
+                        switch (spirv_type.flags.depth) {
+                            .not_depth => 0,
+                            .depth => 1,
+                            .unknown => 2,
+                        },
+                        @intFromBool(spirv_type.flags.is_arrayed),
+                        @intFromBool(spirv_type.flags.is_multisampled),
+                        switch (spirv_type.flags.usage) {
+                            .unknown => 1,
+                            .sampled => 1,
+                            .storage => 2,
+                        },
+                        switch (spirv_type.flags.format) {
+                            .unknown => .unknown,
+                            .rgba32f => .rgba32f,
+                            .rgba32i => .rgba32i,
+                            .rgba32u => .rgba32ui,
+                            .rgba16f => .rgba16f,
+                            .rgba16i => .rgba16i,
+                            .rgba16u => .rgba16ui,
+                            .rgba8unorm => .rgba8,
+                            .rgba8snorm => .rgba8snorm,
+                            .rgba8i => .rgba8i,
+                            .rgba8u => .rgba8ui,
+                            .r32f => .r32f,
+                            .r32i => .r32i,
+                            .r32u => .r32ui,
+                        },
+                        switch (spirv_type.flags.access) {
+                            .unknown => null,
+                            .read_only => .read_only,
+                            .write_only => .write_only,
+                            .read_write => .read_write,
+                        },
+                    );
+                },
+                .sampled_image => {
+                    const image_ty_id = try cg.resolveType(.fromInterned(spirv_type.ty), .indirect);
+                    return try cg.module.sampledImageType(ip_index, image_ty_id);
+                },
+                .runtime_array => {
+                    const elem_ty: Type = .fromInterned(spirv_type.ty);
+                    const elem_ty_id = try cg.resolveType(elem_ty, .indirect);
+                    const result_id = try cg.module.runtimeArrayType(ip_index, elem_ty_id);
+                    try cg.module.decorate(
+                        result_id,
+                        .{ .array_stride = .{ .array_stride = @intCast(elem_ty.abiSize(zcu)) } },
+                    );
+                    return result_id;
+                },
+            }
         },
 
         .null,
@@ -2421,7 +2519,6 @@ fn generateTestEntryPoint(
                 const buffer_struct_ty_id = try cg.module.structType(
                     &.{anyerror_ty_id},
                     &.{"error_out"},
-                    null,
                     .none,
                 );
                 try cg.module.decorate(buffer_struct_ty_id, .block);
@@ -2708,13 +2805,14 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
             .memcpy         => return cg.airMemcpy(inst),
             .memmove        => return cg.airMemmove(inst),
 
-            .slice_ptr      => try cg.airSliceField(inst, 0),
-            .slice_len      => try cg.airSliceField(inst, 1),
-            .slice_elem_ptr => try cg.airSliceElemPtr(inst),
-            .slice_elem_val => try cg.airSliceElemVal(inst),
-            .ptr_elem_ptr   => try cg.airPtrElemPtr(inst),
-            .ptr_elem_val   => try cg.airPtrElemVal(inst),
-            .array_elem_val => try cg.airArrayElemVal(inst),
+            .slice_ptr               => try cg.airSliceField(inst, 0),
+            .slice_len               => try cg.airSliceField(inst, 1),
+            .spirv_runtime_array_len => try cg.airSpirvRuntimeArrayLen(inst),
+            .slice_elem_ptr          => try cg.airSliceElemPtr(inst),
+            .slice_elem_val          => try cg.airSliceElemVal(inst),
+            .ptr_elem_ptr            => try cg.airPtrElemPtr(inst),
+            .ptr_elem_val            => try cg.airPtrElemVal(inst),
+            .array_elem_val          => try cg.airArrayElemVal(inst),
 
             .set_union_tag => return cg.airSetUnionTag(inst),
             .get_union_tag => try cg.airGetUnionTag(inst),
@@ -4305,6 +4403,22 @@ fn airSliceField(cg: *CodeGen, inst: Air.Inst.Index, field: u32) !?Id {
     return try cg.extractField(field_ty, operand_id, field);
 }
 
+fn airSpirvRuntimeArrayLen(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
+    const gpa = cg.module.gpa;
+    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = cg.air.extraData(Air.StructField, ty_pl.payload).data;
+    const struct_ptr_id = try cg.resolve(extra.struct_operand);
+    const u32_ty_id = try cg.module.intType(.unsigned, 32);
+    const result_id = cg.module.allocId();
+    try cg.body.emit(gpa, .OpArrayLength, .{
+        .id_result_type = u32_ty_id,
+        .id_result = result_id,
+        .structure = struct_ptr_id,
+        .array_member = extra.field_index,
+    });
+    return result_id;
+}
+
 fn airSliceElemPtr(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const zcu = cg.module.zcu;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -5884,6 +5998,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 .struct_type,
                 .union_type,
                 .opaque_type,
+                .spirv_type,
                 .enum_type,
                 .func_type,
                 .error_set_type,

@@ -269,7 +269,7 @@ fn processTypeInstruction(ass: *Assembler) !AsmValue {
             defer cg.id_scratch.shrinkRetainingCapacity(scratch_top);
             const ids = try cg.id_scratch.addManyAsSlice(gpa, operands[1..].len);
             for (operands[1..], ids) |op, *id| id.* = try ass.resolveRefId(op.ref_id);
-            break :blk try module.structType(ids, null, null, .none);
+            break :blk try module.structType(ids, null, .none);
         },
         .OpTypeImage => blk: {
             const sampled_type = try ass.resolveRefId(operands[1].ref_id);

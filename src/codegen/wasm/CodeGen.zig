@@ -1195,6 +1195,7 @@ fn isByRef(ty: Type, zcu: *const Zcu, target: *const std.Target) bool {
         .undefined,
         .null,
         .@"opaque",
+        .spirv,
         => unreachable,
 
         .noreturn,
@@ -1882,6 +1883,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .work_item_id,
         .work_group_size,
         .work_group_id,
+        .spirv_runtime_array_len,
         => unreachable,
     };
 }
@@ -4698,6 +4700,7 @@ fn lowerConstant(cg: *CodeGen, val: Value) InnerError!WValue {
         .tuple_type,
         .union_type,
         .opaque_type,
+        .spirv_type,
         .enum_type,
         .func_type,
         .error_set_type,

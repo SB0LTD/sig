@@ -2662,6 +2662,7 @@ pub const Object = struct {
             },
             .frame => @panic("TODO implement lowerDebugType for Frame types"),
             .@"anyframe" => @panic("TODO implement lowerDebugType for AnyFrame types"),
+            .spirv => unreachable,
         }
     }
 
@@ -3375,7 +3376,7 @@ pub const Object = struct {
                     );
                     return ty;
                 },
-                .opaque_type => unreachable, // no runtime bits
+                .opaque_type, .spirv_type => unreachable, // no runtime bits
                 .enum_type => try o.lowerType(t.intTagType(zcu)),
                 .func_type => |func_type| try o.lowerFnType(t, func_type),
                 .error_set_type, .inferred_error_set_type => try o.errorIntType(),
@@ -3497,6 +3498,7 @@ pub const Object = struct {
             .tuple_type,
             .union_type,
             .opaque_type,
+            .spirv_type,
             .enum_type,
             .func_type,
             .error_set_type,

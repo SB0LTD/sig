@@ -902,6 +902,7 @@ pub const DeclGen = struct {
             .tuple_type,
             .union_type,
             .opaque_type,
+            .spirv_type,
             .enum_type,
             .func_type,
             .error_set_type,
@@ -1565,6 +1566,7 @@ pub const DeclGen = struct {
                 },
                 .anyframe_type,
                 .opaque_type,
+                .spirv_type,
                 .func_type,
                 => unreachable,
 
@@ -2877,6 +2879,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
             .work_item_id,
             .work_group_size,
             .work_group_id,
+            .spirv_runtime_array_len,
             => unreachable,
 
             // Instructions that are known to always be `noreturn` based on their tag.

@@ -164,6 +164,7 @@ pub fn classifyWindows(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
         .null,
         .@"fn",
         .@"opaque",
+        .spirv,
         .enum_literal,
         => unreachable,
     };

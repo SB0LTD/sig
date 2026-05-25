@@ -70,6 +70,8 @@ cache: struct {
 
     bool_const: [2]?Id = .{ null, null },
     constants: std.ArrayHashMapUnmanaged(Constant, Id, Constant.HashContext, true) = .empty,
+
+    spirv_types: std.AutoHashMapUnmanaged(InternPool.Index, Id) = .empty,
 } = .{},
 /// Module layout, according to SPIR-V Spec section 2.4, "Logical Layout of a Module".
 sections: struct {
@@ -229,6 +231,7 @@ pub fn deinit(module: *Module) void {
     module.cache.array_types.deinit(module.gpa);
     module.cache.struct_types.deinit(module.gpa);
     module.cache.fn_types.deinit(module.gpa);
+    module.cache.spirv_types.deinit(module.gpa);
     module.cache.capabilities.deinit(module.gpa);
     module.cache.extensions.deinit(module.gpa);
     module.cache.extended_instruction_set.deinit(module.gpa);
@@ -683,10 +686,8 @@ pub fn structType(
     module: *Module,
     types: []const Id,
     maybe_names: ?[]const []const u8,
-    maybe_offsets: ?[]const u32,
     ip_index: InternPool.Index,
 ) !Id {
-    const target = module.zcu.getTarget();
     const actual_ip_index = if (module.zcu.comp.config.root_strip) .none else ip_index;
 
     if (module.cache.struct_types.get(.{ .fields = types, .ip_index = actual_ip_index })) |id| return id;
@@ -702,22 +703,6 @@ pub fn structType(
         for (names, 0..) |name, i| {
             try module.memberDebugName(result_id, @intCast(i), name);
         }
-    }
-
-    switch (target.os.tag) {
-        .vulkan, .opengl => {
-            if (maybe_offsets) |offsets| {
-                assert(offsets.len == types.len);
-                for (offsets, 0..) |offset, i| {
-                    try module.decorateMember(
-                        result_id,
-                        @intCast(i),
-                        .{ .offset = .{ .byte_offset = offset } },
-                    );
-                }
-            }
-        },
-        else => {},
     }
 
     try module.cache.struct_types.put(
@@ -745,6 +730,75 @@ pub fn functionType(module: *Module, return_ty_id: Id, param_type_ids: []const I
         .params = params_dup,
     }, result_id);
     return result_id;
+}
+
+pub fn samplerType(module: *Module, ip_index: InternPool.Index) !Id {
+    const entry = try module.cache.spirv_types.getOrPut(module.gpa, ip_index);
+    if (!entry.found_existing) {
+        const result_id = module.allocId();
+        entry.value_ptr.* = result_id;
+        try module.sections.globals.emit(module.gpa, .OpTypeSampler, .{
+            .id_result = result_id,
+        });
+    }
+    return entry.value_ptr.*;
+}
+
+pub fn imageType(
+    module: *Module,
+    ip_index: InternPool.Index,
+    sampled_ty_id: Id,
+    dim: spec.Dim,
+    depth: spec.LiteralInteger,
+    arrayed: spec.LiteralInteger,
+    ms: spec.LiteralInteger,
+    sampled: spec.LiteralInteger,
+    image_format: spec.ImageFormat,
+    access_qualifier: ?spec.AccessQualifier,
+) !Id {
+    const entry = try module.cache.spirv_types.getOrPut(module.gpa, ip_index);
+    if (!entry.found_existing) {
+        const result_id = module.allocId();
+        entry.value_ptr.* = result_id;
+        try module.sections.globals.emit(module.gpa, .OpTypeImage, .{
+            .id_result = result_id,
+            .sampled_type = sampled_ty_id,
+            .dim = dim,
+            .depth = depth,
+            .arrayed = arrayed,
+            .ms = ms,
+            .sampled = sampled,
+            .image_format = image_format,
+            .access_qualifier = access_qualifier,
+        });
+    }
+    return entry.value_ptr.*;
+}
+
+pub fn sampledImageType(module: *Module, ip_index: InternPool.Index, image_ty_id: Id) !Id {
+    const entry = try module.cache.spirv_types.getOrPut(module.gpa, ip_index);
+    if (!entry.found_existing) {
+        const result_id = module.allocId();
+        entry.value_ptr.* = result_id;
+        try module.sections.globals.emit(module.gpa, .OpTypeSampledImage, .{
+            .id_result = result_id,
+            .image_type = image_ty_id,
+        });
+    }
+    return entry.value_ptr.*;
+}
+
+pub fn runtimeArrayType(module: *Module, ip_index: InternPool.Index, elem_ty_id: Id) !Id {
+    const entry = try module.cache.spirv_types.getOrPut(module.gpa, ip_index);
+    if (!entry.found_existing) {
+        const result_id = module.allocId();
+        entry.value_ptr.* = result_id;
+        try module.sections.globals.emit(module.gpa, .OpTypeRuntimeArray, .{
+            .id_result = result_id,
+            .element_type = elem_ty_id,
+        });
+    }
+    return entry.value_ptr.*;
 }
 
 pub fn constant(module: *Module, ty_id: Id, value: spec.LiteralContextDependentNumber) !Id {

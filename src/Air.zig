@@ -918,6 +918,11 @@ pub const Inst = struct {
         /// Uses the `ty` field.
         c_va_start,
 
+        /// Implements `.len` field for `@SpirvType(.{ .runtime_array = T })`.
+        /// Result type is always `u32`.
+        /// Uses the `ty_pl` field, payload is `StructField`.
+        spirv_runtime_array_len,
+
         /// Implements @workItemId builtin.
         /// Result type is always `u32`
         /// Uses the `pl_op` field, payload is the dimension to get the work item id for.
@@ -1793,6 +1798,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .work_item_id,
         .work_group_size,
         .work_group_id,
+        .spirv_runtime_array_len,
         => return .u32,
 
         .legalize_compiler_rt_call => return datas[@intFromEnum(inst)].legalize_compiler_rt_call.func.returnType(),
@@ -2056,6 +2062,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .work_group_size,
         .work_group_id,
         .legalize_vec_elem_val,
+        .spirv_runtime_array_len,
         => false,
 
         .is_non_null_ptr, .is_null_ptr, .is_non_err_ptr, .is_err_ptr => air.typeOf(data.un_op, ip).isVolatilePtrIp(ip),

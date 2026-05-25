@@ -249,6 +249,7 @@ pub const CType = union(enum) {
                 .null,
                 .enum_literal,
                 .@"opaque",
+                .spirv,
                 .noreturn,
                 .void,
                 => return .void,
@@ -865,6 +866,7 @@ pub const CType = union(enum) {
             switch (ty.zigTypeTag(zcu)) {
                 .frame => unreachable,
                 .@"anyframe" => unreachable,
+                .spirv => unreachable,
 
                 .type => try w.writeAll("type"),
                 .void => try w.writeAll("void"),
@@ -988,6 +990,7 @@ pub const CType = union(enum) {
             .anyframe_type,
             .simple_type,
             .opaque_type,
+            .spirv_type,
             .error_set_type,
             .inferred_error_set_type,
             => true,

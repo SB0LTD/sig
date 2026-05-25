@@ -352,6 +352,7 @@ pub fn zeroes(comptime T: type) T {
         .noreturn,
         .undefined,
         .@"opaque",
+        .spirv,
         .frame,
         .@"anyframe",
         => {

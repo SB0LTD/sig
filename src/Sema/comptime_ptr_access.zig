@@ -422,6 +422,7 @@ fn loadComptimePtrInner(
             .undefined,
             .enum_literal,
             .@"opaque",
+            .spirv,
             .@"fn",
             .error_union,
             => unreachable, // ill-defined layout
@@ -854,6 +855,7 @@ fn prepareComptimePtrStore(
             .undefined,
             .enum_literal,
             .@"opaque",
+            .spirv,
             .@"fn",
             .error_union,
             => unreachable, // ill-defined layout

@@ -1434,6 +1434,7 @@ fn analyzeBodyInner(
                     .reify_struct              => try sema.zirReifyStruct(          block, extended, inst),
                     .reify_union               => try sema.zirReifyUnion(           block, extended, inst),
                     .reify_enum                => try sema.zirReifyEnum(            block, extended, inst),
+                    .reify_spirv_type          => try sema.zirReifySpirvType(       block, extended, inst),
                     // zig fmt: on
 
                     .set_float_mode => {
@@ -9273,6 +9274,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .noreturn,
         .null,
         .@"opaque",
+        .spirv,
         .optional,
         .type,
         .undefined,
@@ -9348,6 +9350,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .noreturn,
         .null,
         .@"opaque",
+        .spirv,
         .optional,
         .type,
         .undefined,
@@ -15531,6 +15534,7 @@ fn zirBitSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         .undefined,
         .null,
         .@"opaque",
+        .spirv,
         .type,
         .enum_literal,
         .comptime_float,
@@ -16834,6 +16838,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 .val = (try pt.aggregateValue(type_opaque_ty, &field_values)).toIntern(),
             })));
         },
+        .spirv => unreachable, // TODO: ALI
         .frame => return sema.failWithUseOfAsync(block, src),
         .@"anyframe" => return sema.failWithUseOfAsync(block, src),
     }
@@ -20447,6 +20452,306 @@ fn zirReifyEnum(
             return .fromIntern(wip.finish(ip, new_namespace_index));
         },
     }
+}
+
+fn zirReifySpirvType(
+    sema: *Sema,
+    block: *Block,
+    extended: Zir.Inst.Extended.InstData,
+    inst: Zir.Inst.Index,
+) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    const io = comp.io;
+    const ip = &zcu.intern_pool;
+    const target = zcu.getTarget();
+
+    const extra = sema.code.extraData(Zir.Inst.ReifySpirvType, extended.operand).data;
+    const tracked_inst = try block.trackZir(inst);
+    const src: LazySrcLoc = .{
+        .base_node_inst = tracked_inst,
+        .offset = .nodeOffset(.zero),
+    };
+    const operand_src: LazySrcLoc = .{
+        .base_node_inst = tracked_inst,
+        .offset = .{ .node_offset_builtin_call_arg = .{
+            .builtin_call_node = .zero,
+            .arg_index = 0,
+        } },
+    };
+
+    if (!target.cpu.arch.isSpirV()) {
+        return sema.fail(
+            block,
+            src,
+            "builtin @SpirvType is only available when targeting SPIR-V; targeted CPU architecture is {t}",
+            .{target.cpu.arch},
+        );
+    }
+
+    const spirv_type_options_ty = try sema.getStdLangType(operand_src, .@"Type.Spirv");
+    const operand_uncoerced = sema.resolveInst(extra.operand);
+    const operand_coerced = try sema.coerce(block, spirv_type_options_ty, operand_uncoerced, operand_src);
+    const operand_val = try sema.resolveConstDefinedValue(block, operand_src, operand_coerced, .{ .simple = .type });
+    const union_val = ip.indexToKey(operand_val.toIntern()).un;
+
+    if (try sema.anyUndef(block, operand_src, .fromInterned(union_val.val))) {
+        return sema.failWithUseOfUndef(block, operand_src, null);
+    }
+
+    // TODO: use a longer hash!
+    var hasher = std.hash.Wyhash.init(0);
+    std.hash.autoHash(&hasher, union_val.tag);
+
+    const name = try ip.getOrPutStringFmt(
+        gpa,
+        io,
+        pt.tid,
+        "{f}__SpirvType_{d}",
+        .{ block.type_name_ctx.fmt(ip), @intFromEnum(inst) },
+        .no_embedded_nulls,
+    );
+    const tag = try sema.interpretStdLangType(block, src, .fromInterned(union_val.tag), @typeInfo(std.lang.Type.Spirv).@"union".tag_type.?);
+    const ip_data: InternPool.Tag.TypeSpirv = switch (tag) {
+        .sampler => .{
+            .name = name,
+            .zir_index = tracked_inst,
+            .ty = .none,
+            .flags = .{
+                .tag = .sampler,
+                .usage = .unknown,
+                .format = .unknown,
+                .dim = .@"1d",
+                .depth = .unknown,
+                .access = .unknown,
+                .is_arrayed = false,
+                .is_multisampled = false,
+            },
+        },
+        .image => ip_data: {
+            const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
+            const usage_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, io, pt.tid, "usage", .no_embedded_nulls),
+            ).?);
+            const format_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, io, pt.tid, "format", .no_embedded_nulls),
+            ).?);
+            const dim_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, io, pt.tid, "dim", .no_embedded_nulls),
+            ).?);
+            const depth_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, io, pt.tid, "depth", .no_embedded_nulls),
+            ).?);
+            const access_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, io, pt.tid, "access", .no_embedded_nulls),
+            ).?);
+            const arrayed_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, io, pt.tid, "arrayed", .no_embedded_nulls),
+            ).?);
+            const multisampled_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
+                ip,
+                try ip.getOrPutString(gpa, io, pt.tid, "multisampled", .no_embedded_nulls),
+            ).?);
+            const format = try sema.interpretStdLangType(block, operand_src, format_val, std.lang.Type.Spirv.Image.Format);
+            const dim = try sema.interpretStdLangType(block, operand_src, dim_val, std.lang.Type.Spirv.Image.Dimensionality);
+            const depth = try sema.interpretStdLangType(block, operand_src, depth_val, std.lang.Type.Spirv.Image.Depth);
+            const access = try sema.interpretStdLangType(block, operand_src, access_val, std.lang.Type.Spirv.Image.Access);
+
+            switch (target.os.tag) {
+                .opencl => if (access == .unknown) {
+                    return sema.fail(block, operand_src, "'access' field must be specified under the 'opencl' os", .{});
+                },
+                else => if (access != .unknown) {
+                    return sema.fail(block, operand_src, "access qualifier '.{t}' is only valid under the 'opencl' os", .{access});
+                },
+            }
+
+            const arrayed = try sema.interpretStdLangType(block, operand_src, arrayed_val, bool);
+            const multisampled = try sema.interpretStdLangType(block, operand_src, multisampled_val, bool);
+
+            const usage_tag_val = usage_val.unionTag(zcu).?;
+            const usage_tag = try sema.interpretStdLangType(block, operand_src, usage_tag_val, @typeInfo(std.lang.Type.Spirv.Image.Usage).@"union".tag_type.?);
+
+            switch (target.os.tag) {
+                .vulkan => {
+                    if (usage_tag == .unknown) {
+                        return sema.fail(
+                            block,
+                            operand_src,
+                            "'usage' must be '.sampled' or '.storage' under the 'vulkan' os (Sampled == 0 is forbidden)",
+                            .{},
+                        );
+                    }
+                },
+                .opencl => {
+                    if (usage_tag != .unknown) {
+                        return sema.fail(block, operand_src, "'usage' must be '.unknown' under the 'opencl' os", .{});
+                    }
+                    if (multisampled) {
+                        return sema.fail(block, operand_src, "'multisampled' must be 'false' under the 'opencl' os", .{});
+                    }
+                    if (format != .unknown) {
+                        return sema.fail(block, operand_src, "'format' must be '.unknown' under the 'opencl' os", .{});
+                    }
+                    if (dim == .cube) {
+                        return sema.fail(block, operand_src, "'dim' '.cube' is not allowed under the 'opencl' os", .{});
+                    }
+                    if (arrayed and dim != .@"1d" and dim != .@"2d") {
+                        return sema.fail(block, operand_src, "'arrayed' may only be 'true' when 'dim' is '.1d' or '.2d' under the 'opencl' os", .{});
+                    }
+                },
+                else => {},
+            }
+
+            std.hash.autoHash(&hasher, usage_tag);
+            std.hash.autoHash(&hasher, format);
+            std.hash.autoHash(&hasher, dim);
+            std.hash.autoHash(&hasher, depth);
+            std.hash.autoHash(&hasher, access);
+            std.hash.autoHash(&hasher, arrayed);
+            std.hash.autoHash(&hasher, multisampled);
+
+            break :ip_data .{
+                .name = name,
+                .zir_index = tracked_inst,
+                .ty = switch (usage_tag) {
+                    .sampled, .unknown => blk: {
+                        const sampled_type = usage_val.unionPayload(zcu).toType();
+                        std.hash.autoHash(&hasher, sampled_type.toIntern());
+
+                        if (target.os.tag != .opencl and sampled_type.toIntern() == .void_type) {
+                            return sema.fail(block, operand_src, "'void' type for '{t}' field is only valid under the 'opencl' os", .{usage_tag});
+                        }
+                        if (target.os.tag == .opencl and sampled_type.toIntern() != .void_type) {
+                            return sema.fail(block, operand_src, "'{t}' field type must be 'void' under the 'opencl' os", .{usage_tag});
+                        }
+
+                        if (sampled_type.toIntern() != .void_type and
+                            (!sampled_type.hasRuntimeBits(zcu) or (!sampled_type.isRuntimeFloat() and !sampled_type.isInt(zcu))))
+                        {
+                            return sema.fail(block, operand_src, "invalid '{t}' field value '{f}'", .{ usage_tag, sampled_type.fmt(pt) });
+                        }
+
+                        if (target.os.tag == .vulkan) {
+                            const ok = (sampled_type.isRuntimeFloat() and sampled_type.bitSize(zcu) == 32) or
+                                (sampled_type.isInt(zcu) and (sampled_type.bitSize(zcu) == 32 or sampled_type.bitSize(zcu) == 64));
+                            if (!ok) {
+                                return sema.fail(
+                                    block,
+                                    operand_src,
+                                    "'{t}' field value must be a 32-bit int, 64-bit int or 32-bit float under the 'vulkan' os",
+                                    .{usage_tag},
+                                );
+                            }
+
+                            if (format != .unknown) {
+                                const format_kind: enum { float, sint, uint } = switch (format) {
+                                    .rgba32f, .rgba16f, .rgba8unorm, .rgba8snorm, .r32f => .float,
+                                    .rgba32i, .rgba16i, .rgba8i, .r32i => .sint,
+                                    .rgba32u, .rgba16u, .rgba8u, .r32u => .uint,
+                                    .unknown => unreachable,
+                                };
+                                const matches = switch (format_kind) {
+                                    .float => sampled_type.isRuntimeFloat(),
+                                    .sint => sampled_type.isInt(zcu) and sampled_type.intInfo(zcu).signedness == .signed,
+                                    .uint => sampled_type.isInt(zcu) and sampled_type.intInfo(zcu).signedness == .unsigned,
+                                };
+                                if (!matches) {
+                                    return sema.fail(
+                                        block,
+                                        operand_src,
+                                        "image 'format' '.{t}' does not match '{t}' type '{f}' under the 'vulkan' os",
+                                        .{ format, usage_tag, sampled_type.fmt(pt) },
+                                    );
+                                }
+                            }
+                        }
+
+                        break :blk sampled_type.toIntern();
+                    },
+                    .storage => .none,
+                },
+                .flags = .{
+                    .tag = .image,
+                    .usage = usage_tag,
+                    .format = format,
+                    .dim = dim,
+                    .depth = depth,
+                    .access = access,
+                    .is_arrayed = arrayed,
+                    .is_multisampled = multisampled,
+                },
+            };
+        },
+        .sampled_image => blk: {
+            const image_ty = Value.fromInterned(union_val.val).toType();
+            if (image_ty.zigTypeTag(zcu) != .spirv or ip.loadSpirvType(image_ty.toIntern()).flags.tag != .image) {
+                return sema.fail(block, operand_src, "'sampled_image' element must be an @SpirvType image, found '{f}'", .{image_ty.fmt(pt)});
+            }
+            const image_info = ip.loadSpirvType(image_ty.toIntern()).flags;
+            if (image_info.usage != .sampled) {
+                return sema.fail(block, operand_src, "'sampled_image' element must be an image with 'usage = .sampled'", .{});
+            }
+            std.hash.autoHash(&hasher, union_val.val);
+            break :blk .{
+                .name = name,
+                .zir_index = tracked_inst,
+                .ty = union_val.val,
+                .flags = .{
+                    .tag = tag,
+                    .usage = .unknown,
+                    .format = .unknown,
+                    .dim = .@"1d",
+                    .depth = .unknown,
+                    .access = .unknown,
+                    .is_arrayed = false,
+                    .is_multisampled = false,
+                },
+            };
+        },
+        .runtime_array => blk: {
+            const elem_ty = Value.fromInterned(union_val.val).toType();
+            if (elem_ty.toIntern() == .void_type) {
+                return sema.fail(block, operand_src, "'runtime_array' element type must not be 'void'", .{});
+            }
+            if (target.os.tag == .vulkan and
+                elem_ty.zigTypeTag(zcu) == .spirv and
+                ip.loadSpirvType(elem_ty.toIntern()).flags.tag == .runtime_array)
+            {
+                return sema.fail(block, operand_src, "'runtime_array' of 'runtime_array' is not allowed under the 'vulkan' os", .{});
+            }
+            std.hash.autoHash(&hasher, union_val.val);
+            break :blk .{
+                .name = name,
+                .zir_index = tracked_inst,
+                .ty = union_val.val,
+                .flags = .{
+                    .tag = tag,
+                    .usage = .unknown,
+                    .format = .unknown,
+                    .dim = .@"1d",
+                    .depth = .unknown,
+                    .access = .unknown,
+                    .is_arrayed = false,
+                    .is_multisampled = false,
+                },
+            };
+        },
+    };
+
+    return .fromIntern(try ip.getReifiedSpirvType(gpa, io, pt.tid, .{
+        .zir_index = tracked_inst,
+        .type_hash = hasher.final(),
+        .type_spirv = ip_data,
+    }));
 }
 
 fn resolveVaListRef(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Inst.Ref) CompileError!Air.Inst.Ref {
@@ -24760,6 +25065,7 @@ fn zirStdLangValue(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         .fn_attributes,     => .@"Type.Fn.Attributes",
         .container_layout   => .@"Type.ContainerLayout",
         .enum_mode          => .@"Type.Enum.Mode",
+        .spirv_type_options => .@"Type.Spirv",
         // zig fmt: on
 
         // Values are handled here.
@@ -24957,6 +25263,7 @@ fn explainWhyTypeIsComptime(
         .void,
         .@"enum",
         .@"opaque",
+        .spirv,
         .pointer,
         => unreachable, // not comptime-only
 
@@ -25043,6 +25350,7 @@ pub fn explainWhyTypeIsNotExtern(
         .noreturn => try sema.errNote(src_loc, msg, "'noreturn' is only allowed as a return type", .{}),
 
         .@"opaque",
+        .spirv,
         .bool,
         .float,
         .@"anyframe",
@@ -25483,9 +25791,13 @@ fn fieldPtrLoad(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     const object_ptr_ty = sema.typeOf(object_ptr);
     assert(object_ptr_ty.zigTypeTag(zcu) == .pointer);
     const pointee_ty = object_ptr_ty.childType(zcu);
+    if (pointee_ty.isSpirvRuntimeArray(zcu) and field_name.eqlSlice("len", ip)) {
+        return sema.analyzeSpirvRuntimeArrayLen(block, src, object_ptr, field_name_src);
+    }
     try sema.ensureLayoutResolved(pointee_ty, src, .ptr_access);
     if (try pointee_ty.onePossibleValue(pt)) |opv| {
         const object: Air.Inst.Ref = .fromValue(opv);
@@ -25675,9 +25987,121 @@ fn fieldVal(
         } else {
             return sema.unionFieldVal(block, src, object, field_name, field_name_src, inner_ty);
         },
+        .spirv => if (inner_ty.isSpirvRuntimeArray(zcu) and field_name.eqlSlice("len", ip)) {
+            if (!is_pointer_to) {
+                return sema.fail(
+                    block,
+                    src,
+                    "accessing 'len' field on a SPIR-V runtime_array requires a pointer to the array field",
+                    .{},
+                );
+            }
+            return sema.analyzeSpirvRuntimeArrayLen(block, src, object, field_name_src);
+        },
         else => {},
     }
     return sema.failWithInvalidFieldAccess(block, src, object_ty, field_name);
+}
+
+fn analyzeSpirvRuntimeArrayLen(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    runtime_array_ptr: Air.Inst.Ref,
+    src_for_err: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+
+    const struct_operand: Air.Inst.Ref, const field_index: u32 = sf: {
+        if (runtime_array_ptr.toIndex()) |inst| {
+            const tag = sema.air_instructions.items(.tag)[@intFromEnum(inst)];
+            const data = sema.air_instructions.items(.data)[@intFromEnum(inst)];
+            switch (tag) {
+                .struct_field_ptr => {
+                    const extra = sema.getTmpAir().extraData(Air.StructField, data.ty_pl.payload).data;
+                    break :sf .{ extra.struct_operand, extra.field_index };
+                },
+                .struct_field_ptr_index_0 => break :sf .{ data.ty_op.operand, 0 },
+                .struct_field_ptr_index_1 => break :sf .{ data.ty_op.operand, 1 },
+                .struct_field_ptr_index_2 => break :sf .{ data.ty_op.operand, 2 },
+                .struct_field_ptr_index_3 => break :sf .{ data.ty_op.operand, 3 },
+                else => {},
+            }
+        }
+
+        const ptr_val = sema.resolveValue(runtime_array_ptr) orelse return sema.fail(
+            block,
+            src_for_err,
+            "'len' field on a SPIR-V runtime_array requires direct struct field access",
+            .{},
+        );
+        const ptr_key = ip.indexToKey(ptr_val.toIntern()).ptr;
+        if (ptr_key.base_addr == .field and ptr_key.byte_offset == 0) {
+            const field = ptr_key.base_addr.field;
+            break :sf .{ .fromIntern(field.base), @intCast(field.index) };
+        }
+
+        const parent_ty: Type = switch (ptr_key.base_addr) {
+            .nav => |nav| .fromInterned(ip.getNav(nav).resolved.?.type),
+            .uav => |uav| .fromInterned(ip.typeOf(uav.val)),
+            .comptime_alloc,
+            .comptime_field,
+            .eu_payload,
+            .opt_payload,
+            .arr_elem,
+            .field,
+            .int,
+            => return sema.fail(
+                block,
+                src_for_err,
+                "'len' field on a SPIR-V runtime_array requires direct struct field access",
+                .{},
+            ),
+        };
+        if (parent_ty.zigTypeTag(zcu) != .@"struct") return sema.fail(
+            block,
+            src_for_err,
+            "'len' field on a SPIR-V runtime_array requires the array to be a struct field",
+            .{},
+        );
+
+        const field_ptr_info = ip.indexToKey(ptr_key.ty).ptr_type;
+        const rtarr_ty_ip = field_ptr_info.child;
+        const struct_obj = ip.loadStructType(parent_ty.toIntern());
+        const field_idx: u32 = for (struct_obj.field_types.get(ip), 0..) |field_ty_ip, i| {
+            if (field_ty_ip == rtarr_ty_ip and
+                struct_obj.field_offsets.get(ip)[i] == ptr_key.byte_offset)
+            {
+                break @intCast(i);
+            }
+        } else unreachable;
+        const struct_ptr_ty = try pt.ptrType(.{
+            .child = parent_ty.toIntern(),
+            .flags = field_ptr_info.flags,
+        });
+        const struct_ptr_val = try sema.ptrSubtract(
+            block,
+            src_for_err,
+            ptr_val,
+            ptr_key.byte_offset,
+            struct_ptr_ty,
+        );
+        break :sf .{ .fromIntern(struct_ptr_val.toIntern()), field_idx };
+    };
+
+    try sema.requireRuntimeBlock(block, src, null);
+    return block.addInst(.{
+        .tag = .spirv_runtime_array_len,
+        .data = .{ .ty_pl = .{
+            .ty = .u32_type,
+            .payload = try sema.addExtra(Air.StructField{
+                .struct_operand = struct_operand,
+                .field_index = field_index,
+            }),
+        } },
+    });
 }
 
 fn fieldPtr(
@@ -26540,6 +26964,7 @@ fn elemPtr(
         .vector => try sema.elemPtrVector(block, indexable_ptr_src, indexable_ptr, elem_index_src, elem_index, init),
         .array => try sema.elemPtrArray(block, src, indexable_ptr_src, indexable_ptr, elem_index_src, elem_index, init, oob_safety),
         .@"struct" => try sema.tupleElemPtr(block, src, indexable_ptr, elem_index, elem_index_src),
+        .spirv => try sema.elemPtrSpirvRuntimeArray(block, indexable_ptr, elem_index),
         else => {
             const indexable = try sema.analyzeLoad(block, indexable_ptr_src, indexable_ptr, indexable_ptr_src);
             try sema.ensureLayoutResolved(sema.typeOf(indexable).childType(zcu), src, .ptr_access);
@@ -26962,6 +27387,22 @@ fn elemPtrVector(
     }
 
     return block.addPtrElemPtr(vector_ptr, elem_index, elem_ptr_ty);
+}
+
+fn elemPtrSpirvRuntimeArray(
+    sema: *Sema,
+    block: *Block,
+    array_ptr: Air.Inst.Ref,
+    elem_index: Air.Inst.Ref,
+) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const array_ptr_ty = sema.typeOf(array_ptr);
+    assert(array_ptr_ty.ptrSize(zcu) == .one);
+    const array_ty = array_ptr_ty.childType(zcu);
+    assert(array_ty.isSpirvRuntimeArray(zcu));
+    const elem_ptr_ty = try array_ptr_ty.elemPtrType(null, pt);
+    return block.addPtrElemPtr(array_ptr, elem_index, elem_ptr_ty);
 }
 
 /// Asserts that the layout of the array is already resolved.
@@ -31496,7 +31937,7 @@ const PeerResolveStrategy = enum {
 
     fn select(ty: Type, zcu: *Zcu) PeerResolveStrategy {
         return switch (ty.zigTypeTag(zcu)) {
-            .type, .void, .bool, .@"opaque", .frame, .@"anyframe" => .exact,
+            .type, .void, .bool, .@"opaque", .spirv, .frame, .@"anyframe" => .exact,
             .noreturn, .undefined => .unknown,
             .null => .nullable,
             .comptime_int => .comptime_int,

@@ -2341,7 +2341,8 @@ pub fn supportsAddressSpace(
         .lut => arch == .propeller and std.Target.propeller.featureSetHas(target.cpu.features, .p2),
 
         .global, .local, .shared => is_gpu,
-        .constant => is_gpu and (context == null or context == .constant),
+        .constant => (is_gpu and (context == null or context == .constant)) or
+            (is_spirv and (context == null or context == .constant or context == .pointer)),
         .param => is_nvptx,
         .input, .output, .uniform, .push_constant, .storage_buffer, .physical_storage_buffer => is_spirv,
     };

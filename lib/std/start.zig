@@ -19,7 +19,9 @@ comptime {
     // decls there get run.
     _ = root;
 
-    if (builtin.output_mode == .Lib and builtin.link_mode == .dynamic) {
+    if (builtin.zig_backend == .stage2_spirv) {
+        // Do nothing
+    } else if (builtin.output_mode == .Lib and builtin.link_mode == .dynamic) {
         const dll_main_crt_startup = if (builtin.abi.isGnu()) "DllMainCRTStartup" else "_DllMainCRTStartup";
         if (native_os == .windows and !builtin.link_libc and !@hasDecl(root, dll_main_crt_startup)) {
             @export(&DllMainCRTStartup, .{ .name = dll_main_crt_startup });

@@ -2046,7 +2046,10 @@ pub fn pointerDerivation(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread, op
 
     const ptr_ty_info = Type.fromInterned(ptr.ty).ptrInfo(zcu);
     const need_child: Type = .fromInterned(ptr_ty_info.child);
-    if (need_child.comptimeOnly(zcu) or need_child.zigTypeTag(zcu) == .@"opaque") {
+    if (need_child.comptimeOnly(zcu) or
+        need_child.zigTypeTag(zcu) == .@"opaque" or
+        need_child.isSpirvRuntimeArray(zcu))
+    {
         // No refinement can happen - this pointer is presumably invalid.
         // Just offset it.
         const parent = try arena.create(PointerDeriveStep);
@@ -2078,6 +2081,7 @@ pub fn pointerDerivation(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread, op
             .undefined,
             .enum_literal,
             .@"opaque",
+            .spirv,
             .@"fn",
             .error_union,
             .int,
@@ -2229,6 +2233,7 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
         .null,
         .@"fn",
         .@"opaque",
+        .spirv,
         .enum_literal,
         => comptime unreachable, // comptime-only or otherwise impossible
 
@@ -2332,6 +2337,7 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
         .null,
         .@"fn",
         .@"opaque",
+        .spirv,
         .enum_literal,
         => comptime unreachable, // comptime-only or otherwise impossible
 

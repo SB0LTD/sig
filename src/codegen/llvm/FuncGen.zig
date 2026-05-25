@@ -434,6 +434,7 @@ pub fn genBody(self: *FuncGen, body: []const Air.Inst.Index, coverage_point: Air
             .work_item_id => try self.airWorkItemId(inst),
             .work_group_size => try self.airWorkGroupSize(inst),
             .work_group_id => try self.airWorkGroupId(inst),
+            .spirv_runtime_array_len => unreachable,
 
             // Instructions that are known to always be `noreturn` based on their tag.
             .br              => return self.airBr(inst),
@@ -7255,6 +7256,7 @@ pub fn isByRef(ty: Type, zcu: *const Zcu) bool {
         .undefined,
         .null,
         .@"opaque",
+        .spirv,
         => unreachable,
 
         .noreturn,

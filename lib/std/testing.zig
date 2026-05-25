@@ -79,6 +79,7 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
     switch (@typeInfo(@TypeOf(actual))) {
         .noreturn,
         .@"opaque",
+        .spirv,
         .frame,
         .@"anyframe",
         => @compileError("value of type " ++ @typeName(@TypeOf(actual)) ++ " encountered"),
@@ -737,6 +738,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
     switch (@typeInfo(@TypeOf(actual))) {
         .noreturn,
         .@"opaque",
+        .spirv,
         .frame,
         .@"anyframe",
         => @compileError("value of type " ++ @typeName(@TypeOf(actual)) ++ " encountered"),

@@ -3047,6 +3047,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
         .func_type,
         .error_set_type,
         .inferred_error_set_type,
+        .spirv_type,
         => .alias,
 
         .struct_type => tag: {
@@ -3533,6 +3534,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
     switch (value_ip_key) {
         .func => unreachable, // handled above
         .@"extern" => unreachable, // handled above
+        .spirv_type => unreachable,
 
         .int_type => |int_type| {
             try wip_nav.abbrevCode(.numeric_type);

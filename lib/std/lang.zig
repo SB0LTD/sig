@@ -578,6 +578,7 @@ pub const Type = union(enum) {
     @"anyframe": AnyFrame,
     vector: Vector,
     enum_literal,
+    spirv: Spirv,
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
@@ -778,6 +779,59 @@ pub const Type = union(enum) {
         pub const Attributes = struct {
             @"callconv": CallingConvention = .auto,
             varargs: bool = false,
+        };
+    };
+
+    /// This data structure is used by the Zig language code generation and
+    /// therefore must be kept in sync with the compiler implementation.
+    pub const Spirv = union(enum(u2)) {
+        sampler,
+        image: Image,
+        sampled_image: type,
+        runtime_array: type,
+
+        pub const Image = struct {
+            usage: Usage,
+            format: Format,
+            dim: Dimensionality,
+            depth: Depth,
+            access: Access,
+            arrayed: bool,
+            multisampled: bool,
+
+            pub const Usage = union(enum(u2)) {
+                unknown: type,
+                sampled: type,
+                storage,
+            };
+
+            pub const Format = enum(u4) {
+                unknown,
+                rgba32f,
+                rgba32i,
+                rgba32u,
+                rgba16f,
+                rgba16i,
+                rgba16u,
+                rgba8unorm,
+                rgba8snorm,
+                rgba8i,
+                rgba8u,
+                r32f,
+                r32i,
+                r32u,
+            };
+
+            pub const Dimensionality = enum(u2) {
+                @"1d",
+                @"2d",
+                @"3d",
+                cube,
+            };
+
+            pub const Depth = enum(u2) { unknown, depth, not_depth };
+
+            pub const Access = enum(u2) { unknown, read_only, write_only, read_write };
         };
     };
 

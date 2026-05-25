@@ -2055,6 +2055,9 @@ pub const Inst = struct {
         /// `operand` is payload index to `ReifyEnum`.
         /// `small` contains `NameStrategy`.
         reify_enum,
+        /// Implements builtin `@SpirvType`.
+        /// `operand` is payload index to `ReifyFn`.
+        reify_spirv_type,
         /// Implements the `@cmpxchgStrong` and `@cmpxchgWeak` builtins.
         /// `small` 0=>weak 1=>strong
         /// `operand` is payload index to `Cmpxchg`.
@@ -3269,6 +3272,14 @@ pub const Inst = struct {
         field_values: Ref,
     };
 
+    pub const ReifySpirvType = struct {
+        src_line: u32,
+        /// This node is absolute, because `reify` instructions are tracked across updates, and
+        /// this simplifies the logic for getting source locations for types.
+        node: Ast.Node.Index,
+        operand: Ref,
+    };
+
     /// Trailing:
     /// 0. multi_cases_len: u32, // If has_multi_cases is set.
     /// 1. payload_capture_placeholder: Inst.Index, // If payload_capture_inst_is_placeholder is set.
@@ -3584,6 +3595,7 @@ pub const Inst = struct {
         fn_attributes,
         container_layout,
         enum_mode,
+        spirv_type_options,
         // Values
         calling_convention_c,
         calling_convention_inline,
@@ -4389,6 +4401,7 @@ fn findTrackableInner(
                 .reify_enum,
                 .reify_struct,
                 .reify_union,
+                .reify_spirv_type,
                 => return contents.other.append(gpa, inst),
 
                 // Type declarations need tracking.
@@ -5181,6 +5194,7 @@ pub fn assertTrackable(zir: Zir, inst_idx: Zir.Inst.Index) void {
             .reify_enum,
             .reify_struct,
             .reify_union,
+            .reify_spirv_type,
             => {}, // tracked in order, as the owner instructions of explicit container types
             else => unreachable, // assertion failure; not trackable
         },

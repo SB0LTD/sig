@@ -685,6 +685,16 @@ const Writer = struct {
                 defer self.parent_decl_node = prev_parent_decl_node;
                 try self.writeSrcNode(stream, .zero);
             },
+            .reify_spirv_type => {
+                const extra = self.code.extraData(Zir.Inst.ReifySpirvType, extended.operand).data;
+                try stream.print("line({d}), ", .{extra.src_line});
+                try self.writeInstRef(stream, extra.operand);
+                try stream.writeAll(")) ");
+                const prev_parent_decl_node = self.parent_decl_node;
+                self.parent_decl_node = extra.node;
+                defer self.parent_decl_node = prev_parent_decl_node;
+                try self.writeSrcNode(stream, .zero);
+            },
 
             .cmpxchg => try self.writeCmpxchg(stream, extended),
             .ptr_cast_full => try self.writePtrCastFull(stream, extended),

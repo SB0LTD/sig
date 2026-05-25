@@ -9327,6 +9327,16 @@ fn builtinCall(
             });
             return rvalue(gz, ri, result, node);
         },
+        .SpirvType => {
+            const spirv_type_options_ty = try gz.addStdLangValue(node, .spirv_type_options);
+            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = spirv_type_options_ty } }, params[0], .type);
+            const result = try gz.addExtendedPayload(.reify_spirv_type, Zir.Inst.ReifySpirvType{
+                .src_line = gz.astgen.source_line,
+                .node = node,
+                .operand = operand,
+            });
+            return rvalue(gz, ri, result, node);
+        },
 
         .panic => {
             try emitDbgNode(gz, node);

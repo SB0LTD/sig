@@ -468,6 +468,7 @@ pub const StdLangDecl = enum {
     @"Type.Struct.FieldAttributes",
     @"Type.ContainerLayout",
     @"Type.Opaque",
+    @"Type.Spirv",
 
     panic,
     @"panic.call",
@@ -548,6 +549,7 @@ pub const StdLangDecl = enum {
             .@"Type.Struct.FieldAttributes",
             .@"Type.ContainerLayout",
             .@"Type.Opaque",
+            .@"Type.Spirv",
             => .type,
 
             .panic => .type,
@@ -601,7 +603,7 @@ pub const StdLangDecl = enum {
             .VaList => .va_list,
             .assembly, .@"assembly.Clobbers" => .assembly,
             else => {
-                if (@intFromEnum(decl) <= @intFromEnum(StdLangDecl.@"Type.Opaque")) {
+                if (@intFromEnum(decl) <= @intFromEnum(StdLangDecl.@"Type.Spirv")) {
                     return .main;
                 } else {
                     return .panic;
@@ -2740,6 +2742,7 @@ pub const LazySrcLoc = struct {
                 .reify_enum => zir.extraData(Zir.Inst.ReifyEnum, inst.data.extended.operand).data.node,
                 .reify_struct => zir.extraData(Zir.Inst.ReifyStruct, inst.data.extended.operand).data.node,
                 .reify_union => zir.extraData(Zir.Inst.ReifyUnion, inst.data.extended.operand).data.node,
+                .reify_spirv_type => zir.extraData(Zir.Inst.ReifySpirvType, inst.data.extended.operand).data.node,
                 else => unreachable,
             },
             else => unreachable,

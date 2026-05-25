@@ -170,6 +170,7 @@ pub fn classify(start_ty: Type, zcu: *const Zcu) Class {
 
         .func_type => .fully_comptime,
 
+        .spirv_type => if (cur_ty.isSpirvRuntimeArray(zcu)) .runtime else .no_possible_value,
         .opaque_type => .no_possible_value,
 
         .error_union_type => |eu| {
@@ -323,6 +324,7 @@ pub fn isSelfComparable(ty: Type, zcu: *const Zcu, is_equality_cmp: bool) bool {
         .error_set,
         .@"fn",
         .@"opaque",
+        .spirv,
         .@"anyframe",
         .@"enum",
         .enum_literal,
@@ -617,6 +619,10 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread, ctx: ?*Compari
             const name = ip.loadEnumType(ty.toIntern()).name;
             try writer.print("{f}", .{name.fmt(ip)});
         },
+        .spirv_type => {
+            const name = ip.loadSpirvType(ty.toIntern()).name;
+            try writer.print("{f}", .{name.fmt(ip)});
+        },
         .func_type => |fn_info| {
             if (fn_info.is_noinline) {
                 try writer.writeAll("noinline ");
@@ -704,6 +710,14 @@ pub fn toIntern(ty: Type) InternPool.Index {
     return ty.ip_index;
 }
 
+pub fn isSpirvRuntimeArray(ty: Type, zcu: *const Zcu) bool {
+    const ip = &zcu.intern_pool;
+    return switch (ip.indexToKey(ty.toIntern())) {
+        .spirv_type => ip.loadSpirvType(ty.toIntern()).flags.tag == .runtime_array,
+        else => false,
+    };
+}
+
 pub fn toValue(self: Type) Value {
     return .fromInterned(self.toIntern());
 }
@@ -751,6 +765,7 @@ pub fn hasWellDefinedLayout(ty: Type, zcu: *const Zcu) bool {
         .error_set_type,
         .inferred_error_set_type,
         .tuple_type,
+        .spirv_type,
         .opaque_type,
         .anyframe_type,
         // These are function bodies, not function pointers.
@@ -1038,6 +1053,7 @@ pub fn abiAlignment(ty: Type, zcu: *const Zcu) Alignment {
             }
         },
         .enum_type => Type.fromInterned(ip.loadEnumType(ty.toIntern()).int_tag_type).abiAlignment(zcu),
+        .spirv_type => if (ty.isSpirvRuntimeArray(zcu)) ty.childType(zcu).abiAlignment(zcu) else .@"1",
         .opaque_type => .@"1",
 
         // values, not types
@@ -1183,6 +1199,7 @@ pub fn abiSize(ty: Type, zcu: *const Zcu) u64 {
             }
         },
         .enum_type => Type.fromInterned(ip.loadEnumType(ty.toIntern()).int_tag_type).abiSize(zcu),
+        .spirv_type => unreachable,
         .opaque_type => unreachable,
 
         // values, not types
@@ -1309,7 +1326,7 @@ pub fn bitSize(ty: Type, zcu: *const Zcu) u64 {
         .tuple_type,
         => ty.abiSize(zcu) * 8,
 
-        .opaque_type => unreachable,
+        .opaque_type, .spirv_type => unreachable,
 
         // values, not types
         .undef,
@@ -1511,14 +1528,17 @@ pub fn nullablePtrElem(ty: Type, zcu: *const Zcu) Type {
 /// * `[]T`
 /// * `[*]T`
 /// * `[*c]T`
+/// * `@SpirvType(.{ .runtime_array = T })`
 pub fn indexableElem(ty: Type, zcu: *const Zcu) Type {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
         inline .array_type, .vector_type => |arr| .fromInterned(arr.child),
+        .spirv_type => ty.childType(zcu),
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
             .many, .slice, .c => .fromInterned(ptr_type.child),
             .one => switch (ip.indexToKey(ptr_type.child)) {
                 inline .array_type, .vector_type => |arr| .fromInterned(arr.child),
+                .spirv_type => Type.fromInterned(ptr_type.child).childType(zcu),
                 else => unreachable,
             },
         },
@@ -1864,6 +1884,7 @@ pub fn intInfo(starting_ty: Type, zcu: *const Zcu) InternPool.Key.IntType {
             .func_type => unreachable,
             .simple_type => unreachable, // handled via Index enum tag above
 
+            .spirv_type => unreachable,
             .opaque_type => unreachable,
 
             // values, not types
@@ -2032,6 +2053,7 @@ pub fn onePossibleValue(ty: Type, pt: Zcu.PerThread) !?Value {
         .error_set_type,
         .inferred_error_set_type,
         .opaque_type,
+        .spirv_type,
         => null,
 
         .simple_type => |t| switch (t) {
@@ -2219,10 +2241,12 @@ pub fn isIndexable(ty: Type, zcu: *const Zcu) bool {
             .one => switch (ty.childType(zcu).zigTypeTag(zcu)) {
                 .array, .vector => true,
                 .@"struct" => ty.childType(zcu).isTuple(zcu),
+                .spirv => ty.childType(zcu).isSpirvRuntimeArray(zcu),
                 else => false,
             },
         },
         .@"struct" => ty.isTuple(zcu),
+        .spirv => ty.isSpirvRuntimeArray(zcu),
         else => false,
     };
 }
@@ -2844,6 +2868,7 @@ pub fn elemPtrType(ptr_ty: Type, index: ?u64, pt: Zcu.PerThread) Allocator.Error
         .slice, .many, .c => .fromInterned(ptr_info.child),
         .one => switch (ip.indexToKey(ptr_info.child)) {
             .array_type => |array_type| .fromInterned(array_type.child),
+            .spirv_type => Type.fromInterned(ptr_info.child).childType(zcu),
             else => unreachable,
         },
     };
@@ -3095,6 +3120,7 @@ pub fn unpackable(ty: Type, zcu: *const Zcu) ?UnpackableReason {
 
         .noreturn,
         .@"opaque",
+        .spirv,
         .error_union,
         .error_set,
         .frame,
@@ -3170,6 +3196,7 @@ pub fn validateExtern(ty: Type, position: ExternPosition, zcu: *const Zcu) bool 
         .noreturn => position == .ret_ty,
 
         .@"opaque",
+        .spirv,
         .bool,
         .float,
         .@"anyframe",
@@ -3261,6 +3288,7 @@ pub fn assertHasLayout(ty: Type, zcu: *const Zcu) void {
         .simple_type,
         .opaque_type,
         .error_set_type,
+        .spirv_type,
         .inferred_error_set_type,
         => {},
         .func_type => |func_type| {
@@ -3362,6 +3390,7 @@ fn collectSubtypes(ty: Type, pt: Zcu.PerThread, visited: *std.AutoArrayHashMapUn
         .union_type,
         .opaque_type,
         .enum_type,
+        .spirv_type,
         .simple_type,
         .int_type,
         => {},
