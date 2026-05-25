@@ -1782,6 +1782,20 @@ fn runCommand(
     } else {
         try environ_map.putAll(&graph.environ_map);
     }
+
+    // Now that we have the environ map, we might need to mutate it to insert
+    // .dll search paths because Windows doesn't have rpaths.
+    const arg0 = conf_run.args.slice[0].get(conf);
+    if (arg0.producer.value) |producer_index| {
+        const producer_step = producer_index.ptr(conf);
+        const producer = producer_step.extended.get(conf.extra).compile;
+        const root_module = producer.root_module.get(conf);
+        const root_module_target = root_module.resolved_target.get(conf).?.result.get(conf);
+        if (root_module_target.flags.os_tag == .windows) {
+            try addPathForDynLibs(maker, producer_index, environ_map, argv[0]);
+        }
+    }
+
     try graph.handleVerbose(cwd, environ_map, argv);
 
     const opt_generic_result = spawnChildAndCollect(
@@ -1802,7 +1816,6 @@ fn runCommand(
                 // relying on it being a Compile step. This will make this logic
                 // work even for the edge case that the binary was produced by a
                 // third party.
-                const arg0 = conf_run.args.slice[0].get(conf);
                 const producer_index = arg0.producer.value orelse break :interpret;
                 const producer_step = producer_index.ptr(conf);
                 const producer = producer_step.extended.get(conf.extra).compile;
@@ -1924,11 +1937,6 @@ fn runCommand(
                             host_name, foreign_name,
                         });
                     },
-                }
-
-                if (root_target.os.tag == .windows) {
-                    // On Windows we don't have rpaths so we have to add .dll search paths to PATH
-                    try addPathForDynLibs(maker, producer_index, environ_map, argv[0]);
                 }
 
                 gpa.free(step.result_failed_command.?);
