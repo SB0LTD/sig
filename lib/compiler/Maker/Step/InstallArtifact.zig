@@ -19,6 +19,7 @@ pub fn make(
     const step = maker.stepByIndex(step_index);
     const conf = &maker.scanned_config.configuration;
     const graph = maker.graph;
+    const gpa = maker.gpa;
     const arena = graph.arena; // TODO don't leak into process arena
     const io = graph.io;
     const conf_step = step_index.ptr(conf);
@@ -100,7 +101,8 @@ pub fn make(
                 };
                 defer src_dir.close(io);
 
-                var it = try src_dir.walk(arena);
+                var it = try src_dir.walk(gpa);
+                defer it.deinit();
                 next_entry: while (it.next(io) catch |err| switch (err) {
                     error.Canceled, error.OutOfMemory => |e| return e,
                     else => |e| return step.fail(maker, "failed to iterate directory {f}: {t}", .{ src_dir_path, e }),
