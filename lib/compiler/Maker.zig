@@ -184,7 +184,6 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.eql(u8, arg, "--sysroot")) {
                 graph.sysroot = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--maxrss")) {
-                // TODO refactor and reuse the fuzz number parsing here
                 const max_rss_text = nextArgOrFatal(args, &arg_idx);
                 max_rss = std.fmt.parseIntSizeSuffix(max_rss_text, 10) catch |err|
                     fatal("invalid byte size {q}: {t}", .{ max_rss_text, err });
@@ -269,7 +268,6 @@ pub fn main(init: process.Init.Minimal) !void {
                 graph.build_id = std.zig.BuildId.parse(style) catch |err|
                     fatal("unable to parse --build-id style {q}: {t}", .{ style, err });
             } else if (mem.eql(u8, arg, "--debounce")) {
-                // TODO refactor and reuse the timeout parsing code also here
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected u16 after {q}", .{arg});
                 debounce_interval_ms = std.fmt.parseUnsigned(u16, next_arg, 0) catch |err| {
@@ -1887,7 +1885,7 @@ pub fn truncatePath(
 ) Step.ExtendedMakeError!void {
     const graph = maker.graph;
     const io = graph.io;
-    if (graph.verbose) try graph.handleVerbose(.inherit, null, &.{
+    if (graph.verbose) try graph.handleVerbose(null, null, &.{
         "truncate", try dest_path.toString(arena),
     });
     const err = e: {
@@ -1924,7 +1922,7 @@ pub fn installPath(
 ) Step.ExtendedMakeError!Dir.PrevStatus {
     const graph = maker.graph;
     const io = graph.io;
-    if (graph.verbose) try graph.handleVerbose(.inherit, null, &.{
+    if (graph.verbose) try graph.handleVerbose(null, null, &.{
         "install", "-C", try src_path.toString(arena), try dest_path.toString(arena),
     });
     return Dir.updateFile(
@@ -1949,7 +1947,7 @@ pub fn installDir(
 ) Step.ExtendedMakeError!Dir.CreatePathStatus {
     const graph = maker.graph;
     const io = graph.io;
-    if (graph.verbose) try graph.handleVerbose(.inherit, null, &.{
+    if (graph.verbose) try graph.handleVerbose(null, null, &.{
         "install", "-d", try dest_path.toString(arena),
     });
     return dest_path.root_dir.handle.createDirPathStatus(io, dest_path.sub_path, .default_dir) catch |err| {

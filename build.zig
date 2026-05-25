@@ -1525,8 +1525,6 @@ fn generateLangRef(b: *std.Build) !std.Build.LazyPath {
         cmd.addArg("--zig");
         cmd.addFileArg(.zig_exe);
 
-        // TODO: enhance doctest to use "--listen=-" rather than operating in a
-        // temporary directory
         cmd.addArg("--cache-root");
         cmd.addDirectoryArg(.cache_root);
 

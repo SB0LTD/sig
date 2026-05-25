@@ -69,7 +69,7 @@ enable_rosetta: bool = false,
 /// before spawning them.
 pub fn handleVerbose(
     graph: *const Graph,
-    cwd: std.process.Child.Cwd,
+    cwd: ?[]const u8,
     opt_env: ?*const std.process.Environ.Map,
     argv: []const []const u8,
 ) error{OutOfMemory}!void {

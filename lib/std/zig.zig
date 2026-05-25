@@ -1168,7 +1168,7 @@ pub const ClangCliParam = struct {
 };
 
 pub const AllocPrintCmdOptions = struct {
-    cwd: std.process.Child.Cwd = .inherit,
+    cwd: ?[]const u8 = null,
     parent_env: ?*const std.process.Environ.Map = null,
     child_env: ?*const std.process.Environ.Map = null,
 };
@@ -1212,10 +1212,8 @@ pub fn allocPrintCmd(gpa: Allocator, argv: []const []const u8, options: AllocPri
     var aw: Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     const writer = &aw.writer;
-    switch (options.cwd) {
-        .inherit => {},
-        .path => |path| writer.print("cd {s} && ", .{path}) catch return error.OutOfMemory,
-        .dir => @panic("TODO"),
+    if (options.cwd) |path| {
+        writer.print("cd {s} && ", .{path}) catch return error.OutOfMemory;
     }
     if (options.child_env) |child_env| {
         for (child_env.keys(), child_env.values()) |key, value| {

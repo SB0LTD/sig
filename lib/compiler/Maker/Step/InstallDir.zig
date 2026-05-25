@@ -81,7 +81,6 @@ pub fn make(
             .file => {
                 for (blank_extensions) |ext| {
                     if (endsWith(u8, entry.path, ext.slice(conf))) {
-                        // TODO check if the file was already there and length 0
                         try maker.truncatePath(arena, dest_path, step_index);
                         continue :next_entry;
                     }

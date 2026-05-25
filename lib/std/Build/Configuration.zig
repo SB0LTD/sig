@@ -3099,7 +3099,7 @@ pub const Storage = enum {
                                 .value = if (match) dataField(buffer, i, container, Field.Value) else null,
                             };
                         },
-                        .extended => @compileError("TODO"),
+                        .extended => @compileError("unimplemented"),
                         .length_prefixed_list => {
                             const n = @divExact(@sizeOf(Field.Elem), @sizeOf(u32));
                             const data_start = i.* + 1;
@@ -3260,7 +3260,7 @@ pub const Storage = enum {
                         .flag_union => return switch (value.u) {
                             inline else => |x| setExtraField(buffer, i, @TypeOf(x), x),
                         },
-                        .extended => @compileError("TODO"),
+                        .extended => @compileError("unimplemented"),
                         .flag_length_prefixed_list => {
                             const len: u32 = @intCast(value.slice.len);
                             if (len == 0) return 0; // Flag bit hides the length prefix.

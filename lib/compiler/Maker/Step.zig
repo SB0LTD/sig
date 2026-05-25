@@ -341,7 +341,7 @@ pub fn captureChildProcess(s: *Step, maker: *Maker, options: CaptureChildProcess
     s.result_failed_command = try std.zig.allocPrintCmd(gpa, options.argv, .{});
 
     try handleChildProcUnsupported(s, maker);
-    try graph.handleVerbose(.inherit, null, options.argv);
+    try graph.handleVerbose(null, null, options.argv);
 
     const result = std.process.run(arena, io, .{
         .argv = options.argv,
@@ -459,7 +459,7 @@ pub fn evalZigProcess(
     assert(argv.len != 0);
 
     try handleChildProcUnsupported(s, maker);
-    try graph.handleVerbose(.inherit, null, argv);
+    try graph.handleVerbose(null, null, argv);
 
     const zp = try gpa.create(ZigProcess);
     defer if (!watch) gpa.destroy(zp);

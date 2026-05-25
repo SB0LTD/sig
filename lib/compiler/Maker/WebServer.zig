@@ -225,7 +225,6 @@ pub fn updateStepStatus(
 ) void {
     const maker = ws.maker;
     const all_steps = maker.step_stack.keys();
-    // TODO don't do linear search, especially in a hot loop like this
     const step_idx: u32 = for (all_steps, 0..) |s, i| {
         if (s == step_index) break @intCast(i);
     } else unreachable;
@@ -569,16 +568,6 @@ pub fn serveTarFile(ws: *WebServer, request: *http.Server.Request, paths: []cons
         var read_buffer: [1024]u8 = undefined;
         var file_reader: Io.File.Reader = .initSize(file, io, &read_buffer, stat.size);
 
-        // TODO: this logic is completely bogus -- obviously so, because `path.root_dir.path` can
-        // be cwd-relative. This is also related to why linkification doesn't work in the fuzzer UI:
-        // it turns out the WASM treats the first path component as the module name, typically
-        // resulting in modules named "" and "src". The compiler needs to tell the build system
-        // about the module graph so that the build system can correctly encode this information in
-        // the tar file.
-        //
-        // Additionally, this needs to ensure that all path separators for both prefix and
-        // sub_path are using the POSIX-style `/` on platforms that don't use it as their native
-        // path separator.
         archiver.prefix = path.root_dir.path orelse graph.cache.cwd;
         try archiver.writeFile(path.sub_path, &file_reader, @intCast(stat.mtime.toSeconds()));
     }
@@ -799,7 +788,6 @@ pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {
     const io = maker.graph.io;
     const all_steps = maker.step_stack.keys();
 
-    // TODO don't do linear search
     const step_idx: u32 = for (all_steps, 0..) |s, i| {
         if (s == opts.compile_step) break @intCast(i);
     } else unreachable;
@@ -843,7 +831,6 @@ pub fn updateTimeReportGeneric(ws: *WebServer, step_index: Configuration.Step.In
     const io = maker.graph.io;
     const all_steps = maker.step_stack.keys();
 
-    // TODO don't do linear search
     const step_idx: u32 = for (all_steps, 0..) |s, i| {
         if (s == step_index) break @intCast(i);
     } else unreachable;
@@ -882,7 +869,6 @@ pub fn updateTimeReportRunTest(
     const io = maker.graph.io;
     const all_steps = maker.step_stack.keys();
 
-    // TODO don't do linear search
     const step_idx: u32 = for (all_steps, 0..) |s, i| {
         if (s == run_step_index) break @intCast(i);
     } else unreachable;

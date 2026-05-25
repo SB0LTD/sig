@@ -1890,7 +1890,11 @@ pub fn runFallible(b: *Build, argv: []const []const u8, options: RunOptions) Run
     const arena = graph.arena;
 
     const print_opts: std.zig.AllocPrintCmdOptions = .{
-        .cwd = options.cwd,
+        .cwd = switch (options.cwd) {
+            .inherit => null,
+            .path => |p| p,
+            .dir => null, // Unknown without changing function signature of runFallible.
+        },
         .child_env = options.environ_map,
         .parent_env = &graph.environ_map,
     };

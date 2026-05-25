@@ -1796,7 +1796,12 @@ fn runCommand(
         }
     }
 
-    try graph.handleVerbose(cwd, environ_map, argv);
+    const cwd_string = switch (cwd) {
+        .path => |p| p,
+        .dir => unreachable,
+        .inherit => null,
+    };
+    try graph.handleVerbose(cwd_string, environ_map, argv);
 
     const opt_generic_result = spawnChildAndCollect(
         run_index,
@@ -1812,10 +1817,6 @@ fn runCommand(
             error.InvalidExe, // cpu arch mismatch
             error.FileNotFound, // can happen with a wrong dynamic linker path
             => interpret: {
-                // TODO: learn the target from the binary directly rather than from
-                // relying on it being a Compile step. This will make this logic
-                // work even for the edge case that the binary was produced by a
-                // third party.
                 const producer_index = arg0.producer.value orelse break :interpret;
                 const producer_step = producer_index.ptr(conf);
                 const producer = producer_step.extended.get(conf.extra).compile;
@@ -1829,7 +1830,6 @@ fn runCommand(
                 const root_target = std.zig.system.resolveTargetQuery(io, other_target_query) catch unreachable;
                 const link_libc = maker.stepByIndex(producer_index).extended.compile.is_linking_libc;
 
-                // TODO get this from the parent process instead
                 const host: std.Target = std.zig.system.resolveTargetQuery(io, .{}) catch |he| switch (he) {
                     error.Canceled => |e| return e,
                     else => builtin.target,
@@ -1941,7 +1941,7 @@ fn runCommand(
 
                 gpa.free(step.result_failed_command.?);
                 step.result_failed_command = null;
-                try graph.handleVerbose(cwd, environ_map, interp_argv.items);
+                try graph.handleVerbose(cwd_string, environ_map, interp_argv.items);
 
                 break :term spawnChildAndCollect(
                     run_index,
@@ -2148,7 +2148,11 @@ fn spawnChildAndCollect(
     // If an error occurs, it's caused by this command:
     assert(step.result_failed_command == null);
     step.result_failed_command = try std.zig.allocPrintCmd(gpa, argv, .{
-        .cwd = child_cwd,
+        .cwd = switch (child_cwd) {
+            .path => |p| p,
+            .dir => unreachable,
+            .inherit => null,
+        },
         .child_env = environ_map,
         .parent_env = &graph.environ_map,
     });
