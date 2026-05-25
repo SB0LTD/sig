@@ -1550,6 +1550,11 @@ pub const Object = struct {
         try o.flushTypePool(pt);
     }
 
+    fn workaroundPrivateSymbolBugs(target: *const std.Target, resolved: *const InternPool.Nav.Resolved) bool {
+        // https://codeberg.org/ziglang/zig/issues/31865
+        return target.cpu.arch.isAARCH64() and target.ofmt == .coff and resolved.@"threadlocal";
+    }
+
     pub fn updateNav(o: *Object, pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) !void {
         const zcu = o.zcu;
         const ip = &zcu.intern_pool;
@@ -1622,14 +1627,14 @@ pub const Object = struct {
                 false => .default,
             };
             llvm_global.ptr(&o.builder).linkage = switch (@"extern".linkage) {
-                .internal => if (o.builder.strip) .private else .internal,
+                .internal => if (o.builder.strip and !workaroundPrivateSymbolBugs(zcu.getTarget(), &resolved)) .private else .internal,
                 .strong => .external,
                 .weak => .extern_weak,
                 .link_once => unreachable,
             };
             llvm_global.ptr(&o.builder).visibility = .fromSymbolVisibility(@"extern".visibility);
         } else {
-            llvm_global.ptr(&o.builder).linkage = if (o.builder.strip) .private else .internal;
+            llvm_global.ptr(&o.builder).linkage = if (o.builder.strip and !workaroundPrivateSymbolBugs(zcu.getTarget(), &resolved)) .private else .internal;
             llvm_global.ptr(&o.builder).visibility = .default;
             llvm_global.ptr(&o.builder).dll_storage_class = .default;
             llvm_global.ptr(&o.builder).unnamed_addr = .unnamed_addr;
