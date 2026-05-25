@@ -24,18 +24,54 @@ jobs:
 
       - name: Fetch upstream
         run: |
+          # [sig] Codeberg frequently returns HTTP 504 from GitHub Actions runners
+          # (large repo + cloud IP rate limiting). Use aggressive retry with shallow
+          # fetch to reduce payload, then deepen only if needed.
           git remote add upstream https://codeberg.org/ziglang/zig.git 2>/dev/null || true
-          git fetch upstream master
+
+          # Configure git for better network resilience
+          git config --global http.postBuffer 524288000
+          git config --global http.lowSpeedLimit 1000
+          git config --global http.lowSpeedTime 60
+
+          fetch_upstream() {
+            local max_attempts=5
+            local delay=15
+
+            for attempt in $(seq 1 $max_attempts); do
+              echo "Fetching upstream (attempt $attempt/$max_attempts)..."
+              if git fetch upstream master --depth=1 2>&1; then
+                # Deepen enough to find merge-base with our HEAD
+                echo "Shallow fetch OK, deepening for merge-base..."
+                git fetch upstream master --deepen=500 2>/dev/null || true
+                return 0
+              fi
+              echo "::warning::Fetch attempt $attempt failed"
+              [ $attempt -lt $max_attempts ] && sleep $delay && delay=$((delay * 2))
+            done
+            return 1
+          }
+
+          if ! fetch_upstream; then
+            echo "::error::Failed to fetch from codeberg after 5 attempts"
+            exit 1
+          fi
 
       - name: Enumerate new commits
         id: check
         run: |
           UPSTREAM=$(git rev-parse upstream/master)
 
-          if git merge-base --is-ancestor "$UPSTREAM" HEAD; then
+          if git merge-base --is-ancestor "$UPSTREAM" HEAD 2>/dev/null; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "Already up to date with upstream ($UPSTREAM)"
             exit 0
+          fi
+
+          # [sig] If merge-base fails (shallow clone), deepen further
+          if ! git merge-base HEAD upstream/master >/dev/null 2>&1; then
+            echo "Shallow history insufficient, fetching full history..."
+            git fetch upstream master --unshallow 2>/dev/null || git fetch upstream master 2>/dev/null || true
           fi
 
           git rev-list HEAD..upstream/master --reverse > /tmp/new_commits.txt
