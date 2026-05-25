@@ -1172,23 +1172,12 @@ pub fn printValue(
                 },
                 else => invalidFmtError(fmt, value),
             },
-            // TODO make this print double quotes and quote-escape the string
-            // according to zig string syntax rules
             'q' => switch (@typeInfo(T)) {
                 .pointer => |info| switch (info.size) {
-                    .one, .slice => {
-                        const slice: []const u8 = value;
-                        return w.alignBufferOptions(slice, options);
-                    },
-                    .many, .c => {
-                        const slice: [:0]const u8 = std.mem.span(value);
-                        return w.alignBufferOptions(slice, options);
-                    },
+                    .one, .slice => return printStringEscaped(w, value),
+                    .many, .c => return printStringEscaped(w, std.mem.span(value)),
                 },
-                .array => {
-                    const slice: []const u8 = &value;
-                    return w.alignBufferOptions(slice, options);
-                },
+                .array => return printStringEscaped(w, &value),
                 else => invalidFmtError(fmt, value),
             },
             'B' => switch (@typeInfo(T)) {
@@ -1465,6 +1454,14 @@ fn printEnumNonexhaustive(w: *Writer, value: anytype) Error!void {
     try w.writeAll("@enumFromInt(");
     try w.printInt(@intFromEnum(value), 10, .lower, .{});
     try w.writeByte(')');
+}
+
+/// Prints a double quote, then escapes a string according to Zig string
+/// literal rules, then a double quote.
+pub fn printStringEscaped(w: *Writer, bytes: []const u8) Error!void {
+    try w.writeByte('"');
+    try std.zig.stringEscape(bytes, w);
+    try w.writeByte('"');
 }
 
 pub fn printVector(
@@ -2119,6 +2116,11 @@ test "printFloat with comptime_float" {
     try w.printFloat(@as(comptime_float, 1.0), std.fmt.Options.toNumber(.{}, .scientific, .lower));
     try testing.expectEqualStrings(w.buffered(), "1e0");
     try testing.expectFmt("1", "{}", .{1.0});
+}
+
+test "{q} format string" {
+    const data: []const u8 = "i\tlike\"cheese\x00\x05cheese";
+    try testing.expectFmt("hello \"i\\tlike\\\"cheese\\x00\\x05cheese\" world", "hello {q} world", .{data});
 }
 
 fn testPrintIntCase(expected: []const u8, value: anytype, base: u8, case: std.fmt.Case, options: std.fmt.Options) !void {
