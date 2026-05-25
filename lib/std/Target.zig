@@ -2640,7 +2640,6 @@ pub const DynamicLinker = struct {
                 }
             else if (abi.isGnu())
                 switch (cpu.arch) {
-                    // TODO: `700` ABI support.
                     .arc,
                     .arceb,
                     => |arch| if (abi == .gnu) initFmt("/lib/ld-linux-{t}.so.2", .{arch}) else none,
