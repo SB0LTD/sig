@@ -47,7 +47,7 @@ pub fn create(owner: *std.Build, options: Options) *InstallDir {
     install_dir.* = .{
         .step = Step.init(.{
             .tag = base_tag,
-            .name = owner.fmt("install {f}/", .{options.source_dir.fmt(graph)}),
+            .name = owner.fmt("install {f}/", .{options.source_dir}),
             .owner = owner,
         }),
         .options = options.dupe(graph),

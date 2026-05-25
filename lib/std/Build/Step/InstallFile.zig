@@ -26,7 +26,7 @@ pub fn create(
     install_file.* = .{
         .step = Step.init(.{
             .tag = base_tag,
-            .name = owner.fmt("install {f} to {s}", .{ source.fmt(graph), dest_rel_path }),
+            .name = owner.fmt("install {f} to {s}", .{ source, dest_rel_path }),
             .owner = owner,
         }),
         .source = source.dupe(graph),

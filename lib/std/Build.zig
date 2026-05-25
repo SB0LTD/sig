@@ -166,10 +166,9 @@ pub const Graph = struct {
     /// A path whose components and contents are known at some point during
     /// `Step` resolution, relative to the provided base directory.
     pub fn path(graph: *Graph, base: Configuration.Path.Base, sub_path: []const u8) LazyPath {
-        const wc = &graph.wip_configuration;
         return .{ .relative = .{
             .base = base,
-            .sub_path = wc.addString(sub_path) catch @panic("OOM"),
+            .sub_path = @This().dupePath(graph, sub_path),
         } };
     }
 
@@ -974,12 +973,12 @@ pub fn dupe(b: *Build, bytes: []const u8) []const u8 {
     return b.graph.dupeString(bytes);
 }
 
-/// Duplicates an array of strings without the need to handle out of memory.
+/// Deprecated, call `Graph.dupeStrings` instead.
 pub fn dupeStrings(b: *Build, strings: []const []const u8) []const []const u8 {
     return b.graph.dupeStrings(strings);
 }
 
-/// Duplicates a path, canonicalizing path separators.
+/// Deprecated, call `Graph.dupePath` instead.
 pub fn dupePath(b: *Build, bytes: []const u8) []const u8 {
     return b.graph.dupePath(bytes);
 }
@@ -1536,7 +1535,7 @@ pub fn addUserInputFlag(b: *Build, name_raw: []const u8) error{OutOfMemory}!bool
             return true;
         },
         .lazy_path => |lp| {
-            log.err("Flag '-D{s}' conflicts with option '-D{s}={f}'.", .{ name, name, lp.fmt(graph) });
+            log.err("Flag '-D{s}' conflicts with option '-D{s}={f}'.", .{ name, name, lp });
             return true;
         },
 
@@ -2381,10 +2380,10 @@ pub const LazyPath = union(enum) {
 
     relative: struct {
         base: Configuration.Path.Base,
-        sub_path: Configuration.String = .empty,
+        sub_path: []const u8 = "",
 
         pub fn eql(a: @This(), b: @This()) bool {
-            return a.base == b.base and a.sub_path == b.sub_path;
+            return a.base == b.base and mem.eql(u8, a.sub_path, b.sub_path);
         }
     },
 
@@ -2398,11 +2397,11 @@ pub const LazyPath = union(enum) {
 
     /// Returns a lazy path referring to the directory containing this path.
     ///
-    /// The dirname is not allowed to escape the logical root for underlying path.
-    /// For example, if the path is relative to the build root,
-    /// the dirname is not allowed to traverse outside of the build root.
-    /// Similarly, if the path is a generated file inside zig-cache,
-    /// the dirname is not allowed to traverse outside of zig-cache.
+    /// The dirname is not allowed to escape the logical root for underlying
+    /// path. For example, if the path is relative to the build root, the
+    /// dirname is not allowed to traverse outside of the build root.
+    /// Similarly, if the path is a generated file inside zig-cache, the
+    /// dirname is not allowed to traverse outside of zig-cache.
     pub fn dirname(lazy_path: LazyPath) LazyPath {
         return switch (lazy_path) {
             .src_path => |sp| .{ .src_path = .{
@@ -2444,9 +2443,13 @@ pub const LazyPath = union(enum) {
                     }
                 },
             },
-            .relative => .{
-                .relative = @panic("TODO"),
-            },
+            .relative => |r| .{ .relative = .{
+                .base = r.base,
+                .sub_path = dirnameAllowEmpty(r.sub_path) orelse {
+                    dumpBadDirnameHelp(null, null, "dirname() attempted to traverse outside the base path\n", .{}) catch {};
+                    @panic("misconfigured build script");
+                },
+            } },
             .dependency => |dep| .{ .dependency = .{
                 .dependency = dep.dependency,
                 .sub_path = dirnameAllowEmpty(dep.sub_path) orelse {
@@ -2480,9 +2483,10 @@ pub const LazyPath = union(enum) {
             .cwd_relative => |cwd_relative| .{
                 .cwd_relative = try fs.path.resolve(arena, &.{ cwd_relative, sub_path }),
             },
-            .relative => .{
-                .relative = @panic("TODO"),
-            },
+            .relative => |r| .{ .relative = .{
+                .base = r.base,
+                .sub_path = try fs.path.resolve(arena, &.{ r.sub_path, sub_path }),
+            } },
             .dependency => |dep| .{ .dependency = .{
                 .dependency = dep.dependency,
                 .sub_path = try fs.path.resolve(arena, &.{ dep.sub_path, sub_path }),
@@ -2490,27 +2494,25 @@ pub const LazyPath = union(enum) {
         };
     }
 
-    pub const Format = struct {
-        graph: *const Graph,
-        lazy_path: *const LazyPath,
+    /// Deprecated, use `format` instead.
+    pub fn getDisplayName(lazy_path: LazyPath) []const u8 {
+        return switch (lazy_path) {
+            .src_path => |sp| sp.sub_path,
+            .cwd_relative => |p| p,
+            .generated => "generated",
+            .dependency => "dependency",
+            .relative => |r| @tagName(r.base),
+        };
+    }
 
-        pub fn format(f: Format, w: *Io.Writer) Io.Writer.Error!void {
-            switch (f.lazy_path.*) {
-                .src_path => |sp| try w.writeAll(sp.sub_path),
-                .cwd_relative => |p| try w.writeAll(p),
-                .generated => try w.writeAll("generated"),
-                .dependency => try w.writeAll("dependency"),
-                .relative => |r| {
-                    const wc = &f.graph.wip_configuration;
-                    try w.writeAll(@tagName(r.base));
-                    try w.writeAll(wc.stringSlice(r.sub_path));
-                },
-            }
+    pub fn format(lp: LazyPath, w: *Io.Writer) Io.Writer.Error!void {
+        switch (lp) {
+            .src_path => |sp| try w.writeAll(sp.sub_path),
+            .cwd_relative => |p| try w.writeAll(p),
+            .generated => try w.writeAll("generated"),
+            .dependency => try w.writeAll("dependency"),
+            .relative => |r| try w.print("{t} {s}", .{ r.base, r.sub_path }),
         }
-    };
-
-    pub fn fmt(lp: *const LazyPath, graph: *const Graph) Format {
-        return .{ .graph = graph, .lazy_path = lp };
     }
 
     /// Adds dependencies this file source implies to the given step.
@@ -2523,15 +2525,6 @@ pub const LazyPath = union(enum) {
                 other_step.dependOn(generated_owner_step);
             },
         }
-    }
-
-    pub fn basename(lazy_path: LazyPath) []const u8 {
-        return fs.path.basename(switch (lazy_path) {
-            .src_path => |sp| sp.sub_path,
-            .cwd_relative => |sub_path| sub_path,
-            .generated => |gen| gen.sub_path,
-            .dependency => |dep| dep.sub_path,
-        });
     }
 
     /// Copies the internal strings.

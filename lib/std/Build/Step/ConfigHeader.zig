@@ -73,7 +73,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
                 .src_path => |sp| sp.sub_path,
                 .generated => break :default,
                 .cwd_relative => |sub_path| sub_path,
-                .relative => |r| wc.stringSlice(r.sub_path),
+                .relative => |r| r.sub_path,
                 .dependency => |dependency| dependency.sub_path,
             };
             const basename = Io.Dir.path.basename(sub_path);
@@ -85,7 +85,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 
     const name = if (options.style.getPath()) |s|
         allocPrint(arena, "configure {t} header {f} to {s}", .{
-            options.style, s.fmt(graph), include_path,
+            options.style, s, include_path,
         }) catch @panic("OOM")
     else
         allocPrint(arena, "configure {t} header to {s}", .{

@@ -208,7 +208,7 @@ const Serialize = struct {
             .relative => |relative| i: {
                 break :i try wc.addExtraErased(Configuration.LazyPath.Relative, .{
                     .flags = .{ .base = relative.base },
-                    .sub_path = relative.sub_path,
+                    .sub_path = try wc.addString(relative.sub_path),
                 });
             },
             .dependency => |dependency| i: {

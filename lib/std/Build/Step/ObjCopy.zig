@@ -63,7 +63,7 @@ pub fn create(owner: *std.Build, input_file: std.Build.LazyPath, options: Option
     oc.* = .{
         .step = .init(.{
             .tag = base_tag,
-            .name = owner.fmt("objcopy {f}", .{input_file.fmt(graph)}),
+            .name = owner.fmt("objcopy {f}", .{input_file}),
             .owner = owner,
         }),
         .input_file = input_file,
