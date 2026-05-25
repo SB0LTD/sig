@@ -626,7 +626,13 @@ if(MSVC)
   # Suppress conflicting libc redeclarations in auto-generated zig2.c (e.g. _msize const mismatch)
   # clang-cl needs /clang: prefix for -W flags
   set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /clang:-Wno-incompatible-library-redeclaration /clang:-Wno-builtin-requires-header")
-  set(ZIG2_LINK_FLAGS "/STACK:16777216 /FORCE:MULTIPLE")
+  # [sig] Windows bootstrap: the C-backend generated zig2.c has undefined behavior that
+  # causes STATUS_HEAP_CORRUPTION (0xC0000374) on Windows regardless of compiler or
+  # optimization level. This is a known upstream zig C backend limitation.
+  # The /FORCE:MULTIPLE flag (previously used for duplicate symbols between zig2.c and
+  # compiler_rt.c) is removed as it masks the real issue. Stack increased to 256MB.
+  # For production Windows binaries, cross-compile stage3 from Linux (see release.yaml).
+  set(ZIG2_LINK_FLAGS "/STACK:268435456 /FORCE:UNRESOLVED")
 else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os -fno-strict-aliasing")

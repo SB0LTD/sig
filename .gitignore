@@ -17,3 +17,7 @@ sig-out/
 /build/
 /build-*/
 /docgen_tmp/
+.zig-cache/
+zig-out/
+.deploy-ctx/
+tmp-build-context/

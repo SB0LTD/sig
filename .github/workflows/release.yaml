@@ -1,7 +1,12 @@
 # [sig] Self-sustained release pipeline — sig builds sig
 #
 # Uses LLVM-enabled bootstrap sig from build-bootstrap to compile the final
-# release binaries. No upstream zig dependency at release time.
+# release binaries via stage3 self-compilation. No upstream zig dependency.
+#
+# The bootstrap (zig2) is a C-compiled debug binary that can crash on Windows
+# due to /FORCE:MULTIPLE linker issues. To work around this, ALL targets are
+# cross-compiled from the Linux runner using the Linux bootstrap (which works
+# reliably). This mirrors upstream zig's release strategy.
 #
 # Chain: build-llvm (one-time) → build-bootstrap (one-time) → release (every release)
 name: release
@@ -34,29 +39,25 @@ env:
 
 jobs:
   build:
+    # All targets are cross-compiled from Linux to avoid Windows bootstrap crash
+    # (zig2.exe built with /FORCE:MULTIPLE causes heap corruption on Windows)
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: x86_64-linux
-            host: x86_64-linux
             zig_target: x86_64-linux-musl
-            runner: ubuntu-latest
             ext: tar.xz
             bin: sig
           - target: aarch64-macos
-            host: aarch64-macos
             zig_target: aarch64-macos-none
-            runner: macos-14
             ext: tar.xz
             bin: sig
           - target: x86_64-windows
-            host: x86_64-windows
             zig_target: x86_64-windows-gnu
-            runner: windows-latest
             ext: zip
             bin: sig.exe
-    runs-on: ${{ matrix.runner }}
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -86,53 +87,86 @@ jobs:
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "Building sig ${VERSION} for ${{ matrix.target }}"
 
-      # ── Download bootstrap sig (has LLVM — self-sustained from here) ──
+      # ── Download Linux bootstrap (always use Linux — it works reliably) ──
       - name: Download bootstrap sig
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ASSET="bootstrap-sig-${{ matrix.host }}.tar.gz"
+          ASSET="bootstrap-sig-x86_64-linux.tar.gz"
           echo "Downloading ${ASSET} from ${{ env.BOOTSTRAP_TAG }}..."
           gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${ASSET}" --dir /tmp
           mkdir -p /tmp/bootstrap
           tar -xzf "/tmp/${ASSET}" -C /tmp/bootstrap
 
           # Find the binary
-          BIN=$(find /tmp/bootstrap -type f \( -name "sig" -o -name "sig.exe" -o -name "zig" -o -name "zig.exe" \) | head -1)
+          BIN=$(find /tmp/bootstrap -type f \( -name "sig" -o -name "zig" -o -name "zig2" \) | head -1)
           [ -z "$BIN" ] && echo "ERROR: no sig/zig binary in archive" && ls -laR /tmp/bootstrap && exit 1
           chmod +x "$BIN"
-
-          # macOS quarantine
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            xattr -cr /tmp/bootstrap 2>/dev/null || true
-            codesign --force --sign - "$BIN" 2>/dev/null || true
-          fi
 
           BIN_DIR=$(dirname "$BIN")
           echo "${BIN_DIR}" >> "$GITHUB_PATH"
           echo "BOOTSTRAP_BIN=${BIN}" >> "$GITHUB_ENV"
 
-          # zig2 needs lib/ next to its binary for internal operations
-          ln -sf "$(pwd)/lib" "${BIN_DIR}/../lib" 2>/dev/null || cp -r lib "${BIN_DIR}/../lib" 2>/dev/null || true
+          # Bootstrap needs lib/ relative to its binary location
+          # The binary looks for ../lib/zig/std/std.zig or ../lib/std/std.zig
+          PARENT_DIR=$(dirname "$BIN_DIR")
+          ln -sf "$(pwd)/lib" "${PARENT_DIR}/lib" 2>/dev/null || cp -r lib "${PARENT_DIR}/lib"
 
           echo "Bootstrap binary: ${BIN}"
           "${BIN}" version || true
 
-      # ── Package bootstrap sig as the release binary ─────────────────
+      # ── Build stage3 (proper optimized release binary) ──────────────
+      - name: Build stage3 release binary
+        shell: bash
+        run: |
+          echo "Building stage3 for ${{ matrix.zig_target }}..."
+
+          # Use the bootstrap to build the optimized stage3 compiler
+          # This cross-compiles for the target platform
+          "${BOOTSTRAP_BIN}" build \
+            --prefix "stage3-out" \
+            -Doptimize=ReleaseFast \
+            -Dstrip \
+            -Dtarget=${{ matrix.zig_target }} \
+            -Dno-lib \
+            -Denable-llvm \
+            -Dversion-string="$(echo ${VERSION} | sed 's/.*-zig//')" \
+            --zig-lib-dir lib
+
+          echo "Stage3 build complete"
+          ls -la stage3-out/bin/ || true
+
+      # ── Package release ─────────────────────────────────────────────
       - name: Package release
         shell: bash
         run: |
           OUT="sig-${VERSION}-${{ matrix.target }}"
           mkdir -p "${OUT}/bin"
-          cp "${BOOTSTRAP_BIN}" "${OUT}/bin/${{ matrix.bin }}"
+
+          # Copy the stage3 binary
+          if [ -f "stage3-out/bin/zig" ]; then
+            cp "stage3-out/bin/zig" "${OUT}/bin/${{ matrix.bin }}"
+          elif [ -f "stage3-out/bin/zig.exe" ]; then
+            cp "stage3-out/bin/zig.exe" "${OUT}/bin/${{ matrix.bin }}"
+          else
+            echo "ERROR: stage3 binary not found"
+            find stage3-out -type f | head -20
+            exit 1
+          fi
+
+          # Also provide the zig-named binary for compatibility
           case "${{ matrix.bin }}" in
-            sig)     cp "${BOOTSTRAP_BIN}" "${OUT}/bin/zig" ;;
-            sig.exe) cp "${BOOTSTRAP_BIN}" "${OUT}/bin/zig.exe" ;;
+            sig)     cp "${OUT}/bin/sig" "${OUT}/bin/zig" ;;
+            sig.exe) cp "${OUT}/bin/sig.exe" "${OUT}/bin/zig.exe" ;;
           esac
+
+          # Include the standard library
           cp -r lib "${OUT}/lib"
+
           echo "Release contents:"
           ls -la "${OUT}/bin/"
+          echo "Binary size: $(du -h "${OUT}/bin/${{ matrix.bin }}" | cut -f1)"
 
       # ── Verify binary ───────────────────────────────────────────────
       - name: Verify binary
@@ -142,6 +176,12 @@ jobs:
           [ ! -f "$FILE" ] && echo "ERROR: $FILE not found" && ls -laR "sig-${VERSION}-${{ matrix.target }}/" && exit 1
           echo "OK: $(file "$FILE" 2>/dev/null || echo "$FILE exists")"
           echo "Size: $(ls -la "$FILE" | awk '{print $5}') bytes"
+
+          # For native target, verify it runs
+          if [ "${{ matrix.target }}" = "x86_64-linux" ]; then
+            chmod +x "$FILE"
+            "./$FILE" version
+          fi
 
       - name: Package tarball
         if: matrix.ext == 'tar.xz'
@@ -153,23 +193,17 @@ jobs:
 
       - name: Package zip
         if: matrix.ext == 'zip'
-        shell: pwsh
+        shell: bash
         run: |
-          $archive = "sig-${{ env.VERSION }}-${{ matrix.target }}.zip"
-          Compress-Archive -Path "sig-${{ env.VERSION }}-${{ matrix.target }}" -DestinationPath $archive
-          echo "ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          ARCHIVE="sig-${VERSION}-${{ matrix.target }}.zip"
+          cd "sig-${VERSION}-${{ matrix.target }}"
+          zip -r "../${ARCHIVE}" .
+          cd ..
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
       - name: Checksum
         shell: bash
-        run: |
-          if command -v sha256sum &>/dev/null; then
-            sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
-          elif command -v shasum &>/dev/null; then
-            shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
-          else
-            certutil -hashfile "${ARCHIVE}" SHA256 | head -2 | tail -1 | tr -d ' ' \
-              | awk -v f="${ARCHIVE}" '{print $1 "  " f}' > "${ARCHIVE}.sha256"
-          fi
+        run: sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

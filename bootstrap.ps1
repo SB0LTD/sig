@@ -37,6 +37,22 @@ if ($env:SIG_COMPILER) {
     }
 }
 
+# [sig] Windows bootstrap fallback: the C-backend bootstrap (zig2.exe) crashes on Windows
+# due to undefined behavior in the generated C code (STATUS_HEAP_CORRUPTION 0xC0000374).
+# When the native binary is unavailable or broken, fall back to the Linux binary via WSL.
+# This is a known limitation of the zig C backend on Windows — the self-hosted backend
+# (stage3) works correctly but requires a working bootstrap to build.
+if (-not $SIG) {
+    if (Get-Command "wsl" -ErrorAction SilentlyContinue) {
+        $wslSig = wsl bash -c "command -v ~/sig-bin/bin/sig 2>/dev/null" 2>$null
+        if ($wslSig) {
+            Write-Host "[sig] Native sig not found, using WSL fallback"
+            $SIG = "wsl"
+            $script:USE_WSL = $true
+        }
+    }
+}
+
 if (-not $SIG) {
     Write-Error @"
 error: sig compiler not found
@@ -44,6 +60,10 @@ error: sig compiler not found
 The sig compiler is required to bootstrap the build runner.
 Install sig and ensure it is on your PATH, or set the SIG_COMPILER
 environment variable to the full path of the sig binary.
+
+On Windows, if the native binary crashes (known C backend issue),
+install the Linux binary in WSL:
+  wsl bash -c "mkdir -p ~/sig-bin && curl -L <release-url> | tar -xJ -C ~/sig-bin --strip-components=1"
 
   `$env:SIG_COMPILER = "C:\path\to\sig.exe"
   .\bootstrap.ps1
