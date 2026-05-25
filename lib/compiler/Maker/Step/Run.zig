@@ -13,6 +13,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const process = std.process;
 const allocPrint = std.fmt.allocPrint;
+const Allocator = std.mem.Allocator;
 
 const Step = @import("../Step.zig");
 const Maker = @import("../../Maker.zig");
@@ -28,13 +29,6 @@ cached_test_metadata: ?CachedTestMetadata = null,
 /// executable that contains fuzz tests.
 rebuilt_executable: ?Path = null,
 
-/// Persisted to reuse memory on subsequent calls to `make`.
-argv: std.ArrayList([]const u8) = .empty,
-/// Persisted to reuse memory on subsequent calls to `make`.
-output_placeholders: std.ArrayList(IndexedOutput) = .empty,
-/// Persisted to reuse memory on subsequent calls to `make`.
-environ_map: std.process.Environ.Map = .{ .array_hash_map = .empty, .allocator = undefined },
-
 pub fn make(
     run: *Run,
     run_index: Configuration.Step.Index,
@@ -45,16 +39,17 @@ pub fn make(
     const gpa = maker.gpa;
     const step = maker.stepByIndex(run_index);
     const io = graph.io;
-    const arena = graph.arena; // TODO don't leak into the process arena
     const conf = &maker.scanned_config.configuration;
     const conf_step = run_index.ptr(conf);
     const conf_run = conf_step.extended.get(conf.extra).run;
-    const argv_list = &run.argv;
-    const output_placeholders = &run.output_placeholders;
     const cache_root = graph.local_cache_root;
 
-    argv_list.clearRetainingCapacity();
-    output_placeholders.clearRetainingCapacity();
+    var arena_allocator: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    var argv_list: std.ArrayList([]const u8) = .empty;
+    var output_placeholders: std.ArrayList(IndexedOutput) = .empty;
 
     var man = graph.cache.obtain();
     defer man.deinit();
@@ -89,7 +84,7 @@ pub fn make(
                 const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
                 const file_path = try maker.resolveLazyPathIndex(arena, arg.path.value.?, run_index);
                 argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
                 }));
                 man.hash.addBytesZ(prefix);
                 man.hash.addBytesZ(suffix);
@@ -100,7 +95,7 @@ pub fn make(
                 const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
                 const file_path = try maker.resolveLazyPathIndex(arena, arg.path.value.?, run_index);
                 const resolved_arg = try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
                 });
                 argv_list.appendAssumeCapacity(resolved_arg);
                 man.hash.addBytes(resolved_arg);
@@ -144,7 +139,7 @@ pub fn make(
                 const file_path = producer_make_comp.installed_path orelse maker.generatedPath(producer.generated_bin.value.?).*;
 
                 argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
                 }));
 
                 _ = try man.addFilePath(file_path, null);
@@ -183,7 +178,7 @@ pub fn make(
 
     man.hash.add(conf_run.flags.test_runner_mode);
     if (conf_run.flags.test_runner_mode) {
-        const cache_dir_string = try convertPathArg(run_index, maker, .{ .root_dir = cache_root });
+        const cache_dir_string = try convertPathArg(arena, run_index, maker, .{ .root_dir = cache_root });
 
         try argv_list.ensureUnusedCapacity(gpa, 3);
         argv_list.appendAssumeCapacity(try allocPrint(arena, "--cache-dir={s}", .{cache_dir_string}));
@@ -259,8 +254,8 @@ pub fn make(
         const digest = if (has_side_effects) man.hash.final() else man.final();
         const output_dir_path = "o" ++ Dir.path.sep_str ++ &digest;
         try populateGeneratedStdIo(maker, &conf_run, cache_root, &digest);
-        try populateGeneratedPathsCreateDirs(run, run_index, maker, output_dir_path);
-        try runCommand(run, run_index, maker, progress_node, argv_list.items, has_side_effects, output_dir_path, null);
+        try populateGeneratedPathsCreateDirs(arena, run_index, maker, output_dir_path, output_placeholders.items, argv_list.items);
+        try runCommand(arena, run, run_index, maker, progress_node, argv_list.items, has_side_effects, output_dir_path, null);
         if (!has_side_effects) try step.writeManifestAndWatch(maker, &man);
         return;
     }
@@ -270,8 +265,8 @@ pub fn make(
     io.random(@ptrCast(&rand_int));
     const tmp_dir_path = "tmp" ++ Dir.path.sep_str ++ std.fmt.hex(rand_int);
 
-    try populateGeneratedPathsCreateDirs(run, run_index, maker, tmp_dir_path);
-    try runCommand(run, run_index, maker, progress_node, argv_list.items, has_side_effects, tmp_dir_path, null);
+    try populateGeneratedPathsCreateDirs(arena, run_index, maker, tmp_dir_path, output_placeholders.items, argv_list.items);
+    try runCommand(arena, run, run_index, maker, progress_node, argv_list.items, has_side_effects, tmp_dir_path, null);
 
     for (output_placeholders.items) |placeholder| {
         const arg = placeholder.arg_index.get(conf);
@@ -341,6 +336,7 @@ pub fn make(
 /// * A test (or a response from the test runner) times out
 /// * The wait fails, indicating the child closed stdout and stderr
 fn waitZigTest(
+    arena: Allocator,
     run: *Run,
     run_index: Configuration.Step.Index,
     maker: *Maker,
@@ -363,7 +359,6 @@ fn waitZigTest(
     const graph = maker.graph;
     const gpa = maker.gpa;
     const io = graph.io;
-    const arena = graph.arena; // TODO don't leak into the process arena
     const step = maker.stepByIndex(run_index);
 
     var sub_prog_node: ?std.Progress.Node = null;
@@ -715,7 +710,7 @@ const FuzzTestRunner = struct {
         }
     }
 
-    fn listen(f: *FuzzTestRunner) !void {
+    fn listen(f: *FuzzTestRunner, arena: Allocator) !void {
         const maker = f.ctx.fuzz.maker;
         const graph = maker.graph;
         const io = graph.io;
@@ -739,7 +734,7 @@ const FuzzTestRunner = struct {
                         else => |read_e| return read_e,
                     }),
                     2 => try f.completeStderrRead(id, result.file_read_streaming catch |e| switch (e) {
-                        error.EndOfStream => return f.instanceEos(id),
+                        error.EndOfStream => return f.instanceEos(arena, id),
                         else => |read_e| return read_e,
                     }),
                     else => unreachable,
@@ -901,7 +896,7 @@ const FuzzTestRunner = struct {
         } });
     }
 
-    fn instanceEos(f: *FuzzTestRunner, id: u32) !void {
+    fn instanceEos(f: *FuzzTestRunner, arena: Allocator, id: u32) !void {
         const maker = f.ctx.fuzz.maker;
         const instance = &f.instances[id];
         const run_index = f.run_index;
@@ -914,7 +909,7 @@ const FuzzTestRunner = struct {
         instance.child.stdin = null;
         const term = try instance.child.wait(io);
         if (!termMatches(.{ .exited = 0 }, term)) {
-            step.result_stderr = try f.mergedStderr();
+            step.result_stderr = try f.mergedStderr(arena);
             try f.saveCrash(id, term);
             return step.fail(maker, "test process unexpectedly {f}", .{fmtTerm(term)});
         }
@@ -1057,11 +1052,7 @@ const FuzzTestRunner = struct {
         }
     }
 
-    fn mergedStderr(f: *FuzzTestRunner) std.mem.Allocator.Error![]const u8 {
-        const maker = f.ctx.fuzz.maker;
-        const graph = maker.graph;
-        const arena = graph.arena; // TODO don't leak into the process arena
-
+    fn mergedStderr(f: *FuzzTestRunner, arena: Allocator) Allocator.Error![]const u8 {
         // Collect any available stderr
         while (f.batch.next()) |completion| {
             if (completion.index % 3 != 2) continue;
@@ -1092,12 +1083,13 @@ fn evalFuzzTest(
     var f: FuzzTestRunner = try .init(run, run_index, fuzz_context, progress_node, spawn_options);
     defer f.deinit();
     try f.startInstances();
-    try f.listen();
+    try f.listen(fuzz_context.fuzz.maker.graph.arena);
 }
 
 const StdioPollEnum = enum { stdout, stderr };
 
 fn evalZigTest(
+    arena: Allocator,
     run: *Run,
     run_index: Configuration.Step.Index,
     maker: *Maker,
@@ -1113,7 +1105,6 @@ fn evalZigTest(
     const graph = maker.graph;
     const gpa = maker.gpa;
     const io = graph.io;
-    const arena = graph.arena; // TODO don't leak into the process arena
     const step = maker.stepByIndex(run_index);
 
     // We will update this every time a child runs.
@@ -1146,6 +1137,7 @@ fn evalZigTest(
         };
 
         switch (try waitZigTest(
+            arena,
             run,
             run_index,
             maker,
@@ -1380,13 +1372,13 @@ fn sendRunFuzzTestMessage(
 }
 
 fn evalGeneric(
+    arena: Allocator,
     run_index: Configuration.Step.Index,
     maker: *Maker,
     spawn_options: process.SpawnOptions,
 ) !EvalGenericResult {
     const graph = maker.graph;
     const io = graph.io;
-    const arena = graph.arena; // TODO don't leak into the process arena
     const gpa = maker.gpa;
     const conf = &maker.scanned_config.configuration;
     const conf_step = run_index.ptr(conf);
@@ -1520,15 +1512,17 @@ pub fn rerunInFuzzMode(
     const graph = maker.graph;
     const step = maker.stepByIndex(run_index);
     const io = graph.io;
-    const arena = graph.arena; // TODO don't leak into the process arena
     const gpa = maker.gpa;
     const conf = &maker.scanned_config.configuration;
     const conf_step = run_index.ptr(conf);
     const conf_run = conf_step.extended.get(conf.extra).run;
-    const argv_list = &run.argv;
     const cache_root = graph.local_cache_root;
 
-    argv_list.clearRetainingCapacity();
+    var arena_allocator: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    var argv_list: std.ArrayList([]const u8) = .empty;
 
     for (conf_run.args.slice) |arg_index| {
         const arg = arg_index.get(conf);
@@ -1543,7 +1537,7 @@ pub fn rerunInFuzzMode(
                 const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
                 const file_path = try maker.resolveLazyPathIndex(arena, arg.path.value.?, run_index);
                 argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
                 }));
             },
             .path_directory => {
@@ -1551,7 +1545,7 @@ pub fn rerunInFuzzMode(
                 const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
                 const file_path = try maker.resolveLazyPathIndex(arena, arg.path.value.?, run_index);
                 const resolved_arg = try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
                 });
                 argv_list.appendAssumeCapacity(resolved_arg);
             },
@@ -1593,7 +1587,7 @@ pub fn rerunInFuzzMode(
                     producer_make_comp.installed_path orelse
                         maker.generatedPath(producer.generated_bin.value.?).*;
                 argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
                 }));
             },
             .output_file => unreachable,
@@ -1603,7 +1597,7 @@ pub fn rerunInFuzzMode(
     }
 
     if (conf_run.flags.test_runner_mode) {
-        const cache_dir_string = try convertPathArg(run_index, maker, .{ .root_dir = cache_root });
+        const cache_dir_string = try convertPathArg(arena, run_index, maker, .{ .root_dir = cache_root });
 
         try argv_list.ensureUnusedCapacity(gpa, 3);
         argv_list.appendAssumeCapacity(try allocPrint(arena, "--cache-dir={s}", .{cache_dir_string}));
@@ -1620,7 +1614,7 @@ pub fn rerunInFuzzMode(
     var rand_int: u64 = undefined;
     io.random(@ptrCast(&rand_int));
     const tmp_dir_path = "tmp" ++ Dir.path.sep_str ++ std.fmt.hex(rand_int);
-    try runCommand(run, run_index, maker, prog_node, argv_list.items, has_side_effects, tmp_dir_path, .{
+    try runCommand(arena, run, run_index, maker, prog_node, argv_list.items, has_side_effects, tmp_dir_path, .{
         .fuzz = fuzz,
     });
 }
@@ -1633,13 +1627,12 @@ fn populateGeneratedPaths(
 ) !void {
     const conf = &maker.scanned_config.configuration;
     const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into the process arena
 
     for (output_placeholders) |placeholder| {
         const arg = placeholder.arg_index.get(conf);
         maker.generatedPath(arg.generated.value.?).* = .{
             .root_dir = cache_root,
-            .sub_path = try Dir.path.join(arena, &.{
+            .sub_path = try Dir.path.join(graph.arena, &.{
                 "o", digest, arg.basename.value.?.slice(conf),
             }),
         };
@@ -1647,20 +1640,20 @@ fn populateGeneratedPaths(
 }
 
 fn populateGeneratedPathsCreateDirs(
-    run: *Run,
+    arena: Allocator,
     run_index: Configuration.Step.Index,
     maker: *Maker,
     output_dir_path: []const u8,
+    output_placeholders: []const IndexedOutput,
+    argv: [][]const u8,
 ) !void {
     const step = maker.stepByIndex(run_index);
     const conf = &maker.scanned_config.configuration;
     const graph = maker.graph;
     const io = graph.io;
-    const arena = graph.arena; // TODO don't leak into the process arena
     const cache_root = graph.local_cache_root;
-    const argv = run.argv.items;
 
-    for (run.output_placeholders.items) |placeholder| {
+    for (output_placeholders) |placeholder| {
         const arg = placeholder.arg_index.get(conf);
         const prefix = if (arg.prefix.value) |p| p.slice(conf) else "";
         const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
@@ -1668,7 +1661,7 @@ fn populateGeneratedPathsCreateDirs(
 
         const generated_path: Path = .{
             .root_dir = cache_root,
-            .sub_path = try Dir.path.join(arena, &.{ output_dir_path, basename }),
+            .sub_path = try Dir.path.join(graph.arena, &.{ output_dir_path, basename }),
         };
         const create_path: Path = .{
             .root_dir = cache_root,
@@ -1683,7 +1676,7 @@ fn populateGeneratedPathsCreateDirs(
 
         maker.generatedPath(arg.generated.value.?).* = generated_path;
 
-        const arg_output_path = try convertPathArg(run_index, maker, generated_path);
+        const arg_output_path = try convertPathArg(arena, run_index, maker, generated_path);
         argv[placeholder.index] = try mem.concat(arena, u8, &.{ prefix, arg_output_path, suffix });
     }
 }
@@ -1696,12 +1689,11 @@ fn populateGeneratedStdIo(
 ) !void {
     const conf = &maker.scanned_config.configuration;
     const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into the process arena
 
     if (conf_run.captured_stdout.value) |captured| {
         maker.generatedPath(captured.generated_file).* = .{
             .root_dir = cache_root,
-            .sub_path = try Dir.path.join(arena, &.{
+            .sub_path = try Dir.path.join(graph.arena, &.{
                 "o", digest, captured.basename.slice(conf),
             }),
         };
@@ -1710,7 +1702,7 @@ fn populateGeneratedStdIo(
     if (conf_run.captured_stderr.value) |captured| {
         maker.generatedPath(captured.generated_file).* = .{
             .root_dir = cache_root,
-            .sub_path = try Dir.path.join(arena, &.{
+            .sub_path = try Dir.path.join(graph.arena, &.{
                 "o", digest, captured.basename.slice(conf),
             }),
         };
@@ -1736,6 +1728,7 @@ const FuzzContext = struct {
 };
 
 fn runCommand(
+    arena: Allocator,
     run: *Run,
     run_index: Configuration.Step.Index,
     maker: *Maker,
@@ -1746,7 +1739,6 @@ fn runCommand(
     fuzz_context: ?FuzzContext,
 ) Step.ExtendedMakeError!void {
     const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into process arena
     const gpa = maker.gpa;
     const step = maker.stepByIndex(run_index);
     const io = graph.io;
@@ -1754,7 +1746,6 @@ fn runCommand(
     const conf = &maker.scanned_config.configuration;
     const conf_step = run_index.ptr(conf);
     const conf_run = conf_step.extended.get(conf.extra).run;
-    const environ_map = &run.environ_map;
 
     const cwd: process.Child.Cwd = if (conf_run.cwd.value) |lazy_cwd|
         .{ .path = try maker.resolveLazyPathIndexAbs(arena, lazy_cwd, run_index) }
@@ -1768,12 +1759,11 @@ fn runCommand(
 
     var interp_argv: std.ArrayList([]const u8) = .empty;
 
-    // `environ_map` is initialized with an undefined `allocator` field; lazily
-    // initialize it here.
-    environ_map.allocator = gpa;
+    var environ_map: std.process.Environ.Map = .init(gpa);
+    defer environ_map.deinit();
+
     // In either case we add to this mutatable data structure so that we can
     // tweak the environment below.
-    environ_map.clearRetainingCapacity();
     if (conf_run.environ_map.value) |env_map_index| {
         const conf_env_map = env_map_index.get(conf);
         for (conf_env_map.keys.slice(conf), conf_env_map.values.slice(conf)) |k, v| {
@@ -1792,7 +1782,7 @@ fn runCommand(
         const root_module = producer.root_module.get(conf);
         const root_module_target = root_module.resolved_target.get(conf).?.result.get(conf);
         if (root_module_target.flags.os_tag == .windows) {
-            try addPathForDynLibs(maker, producer_index, environ_map, argv[0]);
+            try addPathForDynLibs(maker, arena, producer_index, &environ_map, argv[0]);
         }
     }
 
@@ -1801,15 +1791,16 @@ fn runCommand(
         .dir => unreachable,
         .inherit => null,
     };
-    try graph.handleVerbose(cwd_string, environ_map, argv);
+    try graph.handleVerbose(cwd_string, &environ_map, argv);
 
     const opt_generic_result = spawnChildAndCollect(
+        arena,
         run_index,
         run,
         maker,
         progress_node,
         argv,
-        environ_map,
+        &environ_map,
         has_side_effects,
         fuzz_context,
     ) catch |err| term: {
@@ -1863,7 +1854,7 @@ fn runCommand(
                                 try environ_map.put("WINEDEBUG", "-all");
                             }
                         } else {
-                            return failForeign(&conf_run, maker, run_index, "-fwine", argv[0], &root_target, &host);
+                            return failForeign(arena, &conf_run, maker, run_index, "-fwine", argv[0], &root_target, &host);
                         }
                     },
                     .qemu => |bin_name| {
@@ -1887,11 +1878,11 @@ fn runCommand(
                                             root_target.abi,
                                         ) else unreachable,
                                     }));
-                                } else return failForeign(&conf_run, maker, run_index, "--libc-runtimes", argv[0], &root_target, &host);
+                                } else return failForeign(arena, &conf_run, maker, run_index, "--libc-runtimes", argv[0], &root_target, &host);
                             }
 
                             interp_argv.appendSliceAssumeCapacity(argv);
-                        } else return failForeign(&conf_run, maker, run_index, "-fqemu", argv[0], &root_target, &host);
+                        } else return failForeign(arena, &conf_run, maker, run_index, "-fqemu", argv[0], &root_target, &host);
                     },
                     .darling => |bin_name| {
                         if (graph.enable_darling) {
@@ -1899,7 +1890,7 @@ fn runCommand(
                             interp_argv.appendAssumeCapacity(bin_name);
                             interp_argv.appendSliceAssumeCapacity(argv);
                         } else {
-                            return failForeign(&conf_run, maker, run_index, "-fdarling", argv[0], &root_target, &host);
+                            return failForeign(arena, &conf_run, maker, run_index, "-fdarling", argv[0], &root_target, &host);
                         }
                     },
                     .wasmtime => |bin_name| {
@@ -1912,7 +1903,7 @@ fn runCommand(
                             interp_argv.appendAssumeCapacity("-Sinherit-env");
                             interp_argv.appendSliceAssumeCapacity(argv);
                         } else {
-                            return failForeign(&conf_run, maker, run_index, "-fwasmtime", argv[0], &root_target, &host);
+                            return failForeign(arena, &conf_run, maker, run_index, "-fwasmtime", argv[0], &root_target, &host);
                         }
                     },
                     .bad_dl => |foreign_dl| {
@@ -1941,15 +1932,16 @@ fn runCommand(
 
                 gpa.free(step.result_failed_command.?);
                 step.result_failed_command = null;
-                try graph.handleVerbose(cwd_string, environ_map, interp_argv.items);
+                try graph.handleVerbose(cwd_string, &environ_map, interp_argv.items);
 
                 break :term spawnChildAndCollect(
+                    arena,
                     run_index,
                     run,
                     maker,
                     progress_node,
                     interp_argv.items,
-                    environ_map,
+                    &environ_map,
                     has_side_effects,
                     fuzz_context,
                 ) catch |e| {
@@ -1996,7 +1988,7 @@ fn runCommand(
         if (stream.captured) |captured| {
             const output_path: Path = .{
                 .root_dir = cache_root,
-                .sub_path = try Dir.path.join(arena, &.{
+                .sub_path = try Dir.path.join(graph.arena, &.{
                     output_dir_path, captured.basename.slice(conf),
                 }),
             };
@@ -2117,6 +2109,7 @@ const EvalGenericResult = struct {
 };
 
 fn spawnChildAndCollect(
+    arena: Allocator,
     run_index: Configuration.Step.Index,
     run: *Run,
     maker: *Maker,
@@ -2129,7 +2122,6 @@ fn spawnChildAndCollect(
     const step = maker.stepByIndex(run_index);
     const graph = maker.graph;
     const io = graph.io;
-    const arena = graph.arena; // TODO don't leak into process arena
     const gpa = maker.gpa;
     const conf = &maker.scanned_config.configuration;
     const conf_step = run_index.ptr(conf);
@@ -2189,7 +2181,7 @@ fn spawnChildAndCollect(
 
     if (conf_run.flags.stdio == .zig_test) {
         const started: Io.Clock.Timestamp = .now(io, .awake);
-        const result = evalZigTest(run, run_index, maker, progress_node, spawn_options, fuzz_context) catch |err| switch (err) {
+        const result = evalZigTest(graph.arena, run, run_index, maker, progress_node, spawn_options, fuzz_context) catch |err| switch (err) {
             error.Canceled => |e| return e,
             else => |e| e,
         };
@@ -2209,7 +2201,7 @@ fn spawnChildAndCollect(
         try setColorEnvironmentVariables(&conf_run, environ_map, terminal_mode);
 
         const started: Io.Clock.Timestamp = .now(io, .awake);
-        const result = evalGeneric(run_index, maker, spawn_options) catch |err| switch (err) {
+        const result = evalGeneric(arena, run_index, maker, spawn_options) catch |err| switch (err) {
             error.Canceled => |e| return e,
             else => |e| e,
         };
@@ -2287,12 +2279,11 @@ fn checksContainStderr(conf_run: *const Configuration.Step.Run) bool {
 ///
 /// Whenever a path is included in the argv of a child, it should be put through this function first
 /// to make sure the child doesn't see paths relative to a cwd other than its own.
-fn convertPathArg(run_index: Configuration.Step.Index, maker: *Maker, path: Path) ![]const u8 {
+fn convertPathArg(arena: Allocator, run_index: Configuration.Step.Index, maker: *Maker, path: Path) ![]const u8 {
     const conf = &maker.scanned_config.configuration;
     const conf_step = run_index.ptr(conf);
     const conf_run = conf_step.extended.get(conf.extra).run;
     const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into process arena
 
     const path_str = try path.toString(arena);
     if (Dir.path.isAbsolute(path_str)) {
@@ -2319,13 +2310,13 @@ fn convertPathArg(run_index: Configuration.Step.Index, maker: *Maker, path: Path
 
 fn addPathForDynLibs(
     maker: *Maker,
+    arena: Allocator,
     artifact: Configuration.Step.Index,
     environ_map: *process.Environ.Map,
     argv0: []const u8,
 ) !void {
     const conf = &maker.scanned_config.configuration;
     const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into process arena
     const use_wine = graph.enable_wine and builtin.os.tag != .windows and std.ascii.endsWithIgnoreCase(argv0, ".exe");
     const path_key = if (use_wine) "WINEPATH" else "PATH";
     const path_delimiter: u8 = if (builtin.os.tag == .windows or use_wine)
@@ -2355,6 +2346,7 @@ fn addPathForDynLibs(
 }
 
 fn failForeign(
+    arena: Allocator,
     conf_run: *const Configuration.Step.Run,
     maker: *Maker,
     step_index: Configuration.Step.Index,
@@ -2368,10 +2360,8 @@ fn failForeign(
         .check, .zig_test => {
             if (conf_run.flags.skip_foreign_checks) return error.MakeSkipped;
 
-            const graph = maker.graph;
-            const process_arena = graph.arena; // TODO don't leak into process arena
-            const host_name = try host_target.zigTriple(process_arena);
-            const foreign_name = try artifact_target.zigTriple(process_arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try artifact_target.zigTriple(arena);
 
             return step.fail(maker,
                 \\unable to spawn foreign binary '{s}' ({s}) on host system ({s})
