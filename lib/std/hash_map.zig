@@ -502,7 +502,8 @@ pub fn HashMap(
 /// Deletions are achieved with tombstones.
 ///
 /// Default initialization of this struct is deprecated; use `.empty` instead.
-pub fn HashMapUnmanaged(
+pub const HashMapUnmanaged = Custom;
+fn Custom(
     comptime K: type,
     comptime V: type,
     comptime Context: type,

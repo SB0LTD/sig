@@ -10539,7 +10539,7 @@ pub const Value = struct {
                                         continue :type_key ip.indexToKey(loaded_union.enum_tag_type);
                                     }
                                     const loaded_enum = ip.loadEnumType(loaded_union.enum_tag_type);
-                                    break :field_signedness ZigType.fromInterned(loaded_enum.int_tag_type).intInfo(zcu).signedness;
+                                    break :field_signedness ip.indexToKey(loaded_enum.int_tag_type).int_type.signedness;
                                 },
                                 .payload => null,
                             };
@@ -12291,7 +12291,9 @@ pub const CallAbiIterator = struct {
                 }
             },
             .opaque_type, .func_type => continue :type_key .{ .simple_type = .anyopaque },
-            .enum_type => continue :type_key ip.indexToKey(ip.loadEnumType(ty.toIntern()).int_tag_type),
+            .enum_type => continue :type_key .{
+                .int_type = ip.indexToKey(ip.loadEnumType(ty.toIntern()).int_tag_type).int_type,
+            },
             .error_set_type,
             .inferred_error_set_type,
             => continue :type_key .{ .simple_type = .anyerror },

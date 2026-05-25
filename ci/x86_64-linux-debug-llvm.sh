@@ -19,20 +19,11 @@ export PATH="$HOME/deps/wasmtime-v44.0.0-x86_64-linux:$HOME/deps/qemu-linux-x86_
 export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 
-# ccache: persistent C++ compile cache across runs (speeds up LLVM rebuild)
-export CCACHE_DIR="${HOME}/.cache/ccache-zig-x86_64-linux-debug-llvm"
-export CCACHE_MAXSIZE="5G"
-export CCACHE_COMPRESS="1"
-if command -v ccache >/dev/null 2>&1; then
-  export CC="ccache $ZIG cc -target $TARGET -mcpu=$MCPU"
-  export CXX="ccache $ZIG c++ -target $TARGET -mcpu=$MCPU"
-else
-  export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-  export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
-fi
-
 mkdir build-debug-llvm
 cd build-debug-llvm
+
+export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-debug" \
@@ -60,7 +51,7 @@ stage3-debug/bin/zig build \
 stage3-debug/bin/zig build test docs \
   --maker-opt=Debug \
   --maxrss ${ZSF_MAX_RSS:-0} \
-  -Dlldb=$HOME/deps/lldb-zig/Debug-e0a42bb34/bin/lldb \
+  -Dlldb=$HOME/deps/lldb-zig/Debug-33ec8d3c11/bin/lldb \
   -Dlibc-test-path=$HOME/deps/libc-test-f2bac77 \
   -fqemu \
   --libc-runtimes $HOME/deps/glibc-2.43-musl-1.2.5 \

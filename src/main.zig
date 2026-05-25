@@ -1847,7 +1847,7 @@ fn buildOutputType(
                             .extra_flags = try arena.dupe([]const u8, extra_rcflags.items),
                         });
                     },
-                    .zig, .sig => {
+                    .zig => {
                         if (root_src_file) |other| {
                             fatal("found another zig file '{s}' after root source file '{s}'", .{ arg, other });
                         } else root_src_file = arg;
@@ -1980,7 +1980,7 @@ fn buildOutputType(
                                 .src_path = it.only_arg,
                             });
                         },
-                        .zig, .sig => {
+                        .zig => {
                             if (root_src_file) |other| {
                                 fatal("found another zig file '{s}' after root source file '{s}'", .{ it.only_arg, other });
                             } else root_src_file = it.only_arg;

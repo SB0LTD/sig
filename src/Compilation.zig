@@ -4870,7 +4870,7 @@ fn docsCopyModule(
     while (try walker.next(io)) |entry| {
         switch (entry.kind) {
             .file => {
-                if (!std.mem.endsWith(u8, entry.basename, ".zig") and !std.mem.endsWith(u8, entry.basename, ".sig")) continue;
+                if (!std.mem.endsWith(u8, entry.basename, ".zig")) continue;
                 if (std.mem.eql(u8, entry.basename, "test.zig")) continue;
                 if (std.mem.endsWith(u8, entry.basename, "_test.zig")) continue;
             },
@@ -6938,7 +6938,6 @@ pub const FileExt = enum {
     object,
     static_library,
     zig,
-    sig, // [sig] New variant — same pipeline as zig, strict diagnostics
     def,
     rc,
     res,
@@ -6965,7 +6964,6 @@ pub const FileExt = enum {
             .object,
             .static_library,
             .zig,
-            .sig,
             .def,
             .rc,
             .res,
@@ -6985,7 +6983,6 @@ pub const FileExt = enum {
             .object,
             .static_library,
             .zig,
-            .sig,
             .def,
             .rc,
             .res,
@@ -7006,7 +7003,6 @@ pub const FileExt = enum {
             .object,
             .static_library,
             .zig,
-            .sig,
             .def,
             .rc,
             .res,
@@ -7034,7 +7030,6 @@ pub const FileExt = enum {
             .object => target.ofmt.fileExt(target.cpu.arch),
             .static_library => target.staticLibSuffix(),
             .zig => ".zig",
-            .sig => ".sig",
             .def => ".def",
             .rc => ".rc",
             .res => ".res",
@@ -7150,10 +7145,6 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .assembly;
     } else if (mem.endsWith(u8, filename, ".S")) {
         return .assembly_with_cpp;
-    } else if (mem.endsWith(u8, filename, ".sig")) {
-        // [sig] Exclude .sig.zon (handled as zon manifest)
-        if (mem.endsWith(u8, filename, ".sig.zon")) return .unknown;
-        return .sig;
     } else if (mem.endsWith(u8, filename, ".zig")) {
         return .zig;
     } else if (hasSharedLibraryExt(filename)) {
@@ -7186,10 +7177,6 @@ test "classifyFileExt" {
     try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2.3"));
     try std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.so.1.2.3~"));
     try std.testing.expectEqual(FileExt.zig, classifyFileExt("foo.zig"));
-    try std.testing.expectEqual(FileExt.sig, classifyFileExt("foo.sig")); // [sig]
-    try std.testing.expectEqual(FileExt.sig, classifyFileExt("build.sig")); // [sig]
-    try std.testing.expectEqual(FileExt.unknown, classifyFileExt("build.sig.zon")); // [sig]
-    try std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.sig.zon")); // [sig]
 }
 
 fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const u8) !Cache.Path {

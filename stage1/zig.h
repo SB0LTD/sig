@@ -3,25 +3,6 @@
 #include <stdarg.h>
 #include <stddef.h>
 
-/* Windows UCRT defines 'environ' as a macro expanding to (*__p__environ()),
-   which collides with struct fields named 'environ' in generated C code.
-   Include stdlib.h only on Windows to get the macro, then undef it. */
-#if defined(_WIN32) || defined(_MSC_VER)
-#include <stdlib.h>
-#include <malloc.h>
-#ifdef environ
-#undef environ
-#endif
-#ifdef _environ
-#undef _environ
-#endif
-/* zig2.c declares: zig_extern uintptr_t _msize(void const *a0);
-   UCRT declares:   size_t __cdecl _msize(void *_Block);
-   Redirect zig2.c's _msize to a compatible wrapper. */
-static inline uintptr_t zig__msize_wrapper(void const *p) { return (uintptr_t)_msize((void*)p); }
-#define _msize zig__msize_wrapper
-#endif
-
 #if defined(_MSC_VER)
 #define zig_msvc
 #elif defined(__clang__)
@@ -173,13 +154,7 @@ static inline uintptr_t zig__msize_wrapper(void const *p) { return (uintptr_t)_m
 #define zig_has_attribute(attribute) 0
 #endif
 
-/* On Windows with MSVC ABI, the old zig1.wasm generates struct size assertions
-   that don't account for MSVC's stricter alignment padding. The struct definitions
-   themselves are correct — only the size assertions are wrong. Suppress them on
-   Windows until zig1.wasm is regenerated with MSVC-aware struct layout. */
-#if defined(_WIN32) && (defined(_MSC_VER) || defined(__clang__))
-#define zig_static_assert(cond, msg) /* suppressed on Windows — MSVC ABI padding mismatch */
-#elif __STDC_VERSION__ >= 201112L
+#if __STDC_VERSION__ >= 201112L
 #define zig_static_assert(cond, msg) _Static_assert(cond, msg)
 #elif zig_has_attribute(unused)
 #define zig_static_assert(cond, _) typedef char zig_expand_concat(zig_static_assert_fail_, __LINE__)[!!(cond)] __attribute__((unused))
@@ -3994,13 +3969,6 @@ zig_common_float_builtins(32)
 zig_common_float_builtins(64)
 zig_common_float_builtins(80)
 zig_common_float_builtins(128)
-
-/* On Windows without native f16/f80, the extern declarations from
-   zig_common_float_builtins are unresolved. The bootstrap zig2 never
-   calls these at runtime — they exist only because the C backend emits
-   references for all target float types. Provide no-op stubs via a
-   separate .c file or weak symbols. For the bootstrap, we use the
-   linker's /FORCE:MULTIPLE to ignore these. */
 
 #define zig_float_builtins(w) \
     zig_convert_builtin( int32_t,  int32_t, fix,     zig_f##w, zig_f##w, ) \
