@@ -785,7 +785,10 @@ pub fn addWatchInput(step: *Step, maker: *Maker, arena: Allocator, lazy_file: La
             const pkg_path = try maker.packagePath(arena, source_path.owner, sub_path);
             try addWatchInputPath(step, maker, pkg_path);
         },
-        .relative => |relative| try addWatchInputPath(step, maker, maker.relativePath(relative)),
+        .relative => |relative| {
+            const resolved_path = try maker.relativePath(arena, relative);
+            try addWatchInputPath(step, maker, resolved_path);
+        },
         // Nothing to watch because this dependency edge is modeled instead via `dependants`.
         .generated => {},
     }
@@ -799,16 +802,19 @@ pub fn addWatchInput(step: *Step, maker: *Maker, arena: Allocator, lazy_file: La
 /// `addDirectoryWatchInputFromPath` if and only if this function returns
 /// `true`.
 pub fn addDirectoryWatchInput(step: *Step, maker: *Maker, lazy_directory: LazyPath) Allocator.Error!bool {
+    const graph = maker.graph;
+    const arena = graph.arena; // TODO don't leak into the process arena
     switch (lazy_directory) {
         .source_path => |source_path| {
             const conf = &maker.scanned_config.configuration;
-            const graph = maker.graph;
-            const arena = graph.arena; // TODO don't leak into the process arena
             const sub_path = source_path.sub_path.slice(conf);
             const pkg_path = try maker.packagePath(arena, source_path.owner, sub_path);
             try addDirectoryWatchInputFromPath(step, maker, pkg_path);
         },
-        .relative => |relative| try addDirectoryWatchInputFromPath(step, maker, maker.relativePath(relative)),
+        .relative => |relative| {
+            const resolved_path = try maker.relativePath(arena, relative);
+            try addDirectoryWatchInputFromPath(step, maker, resolved_path);
+        },
         // Nothing to watch because this dependency edge is modeled instead via `dependants`.
         .generated => return false,
     }

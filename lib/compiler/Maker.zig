@@ -1706,7 +1706,7 @@ pub fn resolveLazyPath(
     const c = &maker.scanned_config.configuration;
     return switch (lazy_path) {
         .source_path => |sp| try packagePath(maker, arena, sp.owner, sp.sub_path.slice(c)),
-        .relative => |relative| relativePath(maker, relative),
+        .relative => |relative| relativePath(maker, arena, relative),
         .generated => |gen| {
             const base = generatedPath(maker, gen.index).*;
             var file_path = base;
@@ -1785,11 +1785,10 @@ pub fn packagePath(
     };
 }
 
-pub fn relativePath(maker: *const Maker, relative: Configuration.LazyPath.Relative) Path {
+pub fn relativePath(maker: *const Maker, arena: Allocator, relative: Configuration.LazyPath.Relative) Allocator.Error!Path {
     const graph = maker.graph;
     const c = &maker.scanned_config.configuration;
     const sub_path = relative.sub_path.slice(c);
-    if (relative.flags.base == .zig_exe and sub_path.len != 0) @panic("TODO relativePath zig_exe");
     return switch (relative.flags.base) {
         .cwd => .{
             .root_dir = .cwd(),
@@ -1809,7 +1808,10 @@ pub fn relativePath(maker: *const Maker, relative: Configuration.LazyPath.Relati
         },
         .zig_exe => .{
             .root_dir = .cwd(),
-            .sub_path = graph.zig_exe,
+            .sub_path = if (sub_path.len == 0)
+                graph.zig_exe
+            else
+                try Io.Dir.path.join(arena, &.{ graph.zig_exe, sub_path }),
         },
         .zig_lib => .{
             .root_dir = graph.zig_lib_directory,
