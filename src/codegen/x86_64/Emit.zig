@@ -850,8 +850,12 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             emit.atom_id,
             end_offset - 4,
             target.symbol,
-            reloc.off,
-            .{ .X86_64 = .@"32S" },
+            if (emit.pic) reloc.off - 4 else reloc.off,
+            .{ .X86_64 = rt: {
+                if (!emit.pic) break :rt .@"32S";
+                if (target.is_extern and !target.force_pcrel_direct) break :rt .GOTPCREL;
+                break :rt .PC32;
+            } },
         ) else if (emit.bin_file.cast(.coff2)) |coff| try coff.addReloc(
             @enumFromInt(@intFromEnum(emit.atom_id)),
             end_offset - 4,
