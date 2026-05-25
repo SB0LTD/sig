@@ -69,6 +69,7 @@ jobs:
           SIG_OWNED=(
             README.md CHANGELOG.md build.sig
             stage1/config.zig.in
+            .gitignore bootstrap.ps1 CMakeLists.txt
           )
           # Directories we own — on conflict, keep ours
           SIG_OWNED_DIRS=(
