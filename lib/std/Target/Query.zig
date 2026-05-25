@@ -533,9 +533,8 @@ pub fn serializeCpuAlloc(q: Query, ally: Allocator) Allocator.Error![]u8 {
     return buffer.toOwnedSlice();
 }
 
+/// Deprecated; use `zigTriple` instead. Will be removed in 0.18.0.
 pub fn allocDescription(self: Query, allocator: Allocator) ![]u8 {
-    // TODO is there anything else worthy of the description that is not
-    // already captured in the triple?
     return self.zigTriple(allocator);
 }
 
