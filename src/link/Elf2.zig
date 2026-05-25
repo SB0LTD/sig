@@ -2847,6 +2847,14 @@ fn mapInputSection(elf: *Elf, opts: struct {
         assert(!elf.base.comp.config.any_non_single_threaded);
         return error.TlsSectionUnavailable;
     }
+
+    if (elf.base.comp.config.debug_format == .strip and
+        std.mem.startsWith(u8, opts.name, ".debug_") and
+        !opts.flags.ALLOC)
+    {
+        return error.StripSection;
+    }
+
     const name: []const u8 = switch (elf.ehdrField(.type)) {
         .NONE, .CORE, _ => unreachable,
         .REL => opts.name,
@@ -2971,6 +2979,7 @@ fn navMapIndex(elf: *Elf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Node.NavM
                 })) |shndx| {
                     break :section shndx;
                 } else |err| switch (err) {
+                    error.StripSection,
                     error.TlsSectionUnavailable,
                     error.UnsupportedSectionFlags,
                     error.SectionTypeConflict,
@@ -3271,6 +3280,7 @@ fn loadObject(
                             .addralign = section.shdr.addralign,
                             .entsize = section.shdr.entsize,
                         }) catch |err| switch (err) {
+                            error.StripSection => continue,
                             error.TlsSectionUnavailable => return diags.failParse(
                                 path,
                                 "thread-local storage section '{s}' is incompatible with '-fsingle-threaded'",
