@@ -73,7 +73,7 @@ comptime {
     // Common cache line size is 128. This check prevents accidentally crossing
     // an additional cache line. In the future it might be nice to try to fit
     // this struct in 128 bytes or less.
-    assert(@sizeOf(@This()) <= 128 * 3);
+    if (std.atomic.cache_line <= 128) assert(@sizeOf(@This()) <= 128 * 3);
 }
 
 pub const Extended = union(enum) {
