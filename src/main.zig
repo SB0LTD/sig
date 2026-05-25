@@ -4944,7 +4944,6 @@ fn cmdBuild(
     var override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
     var override_local_cache_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_CACHE_DIR.get(environ_map);
     var override_pkg_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_PKG_DIR.get(environ_map);
-    var override_make_runner: ?[]const u8 = EnvVar.ZIG_BUILD_RUNNER.get(environ_map);
     var maker_optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet(environ_map))
         .Debug
     else
@@ -5073,11 +5072,6 @@ fn cmdBuild(
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     override_lib_dir = args[i];
-                    continue;
-                } else if (mem.eql(u8, arg, "--build-runner")) {
-                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
-                    i += 1;
-                    override_make_runner = args[i];
                     continue;
                 } else if (mem.eql(u8, arg, "--cache-dir")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
@@ -5365,10 +5359,7 @@ fn cmdBuild(
             // We want to release all the locks before executing the child process, so we make a nice
             // big block here to ensure the cleanup gets run when we extract out our argv.
             {
-                const main_mod_paths: Package.Module.CreateOptions.Paths = if (override_make_runner) |runner| .{
-                    .root = try .fromUnresolved(arena, dirs, &.{fs.path.dirname(runner) orelse "."}),
-                    .root_src_path = fs.path.basename(runner),
-                } else .{
+                const main_mod_paths: Package.Module.CreateOptions.Paths = .{
                     .root = try .fromRoot(arena, dirs, .zig_lib, "compiler"),
                     .root_src_path = "configurer.zig",
                 };
