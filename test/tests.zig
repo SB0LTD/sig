@@ -1364,6 +1364,24 @@ const module_test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .riscv32,
+                .os_tag = .netbsd,
+                .abi = .none,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .netbsd,
+                .abi = .none,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .x86,
                 .os_tag = .netbsd,
                 .abi = .none,
