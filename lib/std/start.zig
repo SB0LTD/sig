@@ -183,6 +183,7 @@ fn _start() callconv(.naked) noreturn {
             .sparc, .sparc64 => ".cfi_undefined %%i7",
             .x86 => ".cfi_undefined %%eip",
             .x86_64 => ".cfi_undefined %%rip",
+            .xtensa, .xtensaeb => "", // No CFI support.
             else => @compileError("unsupported arch"),
         });
 
@@ -485,6 +486,15 @@ fn _start() callconv(.naked) noreturn {
             \\ and %%sp, -16, %%sp
             \\ sub %%sp, 2047, %%sp
             \\ ba,a %[posixCallMainAndExit]
+            ,
+            .xtensa, .xtensaeb =>
+            // a0 = LR, a7 = FP, a1 = SP
+            \\ movi a0, 0
+            \\ movi a7, 0
+            \\ mov a2, sp
+            \\ movi a8, -16
+            \\ and sp, sp, a8
+            \\ callx0 %[posixCallMainAndExit]
             ,
             else => @compileError("unsupported arch"),
         }
