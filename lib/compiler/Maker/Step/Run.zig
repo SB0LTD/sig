@@ -1823,8 +1823,7 @@ fn runCommand(
                 }
                 const root_module = producer.root_module.get(conf);
                 const root_module_target = root_module.resolved_target.get(conf).?.result.get(conf);
-                const other_target_query = root_module_target.unwrap(conf);
-                const root_target = std.zig.system.resolveTargetQuery(io, other_target_query) catch unreachable;
+                const root_target = root_module_target.unwrapTarget(conf);
                 const link_libc = maker.stepByIndex(producer_index).extended.compile.is_linking_libc;
 
                 const host: std.Target = std.zig.system.resolveTargetQuery(io, .{}) catch |he| switch (he) {

@@ -1291,10 +1291,8 @@ fn appendModuleFlags(
 
     if (m.resolved_target.get(conf)) |resolved_target| {
         // Communicate the query via CLI since it's more compact.
-        if (resolved_target.query.get(conf)) |compact_query| {
+        if (resolved_target.unwrapQuery(conf)) |query| {
             try zig_args.ensureUnusedCapacity(gpa, 6);
-
-            const query = compact_query.unwrap(conf);
 
             zig_args.appendAssumeCapacity("-target");
             zig_args.appendAssumeCapacity(try query.zigTriple(arena));

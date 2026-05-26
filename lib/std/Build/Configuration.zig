@@ -2144,6 +2144,33 @@ pub const ResolvedTarget = struct {
             return (unwrap(this) orelse return null).get(c);
         }
     };
+
+    pub fn unwrapQuery(rt: *const ResolvedTarget, c: *const Configuration) ?std.Target.Query {
+        const tq = rt.query.get(c) orelse return null;
+        const cpu_arch = tq.flags.cpu_arch.unwrap() orelse rt.result.get(c).flags.cpu_arch.unwrap().?;
+        return .{
+            .cpu_arch = cpu_arch,
+            .cpu_model = switch (tq.flags.cpu_model) {
+                .native => .native,
+                .baseline => .baseline,
+                .determined_by_arch_os => .determined_by_arch_os,
+                .explicit => .{ .explicit = cpu_arch.parseCpuModel(tq.cpu_name.value.?.slice(c)).? },
+            },
+            .cpu_features_add = tq.cpu_features_add.value orelse .empty,
+            .cpu_features_sub = tq.cpu_features_sub.value orelse .empty,
+            .os_tag = tq.flags.os_tag.unwrap(),
+            .os_version_min = tq.os_version_min.u.unwrap(c),
+            .os_version_max = tq.os_version_max.u.unwrap(c),
+            .glibc_version = if (tq.glibc_version.value) |s|
+                std.SemanticVersion.parse(s.slice(c)) catch unreachable
+            else
+                null,
+            .android_api_level = tq.android_api_level.value,
+            .abi = tq.flags.abi.unwrap(),
+            .dynamic_linker = if (tq.dynamic_linker.value) |s| .init(s.slice(c)) else null,
+            .ofmt = tq.flags.object_format.unwrap(),
+        };
+    }
 };
 
 pub const TargetQuery = struct {
@@ -2731,29 +2758,50 @@ pub const TargetQuery = struct {
         dynamic_linker: bool,
     };
 
-    pub fn unwrap(tq: *const TargetQuery, c: *const Configuration) std.Target.Query {
-        const cpu_arch = tq.flags.cpu_arch.unwrap();
+    pub fn unwrapTarget(tq: *const TargetQuery, c: *const Configuration) std.Target {
+        const cpu_arch = tq.flags.cpu_arch.unwrap().?;
+        const os_tag = tq.flags.os_tag.unwrap().?;
         return .{
-            .cpu_arch = cpu_arch,
-            .cpu_model = switch (tq.flags.cpu_model) {
-                .native => .native,
-                .baseline => .baseline,
-                .determined_by_arch_os => .determined_by_arch_os,
-                .explicit => .{ .explicit = cpu_arch.?.parseCpuModel(tq.cpu_name.value.?.slice(c)).? },
+            .cpu = .{
+                .arch = cpu_arch,
+                .model = cpu_arch.parseCpuModel(tq.cpu_name.value.?.slice(c)).?,
+                .features = tq.cpu_features_add.value.?,
             },
-            .cpu_features_add = tq.cpu_features_add.value orelse .empty,
-            .cpu_features_sub = tq.cpu_features_sub.value orelse .empty,
-            .os_tag = tq.flags.os_tag.unwrap(),
-            .os_version_min = tq.os_version_min.u.unwrap(c),
-            .os_version_max = tq.os_version_max.u.unwrap(c),
-            .glibc_version = if (tq.glibc_version.value) |s|
-                std.SemanticVersion.parse(s.slice(c)) catch unreachable
-            else
-                null,
-            .android_api_level = tq.android_api_level.value,
-            .abi = tq.flags.abi.unwrap(),
-            .dynamic_linker = if (tq.dynamic_linker.value) |s| .init(s.slice(c)) else null,
-            .ofmt = tq.flags.object_format.unwrap(),
+            .os = .{
+                .tag = os_tag,
+                .version_range = switch (os_tag) {
+                    .linux => .{ .linux = .{
+                        .range = .{
+                            .min = tq.os_version_min.u.unwrap(c).?.semver,
+                            .max = tq.os_version_max.u.unwrap(c).?.semver,
+                        },
+                        .glibc = std.SemanticVersion.parse(tq.glibc_version.value.?.slice(c)) catch unreachable,
+                        .android = tq.android_api_level.value.?,
+                    } },
+                    .hurd => .{ .hurd = .{
+                        .range = .{
+                            .min = tq.os_version_min.u.unwrap(c).?.semver,
+                            .max = tq.os_version_max.u.unwrap(c).?.semver,
+                        },
+                        .glibc = std.SemanticVersion.parse(tq.glibc_version.value.?.slice(c)) catch unreachable,
+                    } },
+                    .windows => .{ .windows = .{
+                        .min = tq.os_version_min.u.unwrap(c).?.windows,
+                        .max = tq.os_version_max.u.unwrap(c).?.windows,
+                    } },
+                    else => switch (tq.os_version_min.u.unwrap(c).?) {
+                        .none => .{ .none = {} },
+                        .semver => |min| .{ .semver = .{
+                            .min = min,
+                            .max = tq.os_version_max.u.unwrap(c).?.semver,
+                        } },
+                        .windows => unreachable,
+                    },
+                },
+            },
+            .abi = tq.flags.abi.unwrap().?,
+            .ofmt = tq.flags.object_format.unwrap().?,
+            .dynamic_linker = .init(if (tq.dynamic_linker.value) |s| s.slice(c) else null),
         };
     }
 };

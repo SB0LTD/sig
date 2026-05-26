@@ -65,6 +65,18 @@ pub const Color = enum {
             .off => .no_color,
         };
     }
+
+    /// Determine the preference for color or no color based on the NO_COLOR and
+    /// CLICOLOR_FORCE environment variables. Color is always disabled on WASI per
+    /// https://github.com/WebAssembly/WASI/issues/162
+    pub fn settingFromEnvironment(environ_map: *const std.process.Environ.Map) Color {
+        return if (@import("builtin").os.tag == .wasi or EnvVar.NO_COLOR.isSet(environ_map))
+            .off
+        else if (EnvVar.CLICOLOR_FORCE.isSet(environ_map))
+            .on
+        else
+            .auto;
+    }
 };
 
 /// There are many assumptions in the entire codebase that Zig source files can

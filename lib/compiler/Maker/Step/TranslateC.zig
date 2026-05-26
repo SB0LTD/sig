@@ -40,10 +40,11 @@ pub fn make(
     argv.appendAssumeCapacity("--global-cache-dir");
     argv.appendAssumeCapacity(graph.global_cache_root.path orelse ".");
 
-    if (conf_tc.target.get(conf).?.query.unwrap()) |compact_query| {
-        const query = compact_query.get(conf).unwrap(conf);
-        argv.appendAssumeCapacity("-target");
-        argv.appendAssumeCapacity(try query.zigTriple(arena));
+    if (conf_tc.target.get(conf)) |resolved_target| {
+        if (resolved_target.unwrapQuery(conf)) |query| {
+            argv.appendAssumeCapacity("-target");
+            argv.appendAssumeCapacity(try query.zigTriple(arena));
+        }
     }
 
     switch (conf_tc.flags.optimize) {
