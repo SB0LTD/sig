@@ -2579,6 +2579,20 @@ const signal_ucontext_t = switch (native_os) {
                 r: [15]u32 align(8),
                 pc: u32,
             },
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/hppa/include/mcontext.h
+            .hppa => extern struct {
+                r1_19: [19]u32 align(8),
+                r20: u32,
+                r21: u32,
+                r22: u32,
+                r23_29: [7]u32,
+                r30: u32,
+                r31: u32,
+                _sar: u32,
+                _pcsqh: u32,
+                _pcsqt: u32,
+                iaoq: [2]u32,
+            },
             // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/m68k/include/mcontext.h
             .m68k => extern struct {
                 d: [8]u32,
