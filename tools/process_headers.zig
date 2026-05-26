@@ -93,7 +93,6 @@ const netbsd_targets = [_]LibCTarget{
     .{ .arch = .m68k, .abi = .none },
     .{ .arch = .mips, .abi = .eabi, .dest = "mips-netbsd-eabi" },
     .{ .arch = .mips, .abi = .eabihf, .dest = "mips-netbsd-eabi" },
-    .{ .arch = .powerpc, .abi = .eabi, .dest = "powerpc-netbsd-eabi" },
     .{ .arch = .powerpc, .abi = .eabihf, .dest = "powerpc-netbsd-eabi" },
     .{ .arch = .sparc, .abi = .none },
     .{ .arch = .sparc64, .abi = .none },

@@ -78,7 +78,6 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .mips64el, .os = .openbsd, .abi = .none, .os_ver = .{ .major = 4, .minor = 7, .patch = 0 } },
     .{ .arch = .powerpc, .os = .linux, .abi = .musleabi, .os_ver = .{ .major = 1, .minor = 3, .patch = 45 } },
     .{ .arch = .powerpc, .os = .linux, .abi = .musleabihf, .os_ver = .{ .major = 1, .minor = 3, .patch = 45 } },
-    .{ .arch = .powerpc, .os = .netbsd, .abi = .eabi, .os_ver = .{ .major = 6, .minor = 0, .patch = 0 } },
     .{ .arch = .powerpc, .os = .netbsd, .abi = .eabihf, .os_ver = .{ .major = 1, .minor = 4, .patch = 0 } },
     .{ .arch = .powerpc, .os = .openbsd, .abi = .eabihf, .os_ver = .{ .major = 2, .minor = 8, .patch = 0 } },
     .{ .arch = .powerpc64, .os = .freebsd, .abi = .none, .os_ver = .{ .major = 8, .minor = 0, .patch = 0 } },
