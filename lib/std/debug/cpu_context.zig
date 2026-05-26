@@ -2602,6 +2602,16 @@ const signal_ucontext_t = switch (native_os) {
                 lr: u32,
                 pc: u32,
             },
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/riscv/include/mcontext.h
+            .riscv32, .riscv64 => extern struct {
+                ra_sp_gp_tp: [4]usize align(8),
+                t0_2: [3]usize,
+                s0_1: [2]usize,
+                a: [8]usize,
+                s2_11: [10]usize,
+                t3_6: [4]usize,
+                pc: usize,
+            },
             // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/sparc/include/mcontext.h
             .sparc => @compileError("sparc-netbsd mcontext_t missing"),
             .sparc64 => @compileError("sparc64-netbsd mcontext_t missing"),
