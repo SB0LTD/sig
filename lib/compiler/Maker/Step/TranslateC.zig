@@ -53,7 +53,7 @@ pub fn make(
 
     try argv.ensureUnusedCapacity(arena, conf_tc.include_dirs.len * 2);
     for (0..conf_tc.include_dirs.len) |i|
-        try Step.Compile.appendIncludeDirFlags(conf_tc.include_dirs.get(conf.extra, i), &argv, step_index, maker);
+        try Step.Compile.appendIncludeDirFlags(arena, conf_tc.include_dirs.get(conf.extra, i), &argv, step_index, maker);
 
     for (conf_tc.c_macros.slice) |c_macro| {
         (try argv.addManyAsArray(arena, 2)).* = .{ "-D", c_macro.slice(conf) };

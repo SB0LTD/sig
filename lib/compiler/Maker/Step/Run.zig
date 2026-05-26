@@ -1605,10 +1605,7 @@ pub fn rerunInFuzzMode(
         argv_list.appendAssumeCapacity("--listen=-");
     }
 
-    if (step.result_failed_command) |cmd| {
-        gpa.free(cmd);
-        step.result_failed_command = null;
-    }
+    step.clearFailedCommand(gpa);
 
     const has_side_effects = false;
     var rand_int: u64 = undefined;
@@ -1930,8 +1927,7 @@ fn runCommand(
                     },
                 }
 
-                gpa.free(step.result_failed_command.?);
-                step.result_failed_command = null;
+                step.clearFailedCommand(gpa);
                 try graph.handleVerbose(cwd_string, &environ_map, interp_argv.items);
 
                 break :term spawnChildAndCollect(
@@ -2138,7 +2134,7 @@ fn spawnChildAndCollect(
         .inherit;
 
     // If an error occurs, it's caused by this command:
-    assert(step.result_failed_command == null);
+    step.clearFailedCommand(gpa);
     step.result_failed_command = try std.zig.allocPrintCmd(gpa, argv, .{
         .cwd = switch (child_cwd) {
             .path => |p| p,

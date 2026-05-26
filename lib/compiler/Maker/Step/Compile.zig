@@ -19,8 +19,6 @@ const PkgConfig = @import("../PkgConfig.zig");
 /// Populated when there is compiler process that lives across multiple calls
 /// to `make`.
 zig_process: ?*Step.ZigProcess = null,
-/// Persisted to reuse memory on subsequent calls to `make`.
-zig_args: std.ArrayList([]const u8) = .empty,
 /// Populated by InstallArtifact.
 installed_path: ?Path = null,
 /// Populated by `make`, used by `Run`.
@@ -33,25 +31,29 @@ pub fn make(
     progress_node: std.Progress.Node,
 ) Step.ExtendedMakeError!void {
     const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into process arena
+    const gpa = maker.gpa;
     const conf = &maker.scanned_config.configuration;
     const conf_step = compile_index.ptr(conf);
     const conf_comp = conf_step.extended.get(conf.extra).compile;
 
-    // Reset / repopulate persistent state.
-    compile.zig_args.clearRetainingCapacity();
+    var arena_allocator: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
 
-    try lowerZigArgs(compile, compile_index, maker, progress_node, &compile.zig_args, false);
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(gpa);
+
+    try lowerZigArgs(arena, compile, compile_index, maker, progress_node, &argv, false);
 
     const maybe_output_dir = Step.evalZigProcess(
         compile_index,
         maker,
-        compile.zig_args.items,
+        argv.items,
         progress_node,
         (graph.incremental == true) and (maker.watch or maker.web_server != null),
     ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
-            try checkCompileErrors(maker, compile_index);
+            try checkCompileErrors(arena, maker, compile_index);
             return;
         },
         else => |e| return e,
@@ -63,14 +65,14 @@ pub fn make(
     // Update generated files
     if (maybe_output_dir) |output_dir| {
         if (conf_comp.emit_directory.value) |gf| maker.generatedPath(gf).* = output_dir;
-        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_bin.value, .bin);
-        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_pdb.value, .pdb);
-        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_implib.value, .implib);
-        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_h.value, .h);
-        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_docs.value, .docs);
-        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_asm.value, .@"asm");
-        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_llvm_ir.value, .llvm_ir);
-        try updateGeneratedFile(&conf_comp, maker, output_dir, &target, conf_comp.generated_llvm_bc.value, .llvm_bc);
+        try updateGeneratedFile(maker, arena, &conf_comp, output_dir, &target, conf_comp.generated_bin.value, .bin);
+        try updateGeneratedFile(maker, arena, &conf_comp, output_dir, &target, conf_comp.generated_pdb.value, .pdb);
+        try updateGeneratedFile(maker, arena, &conf_comp, output_dir, &target, conf_comp.generated_implib.value, .implib);
+        try updateGeneratedFile(maker, arena, &conf_comp, output_dir, &target, conf_comp.generated_h.value, .h);
+        try updateGeneratedFile(maker, arena, &conf_comp, output_dir, &target, conf_comp.generated_docs.value, .docs);
+        try updateGeneratedFile(maker, arena, &conf_comp, output_dir, &target, conf_comp.generated_asm.value, .@"asm");
+        try updateGeneratedFile(maker, arena, &conf_comp, output_dir, &target, conf_comp.generated_llvm_ir.value, .llvm_ir);
+        try updateGeneratedFile(maker, arena, &conf_comp, output_dir, &target, conf_comp.generated_llvm_bc.value, .llvm_bc);
     }
 
     if (conf_comp.flags3.kind == .lib and conf_comp.flags2.linkage == .dynamic and
@@ -84,8 +86,9 @@ pub fn make(
 }
 
 fn updateGeneratedFile(
-    conf_comp: *const Configuration.Step.Compile,
     maker: *Maker,
+    arena: Allocator,
+    conf_comp: *const Configuration.Step.Compile,
     out_path: std.Build.Cache.Path,
     target: *const Configuration.TargetQuery,
     opt_gf: ?Configuration.GeneratedFileIndex,
@@ -94,7 +97,6 @@ fn updateGeneratedFile(
     const gf = opt_gf orelse return;
     const graph = maker.graph;
     const conf = &maker.scanned_config.configuration;
-    const arena = graph.arena; // TODO don't leak into process arena
     const name = try ea.cacheName(arena, .{
         .root_name = conf_comp.root_name.slice(conf),
         .cpu_arch = target.flags.cpu_arch.unwrap().?,
@@ -112,7 +114,7 @@ fn updateGeneratedFile(
         else
             null,
     });
-    maker.generatedPath(gf).* = try out_path.join(arena, name);
+    maker.generatedPath(gf).* = try out_path.join(graph.arena, name);
 }
 
 /// List of importable modules in a compilation's module graph, including
@@ -147,6 +149,7 @@ const ModuleListContext = struct {
 };
 
 fn lowerZigArgs(
+    arena: Allocator,
     compile: *Compile,
     compile_index: Configuration.Step.Index,
     maker: *Maker,
@@ -156,7 +159,6 @@ fn lowerZigArgs(
 ) Step.ExtendedMakeError!void {
     const step = maker.stepByIndex(compile_index);
     const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into the process arena
     const gpa = maker.gpa;
     const conf = &maker.scanned_config.configuration;
     const conf_step = compile_index.ptr(conf);
@@ -508,7 +510,7 @@ fn lowerZigArgs(
                 if (cli_named_modules.modules.getIndex(mod_index)) |module_cli_index| {
                     const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
                     const module_index = cli_named_modules.modules.keys()[module_cli_index];
-                    try appendModuleFlags(module_index, zig_args, compile_index, maker);
+                    try appendModuleFlags(arena, module_index, zig_args, compile_index, maker);
 
                     const imports = mod.import_table.get(conf).imports.mal;
 
@@ -953,21 +955,23 @@ pub fn rebuildInFuzzMode(
     const gpa = maker.gpa;
     const step = maker.stepByIndex(compile_index);
 
+    var arena_allocator: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
     step.result_error_msgs.clearRetainingCapacity();
     step.result_stderr = "";
 
     step.result_error_bundle.deinit(gpa);
     step.result_error_bundle = std.zig.ErrorBundle.empty;
 
-    if (step.result_failed_command) |cmd| {
-        gpa.free(cmd);
-        step.result_failed_command = null;
-    }
+    step.clearFailedCommand(gpa);
 
-    const zig_args = &compile.zig_args;
-    zig_args.clearRetainingCapacity();
-    try lowerZigArgs(compile, compile_index, maker, progress_node, zig_args, true);
-    const maybe_output_bin_path = try Step.evalZigProcess(compile_index, maker, zig_args.items, progress_node, false);
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(gpa);
+
+    try lowerZigArgs(arena, compile, compile_index, maker, progress_node, &argv, true);
+    const maybe_output_bin_path = try Step.evalZigProcess(compile_index, maker, argv.items, progress_node, false);
     return maybe_output_bin_path.?;
 }
 
@@ -980,10 +984,8 @@ fn addFlag(gpa: Allocator, args: *std.ArrayList([]const u8), comptime name: []co
     try args.append(gpa, if (cond) "-f" ++ name else "-fno-" ++ name);
 }
 
-fn checkCompileErrors(maker: *Maker, step_index: Configuration.Step.Index) Step.ExtendedMakeError!void {
+fn checkCompileErrors(arena: Allocator, maker: *Maker, step_index: Configuration.Step.Index) Step.ExtendedMakeError!void {
     const step = maker.stepByIndex(step_index);
-    const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into the process arena
     const conf = &maker.scanned_config.configuration;
     const conf_step = step_index.ptr(conf);
     const conf_comp = conf_step.extended.get(conf.extra).compile;
@@ -1226,14 +1228,13 @@ fn getModuleList(
 }
 
 fn appendModuleFlags(
+    arena: Allocator,
     module_index: Configuration.Module.Index,
     zig_args: *std.ArrayList([]const u8),
     asking_step: Configuration.Step.Index,
     maker: *const Maker,
 ) !void {
     const gpa = maker.gpa;
-    const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into the process arena
     const conf = &maker.scanned_config.configuration;
     const m = module_index.get(conf);
 
@@ -1317,7 +1318,7 @@ fn appendModuleFlags(
 
     try zig_args.ensureUnusedCapacity(gpa, 2 * m.include_dirs.len);
     for (0..m.include_dirs.len) |i|
-        try appendIncludeDirFlags(m.include_dirs.get(conf.extra, i), zig_args, asking_step, maker);
+        try appendIncludeDirFlags(arena, m.include_dirs.get(conf.extra, i), zig_args, asking_step, maker);
 
     try zig_args.ensureUnusedCapacity(gpa, m.c_macros.slice.len);
     for (m.c_macros.slice) |c_macro|
@@ -1344,13 +1345,12 @@ fn appendModuleFlags(
 
 /// Assumes unused capacity for at least 2 items.
 pub fn appendIncludeDirFlags(
+    arena: Allocator,
     include_dir: Configuration.Module.IncludeDir,
     zig_args: *std.ArrayList([]const u8),
     asking_step: Configuration.Step.Index,
     maker: *const Maker,
 ) !void {
-    const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into the process arena
     const conf = &maker.scanned_config.configuration;
 
     switch (include_dir) {

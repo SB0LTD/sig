@@ -360,9 +360,11 @@ pub fn captureChildProcess(s: *Step, maker: *Maker, options: CaptureChildProcess
     return result;
 }
 
-fn clearFailedCommand(s: *Step, gpa: Allocator) void {
-    if (s.result_failed_command) |cmd| gpa.free(cmd);
-    s.result_failed_command = null;
+pub fn clearFailedCommand(s: *Step, gpa: Allocator) void {
+    if (s.result_failed_command) |cmd| {
+        gpa.free(cmd);
+        s.result_failed_command = null;
+    }
 }
 
 pub const FailError = error{ OutOfMemory, MakeFailed };
