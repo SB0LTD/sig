@@ -234,9 +234,8 @@ const Os = switch (builtin.os.tag) {
                                 posix.fanotify_mark(fan_fd, .{
                                     .ADD = true,
                                     .ONLYDIR = true,
-                                }, fan_mask, path.root_dir.handle.handle, path.subPathOrDot()) catch |err| {
-                                    fatal("unable to watch {f}: {s}", .{ path, @errorName(err) });
-                                };
+                                }, fan_mask, path.root_dir.handle.handle, path.subPathOrDot()) catch |err|
+                                    fatal("unable to watch {f}: {t}", .{ path, err });
                             }
                             break :rs &dh_gop.value_ptr.reaction_set;
                         }
@@ -289,7 +288,7 @@ const Os = switch (builtin.os.tag) {
                         .ONLYDIR = true,
                     }, fan_mask, path.root_dir.handle.handle, path.subPathOrDot()) catch |err| switch (err) {
                         error.FileNotFound => {}, // Expected, harmless.
-                        else => |e| std.log.warn("unable to unwatch '{f}': {s}", .{ path, @errorName(e) }),
+                        else => |e| std.log.warn("unable to unwatch {f}: {t}", .{ path, e }),
                     };
 
                     w.dir_table.swapRemoveAt(i);
