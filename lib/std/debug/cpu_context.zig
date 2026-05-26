@@ -2261,6 +2261,28 @@ const signal_ucontext_t = switch (native_os) {
                 pc: u64,
             },
             // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/x86/include/ucontext.h
+            .x86 => extern struct {
+                _onstack: i32 align(16),
+                _gs: i32,
+                _fs: i32,
+                _es: i32,
+                _ds: i32,
+                edi: u32,
+                esi: u32,
+                ebp: u32,
+                _isp: i32,
+                ebx: u32,
+                edx: u32,
+                ecx: u32,
+                eax: u32,
+                _trapno: i32,
+                _err: i32,
+                eip: u32,
+                _cs: i32,
+                _eflags: i32,
+                esp: u32,
+            },
+            // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/x86/include/ucontext.h
             .x86_64 => extern struct {
                 _onstack: i64 align(16),
                 rdi: u64,
