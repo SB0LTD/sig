@@ -2,6 +2,7 @@ const std = @import("std");
 const Io = std.Io;
 const mem = std.mem;
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 const Maker = @import("../Maker.zig");
 const Step = @import("Step.zig");
@@ -23,6 +24,7 @@ pub const Result = std.zig.PkgConfig.Parsed;
 pub fn run(
     maker: *Maker,
     step: *Step,
+    arena: Allocator,
     progress_node: std.Progress.Node,
     lib_name: []const u8,
     /// If true, reports failure error messages on step rather than returning
@@ -31,7 +33,6 @@ pub fn run(
 ) RunError!Result {
     const pc = &maker.pkg_config;
     const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into process arena
 
     const pkg_config_exe = getExe(graph);
     const pkgs = try getPkgs(maker, step, progress_node, force);
@@ -41,7 +42,7 @@ pub fn run(
     };
     const pkg = pkgs.all[found_index];
 
-    const stdout = try captureChildProcess(maker, step, .{
+    const stdout = try captureChildProcess(maker, step, arena, .{
         .argv = &.{ pkg_config_exe, pkg.name, "--cflags", "--libs" },
         .progress_node = progress_node,
         .allow_failure = !force,
@@ -69,11 +70,16 @@ fn getExe(graph: *const Graph) []const u8 {
     return std.zig.PkgConfig.exe(&graph.environ_map);
 }
 
-fn getPkgs(maker: *Maker, step: *Step, progress_node: std.Progress.Node, force: bool) RunError!std.zig.PkgConfig {
+fn getPkgs(
+    maker: *Maker,
+    step: *Step,
+    progress_node: std.Progress.Node,
+    force: bool,
+) RunError!std.zig.PkgConfig {
     const graph = maker.graph;
-    const arena = graph.arena; // TODO don't leak into process arena
     const io = graph.io;
     const pc = &maker.pkg_config;
+    const arena = graph.arena;
 
     try pc.mutex.lock(io);
     defer pc.mutex.unlock(io);
@@ -81,7 +87,7 @@ fn getPkgs(maker: *Maker, step: *Step, progress_node: std.Progress.Node, force: 
     if (pc.pkgs) |pkgs| return pkgs;
 
     const pkg_config_exe = getExe(graph);
-    const stdout = try captureChildProcess(maker, step, .{
+    const stdout = try captureChildProcess(maker, step, arena, .{
         .argv = &.{ pkg_config_exe, "--list-all" },
         .progress_node = progress_node,
         .allow_failure = !force,
@@ -102,11 +108,12 @@ fn getPkgs(maker: *Maker, step: *Step, progress_node: std.Progress.Node, force: 
     return result;
 }
 
-fn captureChildProcess(maker: *Maker, step: *Step, options: Step.CaptureChildProcessOptions) ![]const u8 {
-    const captured = step.captureChildProcess(maker, options) catch |err| switch (err) {
+fn captureChildProcess(maker: *Maker, step: *Step, arena: Allocator, options: Step.CaptureChildProcessOptions) ![]const u8 {
+    const captured = step.captureChildProcess(maker, arena, options) catch |err| switch (err) {
         error.FileNotFound => return error.PkgConfigUnavailable,
         else => |e| return e,
     };
+    if (captured.stderr.len != 0) try step.setResultStderr(maker.gpa, captured.stderr);
     assert(step.result_failed_command != null);
     if (captured.term.success()) return captured.stdout;
     if (!options.allow_failure) return step.fail(maker, "{s} {f}", .{ options.argv[0], captured.term });

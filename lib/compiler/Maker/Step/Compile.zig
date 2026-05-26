@@ -328,10 +328,10 @@ fn lowerZigArgs(
                                 const pkg_conf_node = progress_node.start("pkg-config", 0);
                                 defer pkg_conf_node.end();
 
-                                if (PkgConfig.run(maker, step, pkg_conf_node, system_lib_name, force)) |result| {
-                                    try zig_args.appendSlice(gpa, result.cflags);
-                                    try zig_args.appendSlice(gpa, result.libs);
-                                    try seen_system_libs.put(arena, system_lib.name, result.cflags);
+                                if (PkgConfig.run(maker, step, arena, pkg_conf_node, system_lib_name, force)) |pc| {
+                                    try zig_args.appendSlice(gpa, pc.cflags);
+                                    try zig_args.appendSlice(gpa, pc.libs);
+                                    try seen_system_libs.put(arena, system_lib.name, pc.cflags);
                                     break :l;
                                 } else |err| switch (err) {
                                     error.PkgConfigUnavailable,
@@ -960,8 +960,8 @@ pub fn rebuildInFuzzMode(
     const arena = arena_allocator.allocator();
 
     step.result_error_msgs.clearRetainingCapacity();
-    step.result_stderr = "";
-
+    step.clearResultStderr(gpa);
+    step.clearErrorBundle(gpa);
     step.result_error_bundle.deinit(gpa);
     step.result_error_bundle = std.zig.ErrorBundle.empty;
 

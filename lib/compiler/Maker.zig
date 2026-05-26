@@ -16,6 +16,7 @@ const fmt = std.fmt;
 const log = std.log;
 const mem = std.mem;
 const process = std.process;
+const Color = std.zig.Color;
 
 const Fuzz = @import("Maker/Fuzz.zig");
 const Graph = @import("Maker/Graph.zig");
@@ -55,12 +56,59 @@ error_style: ErrorStyle,
 multiline_errors: MultilineErrors,
 summary: Summary,
 
+var safe_allocator_instance: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
+var stdio_buffer_allocation: [256]u8 = undefined;
+var stdout_writer_allocation: Io.File.Writer = undefined;
+var debug_maker_leaks: bool = false;
+
+const is_debug_mode = builtin.mode == .Debug;
+const use_safe_allocator = switch (builtin.mode) {
+    .Debug, .ReleaseSafe => true,
+    .ReleaseFast, .ReleaseSmall => false,
+};
+
+const InstallPaths = struct {
+    prefix: Path,
+    lib: Path,
+    bin: Path,
+    include: Path,
+};
+
+const PrintNode = struct {
+    parent: ?*PrintNode,
+    last: bool = false,
+};
+
+const ErrorStyle = enum {
+    verbose,
+    minimal,
+    verbose_clear,
+    minimal_clear,
+    fn verboseContext(s: ErrorStyle) bool {
+        return switch (s) {
+            .verbose, .verbose_clear => true,
+            .minimal, .minimal_clear => false,
+        };
+    }
+    fn clearOnUpdate(s: ErrorStyle) bool {
+        return switch (s) {
+            .verbose, .minimal => false,
+            .verbose_clear, .minimal_clear => true,
+        };
+    }
+};
+const MultilineErrors = enum { indent, newline, none };
+const Summary = enum { all, new, failures, line, none };
+
 pub fn main(init: process.Init.Minimal) !void {
-    // The build runner is often short-lived, but thanks to `--watch` and `--webui`, that's not
-    // always the case. So, we do need a true gpa for some things.
-    var safe_gpa_state: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
-    defer _ = safe_gpa_state.deinit();
-    const gpa = safe_gpa_state.allocator();
+    // The build runner is long-lived in the following use cases:
+    // * `--watch` mode
+    // * `--webui` mode
+    // * A project that has a large, complex build graph.
+    const gpa = if (use_safe_allocator) safe_allocator_instance.allocator() else std.heap.smp_allocator;
+    defer if (use_safe_allocator) {
+        _ = safe_allocator_instance.deinit();
+    };
 
     var threaded: std.Io.Threaded = .init(gpa, .{
         .environ = init.environ,
@@ -689,13 +737,6 @@ fn countSubProcesses(maker: *Maker) usize {
     return count;
 }
 
-const InstallPaths = struct {
-    prefix: Path,
-    lib: Path,
-    bin: Path,
-    include: Path,
-};
-
 pub fn stepByIndex(maker: *const Maker, i: Configuration.Step.Index) *Step {
     return &maker.steps[@intFromEnum(i)];
 }
@@ -1018,6 +1059,7 @@ fn makeStepNames(
 fn deinit(maker: *Maker) void {
     const gpa = maker.gpa;
     for (maker.steps) |*step| {
+        step.clearResultStderr(gpa);
         step.clearFailedCommand(gpa);
         step.clearErrorBundle(gpa);
         step.inputs.deinit(gpa);
@@ -1424,11 +1466,6 @@ fn printStepFailure(
     }
 }
 
-const PrintNode = struct {
-    parent: ?*PrintNode,
-    last: bool = false,
-};
-
 fn printPrefix(node: *PrintNode, stderr: Io.Terminal) !void {
     const parent = node.parent orelse return;
     const writer = stderr.writer;
@@ -1657,28 +1694,6 @@ fn argsRest(args: []const [:0]const u8, idx: usize) ?[]const [:0]const u8 {
     return args[idx..];
 }
 
-const Color = std.zig.Color;
-const ErrorStyle = enum {
-    verbose,
-    minimal,
-    verbose_clear,
-    minimal_clear,
-    fn verboseContext(s: ErrorStyle) bool {
-        return switch (s) {
-            .verbose, .verbose_clear => true,
-            .minimal, .minimal_clear => false,
-        };
-    }
-    fn clearOnUpdate(s: ErrorStyle) bool {
-        return switch (s) {
-            .verbose, .minimal => false,
-            .verbose_clear, .minimal_clear => true,
-        };
-    }
-};
-const MultilineErrors = enum { indent, newline, none };
-const Summary = enum { all, new, failures, line, none };
-
 fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
     log.info("to access the help menu: zig build -h", .{});
     fatal(f, args);
@@ -1700,9 +1715,6 @@ fn cleanTmpFiles(maker: *Maker, steps: []const Configuration.Step.Index) void {
             log.warn("failed to delete temporary path {f}: {t}", .{ tmp_path, err });
     }
 }
-
-var stdio_buffer_allocation: [256]u8 = undefined;
-var stdout_writer_allocation: Io.File.Writer = undefined;
 
 fn initStdoutWriter(io: Io) *Writer {
     stdout_writer_allocation = Io.File.stdout().writerStreaming(io, &stdio_buffer_allocation);
@@ -2043,8 +2055,6 @@ fn removePoisonedConfiguration(io: Io, scanned_config: *const ScannedConfig) voi
     }
 }
 
-const is_debug_mode = builtin.mode == .Debug;
-var debug_maker_leaks: bool = false;
 inline fn debugMakerLeaks() bool {
     if (!is_debug_mode) return false;
     return debug_maker_leaks;

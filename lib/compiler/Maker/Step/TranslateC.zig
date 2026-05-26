@@ -112,7 +112,7 @@ pub fn make(
                 const pkg_conf_node = progress_node.start("pkg-config", 0);
                 defer pkg_conf_node.end();
 
-                if (PkgConfig.run(maker, step, pkg_conf_node, system_lib_name, force)) |result| {
+                if (PkgConfig.run(maker, step, arena, pkg_conf_node, system_lib_name, force)) |result| {
                     try argv.appendSlice(arena, result.cflags);
                     try argv.appendSlice(arena, result.libs);
                     try seen_system_libs.put(arena, system_lib.name, result.cflags);

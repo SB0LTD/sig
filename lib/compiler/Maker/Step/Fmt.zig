@@ -43,7 +43,7 @@ pub fn make(
         argv.appendAssumeCapacity(try maker.resolveLazyPathIndexAbs(arena, lp, step_index));
     }
 
-    const run_result = step.captureChildProcess(maker, .{
+    const run_result = step.captureChildProcess(maker, arena, .{
         .progress_node = progress_node,
         .argv = argv.items,
         .allow_failure = false,

@@ -54,8 +54,10 @@ dependants: std.ArrayList(Configuration.Step.Index) = .empty,
 inputs: Inputs = .init,
 pending_deps: u32 = undefined,
 
+/// Array list and internal memory owned by process arena.
 result_error_msgs: std.ArrayList([]const u8) = .empty,
 result_error_bundle: std.zig.ErrorBundle = .empty,
+/// Owned by `Maker.gpa`.
 result_stderr: []const u8 = "",
 result_cached: bool = false,
 /// Indicates error information is missing due to allocation failure.
@@ -310,9 +312,8 @@ pub fn reset(step: *Step, maker: *Maker) void {
     const gpa = maker.gpa;
 
     clearFailedCommand(step, gpa);
-
+    clearResultStderr(step, gpa);
     step.result_error_msgs.clearRetainingCapacity();
-    step.result_stderr = "";
     step.result_cached = false;
     step.result_duration_ns = null;
     step.result_peak_rss = 0;
@@ -332,20 +333,23 @@ pub const CaptureChildProcessOptions = struct {
     allow_failure: bool = false,
 };
 
-/// Populates `s.result_failed_command`.
-pub fn captureChildProcess(s: *Step, maker: *Maker, options: CaptureChildProcessOptions) !std.process.RunResult {
+/// Populates `s.result_failed_command` unconditionally.
+pub fn captureChildProcess(
+    s: *Step,
+    maker: *Maker,
+    allocator: Allocator,
+    options: CaptureChildProcessOptions,
+) !std.process.RunResult {
     const gpa = maker.gpa;
     const graph = maker.graph;
-    const arena = graph.arena; // TODO stop leaking into process arena
     const io = graph.io;
 
-    clearFailedCommand(s, gpa);
-    s.result_failed_command = try std.zig.allocPrintCmd(gpa, options.argv, .{});
+    s.setFailedCommand(gpa, options.argv, .{});
 
     try handleChildProcUnsupported(s, maker);
     try graph.handleVerbose(null, null, options.argv);
 
-    const result = std.process.run(arena, io, .{
+    const result = std.process.run(allocator, io, .{
         .argv = options.argv,
         .environ_map = options.environ_map orelse &graph.environ_map,
         .progress_node = options.progress_node,
@@ -358,7 +362,7 @@ pub fn captureChildProcess(s: *Step, maker: *Maker, options: CaptureChildProcess
         return s.fail(maker, "failed to run {s}: {t}", .{ options.argv[0], err });
     };
 
-    if (result.stderr.len > 0) try s.result_error_msgs.append(arena, result.stderr);
+    if (result.stderr.len > 0) try s.result_error_msgs.append(graph.arena, result.stderr);
 
     return result;
 }
@@ -373,6 +377,21 @@ pub fn clearFailedCommand(s: *Step, gpa: Allocator) void {
         gpa.free(cmd);
         s.result_failed_command = null;
     }
+}
+
+pub fn setFailedCommand(
+    s: *Step,
+    gpa: Allocator,
+    argv: []const []const u8,
+    options: std.zig.AllocPrintCmdOptions,
+) void {
+    s.clearFailedCommand(gpa);
+    s.result_failed_command = std.zig.allocPrintCmd(gpa, argv, options) catch |err| switch (err) {
+        error.OutOfMemory => {
+            s.result_oom = true;
+            return;
+        },
+    };
 }
 
 pub const FailError = error{ OutOfMemory, MakeFailed };
@@ -410,7 +429,8 @@ pub const ZigProcess = struct {
 
 /// Assumes that argv contains `--listen=-` and that the process being spawned
 /// is the zig compiler - the same version that compiled the build runner.
-/// Populates `s.result_failed_command`.
+///
+/// Populates `s.result_failed_command` on failure.
 pub fn evalZigProcess(
     step_index: Configuration.Step.Index,
     maker: *Maker,
@@ -424,8 +444,7 @@ pub fn evalZigProcess(
     const io = graph.io;
 
     // If an error occurs, it's happened in this command:
-    clearFailedCommand(s, gpa);
-    s.result_failed_command = try std.zig.allocPrintCmd(gpa, argv, .{});
+    errdefer s.setFailedCommand(gpa, argv, .{});
 
     if (s.getZigProcess()) |zp| update: {
         assert(watch);
@@ -683,16 +702,12 @@ fn sendMessage(io: Io, file: Io.File, tag: std.zig.Client.Message.Tag) !void {
     };
 }
 
-/// Asserts that the caller has already populated `s.result_failed_command`.
 pub inline fn handleChildProcUnsupported(s: *Step, maker: *Maker) FailError!void {
-    assert(s.result_failed_command != null);
     if (!std.process.can_spawn)
         return s.fail(maker, "unable to spawn process: host cannot spawn child processes", .{});
 }
 
-/// Asserts that the caller has already populated `s.result_failed_command`.
 pub fn handleChildProcessTerm(s: *Step, maker: *Maker, term: std.process.Child.Term) FailError!void {
-    assert(s.result_failed_command != null);
     if (!term.success()) return s.fail(maker, "process {f}", .{term});
 }
 
@@ -860,4 +875,20 @@ fn oomWrap(s: *Step, result: error{OutOfMemory}!void) void {
     result catch {
         s.result_oom = true;
     };
+}
+
+pub fn clearResultStderr(step: *Step, gpa: Allocator) void {
+    if (step.result_stderr.len != 0) {
+        gpa.free(step.result_stderr);
+        step.result_stderr = "";
+    }
+}
+
+pub fn setResultStderr(step: *Step, gpa: Allocator, bytes: []const u8) Allocator.Error!void {
+    takeResultStderr(step, gpa, try gpa.dupe(u8, bytes));
+}
+
+pub fn takeResultStderr(step: *Step, gpa: Allocator, owned: []const u8) void {
+    clearResultStderr(step, gpa);
+    step.result_stderr = owned;
 }
