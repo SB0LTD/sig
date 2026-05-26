@@ -1907,6 +1907,12 @@ fn runCommand(
                             // by default. '-S inherit-env' was added in Wasmtime version 20.
                             interp_argv.appendAssumeCapacity("-Sinherit-env");
                             interp_argv.appendSliceAssumeCapacity(argv);
+
+                            // Enable more detailed backtraces by default, but allow the user to override this (e.g.
+                            // with `WASMTIME_BACKTRACE_DETAILS=0`) if desired.
+                            if (environ_map.get("WASMTIME_BACKTRACE_DETAILS") == null) {
+                                try environ_map.put("WASMTIME_BACKTRACE_DETAILS", "1");
+                            }
                         } else {
                             return failForeign(arena, &conf_run, maker, run_index, "-fwasmtime", argv[0], &root_target, &host);
                         }
