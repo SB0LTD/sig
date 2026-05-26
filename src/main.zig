@@ -5810,7 +5810,7 @@ const MakeRunner = struct {
 };
 
 fn compileMakeRunner(gpa: Allocator, arena: Allocator, io: Io, options: MakeRunner.Options) !MakeRunner {
-    const compile_prog_node = options.parent_prog_node.start("Compile Maker", 0);
+    const compile_prog_node = options.parent_prog_node.start("Compiling maker (first time setup)", 0);
     defer compile_prog_node.end();
 
     const strip = options.optimize_mode != .Debug;
