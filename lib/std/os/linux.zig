@@ -56,6 +56,7 @@ const arch_bits = switch (native_arch) {
         .gnux32, .muslx32 => @import("linux/x32.zig"),
         else => @import("linux/x86_64.zig"),
     },
+    .xtensa, .xtensaeb => @import("linux/xtensa.zig"),
     else => struct {},
 };
 
@@ -338,6 +339,29 @@ pub const MAP = switch (native_arch) {
         _20: u1 = 0,
         _: u5 = 0,
     },
+    .xtensa, .xtensaeb => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        _RENAME: bool = false,
+        _AUTOGROW: bool = false,
+        _LOCAL: bool = false,
+        _AUTORSRV: bool = false,
+        _1: u1 = 0,
+        NORESERVE: bool = false,
+        ANONYMOUS: bool = false,
+        GROWSDOWN: bool = false,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _2: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _3: u5 = 0,
+    },
     else => @compileError("missing std.os.linux.MAP constants for this architecture"),
 };
 
@@ -497,6 +521,8 @@ pub const O = switch (native_arch) {
     .hexagon,
     .or1k,
     .s390x,
+    .xtensa,
+    .xtensaeb,
     => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
@@ -6616,6 +6642,12 @@ pub const k_sigaction = switch (native_arch) {
         handler: k_sigaction_funcs.handler,
         mask: sigset_t,
         flags: c_int,
+    },
+    .xtensa, .xtensaeb => extern struct {
+        handler: k_sigaction_funcs.handler,
+        mask: sigset_t,
+        flags: c_ulong,
+        restorer: k_sigaction_funcs.restorer,
     },
     else => extern struct {
         handler: k_sigaction_funcs.handler,
