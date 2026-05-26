@@ -4360,7 +4360,7 @@ pub fn addModuleErrorMsg(
 
     // De-duplicate error notes. The main use case in mind for this is
     // too many "note: called from here" notes when eval branch quota is reached.
-    var notes: std.ArrayHashMapUnmanaged(ErrorBundle.ErrorMessage, void, ErrorNoteHashContext, true) = .empty;
+    var notes: std.array_hash_map.Custom(ErrorBundle.ErrorMessage, void, ErrorNoteHashContext, true) = .empty;
     defer notes.deinit(gpa);
 
     var last_note_loc: ?std.zig.Loc = null;

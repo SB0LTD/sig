@@ -305,7 +305,7 @@ const OFile = struct {
     symtab_raw: []align(1) const macho.nlist_64,
     /// All named symbols in `symtab_raw`. Stored `u32` key is the index into `symtab_raw`. Accessed
     /// through `SymbolAdapter`, so that the symbol name is used as the logical key.
-    symbols_by_name: std.ArrayHashMapUnmanaged(u32, void, void, true),
+    symbols_by_name: std.array_hash_map.Custom(u32, void, void, true),
 
     const SymbolAdapter = struct {
         strtab: []const u8,
@@ -476,7 +476,7 @@ fn loadOFile(gpa: Allocator, io: Io, o_file_name: []const u8) !OFile {
     const symtab_raw: []align(1) const macho.nlist_64 = @ptrCast(mapped_ofile[symtab_cmd.symoff..][0..n_sym_bytes]);
 
     // TODO handle tentative (common) symbols
-    var symbols_by_name: std.ArrayHashMapUnmanaged(u32, void, void, true) = .empty;
+    var symbols_by_name: std.array_hash_map.Custom(u32, void, void, true) = .empty;
     defer symbols_by_name.deinit(gpa);
     try symbols_by_name.ensureUnusedCapacity(gpa, @intCast(symtab_raw.len));
     for (symtab_raw, 0..) |sym_raw, sym_index| {

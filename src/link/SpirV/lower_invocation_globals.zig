@@ -342,7 +342,7 @@ const ModuleBuilder = struct {
     entry_point_new_id_base: u32,
     /// A set of all function types in the new program. SPIR-V mandates that these are unique,
     /// and until a general type deduplication pass is programmed, we just handle it here via this.
-    function_types: std.ArrayHashMapUnmanaged(FunctionType, ResultId, FunctionType.Context, true) = .empty,
+    function_types: std.array_hash_map.Custom(FunctionType, ResultId, FunctionType.Context, true) = .empty,
     /// Maps functions to new information required for creating the module
     function_new_info: std.array_hash_map.Auto(ResultId, FunctionNewInfo) = .empty,
     /// Offset of the functions section in the new binary.

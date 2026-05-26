@@ -18,7 +18,7 @@ pub const ContainerMemberFns = struct {
     container_decl_ptr: *ast.Node,
     member_fns: std.ArrayList(*ast.Payload.Func) = .empty,
 };
-pub const ContainerMemberFnsHashMap = std.ArrayHashMapUnmanaged(
+pub const ContainerMemberFnsHashMap = std.array_hash_map.Custom(
     aro.QualType,
     ContainerMemberFns,
     struct {

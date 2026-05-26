@@ -121,7 +121,7 @@ fn updateGeneratedFile(
 /// the root module. The root module is guaranteed to be first.
 const ModuleList = std.array_hash_map.Auto(Configuration.Module.Index, Configuration.String);
 /// Keyed on the first key in the module list.
-pub const ModuleGraph = std.ArrayHashMapUnmanaged(ModuleList, void, ModuleListContext, false);
+pub const ModuleGraph = std.array_hash_map.Custom(ModuleList, void, ModuleListContext, false);
 
 const ModuleListContext = struct {
     pub fn eql(ctx: @This(), a: ModuleList, b: ModuleList) bool {
