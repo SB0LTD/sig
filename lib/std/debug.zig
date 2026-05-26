@@ -994,6 +994,8 @@ const StackIterator = union(enum) {
         .sh,
         .sheb,
         .xcore,
+        .xtensa,
+        .xtensaeb,
         => .useless,
         .hexagon,
         // The PowerPC ABIs don't actually strictly require a backchain pointer; they allow omitting
