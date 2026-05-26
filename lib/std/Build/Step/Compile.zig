@@ -25,6 +25,7 @@ root_module: *Module,
 name: []const u8,
 linker_script: ?LazyPath = null,
 version_script: ?LazyPath = null,
+/// Deprecated.
 out_filename: []const u8,
 linkage: ?std.builtin.LinkMode = null,
 version: ?std.SemanticVersion,
