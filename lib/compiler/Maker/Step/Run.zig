@@ -1374,6 +1374,7 @@ fn sendRunFuzzTestMessage(
     }
 }
 
+/// Uses `arena` to allocate the result.
 fn evalGeneric(
     arena: Allocator,
     run_index: Configuration.Step.Index,
@@ -1382,7 +1383,6 @@ fn evalGeneric(
 ) !EvalGenericResult {
     const graph = maker.graph;
     const io = graph.io;
-    const gpa = maker.gpa;
     const conf = &maker.scanned_config.configuration;
     const conf_step = run_index.ptr(conf);
     const conf_run = conf_step.extended.get(conf.extra).run;
@@ -1436,8 +1436,7 @@ fn evalGeneric(
         if (child.stderr) |stderr| {
             var multi_reader_buffer: Io.File.MultiReader.Buffer(2) = undefined;
             var multi_reader: Io.File.MultiReader = undefined;
-            multi_reader.init(gpa, io, multi_reader_buffer.toStreams(), &.{ stdout, stderr });
-            defer multi_reader.deinit();
+            multi_reader.init(arena, io, multi_reader_buffer.toStreams(), &.{ stdout, stderr });
 
             const stdout_reader = multi_reader.reader(0);
             const stderr_reader = multi_reader.reader(1);
@@ -1457,9 +1456,7 @@ fn evalGeneric(
 
             try multi_reader.checkAnyError();
 
-            // TODO: this string can leak since alloc below can return error.
             stdout_bytes = try multi_reader.toOwnedSlice(0);
-            // TODO: this string can leak since its allocated using gpa and `try child.wait(io)` below can fail.
             stderr_bytes = try multi_reader.toOwnedSlice(1);
         } else {
             var stdout_reader = stdout.readerStreaming(io, &.{});
@@ -2201,7 +2198,7 @@ fn spawnChildAndCollect(
         try setColorEnvironmentVariables(&conf_run, environ_map, terminal_mode);
 
         const started: Io.Clock.Timestamp = .now(io, .awake);
-        const result = evalGeneric(arena, run_index, maker, spawn_options) catch |err| switch (err) {
+        const result = evalGeneric(graph.arena, run_index, maker, spawn_options) catch |err| switch (err) {
             error.Canceled => |e| return e,
             else => |e| e,
         };
