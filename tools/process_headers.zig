@@ -94,6 +94,8 @@ const netbsd_targets = [_]LibCTarget{
     .{ .arch = .mips, .abi = .eabi, .dest = "mips-netbsd-eabi" },
     .{ .arch = .mips, .abi = .eabihf, .dest = "mips-netbsd-eabi" },
     .{ .arch = .powerpc, .abi = .eabihf, .dest = "powerpc-netbsd-eabi" },
+    .{ .arch = .riscv32, .abi = .none },
+    .{ .arch = .riscv64, .abi = .none },
     .{ .arch = .sparc, .abi = .none },
     .{ .arch = .sparc64, .abi = .none },
     .{ .arch = .x86, .abi = .none },
@@ -222,6 +224,8 @@ pub fn main(init: std.process.Init) !void {
                 .x86 => "i386",
                 .x86_64 => "amd64",
 
+                .riscv32,
+                .riscv64,
                 .sparc,
                 .sparc64,
                 => |a| @tagName(a),
