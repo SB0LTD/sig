@@ -50,7 +50,6 @@ memory_blocked_steps: std.ArrayList(Configuration.Step.Index),
 /// Allocated into `gpa`.
 step_stack: std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
 pkg_config: PkgConfig,
-debug_maker_leaks: bool,
 
 error_style: ErrorStyle,
 multiline_errors: MultilineErrors,
@@ -73,8 +72,8 @@ pub fn main(init: process.Init.Minimal) !void {
     // ...but we'll back our arena by `std.heap.page_allocator` for efficiency.
     var arena_instance: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena_instance.deinit();
+    defer if (debugMakerLeaks()) log.debug("used {Bi} of arena", .{arena_instance.queryCapacity()});
     const arena = arena_instance.allocator();
-    defer log.info("used {Bi} of arena", .{arena_instance.queryCapacity()});
 
     const args = try init.args.toSlice(arena);
 
@@ -153,7 +152,6 @@ pub fn main(init: process.Init.Minimal) !void {
     var debounce_interval_ms: u16 = 50;
     var webui_listen: ?Io.net.IpAddress = null;
     var debug_pkg_config = false;
-    var debug_maker_leaks = false;
     var run_args: ?[]const []const u8 = null;
 
     if (std.zig.EnvVar.ZIG_BUILD_ERROR_STYLE.get(&graph.environ_map)) |str| {
@@ -300,7 +298,7 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.cutPrefix(u8, arg, "--debug-rt=")) |rest| {
                 graph.debug_compiler_runtime_libs = std.meta.stringToEnum(std.builtin.OptimizeMode, rest) orelse
                     fatal("unrecognized optimization mode: {s}", .{rest});
-            } else if (mem.eql(u8, arg, "--debug-maker-leaks")) {
+            } else if (is_debug_mode and mem.eql(u8, arg, "--debug-maker-leaks")) {
                 debug_maker_leaks = true;
             } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
                 // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
@@ -543,7 +541,6 @@ pub fn main(init: process.Init.Minimal) !void {
         .memory_blocked_steps = .empty,
         .step_stack = .empty,
         .pkg_config = .{ .debug = debug_pkg_config },
-        .debug_maker_leaks = debug_maker_leaks,
 
         .error_style = error_style,
         .multiline_errors = multiline_errors,
@@ -1011,7 +1008,7 @@ fn makeStepNames(
     };
     if (code == 0) {
         removePoisonedConfiguration(io, maker.scanned_config);
-        if (builtin.mode == .Debug and maker.debug_maker_leaks) return deinit(maker);
+        if (debugMakerLeaks()) return deinit(maker);
     }
     cleanup_task.await(io); // There is a defer above but an exit below.
     _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
@@ -2044,4 +2041,11 @@ fn removePoisonedConfiguration(io: Io, scanned_config: *const ScannedConfig) voi
         Io.Dir.cwd().deleteFile(io, scanned_config.path) catch |err|
             log.warn("failed deleting poisoned configuration file {s}: {t}", .{ scanned_config.path, err });
     }
+}
+
+const is_debug_mode = builtin.mode == .Debug;
+var debug_maker_leaks: bool = false;
+inline fn debugMakerLeaks() bool {
+    if (!is_debug_mode) return false;
+    return debug_maker_leaks;
 }
