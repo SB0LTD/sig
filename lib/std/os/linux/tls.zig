@@ -78,6 +78,8 @@ const current_variant: Variant = switch (native_arch) {
     .sheb,
     .thumb,
     .thumbeb,
+    .xtensa,
+    .xtensaeb,
     => .I_original,
     .loongarch32,
     .loongarch64,
@@ -152,6 +154,8 @@ const AbiTcb = switch (current_variant) {
         .sheb,
         .thumb,
         .thumbeb,
+        .xtensa,
+        .xtensaeb,
         => extern struct {
             /// This is offset by `current_dtv_offset`.
             dtv: usize,
@@ -362,6 +366,13 @@ pub fn setThreadPointer(addr: usize) void {
                 \\ mov %[addr], %%g7
                 :
                 : [addr] "r" (addr),
+            );
+        },
+        .xtensa, .xtensaeb => {
+            asm volatile (
+                \\ wur %[addr], threadptr
+                :
+                : [addr] "a" (addr),
             );
         },
         else => @compileError("Unsupported architecture"),
