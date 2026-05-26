@@ -982,6 +982,7 @@ pub const Manifest = struct {
             .stat = undefined,
             .bin_digest = undefined,
             .contents = null,
+            .handle = null,
         };
 
         self.files.lockPointers();

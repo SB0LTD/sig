@@ -556,39 +556,6 @@ pub fn clearEnvironment(run: *Run) void {
     run.environ_map = new_env_map;
 }
 
-pub fn addPathDir(run: *Run, search_path: []const u8) void {
-    const b = run.step.owner;
-    const environ_map = getEnvMapInternal(run);
-
-    const use_wine = b.enable_wine and b.graph.host.result.os.tag != .windows and use_wine: switch (run.argv.items[0]) {
-        .artifact => |p| p.artifact.rootModuleTarget().os.tag == .windows,
-        .lazy_path => |p| {
-            switch (p.lazy_path) {
-                .generated => |g| if (g.file.step.cast(Step.Compile)) |cs| break :use_wine cs.rootModuleTarget().os.tag == .windows,
-                else => {},
-            }
-            break :use_wine std.mem.endsWith(u8, p.lazy_path.basename(b, &run.step), ".exe");
-        },
-        .decorated_directory => false,
-        .file_content => unreachable, // not allowed as first arg
-        .bytes => |bytes| std.mem.endsWith(u8, bytes, ".exe"),
-        .output_file, .output_file_dep, .output_directory => false,
-    };
-    const key = if (use_wine) "WINEPATH" else "PATH";
-    const prev_path = environ_map.get(key);
-
-    if (prev_path) |pp| {
-        const new_path = b.fmt("{s}{c}{s}", .{
-            pp,
-            if (use_wine) Dir.path.delimiter_windows else Dir.path.delimiter,
-            search_path,
-        });
-        environ_map.put(key, new_path) catch @panic("OOM");
-    } else {
-        environ_map.put(key, b.dupePath(search_path)) catch @panic("OOM");
-    }
-}
-
 pub fn getEnvMap(run: *Run) *EnvMap {
     return getEnvMapInternal(run);
 }

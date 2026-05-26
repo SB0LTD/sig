@@ -421,8 +421,8 @@ pub fn addOptionPath(options: *Options, name: []const u8, path: LazyPath) void {
     const wc = &graph.wip_configuration;
 
     options.args.append(arena, .{
-        .name = try wc.addString(name),
-        .path = path.dupe(options.step.owner),
+        .name = wc.addString(name) catch @panic("OOM"),
+        .path = path.dupe(options.step.owner.graph),
     }) catch @panic("OOM");
     path.addStepDependencies(&options.step);
 }

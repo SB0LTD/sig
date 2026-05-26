@@ -2219,14 +2219,6 @@ pub const TargetQuery = struct {
         windows: std.Target.Os.WindowsVersion,
         default: void,
 
-        pub fn init(x: ?std.Target.Query.OsVersion) @This() {
-            return switch (x orelse return .default) {
-                .none => .none,
-                .semver => .semver,
-                .windows => .windows,
-            };
-        }
-
         pub fn unwrap(this: @This(), c: *const Configuration) ?std.Target.Query.OsVersion {
             return switch (this) {
                 .none => .none,

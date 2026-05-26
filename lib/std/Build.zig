@@ -945,7 +945,7 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
 /// * `addSystemCommand`
 /// * `addRunArtifact`
 pub fn addRunFile(b: *Build, executable: LazyPath) *Step.Run {
-    const run_step = Step.Run.create(b, b.fmt("run {f}", .{executable.fmt(b.graph)}));
+    const run_step = Step.Run.create(b, b.fmt("run {f}", .{executable}));
     run_step.addFileArg(executable);
     return run_step;
 }

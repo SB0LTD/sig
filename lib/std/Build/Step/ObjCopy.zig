@@ -89,7 +89,7 @@ pub const UpdateSectionOptions = struct {
 };
 
 pub fn updateSection(oc: *ObjCopy, section_name: []const u8, options: UpdateSectionOptions) void {
-    const graph = oc.owner.graph;
+    const graph = oc.step.owner.graph;
     const arena = graph.arena;
     const wc = &graph.wip_configuration;
     oc.update_sections.append(arena, .{
@@ -106,7 +106,7 @@ pub const AddSectionOptions = struct {
 };
 
 pub fn addSection(oc: *ObjCopy, section_name: []const u8, options: AddSectionOptions) void {
-    const graph = oc.owner.graph;
+    const graph = oc.step.owner.graph;
     const arena = graph.arena;
     const wc = &graph.wip_configuration;
     oc.add_sections.append(arena, .{

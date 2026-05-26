@@ -573,7 +573,7 @@ pub fn setVersionScript(compile: *Compile, source: LazyPath) void {
 
 pub fn forceUndefinedSymbol(compile: *Compile, symbol_name: []const u8) void {
     const graph = compile.step.owner.graph;
-    const arena = graph.allocator;
+    const arena = graph.arena;
     compile.force_undefined_symbols.put(arena, graph.dupeString(symbol_name), {}) catch @panic("OOM");
 }
 
@@ -710,12 +710,6 @@ pub fn getEmittedPdb(compile: *Compile) LazyPath {
     return compile.getEmittedFileGeneric(&compile.generated_pdb);
 }
 
-/// Returns the generated compiler_rt dynamic library.
-/// This is a hack for stage2_x86_64 + coff.
-pub fn getEmittedCompilerRtDynLib(compile: *Compile) ?LazyPath {
-    return compile.getEmittedFileGeneric(&compile.generated_compiler_rt_dyn_lib);
-}
-
 /// Returns the path to the generated documentation directory.
 pub fn getEmittedDocs(compile: *Compile) LazyPath {
     return compile.getEmittedFileGeneric(&compile.generated_docs);
@@ -740,7 +734,7 @@ pub fn setExecCmd(compile: *Compile, args: []const ?[]const u8) void {
     const graph = compile.step.owner.graph;
     const arena = graph.arena;
     assert(compile.kind == .@"test");
-    const duped_args = arena.alloc(?[]u8, args.len) catch @panic("OOM");
+    const duped_args = arena.alloc(?[]const u8, args.len) catch @panic("OOM");
     for (args, 0..) |arg, i| {
         duped_args[i] = if (arg) |a| graph.dupeString(a) else null;
     }
