@@ -1122,7 +1122,7 @@ pub fn mknod(path: [*:0]const u8, mode: mode_t, dev: dev_t) usize {
     }
 }
 
-pub fn mknodat(dirfd: dev_t, path: [*:0]const u8, mode: mode_t, dev: dev_t) usize {
+pub fn mknodat(dirfd: fd_t, path: [*:0]const u8, mode: mode_t, dev: dev_t) usize {
     return syscall4(.mknodat, @as(u32, @bitCast(dirfd)), @intFromPtr(path), mode, dev);
 }
 
