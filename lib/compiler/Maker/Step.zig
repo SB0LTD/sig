@@ -190,6 +190,11 @@ pub const Inputs = struct {
         for (inputs.table.values()) |*files| files.deinit(gpa);
         inputs.table.clearRetainingCapacity();
     }
+
+    pub fn deinit(inputs: *Inputs, gpa: Allocator) void {
+        clear(inputs, gpa);
+        inputs.table.deinit(gpa);
+    }
 };
 
 pub const TestResults = struct {
@@ -313,9 +318,7 @@ pub fn reset(step: *Step, maker: *Maker) void {
     step.result_peak_rss = 0;
     step.test_results = .{};
     clearWatchInputs(step, maker);
-
-    step.result_error_bundle.deinit(gpa);
-    step.result_error_bundle = std.zig.ErrorBundle.empty;
+    clearErrorBundle(step, gpa);
 }
 
 pub const CaptureChildProcessError = error{
@@ -358,6 +361,11 @@ pub fn captureChildProcess(s: *Step, maker: *Maker, options: CaptureChildProcess
     if (result.stderr.len > 0) try s.result_error_msgs.append(arena, result.stderr);
 
     return result;
+}
+
+pub fn clearErrorBundle(s: *Step, gpa: Allocator) void {
+    s.result_error_bundle.deinit(gpa);
+    s.result_error_bundle = .empty;
 }
 
 pub fn clearFailedCommand(s: *Step, gpa: Allocator) void {

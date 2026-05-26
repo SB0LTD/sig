@@ -49,7 +49,10 @@ pub fn make(
     const arena = arena_allocator.allocator();
 
     var argv_list: std.ArrayList([]const u8) = .empty;
+    defer argv_list.deinit(gpa);
+
     var output_placeholders: std.ArrayList(IndexedOutput) = .empty;
+    defer output_placeholders.deinit(gpa);
 
     var man = graph.cache.obtain();
     defer man.deinit();
@@ -1523,6 +1526,7 @@ pub fn rerunInFuzzMode(
     const arena = arena_allocator.allocator();
 
     var argv_list: std.ArrayList([]const u8) = .empty;
+    defer argv_list.deinit(gpa);
 
     for (conf_run.args.slice) |arg_index| {
         const arg = arg_index.get(conf);

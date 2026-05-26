@@ -50,6 +50,7 @@ memory_blocked_steps: std.ArrayList(Configuration.Step.Index),
 /// Allocated into `gpa`.
 step_stack: std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
 pkg_config: PkgConfig,
+debug_maker_leaks: bool,
 
 error_style: ErrorStyle,
 multiline_errors: MultilineErrors,
@@ -73,6 +74,7 @@ pub fn main(init: process.Init.Minimal) !void {
     var arena_instance: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
+    defer log.info("used {Bi} of arena", .{arena_instance.queryCapacity()});
 
     const args = try init.args.toSlice(arena);
 
@@ -150,7 +152,8 @@ pub fn main(init: process.Init.Minimal) !void {
     var fuzz: ?Fuzz.Mode = null;
     var debounce_interval_ms: u16 = 50;
     var webui_listen: ?Io.net.IpAddress = null;
-    var debug_pkg_config: bool = false;
+    var debug_pkg_config = false;
+    var debug_maker_leaks = false;
     var run_args: ?[]const []const u8 = null;
 
     if (std.zig.EnvVar.ZIG_BUILD_ERROR_STYLE.get(&graph.environ_map)) |str| {
@@ -297,6 +300,8 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.cutPrefix(u8, arg, "--debug-rt=")) |rest| {
                 graph.debug_compiler_runtime_libs = std.meta.stringToEnum(std.builtin.OptimizeMode, rest) orelse
                     fatal("unrecognized optimization mode: {s}", .{rest});
+            } else if (mem.eql(u8, arg, "--debug-maker-leaks")) {
+                debug_maker_leaks = true;
             } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
                 // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
                 graph.libc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
@@ -538,6 +543,7 @@ pub fn main(init: process.Init.Minimal) !void {
         .memory_blocked_steps = .empty,
         .step_stack = .empty,
         .pkg_config = .{ .debug = debug_pkg_config },
+        .debug_maker_leaks = debug_maker_leaks,
 
         .error_style = error_style,
         .multiline_errors = multiline_errors,
@@ -603,10 +609,10 @@ pub fn main(init: process.Init.Minimal) !void {
             web_server.finishBuild(.{ .fuzz = fuzz != null });
         }
 
-        if (maker.web_server) |*ws| {
+        if (maker.web_server) |*web_server| {
             const c = &scanned_config.configuration;
             assert(!watch); // fatal error after CLI parsing
-            while (true) switch (try ws.wait()) {
+            while (true) switch (try web_server.wait()) {
                 .rebuild => {
                     for (maker.step_stack.keys()) |step_index| {
                         const step = maker.stepByIndex(step_index);
@@ -619,6 +625,8 @@ pub fn main(init: process.Init.Minimal) !void {
                 },
             };
         }
+
+        if (!maker.watch) return;
 
         // Comptime-known guard to prevent including the logic below when `!Watch.have_impl`.
         if (!Watch.have_impl) unreachable;
@@ -996,19 +1004,27 @@ fn makeStepNames(
 
     if (maker.watch or maker.web_server != null) return;
 
-    // Perhaps in the future there could be an Advanced Options flag such as
-    // --debug-build-runner-leaks which would make this code return instead of
-    // calling exit.
-
     const code: u8 = code: {
         if (failure_count == 0) break :code 0; // success
         if (maker.error_style.verboseContext()) break :code 1; // failure; print build command
         break :code 2; // failure; do not print build command
     };
-    if (code == 0) removePoisonedConfiguration(io, maker.scanned_config);
+    if (code == 0) {
+        removePoisonedConfiguration(io, maker.scanned_config);
+        if (builtin.mode == .Debug and maker.debug_maker_leaks) return deinit(maker);
+    }
     cleanup_task.await(io); // There is a defer above but an exit below.
     _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
     process.exit(code);
+}
+
+fn deinit(maker: *Maker) void {
+    const gpa = maker.gpa;
+    for (maker.steps) |*step| {
+        step.clearFailedCommand(gpa);
+        step.clearErrorBundle(gpa);
+        step.inputs.deinit(gpa);
+    }
 }
 
 fn stepReady(
@@ -1457,6 +1473,7 @@ fn constructGraphAndCheckForDependencyLoop(
 ) error{ DependencyLoopDetected, OutOfMemory }!void {
     const c = &maker.scanned_config.configuration;
     const gpa = maker.gpa;
+    const arena = maker.graph.arena;
     const make_step = maker.stepByIndex(step_index);
     switch (make_step.state) {
         .precheck_started => {
@@ -1480,7 +1497,7 @@ fn constructGraphAndCheckForDependencyLoop(
             for (deps) |dep| {
                 const dep_step = maker.stepByIndex(dep);
                 try step_stack.put(gpa, dep, {});
-                try dep_step.dependants.append(gpa, step_index);
+                try dep_step.dependants.append(arena, step_index);
                 constructGraphAndCheckForDependencyLoop(maker, dep, step_stack, rand) catch |err| switch (err) {
                     error.DependencyLoopDetected => {
                         log.info("needed by: {s}", .{step_index.ptr(c).name.slice(c)});
