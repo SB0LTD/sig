@@ -12,7 +12,7 @@ root_source_file: ?LazyPath,
 /// The modules that are mapped into this module's import table.
 /// Use `addImport` rather than modifying this field directly in order to
 /// maintain step dependency edges.
-import_table: std.StringArrayHashMapUnmanaged(*Module),
+import_table: std.array_hash_map.String(*Module),
 
 resolved_target: ?std.Build.ResolvedTarget = null,
 optimize: ?std.builtin.OptimizeMode = null,
@@ -22,7 +22,7 @@ c_macros: ArrayList([]const u8),
 include_dirs: ArrayList(IncludeDir),
 lib_paths: ArrayList(LazyPath),
 rpaths: ArrayList(RPath),
-frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
+frameworks: std.array_hash_map.String(LinkFrameworkOptions),
 link_objects: ArrayList(LinkObject),
 
 strip: ?bool,

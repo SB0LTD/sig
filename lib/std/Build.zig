@@ -33,7 +33,7 @@ user_input_options: UserInputOptionsMap,
 available_options_map: std.array_hash_map.String(AvailableOption) = .empty,
 invalid_user_input: bool,
 default_step: *Step,
-top_level_steps: std.StringArrayHashMapUnmanaged(*Step.TopLevel),
+top_level_steps: std.array_hash_map.String(*Step.TopLevel),
 /// Path to the directory containing build.zig.
 root: Cache.Path,
 debug_log_scopes: []const []const u8 = &.{},
@@ -78,11 +78,11 @@ pub const Graph = struct {
     io: Io,
     /// Process lifetime.
     arena: Allocator,
-    system_integration_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
+    system_integration_options: std.array_hash_map.String(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
     zig_exe: []const u8,
     environ_map: process.Environ.Map,
-    needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .empty,
+    needed_lazy_dependencies: std.array_hash_map.String(void) = .empty,
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
     dependency_cache: InitializedDepMap = .empty,

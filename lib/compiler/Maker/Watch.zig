@@ -30,7 +30,7 @@ pub const have_impl = Os != void;
 const DirTable = std.ArrayHashMapUnmanaged(Cache.Path, void, Cache.Path.TableAdapter, false);
 
 /// Special key of "." means any changes in this directory trigger the steps.
-const ReactionSet = std.StringArrayHashMapUnmanaged(StepSet);
+const ReactionSet = std.array_hash_map.String(StepSet);
 const StepSet = std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, Generation);
 
 const Generation = u8;

@@ -245,7 +245,7 @@ pub fn getMembers(
     };
     var renames: std.ArrayList(DeferredExport) = .empty;
     defer renames.deinit(allocator);
-    var regular_imports: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
+    var regular_imports: std.array_hash_map.String([]const u8) = .empty;
     defer regular_imports.deinit(allocator);
 
     for (module_def.exports.items) |*e| {

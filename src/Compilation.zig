@@ -87,7 +87,7 @@ link_inputs: []const link.Input,
 framework_dirs: []const []const u8,
 /// These are only for DLLs dependencies fulfilled by the `.def` files shipped
 /// with Zig. Static libraries are provided as `link.Input` values.
-windows_libs: std.StringArrayHashMapUnmanaged(void),
+windows_libs: std.array_hash_map.String(void),
 /// The number of items in `windows_libs` which we have already built. All items at or after this
 /// index will be built in `performAllTheWork`.
 windows_libs_num_done: u32,
@@ -101,7 +101,7 @@ native_system_include_paths: []const []const u8,
 /// List of symbols forced as undefined in the symbol table
 /// thus forcing their resolution by the linker.
 /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
-force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
+force_undefined_symbols: std.array_hash_map.String(void),
 
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .empty,
 win32_resource_table: if (dev.env.supports(.win32_resource)) std.AutoArrayHashMapUnmanaged(*Win32Resource, void) else struct {
@@ -1604,7 +1604,7 @@ pub const CreateOptions = struct {
     /// implementations still do.
     lib_directories: []const Cache.Directory = &.{},
     rpath_list: []const []const u8 = &[0][]const u8{},
-    symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .empty,
+    symbol_wrap_set: std.array_hash_map.String(void) = .empty,
     c_source_files: []const CSourceFile = &.{},
     rc_source_files: []const RcSourceFile = &.{},
     manifest_file: ?[]const u8 = null,
@@ -1683,7 +1683,7 @@ pub const CreateOptions = struct {
     skip_linker_dependencies: bool = false,
     hash_style: link.File.Lld.Elf.HashStyle = .both,
     entry: Entry = .default,
-    force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .empty,
+    force_undefined_symbols: std.array_hash_map.String(void) = .empty,
     stack_size: ?u64 = null,
     image_base: ?u64 = null,
     version: ?std.SemanticVersion = null,

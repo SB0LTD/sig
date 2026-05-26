@@ -1127,7 +1127,7 @@ fn moduleNeedsCliArg(mod: *const Configuration.Module, conf: *const Configuratio
 
 const CliNamedModules = struct {
     modules: std.AutoArrayHashMapUnmanaged(Configuration.Module.Index, void),
-    names: std.StringArrayHashMapUnmanaged(void),
+    names: std.array_hash_map.String(void),
 
     /// Traverse the whole dependency graph and give every module a unique
     /// name, ideally one named after what it's called somewhere in the graph.

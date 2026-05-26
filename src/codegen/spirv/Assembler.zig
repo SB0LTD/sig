@@ -35,8 +35,8 @@ inst: struct {
         return null;
     }
 } = .{},
-value_map: std.StringArrayHashMapUnmanaged(AsmValue) = .{},
-inst_map: std.StringArrayHashMapUnmanaged(void) = .empty,
+value_map: std.array_hash_map.String(AsmValue) = .{},
+inst_map: std.array_hash_map.String(void) = .empty,
 
 const Operand = union(enum) {
     /// Any 'simple' 32-bit value. This could be a mask or

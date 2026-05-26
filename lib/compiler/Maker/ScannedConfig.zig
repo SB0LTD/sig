@@ -8,7 +8,7 @@ const Serializer = std.zon.Serializer;
 const Graph = @import("Graph.zig");
 
 configuration: Configuration,
-top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index),
+top_level_steps: std.array_hash_map.String(Configuration.Step.Index),
 path: []const u8,
 
 pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {

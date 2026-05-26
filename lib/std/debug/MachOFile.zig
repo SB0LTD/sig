@@ -115,7 +115,7 @@ pub fn load(gpa: Allocator, io: Io, path: []const u8, arch: std.Target.Cpu.Arch)
     // necessary because we prefer to use STAB ("symbolic debugging table") symbols,
     // but they might not be present, so we track normal symbols too.
     // Indices match 1-1 with those of `symbols`.
-    var symbol_names: std.StringArrayHashMapUnmanaged(void) = .empty;
+    var symbol_names: std.array_hash_map.String(void) = .empty;
     defer symbol_names.deinit(gpa);
     try symbol_names.ensureUnusedCapacity(gpa, symtab.nsyms);
 
@@ -380,7 +380,7 @@ test {
 
 fn appendStabSymbol(
     symbols: *std.ArrayList(Symbol),
-    symbol_names: *std.StringArrayHashMapUnmanaged(void),
+    symbol_names: *std.array_hash_map.String(void),
     strings: []const u8,
     last_sym: Symbol,
 ) void {

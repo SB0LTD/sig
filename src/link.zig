@@ -471,7 +471,7 @@ pub const File = struct {
         /// wrapper for a system function. The wrapper function should be called
         /// __wrap_symbol. If it wishes to call the system function, it should call
         /// __real_symbol.
-        symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
+        symbol_wrap_set: std.array_hash_map.String(void),
 
         compatibility_version: ?std.SemanticVersion,
 

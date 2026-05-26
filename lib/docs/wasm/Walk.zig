@@ -10,9 +10,9 @@ const Oom = error{OutOfMemory};
 
 pub const Decl = @import("Decl.zig");
 
-pub var files: std.StringArrayHashMapUnmanaged(File) = .empty;
+pub var files: std.array_hash_map.String(File) = .empty;
 pub var decls: std.ArrayList(Decl) = .empty;
-pub var modules: std.StringArrayHashMapUnmanaged(File.Index) = .empty;
+pub var modules: std.array_hash_map.String(File.Index) = .empty;
 
 file: File.Index,
 
@@ -465,8 +465,8 @@ pub const Scope = struct {
     const Namespace = struct {
         base: Scope = .{ .tag = .namespace },
         parent: *Scope,
-        names: std.StringArrayHashMapUnmanaged(Ast.Node.Index) = .empty,
-        doctests: std.StringArrayHashMapUnmanaged(Ast.Node.Index) = .empty,
+        names: std.array_hash_map.String(Ast.Node.Index) = .empty,
+        doctests: std.array_hash_map.String(Ast.Node.Index) = .empty,
         decl_index: Decl.Index,
     };
 

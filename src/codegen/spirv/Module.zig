@@ -66,7 +66,7 @@ cache: struct {
     extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, Id) = .empty,
     decorations: std.AutoHashMapUnmanaged(struct { Id, spec.Decoration }, void) = .empty,
     builtins: std.AutoHashMapUnmanaged(struct { spec.BuiltIn, spec.StorageClass }, Decl.Index) = .empty,
-    strings: std.StringArrayHashMapUnmanaged(Id) = .empty,
+    strings: std.array_hash_map.String(Id) = .empty,
 
     bool_const: [2]?Id = .{ null, null },
     constants: std.ArrayHashMapUnmanaged(Constant, Id, Constant.HashContext, true) = .empty,

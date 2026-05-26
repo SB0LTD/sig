@@ -2513,7 +2513,7 @@ fn airAssembly(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
     var llvm_param_i: usize = 0;
     var total_i: usize = 0;
 
-    var name_map: std.StringArrayHashMapUnmanaged(u16) = .empty;
+    var name_map: std.array_hash_map.String(u16) = .empty;
     try name_map.ensureUnusedCapacity(arena, max_param_count);
 
     var it = unwrapped_asm.iterateOutputs();

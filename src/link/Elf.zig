@@ -2,7 +2,7 @@ pub const Atom = @import("Elf/Atom.zig");
 
 base: link.File,
 zig_object: ?*ZigObject,
-rpath_table: std.StringArrayHashMapUnmanaged(void),
+rpath_table: std.array_hash_map.String(void),
 image_base: u64,
 z_nodelete: bool,
 z_notext: bool,
@@ -30,7 +30,7 @@ file_handles: std.ArrayList(File.Handle) = .empty,
 zig_object_index: ?File.Index = null,
 linker_defined_index: ?File.Index = null,
 objects: std.ArrayList(File.Index) = .empty,
-shared_objects: std.StringArrayHashMapUnmanaged(File.Index) = .empty,
+shared_objects: std.array_hash_map.String(File.Index) = .empty,
 
 /// List of all output sections and their associated metadata.
 sections: std.MultiArrayList(Section) = .{},
@@ -249,7 +249,7 @@ pub fn createEmpty(
     const is_dyn_lib = output_mode == .Lib and link_mode == .dynamic;
     const default_sym_version: elf.Versym = if (is_dyn_lib or comp.config.rdynamic) .GLOBAL else .LOCAL;
 
-    var rpath_table: std.StringArrayHashMapUnmanaged(void) = .empty;
+    var rpath_table: std.array_hash_map.String(void) = .empty;
     try rpath_table.entries.resize(arena, options.rpath_list.len);
     @memcpy(rpath_table.entries.items(.key), options.rpath_list);
     try rpath_table.reIndex(arena);
@@ -1112,7 +1112,7 @@ fn parseDso(
     io: Io,
     diags: *Diags,
     dso: link.Input.Dso,
-    shared_objects: *std.StringArrayHashMapUnmanaged(File.Index),
+    shared_objects: *std.array_hash_map.String(File.Index),
     files: *std.MultiArrayList(File.Entry),
     target: *const std.Target,
 ) !void {

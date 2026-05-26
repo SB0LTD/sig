@@ -441,7 +441,7 @@ pub const ResourceDataEntry = extern struct {
 const ResourceTree = struct {
     type_to_name_map: std.ArrayHashMapUnmanaged(NameOrOrdinal, NameToLanguageMap, NameOrOrdinalHashContext, true),
     rsrc_string_table: std.ArrayHashMapUnmanaged(NameOrOrdinal, void, NameOrOrdinalHashContext, true),
-    deduplicated_data: std.StringArrayHashMapUnmanaged(u32),
+    deduplicated_data: std.array_hash_map.String(u32),
     data_offsets: std.ArrayList(u32),
     rsrc02_len: u32,
     coff_options: CoffOptions,

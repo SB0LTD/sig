@@ -481,7 +481,7 @@ pub fn main(init: process.Init.Minimal) !void {
         // maker process fails or crashes and it's helpful to be able to repeat
         // execution of the command line or otherwise inspect the configuration file.
         const c = &configuration;
-        var top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index) = .empty;
+        var top_level_steps: std.array_hash_map.String(Configuration.Step.Index) = .empty;
         for (configuration.steps, 0..) |*conf_step, step_index_usize| {
             if (conf_step.owner != .root) continue;
             const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
