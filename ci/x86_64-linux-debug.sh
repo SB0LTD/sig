@@ -48,6 +48,7 @@ stage3-debug/bin/zig build \
   -Dno-lib
 
 stage3-debug/bin/zig build test docs \
+  --maker-opt=Debug \
   --maxrss ${ZSF_MAX_RSS:-0} \
   -Dlldb=$HOME/deps/lldb-zig/Debug-33ec8d3c11/bin/lldb \
   -fqemu \
