@@ -5629,7 +5629,7 @@ fn cmdBuild(
                         break :cp .{
                             .{
                                 .root_dir = dirs.local_cache,
-                                .sub_path = try std.fmt.allocPrint(arena, "o/{s}", .{&digest}),
+                                .sub_path = try std.fmt.allocPrint(arena, "c/{s}", .{&digest}),
                             },
                             false,
                         };
@@ -5723,7 +5723,7 @@ fn cmdBuild(
                 const digest = config_man.final();
                 const final_path: Path = .{
                     .root_dir = dirs.local_cache,
-                    .sub_path = try std.fmt.allocPrint(arena, "o/{s}", .{&digest}),
+                    .sub_path = try std.fmt.allocPrint(arena, "c/{s}", .{&digest}),
                 };
                 Io.Dir.rename(
                     config_tmp_path.root_dir.handle,
@@ -5731,9 +5731,24 @@ fn cmdBuild(
                     final_path.root_dir.handle,
                     final_path.sub_path,
                     io,
-                ) catch |err| {
+                ) catch |err| retry: {
+                    const e = switch (err) {
+                        error.FileNotFound => e: {
+                            const dir_path = final_path.dirname().?;
+                            dir_path.root_dir.handle.createDirPath(io, dir_path.sub_path) catch |e|
+                                fatal("failed to create directory {f}: {t}", .{ dir_path, e });
+                            if (Io.Dir.rename(
+                                config_tmp_path.root_dir.handle,
+                                config_tmp_path.sub_path,
+                                final_path.root_dir.handle,
+                                final_path.sub_path,
+                                io,
+                            )) |_| break :retry else |e| break :e e;
+                        },
+                        else => |e| e,
+                    };
                     fatal("failed to rename configuration file from {f} into {f}: {t}", .{
-                        config_tmp_path, final_path, err,
+                        config_tmp_path, final_path, e,
                     });
                 };
                 config_man.writeManifest() catch |err| warn("failed to write cache manifest: {t}", .{err});
