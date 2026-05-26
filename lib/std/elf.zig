@@ -224,6 +224,9 @@ pub const DT_PPC64_NUM = 4;
 pub const DT_IA_64_PLT_RESERVE = (DT_LOPROC + 0);
 pub const DT_IA_64_NUM = 1;
 
+pub const DT_XTENSA_GOT_LOC_OFF = 0x70000000;
+pub const DT_XTENSA_GOT_LOC_SZ = 0x70000001;
+
 pub const DT_NIOS2_GP = 0x70000002;
 
 pub const DF_ORIGIN = 0x00000001;
