@@ -242,11 +242,10 @@ pub fn streamExactPreserve(r: *Reader, w: *Writer, preserve_len: usize, n: usize
         remaining -= try r.stream(w, .limited(remaining - preserve_len));
         if (w.end + remaining <= w.buffer.len) return streamExact(r, w, remaining);
     }
-    // All the next bytes received must be preserved.
-    if (preserve_len < w.end) {
-        @memmove(w.buffer[0..preserve_len], w.buffer[w.end - preserve_len ..][0..preserve_len]);
-        w.end = preserve_len;
-    }
+    // Offset the amount preserved by the amount we have left to stream
+    // since the remaining bytes are always going to be part of that
+    // preservation.
+    try w.rebase(preserve_len -| remaining, remaining);
     return streamExact(r, w, remaining);
 }
 
@@ -2298,6 +2297,50 @@ fn testLeb128(comptime T: type, encoded: []const u8) !T {
     const result = reader.takeLeb128(T);
     try testing.expectEqual(reader.seek, reader.end);
     return result;
+}
+
+test streamExactPreserve {
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 5, .stream_len = 5 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 9, .preserve = 5, .stream_len = 2 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 5, .stream_len = 6 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 6, .stream_len = 6 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 5, .stream_len = 10 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 6, .stream_len = 10 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 6, .stream_len = 11 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 6, .stream_len = 80 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 6, .stream_len = 85 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 10, .stream_len = 6 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 10, .stream_len = 11 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 10, .stream_len = 80 });
+    try testStreamExactPreserve(.{ .buf_len = 10, .fill_len = 5, .preserve = 10, .stream_len = 85 });
+}
+
+fn testStreamExactPreserve(options: struct { buf_len: u4, fill_len: u4, preserve: u4, stream_len: u8 }) !void {
+    assert(options.fill_len <= options.buf_len);
+    assert(options.preserve <= options.buf_len);
+
+    var input: [256]u8 = undefined;
+    for (&input, 0..) |*val, i| {
+        val.* = @as(u8, @intCast(i % 26)) + 'a';
+    }
+    const expected_out = input[0 .. options.fill_len + options.stream_len];
+    const expected_preserved = expected_out[expected_out.len -| options.preserve..];
+
+    var r: Reader = .fixed(&input);
+    var out_buf: [256]u8 = undefined;
+    var fw: Writer = .fixed(&out_buf);
+    var indirect_buffer: [16]u8 = undefined;
+    var twi: std.testing.WriterIndirect = .init(&fw, indirect_buffer[0..options.buf_len]);
+    const w = &twi.interface;
+
+    try r.streamExact(w, options.fill_len);
+    try r.streamExactPreserve(w, options.preserve, options.stream_len);
+
+    try std.testing.expectEqualStrings(expected_preserved, w.buffer[w.end -| options.preserve..w.end]);
+
+    try w.flush();
+
+    try std.testing.expectEqualStrings(expected_out, fw.buffered());
 }
 
 test {
