@@ -159,6 +159,12 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 },
 
                 .{
+                    .path = "arch" ++ path.sep_str ++ "riscv" ++ path.sep_str ++ "crt0.S",
+                    .flags = acflags.items,
+                    .condition = target.cpu.arch.isRISCV(),
+                },
+
+                .{
                     .path = "arch" ++ path.sep_str ++ "sparc" ++ path.sep_str ++ "crt0.S",
                     .flags = acflags.items,
                     .condition = target.cpu.arch == .sparc,

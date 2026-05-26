@@ -1,6 +1,11 @@
+/*	$NetBSD: crt0.S,v 1.3.4.1 2026/03/04 19:27:22 martin Exp $	*/
+
 /*-
- * Copyright (c) 2021 The NetBSD Foundation, Inc.
+ * Copyright (c) 2014 The NetBSD Foundation, Inc.
  * All rights reserved.
+ *
+ * This code is derived from software contributed to The NetBSD Foundation
+ * by Matt Thomas of 3am Software Foundry.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,17 +29,34 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/*
- * For historical reasons the following symbols are defined both in libc
- * and csu and need to be common
- */
-#if __has_attribute(__common__)
-#define	__common	__attribute((__common__))
-#else
-#define	__common
-#endif
-extern char *__progname __common;
-extern char **environ __common;
-extern struct ps_strings *__ps_strings __common;
+#include <machine/asm.h>
 
-void    _libc_init(void) __attribute__((__constructor__, __used__));
+RCSID("$NetBSD: crt0.S,v 1.3.4.1 2026/03/04 19:27:22 martin Exp $")
+
+STRONG_ALIAS(_start,__start)
+
+_ENTRY(__start)
+	/*
+	 * void ___start(void (*cleanup)(void), struct ps_strings *ps_strings);
+	 */
+	.option push
+	.option norelax
+	lla	gp, __global_pointer$
+	.option pop
+
+	j	___start
+END(__start)
+
+	.option push
+	.option norelax
+
+_ENTRY(_start_setgp)
+	lla	gp, __global_pointer$
+	.option pop
+	ret
+END(_start_setgp)
+
+	.section	.preinit_array, "aw"
+	.p2align	PTR_SCALESHIFT
+	PTR_WORD	_start_setgp
+
