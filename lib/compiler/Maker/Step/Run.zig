@@ -1460,7 +1460,7 @@ fn evalGeneric(
             stderr_bytes = try multi_reader.toOwnedSlice(1);
         } else {
             var stdout_reader = stdout.readerStreaming(io, &.{});
-            const stdio_limit: Io.Limit = if (conf_run.stdio_limit.value) |x| .limited(x) else .unlimited;
+            const stdio_limit: Io.Limit = if (conf_run.stdio_limit.value) |x| .limited64(x) else .unlimited;
             stdout_bytes = stdout_reader.interface.allocRemaining(arena, stdio_limit) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 error.ReadFailed => return stdout_reader.err.?,
@@ -1469,7 +1469,7 @@ fn evalGeneric(
         }
     } else if (child.stderr) |stderr| {
         var stderr_reader = stderr.readerStreaming(io, &.{});
-        const stdio_limit: Io.Limit = if (conf_run.stdio_limit.value) |x| .limited(x) else .unlimited;
+        const stdio_limit: Io.Limit = if (conf_run.stdio_limit.value) |x| .limited64(x) else .unlimited;
         stderr_bytes = stderr_reader.interface.allocRemaining(arena, stdio_limit) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             error.ReadFailed => return stderr_reader.err.?,

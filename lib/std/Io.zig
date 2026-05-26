@@ -689,6 +689,13 @@ pub const Limit = enum(usize) {
         };
     }
 
+    pub fn toInt64(l: Limit) ?u64 {
+        return switch (l) {
+            else => @intFromEnum(l),
+            .unlimited => null,
+        };
+    }
+
     /// Reduces a slice to account for the limit, leaving room for one extra
     /// byte above the limit, allowing for the use case of differentiating
     /// between end-of-stream and reaching the limit.

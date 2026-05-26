@@ -38,7 +38,7 @@ steps: []Step,
 generated_files: []Path,
 run_args: ?[]const []const u8,
 
-available_rss: usize,
+available_rss: u64,
 max_rss_is_default: bool,
 max_rss_mutex: Io.Mutex,
 skip_oom_steps: bool,
@@ -740,7 +740,7 @@ fn prepare(maker: *Maker, step_names: []const []const u8) !void {
     {
         // Check that we have enough memory to complete the build.
         var any_problems = false;
-        var max_needed: usize = 0;
+        var max_needed: u64 = 0;
         for (step_stack.keys()) |step_index| {
             const make_step = maker.stepByIndex(step_index);
             const conf_step = step_index.ptr(c);

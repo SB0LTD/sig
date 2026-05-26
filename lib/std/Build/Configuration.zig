@@ -1458,12 +1458,12 @@ pub const MaxRss = enum(u32) {
     none = 0,
     _,
 
-    pub fn toBytes(mr: MaxRss) usize {
+    pub fn toBytes(mr: MaxRss) u64 {
         const x: usize = @intFromEnum(mr);
         return x << 8;
     }
 
-    pub fn fromBytes(bytes: usize) MaxRss {
+    pub fn fromBytes(bytes: u64) MaxRss {
         return @enumFromInt(bytes >> 8);
     }
 };

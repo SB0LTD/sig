@@ -1074,7 +1074,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             } else null },
                             .environ_map = .{ .value = try s.addEnvironMap(run.environ_map) },
                             .expect_term_value = .{ .value = if (expect_term) |t| t.value else null },
-                            .stdio_limit = .{ .value = run.stdio_limit.toInt() },
+                            .stdio_limit = .{ .value = run.stdio_limit.toInt64() },
                             .producer = .{ .value = if (run.producer) |cs| s.stepIndex(&cs.step) else null },
                             .expect_stderr_exact = .{ .value = if (expect_stderr_exact) |bytes| bytes else null },
                             .expect_stdout_exact = .{ .value = if (expect_stdout_exact) |bytes| bytes else null },
