@@ -2492,7 +2492,7 @@ const signal_ucontext_t = switch (native_os) {
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/sparc64/include/signal.h
         .sparc64 => @compileError("sparc64-openbsd ucontext_t missing"),
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/sh/include/signal.h
-        .sh, .sheb => extern struct {
+        .sh => extern struct {
             pc: u32,
             _sr: i32,
             _gbr: i32,
