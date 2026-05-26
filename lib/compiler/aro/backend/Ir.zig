@@ -380,7 +380,7 @@ const REF = std.Io.Terminal.Color.bright_blue;
 const LITERAL = std.Io.Terminal.Color.bright_green;
 const ATTRIBUTE = std.Io.Terminal.Color.bright_yellow;
 
-const RefMap = std.AutoArrayHashMapUnmanaged(Ref, void);
+const RefMap = std.array_hash_map.Auto(Ref, void);
 
 pub const DumpError = std.Io.Terminal.SetColorError || std.mem.Allocator.Error;
 

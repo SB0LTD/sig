@@ -1750,11 +1750,11 @@ const TlvInitializer = struct {
     }
 };
 
-const NavTable = std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, AvMetadata);
-const UavTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, AvMetadata);
-const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);
+const NavTable = std.array_hash_map.Auto(InternPool.Nav.Index, AvMetadata);
+const UavTable = std.array_hash_map.Auto(InternPool.Index, AvMetadata);
+const LazySymbolTable = std.array_hash_map.Auto(InternPool.Index, LazySymbolMetadata);
 const RelocationTable = std.ArrayList(std.ArrayList(Relocation));
-const TlvInitializerTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlvInitializer);
+const TlvInitializerTable = std.array_hash_map.Auto(Atom.Index, TlvInitializer);
 
 const x86_64 = struct {
     fn writeTrampolineCode(source_addr: u64, target_addr: u64, buf: *[max_trampoline_len]u8) ![]u8 {

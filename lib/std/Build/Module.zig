@@ -563,7 +563,7 @@ pub fn getGraph(root: *Module) Graph {
 
     const arena = root.owner.graph.arena;
 
-    var modules: std.AutoArrayHashMapUnmanaged(*std.Build.Module, []const u8) = .empty;
+    var modules: std.array_hash_map.Auto(*std.Build.Module, []const u8) = .empty;
     var next_idx: usize = 0;
 
     modules.putNoClobber(arena, root, "root") catch @panic("OOM");

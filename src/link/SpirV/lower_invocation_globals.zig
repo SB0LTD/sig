@@ -23,14 +23,14 @@ const ModuleInfo = struct {
         /// The set of (result-id's of) invocation globals that are accessed
         /// in this function, or after resolution, that are accessed in this
         /// function or any of it's callees.
-        invocation_globals: std.AutoArrayHashMapUnmanaged(ResultId, void),
+        invocation_globals: std.array_hash_map.Auto(ResultId, void),
     };
 
     /// Information about a particular invocation global
     const InvocationGlobal = struct {
         /// The list of invocation globals that this invocation global
         /// depends on.
-        dependencies: std.AutoArrayHashMapUnmanaged(ResultId, void),
+        dependencies: std.array_hash_map.Auto(ResultId, void),
         /// The invocation global's type
         ty: ResultId,
         /// Initializer function. May be `none`.
@@ -39,13 +39,13 @@ const ModuleInfo = struct {
     };
 
     /// Maps function result-id -> Fn information structure.
-    functions: std.AutoArrayHashMapUnmanaged(ResultId, Fn),
+    functions: std.array_hash_map.Auto(ResultId, Fn),
     /// Set of OpFunction result-ids in this module.
-    entry_points: std.AutoArrayHashMapUnmanaged(ResultId, void),
+    entry_points: std.array_hash_map.Auto(ResultId, void),
     /// For each function, a list of function result-ids that it calls.
     callee_store: []const ResultId,
     /// Maps each invocation global result-id to a type-id.
-    invocation_globals: std.AutoArrayHashMapUnmanaged(ResultId, InvocationGlobal),
+    invocation_globals: std.array_hash_map.Auto(ResultId, InvocationGlobal),
 
     /// Fetch the list of callees per function. Guaranteed to contain only unique IDs.
     fn callees(self: ModuleInfo, fn_id: ResultId) []const ResultId {
@@ -344,7 +344,7 @@ const ModuleBuilder = struct {
     /// and until a general type deduplication pass is programmed, we just handle it here via this.
     function_types: std.ArrayHashMapUnmanaged(FunctionType, ResultId, FunctionType.Context, true) = .empty,
     /// Maps functions to new information required for creating the module
-    function_new_info: std.AutoArrayHashMapUnmanaged(ResultId, FunctionNewInfo) = .empty,
+    function_new_info: std.array_hash_map.Auto(ResultId, FunctionNewInfo) = .empty,
     /// Offset of the functions section in the new binary.
     new_functions_section: ?usize,
 

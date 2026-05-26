@@ -160,10 +160,10 @@ pub fn main(init: process.Init.Minimal) !void {
 const Serialize = struct {
     arena: Allocator,
     wc: *Configuration.Wip,
-    module_map: std.AutoArrayHashMapUnmanaged(*std.Build.Module, Configuration.Module.Index) = .empty,
-    package_map: std.AutoArrayHashMapUnmanaged(*std.Build, Configuration.Package.Index) = .empty,
+    module_map: std.array_hash_map.Auto(*std.Build.Module, Configuration.Module.Index) = .empty,
+    package_map: std.array_hash_map.Auto(*std.Build, Configuration.Package.Index) = .empty,
     /// Index corresponds to `Configuration.steps` index.
-    step_map: std.AutoArrayHashMapUnmanaged(*Step, void) = .empty,
+    step_map: std.array_hash_map.Auto(*Step, void) = .empty,
 
     fn builderToPackage(s: *Serialize, b: *std.Build) !Configuration.Package.Index {
         if (b.pkg_hash.len == 0) return .root;

@@ -24,22 +24,22 @@ const ArrayList = std.ArrayList;
 /// Ordered list of data segments that will appear in the final binary.
 /// When sorted, to-be-merged segments will be made adjacent.
 /// Values are virtual address.
-data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegmentId, u32) = .empty,
+data_segments: std.array_hash_map.Auto(Wasm.DataSegmentId, u32) = .empty,
 /// Each time a `data_segment` offset equals zero it indicates a new group, and
 /// the next element in this array will contain the total merged segment size.
 /// Value is the virtual memory address of the end of the segment.
 data_segment_groups: ArrayList(DataSegmentGroup) = .empty,
 
 binary_bytes: ArrayList(u8) = .empty,
-missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
-function_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.FunctionImportId) = .empty,
-global_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.GlobalImportId) = .empty,
-data_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.DataImportId) = .empty,
+missing_exports: std.array_hash_map.Auto(String, void) = .empty,
+function_imports: std.array_hash_map.Auto(String, Wasm.FunctionImportId) = .empty,
+global_imports: std.array_hash_map.Auto(String, Wasm.GlobalImportId) = .empty,
+data_imports: std.array_hash_map.Auto(String, Wasm.DataImportId) = .empty,
 
-indirect_function_table: std.AutoArrayHashMapUnmanaged(Wasm.OutputFunctionIndex, void) = .empty,
+indirect_function_table: std.array_hash_map.Auto(Wasm.OutputFunctionIndex, void) = .empty,
 
 /// A subset of the full interned function type list created only during flush.
-func_types: std.AutoArrayHashMapUnmanaged(Wasm.FunctionType.Index, void) = .empty,
+func_types: std.array_hash_map.Auto(Wasm.FunctionType.Index, void) = .empty,
 
 /// For debug purposes only.
 memory_layout_finished: bool = false,

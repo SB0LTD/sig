@@ -4153,7 +4153,7 @@ pub const Ref = struct {
 pub const SymbolResolver = struct {
     keys: std.ArrayList(Key) = .empty,
     values: std.ArrayList(Ref) = .empty,
-    table: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
+    table: std.array_hash_map.Auto(void, void) = .empty,
 
     const Result = struct {
         found_existing: bool,

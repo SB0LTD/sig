@@ -59,14 +59,14 @@ pub const Mir = struct {
     /// Key is the value of the UAV; value is the UAV's alignment, or
     /// `.none` for natural alignment. The specified alignment is never
     /// less than the natural alignment.
-    need_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+    need_uavs: std.array_hash_map.Auto(InternPool.Index, Alignment),
     ctype_deps: CType.Dependencies,
     /// Key is an enum type for which we need a generated `@tagName` function.
-    need_tag_name_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
+    need_tag_name_funcs: std.array_hash_map.Auto(InternPool.Index, void),
     /// Key is a function Nav for which we need a generated `zig_never_tail` wrapper.
-    need_never_tail_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void),
+    need_never_tail_funcs: std.array_hash_map.Auto(InternPool.Nav.Index, void),
     /// Key is a function Nav for which we need a generated `zig_never_inline` wrapper.
-    need_never_inline_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void),
+    need_never_inline_funcs: std.array_hash_map.Auto(InternPool.Nav.Index, void),
 
     pub fn deinit(mir: *Mir, gpa: Allocator) void {
         gpa.free(mir.fwd_decl);
@@ -164,8 +164,8 @@ const LocalType = struct {
 };
 
 const LocalIndex = u16;
-const LocalsList = std.AutoArrayHashMapUnmanaged(LocalIndex, void);
-const LocalsMap = std.AutoArrayHashMapUnmanaged(LocalType, LocalsList);
+const LocalsList = std.array_hash_map.Auto(LocalIndex, void);
+const LocalsMap = std.array_hash_map.Auto(LocalType, LocalsList);
 
 const ValueRenderLocation = enum {
     initializer,
@@ -391,11 +391,11 @@ pub const Function = struct {
     code: Writer.Allocating,
     indent_counter: usize,
     /// Key is an enum type for which we need a generated `@tagName` function.
-    need_tag_name_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
+    need_tag_name_funcs: std.array_hash_map.Auto(InternPool.Index, void),
     /// Key is a function Nav for which we need a generated `zig_never_tail` wrapper.
-    need_never_tail_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void),
+    need_never_tail_funcs: std.array_hash_map.Auto(InternPool.Nav.Index, void),
     /// Key is a function Nav for which we need a generated `zig_never_inline` wrapper.
-    need_never_inline_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void),
+    need_never_inline_funcs: std.array_hash_map.Auto(InternPool.Nav.Index, void),
     func_index: InternPool.Index,
     /// All the locals, to be emitted at the top of the function.
     locals: std.ArrayList(LocalType) = .empty,
@@ -407,7 +407,7 @@ pub const Function = struct {
     /// of variable declarations at the top of a function, sorted descending
     /// by type alignment.
     /// The value is whether the alloc needs to be emitted in the header.
-    allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .empty,
+    allocs: std.array_hash_map.Auto(LocalIndex, bool) = .empty,
     /// Maps from `loop_switch_br` instructions to the allocated local used
     /// for the switch cond. Dispatches should set this local to the new cond.
     loop_switch_conds: std.AutoHashMapUnmanaged(Air.Inst.Index, LocalIndex) = .empty,
@@ -643,7 +643,7 @@ pub const DeclGen = struct {
     /// Key is the value of the UAV; value is the UAV's alignment, or
     /// `.none` for natural alignment. The specified alignment is never
     /// less than the natural alignment.
-    uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+    uavs: std.array_hash_map.Auto(InternPool.Index, Alignment),
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @branchHint(.cold);

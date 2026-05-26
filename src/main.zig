@@ -4420,7 +4420,7 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
 
         var file_name_bytes: std.ArrayList(u8) = .empty;
         defer file_name_bytes.deinit(gpa);
-        var files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, void) = .empty;
+        var files: std.array_hash_map.Auto(Zcu.File.Index, void) = .empty;
         defer files.deinit(gpa);
         var decl_data: std.ArrayList(u8) = .empty;
         defer decl_data.deinit(gpa);

@@ -759,7 +759,7 @@ pub fn rootModuleTarget(c: *Compile) std.Target {
 pub fn getCompileDependencies(start: *Compile, chase_dynamic: bool) []const *Compile {
     const arena = start.step.owner.graph.arena;
 
-    var compiles: std.AutoArrayHashMapUnmanaged(*Compile, void) = .empty;
+    var compiles: std.array_hash_map.Auto(*Compile, void) = .empty;
     var next_idx: usize = 0;
 
     compiles.putNoClobber(arena, start, {}) catch @panic("OOM");

@@ -4,7 +4,7 @@ strings: []const u8,
 text_vmaddr: u64,
 
 /// Key is index into `strings` of the file path.
-ofiles: std.AutoArrayHashMapUnmanaged(u32, Error!OFile),
+ofiles: std.array_hash_map.Auto(u32, Error!OFile),
 
 pub const Error = error{
     InvalidMachO,

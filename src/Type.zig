@@ -3340,7 +3340,7 @@ pub fn assertHasLayout(ty: Type, zcu: *const Zcu) void {
 }
 
 /// Recursively walks the type and marks for each subtype how many times it has been seen
-fn collectSubtypes(ty: Type, pt: Zcu.PerThread, visited: *std.AutoArrayHashMapUnmanaged(Type, u16)) error{OutOfMemory}!void {
+fn collectSubtypes(ty: Type, pt: Zcu.PerThread, visited: *std.array_hash_map.Auto(Type, u16)) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
@@ -3455,8 +3455,8 @@ fn shouldDedupeType(ty: Type, ctx: *Comparison, pt: Zcu.PerThread) error{OutOfMe
 /// the subtype length and number of occurences. Placeholders are then found by
 /// iterating `type_dedupe_cache` which caches the inline/placeholder decisions.
 pub const Comparison = struct {
-    type_occurrences: std.AutoArrayHashMapUnmanaged(Type, u16),
-    type_dedupe_cache: std.AutoArrayHashMapUnmanaged(Type, DedupeEntry),
+    type_occurrences: std.array_hash_map.Auto(Type, u16),
+    type_dedupe_cache: std.array_hash_map.Auto(Type, DedupeEntry),
     placeholder_index: u8,
 
     pub const Placeholder = struct {

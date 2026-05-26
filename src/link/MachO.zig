@@ -28,9 +28,9 @@ sections: std.MultiArrayList(Section) = .{},
 resolver: SymbolResolver = .{},
 /// This table will be populated after `scanRelocs` has run.
 /// Key is symbol index.
-undefs: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, UndefRefs) = .empty,
+undefs: std.array_hash_map.Auto(SymbolResolver.Index, UndefRefs) = .empty,
 undefs_mutex: std.Io.Mutex = .init,
-dupes: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayList(File.Index)) = .empty,
+dupes: std.array_hash_map.Auto(SymbolResolver.Index, std.ArrayList(File.Index)) = .empty,
 dupes_mutex: std.Io.Mutex = .init,
 
 dyld_info_cmd: macho.dyld_info_command = .{},
@@ -4102,7 +4102,7 @@ const Section = struct {
 };
 
 pub const LiteralPool = struct {
-    table: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
+    table: std.array_hash_map.Auto(void, void) = .empty,
     keys: std.ArrayList(Key) = .empty,
     values: std.ArrayList(MachO.Ref) = .empty,
     data: std.ArrayList(u8) = .empty,
@@ -4541,7 +4541,7 @@ pub const Ref = struct {
 pub const SymbolResolver = struct {
     keys: std.ArrayList(Key) = .empty,
     values: std.ArrayList(Ref) = .empty,
-    table: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
+    table: std.array_hash_map.Auto(void, void) = .empty,
 
     const Result = struct {
         found_existing: bool,

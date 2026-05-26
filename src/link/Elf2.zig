@@ -112,7 +112,7 @@ plt_first_symbol_reloc: SymbolReloc.Index,
 /// The `.dynamic` section contains zero or more symbol relocations starting at this index.
 dynamic_first_symbol_reloc: SymbolReloc.Index,
 
-needed: std.AutoArrayHashMapUnmanaged(String(.dynstr), void),
+needed: std.array_hash_map.Auto(String(.dynstr), void),
 inputs: std.ArrayList(struct {
     path: std.Build.Cache.Path,
     member: ?[]const u8,
@@ -120,21 +120,21 @@ inputs: std.ArrayList(struct {
 }),
 input_sections: std.ArrayList(InputSection),
 input_section_pending_index: u32,
-navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, struct {
+navs: std.array_hash_map.Auto(InternPool.Nav.Index, struct {
     lsi: Symbol.LocalIndex,
     /// The start index of the contiguous sequence of symbol relocations in this NAV.
     first_symbol_reloc: SymbolReloc.Index,
     /// The start index of the contiguous sequence of GOT relocations in this NAV.
     first_got_reloc: GotReloc.Index,
 }),
-uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, struct {
+uavs: std.array_hash_map.Auto(InternPool.Index, struct {
     lsi: Symbol.LocalIndex,
     /// The start index of the contiguous sequence of symbol relocations in this UAV.
     first_symbol_reloc: SymbolReloc.Index,
     // No `first_got_reloc` field because a UAV never contains GOT relocations.
 }),
 lazy: std.EnumArray(link.File.LazySymbol.Kind, struct {
-    map: std.AutoArrayHashMapUnmanaged(InternPool.Index, struct {
+    map: std.array_hash_map.Auto(InternPool.Index, struct {
         lsi: Symbol.LocalIndex,
         /// The start index of the contiguous sequence of symbol relocations in this lazy code/data.
         first_symbol_reloc: SymbolReloc.Index,

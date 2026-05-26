@@ -31,7 +31,7 @@ const DirTable = std.ArrayHashMapUnmanaged(Cache.Path, void, Cache.Path.TableAda
 
 /// Special key of "." means any changes in this directory trigger the steps.
 const ReactionSet = std.array_hash_map.String(StepSet);
-const StepSet = std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, Generation);
+const StepSet = std.array_hash_map.Auto(Configuration.Step.Index, Generation);
 
 const Generation = u8;
 
@@ -46,7 +46,7 @@ const Os = switch (builtin.os.tag) {
         handle_table: HandleTable,
         /// fanotify file descriptors are keyed by mount id since marks
         /// are limited to a single filesystem.
-        poll_fds: std.AutoArrayHashMapUnmanaged(MountId, posix.pollfd),
+        poll_fds: std.array_hash_map.Auto(MountId, posix.pollfd),
 
         const MountId = i32;
         const HandleTable = std.ArrayHashMapUnmanaged(FileHandle, struct { mount_id: MountId, reaction_set: ReactionSet }, FileHandle.Adapter, false);

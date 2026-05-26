@@ -28,7 +28,7 @@ uav_link: std.AutoHashMapUnmanaged(struct { InternPool.Index, spec.StorageClass 
 intern_map: std.AutoHashMapUnmanaged(struct { InternPool.Index, Repr }, Id) = .empty,
 decls: std.ArrayList(Decl) = .empty,
 decl_deps: std.ArrayList(Decl.Index) = .empty,
-entry_points: std.AutoArrayHashMapUnmanaged(Id, EntryPoint) = .empty,
+entry_points: std.array_hash_map.Auto(Id, EntryPoint) = .empty,
 /// This map serves a dual purpose:
 /// - It keeps track of pointers that are currently being emitted, so that we can tell
 ///   if they are recursive and need an OpTypeForwardPointer.

@@ -42,17 +42,17 @@ pub const Category = union(enum(u8)) {
 pub const File = struct {
     ast: Ast,
     /// Maps identifiers to the declarations they point to.
-    ident_decls: std.AutoArrayHashMapUnmanaged(Ast.TokenIndex, Ast.Node.Index) = .empty,
+    ident_decls: std.array_hash_map.Auto(Ast.TokenIndex, Ast.Node.Index) = .empty,
     /// Maps field access identifiers to the containing field access node.
-    token_parents: std.AutoArrayHashMapUnmanaged(Ast.TokenIndex, Ast.Node.Index) = .empty,
+    token_parents: std.array_hash_map.Auto(Ast.TokenIndex, Ast.Node.Index) = .empty,
     /// Maps declarations to their global index.
-    node_decls: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Decl.Index) = .empty,
+    node_decls: std.array_hash_map.Auto(Ast.Node.Index, Decl.Index) = .empty,
     /// Maps function declarations to doctests.
-    doctests: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .empty,
+    doctests: std.array_hash_map.Auto(Ast.Node.Index, Ast.Node.Index) = .empty,
     /// root node => its namespace scope
     /// struct/union/enum/opaque decl node => its namespace scope
     /// local var decl node => its local variable scope
-    scopes: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, *Scope) = .empty,
+    scopes: std.array_hash_map.Auto(Ast.Node.Index, *Scope) = .empty,
 
     pub fn lookup_token(file: *File, token: Ast.TokenIndex) Decl.Index {
         const decl_node = file.ident_decls.get(token) orelse return .none;

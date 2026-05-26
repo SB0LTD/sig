@@ -112,7 +112,7 @@ const_tracking: ConstTrackingMap = .{},
 inst_tracking: InstTrackingMap = .{},
 
 frame_allocs: std.MultiArrayList(FrameAlloc) = .{},
-free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .empty,
+free_frame_indices: std.array_hash_map.Auto(FrameIndex, void) = .empty,
 frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
 
 loops: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
@@ -338,7 +338,7 @@ const MCValue = union(enum) {
 };
 
 const Branch = struct {
-    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .empty,
+    inst_table: std.array_hash_map.Auto(Air.Inst.Index, MCValue) = .empty,
 
     fn deinit(func: *Branch, gpa: Allocator) void {
         func.inst_table.deinit(gpa);
@@ -346,8 +346,8 @@ const Branch = struct {
     }
 };
 
-const InstTrackingMap = std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InstTracking);
-const ConstTrackingMap = std.AutoArrayHashMapUnmanaged(InternPool.Index, InstTracking);
+const InstTrackingMap = std.array_hash_map.Auto(Air.Inst.Index, InstTracking);
+const ConstTrackingMap = std.array_hash_map.Auto(InternPool.Index, InstTracking);
 
 const InstTracking = struct {
     long: MCValue,

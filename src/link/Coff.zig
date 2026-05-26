@@ -30,18 +30,18 @@ strings: std.HashMapUnmanaged(
 ),
 string_bytes: std.ArrayList(u8),
 image_section_table: std.ArrayList(Symbol.Index),
-pseudo_section_table: std.AutoArrayHashMapUnmanaged(String, Symbol.Index),
-object_section_table: std.AutoArrayHashMapUnmanaged(String, Symbol.Index),
+pseudo_section_table: std.array_hash_map.Auto(String, Symbol.Index),
+object_section_table: std.array_hash_map.Auto(String, Symbol.Index),
 symbol_table: std.ArrayList(Symbol),
-globals: std.AutoArrayHashMapUnmanaged(GlobalName, Symbol.Index),
+globals: std.array_hash_map.Auto(GlobalName, Symbol.Index),
 global_pending_index: u32,
-navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, Symbol.Index),
-uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Symbol.Index),
+navs: std.array_hash_map.Auto(InternPool.Nav.Index, Symbol.Index),
+uavs: std.array_hash_map.Auto(InternPool.Index, Symbol.Index),
 lazy: std.EnumArray(link.File.LazySymbol.Kind, struct {
-    map: std.AutoArrayHashMapUnmanaged(InternPool.Index, Symbol.Index),
+    map: std.array_hash_map.Auto(InternPool.Index, Symbol.Index),
     pending_index: u32,
 }),
-pending_uavs: std.AutoArrayHashMapUnmanaged(Node.UavMapIndex, struct {
+pending_uavs: std.array_hash_map.Auto(Node.UavMapIndex, struct {
     alignment: InternPool.Alignment,
 }),
 relocs: std.ArrayList(Reloc),
@@ -272,7 +272,7 @@ pub const Node = union(enum) {
 
 pub const ImportTable = struct {
     ni: MappedFile.Node.Index,
-    entries: std.AutoArrayHashMapUnmanaged(void, Entry),
+    entries: std.array_hash_map.Auto(void, Entry),
 
     pub const Entry = struct {
         import_lookup_table_ni: MappedFile.Node.Index,

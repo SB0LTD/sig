@@ -106,7 +106,7 @@ global_scope: *Scope.Root,
 mangle_count: u32 = 0,
 
 /// Table of declarations for enum, struct, union and typedef types.
-type_decls: std.AutoArrayHashMapUnmanaged(Node.Index, []const u8) = .empty,
+type_decls: std.array_hash_map.Auto(Node.Index, []const u8) = .empty,
 /// Table of record decls that have been demoted to opaques.
 opaque_demotes: std.HashMapUnmanaged(QualType, void, QualTypeHashContext, std.hash_map.default_max_load_percentage) = .empty,
 /// Table of unnamed enums and records that are child types of typedefs.

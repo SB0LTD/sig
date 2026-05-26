@@ -44,10 +44,10 @@ type_dependencies: std.ArrayList(link.ConstPool.Index),
 align_dependency_masks: std.ArrayList(u64),
 
 /// All NAVs, regardless of whether they are functions or simple constants, are put in this map.
-navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, RenderedDecl),
+navs: std.array_hash_map.Auto(InternPool.Nav.Index, RenderedDecl),
 /// All UAVs which may be referenced are in this map. The UAV alignment is not included in the
 /// rendered C code stored here, because we don't know the alignment a UAV needs until `flush`.
-uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, RenderedDecl),
+uavs: std.array_hash_map.Auto(InternPool.Index, RenderedDecl),
 /// Contains all types which are needed by some other rendered code. Does not contain any constants
 /// other than types.
 type_pool: link.ConstPool,
@@ -59,10 +59,10 @@ types: std.ArrayList(RenderedType),
 /// The set of big int types required by *any* generated code so far. These are always safe to emit,
 /// so they do not participate in the dependency graph traversal in `flush`. Therefore, redundant
 /// big-int types may be emitted under incremental compilation.
-bigint_types: std.AutoArrayHashMapUnmanaged(codegen.CType.BigInt, void),
+bigint_types: std.array_hash_map.Auto(codegen.CType.BigInt, void),
 
-exported_navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, String),
-exported_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, String),
+exported_navs: std.array_hash_map.Auto(InternPool.Nav.Index, String),
+exported_uavs: std.array_hash_map.Auto(InternPool.Index, String),
 
 /// A reference into `string_bytes`.
 const String = extern struct {
@@ -133,10 +133,10 @@ const RenderedDecl = struct {
     fwd_decl: String,
     code: String,
     ctype_deps: CTypeDependencies,
-    need_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
-    need_tag_name_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
-    need_never_tail_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void),
-    need_never_inline_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void),
+    need_uavs: std.array_hash_map.Auto(InternPool.Index, Alignment),
+    need_tag_name_funcs: std.array_hash_map.Auto(InternPool.Index, void),
+    need_never_tail_funcs: std.array_hash_map.Auto(InternPool.Nav.Index, void),
+    need_never_inline_funcs: std.array_hash_map.Auto(InternPool.Nav.Index, void),
 
     const init: RenderedDecl = .{
         .fwd_decl = .empty,
@@ -746,7 +746,7 @@ pub fn flush(c: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Prog
     // incremental updates which is invalid C (due to e.g. types changing). Machine code backends
     // don't have this problem because there are, of course, no type checking performed when you
     // *execute* a binary!
-    var need_navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty;
+    var need_navs: std.array_hash_map.Auto(InternPool.Nav.Index, void) = .empty;
     defer need_navs.deinit(gpa);
     {
         const unit_references = try zcu.resolveReferences();
@@ -774,23 +774,23 @@ pub fn flush(c: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Prog
     //
     // At the same time, we will discover the set of lazy functions which are referenced.
 
-    var need_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment) = .empty;
+    var need_uavs: std.array_hash_map.Auto(InternPool.Index, Alignment) = .empty;
     defer need_uavs.deinit(gpa);
 
-    var need_types: std.AutoArrayHashMapUnmanaged(link.ConstPool.Index, void) = .empty;
+    var need_types: std.array_hash_map.Auto(link.ConstPool.Index, void) = .empty;
     defer need_types.deinit(gpa);
-    var need_errunion_types: std.AutoArrayHashMapUnmanaged(link.ConstPool.Index, void) = .empty;
+    var need_errunion_types: std.array_hash_map.Auto(link.ConstPool.Index, void) = .empty;
     defer need_errunion_types.deinit(gpa);
-    var need_aligned_types: std.AutoArrayHashMapUnmanaged(link.ConstPool.Index, u64) = .empty;
+    var need_aligned_types: std.array_hash_map.Auto(link.ConstPool.Index, u64) = .empty;
     defer need_aligned_types.deinit(gpa);
 
-    var need_tag_name_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty;
+    var need_tag_name_funcs: std.array_hash_map.Auto(InternPool.Index, void) = .empty;
     defer need_tag_name_funcs.deinit(gpa);
 
-    var need_never_tail_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty;
+    var need_never_tail_funcs: std.array_hash_map.Auto(InternPool.Nav.Index, void) = .empty;
     defer need_never_tail_funcs.deinit(gpa);
 
-    var need_never_inline_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty;
+    var need_never_inline_funcs: std.array_hash_map.Auto(InternPool.Nav.Index, void) = .empty;
     defer need_never_inline_funcs.deinit(gpa);
 
     // As mentioned above, we need this type for error names.
@@ -1284,9 +1284,9 @@ pub fn deleteExport(
 
 fn mergeNeededCTypes(
     c: *C,
-    need_types: *std.AutoArrayHashMapUnmanaged(link.ConstPool.Index, void),
-    need_errunion_types: *std.AutoArrayHashMapUnmanaged(link.ConstPool.Index, void),
-    need_aligned_types: *std.AutoArrayHashMapUnmanaged(link.ConstPool.Index, u64),
+    need_types: *std.array_hash_map.Auto(link.ConstPool.Index, void),
+    need_errunion_types: *std.array_hash_map.Auto(link.ConstPool.Index, void),
+    need_aligned_types: *std.array_hash_map.Auto(link.ConstPool.Index, u64),
     deps: *const CTypeDependencies,
 ) Allocator.Error!void {
     const gpa = c.base.comp.gpa;
@@ -1312,8 +1312,8 @@ fn mergeNeededCTypes(
 
 fn mergeNeededUavs(
     zcu: *const Zcu,
-    global: *std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
-    new: *const std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+    global: *std.array_hash_map.Auto(InternPool.Index, Alignment),
+    new: *const std.array_hash_map.Auto(InternPool.Index, Alignment),
 ) Allocator.Error!void {
     const gpa = zcu.comp.gpa;
 
@@ -1422,12 +1422,12 @@ const FlushTypes = struct {
     c: *C,
     f: *Flush,
 
-    aligned_types: *const std.AutoArrayHashMapUnmanaged(link.ConstPool.Index, u64),
+    aligned_types: *const std.array_hash_map.Auto(link.ConstPool.Index, u64),
     aligned_type_strings: []const []const u8,
 
-    status: std.AutoArrayHashMapUnmanaged(link.ConstPool.Index, bool),
-    errunion_status: std.AutoArrayHashMapUnmanaged(link.ConstPool.Index, bool),
-    aligned_status: std.AutoArrayHashMapUnmanaged(link.ConstPool.Index, void),
+    status: std.array_hash_map.Auto(link.ConstPool.Index, bool),
+    errunion_status: std.array_hash_map.Auto(link.ConstPool.Index, bool),
+    aligned_status: std.array_hash_map.Auto(link.ConstPool.Index, void),
 
     fn processDeps(ft: *FlushTypes, deps: *const CTypeDependencies) void {
         const resolved = deps.get(ft.c);

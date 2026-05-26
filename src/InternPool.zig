@@ -41,22 +41,22 @@ tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32),
 /// * For a `func`, this is the source of the full function signature.
 /// These are also invalidated if tracking fails for this instruction.
 /// Value is index into `dep_entries` of the first dependency on this hash.
-src_hash_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index),
+src_hash_deps: std.array_hash_map.Auto(TrackedInst.Index, DepEntry.Index),
 /// Dependencies on the value of a Nav.
 /// Value is index into `dep_entries` of the first dependency on this Nav value.
-nav_val_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
+nav_val_deps: std.array_hash_map.Auto(Nav.Index, DepEntry.Index),
 /// Dependencies on the type of a Nav.
 /// Value is index into `dep_entries` of the first dependency on this Nav value.
-nav_ty_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
+nav_ty_deps: std.array_hash_map.Auto(Nav.Index, DepEntry.Index),
 /// Dependencies on a function's inferred error set. Key is the function body, not the IES.
 /// Value is index into `dep_entries` of the first dependency on this function's IES.
-func_ies_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
+func_ies_deps: std.array_hash_map.Auto(Index, DepEntry.Index),
 /// Dependencies on the resolved layout of a `struct`, `union`, or `enum` type.
 /// Value is index into `dep_entries` of the first dependency on this type's layout.
-type_layout_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
+type_layout_deps: std.array_hash_map.Auto(Index, DepEntry.Index),
 /// Dependencies on the resolved default field values of a `struct` type.
 /// Value is index into `dep_entries` of the first dependency on this type's inits.
-struct_defaults_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
+struct_defaults_deps: std.array_hash_map.Auto(Index, DepEntry.Index),
 /// Dependencies on a Zig or ZON source file. Triggered by `@import`.
 /// * For ZON source files, the dependency is invalidated if the file changes at all. The `@import`
 ///   must be re-analyzed to return the new data structure.
@@ -64,18 +64,18 @@ struct_defaults_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
 ///   (which can only happen because the `.main_struct_inst` got lost). The `@import` must be
 ///   re-analyzed to return the new type.
 /// Value is index into `dep_entries` of the first dependency on this Zig/ZON file.
-source_file_deps: std.AutoArrayHashMapUnmanaged(FileIndex, DepEntry.Index),
+source_file_deps: std.array_hash_map.Auto(FileIndex, DepEntry.Index),
 /// Dependencies on an embedded file.
 /// Introduced by `@embedFile`; invalidated when the file changes.
 /// Value is index into `dep_entries` of the first dependency on this `Zcu.EmbedFile`.
-embed_file_deps: std.AutoArrayHashMapUnmanaged(Zcu.EmbedFile.Index, DepEntry.Index),
+embed_file_deps: std.array_hash_map.Auto(Zcu.EmbedFile.Index, DepEntry.Index),
 /// Dependencies on the full set of names in a ZIR namespace.
 /// Key refers to a `struct_decl`, `union_decl`, etc.
 /// Value is index into `dep_entries` of the first dependency on this namespace.
-namespace_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index),
+namespace_deps: std.array_hash_map.Auto(TrackedInst.Index, DepEntry.Index),
 /// Dependencies on the (non-)existence of some name in a namespace.
 /// Value is index into `dep_entries` of the first dependency on this name.
-namespace_name_deps: std.AutoArrayHashMapUnmanaged(NamespaceNameKey, DepEntry.Index),
+namespace_name_deps: std.array_hash_map.Auto(NamespaceNameKey, DepEntry.Index),
 // Dependencies on the value of fields memoized on `Zcu` (`panic_messages` etc).
 // If set, these are indices into `dep_entries` of the first dependency on this state.
 memoized_state_main_deps: DepEntry.Index.Optional,
@@ -86,7 +86,7 @@ memoized_state_assembly_deps: DepEntry.Index.Optional,
 /// Given a `Depender`, points to an entry in `dep_entries` whose `depender`
 /// matches. The `next_dependee` field can be used to iterate all such entries
 /// and remove them from the corresponding lists.
-first_dependency: std.AutoArrayHashMapUnmanaged(AnalUnit, DepEntry.Index),
+first_dependency: std.array_hash_map.Auto(AnalUnit, DepEntry.Index),
 
 /// Stores dependency information. The hashmaps declared above are used to look
 /// up entries in this list as required. This is not stored in `extra` so that
@@ -11039,7 +11039,7 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator,
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayList(Index)) = .empty;
+    var instances: std.array_hash_map.Auto(Index, std.ArrayList(Index)) = .empty;
     for (ip.locals, 0..) |*local, tid| {
         const items = local.shared.items.view().slice();
         const extra_list = local.shared.extra;

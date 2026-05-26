@@ -2408,10 +2408,10 @@ const TlsVariable = struct {
 };
 
 const AtomList = std.ArrayList(Atom.Index);
-const NavTable = std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, AvMetadata);
-const UavTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, AvMetadata);
-const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);
-const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, void);
+const NavTable = std.array_hash_map.Auto(InternPool.Nav.Index, AvMetadata);
+const UavTable = std.array_hash_map.Auto(InternPool.Index, AvMetadata);
+const LazySymbolTable = std.array_hash_map.Auto(InternPool.Index, LazySymbolMetadata);
+const TlsTable = std.array_hash_map.Auto(Atom.Index, void);
 
 const x86_64 = struct {
     fn writeTrampolineCode(source_addr: i64, target_addr: i64, buf: *[max_trampoline_len]u8) ![]u8 {

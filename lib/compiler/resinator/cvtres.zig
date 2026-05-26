@@ -451,7 +451,7 @@ const ResourceTree = struct {
         resource: *const Resource,
         original_index: usize,
     };
-    const LanguageToResourceMap = std.AutoArrayHashMapUnmanaged(Language, RelocatableResource);
+    const LanguageToResourceMap = std.array_hash_map.Auto(Language, RelocatableResource);
     const NameToLanguageMap = std.ArrayHashMapUnmanaged(NameOrOrdinal, LanguageToResourceMap, NameOrOrdinalHashContext, true);
 
     const NameOrOrdinalHashContext = struct {

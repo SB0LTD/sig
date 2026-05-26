@@ -162,8 +162,8 @@ pub const JobQueue = struct {
         /// Both non-lazy and lazy dependencies are always fetched.
         all,
     };
-    pub const Table = std.AutoArrayHashMapUnmanaged(Package.Hash, *Fetch);
-    pub const UnlazySet = std.AutoArrayHashMapUnmanaged(Package.Hash, void);
+    pub const Table = std.array_hash_map.Auto(Package.Hash, *Fetch);
+    pub const UnlazySet = std.array_hash_map.Auto(Package.Hash, void);
     pub const ForkSet = std.ArrayHashMapUnmanaged(Fork, void, Fork.Context, false);
 
     pub const Fork = struct {

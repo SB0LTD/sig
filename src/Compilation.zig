@@ -103,8 +103,8 @@ native_system_include_paths: []const []const u8,
 /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
 force_undefined_symbols: std.array_hash_map.String(void),
 
-c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .empty,
-win32_resource_table: if (dev.env.supports(.win32_resource)) std.AutoArrayHashMapUnmanaged(*Win32Resource, void) else struct {
+c_object_table: std.array_hash_map.Auto(*CObject, void) = .empty,
+win32_resource_table: if (dev.env.supports(.win32_resource)) std.array_hash_map.Auto(*Win32Resource, void) else struct {
     pub fn keys(_: @This()) [0]void {
         return .{};
     }
@@ -145,11 +145,11 @@ win32_resource_work_queue: if (dev.env.supports(.win32_resource)) std.Deque(*Win
 
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
-failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *CObject.Diag.Bundle) = .empty,
+failed_c_objects: std.array_hash_map.Auto(*CObject, *CObject.Diag.Bundle) = .empty,
 
 /// The ErrorBundle memory is owned by the `Win32Resource`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
-failed_win32_resources: if (dev.env.supports(.win32_resource)) std.AutoArrayHashMapUnmanaged(*Win32Resource, ErrorBundle) else struct {
+failed_win32_resources: if (dev.env.supports(.win32_resource)) std.array_hash_map.Auto(*Win32Resource, ErrorBundle) else struct {
     pub fn values(_: @This()) [0]void {
         return .{};
     }
@@ -157,7 +157,7 @@ failed_win32_resources: if (dev.env.supports(.win32_resource)) std.AutoArrayHash
 } = .{},
 
 /// Miscellaneous things that can fail.
-misc_failures: std.AutoArrayHashMapUnmanaged(MiscTask, MiscError) = .empty,
+misc_failures: std.array_hash_map.Auto(MiscTask, MiscError) = .empty,
 
 /// When this is `true` it means invoking clang as a sub-process is expected to inherit
 /// stdin, stdout, stderr, and if it returns non success, to forward the exit code.
@@ -865,7 +865,7 @@ pub const TimeReport = struct {
     /// a function) all generic instances of this function. It also includes time spent analyzing
     /// function bodies if this is a function (generic or otherwise).
     /// An entry not existing means the declaration has not been analyzed (so far).
-    decl_sema_info: std.AutoArrayHashMapUnmanaged(InternPool.TrackedInst.Index, struct {
+    decl_sema_info: std.array_hash_map.Auto(InternPool.TrackedInst.Index, struct {
         ns: u64,
         count: u32,
     }),
@@ -875,14 +875,14 @@ pub const TimeReport = struct {
     /// instances, both of this function itself and of its parent namespace.
     /// An entry not existing means the declaration has not been codegenned (so far).
     /// Every key in `decl_codegen_ns` is also in `decl_sema_ns`.
-    decl_codegen_ns: std.AutoArrayHashMapUnmanaged(InternPool.TrackedInst.Index, u64),
+    decl_codegen_ns: std.array_hash_map.Auto(InternPool.TrackedInst.Index, u64),
 
     /// Key is a ZIR `declaration` instruction which is anything other than a `comptime` decl; value
     /// is the number of nanoseconds spent linking it into the binary. As above, this is the total
     /// across all generic instances.
     /// An entry not existing means the declaration has not been linked (so far).
     /// Every key in `decl_link_ns` is also in `decl_sema_ns`.
-    decl_link_ns: std.AutoArrayHashMapUnmanaged(InternPool.TrackedInst.Index, u64),
+    decl_link_ns: std.array_hash_map.Auto(InternPool.TrackedInst.Index, u64),
 
     pub fn deinit(tr: *TimeReport, gpa: Allocator) void {
         tr.stats = undefined;
@@ -1068,8 +1068,8 @@ pub const CObject = struct {
         }
 
         pub const Bundle = struct {
-            file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty,
-            category_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty,
+            file_names: std.array_hash_map.Auto(u32, []const u8) = .empty,
+            category_names: std.array_hash_map.Auto(u32, []const u8) = .empty,
             diags: []Diag = &.{},
 
             pub fn destroy(bundle: *Bundle, gpa: Allocator) void {
@@ -1122,13 +1122,13 @@ pub const CObject = struct {
                 var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .reader = &file_reader.interface });
                 defer bc.deinit();
 
-                var file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty;
+                var file_names: std.array_hash_map.Auto(u32, []const u8) = .empty;
                 errdefer {
                     for (file_names.values()) |file_name| gpa.free(file_name);
                     file_names.deinit(gpa);
                 }
 
-                var category_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty;
+                var category_names: std.array_hash_map.Auto(u32, []const u8) = .empty;
                 errdefer {
                     for (category_names.values()) |category_name| gpa.free(category_name);
                     category_names.deinit(gpa);
@@ -4064,7 +4064,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
             }
         }
         if (zcu.skip_analysis_this_update) break :zcu_errors;
-        var sorted_failed_analysis: std.AutoArrayHashMapUnmanaged(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
+        var sorted_failed_analysis: std.array_hash_map.Auto(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
             const SortOrder = struct {
                 zcu: *Zcu,
                 errors: []const *Zcu.ErrorMsg,
@@ -4831,7 +4831,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     var buffer: [1024]u8 = undefined;
     var tar_file_writer = tar_file.writer(io, &buffer);
 
-    var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, []const u8) = .empty;
+    var seen_table: std.array_hash_map.Auto(*Package.Module, []const u8) = .empty;
     defer seen_table.deinit(comp.gpa);
 
     try seen_table.put(comp.gpa, zcu.main_mod, comp.root_name);

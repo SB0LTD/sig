@@ -200,7 +200,7 @@ const MCValue = union(enum) {
 };
 
 const Branch = struct {
-    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .empty,
+    inst_table: std.array_hash_map.Auto(Air.Inst.Index, MCValue) = .empty,
 
     fn deinit(self: *Branch, gpa: Allocator) void {
         self.inst_table.deinit(gpa);

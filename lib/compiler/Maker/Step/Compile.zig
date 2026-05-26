@@ -119,7 +119,7 @@ fn updateGeneratedFile(
 
 /// List of importable modules in a compilation's module graph, including
 /// the root module. The root module is guaranteed to be first.
-const ModuleList = std.AutoArrayHashMapUnmanaged(Configuration.Module.Index, Configuration.String);
+const ModuleList = std.array_hash_map.Auto(Configuration.Module.Index, Configuration.String);
 /// Keyed on the first key in the module list.
 pub const ModuleGraph = std.ArrayHashMapUnmanaged(ModuleList, void, ModuleListContext, false);
 
@@ -221,8 +221,8 @@ fn lowerZigArgs(
         // module, along with any C compiler arguments that need to be passed
         // to the compiler for each module individually as reported by
         // pkg-config.
-        var seen_system_libs: std.AutoArrayHashMapUnmanaged(Configuration.String, []const []const u8) = .empty;
-        var frameworks: std.AutoArrayHashMapUnmanaged(Configuration.String, Configuration.Module.Framework.Flags) = .empty;
+        var seen_system_libs: std.array_hash_map.Auto(Configuration.String, []const []const u8) = .empty;
+        var frameworks: std.array_hash_map.Auto(Configuration.String, Configuration.Module.Framework.Flags) = .empty;
         var module_graph: ModuleGraph = .empty;
 
         var prev_has_cflags = false;
@@ -1126,7 +1126,7 @@ fn moduleNeedsCliArg(mod: *const Configuration.Module, conf: *const Configuratio
 }
 
 const CliNamedModules = struct {
-    modules: std.AutoArrayHashMapUnmanaged(Configuration.Module.Index, void),
+    modules: std.array_hash_map.Auto(Configuration.Module.Index, void),
     names: std.array_hash_map.String(void),
 
     /// Traverse the whole dependency graph and give every module a unique
@@ -1177,7 +1177,7 @@ pub fn getCompileDependencies(
     start: Configuration.Step.Index,
     chase_dynamic: bool,
 ) ![]const Configuration.Step.Index {
-    var compiles: std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void) = .empty;
+    var compiles: std.array_hash_map.Auto(Configuration.Step.Index, void) = .empty;
     var compiles_i: usize = 0;
 
     try compiles.putNoClobber(arena, start, {});

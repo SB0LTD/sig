@@ -21,25 +21,25 @@ data_layout: String,
 target_triple: String,
 module_asm: std.ArrayList(u8),
 
-string_map: std.AutoArrayHashMapUnmanaged(void, void),
+string_map: std.array_hash_map.Auto(void, void),
 string_indices: std.ArrayList(u32),
 string_bytes: std.ArrayList(u8),
 
-types: std.AutoArrayHashMapUnmanaged(String, Type),
+types: std.array_hash_map.Auto(String, Type),
 next_unnamed_type: String,
 next_unique_type_id: std.AutoHashMapUnmanaged(String, u32),
-type_map: std.AutoArrayHashMapUnmanaged(void, void),
+type_map: std.array_hash_map.Auto(void, void),
 type_items: std.ArrayList(Type.Item),
 type_extra: std.ArrayList(u32),
 
-attributes: std.AutoArrayHashMapUnmanaged(Attribute.Storage, void),
-attributes_map: std.AutoArrayHashMapUnmanaged(void, void),
+attributes: std.array_hash_map.Auto(Attribute.Storage, void),
+attributes_map: std.array_hash_map.Auto(void, void),
 attributes_indices: std.ArrayList(u32),
 attributes_extra: std.ArrayList(u32),
 
-function_attributes_set: std.AutoArrayHashMapUnmanaged(FunctionAttributes, void),
+function_attributes_set: std.array_hash_map.Auto(FunctionAttributes, void),
 
-globals: std.AutoArrayHashMapUnmanaged(StrtabString, Global),
+globals: std.array_hash_map.Auto(StrtabString, Global),
 next_unnamed_global: StrtabString,
 next_replaced_global: StrtabString,
 next_unique_global_id: std.AutoHashMapUnmanaged(StrtabString, u32),
@@ -47,28 +47,28 @@ aliases: std.ArrayList(Alias),
 variables: std.ArrayList(Variable),
 functions: std.ArrayList(Function),
 
-strtab_string_map: std.AutoArrayHashMapUnmanaged(void, void),
+strtab_string_map: std.array_hash_map.Auto(void, void),
 strtab_string_indices: std.ArrayList(u32),
 strtab_string_bytes: std.ArrayList(u8),
 
-constant_map: std.AutoArrayHashMapUnmanaged(void, void),
+constant_map: std.array_hash_map.Auto(void, void),
 constant_items: std.MultiArrayList(Constant.Item),
 constant_extra: std.ArrayList(u32),
 constant_limbs: std.ArrayList(std.math.big.Limb),
 
 alignment_forward_references: std.ArrayList(Alignment),
 
-metadata_map: std.AutoArrayHashMapUnmanaged(void, void),
+metadata_map: std.array_hash_map.Auto(void, void),
 metadata_items: std.MultiArrayList(Metadata.Item),
 metadata_extra: std.ArrayList(u32),
 metadata_limbs: std.ArrayList(std.math.big.Limb),
 metadata_forward_references: std.ArrayList(Metadata.Optional),
-metadata_named: std.AutoArrayHashMapUnmanaged(String, struct {
+metadata_named: std.array_hash_map.Auto(String, struct {
     len: u32,
     index: Metadata.Item.ExtraIndex,
 }),
 
-metadata_string_map: std.AutoArrayHashMapUnmanaged(void, void),
+metadata_string_map: std.array_hash_map.Auto(void, void),
 metadata_string_indices: std.ArrayList(u32),
 metadata_string_bytes: std.ArrayList(u8),
 
@@ -1633,7 +1633,7 @@ pub const FunctionAttributes = enum(u32) {
     pub const Wip = struct {
         maps: Maps = .empty,
 
-        const Map = std.AutoArrayHashMapUnmanaged(Attribute.Kind, Attribute.Index);
+        const Map = std.array_hash_map.Auto(Attribute.Kind, Attribute.Index);
         const Maps = std.ArrayList(Map);
 
         pub fn deinit(self: *Wip, builder: *const Builder) void {
@@ -5235,8 +5235,8 @@ pub const WipFunction = struct {
     instructions: std.MultiArrayList(Instruction),
     names: std.ArrayList(String),
     strip: bool,
-    debug_locations: std.AutoArrayHashMapUnmanaged(Instruction.Index, DebugLocation),
-    debug_values: std.AutoArrayHashMapUnmanaged(Instruction.Index, void),
+    debug_locations: std.array_hash_map.Auto(Instruction.Index, DebugLocation),
+    debug_values: std.array_hash_map.Auto(Instruction.Index, void),
     extra: std.ArrayList(u32),
 
     pub const Cursor = struct { block: Block.Index, instruction: u32 = 0 };
@@ -8451,7 +8451,7 @@ pub const Metadata = packed struct(u32) {
     const Formatter = struct {
         builder: *Builder,
         need_comma: bool,
-        map: std.AutoArrayHashMapUnmanaged(union(enum) {
+        map: std.array_hash_map.Auto(union(enum) {
             metadata: Metadata,
             debug_location: DebugLocation.Location,
         }, void) = .empty,
@@ -9791,7 +9791,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
         }
     }
 
-    var attribute_groups: std.AutoArrayHashMapUnmanaged(Attributes, void) = .empty;
+    var attribute_groups: std.array_hash_map.Auto(Attributes, void) = .empty;
     defer attribute_groups.deinit(self.gpa);
 
     for (0.., self.functions.items) |function_i, function| {
@@ -13507,7 +13507,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
             try type_block.end();
         }
 
-        var attributes_set: std.AutoArrayHashMapUnmanaged(struct {
+        var attributes_set: std.array_hash_map.Auto(struct {
             attributes: Attributes,
             index: u32,
         }, void) = .{};
@@ -13743,7 +13743,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
             try paramattr_block.end();
         }
 
-        var globals: std.AutoArrayHashMapUnmanaged(Global.Index, void) = .empty;
+        var globals: std.array_hash_map.Auto(Global.Index, void) = .empty;
         defer globals.deinit(self.gpa);
         try globals.ensureUnusedCapacity(
             self.gpa,
@@ -13784,7 +13784,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
         const ConstantAdapter = struct {
             builder: *const Builder,
-            globals: *const std.AutoArrayHashMapUnmanaged(Global.Index, void),
+            globals: *const std.array_hash_map.Auto(Global.Index, void),
 
             pub fn get(adapter: @This(), param: anytype) switch (@TypeOf(param)) {
                 Constant => u32,
@@ -13815,7 +13815,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
         // Globals
         {
-            var section_map: std.AutoArrayHashMapUnmanaged(String, void) = .empty;
+            var section_map: std.array_hash_map.Auto(String, void) = .empty;
             defer section_map.deinit(self.gpa);
             try section_map.ensureUnusedCapacity(self.gpa, globals.count());
 

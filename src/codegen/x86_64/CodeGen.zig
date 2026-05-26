@@ -140,7 +140,7 @@ register_manager: RegisterManager = .{},
 scope_generation: u32 = 0,
 
 frame_allocs: std.MultiArrayList(FrameAlloc) = .empty,
-free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .empty,
+free_frame_indices: std.array_hash_map.Auto(FrameIndex, void) = .empty,
 frame_locs: std.MultiArrayList(Mir.FrameLoc) = .empty,
 
 loops: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
@@ -569,8 +569,8 @@ pub const MCValue = union(enum) {
     }
 };
 
-const InstTrackingMap = std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InstTracking);
-const ConstTrackingMap = std.AutoArrayHashMapUnmanaged(InternPool.Index, InstTracking);
+const InstTrackingMap = std.array_hash_map.Auto(Air.Inst.Index, InstTracking);
+const ConstTrackingMap = std.array_hash_map.Auto(InternPool.Index, InstTracking);
 const InstTracking = struct {
     long: MCValue,
     short: MCValue,

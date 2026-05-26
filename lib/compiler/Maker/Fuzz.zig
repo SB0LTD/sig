@@ -27,7 +27,7 @@ prog_node: std.Progress.Node,
 
 /// Protects `coverage_files`.
 coverage_mutex: Io.Mutex,
-coverage_files: std.AutoArrayHashMapUnmanaged(u64, CoverageMap),
+coverage_files: std.array_hash_map.Auto(u64, CoverageMap),
 
 queue_mutex: Io.Mutex,
 queue_cond: Io.Condition,
