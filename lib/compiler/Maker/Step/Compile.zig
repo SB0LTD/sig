@@ -991,8 +991,9 @@ fn checkCompileErrors(arena: Allocator, maker: *Maker, step_index: Configuration
     const conf_comp = conf_step.extended.get(conf.extra).compile;
 
     // Clear this field so that it does not get printed by the build runner.
-    const actual_eb = step.result_error_bundle;
+    var actual_eb = step.result_error_bundle;
     step.result_error_bundle = .empty;
+    defer actual_eb.deinit(maker.gpa);
 
     const actual_errors = ae: {
         var aw: std.Io.Writer.Allocating = .init(arena);
