@@ -124,6 +124,10 @@ jobs:
 
           # Use the bootstrap to build the optimized stage3 compiler
           # This cross-compiles for the target platform
+          # Extract base zig version (M.N.P) — must be valid semver for the build system
+          # VERSION format: 0.1.2-zig0.17.0.HASH → strip to 0.17.0
+          ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
+          echo "Version string for build: ${ZIG_VER_BASE}"
           "${BOOTSTRAP_BIN}" build \
             --prefix "stage3-out" \
             -Doptimize=ReleaseFast \
@@ -131,7 +135,7 @@ jobs:
             -Dtarget=${{ matrix.zig_target }} \
             -Dno-lib \
             -Denable-llvm \
-            -Dversion-string="$(echo ${VERSION} | sed 's/.*-zig//')" \
+            -Dversion-string="${ZIG_VER_BASE}" \
             --zig-lib-dir lib
 
           echo "Stage3 build complete"
