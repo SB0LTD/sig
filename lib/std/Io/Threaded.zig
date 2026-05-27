@@ -13627,12 +13627,15 @@ fn netLookupFallible(
 
     // On Linux, glibc provides getaddrinfo_a which is capable of supporting our semantics.
     // However, musl's POSIX-compliant getaddrinfo is not, so we bypass it.
+    const is_glibc = builtin.link_libc and builtin.target.isGnuLibC();
 
-    if (builtin.target.isGnuLibC()) {
+    if (is_glibc) {
         // TODO use getaddrinfo_a / gai_cancel
     }
 
-    if (native_os == .linux or is_windows) {
+    // On Linux, we have to go through glibc because of the Name Service Switch feature.
+    const non_glibc_linux = native_os == .linux and !is_glibc;
+    if (non_glibc_linux or is_windows) {
         if (IpAddress.parseIp6(name, options.port)) |addr| {
             if (options.family == .ip4) return error.UnknownHostName;
             if (copyCanon(options.canonical_name_buffer, name)) |canon| {
