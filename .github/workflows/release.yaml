@@ -28,14 +28,14 @@ on:
       bootstrap_tag:
         description: 'Bootstrap release tag to use'
         required: false
-        default: 'bootstrap-sig-v12'
+        default: 'bootstrap-sig-v13'
         type: string
 
 permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v12' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v13' }}
 
 jobs:
   build:
