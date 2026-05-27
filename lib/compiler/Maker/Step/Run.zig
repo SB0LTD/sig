@@ -332,6 +332,12 @@ pub fn make(
 
     try populateGeneratedStdIo(maker, &conf_run, cache_root, &digest);
     try populateGeneratedPaths(maker, output_placeholders.items, cache_root, &digest);
+
+    // The utility functions that spawn the child process must unconditionally allocate
+    // the failed command because at that point it is not known whether the step will
+    // pass or fail based on the process termination. Here we free the memory since
+    // the step has succeeded.
+    step.clearFailedCommand(gpa);
 }
 
 /// Reads stdout of a Zig test process until a termination condition is reached:
@@ -2148,7 +2154,11 @@ fn spawnChildAndCollect(
         .dir => unreachable,
         .inherit => null,
     };
-    errdefer step.setFailedCommand(gpa, argv, .{
+    // We have to set the failed command here regardless of whether this
+    // function returns an error because only after this function returns
+    // does the logic determine whether the child process termination was
+    // success or failure.
+    step.setFailedCommand(gpa, argv, .{
         .cwd = cwd_string,
         .child_env = environ_map,
         .parent_env = &graph.environ_map,

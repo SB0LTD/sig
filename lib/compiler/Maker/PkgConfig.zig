@@ -104,6 +104,7 @@ fn getPkgs(
         else => |e| return e,
     };
 
+    step.clearFailedCommand(maker.gpa);
     pc.pkgs = result;
     return result;
 }
