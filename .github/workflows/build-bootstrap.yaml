@@ -47,7 +47,7 @@ jobs:
             llvm_asset: llvm-22-x86_64-linux.tar.xz
             target: x86_64-windows
             artifact: bootstrap-sig-x86_64-windows
-            bin: zig2.exe
+            bin: zig2
             deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build
             zlib_flag: ""
             zstd_flag: ""
@@ -109,14 +109,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p ${{ matrix.artifact }}/bin
-          cp build/${{ matrix.bin }} ${{ matrix.artifact }}/bin/
-          # Also copy as sig/zig for compatibility
-          case "${{ matrix.bin }}" in
-            zig2)     cp build/${{ matrix.bin }} ${{ matrix.artifact }}/bin/sig
-                      cp build/${{ matrix.bin }} ${{ matrix.artifact }}/bin/zig ;;
-            zig2.exe) cp build/${{ matrix.bin }} ${{ matrix.artifact }}/bin/sig.exe
-                      cp build/${{ matrix.bin }} ${{ matrix.artifact }}/bin/zig.exe ;;
-          esac
+          # Find the built binary (could be zig2 or zig2.exe depending on target)
+          if [ -f "build/zig2.exe" ]; then
+            cp build/zig2.exe ${{ matrix.artifact }}/bin/sig.exe
+            cp build/zig2.exe ${{ matrix.artifact }}/bin/zig.exe
+          elif [ -f "build/zig2" ]; then
+            cp build/zig2 ${{ matrix.artifact }}/bin/sig
+            cp build/zig2 ${{ matrix.artifact }}/bin/zig
+          else
+            echo "ERROR: no zig2 binary found" && ls build/ && exit 1
+          fi
 
           tar -czf ${{ matrix.artifact }}.tar.gz -C ${{ matrix.artifact }} .
           gh release view "${VERSION}" >/dev/null 2>&1 || \
