@@ -3,9 +3,8 @@
 # Uses LLVM-enabled bootstrap sig from build-bootstrap to compile the final
 # release binaries via stage3 self-compilation. No upstream zig dependency.
 #
-# Linux and macOS are cross-compiled from the Linux runner (Linux bootstrap is
-# most reliable). Windows is built natively on a Windows runner using the
-# Windows bootstrap + Windows LLVM to avoid cross-compilation header issues.
+# All targets are cross-compiled from the Linux runner using the Linux bootstrap.
+# Each target uses its own LLVM package (with target-appropriate headers/libs).
 #
 # Chain: build-llvm (one-time) → build-bootstrap (one-time) → release (every release)
 name: release
@@ -37,8 +36,7 @@ env:
   BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v13' }}
 
 jobs:
-  # ── Linux & macOS: cross-compiled from Linux ─────────────────────────
-  build-unix:
+  build:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -48,10 +46,17 @@ jobs:
             zig_target: x86_64-linux-musl
             ext: tar.xz
             bin: sig
+            llvm_asset: llvm-22-x86_64-linux.tar.xz
           - target: aarch64-macos
             zig_target: aarch64-macos-none
             ext: tar.xz
             bin: sig
+            llvm_asset: llvm-22-x86_64-linux.tar.xz
+          - target: x86_64-windows
+            zig_target: x86_64-windows-gnu
+            ext: zip
+            bin: sig.exe
+            llvm_asset: llvm-22-x86_64-windows.tar.xz
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -87,19 +92,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ASSET="bootstrap-sig-x86_64-linux.tar.gz"
-          echo "Downloading ${ASSET} from ${{ env.BOOTSTRAP_TAG }}..."
           gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${ASSET}" --dir /tmp
           mkdir -p /tmp/bootstrap
           tar -xzf "/tmp/${ASSET}" -C /tmp/bootstrap
           BIN=$(find /tmp/bootstrap -type f \( -name "sig" -o -name "zig" -o -name "zig2" \) | head -1)
-          [ -z "$BIN" ] && echo "ERROR: no sig/zig binary in archive" && exit 1
+          [ -z "$BIN" ] && echo "ERROR: no bootstrap binary" && exit 1
           chmod +x "$BIN"
           BIN_DIR=$(dirname "$BIN")
           echo "${BIN_DIR}" >> "$GITHUB_PATH"
           echo "BOOTSTRAP_BIN=${BIN}" >> "$GITHUB_ENV"
           PARENT_DIR=$(dirname "$BIN_DIR")
-          ln -sf "$(pwd)/lib" "${PARENT_DIR}/lib" 2>/dev/null || cp -r lib "${PARENT_DIR}/lib"
-          echo "Bootstrap binary: ${BIN}"
+          ln -sf "$(pwd)/lib" "${PARENT_DIR}/lib"
           "${BIN}" version || true
 
       - name: Install build deps
@@ -110,10 +113,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download llvm-22 --pattern "llvm-22-x86_64-linux.tar.xz" --dir /tmp
+          gh release download llvm-22 --pattern "${{ matrix.llvm_asset }}" --dir /tmp
           mkdir -p "$PWD/llvm-22"
-          tar -xJf /tmp/llvm-22-x86_64-linux.tar.xz -C "$PWD/llvm-22" --strip-components=1
-          rm /tmp/llvm-22-x86_64-linux.tar.xz
+          tar -xJf "/tmp/${{ matrix.llvm_asset }}" -C "$PWD/llvm-22" --strip-components=1
+          rm "/tmp/${{ matrix.llvm_asset }}"
+          # Ensure zlib/zstd static libs are available for linking
           cp /usr/lib/x86_64-linux-gnu/libz.a "$PWD/llvm-22/lib/" 2>/dev/null || true
           cp /usr/lib/x86_64-linux-gnu/libzstd.a "$PWD/llvm-22/lib/" 2>/dev/null || true
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
@@ -123,7 +127,7 @@ jobs:
         run: |
           echo "Building stage3 for ${{ matrix.zig_target }}..."
           ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-          echo "Version string for build: ${ZIG_VER_BASE}"
+          echo "Version string: ${ZIG_VER_BASE}"
           "${BOOTSTRAP_BIN}" build \
             --prefix "stage3-out" \
             -Doptimize=ReleaseFast \
@@ -143,12 +147,19 @@ jobs:
         run: |
           OUT="sig-${VERSION}-${{ matrix.target }}"
           mkdir -p "${OUT}/bin"
-          if [ -f "stage3-out/bin/zig" ]; then
+          # Find the output binary (could be zig or zig.exe)
+          if [ -f "stage3-out/bin/zig.exe" ]; then
+            cp "stage3-out/bin/zig.exe" "${OUT}/bin/${{ matrix.bin }}"
+          elif [ -f "stage3-out/bin/zig" ]; then
             cp "stage3-out/bin/zig" "${OUT}/bin/${{ matrix.bin }}"
           else
             echo "ERROR: stage3 binary not found" && find stage3-out -type f | head -20 && exit 1
           fi
-          cp "${OUT}/bin/sig" "${OUT}/bin/zig"
+          # Zig-compatible alias
+          case "${{ matrix.bin }}" in
+            sig)     cp "${OUT}/bin/sig" "${OUT}/bin/zig" ;;
+            sig.exe) cp "${OUT}/bin/sig.exe" "${OUT}/bin/zig.exe" ;;
+          esac
           cp -r lib "${OUT}/lib"
           echo "Binary size: $(du -h "${OUT}/bin/${{ matrix.bin }}" | cut -f1)"
 
@@ -156,17 +167,24 @@ jobs:
         shell: bash
         run: |
           FILE="sig-${VERSION}-${{ matrix.target }}/bin/${{ matrix.bin }}"
-          [ ! -f "$FILE" ] && echo "ERROR: $FILE not found" && exit 1
-          echo "OK: $(file "$FILE")"
+          [ ! -f "$FILE" ] && exit 1
+          file "$FILE" || true
           if [ "${{ matrix.target }}" = "x86_64-linux" ]; then
             chmod +x "$FILE" && "./$FILE" version
           fi
 
       - name: Package tarball
-        shell: bash
+        if: matrix.ext == 'tar.xz'
         run: |
           ARCHIVE="sig-${VERSION}-${{ matrix.target }}.tar.xz"
           tar -cJf "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - name: Package zip
+        if: matrix.ext == 'zip'
+        run: |
+          ARCHIVE="sig-${VERSION}-${{ matrix.target }}.zip"
+          cd "sig-${VERSION}-${{ matrix.target }}" && zip -r "../${ARCHIVE}" . && cd ..
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
       - name: Checksum
@@ -180,141 +198,12 @@ jobs:
             ${{ env.ARCHIVE }}
             ${{ env.ARCHIVE }}.sha256
 
-  # ── Windows: native build on Windows runner ──────────────────────────
-  build-windows:
-    runs-on: windows-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Resolve version
-        id: version
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
-            SIG_VER="${{ inputs.version }}"
-          else
-            SIG_MAJOR=$(sed -n 's/^const sig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
-            SIG_MINOR=$(sed -n 's/^const sig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
-            SIG_PATCH=$(sed -n 's/^const sig_version.*patch = \([0-9]*\).*/\1/p' build.sig | head -1)
-            SIG_PRE=$(sed -n 's/^const sig_version.*pre = "\([^"]*\)".*/\1/p' build.sig | head -1)
-            [ -n "$SIG_PRE" ] && SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}-${SIG_PRE}" \
-                              || SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}"
-          fi
-          ZIG_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
-          ZIG_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
-          ZIG_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' build.sig | head -1)
-          VERSION="${SIG_VER}-zig${ZIG_MAJOR}.${ZIG_MINOR}.${ZIG_PATCH}.$(git rev-parse --short=7 HEAD)"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "Building sig ${VERSION} for x86_64-windows"
-
-      - name: Download Windows bootstrap
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          ASSET="bootstrap-sig-x86_64-windows.tar.gz"
-          echo "Downloading ${ASSET} from ${{ env.BOOTSTRAP_TAG }}..."
-          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${ASSET}" --dir /tmp
-          mkdir -p /tmp/bootstrap
-          tar -xzf "/tmp/${ASSET}" -C /tmp/bootstrap
-          BIN=$(find /tmp/bootstrap -type f \( -name "sig.exe" -o -name "zig.exe" -o -name "zig2.exe" \) | head -1)
-          [ -z "$BIN" ] && echo "ERROR: no sig/zig binary in archive" && ls -laR /tmp/bootstrap && exit 1
-          BIN_DIR=$(dirname "$BIN")
-          echo "${BIN_DIR}" >> "$GITHUB_PATH"
-          echo "BOOTSTRAP_BIN=${BIN}" >> "$GITHUB_ENV"
-          PARENT_DIR=$(dirname "$BIN_DIR")
-          cp -r lib "${PARENT_DIR}/lib" 2>/dev/null || true
-          echo "Bootstrap binary: ${BIN}"
-          "${BIN}" version || true
-
-      - name: Download LLVM 22 (Windows)
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download llvm-22 --pattern "llvm-22-x86_64-windows.tar.xz" --dir /tmp
-          mkdir -p "$PWD/llvm-22"
-          tar -xJf /tmp/llvm-22-x86_64-windows.tar.xz -C "$PWD/llvm-22" --strip-components=1
-          rm /tmp/llvm-22-x86_64-windows.tar.xz
-          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
-
-      - name: Build stage3 release binary
-        shell: bash
-        run: |
-          echo "Building stage3 for x86_64-windows..."
-          ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-          echo "Version string for build: ${ZIG_VER_BASE}"
-          "${BOOTSTRAP_BIN}" build \
-            --prefix "stage3-out" \
-            -Doptimize=ReleaseFast \
-            -Dstrip \
-            -Dtarget=x86_64-windows-gnu \
-            -Dno-lib \
-            -Denable-llvm \
-            -Dstatic-llvm \
-            -Dversion-string="${ZIG_VER_BASE}" \
-            --zig-lib-dir lib \
-            --search-prefix "${LLVM_PREFIX}"
-          echo "Stage3 build complete"
-          ls -la stage3-out/bin/ || true
-
-      - name: Package release
-        shell: bash
-        run: |
-          OUT="sig-${VERSION}-x86_64-windows"
-          mkdir -p "${OUT}/bin"
-          if [ -f "stage3-out/bin/zig.exe" ]; then
-            cp "stage3-out/bin/zig.exe" "${OUT}/bin/sig.exe"
-          elif [ -f "stage3-out/bin/zig" ]; then
-            cp "stage3-out/bin/zig" "${OUT}/bin/sig.exe"
-          else
-            echo "ERROR: stage3 binary not found" && find stage3-out -type f | head -20 && exit 1
-          fi
-          cp "${OUT}/bin/sig.exe" "${OUT}/bin/zig.exe"
-          cp -r lib "${OUT}/lib"
-          echo "Binary size: $(du -h "${OUT}/bin/sig.exe" | cut -f1)"
-
-      - name: Verify binary
-        shell: bash
-        run: |
-          FILE="sig-${VERSION}-x86_64-windows/bin/sig.exe"
-          [ ! -f "$FILE" ] && echo "ERROR: $FILE not found" && exit 1
-          echo "OK: $(file "$FILE")"
-          "./$FILE" version || true
-
-      - name: Package zip
-        shell: bash
-        run: |
-          ARCHIVE="sig-${VERSION}-x86_64-windows.zip"
-          cd "sig-${VERSION}-x86_64-windows"
-          7z a -r "../${ARCHIVE}" .
-          cd ..
-          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
-
-      - name: Checksum
-        shell: bash
-        run: sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sig-x86_64-windows
-          path: |
-            ${{ env.ARCHIVE }}
-            ${{ env.ARCHIVE }}.sha256
-
-  # ── Publish release ────────────────────────────────────────────────────
   publish:
-    needs: [build-unix, build-windows]
-    if: always() && (needs.build-unix.result == 'success' || needs.build-windows.result == 'success')
+    needs: build
+    if: needs.build.result == 'success'
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ needs.build-unix.outputs.version || needs.build-windows.outputs.version }}
+      VERSION: ${{ needs.build.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -331,16 +220,13 @@ jobs:
         run: |
           cd artifacts
           cat *.sha256 > sha256sums.txt 2>/dev/null || true
-
           PRERELEASE=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.prerelease }}" = "true" ]; then
             PRERELEASE="--prerelease"
           fi
-
           ARCHIVES=""
           for f in sig-*.tar.xz sig-*.zip; do [ -f "$f" ] && ARCHIVES="$ARCHIVES $f"; done
           [ -z "$ARCHIVES" ] && echo "No archives found" && ls -la && exit 1
-
           gh release delete "sig-${VERSION}" --yes --cleanup-tag 2>/dev/null || true
           sleep 2
           gh release create "sig-${VERSION}" \
