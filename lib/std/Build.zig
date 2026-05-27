@@ -830,7 +830,17 @@ pub fn addModule(b: *Build, name: []const u8, options: Module.CreateOptions) *Mo
     const graph = b.graph;
     const arena = graph.arena;
     const module = Module.create(b, options);
-    b.modules.put(arena, graph.dupeString(name), module) catch @panic("OOM");
+    const gop = b.modules.getOrPutValue(
+        arena,
+        graph.dupeString(name),
+        module,
+    ) catch @panic("OOM");
+    if (gop.found_existing) {
+        panic(
+            "A module with the name '{s}' has already been added to the package. Consider creating a private module with std.Build.createModule",
+            .{name},
+        );
+    }
     return module;
 }
 
@@ -992,13 +1002,33 @@ pub fn addWriteFile(b: *Build, file_path: []const u8, data: []const u8) *Step.Wr
 pub fn addNamedWriteFiles(b: *Build, name: []const u8) *Step.WriteFile {
     const graph = b.graph;
     const wf = Step.WriteFile.create(b);
-    b.named_writefiles.put(graph.arena, graph.dupeString(name), wf) catch @panic("OOM");
+    const gop = b.named_writefiles.getOrPutValue(
+        graph.arena,
+        graph.dupeString(name),
+        wf,
+    ) catch @panic("OOM");
+    if (gop.found_existing) {
+        panic(
+            "A WriteFile step with the name '{s}' has already been added to the package. Consider creating a private WriteFile step with std.Build.addWriteFiles",
+            .{name},
+        );
+    }
     return wf;
 }
 
 pub fn addNamedLazyPath(b: *Build, name: []const u8, lp: LazyPath) void {
     const graph = b.graph;
-    b.named_lazy_paths.put(graph.arena, graph.dupeString(name), lp.dupe(graph)) catch @panic("OOM");
+    const gop = b.named_lazy_paths.getOrPutValue(
+        graph.arena,
+        graph.dupeString(name),
+        lp.dupe(graph),
+    ) catch @panic("OOM");
+    if (gop.found_existing) {
+        panic(
+            "A LazyPath with the name '{s}' has already been added to the package.",
+            .{name},
+        );
+    }
 }
 
 /// Creates a step for mutating files inside a temporary directory created lazily
