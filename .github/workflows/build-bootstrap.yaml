@@ -33,6 +33,7 @@ jobs:
             deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev
             zlib_flag: "-DZLIB=$(find /usr/lib/x86_64-linux-gnu -name 'libz.a' 2>/dev/null | head -1)"
             zstd_flag: "-DZSTD=$(find /usr/lib/x86_64-linux-gnu -name 'libzstd.a' 2>/dev/null | head -1)"
+            extra_cmake: ""
           - os: macos-14
             llvm_asset: llvm-22-aarch64-macos.tar.xz
             target: aarch64-macos-none
@@ -41,14 +42,16 @@ jobs:
             deps: brew install cmake ninja zstd
             zlib_flag: ""
             zstd_flag: ""
+            extra_cmake: ""
           - os: ubuntu-latest
-            llvm_asset: llvm-22-x86_64-windows.tar.xz
+            llvm_asset: llvm-22-x86_64-linux.tar.xz
             target: x86_64-windows
             artifact: bootstrap-sig-x86_64-windows
             bin: zig2.exe
-            deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build mingw-w64
+            deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build
             zlib_flag: ""
             zstd_flag: ""
+            extra_cmake: "-DZIG_USE_LLVM_CONFIG=OFF"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     steps:
@@ -92,6 +95,7 @@ jobs:
             -DZIG_TARGET_MCPU="baseline" \
             ${{ matrix.zlib_flag }} \
             ${{ matrix.zstd_flag }} \
+            ${{ matrix.extra_cmake }} \
             -GNinja
 
           ninja ${{ matrix.bin }} -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
