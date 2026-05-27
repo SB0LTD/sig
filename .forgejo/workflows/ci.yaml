@@ -18,6 +18,7 @@ permissions:
 
 jobs:
   aarch64-freebsd-debug:
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, aarch64-freebsd]
     steps:
       - name: Checkout
@@ -28,6 +29,7 @@ jobs:
         run: sh ci/aarch64-freebsd-debug.sh
         timeout-minutes: 300
   aarch64-freebsd-release:
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, aarch64-freebsd]
     steps:
       - name: Checkout
@@ -60,6 +62,7 @@ jobs:
         timeout-minutes: 120
 
   aarch64-netbsd-debug:
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, aarch64-netbsd]
     steps:
       - name: Checkout
@@ -70,6 +73,7 @@ jobs:
         run: sh ci/aarch64-netbsd-debug.sh
         timeout-minutes: 300
   aarch64-netbsd-release:
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, aarch64-netbsd]
     steps:
       - name: Checkout
