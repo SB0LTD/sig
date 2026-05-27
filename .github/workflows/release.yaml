@@ -116,6 +116,12 @@ jobs:
           echo "Bootstrap binary: ${BIN}"
           "${BIN}" version || true
 
+      # ── Install system dependencies for LLVM linking ─────────────
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zlib1g-dev libzstd-dev
+
       # ── Download pre-built LLVM 22 (needed for -Denable-llvm) ────
       - name: Download LLVM 22
         shell: bash
@@ -128,6 +134,9 @@ jobs:
           mkdir -p "$PWD/llvm-22"
           tar -xJf "/tmp/${LLVM_ASSET}" -C "$PWD/llvm-22" --strip-components=1
           rm "/tmp/${LLVM_ASSET}"
+          # Copy system zlib/zstd static libs into LLVM prefix so cross-compilation finds them
+          cp /usr/lib/x86_64-linux-gnu/libz.a "$PWD/llvm-22/lib/" 2>/dev/null || true
+          cp /usr/lib/x86_64-linux-gnu/libzstd.a "$PWD/llvm-22/lib/" 2>/dev/null || true
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
           echo "LLVM downloaded to $PWD/llvm-22"
 
