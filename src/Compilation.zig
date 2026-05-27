@@ -2870,8 +2870,8 @@ pub const UpdateError = error{
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
 pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateError!void {
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
+    const tracy_frame = tracy.namedFrame(comp.root_name);
+    defer tracy_frame.end();
 
     const gpa = comp.gpa;
     const io = comp.io;

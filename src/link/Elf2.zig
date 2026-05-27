@@ -14,6 +14,7 @@ const InternPool = @import("../InternPool.zig");
 const link = @import("../link.zig");
 const MappedFile = @import("MappedFile.zig");
 const target_util = @import("../target.zig");
+const tracy = @import("../tracy.zig");
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");
@@ -5865,6 +5866,8 @@ fn flushFileOffset(elf: *Elf, ni: MappedFile.Node.Index) !void {
 }
 
 fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
+    const trace = tracy.trace(@src());
+    defer trace.end();
     switch (elf.getNode(ni)) {
         .file => unreachable,
         .ehdr, .shdr => try elf.flushFileOffset(ni),
@@ -6019,6 +6022,8 @@ fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
 }
 
 fn flushResized(elf: *Elf, ni: MappedFile.Node.Index) !void {
+    const trace = tracy.trace(@src());
+    defer trace.end();
     _, const size = ni.location(&elf.mf).resolve(&elf.mf);
     switch (elf.getNode(ni)) {
         .file => {},

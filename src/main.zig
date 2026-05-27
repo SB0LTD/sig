@@ -218,8 +218,8 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     var environ_map = init.environ.createMap(arena) catch |err| fatal("failed to parse environment: {t}", .{err});
 
     if (tracy.enable_allocation) {
-        var gpa_tracy = tracy.tracyAllocator(gpa);
-        return mainArgs(gpa_tracy.allocator(), arena, io, args, &environ_map);
+        var tracy_allocator: tracy.Allocator = .{ .parent_allocator = gpa };
+        return mainArgs(tracy_allocator.interface(), arena, io, args, &environ_map);
     }
 
     if (native_os == .wasi) {
@@ -4239,7 +4239,6 @@ fn serve(
         switch (hdr.tag) {
             .exit => return cleanExit(io),
             .update => {
-                tracy.frameMark();
                 file_system_inputs.clearRetainingCapacity();
 
                 if (arg_mode == .translate_c) {
@@ -4296,7 +4295,6 @@ fn serve(
                 //);
             },
             .hot_update => {
-                tracy.frameMark();
                 file_system_inputs.clearRetainingCapacity();
                 if (child_pid) |pid| {
                     try comp.hotCodeSwap(main_progress_node, pid);
