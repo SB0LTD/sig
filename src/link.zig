@@ -1205,6 +1205,7 @@ pub const File = struct {
 
     pub fn loadInput(base: *File, input: Input) anyerror!void {
         if (base.tag == .lld) return;
+        assert(!base.post_prelink);
         switch (base.tag) {
             inline .elf, .elf2, .wasm => |tag| {
                 dev.check(tag.devFeature());
@@ -1423,6 +1424,8 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
         comp.link_prog_node.completeOne();
         return;
     };
+
+    assert(!base.post_prelink);
 
     var timer = comp.startTimer();
     defer if (timer.finish(io)) |ns| {
