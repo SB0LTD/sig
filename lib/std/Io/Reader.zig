@@ -226,10 +226,16 @@ pub fn streamExact64(r: *Reader, w: *Writer, n: u64) StreamError!void {
 
 /// "Pump" exactly `n` bytes from the reader to the writer.
 ///
-/// When draining `w`, ensures that at least `preserve_len` bytes remain
-/// buffered.
+/// On success, at least `preserve_len` bytes will remain buffered if there are
+/// enough buffered bytes to do so.
+/// The amount buffered by the writer after the call will only be less than
+/// `preserve_len` if `w.end + n` is less than `preserve_len` before the call.
+/// The intentionally preserved bytes will include up to `preserve_len -| n` bytes from
+/// the previously buffered bytes, plus `@min(n, preserve_len)` of the newly
+/// "pumped" bytes.
 ///
-/// Asserts `Writer.buffer` capacity exceeds `preserve_len`.
+/// Asserts `Writer.buffer` capacity is at least `preserve_len`.
+/// `n` can be greater than the `Writer.buffer` capacity.
 pub fn streamExactPreserve(r: *Reader, w: *Writer, preserve_len: usize, n: usize) StreamError!void {
     if (w.end + n <= w.buffer.len) {
         @branchHint(.likely);
