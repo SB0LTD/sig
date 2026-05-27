@@ -181,23 +181,57 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
         },
     );
     db.addLldbTest(
+        "identifiers",
+        target,
+        &.{
+            .{
+                .path = "identifiers.zig",
+                .source =
+                \\const Struct = struct { @"zwölf": u32 };
+                \\fn testIdentifiers(@"fünf": u32, @"struct": Struct) void {
+                \\    _ = @"fünf";
+                \\    _ = @"struct";
+                \\}
+                \\pub fn main() void {
+                \\    testIdentifiers(5, .{ .@"zwölf" = 12 });
+                \\}
+                ,
+            },
+        },
+        \\breakpoint set --file identifiers.zig --source-pattern-regexp '_ = @"struct";'
+        \\process launch
+        \\frame variable --show-all-children --show-types -- @\"fünf'"' '@"f\xC3\xBCnf"' '@"f\u{FC}nf"' '@"struct".@"zwölf"' '@"struct".@"zw\xC3\xB6lf"' '@"struct".@"zw\u{F6}lf"'
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-all-children --show-types -- @\"fünf'"' '@"f\xC3\xBCnf"' '@"f\u{FC}nf"' '@"struct".@"zwölf"' '@"struct".@"zw\xC3\xB6lf"' '@"struct".@"zw\u{F6}lf"'
+            \\(u32) @"fünf" = 5
+            \\(u32) @"f\xC3\xBCnf" = 5
+            \\(u32) @"f\u{FC}nf" = 5
+            \\(u32) @"struct".@"zwölf" = 12
+            \\(u32) @"struct".@"zw\xC3\xB6lf" = 12
+            \\(u32) @"struct".@"zw\u{F6}lf" = 12
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
         "pointers",
         target,
         &.{
             .{
                 .path = "pointers.zig",
                 .source =
+                \\var array: [7]u32 = .{
+                \\    3010,
+                \\    3014,
+                \\    3018,
+                \\    3022,
+                \\    3026,
+                \\    3030,
+                \\    3034,
+                \\};
                 \\const Pointers = struct {
-                \\    var array: [7]u32 = .{
-                \\        3010,
-                \\        3014,
-                \\        3018,
-                \\        3022,
-                \\        3026,
-                \\        3030,
-                \\        3034,
-                \\    };
-                \\
                 \\    single: *u32 = @ptrFromInt(0x1010),
                 \\    single_const: *const u32 = @ptrFromInt(0x1014),
                 \\    single_volatile: *volatile u32 = @ptrFromInt(0x1018),
@@ -229,23 +263,30 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 \\    c_volatile: [*c]volatile u32 = @ptrFromInt(0x4018),
                 \\    c_const_volatile: [*c]const volatile u32 = @ptrFromInt(0x401c),
                 \\};
-                \\fn testPointers(pointers: Pointers) void {
+                \\const Access = struct {
+                \\    single: *u32 = &array[0],
+                \\    many: [*]u32 = array[1..3],
+                \\    slice: []u32 = array[3..5],
+                \\    c: [*c]u32 = array[5..7],
+                \\};
+                \\fn testPointers(pointers: Pointers, access: Access) void {
                 \\    _ = pointers;
+                \\    _ = access;
                 \\}
                 \\pub fn main() void {
-                \\    testPointers(.{});
+                \\    testPointers(.{}, .{});
                 \\}
                 \\
                 ,
             },
         },
-        \\breakpoint set --file pointers.zig --source-pattern-regexp '_ = pointers;'
+        \\breakpoint set --file pointers.zig --source-pattern-regexp '_ = access;'
         \\process launch
-        \\frame variable --show-all-children --show-types -- pointers
+        \\frame variable --show-all-children --show-types -- pointers access.single.* access.many[0] access.many[1] access.slice[0] access.slice[1] access.c.* access.c[0] access.c[1]
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) frame variable --show-all-children --show-types -- pointers
+            \\(lldb) frame variable --show-all-children --show-types -- pointers access.single.* access.many[0] access.many[1] access.slice[0] access.slice[1] access.c.* access.c[0] access.c[1]
             \\(root.pointers.Pointers) pointers = {
             \\  (*u32) .single = 0x0000000000001010
             \\  (*const u32) .single_const = 0x0000000000001014
@@ -299,6 +340,14 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\  ([*c]volatile u32) .c_volatile = 0x0000000000004018
             \\  ([*c]const volatile u32) .c_const_volatile = 0x000000000000401c
             \\}
+            \\(u32) access.single.* = 3010
+            \\(u32) access.many[0] = 3014
+            \\(u32) access.many[1] = 3018
+            \\(u32) access.slice[0] = 3022
+            \\(u32) access.slice[1] = 3026
+            \\(u32) access.c.* = 3030
+            \\(u32) access.c[0] = 3030
+            \\(u32) access.c[1] = 3034
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
@@ -534,30 +583,33 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
         },
         \\breakpoint set --file optionals.zig --source-pattern-regexp 'maybe_u32 = 123;'
         \\process launch
-        \\frame variable --show-all-children -- null_u32 maybe_u32 nonnull_u32
+        \\frame variable --show-all-children -- null_u32 maybe_u32 nonnull_u32 nonnull_u32.?
         \\breakpoint delete --force 1
         \\
         \\breakpoint set --file optionals.zig --source-pattern-regexp 'nonnull_u32 = nonnull_u32;'
         \\process continue
-        \\frame variable --show-all-children --show-types -- null_u32 maybe_u32 nonnull_u32
+        \\frame variable --show-all-children --show-types -- null_u32 maybe_u32 maybe_u32.? nonnull_u32 nonnull_u32.?
         \\breakpoint delete --force 2
     ,
         &.{
-            \\(lldb) frame variable --show-all-children -- null_u32 maybe_u32 nonnull_u32
+            \\(lldb) frame variable --show-all-children -- null_u32 maybe_u32 nonnull_u32 nonnull_u32.?
             \\(?u32) null_u32 = null
             \\(?u32) maybe_u32 = null
             \\(?u32) nonnull_u32 = (nonnull_u32.? = 456)
+            \\(u32) nonnull_u32.? = 456
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
             ,
-            \\(lldb) frame variable --show-all-children --show-types -- null_u32 maybe_u32 nonnull_u32
+            \\(lldb) frame variable --show-all-children --show-types -- null_u32 maybe_u32 maybe_u32.? nonnull_u32 nonnull_u32.?
             \\(?u32) null_u32 = null
             \\(?u32) maybe_u32 = {
             \\  (u32) maybe_u32.? = 123
             \\}
+            \\(u32) maybe_u32.? = 123
             \\(?u32) nonnull_u32 = {
             \\  (u32) nonnull_u32.? = 456
             \\}
+            \\(u32) nonnull_u32.? = 456
             \\(lldb) breakpoint delete --force 2
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
@@ -2203,6 +2255,7 @@ fn addGdbTest(
         name,
         target,
         files,
+        &.{},
         &.{
             db.options.gdb orelse return,
             "--batch",
@@ -2229,6 +2282,7 @@ fn addLldbTest(
         name,
         target,
         files,
+        &.{.{ "LANG", "C.UTF-8" }}, // affects output formatting
         &.{
             db.options.lldb orelse return,
             "--batch",
@@ -2253,6 +2307,7 @@ fn addTest(
     name: []const u8,
     target: *const Target,
     files: []const File,
+    env: []const struct { []const u8, []const u8 },
     db_argv1: []const []const u8,
     db_commands: []const u8,
     commands: []const u8,
@@ -2297,6 +2352,7 @@ fn addTest(
 
     const commands_wf = db.b.addWriteFiles();
     const run = std.Build.Step.Run.create(db.b, db.b.fmt("run {s} {s}", .{ name, target.test_name_suffix }));
+    for (env) |env_var| run.setEnvironmentVariable(env_var[0], env_var[1]);
     run.addArgs(db_argv1);
     run.addFileArg(commands_wf.add(
         db.b.fmt("{s}.cmd", .{name}),
