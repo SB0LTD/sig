@@ -185,7 +185,7 @@ jobs:
                 -target x86_64-linux-musl -lc \
                 --name probe \
                 -fno-emit-bin 2>"$TMPBOOT/probe.log"; then
-              echo "Bootstrap probe failed:"
+              echo "Bootstrap probe (build-exe) failed:"
               cat "$TMPBOOT/probe.log"
               if grep -q "FileNotFound\|file_hash\|sub-compilation.*failed" "$TMPBOOT/probe.log"; then
                 echo "::warning::Bootstrap $TAG has stale lib references — rebuild needed"
@@ -197,7 +197,22 @@ jobs:
                 RESULT=0
               fi
             else
-              echo "Bootstrap $TAG validated OK"
+              echo "Bootstrap $TAG build-exe probe OK"
+            fi
+
+            # Also probe 'zig build --help' which exercises lib/compiler/ build runner
+            if [ "$RESULT" = "0" ]; then
+              if ! "$SIG_BIN" build --help \
+                  --zig-lib-dir "$(pwd)/lib" 2>"$TMPBOOT/build_probe.log"; then
+                echo "Bootstrap probe (zig build) failed:"
+                cat "$TMPBOOT/build_probe.log"
+                if grep -q "FileNotFound\|file_hash" "$TMPBOOT/build_probe.log"; then
+                  echo "::warning::Bootstrap $TAG can't run 'zig build' — rebuild needed"
+                  RESULT=1
+                fi
+              else
+                echo "Bootstrap $TAG zig-build probe OK"
+              fi
             fi
 
             rm -rf "$TMPBOOT"
@@ -345,7 +360,7 @@ jobs:
               # ── Check if this commit touches lib/ in ways that break bootstrap ──
               CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
               TOUCHES_LIB=false
-              if echo "$CHANGED_FILES" | grep -qE '^lib/(libc|std|compiler_rt)/'; then
+              if echo "$CHANGED_FILES" | grep -qE '^lib/(libc|std|compiler_rt|compiler)/'; then
                 TOUCHES_LIB=true
               fi
 
