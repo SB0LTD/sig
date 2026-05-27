@@ -1967,17 +1967,6 @@ const Symbol = struct {
         fn ptr(si: Symbol.Index, elf: *Elf) *Symbol {
             return &elf.symtab.items[@intFromEnum(si)];
         }
-
-        fn applyTargetRelocs(si: Symbol.Index, elf: *Elf) void {
-            assert(elf.ehdrField(.type) != .REL);
-            var ri = si.ptr(elf).first_target_reloc;
-            while (ri != .none) {
-                const reloc = ri.get(elf);
-                assert(reloc.target.index(elf) == si);
-                reloc.apply(elf);
-                ri = reloc.next;
-            }
-        }
     };
 
     /// A `LocalIndex` is a raw index into the symtab like `Index`, but it guarantees that the
@@ -2064,7 +2053,7 @@ const Symbol = struct {
 
             // Re-apply relocations targeting this symbol
             if (elf.ehdrField(.type) != .REL) {
-                sym_index.applyTargetRelocs(elf);
+                sym_id.applyTargetRelocs(elf);
             }
 
             // Update GOT entries targeting this symbol
@@ -2077,6 +2066,17 @@ const Symbol = struct {
             if (elf.got.getIndex(.{ .tlsgd0 = sym_id })) |got_index| {
                 elf.updateGotEntry(got_index);
                 elf.updateGotEntry(got_index + 1); // tlsgd1
+            }
+        }
+
+        fn applyTargetRelocs(sym_id: Symbol.Id, elf: *Elf) void {
+            assert(elf.ehdrField(.type) != .REL);
+            var ri = sym_id.index(elf).ptr(elf).first_target_reloc;
+            while (ri != .none) {
+                const reloc = ri.get(elf);
+                assert(reloc.target == sym_id);
+                reloc.apply(elf);
+                ri = reloc.next;
             }
         }
 
@@ -4442,7 +4442,7 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
                         elf.addPltEntry(name, global_ptr.dynsym_index);
                         // ...and therefore, we need to re-apply that symbol's relocations, as
                         // some might be targeting its PLT entry.
-                        global_ptr.symtab_index.applyTargetRelocs(elf);
+                        Symbol.Id.global(name).applyTargetRelocs(elf);
                     }
                 }
             }
@@ -6157,7 +6157,7 @@ fn flushMovedPltSection(elf: *Elf, which: enum { plt, plt_sec, got_plt }, old_ad
                     // specific tracking for PLT relocations---instead just re-apply all relocations
                     // targeting symbols with PLT entries.
                     for (elf.plt.keys()) |sym| {
-                        sym.index(elf).applyTargetRelocs(elf);
+                        sym.applyTargetRelocs(elf);
                     }
                     // We also need to update all of the references from `.plt.sec` to `.got.plt`.
                     // However, if there's also a flush pending for `.got.plt`, don't bother doing
