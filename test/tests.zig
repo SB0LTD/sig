@@ -2278,7 +2278,8 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test missing output path.
         const bad_out_arg = "-femit-bin=does" ++ s ++ "not" ++ s ++ "exist" ++ s ++ "foo.exe";
         const ok_src_arg = "src" ++ s ++ "main.zig";
-        const expected = "error: unable to open output directory 'does" ++ s ++ "not" ++ s ++ "exist': FileNotFound\n";
+        const es = if (builtin.os.tag == .windows) "\\\\" else "/";
+        const expected = "error: unable to open output directory \"does" ++ es ++ "not" ++ es ++ "exist\": FileNotFound\n";
         const run_bad = b.addSystemCommand(&.{ b.graph.zig_exe, "build-exe", ok_src_arg, bad_out_arg });
         run_bad.setName("zig build-exe error message for bad -femit-bin arg");
         run_bad.expectExitCode(1);
