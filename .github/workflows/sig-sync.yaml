@@ -366,15 +366,14 @@ jobs:
 
               # Check if this commit touches stage1/ or compiler internals that
               # could require zig1.wasm regeneration (stage1 compiler snapshot).
-              # Signals: stage1/ changes, Zir/AstGen/Parse changes, new IR ops.
+              # Signals: stage1/ changes, Zir/AstGen/Parse changes, struct layout changes.
               NEEDS_ZIG1_REGEN=false
               if echo "$CHANGED_FILES" | grep -qE '^stage1/'; then
                 NEEDS_ZIG1_REGEN=true
-                echo "::warning::Commit touches stage1/ — zig1.wasm may need regeneration"
-              elif echo "$CHANGED_FILES" | grep -qE '^(lib/std/zig/(Zir|AstGen|Parse|tokenizer)\.zig|src/(Air|Sema|Zcu|InternPool|codegen)\.zig)'; then
-                echo "::notice::Commit touches compiler internals — monitoring for zig1.wasm staleness"
-                # These don't always break stage1, but they're high-risk.
-                # The bootstrap build will catch actual failures.
+                echo "::warning::Commit touches stage1/ — zig1.wasm needs regeneration"
+              elif echo "$CHANGED_FILES" | grep -qE '^(lib/std/zig/(Zir|AstGen|Parse|tokenizer)\.zig|src/(Air|Sema|Zcu|InternPool|codegen|Type|Value)\.zig)'; then
+                NEEDS_ZIG1_REGEN=true
+                echo "::warning::Commit touches compiler internals — zig1.wasm needs regeneration"
               fi
 
               # If this commit touches lib/ and we haven't validated yet, do it now
@@ -382,12 +381,7 @@ jobs:
                 echo "Commit touches lib/ — validating bootstrap..."
                 if ! validate_bootstrap "$BOOTSTRAP_TAG"; then
                   NEED_REBUILD=true
-                  echo "::warning::Bootstrap stale after $SHORT — dispatching zig1.wasm regen + rebuild"
-
-                  # Non-blocking: dispatch regen and rebuild, don't wait
-                  gh workflow run update-zig1-wasm.yaml 2>/dev/null || true
-                  echo "::notice::Dispatched zig1.wasm regeneration — sync continues"
-                  echo "::notice::Bootstrap rebuild will be triggered after zig1.wasm is updated"
+                  echo "::warning::Bootstrap stale after $SHORT — will regen + rebuild after sync"
                 fi
               fi
 
@@ -442,15 +436,97 @@ jobs:
             echo "::endgroup::"
           done < /tmp/new_commits.txt
 
-          # ── Regenerate zig1.wasm if stage1 changes were detected ─────
+          # ── Regenerate zig1.wasm if compiler internals changed ──────
+          REGEN_NEEDED=false
           if grep -q "ZIG1_REGEN_NEEDED=true" /tmp/sync_state.env 2>/dev/null; then
-            echo "::notice::Triggering zig1.wasm regeneration..."
-            gh workflow run update-zig1-wasm.yaml
-            echo "zig1.wasm regen dispatched — bootstrap rebuild will follow if needed"
+            REGEN_NEEDED=true
           fi
 
-          # ── Dispatch release after all commits are integrated ───────
-          # Pass the current bootstrap tag so release uses the right one
+          # Also check if bootstrap validation failed (NEED_REBUILD was set in the loop)
+          if [ "$NEED_REBUILD" = "true" ]; then
+            REGEN_NEEDED=true
+          fi
+
+          if [ "$REGEN_NEEDED" = "true" ]; then
+            echo "::notice::Triggering zig1.wasm regeneration + bootstrap rebuild chain..."
+            gh workflow run regen-zig1-wasm.yaml
+
+            # Wait for zig1.wasm regen to complete (max 2h)
+            echo "Waiting for zig1.wasm regeneration..."
+            MAX_WAIT=7200
+            WAITED=0
+            POLL=60
+            REGEN_OK=false
+            while [ $WAITED -lt $MAX_WAIT ]; do
+              sleep $POLL
+              WAITED=$((WAITED + POLL))
+              # Check if the latest regen run succeeded
+              REGEN_STATUS=$(gh run list --workflow="regen-zig1-wasm.yaml" --limit 1 --json conclusion --jq '.[0].conclusion' 2>/dev/null || true)
+              if [ "$REGEN_STATUS" = "success" ]; then
+                echo "zig1.wasm regeneration complete (waited ${WAITED}s)"
+                REGEN_OK=true
+                break
+              elif [ "$REGEN_STATUS" = "failure" ]; then
+                echo "::error::zig1.wasm regeneration failed"
+                break
+              fi
+              echo "  Still waiting for zig1.wasm regen... (${WAITED}s)"
+            done
+
+            if [ "$REGEN_OK" = "true" ]; then
+              # Pull the new zig1.wasm commit
+              git pull --rebase origin master || true
+
+              # Bump bootstrap version and rebuild
+              VER_NUM=$(echo "$BOOTSTRAP_TAG" | grep -oP 'v\K[0-9]+')
+              NEW_VER=$((VER_NUM + 1))
+              NEW_TAG="bootstrap-sig-v${NEW_VER}"
+              echo "::notice::Rebuilding bootstrap: $BOOTSTRAP_TAG → $NEW_TAG"
+              gh workflow run build-bootstrap.yaml -f version="$NEW_TAG"
+
+              # Wait for bootstrap build (max 3h)
+              echo "Waiting for bootstrap $NEW_TAG..."
+              MAX_WAIT=10800
+              WAITED=0
+              BOOT_OK=false
+              while [ $WAITED -lt $MAX_WAIT ]; do
+                sleep $POLL
+                WAITED=$((WAITED + POLL))
+                if gh release view "$NEW_TAG" --json assets --jq '.assets[].name' 2>/dev/null \
+                    | grep -q "bootstrap-sig-x86_64-linux.tar.gz"; then
+                  # Wait for Windows too
+                  if gh release view "$NEW_TAG" --json assets --jq '.assets[].name' 2>/dev/null \
+                      | grep -q "bootstrap-sig-x86_64-windows.tar.gz"; then
+                    echo "Bootstrap $NEW_TAG all platforms ready (waited ${WAITED}s)"
+                    BOOT_OK=true
+                    break
+                  fi
+                  echo "  Linux bootstrap ready, waiting for Windows..."
+                fi
+                echo "  Still waiting for bootstrap... (${WAITED}s)"
+              done
+
+              if [ "$BOOT_OK" = "true" ]; then
+                BOOTSTRAP_TAG="$NEW_TAG"
+                # Update manifest with new bootstrap tag
+                python3 -c "
+          import json
+          with open('tools/sig_sync/manifest.json') as f: m = json.load(f)
+          m['bootstrap_tag'] = '$NEW_TAG'
+          with open('tools/sig_sync/manifest.json', 'w') as f:
+              json.dump(m, f, indent=2)
+              f.write('\n')
+          "
+                git add tools/sig_sync/manifest.json
+                git diff --cached --quiet || git commit -m "sig-sync: bump bootstrap to $NEW_TAG"
+                git push origin HEAD:master
+              else
+                echo "::error::Bootstrap build timed out or failed — releasing with stale bootstrap"
+              fi
+            fi
+          fi
+
+          # ── Dispatch release ────────────────────────────────────────
           echo "Dispatching sig-release with bootstrap=$BOOTSTRAP_TAG..."
           gh api repos/${{ github.repository }}/dispatches \
             -f event_type=sig-release \
