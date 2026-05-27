@@ -5669,7 +5669,7 @@ pub fn idle(elf: *Elf, tid: Zcu.PerThread.Id) !bool {
             };
             break :task;
         }
-        if (elf.changed_symtab_index.pop()) |kv| {
+        while (elf.changed_symtab_index.pop()) |kv| {
             // We only need to do work in relocatables, because in ELF modules (non-relocatables)
             // our `ElfN.Rela` entries use `.dynsym` indices rather than `.symtab` indices, and
             // `.dynsym` indices are (at the time of writing) always immutable.
