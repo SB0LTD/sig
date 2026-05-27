@@ -2901,6 +2901,10 @@ pub fn addCases(
 
     var cases = @import("src/Cases.zig").init(gpa, arena, io);
 
+    // Ensure changes to these files get picked up
+    // https://codeberg.org/ziglang/zig/issues/35473
+    b.graph.poisonCache();
+
     var dir = try b.root.openDir(io, "test/cases", .{ .iterate = true });
     defer dir.close(io);
 
@@ -2958,6 +2962,10 @@ pub fn addIncrementalTests(b: *std.Build, test_step: *Step, test_filters: []cons
             .optimize = .Debug,
         }),
     });
+
+    // Ensure changes to these files get picked up
+    // https://codeberg.org/ziglang/zig/issues/35473
+    b.graph.poisonCache();
 
     var dir = try b.root.openDir(io, "test/incremental", .{ .iterate = true });
     defer dir.close(io);

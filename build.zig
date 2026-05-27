@@ -259,6 +259,11 @@ pub fn build(b: *std.Build) !void {
             std.debug.print("error: version info cannot be retrieved from git. Zig version must be provided using -Dversion-string\n", .{});
             std.process.exit(1);
         }
+
+        // Ensure git version changes get picked up
+        // https://codeberg.org/ziglang/zig/issues/35473
+        b.graph.poisonCache();
+
         const version_string = b.fmt("{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
 
         var code: u8 = undefined;
