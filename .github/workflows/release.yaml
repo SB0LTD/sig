@@ -116,6 +116,21 @@ jobs:
           echo "Bootstrap binary: ${BIN}"
           "${BIN}" version || true
 
+      # ── Download pre-built LLVM 22 (needed for -Denable-llvm) ────
+      - name: Download LLVM 22
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LLVM_ASSET="llvm-22-x86_64-linux.tar.xz"
+          echo "Downloading ${LLVM_ASSET}..."
+          gh release download llvm-22 --pattern "${LLVM_ASSET}" --dir /tmp
+          mkdir -p "$PWD/llvm-22"
+          tar -xJf "/tmp/${LLVM_ASSET}" -C "$PWD/llvm-22" --strip-components=1
+          rm "/tmp/${LLVM_ASSET}"
+          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
+          echo "LLVM downloaded to $PWD/llvm-22"
+
       # ── Build stage3 (proper optimized release binary) ──────────────
       - name: Build stage3 release binary
         shell: bash
@@ -135,8 +150,10 @@ jobs:
             -Dtarget=${{ matrix.zig_target }} \
             -Dno-lib \
             -Denable-llvm \
+            -Dstatic-llvm \
             -Dversion-string="${ZIG_VER_BASE}" \
-            --zig-lib-dir lib
+            --zig-lib-dir lib \
+            --search-prefix "${LLVM_PREFIX}"
 
           echo "Stage3 build complete"
           ls -la stage3-out/bin/ || true
