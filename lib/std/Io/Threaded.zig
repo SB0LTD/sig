@@ -12407,9 +12407,9 @@ fn openSocketPosix(
     };
     errdefer closeFd(socket_fd);
 
-    if (options.ip6_only) {
+    if (options.ip6_only) |ip6_only| {
         if (posix.IPV6 == void) return error.OptionUnsupported;
-        try setSocketOptionPosix(socket_fd, posix.IPPROTO.IPV6, posix.IPV6.V6ONLY, 1);
+        try setSocketOptionPosix(socket_fd, posix.IPPROTO.IPV6, posix.IPV6.V6ONLY, @intFromBool(ip6_only));
     }
 
     return socket_fd;
@@ -14496,7 +14496,7 @@ fn lookupDns(
     var socket = s: {
         if (any_ip6) ip6: {
             const ip6_addr: IpAddress = .{ .ip6 = .unspecified(0) };
-            const socket = ip6_addr.bind(t_io, .{ .ip6_only = true, .mode = .dgram }) catch |err| switch (err) {
+            const socket = ip6_addr.bind(t_io, .{ .ip6_only = false, .mode = .dgram }) catch |err| switch (err) {
                 error.AddressFamilyUnsupported => break :ip6,
                 else => |e| return e,
             };
