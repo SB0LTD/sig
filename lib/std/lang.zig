@@ -775,6 +775,13 @@ pub const Type = union(enum) {
             @"noalias": bool = false,
         };
 
+        /// Backwards compatibility alias for older compilers that reference Fn.Param
+        pub const Param = struct {
+            is_generic: bool = false,
+            is_noalias: bool = false,
+            type: ?type = null,
+        };
+
         pub const Attributes = struct {
             @"callconv": CallingConvention = .auto,
             varargs: bool = false,
