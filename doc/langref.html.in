@@ -8237,7 +8237,7 @@ BUILTINIDENTIFIER <- '@'[A-Za-z_][A-Za-z0-9_]* skip
 
 AMPERSAND            <- '&'      ![=]      skip
 AMPERSANDEQUAL       <- '&='               skip
-ASTERISK             <- '*'      ![*%=|]   skip
+ASTERISK             <- '*'      ![%=|]    skip
 ASTERISKEQUAL        <- '*='               skip
 ASTERISKPERCENT      <- '*%'     ![=]      skip
 ASTERISKPERCENTEQUAL <- '*%='              skip

@@ -238,9 +238,6 @@ fn pegToken(a: *AstSmith, tag: Token.Tag) SourceError!void {
 
     switch (lexeme[0]) {
         '_', 'a'...'z', 'A'...'Z', '0'...'9' => try a.preservePegEndOfWord(),
-        '*' => if (a.tokens_len > 0 and a.source_buf[a.source_len - 1] == '*') {
-            try a.addSourceByte(' ');
-        },
         '.' => if (a.tokens_len > 0 and switch (a.source_buf[a.source_len - 1]) {
             '.' => true,
             '0'...'9', 'a'...'z', 'A'...'Z' => a.token_tag_buf[a.tokens_len - 1] == .number_literal,
