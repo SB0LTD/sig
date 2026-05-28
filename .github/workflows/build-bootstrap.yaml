@@ -117,22 +117,37 @@ jobs:
       - name: Install ninja
         run: choco install ninja -y
 
-      - name: Build with cmake + ninja (no LLVM)
+      - name: Download LLVM 22
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download llvm-22 --pattern "llvm-22-x86_64-windows.tar.xz" --dir /tmp
+          mkdir -p "$PWD/llvm-22"
+          tar -xJf /tmp/llvm-22-x86_64-windows.tar.xz -C "$PWD/llvm-22" --strip-components=1
+          rm /tmp/llvm-22-x86_64-windows.tar.xz
+          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
+
+      - name: Build with cmake + ninja
         shell: pwsh
         run: |
           $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
           Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments "-arch=amd64"
 
+          $env:PATH = "$PWD\llvm-22\bin;$env:PATH"
           New-Item -Path 'build' -ItemType Directory | Out-Null
           Set-Location -Path 'build'
 
-          # Use clang-cl from zig's bundled clang for C compilation
-          # Build without LLVM — the bootstrap only needs to run `zig build`
+          # clang-cl handles zero-length arrays that MSVC rejects
+          $env:CC = "clang-cl"
+          $env:CXX = "clang-cl"
+
           cmake .. `
+            -DCMAKE_INSTALL_PREFIX="$PWD/stage3" `
+            -DCMAKE_PREFIX_PATH="$env:LLVM_PREFIX" `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_C_COMPILER=cl `
-            -DCMAKE_CXX_COMPILER=cl `
+            -DZIG_USE_LLVM_CONFIG=ON `
             -DZIG_NO_LIB=ON `
             -DZIG_TARGET_MCPU="baseline" `
             -GNinja
@@ -156,6 +171,6 @@ jobs:
           gh release view "${VERSION}" >/dev/null 2>&1 || \
             gh release create "${VERSION}" \
               --title "Bootstrap Sig Compiler ${VERSION}" \
-              --notes "Bootstrap sig compiler. Linux/macOS: LLVM-enabled. Windows: native backends only." \
+              --notes "LLVM-enabled bootstrap sig built with cmake+ninja+zig." \
               --prerelease
           gh release upload "${VERSION}" bootstrap-sig-x86_64-windows.tar.gz --clobber
