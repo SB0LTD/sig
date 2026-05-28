@@ -22,8 +22,9 @@ jobs:
             artifact: llvm-22-x86_64-linux.tar.xz
           - os: macos-14
             artifact: llvm-22-aarch64-macos.tar.xz
-          - os: windows-latest
+          - os: ubuntu-latest
             artifact: llvm-22-x86_64-windows.tar.xz
+            cross_target: x86_64-windows-gnu
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
     steps:
@@ -37,17 +38,18 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install cmake ninja zstd
 
-      - name: Install build deps (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: choco install ninja -y
+      - name: Setup Zig (for cross-compilation)
+        if: matrix.cross_target != ''
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.14.1"
 
       - name: Clone LLVM
         shell: bash
         run: git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
 
-      - name: Build LLVM (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Build LLVM (native)
+        if: matrix.cross_target == ''
         shell: bash
         run: |
           cmake -S llvm-src/llvm -B llvm-build -G Ninja \
@@ -73,37 +75,60 @@ jobs:
           ninja -C llvm-build install -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
         timeout-minutes: 180
 
-      - name: Build LLVM (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      - name: Build LLVM (cross-compile for Windows)
+        if: matrix.cross_target != ''
+        shell: bash
         run: |
-          # Find and activate MSVC environment
-          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments "-arch=amd64"
+          # Create zig cc wrapper scripts for cmake
+          cat > /tmp/zig-cc << 'EOF'
+          #!/bin/bash
+          exec zig cc -target x86_64-windows-gnu "$@"
+          EOF
+          cat > /tmp/zig-cxx << 'EOF'
+          #!/bin/bash
+          exec zig c++ -target x86_64-windows-gnu "$@"
+          EOF
+          cat > /tmp/zig-ar << 'EOF'
+          #!/bin/bash
+          exec zig ar "$@"
+          EOF
+          cat > /tmp/zig-ranlib << 'EOF'
+          #!/bin/bash
+          exec zig ranlib "$@"
+          EOF
+          chmod +x /tmp/zig-cc /tmp/zig-cxx /tmp/zig-ar /tmp/zig-ranlib
 
-          cmake -S llvm-src/llvm -B llvm-build -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" `
-            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
-            -DLLVM_ENABLE_PROJECTS="clang;lld" `
-            -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SystemZ;VE;WebAssembly;X86;XCore" `
-            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="M68k;Xtensa;ARC;CSKY;SPIRV" `
-            -DLLVM_ENABLE_TERMINFO=OFF `
-            -DLLVM_ENABLE_LIBXML2=OFF `
-            -DLLVM_ENABLE_ZLIB=OFF `
-            -DLLVM_ENABLE_ZSTD=OFF `
-            -DCLANG_ENABLE_ARCMT=OFF `
-            -DCLANG_ENABLE_STATIC_ANALYZER=ON `
-            -DLLVM_ENABLE_BINDINGS=OFF `
-            -DLLVM_ENABLE_OCAMLDOC=OFF `
-            -DLLVM_INCLUDE_TESTS=OFF `
-            -DLLVM_INCLUDE_EXAMPLES=OFF `
-            -DLLVM_INCLUDE_BENCHMARKS=OFF `
-            -DLLVM_INCLUDE_DOCS=OFF
-
-          ninja -C llvm-build install
-        timeout-minutes: 340
+          cmake -S llvm-src/llvm -B llvm-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" \
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_C_COMPILER=/tmp/zig-cc \
+            -DCMAKE_CXX_COMPILER=/tmp/zig-cxx \
+            -DCMAKE_AR=/tmp/zig-ar \
+            -DCMAKE_RANLIB=/tmp/zig-ranlib \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DLLVM_ENABLE_PROJECTS="clang;lld" \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SystemZ;VE;WebAssembly;X86;XCore" \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="M68k;Xtensa;ARC;CSKY;SPIRV" \
+            -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_ENABLE_ZLIB=OFF \
+            -DLLVM_ENABLE_ZSTD=OFF \
+            -DLLVM_ENABLE_THREADS=ON \
+            -DCLANG_ENABLE_ARCMT=OFF \
+            -DCLANG_ENABLE_STATIC_ANALYZER=ON \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            -DLLVM_ENABLE_OCAMLDOC=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF \
+            -DLLVM_HOST_TRIPLE=x86_64-windows-gnu \
+            -DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-windows-gnu
+          ninja -C llvm-build install -j$(nproc)
+        timeout-minutes: 240
 
       - name: Package
         shell: bash
