@@ -4951,6 +4951,7 @@ fn cmdBuild(
     var debug_target: ?[]const u8 = null;
     var debug_libc_paths_file: ?[]const u8 = null;
     var cache_poison: std.Build.Graph.CachePoison = .pure;
+    var print_configuration_path: bool = false;
 
     const self_exe_path = try process.executablePathAlloc(io, arena);
     const default_seed = try std.fmt.allocPrint(arena, "0x{x}", .{randInt(io, u32)});
@@ -5068,6 +5069,9 @@ fn cmdBuild(
                     if (i + 1 >= args.len) fatal("expected argument after: {s}", .{arg});
                     i += 1;
                     override_global_cache_dir = args[i];
+                    continue;
+                } else if (mem.eql(u8, arg, "--print-configuration-path")) {
+                    print_configuration_path = true;
                     continue;
                 } else if (mem.eql(u8, arg, "-freference-trace")) {
                     reference_trace = 256;
@@ -5266,7 +5270,7 @@ fn cmdBuild(
         };
 
         // Kick off an optimized compilation of the make runner.
-        var make_runner_task = io.async(compileMakeRunner, .{ gpa, arena, io, .{
+        var make_runner_task = if (print_configuration_path) undefined else io.async(compileMakeRunner, .{ gpa, arena, io, .{
             .dirs = .{
                 .cwd = dirs.cwd,
                 .zig_lib = dirs.zig_lib,
@@ -5283,7 +5287,7 @@ fn cmdBuild(
             .reference_trace = reference_trace,
             .optimize_mode = maker_optimize_mode,
         } });
-        defer _ = make_runner_task.cancel(io) catch {};
+        defer _ = if (!print_configuration_path) make_runner_task.cancel(io) catch {};
 
         const pkg_root: Path = if (override_pkg_dir) |p|
             .initCwd(p)
@@ -5744,6 +5748,11 @@ fn cmdBuild(
             var configuration_lock = if (!poisoned) config_man.toOwnedLock() else null;
             defer if (configuration_lock) |*l| l.release(io);
 
+            if (print_configuration_path) {
+                var stdout_writer = Io.File.stdout().writerStreaming(io, &.{});
+                configuration_path.format(&stdout_writer.interface) catch fatal("failed printing cache file path: {t}", .{stdout_writer.err.?});
+                return cleanExit(io);
+            }
             const make_runner = make_runner_task.await(io) catch |err| fatal("failed compiling maker: {t}", .{err});
 
             make_argv.items[0] = try make_runner.exe_path.toString(arena);
