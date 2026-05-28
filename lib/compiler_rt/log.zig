@@ -437,10 +437,10 @@ pub fn __logx(a: f80) callconv(.c) f80 {
     return @floatCast(logq(a));
 }
 
-/// Implementation of "Table-driven implementation of the exponential function in IEEE floating-point arithmetic"
-/// By PTP Tang in ACM Transactions on Mathematical Software (TOMS), 1989
+/// Implementation of "Table-driven implementation of the logarithm function in IEEE floating-point arithmetic"
+/// by PTP Tang in ACM Transactions on Mathematical Software (TOMS), 1990
 ///
-/// https://dl.acm.org/doi/pdf/10.1145/63522.214389
+/// https://dl.acm.org/doi/pdf/10.1145/98267.98294
 ///
 /// Adapted to work for f128 by Christophe Delage.
 ///
