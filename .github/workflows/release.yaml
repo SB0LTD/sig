@@ -47,16 +47,19 @@ jobs:
             ext: tar.xz
             bin: sig
             llvm_asset: llvm-22-x86_64-linux.tar.xz
+            enable_llvm: true
           - target: aarch64-macos
             zig_target: aarch64-macos-none
             ext: tar.xz
             bin: sig
             llvm_asset: llvm-22-x86_64-linux.tar.xz
+            enable_llvm: true
           - target: x86_64-windows
             zig_target: x86_64-windows-gnu
             ext: zip
             bin: sig.exe
-            llvm_asset: llvm-22-x86_64-windows.tar.xz
+            llvm_asset: ""
+            enable_llvm: false
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -106,9 +109,11 @@ jobs:
           "${BIN}" version || true
 
       - name: Install build deps
+        if: matrix.enable_llvm
         run: sudo apt-get update -qq && sudo apt-get install -y -qq zlib1g-dev libzstd-dev
 
       - name: Download LLVM 22
+        if: matrix.enable_llvm
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -117,7 +122,6 @@ jobs:
           mkdir -p "$PWD/llvm-22"
           tar -xJf "/tmp/${{ matrix.llvm_asset }}" -C "$PWD/llvm-22" --strip-components=1
           rm "/tmp/${{ matrix.llvm_asset }}"
-          # Ensure zlib/zstd static libs are available for linking
           cp /usr/lib/x86_64-linux-gnu/libz.a "$PWD/llvm-22/lib/" 2>/dev/null || true
           cp /usr/lib/x86_64-linux-gnu/libzstd.a "$PWD/llvm-22/lib/" 2>/dev/null || true
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
@@ -128,17 +132,21 @@ jobs:
           echo "Building stage3 for ${{ matrix.zig_target }}..."
           ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
           echo "Version string: ${ZIG_VER_BASE}"
+
+          LLVM_FLAGS=""
+          if [ "${{ matrix.enable_llvm }}" = "true" ]; then
+            LLVM_FLAGS="-Denable-llvm -Dstatic-llvm --search-prefix ${LLVM_PREFIX}"
+          fi
+
           "${BOOTSTRAP_BIN}" build \
             --prefix "stage3-out" \
             -Doptimize=ReleaseFast \
             -Dstrip \
             -Dtarget=${{ matrix.zig_target }} \
             -Dno-lib \
-            -Denable-llvm \
-            -Dstatic-llvm \
             -Dversion-string="${ZIG_VER_BASE}" \
             --zig-lib-dir lib \
-            --search-prefix "${LLVM_PREFIX}"
+            ${LLVM_FLAGS}
           echo "Stage3 build complete"
           ls -la stage3-out/bin/ || true
 

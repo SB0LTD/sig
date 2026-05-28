@@ -494,14 +494,11 @@ jobs:
                 WAITED=$((WAITED + POLL))
                 if gh release view "$NEW_TAG" --json assets --jq '.assets[].name' 2>/dev/null \
                     | grep -q "bootstrap-sig-x86_64-linux.tar.gz"; then
-                  # Wait for Windows too
-                  if gh release view "$NEW_TAG" --json assets --jq '.assets[].name' 2>/dev/null \
-                      | grep -q "bootstrap-sig-x86_64-windows.tar.gz"; then
-                    echo "Bootstrap $NEW_TAG all platforms ready (waited ${WAITED}s)"
-                    BOOT_OK=true
-                    break
-                  fi
-                  echo "  Linux bootstrap ready, waiting for Windows..."
+                  echo "Bootstrap $NEW_TAG linux asset ready (waited ${WAITED}s)"
+                  # Wait a bit for macOS to finish too
+                  sleep 120
+                  BOOT_OK=true
+                  break
                 fi
                 echo "  Still waiting for bootstrap... (${WAITED}s)"
               done

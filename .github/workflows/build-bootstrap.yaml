@@ -1,8 +1,8 @@
-# Build bootstrap sig compiler binaries using cmake + ninja.
-# Linux/macOS: LLVM-enabled, built natively.
-# Windows: built natively without LLVM (avoids zig2.c struct layout issues).
-#   The Windows bootstrap only needs to run `zig build` for the release workflow;
-#   the stage3 release binary gets LLVM from the release workflow's LLVM package.
+# Build LLVM-enabled bootstrap sig compiler binaries using cmake + ninja.
+# Requires: pre-built LLVM 22 from build-llvm.yaml (release tag: llvm-22)
+#
+# Only Linux and macOS bootstraps are built. Windows release binaries are
+# cross-compiled from Linux (no Windows bootstrap needed).
 #
 # Chain: build-llvm (one-time) → build-bootstrap (one-time) → release (every release)
 name: build-bootstrap
@@ -100,77 +100,3 @@ jobs:
               --notes "LLVM-enabled bootstrap sig built with cmake+ninja+zig." \
               --prerelease
           gh release upload "${VERSION}" ${{ matrix.artifact }}.tar.gz --clobber
-
-  build-windows:
-    runs-on: windows-latest
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: ${{ env.ZIG_VERSION }}
-
-      - name: Install ninja
-        run: choco install ninja -y
-
-      - name: Download LLVM 22
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download llvm-22 --pattern "llvm-22-x86_64-windows.tar.xz" --dir /tmp
-          mkdir -p "$PWD/llvm-22"
-          tar -xJf /tmp/llvm-22-x86_64-windows.tar.xz -C "$PWD/llvm-22" --strip-components=1
-          rm /tmp/llvm-22-x86_64-windows.tar.xz
-          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
-
-      - name: Build with cmake + ninja
-        shell: pwsh
-        run: |
-          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments "-arch=amd64"
-
-          $env:PATH = "$PWD\llvm-22\bin;$env:PATH"
-          New-Item -Path 'build' -ItemType Directory | Out-Null
-          Set-Location -Path 'build'
-
-          # clang-cl handles zero-length arrays that MSVC rejects
-          $env:CC = "clang-cl"
-          $env:CXX = "clang-cl"
-
-          cmake .. `
-            -DCMAKE_INSTALL_PREFIX="$PWD/stage3" `
-            -DCMAKE_PREFIX_PATH="$env:LLVM_PREFIX" `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DZIG_USE_LLVM_CONFIG=ON `
-            -DZIG_NO_LIB=ON `
-            -DZIG_TARGET_MCPU="baseline" `
-            -GNinja
-
-          ninja zig2
-          Write-Host "Bootstrap built"
-
-      - name: Package and publish
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p bootstrap-sig-x86_64-windows/bin
-          if [ -f "build/zig2.exe" ]; then
-            cp build/zig2.exe bootstrap-sig-x86_64-windows/bin/sig.exe
-            cp build/zig2.exe bootstrap-sig-x86_64-windows/bin/zig.exe
-          else
-            echo "ERROR: zig2.exe not found" && ls build/ && exit 1
-          fi
-          tar -czf bootstrap-sig-x86_64-windows.tar.gz -C bootstrap-sig-x86_64-windows .
-          gh release view "${VERSION}" >/dev/null 2>&1 || \
-            gh release create "${VERSION}" \
-              --title "Bootstrap Sig Compiler ${VERSION}" \
-              --notes "LLVM-enabled bootstrap sig built with cmake+ninja+zig." \
-              --prerelease
-          gh release upload "${VERSION}" bootstrap-sig-x86_64-windows.tar.gz --clobber
