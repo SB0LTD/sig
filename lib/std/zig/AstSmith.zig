@@ -1810,7 +1810,7 @@ fn pegPrefixTypeOp(a: *AstSmith) SourceError!void {
 }
 
 /// SuffixOp
-///     <- LBRACKET Expr (DOT2 (Expr? (COLON Expr)?)?)? RBRACKET
+///     <- LBRACKET Expr (DOT2 Expr? (COLON Expr)?)? RBRACKET
 ///      / DOT IDENTIFIER
 ///      / DOTASTERISK
 ///      / DOTQUESTIONMARK
@@ -1820,12 +1820,14 @@ fn pegSuffixOp(a: *AstSmith) SourceError!void {
             try a.pegToken(.l_bracket);
             try a.pegExpr();
 
-            const components = a.smith.value(u2);
-            if (components >= 1) try a.pegToken(.ellipsis2);
-            if (components >= 2) try a.pegExpr();
-            if (components >= 3) {
-                try a.pegToken(.colon);
-                try a.pegExpr();
+            if (a.smith.value(bool)) {
+                try a.pegToken(.ellipsis2);
+                if (a.smith.value(bool))
+                    try a.pegExpr();
+                if (a.smith.value(bool)) {
+                    try a.pegToken(.colon);
+                    try a.pegExpr();
+                }
             }
 
             try a.pegToken(.r_bracket);

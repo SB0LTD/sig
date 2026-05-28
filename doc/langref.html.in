@@ -8079,7 +8079,7 @@ PrefixTypeOp
      / ArrayTypeStart
 
 SuffixOp
-    <- LBRACKET Expr (DOT2 (Expr? (COLON Expr)?)?)? RBRACKET
+    <- LBRACKET Expr (DOT2 Expr? (COLON Expr)?)? RBRACKET
      / DOT IDENTIFIER
      / DOTASTERISK
      / DOTQUESTIONMARK

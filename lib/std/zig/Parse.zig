@@ -3137,7 +3137,7 @@ fn parsePtrModifiers(p: *Parse) !PtrModifiers {
 }
 
 /// SuffixOp
-///     <- LBRACKET Expr (DOT2 (Expr? (COLON Expr)?)?)? RBRACKET
+///     <- LBRACKET Expr (DOT2 Expr? (COLON Expr)?)? RBRACKET
 ///      / DOT IDENTIFIER
 ///      / DOTASTERISK
 ///      / DOTQUESTIONMARK
