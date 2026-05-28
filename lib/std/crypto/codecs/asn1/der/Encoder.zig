@@ -43,7 +43,7 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
                 const is_default = if (f_attrs.@"comptime") false else if (f_attrs.defaultValue(f_type)) |default_val| brk: {
                     break :brk std.mem.eql(u8, std.mem.asBytes(&default_val), std.mem.asBytes(&field_val));
                 } else false;
-                const is_null_optional = if (@typeInfo(f.type) == .optional) field_val == null else false;
+                const is_null_optional = if (@typeInfo(f_type) == .optional) field_val == null else false;
 
                 if (!is_default and !is_null_optional) {
                     const start2 = self.buffer.data.len;
