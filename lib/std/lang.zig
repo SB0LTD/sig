@@ -780,6 +780,10 @@ pub const Type = union(enum) {
             is_generic: bool = false,
             is_noalias: bool = false,
             type: ?type = null,
+
+            pub const Attributes = struct {
+                @"noalias": bool = false,
+            };
         };
 
         pub const Attributes = struct {
