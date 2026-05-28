@@ -387,7 +387,7 @@ pub const XSalsa20Poly1305 = struct {
     /// session identifiers and sequence numbers.
     ///
     /// Since there is no separation between the associated data and
-    /// the ciphertext, its length must not contain be under an adversary's
+    /// the ciphertext, its length must not be under an adversary's
     /// control.
     pub fn encrypt(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
         debug.assert(c.len == m.len);
