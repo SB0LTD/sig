@@ -1611,6 +1611,8 @@ const module_test_targets = blk: {
                 .abi = .msvc,
             },
             .link_libc = true,
+            // https://codeberg.org/ziglang/zig/issues/35517
+            .skip_modules = &.{"libc"},
         },
         .{
             .target = .{
@@ -1626,6 +1628,8 @@ const module_test_targets = blk: {
                 .abi = .gnu,
             },
             .link_libc = true,
+            // https://codeberg.org/ziglang/zig/issues/35517
+            .skip_modules = &.{"libc"},
         },
 
         .{
@@ -1636,6 +1640,8 @@ const module_test_targets = blk: {
             },
             .use_llvm = false,
             .use_lld = false,
+            // https://codeberg.org/ziglang/zig/issues/35537
+            .skip_modules = &.{"behavior"},
         },
         .{
             .target = .{
@@ -1651,6 +1657,8 @@ const module_test_targets = blk: {
                 .abi = .msvc,
             },
             .link_libc = true,
+            // https://codeberg.org/ziglang/zig/issues/35517
+            .skip_modules = &.{"libc"},
         },
         .{
             .target = .{
@@ -1991,13 +1999,14 @@ const c_abi_targets = blk: {
 
         // Windows Targets
 
-        .{
-            .target = .{
-                .cpu_arch = .x86,
-                .os_tag = .windows,
-                .abi = .gnu,
-            },
-        },
+        // https://codeberg.org/ziglang/zig/issues/35521
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .x86,
+        //        .os_tag = .windows,
+        //        .abi = .gnu,
+        //    },
+        //},
         .{
             .target = .{
                 .cpu_arch = .x86_64,
@@ -2117,7 +2126,7 @@ pub fn isNative(actual_target: *const std.Build.ResolvedTarget, host: *const std
             .slow_unaligned_mem_16,
             .slow_unaligned_mem_32,
         }),
-        .aarch64 => std.Target.aarch64.featureSet(&.{
+        .aarch64, .aarch64_be => std.Target.aarch64.featureSet(&.{
             .addr_lsl_slow_14,
             .alu_lsl_fast,
             .avoid_ldapur,
@@ -2626,6 +2635,16 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
 
         const target = &resolved_target.result;
+
+        if (target.cpu.arch == .powerpc64le and target.ofmt == .c) {
+            // https://codeberg.org/ziglang/zig/issues/35522
+            continue;
+        }
+
+        if (target.cpu.arch == .s390x and target.ofmt == .c) {
+            // https://codeberg.org/ziglang/zig/issues/35523
+            continue;
+        }
 
         if (std.mem.eql(u8, options.name, "libc")) {
             // The libc API tests obviously need to link libc. So for test
