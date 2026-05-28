@@ -146,6 +146,7 @@ pub const ResolveError = error{
     DynamicLibraryPrecludesPie,
     TargetRequiresPie,
     SanitizeThreadRequiresPie,
+    SanitizeThreadRequiresLlvmBackend,
     BackendLacksErrorTracing,
     LlvmLibraryUnavailable,
     LldUnavailable,
@@ -339,6 +340,12 @@ pub fn resolve(options: Options) ResolveError!Config {
         // If Zig does not support the target, then we can't use it.
         if (target_util.zigBackend(target, false) == .other) {
             if (options.use_llvm == false) return error.ZigLacksTargetSupport;
+            break :b true;
+        }
+
+        if (options.any_sanitize_thread) {
+            // Thread sanitization instrumentation requires the LLVM backend.
+            if (options.use_llvm == false) return error.SanitizeThreadRequiresLlvmBackend;
             break :b true;
         }
 
