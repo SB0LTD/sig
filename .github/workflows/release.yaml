@@ -46,14 +46,14 @@ jobs:
             zig_target: x86_64-linux-musl
             ext: tar.xz
             bin: sig
-            llvm_asset: llvm-22-x86_64-linux.tar.xz
-            enable_llvm: true
+            llvm_asset: ""
+            enable_llvm: false
           - target: aarch64-macos
             zig_target: aarch64-macos-none
             ext: tar.xz
             bin: sig
-            llvm_asset: llvm-22-x86_64-linux.tar.xz
-            enable_llvm: true
+            llvm_asset: ""
+            enable_llvm: false
           - target: x86_64-windows
             zig_target: x86_64-windows-gnu
             ext: zip
