@@ -596,8 +596,13 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Pointer = struct {
         size: Size,
-        attrs: Attributes,
+        is_const: bool,
+        is_volatile: bool,
+        /// `null` means implicit alignment, which is equivalent to `@alignOf(child)`.
+        alignment: ?usize,
+        address_space: AddressSpace,
         child: type,
+        is_allowzero: bool,
 
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
@@ -662,40 +667,44 @@ pub const Type = union(enum) {
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
-    pub const Struct = struct {
-        is_tuple: bool,
-        layout: ContainerLayout,
-        /// Always `null` if `layout != .@"packed"`.
-        backing_integer: ?type,
+    pub const StructField = struct {
+        name: [:0]const u8,
+        type: type,
+        /// The type of the default value is the type of this struct field, which
+        /// is the value of the `type` field in this struct. However there is no
+        /// way to refer to that type here, so we use `*const anyopaque`.
+        /// See also: `defaultValue`.
+        default_value_ptr: ?*const anyopaque,
+        is_comptime: bool,
+        /// `null` means the field alignment was not explicitly specified. The
+        /// field will still be aligned to at least `@alignOf` its `type`.
+        alignment: ?usize,
 
-        field_names: []const [:0]const u8,
-        /// Guaranteed to have the same length as `field_names`.
-        field_types: []const type,
-        /// Guaranteed to have the same length as `field_names`.
-        field_attrs: []const FieldAttributes,
+        /// Loads the field's default value from `default_value_ptr`.
+        /// Returns `null` if the field has no default value.
+        pub inline fn defaultValue(comptime sf: StructField) ?sf.type {
+            const dp: *const sf.type = @ptrCast(@alignCast(sf.default_value_ptr orelse return null));
+            return dp.*;
+        }
 
-        decl_names: []const [:0]const u8,
-
-        pub const FieldAttributes = struct {
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
             @"comptime": bool = false,
-            /// `null` means the field alignment is not explicitly specified. The field will still
-            /// be aligned to at least `@alignOf` the field type.
             @"align": ?usize = null,
-            /// The type of the default value is the type of this struct field. However, that type
-            /// is not known here, so we use a type-erased pointer instead, which must be cast to
-            /// a pointer to the field type.
-            ///
-            /// See also: `defaultValue`.
             default_value_ptr: ?*const anyopaque = null,
-
-            /// Loads the field's default value from `default_value_ptr`.
-            /// `FieldType` must exactly match the corresponding element of `Struct.field_types`.
-            /// Returns `null` if the field has no default value.
-            pub inline fn defaultValue(comptime attrs: FieldAttributes, comptime FieldType: type) ?FieldType {
-                const dp: *const FieldType = @ptrCast(@alignCast(attrs.default_value_ptr orelse return null));
-                return dp.*;
-            }
         };
+    };
+
+    /// This data structure is used by the Zig language code generation and
+    /// therefore must be kept in sync with the compiler implementation.
+    pub const Struct = struct {
+        layout: ContainerLayout,
+        /// Only valid if layout is .@"packed"
+        backing_integer: ?type = null,
+        fields: []const StructField,
+        decls: []const Declaration,
+        is_tuple: bool,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -713,21 +722,28 @@ pub const Type = union(enum) {
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
-    pub const ErrorSet = struct {
-        error_names: ?[]const [:0]const u8,
+    pub const Error = struct {
+        name: [:0]const u8,
+    };
+
+    /// This data structure is used by the Zig language code generation and
+    /// therefore must be kept in sync with the compiler implementation.
+    pub const ErrorSet = ?[]const Error;
+
+    /// This data structure is used by the Zig language code generation and
+    /// therefore must be kept in sync with the compiler implementation.
+    pub const EnumField = struct {
+        name: [:0]const u8,
+        value: comptime_int,
     };
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Enum = struct {
         tag_type: type,
-        mode: Mode,
-
-        field_names: []const [:0]const u8,
-        /// Guaranteed to have the same length as `field_names`.
-        field_values: []const comptime_int,
-
-        decl_names: []const [:0]const u8,
+        fields: []const EnumField,
+        decls: []const Declaration,
+        is_exhaustive: bool,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
@@ -736,56 +752,55 @@ pub const Type = union(enum) {
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
-    pub const Union = struct {
-        layout: ContainerLayout,
-        tag_type: ?type,
-        /// Always `null` if `layout != .@"packed"`.
-        backing_integer: ?type,
+    pub const UnionField = struct {
+        name: [:0]const u8,
+        type: type,
+        /// `null` means the field alignment was not explicitly specified. The
+        /// field will still be aligned to at least `@alignOf` its `type`.
+        alignment: ?usize,
 
-        field_names: []const [:0]const u8,
-        /// Guaranteed to have the same length as `field_names`.
-        field_types: []const type,
-        /// Guaranteed to have the same length as `field_names`.
-        field_attrs: []const FieldAttributes,
-
-        decl_names: []const [:0]const u8,
-
-        pub const FieldAttributes = struct {
-            /// `null` means the field alignment is not explicitly specified. The field will still
-            /// be aligned to at least `@alignOf` the field type.
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
             @"align": ?usize = null,
         };
     };
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
+    pub const Union = struct {
+        layout: ContainerLayout,
+        tag_type: ?type,
+        fields: []const UnionField,
+        decls: []const Declaration,
+    };
+
+    /// This data structure is used by the Zig language code generation and
+    /// therefore must be kept in sync with the compiler implementation.
     pub const Fn = struct {
-        attrs: Attributes,
+        calling_convention: CallingConvention,
         is_generic: bool,
-        /// `null` means the return type is generic, i.e. it depends on a function argument.
+        is_var_args: bool,
+        /// TODO change the language spec to make this not optional.
         return_type: ?type,
+        params: []const Param,
 
-        /// A `null` element represents either an `anytype` parameter, or a parameter with a generic
-        /// type, i.e. where the type depends on a previous function argument.
-        param_types: []const ?type,
-        /// Guaranteed to have the same length as `param_types`.
-        param_attrs: []const ParamAttributes,
-
-        pub const ParamAttributes = struct {
-            @"noalias": bool = false,
-        };
-
-        /// Backwards compatibility alias for older compilers that reference Fn.Param
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
         pub const Param = struct {
-            is_generic: bool = false,
-            is_noalias: bool = false,
-            type: ?type = null,
+            is_generic: bool,
+            is_noalias: bool,
+            type: ?type,
 
+            /// This data structure is used by the Zig language code generation and
+            /// therefore must be kept in sync with the compiler implementation.
             pub const Attributes = struct {
                 @"noalias": bool = false,
             };
         };
 
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
         pub const Attributes = struct {
             @"callconv": CallingConvention = .auto,
             varargs: bool = false,
@@ -795,7 +810,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Opaque = struct {
-        decl_names: []const [:0]const u8,
+        decls: []const Declaration,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -815,6 +830,12 @@ pub const Type = union(enum) {
     pub const Vector = struct {
         len: comptime_int,
         child: type,
+    };
+
+    /// This data structure is used by the Zig language code generation and
+    /// therefore must be kept in sync with the compiler implementation.
+    pub const Declaration = struct {
+        name: [:0]const u8,
     };
 };
 
