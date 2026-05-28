@@ -200,6 +200,7 @@ const module_test_targets = blk: {
         //    .use_lld = false,
         //    .optimize_mode = .ReleaseFast,
         //    .strip = true,
+        //    .skip_modules = &.{"std"}, // TODO get these passing
         //},
         //.{
         //    .target = .{
@@ -212,6 +213,7 @@ const module_test_targets = blk: {
         //    .use_lld = false,
         //    .optimize_mode = .ReleaseFast,
         //    .strip = true,
+        //    .skip_modules = &.{"std"}, // TODO get these passing
         //},
 
         .{
@@ -2662,11 +2664,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         if (options.skip_single_threaded and test_target.single_threaded == true)
             continue;
-
-        if (!would_use_llvm and target.cpu.arch == .aarch64) {
-            // TODO get std tests passing for the aarch64 self-hosted backend.
-            if (mem.eql(u8, options.name, "std")) continue;
-        }
 
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
