@@ -87,9 +87,8 @@ pub fn init(cwd_path: []const u8) error{ OpenFrameworkFailed, MissingCoreService
     errdefer core_services.close();
 
     var resolved_symbols: ResolvedSymbols = undefined;
-    const info = @typeInfo(ResolvedSymbols).@"struct";
-    inline for (info.field_names, info.field_types) |f_name, f_type| {
-        @field(resolved_symbols, f_name) = core_services.lookup(f_type, f_name) orelse return error.MissingCoreServicesSymbol;
+    inline for (@typeInfo(ResolvedSymbols).@"struct".fields) |f| {
+        @field(resolved_symbols, f.name) = core_services.lookup(f.type, f.name) orelse return error.MissingCoreServicesSymbol;
     }
 
     return .{

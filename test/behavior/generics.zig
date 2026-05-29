@@ -175,7 +175,7 @@ test "generic fn keeps non-generic parameter types" {
 
     const S = struct {
         fn f(comptime T: type, s: []T) !void {
-            try expect(A != @typeInfo(@TypeOf(s)).pointer.attrs.@"align");
+            try expect(A != @typeInfo(@TypeOf(s)).pointer.alignment);
         }
     };
 
@@ -255,13 +255,10 @@ test "generic function instantiation turns into comptime call" {
         }
 
         pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeInfo(T)) {
-            .@"enum" => struct { name: [:0]const u8, value: comptime_int },
+            .@"enum" => std.builtin.Type.EnumField,
             else => void,
         } {
-            return .{
-                .name = @typeInfo(T).@"enum".field_names[@intFromEnum(field)],
-                .value = @typeInfo(T).@"enum".field_values[@intFromEnum(field)],
-            };
+            return @typeInfo(T).@"enum".fields[@intFromEnum(field)];
         }
 
         pub fn FieldEnum(comptime T: type) type {

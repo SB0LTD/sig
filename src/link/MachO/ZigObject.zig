@@ -1570,19 +1570,17 @@ pub fn getAtoms(self: *ZigObject) []const Atom.Index {
 }
 
 fn addAtomExtra(self: *ZigObject, allocator: Allocator, extra: Atom.Extra) !u32 {
-    const field = @typeInfo(Atom.Extra).@"struct".field_names;
-    try self.atoms_extra.ensureUnusedCapacity(allocator, field.len);
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
+    try self.atoms_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addAtomExtraAssumeCapacity(extra);
 }
 
 fn addAtomExtraAssumeCapacity(self: *ZigObject, extra: Atom.Extra) u32 {
     const index = @as(u32, @intCast(self.atoms_extra.items.len));
-    const info = @typeInfo(Atom.Extra).@"struct";
-    const field_names = info.field_names;
-    const field_types = info.field_types;
-    inline for (field_names, field_types) |field_name, field_type| {
-        self.atoms_extra.appendAssumeCapacity(switch (field_type) {
-            u32 => @field(extra, field_name),
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
+    inline for (fields) |field| {
+        self.atoms_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => @field(extra, field.name),
             else => @compileError("bad field type"),
         });
     }
@@ -1590,13 +1588,11 @@ fn addAtomExtraAssumeCapacity(self: *ZigObject, extra: Atom.Extra) u32 {
 }
 
 pub fn getAtomExtra(self: ZigObject, index: u32) Atom.Extra {
-    const info = @typeInfo(Atom.Extra).@"struct";
-    const field_names = info.field_names;
-    const field_types = info.field_types;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     var i: usize = index;
     var result: Atom.Extra = undefined;
-    inline for (field_names, field_types) |field_name, field_type| {
-        @field(result, field_name) = switch (field_type) {
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
             u32 => self.atoms_extra.items[i],
             else => @compileError("bad field type"),
         };
@@ -1607,12 +1603,10 @@ pub fn getAtomExtra(self: ZigObject, index: u32) Atom.Extra {
 
 pub fn setAtomExtra(self: *ZigObject, index: u32, extra: Atom.Extra) void {
     assert(index > 0);
-    const info = @typeInfo(Atom.Extra).@"struct";
-    const field_names = info.field_names;
-    const field_types = info.field_types;
-    inline for (field_names, field_types, 0..) |field_name, field_type, i| {
-        self.atoms_extra.items[index + i] = switch (field_type) {
-            u32 => @field(extra, field_name),
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
+    inline for (fields, 0..) |field, i| {
+        self.atoms_extra.items[index + i] = switch (field.type) {
+            u32 => @field(extra, field.name),
             else => @compileError("bad field type"),
         };
     }
@@ -1637,19 +1631,17 @@ pub fn getSymbolRef(self: ZigObject, index: Symbol.Index, macho_file: *MachO) Ma
 }
 
 pub fn addSymbolExtra(self: *ZigObject, allocator: Allocator, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).@"struct".field_names;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
 fn addSymbolExtraAssumeCapacity(self: *ZigObject, extra: Symbol.Extra) u32 {
     const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const info = @typeInfo(Symbol.Extra).@"struct";
-    const field_names = info.field_names;
-    const field_types = info.field_types;
-    inline for (field_names, field_types) |field_name, field_type| {
-        self.symbols_extra.appendAssumeCapacity(switch (field_type) {
-            u32 => @field(extra, field_name),
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
+    inline for (fields) |field| {
+        self.symbols_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => @field(extra, field.name),
             else => @compileError("bad field type"),
         });
     }
@@ -1657,13 +1649,11 @@ fn addSymbolExtraAssumeCapacity(self: *ZigObject, extra: Symbol.Extra) u32 {
 }
 
 pub fn getSymbolExtra(self: ZigObject, index: u32) Symbol.Extra {
-    const info = @typeInfo(Symbol.Extra).@"struct";
-    const field_names = info.field_names;
-    const field_types = info.field_types;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     var i: usize = index;
     var result: Symbol.Extra = undefined;
-    inline for (field_names, field_types) |field_name, field_type| {
-        @field(result, field_name) = switch (field_type) {
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
             u32 => self.symbols_extra.items[i],
             else => @compileError("bad field type"),
         };
@@ -1673,12 +1663,10 @@ pub fn getSymbolExtra(self: ZigObject, index: u32) Symbol.Extra {
 }
 
 pub fn setSymbolExtra(self: *ZigObject, index: u32, extra: Symbol.Extra) void {
-    const info = @typeInfo(Symbol.Extra).@"struct";
-    const field_names = info.field_names;
-    const field_types = info.field_types;
-    inline for (field_names, field_types, 0..) |field_name, field_type, i| {
-        self.symbols_extra.items[index + i] = switch (field_type) {
-            u32 => @field(extra, field_name),
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
+    inline for (fields, 0..) |field, i| {
+        self.symbols_extra.items[index + i] = switch (field.type) {
+            u32 => @field(extra, field.name),
             else => @compileError("bad field type"),
         };
     }

@@ -1574,11 +1574,11 @@ fn parseInlines(p: *Parser, content: []const u8) !ExtraIndex {
 }
 
 pub fn extraData(p: Parser, comptime T: type, index: ExtraIndex) ExtraData(T) {
-    const info = @typeInfo(T).@"struct";
+    const fields = @typeInfo(T).@"struct".fields;
     var i: usize = @intFromEnum(index);
     var result: T = undefined;
-    inline for (info.field_names, info.field_types) |field_name, field_type| {
-        @field(result, field_name) = switch (field_type) {
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
             u32 => p.extra.items[i],
             else => @compileError("bad field type"),
         };

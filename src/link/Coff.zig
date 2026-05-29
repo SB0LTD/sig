@@ -248,7 +248,7 @@ pub const Node = union(enum) {
 
     pub const Tag = @typeInfo(Node).@"union".tag_type.?;
 
-    const known_count = @typeInfo(@TypeOf(known)).@"struct".field_names.len;
+    const known_count = @typeInfo(@TypeOf(known)).@"struct".fields.len;
     const known = known: {
         const Known = enum {
             file,
@@ -260,9 +260,8 @@ pub const Node = union(enum) {
             section_table,
         };
         var mut_known: std.enums.EnumFieldStruct(Known, MappedFile.Node.Index, null) = undefined;
-        const info = @typeInfo(Known).@"enum";
-        for (info.field_names, info.field_values) |field_name, field_value|
-            @field(mut_known, field_name) = @enumFromInt(field_value);
+        for (@typeInfo(Known).@"enum".fields) |field|
+            @field(mut_known, field.name) = @enumFromInt(field.value);
         break :known mut_known;
     };
 
@@ -388,7 +387,7 @@ pub const Symbol = struct {
         text,
         _,
 
-        const known_count = @typeInfo(Index).@"enum".field_names.len;
+        const known_count = @typeInfo(Index).@"enum".fields.len;
 
         pub fn get(si: Symbol.Index, coff: *Coff) *Symbol {
             return &coff.symbol_table.items[@intFromEnum(si)];

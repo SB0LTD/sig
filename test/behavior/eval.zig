@@ -889,16 +889,16 @@ test "const local with comptime init through array init" {
     };
 
     const S = struct {
-        fn declarations(comptime T: type) []const [:0]const u8 {
-            return @typeInfo(T).@"enum".decl_names;
+        fn declarations(comptime T: type) []const std.builtin.Type.Declaration {
+            return @typeInfo(T).@"enum".decls;
         }
     };
 
-    const decls = comptime [_][]const [:0]const u8{
+    const decls = comptime [_][]const std.builtin.Type.Declaration{
         S.declarations(E1),
     };
 
-    comptime assert(decls[0][0][0] == 'a');
+    comptime assert(decls[0][0].name[0] == 'a');
 }
 
 test "closure capture type of runtime-known parameter" {

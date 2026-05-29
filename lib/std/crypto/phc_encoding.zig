@@ -115,23 +115,22 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
         while (it_params.next()) |params| {
             const param = kvSplit(params) catch break;
             var found = false;
-            const info = @typeInfo(HashResult).@"struct";
-            inline for (info.field_names, info.field_types) |p_name, p_type| {
-                if (mem.eql(u8, p_name, param.key)) {
-                    switch (@typeInfo(p_type)) {
-                        .int => @field(out, p_name) = fmt.parseUnsigned(
-                            p_type,
+            inline for (comptime meta.fields(HashResult)) |p| {
+                if (mem.eql(u8, p.name, param.key)) {
+                    switch (@typeInfo(p.type)) {
+                        .int => @field(out, p.name) = fmt.parseUnsigned(
+                            p.type,
                             param.value,
                             10,
                         ) catch return Error.InvalidEncoding,
                         .pointer => |ptr| {
-                            if (!ptr.attrs.@"const") @compileError("Value slice must be constant");
-                            @field(out, p_name) = param.value;
+                            if (!ptr.is_const) @compileError("Value slice must be constant");
+                            @field(out, p.name) = param.value;
                         },
-                        .@"struct" => try @field(out, p_name).fromB64(param.value),
+                        .@"struct" => try @field(out, p.name).fromB64(param.value),
                         else => std.debug.panic(
                             "Value for [{s}] must be an integer, a constant slice or a BinValue",
-                            .{p_name},
+                            .{p.name},
                         ),
                     }
                     set_fields += 1;
@@ -168,9 +167,8 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
     // Check that all the required fields have been set, excluding optional values and parameters
     // with default values
     var expected_fields: usize = 0;
-    const info = @typeInfo(HashResult).@"struct";
-    inline for (info.field_types, info.field_attrs) |p_type, p_attrs| {
-        if (@typeInfo(p_type) != .optional and p_attrs.default_value_ptr == null) {
+    inline for (comptime meta.fields(HashResult)) |p| {
+        if (@typeInfo(p.type) != .optional and p.default_value_ptr == null) {
             expected_fields += 1;
         }
     }
@@ -230,22 +228,21 @@ fn serializeTo(params: anytype, out: *std.Io.Writer) !void {
     }
 
     var has_params = false;
-    const info = @typeInfo(HashResult).@"struct";
-    inline for (info.field_names, info.field_types) |p_name, p_type| {
-        if (comptime !(mem.eql(u8, p_name, "alg_id") or
-            mem.eql(u8, p_name, "alg_version") or
-            mem.eql(u8, p_name, "hash") or
-            mem.eql(u8, p_name, "salt")))
+    inline for (comptime meta.fields(HashResult)) |p| {
+        if (comptime !(mem.eql(u8, p.name, "alg_id") or
+            mem.eql(u8, p.name, "alg_version") or
+            mem.eql(u8, p.name, "hash") or
+            mem.eql(u8, p.name, "salt")))
         {
-            const value = @field(params, p_name);
+            const value = @field(params, p.name);
             try out.writeAll(if (has_params) params_delimiter else fields_delimiter);
-            if (@typeInfo(p_type) == .@"struct") {
+            if (@typeInfo(p.type) == .@"struct") {
                 var buf: [@TypeOf(value).max_encoded_length]u8 = undefined;
-                try out.print("{s}{s}{s}", .{ p_name, kv_delimiter, try value.toB64(&buf) });
+                try out.print("{s}{s}{s}", .{ p.name, kv_delimiter, try value.toB64(&buf) });
             } else {
                 try out.print(
                     if (@typeInfo(@TypeOf(value)) == .pointer) "{s}{s}{s}" else "{s}{s}{}",
-                    .{ p_name, kv_delimiter, value },
+                    .{ p.name, kv_delimiter, value },
                 );
             }
             has_params = true;

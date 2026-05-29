@@ -7,9 +7,9 @@ pub export fn entry() void {
 
     comptime var a = 1;
     const info = @typeInfo(Widget).@"union";
-    inline for (info.field_types) |field_type| {
+    inline for (info.fields) |field| {
         if (foo()) {
-            switch (field_type) {
+            switch (field.type) {
                 u0 => a = 2,
                 else => unreachable,
             }

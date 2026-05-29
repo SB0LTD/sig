@@ -1805,15 +1805,15 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end: usize } {
-    const info = @typeInfo(T).@"struct";
+    const fields = std.meta.fields(T);
     var i: usize = index;
     var result: T = undefined;
-    inline for (info.field_names, info.field_types) |field_name, field_type| {
-        @field(result, field_name) = switch (field_type) {
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
             u32 => air.extra.items[i],
             InternPool.Index, Inst.Ref => @enumFromInt(air.extra.items[i]),
             i32, CondBr.BranchHints, Asm.Flags => @bitCast(air.extra.items[i]),
-            else => @compileError("bad field type: " ++ @typeName(field_type)),
+            else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
         i += 1;
     }

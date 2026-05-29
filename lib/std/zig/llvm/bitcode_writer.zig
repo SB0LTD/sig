@@ -246,14 +246,14 @@ pub fn BitcodeWriter(comptime types: []const type) type {
 
                     try self.bitcode.writeBits(comptime abbrevId(Abbrev), abbrev_len);
 
-                    const field_names = comptime std.meta.fieldNames(Abbrev);
+                    const fields = std.meta.fields(Abbrev);
 
                     // This abbreviation might only contain literals
-                    if (field_names.len == 0) return;
+                    if (fields.len == 0) return;
 
                     comptime var field_index: usize = 0;
                     inline for (Abbrev.ops) |ty| {
-                        const param = @field(params, field_names[field_index]);
+                        const param = @field(params, fields[field_index].name);
                         switch (ty) {
                             .literal => continue,
                             .fixed => |len| try self.bitcode.writeBits(adapter.get(param), len),
@@ -296,7 +296,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                             },
                         }
                         field_index += 1;
-                        if (field_index == field_names.len) break;
+                        if (field_index == fields.len) break;
                     }
                 }
 
