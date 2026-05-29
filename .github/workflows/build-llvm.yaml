@@ -48,7 +48,8 @@ jobs:
           mkdir -p zlib-out/lib zlib-out/include
           cp zlib-src/zlib.h zlib-src/zconf.h zlib-out/include/
           cd zlib-src
-          for f in adler32.c compress.c crc32.c deflate.c gzclose.c gzlib.c gzread.c gzwrite.c infback.c inffast.c inflate.c inftrees.c trees.c uncompr.c zutil.c; do
+          # Only compile core compression files (no gzip file I/O which needs lseek)
+          for f in adler32.c compress.c crc32.c deflate.c infback.c inffast.c inflate.c inftrees.c trees.c uncompr.c zutil.c; do
             zig cc -target ${{ matrix.target }} -O2 -c "$f" -o "${f%.c}.o"
           done
           zig ar rcs ../zlib-out/lib/libz.a *.o
