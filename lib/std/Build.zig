@@ -290,6 +290,7 @@ const UserValue = union(enum) {
     lazy_path_list: std.array_list.Managed(LazyPath),
 };
 
+/// Build system implementation detail.
 pub fn create(
     graph: *Graph,
     root: Cache.Path,
@@ -681,9 +682,9 @@ fn hashUserInputOptionsMap(allocator: Allocator, user_input_options: UserInputOp
 
 /// Create a set of key-value pairs that can be converted into a Zig source
 /// file and then inserted into a Zig compilation's module table for importing.
-/// In other words, this provides a way to expose build.zig values to Zig
-/// source code with `@import`.
-/// Related: `Module.addOptions`.
+///
+/// This provides a way to expose build.zig values to Zig source code with
+/// `@import`. Related: `Module.addOptions`.
 pub fn addOptions(b: *Build) *Step.Options {
     return Step.Options.create(b);
 }
@@ -970,6 +971,7 @@ pub fn addConfigHeader(
     return config_header_step;
 }
 
+/// Deprecated, call `Graph.dupeString` instead.
 pub fn dupe(b: *Build, bytes: []const u8) []const u8 {
     return b.graph.dupeString(bytes);
 }
@@ -1292,6 +1294,8 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
     }
 }
 
+/// Creates a top-level build step, exposed to the CLI user and advertised in
+/// the "--help" menu.
 pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
     const graph = b.graph;
     const arena = graph.arena;
@@ -1476,6 +1480,7 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
     return args.default_target;
 }
 
+/// Build system implementation detail.
 pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8) error{OutOfMemory}!bool {
     const graph = b.graph;
     const arena = graph.arena;
@@ -1532,6 +1537,7 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
     return false;
 }
 
+/// Build system implementation detail.
 pub fn addUserInputFlag(b: *Build, name_raw: []const u8) error{OutOfMemory}!bool {
     const graph = b.graph;
     const name = graph.dupeString(name_raw);
@@ -1592,6 +1598,7 @@ fn markInvalidUserInput(b: *Build) void {
     b.invalid_user_input = true;
 }
 
+/// Build system implementation detail.
 pub fn validateUserInputDidItFail(b: *Build) bool {
     // Make sure all args are used.
     var it = b.user_input_options.iterator();
@@ -2178,6 +2185,7 @@ pub inline fn lazyImport(
     comptime unreachable; // Bad @dependencies source
 }
 
+/// Build system implementation detail.
 pub fn dependencyFromBuildZig(
     b: *Build,
     /// The build.zig struct of the dependency, normally obtained by `@import` of the dependency.
@@ -2334,6 +2342,7 @@ fn dependencyInner(
     return dep;
 }
 
+/// Build system implementation detail.
 pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
     switch (@typeInfo(@typeInfo(@TypeOf(build_zig.build)).@"fn".return_type.?)) {
         .void => build_zig.build(b),
@@ -2710,7 +2719,10 @@ pub fn systemIntegrationOption(
 
 test {
     _ = Cache;
+    _ = Configuration;
+    _ = Module;
     _ = Step;
     _ = Configuration;
     _ = &findProgram;
+    _ = abi;
 }
