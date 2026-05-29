@@ -93,6 +93,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$PWD/zstd-out" \
             -DCMAKE_SYSTEM_NAME=${{ steps.cmake-sys.outputs.name }} \
             -DCMAKE_C_COMPILER=/tmp/zig-cc \
+            -DCMAKE_CXX_COMPILER=/tmp/zig-cxx \
             -DCMAKE_AR=/tmp/zig-ar \
             -DCMAKE_RANLIB=/tmp/zig-ranlib \
             -DZSTD_BUILD_PROGRAMS=OFF \
