@@ -22,11 +22,11 @@ jobs:
       matrix:
         include:
           - target: x86_64-linux-musl
-            artifact: llvm-23-x86_64-linux.tar.xz
+            artifact: llvm-22-x86_64-linux.tar.xz
           - target: aarch64-macos-none
-            artifact: llvm-23-aarch64-macos.tar.xz
+            artifact: llvm-22-aarch64-macos.tar.xz
           - target: x86_64-windows-gnu
-            artifact: llvm-23-x86_64-windows.tar.xz
+            artifact: llvm-22-x86_64-windows.tar.xz
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
@@ -153,7 +153,7 @@ jobs:
         run: |
           gh release view "${{ env.RELEASE_TAG }}" >/dev/null 2>&1 || \
             gh release create "${{ env.RELEASE_TAG }}" \
-              --title "LLVM 23 (build artifacts)" \
+              --title "LLVM 22 (build artifacts)" \
               --notes "Pre-built LLVM 22.1.6 with Clang + LLD. Cross-compiled for all targets using zig cc 0.17.0-dev." \
               --prerelease
           gh release upload "${{ env.RELEASE_TAG }}" "${{ matrix.artifact }}" --clobber
