@@ -1843,10 +1843,10 @@ pub fn relativePath(maker: *const Maker, arena: Allocator, relative: Configurati
             .root_dir = graph.zig_lib_directory,
             .sub_path = sub_path,
         },
-        .install_prefix => maker.install_paths.prefix,
-        .install_lib => maker.install_paths.lib,
-        .install_bin => maker.install_paths.bin,
-        .install_include => maker.install_paths.include,
+        .install_prefix => try maker.install_paths.prefix.join(arena, sub_path),
+        .install_lib => try maker.install_paths.lib.join(arena, sub_path),
+        .install_bin => try maker.install_paths.bin.join(arena, sub_path),
+        .install_include => try maker.install_paths.include.join(arena, sub_path),
     };
 }
 
