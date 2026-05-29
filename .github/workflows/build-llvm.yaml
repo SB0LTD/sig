@@ -1,4 +1,4 @@
-# [sig] Build LLVM 23 from source for all platforms using zig cc cross-compilation.
+# [sig] Build LLVM 22 from source for all platforms using zig cc cross-compilation.
 # All targets are cross-compiled from Linux using zig cc, matching upstream zig's approach.
 # One-time setup — re-run only when upgrading LLVM version.
 name: build-llvm
@@ -10,9 +10,9 @@ permissions:
   contents: write
 
 env:
-  LLVM_TAG: "llvmorg-23.1.1"
-  RELEASE_TAG: "llvm-23"
-  ZIG_VERSION: "0.14.1"
+  LLVM_TAG: "llvmorg-22.1.6"
+  RELEASE_TAG: "llvm-22"
+  ZIG_VERSION: "0.17.0-dev.389+f5a1968f6"
 
 jobs:
   build:
@@ -154,6 +154,6 @@ jobs:
           gh release view "${{ env.RELEASE_TAG }}" >/dev/null 2>&1 || \
             gh release create "${{ env.RELEASE_TAG }}" \
               --title "LLVM 23 (build artifacts)" \
-              --notes "Pre-built LLVM 23.1.1 with Clang + LLD. Cross-compiled for all targets using zig cc." \
+              --notes "Pre-built LLVM 22.1.6 with Clang + LLD. Cross-compiled for all targets using zig cc 0.17.0-dev." \
               --prerelease
           gh release upload "${{ env.RELEASE_TAG }}" "${{ matrix.artifact }}" --clobber
