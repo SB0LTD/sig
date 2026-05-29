@@ -2124,30 +2124,19 @@ pub const WipNav = struct {
         }
     }
 
-    const AbbrevCodeForForm = struct {
-        sdata: AbbrevCode,
-        udata: AbbrevCode,
-        block: AbbrevCode,
-    };
-
-    fn bigIntConstValue(
-        wip_nav: *WipNav,
-        abbrev_code: AbbrevCodeForForm,
-        ty: Type,
-        big_int: std.math.big.int.Const,
-    ) (UpdateError || Writer.Error)!void {
+    fn bigIntConstValue(wip_nav: *WipNav, ty: Type, big_int: std.math.big.int.Const) (UpdateError || Writer.Error)!void {
         const zcu = wip_nav.pt.zcu;
         const diw = &wip_nav.debug_info.writer;
         const signedness = switch (ty.toIntern()) {
-            .comptime_int_type, .comptime_float_type => .signed,
+            .comptime_int_type => .signed,
             else => ty.intInfo(zcu).signedness,
         };
         const bits = @max(1, big_int.bitCountTwosCompForSignedness(signedness));
         if (bits <= 64) {
-            try wip_nav.abbrevCode(switch (signedness) {
-                .signed => abbrev_code.sdata,
-                .unsigned => abbrev_code.udata,
-            });
+            try diw.writeUleb128(@as(u13, switch (signedness) {
+                .signed => DW.FORM.sdata,
+                .unsigned => DW.FORM.udata,
+            }));
             try wip_nav.debug_info.ensureUnusedCapacity(std.math.divCeil(usize, bits, 7) catch unreachable);
             var bit: usize = 0;
             var carry: u1 = 1;
@@ -2168,7 +2157,7 @@ pub const WipNav = struct {
                 diw.writeByte(@as(u8, if (bit < bits) 0x80 else 0x00) | twos_comp_part) catch unreachable;
             }
         } else {
-            try wip_nav.abbrevCode(abbrev_code.block);
+            try diw.writeUleb128(DW.FORM.block);
             const bytes = @max(ty.abiSize(zcu), std.math.divCeil(usize, bits, 8) catch unreachable);
             try diw.writeUleb128(bytes);
             try wip_nav.debug_info.ensureUnusedCapacity(@intCast(bytes));
@@ -2179,16 +2168,11 @@ pub const WipNav = struct {
         }
     }
 
-    fn enumConstValue(
-        wip_nav: *WipNav,
-        loaded_enum: InternPool.LoadedEnumType,
-        abbrev_code: AbbrevCodeForForm,
-        field_index: usize,
-    ) (UpdateError || Writer.Error)!void {
+    fn enumConstValue(wip_nav: *WipNav, loaded_enum: InternPool.LoadedEnumType, field_index: usize) (UpdateError || Writer.Error)!void {
         const zcu = wip_nav.pt.zcu;
         const ip = &zcu.intern_pool;
         var big_int_space: Value.BigIntSpace = undefined;
-        try wip_nav.bigIntConstValue(abbrev_code, .fromInterned(loaded_enum.int_tag_type), if (loaded_enum.field_values.len > 0)
+        try wip_nav.bigIntConstValue(.fromInterned(loaded_enum.int_tag_type), if (loaded_enum.field_values.len > 0)
             Value.fromInterned(loaded_enum.field_values.get(ip)[field_index]).toBigInt(&big_int_space, zcu)
         else
             std.math.big.int.Mutable.init(&big_int_space.limbs, field_index).toConst());
@@ -2814,7 +2798,11 @@ fn initWipNavInner(
             const diw = &wip_nav.debug_info.writer;
             try wip_nav.declCommon(.{
                 .decl = .decl_var,
-                .generic_decl = .generic_decl_var,
+                .generic_decl = switch (decl.kind) {
+                    .unnamed_test, .@"test", .decltest, .@"comptime" => unreachable,
+                    .@"const" => .generic_decl_const,
+                    .@"var" => .generic_decl_var,
+                },
                 .decl_instance = .decl_instance_var,
             }, &nav, inst_info.file, &decl);
             try wip_nav.strp(switch (decl.linkage) {
@@ -3672,7 +3660,8 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                             },
                         }
 
-                        try wip_nav.abbrevCode(.unsigned_tagged_union_field);
+                        try wip_nav.abbrevCode(.tagged_union_field);
+                        try diw.writeUleb128(DW.FORM.udata);
                         try diw.writeUleb128(0);
                         {
                             try wip_nav.abbrevCode(.generated_field);
@@ -3736,7 +3725,8 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                     } })));
                     try diw.writeUleb128(error_union_error_set_offset);
 
-                    try wip_nav.abbrevCode(.unsigned_tagged_union_field);
+                    try wip_nav.abbrevCode(.tagged_union_field);
+                    try diw.writeUleb128(DW.FORM.udata);
                     try diw.writeUleb128(0);
                     {
                         try wip_nav.abbrevCode(.generated_field);
@@ -3833,13 +3823,13 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                     else => .{ field_type.hasRuntimeBits(zcu), field_type.comptimeOnly(zcu) },
                 };
                 try wip_nav.abbrevCode(if (has_comptime_state)
-                    .struct_field_comptime_comptime_state
+                    .field_comptime_comptime_state
                 else if (has_runtime_bits)
-                    .struct_field_comptime_runtime_bits
+                    .field_comptime_runtime_bits
                 else if (comptime_value != .none)
-                    .struct_field_comptime
+                    .field_comptime
                 else
-                    .struct_field);
+                    .field);
                 {
                     var field_name_buf: [std.fmt.count("{d}", .{std.math.maxInt(u32)})]u8 = undefined;
                     const field_name = std.fmt.bufPrint(&field_name_buf, "{d}", .{field_index}) catch unreachable;
@@ -3919,20 +3909,20 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                             };
                             try wip_nav.abbrevCode(if (is_comptime)
                                 if (has_comptime_state)
-                                    .struct_field_comptime_comptime_state
+                                    .field_comptime_comptime_state
                                 else if (has_runtime_bits)
-                                    .struct_field_comptime_runtime_bits
+                                    .field_comptime_runtime_bits
                                 else
-                                    .struct_field_comptime
+                                    .field_comptime
                             else if (field_init != .none)
                                 if (has_comptime_state)
-                                    .struct_field_default_comptime_state
+                                    .field_default_comptime_state
                                 else if (has_runtime_bits)
-                                    .struct_field_default_runtime_bits
+                                    .field_default_runtime_bits
                                 else
-                                    .struct_field
+                                    .field
                             else
-                                .struct_field);
+                                .field);
                             try wip_nav.strp(loaded_struct.field_names.get(ip)[field_index].toSlice(ip));
                             try wip_nav.refType(field_type);
                             if (!is_comptime) {
@@ -3969,7 +3959,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                     try wip_nav.refType(.fromInterned(loaded_struct.packed_backing_int_type));
                     var field_bit_offset: u16 = 0;
                     for (0..loaded_struct.field_types.len) |field_index| {
-                        try wip_nav.abbrevCode(.packed_struct_field);
+                        try wip_nav.abbrevCode(.packed_field);
                         try wip_nav.strp(loaded_struct.field_names.get(ip)[field_index].toSlice(ip));
                         const field_type: Type = .fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                         try wip_nav.refType(field_type);
@@ -3983,6 +3973,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
         .union_type => {
             const loaded_union = ip.loadUnionType(value_index);
             const file = loaded_union.zir_index.resolveFile(ip);
+            const loaded_tag = ip.loadEnumType(loaded_union.enum_tag_type);
             switch (loaded_union.layout) {
                 .auto, .@"extern" => {
                     const need_terminator: bool = if (loaded_union.name_nav.unwrap()) |nav_index| t: {
@@ -4005,7 +3996,6 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                     const union_layout = Type.getUnionLayout(loaded_union, zcu);
                     try diw.writeUleb128(union_layout.abi_size);
                     try diw.writeUleb128(union_layout.abi_align.toByteUnits().?);
-                    const loaded_tag = ip.loadEnumType(loaded_union.enum_tag_type);
                     if (loaded_union.has_runtime_tag) {
                         try wip_nav.abbrevCode(.tagged_union);
                         try wip_nav.infoSectionOffset(
@@ -4021,13 +4011,10 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                             try diw.writeUleb128(union_layout.tagOffset());
 
                             for (0..loaded_union.field_types.len) |field_index| {
-                                try wip_nav.enumConstValue(loaded_tag, .{
-                                    .sdata = .signed_tagged_union_field,
-                                    .udata = .unsigned_tagged_union_field,
-                                    .block = .big_tagged_union_field,
-                                }, field_index);
+                                try wip_nav.abbrevCode(.tagged_union_field);
+                                try wip_nav.enumConstValue(loaded_tag, field_index);
                                 {
-                                    try wip_nav.abbrevCode(.struct_field);
+                                    try wip_nav.abbrevCode(.field);
                                     try wip_nav.strp(loaded_tag.field_names.get(ip)[field_index].toSlice(ip));
                                     const field_type: Type = .fromInterned(loaded_union.field_types.get(ip)[field_index]);
                                     try wip_nav.refType(field_type);
@@ -4040,27 +4027,42 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                         }
                         try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
                     } else for (0..loaded_union.field_types.len) |field_index| {
-                        try wip_nav.abbrevCode(.untagged_union_field);
+                        try wip_nav.abbrevCode(.field);
                         try wip_nav.strp(loaded_tag.field_names.get(ip)[field_index].toSlice(ip));
                         const field_type: Type = .fromInterned(loaded_union.field_types.get(ip)[field_index]);
                         try wip_nav.refType(field_type);
+                        try diw.writeUleb128(0);
                         try diw.writeUleb128(loaded_union.field_aligns.getOrNone(ip, field_index).toByteUnits() orelse
                             if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(zcu).toByteUnits().?);
                     }
                     if (need_terminator) try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
                 },
                 .@"packed" => {
-                    // TODO: debug info for packed unions
-                    try wip_nav.abbrevCode(.numeric_type);
-                    try wip_nav.strp(loaded_union.name.toSlice(ip));
-                    const backing_int_ty: Type = .fromInterned(loaded_union.packed_backing_int_type);
-                    const int_info = backing_int_ty.intInfo(zcu);
-                    try diw.writeByte(switch (int_info.signedness) {
-                        inline .signed, .unsigned => |signedness| @field(DW.ATE, @tagName(signedness)),
-                    });
-                    try diw.writeUleb128(int_info.bits);
-                    try diw.writeUleb128(backing_int_ty.abiSize(zcu));
-                    try diw.writeUleb128(backing_int_ty.abiAlignment(zcu).toByteUnits().?);
+                    const need_terminator: bool = if (loaded_union.name_nav.unwrap()) |nav_index| t: {
+                        const nav = ip.getNav(nav_index);
+                        const decl_inst = nav.srcInst(ip).resolve(ip).?;
+                        const decl = zcu.fileByIndex(file).zir.?.getDeclaration(decl_inst);
+                        try wip_nav.declCommon(.{
+                            .decl = .decl_packed_union,
+                            .generic_decl = .generic_decl_const,
+                            .decl_instance = .decl_instance_packed_union,
+                        }, &nav, file, &decl);
+                        break :t true;
+                    } else t: {
+                        const file_gop = try dwarf.getModInfo(unit).files.getOrPut(dwarf.gpa, file);
+                        try wip_nav.abbrevCode(if (loaded_union.field_types.len > 0) .packed_union_type else .empty_packed_union_type);
+                        try diw.writeUleb128(file_gop.index);
+                        try wip_nav.strp(loaded_union.name.toSlice(ip));
+                        break :t loaded_union.field_types.len > 0;
+                    };
+                    try wip_nav.refType(.fromInterned(loaded_union.packed_backing_int_type));
+                    for (0..loaded_union.field_types.len) |field_index| {
+                        try wip_nav.abbrevCode(.packed_field);
+                        try wip_nav.strp(loaded_tag.field_names.get(ip)[field_index].toSlice(ip));
+                        try wip_nav.refType(.fromInterned(loaded_union.field_types.get(ip)[field_index]));
+                        try diw.writeUleb128(0);
+                    }
+                    if (need_terminator) try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
                 },
             }
         },
@@ -4090,11 +4092,8 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                 }
                 try wip_nav.refType(.fromInterned(loaded_enum.int_tag_type));
                 for (0..loaded_enum.field_names.len) |field_index| {
-                    try wip_nav.enumConstValue(loaded_enum, .{
-                        .sdata = .signed_enum_field,
-                        .udata = .unsigned_enum_field,
-                        .block = .big_enum_field,
-                    }, field_index);
+                    try wip_nav.abbrevCode(.enum_field);
+                    try wip_nav.enumConstValue(loaded_enum, field_index);
                     try wip_nav.strp(loaded_enum.field_names.get(ip)[field_index].toSlice(ip));
                 }
                 if (loaded_enum.field_names.len > 0) try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
@@ -4104,11 +4103,8 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                 try wip_nav.strp(loaded_enum.name.toSlice(ip));
                 try wip_nav.refType(.fromInterned(loaded_enum.int_tag_type));
                 for (0..loaded_enum.field_names.len) |field_index| {
-                    try wip_nav.enumConstValue(loaded_enum, .{
-                        .sdata = .signed_enum_field,
-                        .udata = .unsigned_enum_field,
-                        .block = .big_enum_field,
-                    }, field_index);
+                    try wip_nav.abbrevCode(.enum_field);
+                    try wip_nav.enumConstValue(loaded_enum, field_index);
                     try wip_nav.strp(loaded_enum.field_names.get(ip)[field_index].toSlice(ip));
                 }
                 if (loaded_enum.field_names.len > 0) try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
@@ -4226,7 +4222,8 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
             } })));
             for (0..error_set_type.names.len) |field_index| {
                 const field_name = error_set_type.names.get(ip)[field_index];
-                try wip_nav.abbrevCode(.unsigned_enum_field);
+                try wip_nav.abbrevCode(.enum_field);
+                try diw.writeUleb128(DW.FORM.udata);
                 try diw.writeUleb128(ip.getErrorValueIfExists(field_name).?);
                 try wip_nav.strp(field_name.toSlice(ip));
             }
@@ -4256,29 +4253,24 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
             },
         },
         .int => |int| {
-            try wip_nav.bigIntConstValue(.{
-                .sdata = .sdata_comptime_value,
-                .udata = .udata_comptime_value,
-                .block = .block_comptime_value,
-            }, .fromInterned(int.ty), Value.fromInterned(value_index).toBigInt(&big_int_space, zcu));
+            try wip_nav.abbrevCode(.comptime_value);
             try wip_nav.refType(.fromInterned(int.ty));
+            try wip_nav.bigIntConstValue(.fromInterned(int.ty), Value.fromInterned(value_index).toBigInt(&big_int_space, zcu));
         },
         .bitpack => |bitpack| {
             const backing_int_val: Value = .fromInterned(bitpack.backing_int_val);
-            try wip_nav.bigIntConstValue(.{
-                .sdata = .sdata_comptime_value,
-                .udata = .udata_comptime_value,
-                .block = .block_comptime_value,
-            }, backing_int_val.typeOf(zcu), backing_int_val.toBigInt(&big_int_space, zcu));
+            try wip_nav.abbrevCode(.comptime_value);
             try wip_nav.refType(.fromInterned(bitpack.ty));
+            try wip_nav.bigIntConstValue(backing_int_val.typeOf(zcu), backing_int_val.toBigInt(&big_int_space, zcu));
         },
         .err => |err| {
-            try wip_nav.abbrevCode(.udata_comptime_value);
+            try wip_nav.abbrevCode(.comptime_value);
             try wip_nav.refType(.fromInterned(err.ty));
+            try diw.writeUleb128(DW.FORM.udata);
             try diw.writeUleb128(try pt.getErrorValue(err.name));
         },
         .error_union => |error_union| {
-            try wip_nav.abbrevCode(.aggregate_comptime_value);
+            try wip_nav.abbrevCode(.aggregate_undefined_comptime_value);
             try wip_nav.refType(.fromInterned(error_union.ty));
             var err_buf: [4]u8 = undefined;
             const err_bytes = err_buf[0 .. std.math.divCeil(u17, zcu.errorSetBits(), 8) catch unreachable];
@@ -4320,44 +4312,43 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
         },
         .enum_literal => |enum_literal| {
-            try wip_nav.abbrevCode(.string_comptime_value);
-            try wip_nav.strp(enum_literal.toSlice(ip));
+            try wip_nav.abbrevCode(.comptime_value);
             try wip_nav.refType(.enum_literal);
+            try diw.writeUleb128(DW.FORM.strp);
+            try wip_nav.strp(enum_literal.toSlice(ip));
         },
         .enum_tag => |enum_tag| {
             const int = ip.indexToKey(enum_tag.int).int;
-            try wip_nav.bigIntConstValue(.{
-                .sdata = .sdata_comptime_value,
-                .udata = .udata_comptime_value,
-                .block = .block_comptime_value,
-            }, .fromInterned(int.ty), Value.fromInterned(value_index).toBigInt(&big_int_space, zcu));
+            try wip_nav.abbrevCode(.comptime_value);
             try wip_nav.refType(.fromInterned(enum_tag.ty));
+            try wip_nav.bigIntConstValue(.fromInterned(int.ty), Value.fromInterned(value_index).toBigInt(&big_int_space, zcu));
         },
         .float => |float| {
+            try wip_nav.abbrevCode(.comptime_value);
+            try wip_nav.refType(.fromInterned(float.ty));
             switch (float.storage) {
                 .f16 => |f16_val| {
-                    try wip_nav.abbrevCode(.data2_comptime_value);
+                    try diw.writeUleb128(DW.FORM.data2);
                     try diw.writeInt(u16, @bitCast(f16_val), dwarf.endian);
                 },
                 .f32 => |f32_val| {
-                    try wip_nav.abbrevCode(.data4_comptime_value);
+                    try diw.writeUleb128(DW.FORM.data4);
                     try diw.writeInt(u32, @bitCast(f32_val), dwarf.endian);
                 },
                 .f64 => |f64_val| {
-                    try wip_nav.abbrevCode(.data8_comptime_value);
+                    try diw.writeUleb128(DW.FORM.data8);
                     try diw.writeInt(u64, @bitCast(f64_val), dwarf.endian);
                 },
                 .f80 => |f80_val| {
-                    try wip_nav.abbrevCode(.block_comptime_value);
+                    try diw.writeUleb128(DW.FORM.block);
                     try diw.writeUleb128(@divExact(80, 8));
                     try diw.writeInt(u80, @bitCast(f80_val), dwarf.endian);
                 },
                 .f128 => |f128_val| {
-                    try wip_nav.abbrevCode(.data16_comptime_value);
+                    try diw.writeUleb128(DW.FORM.data16);
                     try diw.writeInt(u128, @bitCast(f128_val), dwarf.endian);
                 },
             }
-            try wip_nav.refType(.fromInterned(float.ty));
         },
         .ptr => |ptr| {
             const Access = union(enum) {
@@ -4379,9 +4370,11 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                             const uav_ty: Type = .fromInterned(ip.typeOf(uav.val));
                             if (uav_ty.classify(zcu) == .one_possible_value) {
                                 try wip_nav.abbrevCode(if (zero_bit_accesses.items.len > 0)
-                                    .aggregate_udata_comptime_value
+                                    .aggregate_comptime_value
                                 else
-                                    .udata_comptime_value);
+                                    .comptime_value);
+                                try wip_nav.refType(.fromInterned(ptr.ty));
+                                try diw.writeUleb128(DW.FORM.udata);
                                 try diw.writeUleb128(ip.indexToKey(uav.orig_ty).ptr_type.flags.alignment.toByteUnits() orelse
                                     uav_ty.abiAlignment(zcu).toByteUnits().?);
                                 break :location;
@@ -4389,9 +4382,11 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                         },
                         .int => {
                             try wip_nav.abbrevCode(if (zero_bit_accesses.items.len > 0)
-                                .aggregate_udata_comptime_value
+                                .aggregate_comptime_value
                             else
-                                .udata_comptime_value);
+                                .comptime_value);
+                            try wip_nav.refType(.fromInterned(ptr.ty));
+                            try diw.writeUleb128(DW.FORM.udata);
                             try diw.writeUleb128(byte_offset);
                             break :location;
                         },
@@ -4434,13 +4429,13 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                     .aggregate_location_comptime_value
                 else
                     .location_comptime_value);
+                try wip_nav.refType(.fromInterned(ptr.ty));
                 try wip_nav.infoExprLoc(.{ .implicit_pointer = .{
                     .unit = base_unit,
                     .entry = base_entry,
                     .offset = byte_offset,
                 } });
             }
-            try wip_nav.refType(.fromInterned(ptr.ty));
             if (zero_bit_accesses.items.len > 0) {
                 for (zero_bit_accesses.items) |access| switch (access) {
                     .index => |index| {
@@ -4448,15 +4443,15 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                         try diw.writeUleb128(index);
                     },
                     .field => |field| {
-                        try wip_nav.abbrevCode(.field);
+                        try wip_nav.abbrevCode(.access);
                         try wip_nav.strp(field.toSlice(ip));
                     },
                     .synthetic_field => |field| {
-                        try wip_nav.abbrevCode(.field);
+                        try wip_nav.abbrevCode(.access);
                         try wip_nav.strp(field);
                     },
                     .tuple_index => |index| {
-                        try wip_nav.abbrevCode(.field);
+                        try wip_nav.abbrevCode(.access);
                         var field_name_buf: [std.fmt.count("{d}", .{std.math.maxInt(u32)})]u8 = undefined;
                         const field_name = std.fmt.bufPrint(&field_name_buf, "{d}", .{index}) catch unreachable;
                         try wip_nav.strp(field_name);
@@ -4466,7 +4461,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
             }
         },
         .slice => |slice| {
-            try wip_nav.abbrevCode(.aggregate_comptime_value);
+            try wip_nav.abbrevCode(.aggregate_undefined_comptime_value);
             try wip_nav.refType(.fromInterned(slice.ty));
             {
                 try wip_nav.abbrevCode(.comptime_value_field_comptime_state);
@@ -4482,7 +4477,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
         },
         .opt => |opt| {
             const opt_child_type: Type = .fromInterned(ip.indexToKey(opt.ty).opt_type);
-            try wip_nav.abbrevCode(.aggregate_comptime_value);
+            try wip_nav.abbrevCode(.aggregate_undefined_comptime_value);
             try wip_nav.refType(.fromInterned(opt.ty));
             {
                 try wip_nav.abbrevCode(.comptime_value_field_runtime_bits);
@@ -4511,7 +4506,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
         },
         .aggregate => |aggregate| {
-            try wip_nav.abbrevCode(.aggregate_comptime_value);
+            try wip_nav.abbrevCode(.aggregate_undefined_comptime_value);
             try wip_nav.refType(.fromInterned(aggregate.ty));
             switch (ip.indexToKey(aggregate.ty)) {
                 .struct_type => {
@@ -4592,9 +4587,9 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
         },
         .un => |un| {
-            try wip_nav.abbrevCode(.aggregate_comptime_value);
+            try wip_nav.abbrevCode(.aggregate_undefined_comptime_value);
             try wip_nav.refType(.fromInterned(un.ty));
-            field: {
+            {
                 const loaded_union_type = ip.loadUnionType(un.ty);
                 assert(loaded_union_type.layout == .auto);
                 const field_index = zcu.unionTagFieldIndex(loaded_union_type, Value.fromInterned(un.tag)).?;
@@ -4607,11 +4602,11 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                 else if (has_runtime_bits)
                     .comptime_value_field_runtime_bits
                 else
-                    break :field);
+                    .access);
                 try wip_nav.strp(field_name.toSlice(ip));
                 if (has_comptime_state)
                     try wip_nav.refValue(.fromInterned(un.val))
-                else
+                else if (has_runtime_bits)
                     try wip_nav.blockValue(.fromInterned(un.val));
             }
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
@@ -4726,7 +4721,8 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (UpdateError || Writer.Err
             .bits = zcu.errorSetBits(),
         } })));
         for (global_error_set_names, 1..) |name, value| {
-            try wip_nav.abbrevCode(.unsigned_enum_field);
+            try wip_nav.abbrevCode(.enum_field);
+            try diw.writeUleb128(DW.FORM.udata);
             try diw.writeUleb128(value);
             try wip_nav.strp(name.toSlice(ip));
         }
@@ -5119,6 +5115,7 @@ const AbbrevCode = enum {
     decl_struct,
     decl_packed_struct,
     decl_union,
+    decl_packed_union,
     decl_var,
     decl_const,
     decl_const_runtime_bits,
@@ -5140,6 +5137,7 @@ const AbbrevCode = enum {
     decl_instance_struct,
     decl_instance_packed_struct,
     decl_instance_union,
+    decl_instance_packed_union,
     decl_instance_var,
     decl_instance_const,
     decl_instance_const_runtime_bits,
@@ -5157,23 +5155,18 @@ const AbbrevCode = enum {
     module,
     empty_file,
     file,
-    field,
-    signed_enum_field,
-    unsigned_enum_field,
-    big_enum_field,
+    access,
+    enum_field,
     generated_field,
-    struct_field,
-    struct_field_default_runtime_bits,
-    struct_field_default_comptime_state,
-    struct_field_comptime,
-    struct_field_comptime_runtime_bits,
-    struct_field_comptime_comptime_state,
-    packed_struct_field,
-    untagged_union_field,
+    field,
+    field_default_runtime_bits,
+    field_default_comptime_state,
+    field_comptime,
+    field_comptime_runtime_bits,
+    field_comptime_comptime_state,
+    packed_field,
     tagged_union,
-    signed_tagged_union_field,
-    unsigned_tagged_union_field,
-    big_tagged_union_field,
+    tagged_union_field,
     tagged_union_default_field,
     void_type,
     numeric_type,
@@ -5206,6 +5199,8 @@ const AbbrevCode = enum {
     packed_struct_type,
     empty_union_type,
     union_type,
+    empty_packed_union_type,
+    packed_union_type,
     builtin_extern_nullary_func,
     builtin_extern_func,
     builtin_extern_var,
@@ -5230,16 +5225,9 @@ const AbbrevCode = enum {
     local_const_comptime_state,
     local_const_runtime_bits_comptime_state,
     undefined_comptime_value,
-    data2_comptime_value,
-    data4_comptime_value,
-    data8_comptime_value,
-    data16_comptime_value,
-    sdata_comptime_value,
-    udata_comptime_value,
-    aggregate_udata_comptime_value,
-    block_comptime_value,
-    string_comptime_value,
+    comptime_value,
     location_comptime_value,
+    aggregate_undefined_comptime_value,
     aggregate_comptime_value,
     aggregate_location_comptime_value,
     comptime_value_field_runtime_bits,
@@ -5332,6 +5320,13 @@ const AbbrevCode = enum {
             .attrs = decl_abbrev_common_attrs ++ .{
                 .{ .byte_size, .udata },
                 .{ .alignment, .udata },
+            },
+        },
+        .decl_packed_union = .{
+            .tag = .union_type,
+            .children = true,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .type, .ref_addr },
             },
         },
         .decl_var = .{
@@ -5503,6 +5498,13 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
             },
         },
+        .decl_instance_packed_union = .{
+            .tag = .union_type,
+            .children = true,
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
+                .{ .type, .ref_addr },
+            },
+        },
         .decl_instance_var = .{
             .tag = .variable,
             .attrs = decl_instance_abbrev_common_attrs ++ .{
@@ -5651,30 +5653,16 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
             },
         },
-        .field = .{
+        .access = .{
             .tag = .member,
             .attrs = &.{
                 .{ .name, .strp },
             },
         },
-        .signed_enum_field = .{
+        .enum_field = .{
             .tag = .enumerator,
             .attrs = &.{
-                .{ .const_value, .sdata },
-                .{ .name, .strp },
-            },
-        },
-        .unsigned_enum_field = .{
-            .tag = .enumerator,
-            .attrs = &.{
-                .{ .const_value, .udata },
-                .{ .name, .strp },
-            },
-        },
-        .big_enum_field = .{
-            .tag = .enumerator,
-            .attrs = &.{
-                .{ .const_value, .block },
+                .{ .const_value, .indirect },
                 .{ .name, .strp },
             },
         },
@@ -5687,7 +5675,7 @@ const AbbrevCode = enum {
                 .{ .artificial, .flag_present },
             },
         },
-        .struct_field = .{
+        .field = .{
             .tag = .member,
             .attrs = &.{
                 .{ .name, .strp },
@@ -5696,7 +5684,7 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
             },
         },
-        .struct_field_default_runtime_bits = .{
+        .field_default_runtime_bits = .{
             .tag = .member,
             .attrs = &.{
                 .{ .name, .strp },
@@ -5706,7 +5694,7 @@ const AbbrevCode = enum {
                 .{ .default_value, .block },
             },
         },
-        .struct_field_default_comptime_state = .{
+        .field_default_comptime_state = .{
             .tag = .member,
             .attrs = &.{
                 .{ .name, .strp },
@@ -5716,7 +5704,7 @@ const AbbrevCode = enum {
                 .{ .ZIG_comptime_value, .ref_addr },
             },
         },
-        .struct_field_comptime = .{
+        .field_comptime = .{
             .tag = .member,
             .attrs = &.{
                 .{ .const_expr, .flag_present },
@@ -5724,7 +5712,7 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
-        .struct_field_comptime_runtime_bits = .{
+        .field_comptime_runtime_bits = .{
             .tag = .member,
             .attrs = &.{
                 .{ .const_expr, .flag_present },
@@ -5733,7 +5721,7 @@ const AbbrevCode = enum {
                 .{ .const_value, .block },
             },
         },
-        .struct_field_comptime_comptime_state = .{
+        .field_comptime_comptime_state = .{
             .tag = .member,
             .attrs = &.{
                 .{ .const_expr, .flag_present },
@@ -5742,20 +5730,12 @@ const AbbrevCode = enum {
                 .{ .ZIG_comptime_value, .ref_addr },
             },
         },
-        .packed_struct_field = .{
+        .packed_field = .{
             .tag = .member,
             .attrs = &.{
                 .{ .name, .strp },
                 .{ .type, .ref_addr },
                 .{ .data_bit_offset, .udata },
-            },
-        },
-        .untagged_union_field = .{
-            .tag = .member,
-            .attrs = &.{
-                .{ .name, .strp },
-                .{ .type, .ref_addr },
-                .{ .alignment, .udata },
             },
         },
         .tagged_union = .{
@@ -5765,25 +5745,11 @@ const AbbrevCode = enum {
                 .{ .discr, .ref_addr },
             },
         },
-        .signed_tagged_union_field = .{
+        .tagged_union_field = .{
             .tag = .variant,
             .children = true,
             .attrs = &.{
-                .{ .discr_value, .sdata },
-            },
-        },
-        .unsigned_tagged_union_field = .{
-            .tag = .variant,
-            .children = true,
-            .attrs = &.{
-                .{ .discr_value, .udata },
-            },
-        },
-        .big_tagged_union_field = .{
-            .tag = .variant,
-            .children = true,
-            .attrs = &.{
-                .{ .discr_value, .block },
+                .{ .discr_value, .indirect },
             },
         },
         .tagged_union_default_field = .{
@@ -6038,6 +6004,23 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
             },
         },
+        .empty_packed_union_type = .{
+            .tag = .union_type,
+            .attrs = &.{
+                .{ .decl_file, .udata },
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
+        .packed_union_type = .{
+            .tag = .union_type,
+            .children = true,
+            .attrs = &.{
+                .{ .decl_file, .udata },
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
         .builtin_extern_nullary_func = .{
             .tag = .subprogram,
             .attrs = &.{
@@ -6242,75 +6225,18 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
-        .data2_comptime_value = .{
-            .tag = .ZIG_comptime_value,
-            .attrs = &.{
-                .{ .const_value, .data2 },
-                .{ .type, .ref_addr },
-            },
-        },
-        .data4_comptime_value = .{
-            .tag = .ZIG_comptime_value,
-            .attrs = &.{
-                .{ .const_value, .data4 },
-                .{ .type, .ref_addr },
-            },
-        },
-        .data8_comptime_value = .{
-            .tag = .ZIG_comptime_value,
-            .attrs = &.{
-                .{ .const_value, .data8 },
-                .{ .type, .ref_addr },
-            },
-        },
-        .data16_comptime_value = .{
-            .tag = .ZIG_comptime_value,
-            .attrs = &.{
-                .{ .const_value, .data16 },
-                .{ .type, .ref_addr },
-            },
-        },
-        .sdata_comptime_value = .{
-            .tag = .ZIG_comptime_value,
-            .attrs = &.{
-                .{ .const_value, .sdata },
-                .{ .type, .ref_addr },
-            },
-        },
-        .udata_comptime_value = .{
-            .tag = .ZIG_comptime_value,
-            .attrs = &.{
-                .{ .const_value, .udata },
-                .{ .type, .ref_addr },
-            },
-        },
-        .aggregate_udata_comptime_value = .{
+        .aggregate_undefined_comptime_value = .{
             .tag = .ZIG_comptime_value,
             .children = true,
             .attrs = &.{
-                .{ .const_value, .udata },
                 .{ .type, .ref_addr },
             },
         },
-        .block_comptime_value = .{
+        .comptime_value = .{
             .tag = .ZIG_comptime_value,
             .attrs = &.{
-                .{ .const_value, .block },
                 .{ .type, .ref_addr },
-            },
-        },
-        .string_comptime_value = .{
-            .tag = .ZIG_comptime_value,
-            .attrs = &.{
-                .{ .const_value, .strp },
-                .{ .type, .ref_addr },
-            },
-        },
-        .location_comptime_value = .{
-            .tag = .ZIG_comptime_value,
-            .attrs = &.{
-                .{ .location, .exprloc },
-                .{ .type, .ref_addr },
+                .{ .const_value, .indirect },
             },
         },
         .aggregate_comptime_value = .{
@@ -6318,14 +6244,22 @@ const AbbrevCode = enum {
             .children = true,
             .attrs = &.{
                 .{ .type, .ref_addr },
+                .{ .const_value, .indirect },
+            },
+        },
+        .location_comptime_value = .{
+            .tag = .ZIG_comptime_value,
+            .attrs = &.{
+                .{ .type, .ref_addr },
+                .{ .location, .exprloc },
             },
         },
         .aggregate_location_comptime_value = .{
             .tag = .ZIG_comptime_value,
             .children = true,
             .attrs = &.{
-                .{ .location, .exprloc },
                 .{ .type, .ref_addr },
+                .{ .location, .exprloc },
             },
         },
         .comptime_value_field_runtime_bits = .{
