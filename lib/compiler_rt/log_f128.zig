@@ -1,8 +1,42 @@
+/// Implementation of "Table-driven implementation of the logarithm function in IEEE floating-point arithmetic"
+/// by PTP Tang in ACM Transactions on Mathematical Software (TOMS), 1990
+///
+/// https://dl.acm.org/doi/pdf/10.1145/98267.98294
+///
+/// Adapted to work for f128 and bases 2 and 10 by Christophe Delage.
+///
+/// This file contains the code shared between logq, log2q and log10q.
+const log_f128 = @This();
+
 const std = @import("std");
 const math = std.math;
 
 pub const log2size = 7;
 pub const size = 1 << log2size;
+
+/// Filter out special cases for log in bases {e,2,10}.
+///
+/// If x is finite and positive, returns null.
+/// Returns the appropriate NaN or inf otherwise.
+pub fn specialCases(x: f128) ?f128 {
+    if (!math.isFinite(x)) {
+        if (math.isNan(x)) {
+            if (math.isSignalNan(x)) math.raiseInvalid();
+            return math.nan(f128);
+        }
+        if (math.isPositiveInf(x)) return x;
+    }
+    if (x <= 0.0) {
+        if (x >= 0.0) {
+            math.raiseDivByZero();
+            return -math.inf(f128);
+        }
+        math.raiseInvalid();
+        return math.nan(f128);
+    }
+
+    return null;
+}
 
 pub const Proc1 = struct {
     pub const Poly = struct {

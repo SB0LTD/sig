@@ -176,101 +176,46 @@ pub fn __log2x(a: f80) callconv(.c) f80 {
 /// Accuracy on 10 million random numbers near x = 1 (testing the proc2 case):
 /// <= 0.5 ulp: 99.86%, worst case <= 0.546 ulp
 pub fn log2q(x: f128) callconv(.c) f128 {
-    const bitsize = 7;
-    const size = 1 << bitsize;
-    if (!math.isFinite(x)) {
-        if (math.isNan(x)) {
-            if (math.isSignalNan(x)) math.raiseInvalid();
-            return math.nan(f128);
-        }
-        if (math.isPositiveInf(x)) return x;
-    }
-    if (x <= 0.0) {
-        if (x >= 0.0) {
-            math.raiseDivByZero();
-            return -math.inf(f128);
-        }
-        math.raiseInvalid();
-        return math.nan(f128);
-    }
+    const impl = @import("log_f128.zig");
 
-    // exp(-1 / 16) rounded down
-    const proc2_lo: f128 = 0.939413062813475786119710824622305;
-    // exp(1 / 16) rounded up
-    const proc2_hi: f128 = 1.0644944589178594295633905946428897;
-    if (proc2_lo < x and x < proc2_hi) {
-        const f = x - 1.0;
-        const g = 1 / (2 + f);
-        const u = 2 * f * g;
-        const v = u * u;
-        const uv = u * v;
-        const v64: f64 = @floatCast(v);
+    if (impl.specialCases(x)) |y|
+        return y;
 
+    if (impl.Proc2.lo < x and x < impl.Proc2.hi) {
         // Polynomial approximation of log2((1 + u / 2) / (1 - u / 2))
         // in [2 * a / (2 + a), 2 * b / (2 + b)]
         // where a = exp(-1 / 16) - 1 and b = exp(1 / 16) - 1
-        const p19 = 2.909291439731657940692470637735429e-7;
-        const p17 = 1.294917697032820750200161813672143e-6 + v64 * p19;
-        const p15 = 5.870341197214724685339102193694838e-6 + v64 * p17;
-        const p13 = 2.7093882228102330360125035037716968e-5 + v * p15;
-        const p11 = 1.280801705334664325639770412440281e-4 + v * p13;
-        const p9 = 6.261697226080570342191671010883619e-4 + v * p11;
-        const p7 = 3.2203014305557218914285331735164364e-3 + v * p9;
-        const p5 = 1.8033688011112042591999058475816515e-2 + v * p7;
-        const p3 = 0.12022458674074695061332705675016125;
-
-        const q_hi = uv * p3;
-        const q_lo = uv * v * p5;
-
-        const f_hi: f128 = @as(f64, @floatCast(f));
-        const f_lo: f128 = f - f_hi;
-
-        const u_hi: f128 = @as(f64, @floatCast(u));
-        const u_lo: f128 = ((2 * (f - u_hi) - u_hi * f_hi) - u_hi * f_lo) * g;
-
-        // t = u / log(2)
-        const log2e_hi: f128 = 0x1.71547652b82fep0;
-        const log2e_lo: f128 = 0x1.777d0ffda0d23a7d11d6aef551bbp-56;
-        const t_hi = u_hi * log2e_hi;
-        const t_lo = u_lo * log2e_hi + u * log2e_lo;
-
-        // y = t + q
-        const y_hi = t_hi + q_hi;
-        const y_lo = t_lo + (t_hi - y_hi + q_hi) + q_lo;
-
-        return y_hi + y_lo;
+        const poly: impl.Proc2.Poly = .{
+            .b1_hi = 0x1.71547652b82fep0,
+            .b1_lo = 0x1.777d0ffda0d23a7d11d6aef551bbp-56,
+            .b3 = 0.12022458674074695061332705675016125,
+            .b5 = 1.8033688011112042591999058475816515e-2,
+            .b7 = 3.2203014305557218914285331735164364e-3,
+            .b9 = 6.261697226080570342191671010883619e-4,
+            .b11 = 1.280801705334664325639770412440281e-4,
+            .b13 = 2.7093882228102330360125035037716968e-5,
+            .b15 = 5.870341197214724685339102193694838e-6,
+            .b17 = 1.294917697032820750200161813672143e-6,
+            .b19 = 2.909291439731657940692470637735429e-7,
+        };
+        return impl.proc2(.{ .poly = poly }, x);
     }
-
-    const ym = @import("log.zig").frexp2(x);
-    const y = ym.significand;
-    const m = ym.exponent;
-
-    const F0 = @round(math.ldexp(y, bitsize));
-    const j0: usize = @intFromFloat(F0);
-    const j = j0 - size;
-    const F = math.ldexp(F0, -bitsize);
-    const f = y - F;
-
-    const u = (f + f) / (y + F);
-    const v = u * u;
-    const v64: f64 = @floatCast(v);
 
     // Polynomial approximation of log2(1 + 2 * u / (2 - u))
     // in [-(2 * fmax) / (2 + fmax), (2 * fmax) / (2 - fmax)]
     // where fmax = 0.5 / size
-    const p11 = 1.280813940786848788109850061222256e-4;
-    const p9 = 6.261697225875019234719395591078697e-4 + v64 * p11;
-    const p7 = 3.22030143055572204818095463930704e-3 + v * p9;
-    const p5 = 1.8033688011112042591998536830294507e-2 + v * p7;
-    const p3 = 0.12022458674074695061332705675072149 + v * p5;
-    const p1 = 1.442695040888963407359924681001892;
-
-    const q = u * v * p3;
-
-    // log1p_tab[j].hi = 2^-n * round-to-integer(2^n * l)
-    // log1p_tab[j].lo = round-to-nearest-f128(l - log1p_tab[j].hi)
+    const poly: impl.Proc1.Poly = .{
+        .a1 = 1.442695040888963407359924681001892,
+        .a3 = 0.12022458674074695061332705675072149,
+        .a5 = 1.8033688011112042591998536830294507e-2,
+        .a7 = 3.22030143055572204818095463930704e-3,
+        .a9 = 6.261697225875019234719395591078697e-4,
+        .a11 = 1.280813940786848788109850061222256e-4,
+    };
+    // tab[j].hi = 2^-n * round-to-integer(2^n * l)
+    // tab[j].lo = round-to-nearest-f128(l - tab[j].hi)
     // where n = 97 and l = log2(1 + j / size)
-    const log1p_tab = [size + 1]struct { hi: f128, lo: f128 }{
+    const tab = [impl.size + 1]impl.Proc1.HiLo{
         .{ .hi = 0, .lo = 0 },
         .{ .hi = 0x1.6fe50b6ef08517f8e37bp-7, .lo = 0x1.794f4441ccdf648f265a41e57d75p-99 },
         .{ .hi = 0x1.6e79685c2d2298a6e27e212p-6, .lo = -0x1.fbd41ae7d5a2434912ad3fe21cfbp-100 },
@@ -401,11 +346,7 @@ pub fn log2q(x: f128) callconv(.c) f128 {
         .{ .hi = 0x1.fd1be4c7f2af942b221ce0d1p-1, .lo = 0x1.a275c854f5bb9732fae5130be48bp-104 },
         .{ .hi = 0x1p0, .lo = 0 },
     };
-    const xm: f128 = @floatFromInt(m);
-    const l_hi = xm * log1p_tab[128].hi + log1p_tab[j].hi;
-    const l_lo = xm * log1p_tab[128].lo + log1p_tab[j].lo;
-
-    return l_hi + (u * p1 + (q + l_lo));
+    return impl.proc1(.{ .poly = poly, .tab = tab }, x);
 }
 
 pub fn log2l(x: c_longdouble) callconv(.c) c_longdouble {

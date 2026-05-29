@@ -452,21 +452,8 @@ pub fn __logx(a: f80) callconv(.c) f80 {
 pub fn logq(x: f128) callconv(.c) f128 {
     const impl = @import("log_f128.zig");
 
-    if (!math.isFinite(x)) {
-        if (math.isNan(x)) {
-            if (math.isSignalNan(x)) math.raiseInvalid();
-            return math.nan(f128);
-        }
-        if (math.isPositiveInf(x)) return x;
-    }
-    if (x <= 0.0) {
-        if (x >= 0.0) {
-            math.raiseDivByZero();
-            return -math.inf(f128);
-        }
-        math.raiseInvalid();
-        return math.nan(f128);
-    }
+    if (impl.specialCases(x)) |y|
+        return y;
 
     if (impl.Proc2.lo < x and x < impl.Proc2.hi) {
         // Polynomial approximation of log((1 + u / 2) / (1 - u / 2))
@@ -634,7 +621,6 @@ pub fn logq(x: f128) callconv(.c) f128 {
         .{ .hi = 0x1.60e32f44788d8ca7c895a0b5p-1, .lo = -0x1.3557995d063914a66aa81ead3fdbp-101 },
         .{ .hi = 0x1.62e42fefa39ef35793c7673p-1, .lo = 0x1.f97b57a079a193394c5b16c5068cp-103 },
     };
-
     return impl.proc1(.{ .poly = poly, .tab = tab }, x);
 }
 
