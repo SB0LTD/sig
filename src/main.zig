@@ -5749,8 +5749,11 @@ fn cmdBuild(
             defer if (configuration_lock) |*l| l.release(io);
 
             if (print_configuration_path) {
-                var stdout_writer = Io.File.stdout().writerStreaming(io, &.{});
-                configuration_path.format(&stdout_writer.interface) catch fatal("failed printing cache file path: {t}", .{stdout_writer.err.?});
+                var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
+                stdout_writer.interface.print("{f}\n", .{configuration_path}) catch
+                    fatal("failed printing cache file path: {t}", .{stdout_writer.err.?});
+                stdout_writer.flush() catch |err|
+                    fatal("failed printing cache file path: {t}", .{err});
                 return cleanExit(io);
             }
             const make_runner = make_runner_task.await(io) catch |err| fatal("failed compiling maker: {t}", .{err});
