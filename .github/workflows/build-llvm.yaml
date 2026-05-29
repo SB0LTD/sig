@@ -1,4 +1,5 @@
-# [sig] Build LLVM 22 from source for all platforms and upload as reusable artifacts.
+# [sig] Build LLVM 22 from source for all platforms using zig cc cross-compilation.
+# All targets are cross-compiled from Linux using zig cc, matching upstream zig's approach.
 # One-time setup — re-run only when upgrading LLVM version.
 name: build-llvm
 
@@ -11,90 +12,71 @@ permissions:
 env:
   LLVM_TAG: "llvmorg-22.1.3"
   RELEASE_TAG: "llvm-22"
+  ZIG_VERSION: "0.14.1"
 
 jobs:
   build:
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - target: x86_64-linux-musl
             artifact: llvm-22-x86_64-linux.tar.xz
-          - os: macos-14
+          - target: aarch64-macos-none
             artifact: llvm-22-aarch64-macos.tar.xz
-          - os: ubuntu-latest
+          - target: x86_64-windows-gnu
             artifact: llvm-22-x86_64-windows.tar.xz
-            cross_target: x86_64-windows-gnu
-    runs-on: ${{ matrix.os }}
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build deps (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build python3 zlib1g-dev libzstd-dev clang libc++-dev libc++abi-dev
+      - name: Install build deps
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build python3
 
-      - name: Install build deps (macOS)
-        if: runner.os == 'macOS'
-        run: brew install cmake ninja zstd
-
-      - name: Setup Zig (for cross-compilation)
-        if: matrix.cross_target != ''
+      - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: "0.14.1"
+          version: ${{ env.ZIG_VERSION }}
 
       - name: Clone LLVM
-        shell: bash
         run: git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
 
-      - name: Build LLVM (native)
-        if: matrix.cross_target == ''
-        shell: bash
+      - name: Cross-compile zlib
         run: |
-          # Use clang with libc++ on Linux so LLVM libs are compatible with -lc++
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            export CC=clang CXX=clang++
-            LIBCXX_FLAG="-DLLVM_ENABLE_LIBCXX=ON"
-          else
-            LIBCXX_FLAG=""
-          fi
-          cmake -S llvm-src/llvm -B llvm-build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" \
-            ${LIBCXX_FLAG} \
-            -DLLVM_ENABLE_PROJECTS="clang;lld" \
-            -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SystemZ;VE;WebAssembly;X86;XCore" \
-            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="M68k;Xtensa;ARC;CSKY;SPIRV" \
-            -DLLVM_ENABLE_TERMINFO=OFF \
-            -DLLVM_ENABLE_LIBXML2=OFF \
-            -DLLVM_ENABLE_ZLIB=FORCE_ON \
-            -DLLVM_ENABLE_ZSTD=FORCE_ON \
-            -DLLVM_USE_STATIC_ZSTD=ON \
-            -DLLVM_STATIC_LINK_CXX_STDLIB=ON \
-            -DCLANG_ENABLE_ARCMT=OFF \
-            -DCLANG_ENABLE_STATIC_ANALYZER=ON \
-            -DLLVM_ENABLE_BINDINGS=OFF \
-            -DLLVM_ENABLE_OCAMLDOC=OFF \
-            -DLLVM_INCLUDE_TESTS=OFF \
-            -DLLVM_INCLUDE_EXAMPLES=OFF \
-            -DLLVM_INCLUDE_BENCHMARKS=OFF \
-            -DLLVM_INCLUDE_DOCS=OFF
-          ninja -C llvm-build install -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-        timeout-minutes: 180
+          git clone --depth 1 --branch v1.3.1 https://github.com/madler/zlib.git zlib-src
+          mkdir -p zlib-out/lib zlib-out/include
+          cp zlib-src/zlib.h zlib-src/zconf.h zlib-out/include/
+          cd zlib-src
+          for f in adler32.c compress.c crc32.c deflate.c gzclose.c gzlib.c gzread.c gzwrite.c infback.c inffast.c inflate.c inftrees.c trees.c uncompr.c zutil.c; do
+            zig cc -target ${{ matrix.target }} -O2 -c "$f" -o "${f%.c}.o"
+          done
+          zig ar rcs ../zlib-out/lib/libz.a *.o
+          echo "ZLIB_PREFIX=$PWD/../zlib-out" >> "$GITHUB_ENV"
 
-      - name: Build LLVM (cross-compile for Windows)
-        if: matrix.cross_target != ''
-        shell: bash
+      - name: Cross-compile zstd
         run: |
-          # Create zig cc wrapper scripts for cmake
-          cat > /tmp/zig-cc << 'EOF'
+          git clone --depth 1 --branch v1.5.6 https://github.com/facebook/zstd.git zstd-src
+          mkdir -p zstd-out/lib zstd-out/include
+          cp zstd-src/lib/zstd.h zstd-out/include/
+          cd zstd-src/lib
+          SRCS=$(find common decompress compress -name '*.c' | sort)
+          for f in $SRCS; do
+            OBJ=$(echo "$f" | tr '/' '_' | sed 's/\.c$/.o/')
+            zig cc -target ${{ matrix.target }} -O2 -DZSTD_MULTITHREAD=0 -I common -I . -c "$f" -o "$OBJ"
+          done
+          zig ar rcs ../../zstd-out/lib/libzstd.a *.o
+          echo "ZSTD_PREFIX=$PWD/../../zstd-out" >> "$GITHUB_ENV"
+
+      - name: Create zig cc wrappers
+        run: |
+          cat > /tmp/zig-cc << EOF
           #!/bin/bash
-          exec zig cc -target x86_64-windows-gnu "$@"
+          exec zig cc -target ${{ matrix.target }} "\$@"
           EOF
-          cat > /tmp/zig-cxx << 'EOF'
+          cat > /tmp/zig-cxx << EOF
           #!/bin/bash
-          exec zig c++ -target x86_64-windows-gnu "$@"
+          exec zig c++ -target ${{ matrix.target }} "\$@"
           EOF
           cat > /tmp/zig-ar << 'EOF'
           #!/bin/bash
@@ -106,10 +88,21 @@ jobs:
           EOF
           chmod +x /tmp/zig-cc /tmp/zig-cxx /tmp/zig-ar /tmp/zig-ranlib
 
+      - name: Determine cmake system name
+        id: cmake-sys
+        run: |
+          case "${{ matrix.target }}" in
+            *linux*)  echo "name=Linux" >> "$GITHUB_OUTPUT" ;;
+            *macos*)  echo "name=Darwin" >> "$GITHUB_OUTPUT" ;;
+            *windows*) echo "name=Windows" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Build LLVM
+        run: |
           cmake -S llvm-src/llvm -B llvm-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" \
-            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_SYSTEM_NAME=${{ steps.cmake-sys.outputs.name }} \
             -DCMAKE_C_COMPILER=/tmp/zig-cc \
             -DCMAKE_CXX_COMPILER=/tmp/zig-cxx \
             -DCMAKE_AR=/tmp/zig-ar \
@@ -122,8 +115,13 @@ jobs:
             -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="M68k;Xtensa;ARC;CSKY;SPIRV" \
             -DLLVM_ENABLE_TERMINFO=OFF \
             -DLLVM_ENABLE_LIBXML2=OFF \
-            -DLLVM_ENABLE_ZLIB=OFF \
-            -DLLVM_ENABLE_ZSTD=OFF \
+            -DLLVM_ENABLE_ZLIB=FORCE_ON \
+            -DLLVM_ENABLE_ZSTD=FORCE_ON \
+            -DLLVM_USE_STATIC_ZSTD=ON \
+            -DZLIB_LIBRARY="${ZLIB_PREFIX}/lib/libz.a" \
+            -DZLIB_INCLUDE_DIR="${ZLIB_PREFIX}/include" \
+            -Dzstd_LIBRARY="${ZSTD_PREFIX}/lib/libzstd.a" \
+            -Dzstd_INCLUDE_DIR="${ZSTD_PREFIX}/include" \
             -DLLVM_ENABLE_THREADS=ON \
             -DCLANG_ENABLE_ARCMT=OFF \
             -DCLANG_ENABLE_STATIC_ANALYZER=ON \
@@ -133,23 +131,26 @@ jobs:
             -DLLVM_INCLUDE_EXAMPLES=OFF \
             -DLLVM_INCLUDE_BENCHMARKS=OFF \
             -DLLVM_INCLUDE_DOCS=OFF \
-            -DLLVM_HOST_TRIPLE=x86_64-windows-gnu \
-            -DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-windows-gnu
+            -DLLVM_HOST_TRIPLE="${{ matrix.target }}" \
+            -DLLVM_DEFAULT_TARGET_TRIPLE="${{ matrix.target }}"
           ninja -C llvm-build install -j$(nproc)
         timeout-minutes: 240
 
+      - name: Include zlib/zstd in package
+        run: |
+          cp "${ZLIB_PREFIX}/lib/libz.a" llvm-install/lib/
+          cp "${ZSTD_PREFIX}/lib/libzstd.a" llvm-install/lib/
+
       - name: Package
-        shell: bash
         run: tar -cJf "${{ matrix.artifact }}" llvm-install/
 
       - name: Upload to release
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release view "${{ env.RELEASE_TAG }}" >/dev/null 2>&1 || \
             gh release create "${{ env.RELEASE_TAG }}" \
               --title "LLVM 22 (build artifacts)" \
-              --notes "Pre-built LLVM 22.1.3 with Clang + LLD. Used as bootstrap dependency for sig releases." \
+              --notes "Pre-built LLVM 22.1.3 with Clang + LLD. Cross-compiled for all targets using zig cc." \
               --prerelease
           gh release upload "${{ env.RELEASE_TAG }}" "${{ matrix.artifact }}" --clobber

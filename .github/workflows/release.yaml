@@ -49,7 +49,7 @@ jobs:
             zig_target: aarch64-macos-none
             ext: tar.xz
             bin: sig
-            llvm_asset: llvm-22-x86_64-linux.tar.xz
+            llvm_asset: llvm-22-aarch64-macos.tar.xz
           - target: x86_64-windows
             zig_target: x86_64-windows-gnu
             ext: zip
@@ -98,9 +98,6 @@ jobs:
           ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"
           "${BIN}" version || true
 
-      - name: Install deps
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq zlib1g-dev libzstd-dev libc++-dev libc++abi-dev
-
       - name: Download LLVM 22
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -108,21 +105,6 @@ jobs:
           gh release download llvm-22 --pattern "${{ matrix.llvm_asset }}" --dir /tmp
           mkdir -p llvm-22
           tar -xJf "/tmp/${{ matrix.llvm_asset }}" -C llvm-22 --strip-components=1
-          # For Linux/macOS: copy system static libs into LLVM prefix
-          if [ "${{ matrix.target }}" = "x86_64-linux" ] || [ "${{ matrix.target }}" = "aarch64-macos" ]; then
-            cp /usr/lib/x86_64-linux-gnu/libz.a llvm-22/lib/ 2>/dev/null || true
-            cp /usr/lib/x86_64-linux-gnu/libzstd.a llvm-22/lib/ 2>/dev/null || true
-            # LLVM was built with GCC (libstdc++), provide both C++ stdlib variants
-            cp /usr/lib/x86_64-linux-gnu/libc++.a llvm-22/lib/ 2>/dev/null || true
-            cp /usr/lib/x86_64-linux-gnu/libc++abi.a llvm-22/lib/ 2>/dev/null || true
-            cp /usr/lib/gcc/x86_64-linux-gnu/*/libstdc++.a llvm-22/lib/ 2>/dev/null || true
-          fi
-          # For Windows: LLVM was built with zlib/zstd OFF but linker still references them.
-          # Create empty stub archives so the linker finds them (they're unused).
-          if [ "${{ matrix.target }}" = "x86_64-windows" ]; then
-            echo '!<arch>' > llvm-22/lib/libz.a
-            echo '!<arch>' > llvm-22/lib/libzstd.a
-          fi
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
 
       - name: Build stage3
