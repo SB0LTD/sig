@@ -141,8 +141,8 @@ pub fn clone() callconv(.naked) u32 {
         \\ movi a7, 0
         \\ movi a0, 0
         \\
-        \\ mov a2, a10
-        \\ callx0 a9
+        \\ mov a6, a10
+        \\ callx4 a9
         \\ movi a2, 118 // SYS_exit
         \\ syscall
     );
