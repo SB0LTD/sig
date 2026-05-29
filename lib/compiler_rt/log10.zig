@@ -211,9 +211,11 @@ pub fn log10q(x: f128) callconv(.c) f128 {
         const u = 2 * f * g;
         const v = u * u;
         const uv = u * v;
-
         const v64: f64 = @floatCast(v);
-        // use f64 for the last few coefficients to improve performance
+
+        // Polynomial approximation of log10((1 + u / 2) / (1 - u / 2))
+        // in [2 * a / (2 + a), 2 * b / (2 + b)]
+        // where a = exp(-1 / 16) - 1 and b = exp(1 / 16) - 1
         const p19 = 8.757839894876785986064901881670424e-8;
         const p17 = 3.898090687230025454479255130305971e-7 + v64 * p19;
         const p15 = 1.7671487851436387503930903139882346e-6 + v64 * p17;
@@ -235,7 +237,7 @@ pub fn log10q(x: f128) callconv(.c) f128 {
 
         const log10e_hi: f128 = 0x1.bcb7b1526e50ep-2;
         const log10e_lo: f128 = 0x1.95355baaafad33dc323ee3460246p-57;
-        // t = u / ln(2)
+        // t = u / log(10)
         const t_hi = u_hi * log10e_hi;
         const t_lo = u_lo * log10e_hi + u * log10e_lo;
 
@@ -258,17 +260,23 @@ pub fn log10q(x: f128) callconv(.c) f128 {
 
     const u = (f + f) / (y + F);
     const v = u * u;
-
     const v64: f64 = @floatCast(v);
-    // use f64 for the last few coefficients to improve performance
+
+    // Polynomial approximation of log10(1 + 2 * u / (2 - u))
+    // in [-(2 * fmax) / (2 + fmax), (2 * fmax) / (2 - fmax)]
+    // where fmax = 0.5 / size
     const p11 = 3.8556341504143175800053507804546873e-5;
     const p9 = 1.884958688754320118955531917460363e-4 + v64 * p11;
     const p7 = 9.694073256769014481942040422515466e-4 + v * p9;
     const p5 = 5.428681023790647845638954444458386e-3 + v * p7;
     const p3 = 3.619120682527098563759407657655348e-2 + v * p5;
     const p1 = 0.4342944819032518276511289189166051;
+
     const q = u * v * p3;
 
+    // log1p_tab[j].hi = 2^-n * round-to-integer(2^n * l)
+    // log1p_tab[j].lo = round-to-nearest-f128(l - log1p_tab[j].hi)
+    // where n = 97 and l = log10(1 + j / size)
     const log1p_tab = [size + 1]struct { hi: f128, lo: f128 }{
         .{ .hi = 0, .lo = 0 },
         .{ .hi = 0x1.bafd47221ed2665c1ba949p-9, .lo = -0x1.eb6f20a90ad48515635f3b8a1d22p-104 },

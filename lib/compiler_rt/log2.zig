@@ -204,9 +204,11 @@ pub fn log2q(x: f128) callconv(.c) f128 {
         const u = 2 * f * g;
         const v = u * u;
         const uv = u * v;
-
         const v64: f64 = @floatCast(v);
-        // use f64 for the last few coefficients to improve performance
+
+        // Polynomial approximation of log2((1 + u / 2) / (1 - u / 2))
+        // in [2 * a / (2 + a), 2 * b / (2 + b)]
+        // where a = exp(-1 / 16) - 1 and b = exp(1 / 16) - 1
         const p19 = 2.909291439731657940692470637735429e-7;
         const p17 = 1.294917697032820750200161813672143e-6 + v64 * p19;
         const p15 = 5.870341197214724685339102193694838e-6 + v64 * p17;
@@ -215,8 +217,9 @@ pub fn log2q(x: f128) callconv(.c) f128 {
         const p9 = 6.261697226080570342191671010883619e-4 + v * p11;
         const p7 = 3.2203014305557218914285331735164364e-3 + v * p9;
         const p5 = 1.8033688011112042591999058475816515e-2 + v * p7;
+        const p3 = 0.12022458674074695061332705675016125;
 
-        const q_hi = uv * 0.12022458674074695061332705675016125;
+        const q_hi = uv * p3;
         const q_lo = uv * v * p5;
 
         const f_hi: f128 = @as(f64, @floatCast(f));
@@ -225,7 +228,7 @@ pub fn log2q(x: f128) callconv(.c) f128 {
         const u_hi: f128 = @as(f64, @floatCast(u));
         const u_lo: f128 = ((2 * (f - u_hi) - u_hi * f_hi) - u_hi * f_lo) * g;
 
-        // t = u / ln(2)
+        // t = u / log(2)
         const log2e_hi: f128 = 0x1.71547652b82fep0;
         const log2e_lo: f128 = 0x1.777d0ffda0d23a7d11d6aef551bbp-56;
         const t_hi = u_hi * log2e_hi;
@@ -250,9 +253,11 @@ pub fn log2q(x: f128) callconv(.c) f128 {
 
     const u = (f + f) / (y + F);
     const v = u * u;
-
     const v64: f64 = @floatCast(v);
-    // use f64 for the last coefficient to improve performance
+
+    // Polynomial approximation of log2(1 + 2 * u / (2 - u))
+    // in [-(2 * fmax) / (2 + fmax), (2 * fmax) / (2 - fmax)]
+    // where fmax = 0.5 / size
     const p11 = 1.280813940786848788109850061222256e-4;
     const p9 = 6.261697225875019234719395591078697e-4 + v64 * p11;
     const p7 = 3.22030143055572204818095463930704e-3 + v * p9;
@@ -262,6 +267,9 @@ pub fn log2q(x: f128) callconv(.c) f128 {
 
     const q = u * v * p3;
 
+    // log1p_tab[j].hi = 2^-n * round-to-integer(2^n * l)
+    // log1p_tab[j].lo = round-to-nearest-f128(l - log1p_tab[j].hi)
+    // where n = 97 and l = log2(1 + j / size)
     const log1p_tab = [size + 1]struct { hi: f128, lo: f128 }{
         .{ .hi = 0, .lo = 0 },
         .{ .hi = 0x1.6fe50b6ef08517f8e37bp-7, .lo = 0x1.794f4441ccdf648f265a41e57d75p-99 },
