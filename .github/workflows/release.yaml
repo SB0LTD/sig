@@ -112,8 +112,10 @@ jobs:
           if [ "${{ matrix.target }}" = "x86_64-linux" ] || [ "${{ matrix.target }}" = "aarch64-macos" ]; then
             cp /usr/lib/x86_64-linux-gnu/libz.a llvm-22/lib/ 2>/dev/null || true
             cp /usr/lib/x86_64-linux-gnu/libzstd.a llvm-22/lib/ 2>/dev/null || true
+            # LLVM was built with GCC (libstdc++), provide both C++ stdlib variants
             cp /usr/lib/x86_64-linux-gnu/libc++.a llvm-22/lib/ 2>/dev/null || true
             cp /usr/lib/x86_64-linux-gnu/libc++abi.a llvm-22/lib/ 2>/dev/null || true
+            cp /usr/lib/gcc/x86_64-linux-gnu/*/libstdc++.a llvm-22/lib/ 2>/dev/null || true
           fi
           # For Windows: LLVM was built with zlib/zstd OFF but linker still references them.
           # Create empty stub archives so the linker finds them (they're unused).
