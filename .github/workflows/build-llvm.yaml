@@ -42,32 +42,14 @@ jobs:
       - name: Clone LLVM
         run: git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
 
-      - name: Cross-compile zlib
+      - name: Determine cmake system name
+        id: cmake-sys
         run: |
-          git clone --depth 1 --branch v1.3.1 https://github.com/madler/zlib.git zlib-src
-          mkdir -p zlib-out/lib zlib-out/include
-          cp zlib-src/zlib.h zlib-src/zconf.h zlib-out/include/
-          cd zlib-src
-          # Only compile core compression files (no gzip file I/O which needs lseek)
-          for f in adler32.c compress.c crc32.c deflate.c infback.c inffast.c inflate.c inftrees.c trees.c uncompr.c zutil.c; do
-            zig cc -target ${{ matrix.target }} -O2 -c "$f" -o "${f%.c}.o"
-          done
-          zig ar rcs ../zlib-out/lib/libz.a *.o
-          echo "ZLIB_PREFIX=$PWD/../zlib-out" >> "$GITHUB_ENV"
-
-      - name: Cross-compile zstd
-        run: |
-          git clone --depth 1 --branch v1.5.6 https://github.com/facebook/zstd.git zstd-src
-          mkdir -p zstd-out/lib zstd-out/include
-          cp zstd-src/lib/zstd.h zstd-out/include/
-          cd zstd-src/lib
-          SRCS=$(find common decompress compress -name '*.c' | sort)
-          for f in $SRCS; do
-            OBJ=$(echo "$f" | tr '/' '_' | sed 's/\.c$/.o/')
-            zig cc -target ${{ matrix.target }} -O2 -DZSTD_MULTITHREAD=0 -I common -I . -c "$f" -o "$OBJ"
-          done
-          zig ar rcs ../../zstd-out/lib/libzstd.a *.o
-          echo "ZSTD_PREFIX=$PWD/../../zstd-out" >> "$GITHUB_ENV"
+          case "${{ matrix.target }}" in
+            *linux*)  echo "name=Linux" >> "$GITHUB_OUTPUT" ;;
+            *macos*)  echo "name=Darwin" >> "$GITHUB_OUTPUT" ;;
+            *windows*) echo "name=Windows" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Create zig cc wrappers
         run: |
@@ -89,14 +71,35 @@ jobs:
           EOF
           chmod +x /tmp/zig-cc /tmp/zig-cxx /tmp/zig-ar /tmp/zig-ranlib
 
-      - name: Determine cmake system name
-        id: cmake-sys
+      - name: Cross-compile zlib
         run: |
-          case "${{ matrix.target }}" in
-            *linux*)  echo "name=Linux" >> "$GITHUB_OUTPUT" ;;
-            *macos*)  echo "name=Darwin" >> "$GITHUB_OUTPUT" ;;
-            *windows*) echo "name=Windows" >> "$GITHUB_OUTPUT" ;;
-          esac
+          git clone --depth 1 --branch v1.3.1 https://github.com/madler/zlib.git zlib-src
+          cmake -S zlib-src -B zlib-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/zlib-out" \
+            -DCMAKE_SYSTEM_NAME=${{ steps.cmake-sys.outputs.name }} \
+            -DCMAKE_C_COMPILER=/tmp/zig-cc \
+            -DCMAKE_AR=/tmp/zig-ar \
+            -DCMAKE_RANLIB=/tmp/zig-ranlib
+          ninja -C zlib-build install
+          echo "ZLIB_PREFIX=$PWD/zlib-out" >> "$GITHUB_ENV"
+
+      - name: Cross-compile zstd
+        run: |
+          git clone --depth 1 --branch v1.5.6 https://github.com/facebook/zstd.git zstd-src
+          cmake -S zstd-src/build/cmake -B zstd-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/zstd-out" \
+            -DCMAKE_SYSTEM_NAME=${{ steps.cmake-sys.outputs.name }} \
+            -DCMAKE_C_COMPILER=/tmp/zig-cc \
+            -DCMAKE_AR=/tmp/zig-ar \
+            -DCMAKE_RANLIB=/tmp/zig-ranlib \
+            -DZSTD_BUILD_PROGRAMS=OFF \
+            -DZSTD_BUILD_SHARED=OFF \
+            -DZSTD_BUILD_STATIC=ON \
+            -DZSTD_MULTITHREAD_SUPPORT=OFF
+          ninja -C zstd-build install
+          echo "ZSTD_PREFIX=$PWD/zstd-out" >> "$GITHUB_ENV"
 
       - name: Build LLVM
         run: |
