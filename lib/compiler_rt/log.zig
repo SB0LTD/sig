@@ -633,30 +633,6 @@ pub fn logl(x: c_longdouble) callconv(.c) c_longdouble {
     }
 }
 
-/// Returns (f, k) such that x = f * 2^k and f in [1,2).
-/// Asserts that x is finite and positive.
-pub fn frexp2(x: f128) math.Frexp(f128) {
-    std.debug.assert(math.isFinite(x));
-    std.debug.assert(x > 0.0);
-
-    const bits: u128 = @bitCast(x);
-    const uexp: i32 = @intCast(bits >> 112);
-
-    std.debug.assert(uexp >= 0);
-
-    if (uexp == 0) {
-        const shift: u7 = @intCast(@clz(bits) - 15);
-
-        const exp = -@as(i32, shift) - 0x3ffe;
-        const frac: f128 = @bitCast((bits << shift) | (0x3fff << 112));
-        return .{ .significand = frac, .exponent = exp };
-    }
-
-    const exp = uexp - 0x3fff;
-    const frac: f128 = @bitCast((0x3fff << 112) | ((bits << 16) >> 16));
-    return .{ .significand = frac, .exponent = exp };
-}
-
 test "logf() special" {
     try expectEqual(logf(0.0), -math.inf(f32));
     try expectEqual(logf(-0.0), -math.inf(f32));
