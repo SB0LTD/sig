@@ -59,9 +59,7 @@ copied_globals: std.array_hash_map.Auto(String(.strtab), struct {
 /// (`R_*_COPY`), but cannot because we have not seen an appropriate definition in a linked DSO yet.
 ///
 /// Therefore, if, when scanning a DSO input, we discover a definition for one of these symbols, we
-/// will remove it from this map and call `
-///
-/// which have not created
+/// will remove it from this map and call `maybeAddCopyRelocation`.
 want_copied_globals: std.array_hash_map.Auto(String(.strtab), void),
 /// Key is a node which is a valid `Symbol.node` value, value is the name of the first global symbol
 /// in that node. That symbol is the head of a linked list: see `Symbol.Global.next_in_node`.
