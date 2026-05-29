@@ -44,17 +44,17 @@ jobs:
             zig_target: x86_64-linux-musl
             ext: tar.xz
             bin: sig
-            llvm_asset: llvm-22-x86_64-linux.tar.xz
+            llvm_asset: llvm-23-x86_64-linux.tar.xz
           - target: aarch64-macos
             zig_target: aarch64-macos-none
             ext: tar.xz
             bin: sig
-            llvm_asset: llvm-22-aarch64-macos.tar.xz
+            llvm_asset: llvm-23-aarch64-macos.tar.xz
           - target: x86_64-windows
             zig_target: x86_64-windows-gnu
             ext: zip
             bin: sig.exe
-            llvm_asset: llvm-22-x86_64-windows.tar.xz
+            llvm_asset: llvm-23-x86_64-windows.tar.xz
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -98,14 +98,14 @@ jobs:
           ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"
           "${BIN}" version || true
 
-      - name: Download LLVM 22
+      - name: Download LLVM 23
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download llvm-22 --pattern "${{ matrix.llvm_asset }}" --dir /tmp
-          mkdir -p llvm-22
-          tar -xJf "/tmp/${{ matrix.llvm_asset }}" -C llvm-22 --strip-components=1
-          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
+          gh release download llvm-23 --pattern "${{ matrix.llvm_asset }}" --dir /tmp
+          mkdir -p llvm-23
+          tar -xJf "/tmp/${{ matrix.llvm_asset }}" -C llvm-23 --strip-components=1
+          echo "LLVM_PREFIX=$PWD/llvm-23" >> "$GITHUB_ENV"
 
       - name: Build stage3
         run: |
