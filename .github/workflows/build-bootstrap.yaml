@@ -74,16 +74,16 @@ jobs:
           # Use clang/libc++ on Linux to match LLVM libs
           if [ "${{ runner.os }}" = "Linux" ]; then
             export CC=clang CXX=clang++
-            LIBCXX_FLAG="-DLLVM_ENABLE_LIBCXX=ON"
+            EXTRA_FLAGS="-DCMAKE_CXX_FLAGS=-stdlib=libc++ -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++"
           else
-            LIBCXX_FLAG=""
+            EXTRA_FLAGS=""
           fi
           mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
             -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
             -DCMAKE_BUILD_TYPE=Release \
-            ${LIBCXX_FLAG} \
+            ${EXTRA_FLAGS} \
             -DZIG_USE_LLVM_CONFIG=ON \
             -DZIG_NO_LIB=ON \
             -DZIG_TARGET_MCPU="baseline" \
