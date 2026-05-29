@@ -75,7 +75,9 @@ jobs:
         run: |
           git clone --depth 1 --branch v1.3.1 https://github.com/madler/zlib.git zlib-src
           mkdir zlib-build && cd zlib-build
-          zig cc -target ${{ matrix.target }} -O2 -c ../zlib-src/*.c
+          for f in ../zlib-src/adler32.c ../zlib-src/compress.c ../zlib-src/crc32.c ../zlib-src/deflate.c ../zlib-src/infback.c ../zlib-src/inffast.c ../zlib-src/inflate.c ../zlib-src/inftrees.c ../zlib-src/trees.c ../zlib-src/uncompr.c ../zlib-src/zutil.c; do
+            zig cc -target ${{ matrix.target }} -O2 -c "$f"
+          done
           zig ar rcs libz.a *.o
           cd ..
           mkdir -p zlib-out/lib zlib-out/include
