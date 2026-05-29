@@ -194,7 +194,7 @@ pub fn main(init: process.Init.Minimal) !void {
     var max_rss: u64 = 0;
     var skip_oom_steps = false;
     var test_timeout_ns: ?u64 = null;
-    var color: Color = .auto;
+    var color: Color = .settingFromEnvironment(&graph.environ_map);
     var watch = false;
     var fuzz: ?Fuzz.Mode = null;
     var debounce_interval_ms: u16 = 50;
@@ -533,7 +533,7 @@ pub fn main(init: process.Init.Minimal) !void {
     }
 
     const main_progress_node = std.Progress.start(io, .{
-        .disable_printing = (color == .off),
+        .disable_printing = (graph.stderr_mode.? == .no_color),
     });
     defer main_progress_node.end();
 
