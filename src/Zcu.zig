@@ -48,12 +48,12 @@ const ZonGen = std.zig.ZonGen;
 comptime {
     @setEvalBranchQuota(4000);
     for (
-        @typeInfo(Zir.Inst.Ref).@"enum".fields,
-        @typeInfo(Air.Inst.Ref).@"enum".fields,
-        @typeInfo(InternPool.Index).@"enum".fields,
-    ) |zir_field, air_field, ip_field| {
-        assert(mem.eql(u8, zir_field.name, ip_field.name));
-        assert(mem.eql(u8, air_field.name, ip_field.name));
+        @typeInfo(Zir.Inst.Ref).@"enum".field_names,
+        @typeInfo(Air.Inst.Ref).@"enum".field_names,
+        @typeInfo(InternPool.Index).@"enum".field_names,
+    ) |zir_field_name, air_field_name, ip_field_name| {
+        assert(mem.eql(u8, zir_field_name, ip_field_name));
+        assert(mem.eql(u8, air_field_name, ip_field_name));
     }
 }
 

@@ -59,8 +59,8 @@ pub fn cmdEnv(
     try root.field("version", build_options.version, .{});
     try root.field("target", triple, .{});
     var env = try root.beginStructField("env", .{});
-    inline for (@typeInfo(EnvVar).@"enum".fields) |field| {
-        try env.field(field.name, @field(EnvVar, field.name).get(environ_map), .{});
+    inline for (@typeInfo(EnvVar).@"enum".field_names) |field_name| {
+        try env.field(field_name, @field(EnvVar, field_name).get(environ_map), .{});
     }
     try env.end();
     try root.end();

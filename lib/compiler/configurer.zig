@@ -601,8 +601,8 @@ const Serialize = struct {
             dest_module.* = try addModule(s, src_module);
         }
 
-        comptime assert(std.mem.eql(u8, @typeInfo(Configuration.Module).@"struct".fields[2].name, "import_table"));
-        comptime assert(@typeInfo(Configuration.Module).@"struct".fields[2].type == Configuration.ImportTable.Index);
+        comptime assert(std.mem.eql(u8, @typeInfo(Configuration.Module).@"struct".field_names[2], "import_table"));
+        comptime assert(@typeInfo(Configuration.Module).@"struct".field_types[2] == Configuration.ImportTable.Index);
         assert(wc.extra.items[@intFromEnum(module_index) + 2] == @intFromEnum(Configuration.ImportTable.Index.invalid));
         const import_table_index = try wc.addDeduped(Configuration.ImportTable, .{
             .imports = .{ .mal = imports },

@@ -23,8 +23,8 @@ wasi_exec_model: std.lang.WasiExecModel,
 /// of the resulting file contents.
 pub fn hash(opts: @This()) [std.Build.Cache.bin_digest_len]u8 {
     var h: Cache.Hasher = Cache.hasher_init;
-    inline for (@typeInfo(@This()).@"struct".fields) |f| {
-        if (comptime std.mem.eql(u8, f.name, "target")) {
+    inline for (@typeInfo(@This()).@"struct".field_names) |f_name| {
+        if (comptime std.mem.eql(u8, f_name, "target")) {
             // This needs special handling.
             std.hash.autoHash(&h, opts.target.cpu);
             std.hash.autoHash(&h, opts.target.os.tag);
@@ -33,7 +33,7 @@ pub fn hash(opts: @This()) [std.Build.Cache.bin_digest_len]u8 {
             std.hash.autoHash(&h, opts.target.ofmt);
             std.hash.autoHash(&h, opts.target.dynamic_linker);
         } else {
-            std.hash.autoHash(&h, @field(opts, f.name));
+            std.hash.autoHash(&h, @field(opts, f_name));
         }
     }
     return h.finalResult();

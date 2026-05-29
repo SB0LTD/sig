@@ -60,14 +60,14 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
         @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
     }
 
-    const fields_info = args_type_info.@"struct".fields;
+    const fields_info = args_type_info.@"struct";
 
     // Originally, I wanted to issue a single call with a more complex table structure such that we
     // would sequentially visit each CPU#d subkey in the registry and pull the value of interest into
     // a buffer, however, NT seems to be expecting a single buffer per each table meaning we would
     // end up pulling only the last CPU core info, overwriting everything else.
     // If anyone can come up with a solution to this, please do!
-    const table_size = 1 + fields_info.len;
+    const table_size = 1 + fields_info.field_names.len;
     var table: [table_size + 1]std.os.windows.RTL_QUERY_REGISTRY_TABLE = undefined;
 
     const topkey = std.unicode.utf8ToUtf16LeStringLiteral("\\Registry\\Machine\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor");
@@ -90,11 +90,11 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
         .DefaultLength = 0,
     };
 
-    var tmp_bufs: [fields_info.len][max_value_len]u8 align(@alignOf(std.os.windows.UNICODE_STRING)) = undefined;
+    var tmp_bufs: [fields_info.field_names.len][max_value_len]u8 align(@alignOf(std.os.windows.UNICODE_STRING)) = undefined;
 
-    inline for (fields_info, 0..) |field, i| {
+    inline for (fields_info.field_names, 0..) |field_name, i| {
         const ctx: *anyopaque = blk: {
-            switch (@field(args, field.name).value_type) {
+            switch (@field(args, field_name).value_type) {
                 .SZ,
                 .EXPAND_SZ,
                 .MULTI_SZ,
@@ -119,7 +119,7 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
         };
 
         var key_buf: [max_value_len / 2 + 1]u16 = undefined;
-        const key_len = try std.unicode.utf8ToUtf16Le(&key_buf, @field(args, field.name).key);
+        const key_len = try std.unicode.utf8ToUtf16Le(&key_buf, @field(args, field_name).key);
         key_buf[key_len] = 0;
 
         table[i + 1] = .{
@@ -153,12 +153,12 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
     );
     switch (res) {
         .SUCCESS => {
-            inline for (fields_info, 0..) |field, i| switch (@field(args, field.name).value_type) {
+            inline for (fields_info.field_names, 0..) |field_name, i| switch (@field(args, field_name).value_type) {
                 .SZ,
                 .EXPAND_SZ,
                 .MULTI_SZ,
                 => {
-                    var buf = @field(args, field.name).value_buf;
+                    var buf = @field(args, field_name).value_buf;
                     const entry: *const std.os.windows.UNICODE_STRING = @ptrCast(table[i + 1].EntryContext);
                     const len = try std.unicode.utf16LeToUtf8(buf, entry.slice());
                     buf[len] = 0;
@@ -169,12 +169,12 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
                 .QWORD,
                 => {
                     const entry: [*]const u8 = @ptrCast(table[i + 1].EntryContext);
-                    switch (@field(args, field.name).value_type) {
+                    switch (@field(args, field_name).value_type) {
                         .DWORD, .DWORD_BIG_ENDIAN => {
-                            @memcpy(@field(args, field.name).value_buf[0..4], entry[0..4]);
+                            @memcpy(@field(args, field_name).value_buf[0..4], entry[0..4]);
                         },
                         .QWORD => {
-                            @memcpy(@field(args, field.name).value_buf[0..8], entry[0..8]);
+                            @memcpy(@field(args, field_name).value_buf[0..8], entry[0..8]);
                         },
                         else => unreachable,
                     }

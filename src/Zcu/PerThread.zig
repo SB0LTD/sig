@@ -3344,7 +3344,7 @@ fn analyzeFuncBodyInner(
     ip.funcSetHasErrorTrace(io, func_index, fn_ty_info.cc == .auto);
 
     // First few indexes of extra are reserved and set at the end.
-    const reserved_count = @typeInfo(Air.ExtraIndex).@"enum".fields.len;
+    const reserved_count = @typeInfo(Air.ExtraIndex).@"enum".field_names.len;
     try sema.air_extra.ensureTotalCapacity(gpa, reserved_count);
     sema.air_extra.items.len += reserved_count;
 
@@ -3477,7 +3477,7 @@ fn analyzeFuncBodyInner(
     }
 
     // Copy the block into place and mark that as the main block.
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len +
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".field_names.len +
         inner_block.instructions.items.len);
     const main_block_index = sema.addExtraAssumeCapacity(Air.Block{
         .body_len = @intCast(inner_block.instructions.items.len),

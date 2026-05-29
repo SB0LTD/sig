@@ -135,7 +135,7 @@ fn markSecret(ptr: anytype, comptime action: enum { classify, declassify }) void
     const t = @typeInfo(@TypeOf(ptr));
     if (t != .pointer) @compileError("Pointer expected - Found: " ++ @typeName(@TypeOf(ptr)));
     const p = t.pointer;
-    if (p.is_allowzero) @compileError("A nullable pointer is always assumed to leak information via side channels");
+    if (p.attrs.@"allowzero") @compileError("A nullable pointer is always assumed to leak information via side channels");
     const child = @typeInfo(p.child);
 
     switch (child) {

@@ -400,7 +400,7 @@ test "function with inferred error set but returning no error" {
     };
 
     const return_ty = @typeInfo(@TypeOf(S.foo)).@"fn".return_type.?;
-    try expectEqual(0, @typeInfo(@typeInfo(return_ty).error_union.error_set).error_set.?.len);
+    try expectEqual(0, @typeInfo(@typeInfo(return_ty).error_union.error_set).error_set.error_names.?.len);
 }
 
 test "import passed byref to function in return type" {

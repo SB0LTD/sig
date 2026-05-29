@@ -1159,7 +1159,7 @@ test "pointer to struct literal with runtime field is constant" {
     var runtime_zero: usize = 0;
     _ = &runtime_zero;
     const ptr = &S{ .data = runtime_zero };
-    try expect(@typeInfo(@TypeOf(ptr)).pointer.is_const);
+    try expect(@typeInfo(@TypeOf(ptr)).pointer.attrs.@"const");
 }
 
 fn testSignedCmp(comptime T: type) !void {
@@ -1284,8 +1284,8 @@ test "comptime variable initialized with addresses of literals" {
     };
     _ = &st;
 
-    inline for (@typeInfo(@TypeOf(st)).@"struct".fields) |field| {
-        _ = field;
+    inline for (@typeInfo(@TypeOf(st)).@"struct".field_names) |field_name| {
+        _ = field_name;
     }
 }
 

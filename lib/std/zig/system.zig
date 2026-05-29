@@ -973,10 +973,10 @@ fn detectAbiAndDynamicLinker(io: Io, cpu: Target.Cpu, os: Target.Os, query: Targ
     // relying on `builtin.target`.
     const all_abis = comptime blk: {
         assert(@intFromEnum(Target.Abi.none) == 0);
-        const fields = std.meta.fields(Target.Abi)[1..];
-        var array: [fields.len]Target.Abi = undefined;
-        for (fields, 0..) |field, i| {
-            array[i] = @field(Target.Abi, field.name);
+        const field_names = std.meta.fieldNames(Target.Abi)[1..];
+        var array: [field_names.len]Target.Abi = undefined;
+        for (field_names, 0..) |field_name, i| {
+            array[i] = @field(Target.Abi, field_name);
         }
         break :blk array;
     };

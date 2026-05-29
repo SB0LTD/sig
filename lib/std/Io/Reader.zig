@@ -1277,7 +1277,7 @@ pub fn takeEnum(r: *Reader, comptime Enum: type, endian: std.builtin.Endian) Tak
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(Enum)`.
 pub fn takeEnumNonexhaustive(r: *Reader, comptime Enum: type, endian: std.builtin.Endian) Error!Enum {
     const info = @typeInfo(Enum).@"enum";
-    comptime assert(!info.is_exhaustive);
+    comptime assert(info.mode != .exhaustive);
     comptime assert(@bitSizeOf(info.tag_type) == @sizeOf(info.tag_type) * 8);
     return takeEnum(r, Enum, endian) catch |err| switch (err) {
         error.InvalidEnumTag => unreachable,

@@ -1028,7 +1028,7 @@ const mnemonic_to_encodings_map = init: {
     const Entry = struct { Mnemonic, OpEn, []const Op, []const u8, ModrmExt, Mode, Feature };
     const encodings: []const Entry = @import("encodings.zon");
 
-    const mnemonic_count = @typeInfo(Mnemonic).@"enum".fields.len;
+    const mnemonic_count = @typeInfo(Mnemonic).@"enum".field_names.len;
     var mnemonic_map: [mnemonic_count][]Data = @splat(&.{});
     for (encodings) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
     var data_storage: [encodings.len]Data = undefined;

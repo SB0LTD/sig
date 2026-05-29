@@ -6330,10 +6330,10 @@ pub fn printNode(
                 const pt = elf.targetLoad(&ph.type);
                 if (std.enums.tagName(std.elf.PT, pt)) |pt_name|
                     try w.writeAll(pt_name)
-                else inline for (@typeInfo(std.elf.PT).@"enum".decls) |decl| {
-                    const decl_val = @field(std.elf.PT, decl.name);
+                else inline for (@typeInfo(std.elf.PT).@"enum".decl_names) |decl_name| {
+                    const decl_val = @field(std.elf.PT, decl_name);
                     if (@TypeOf(decl_val) != std.elf.PT) continue;
-                    if (pt == @field(std.elf.PT, decl.name)) break try w.writeAll(decl.name);
+                    if (pt == @field(std.elf.PT, decl_name)) break try w.writeAll(decl_name);
                 } else try w.print("0x{x}", .{pt});
                 try w.writeAll(", ");
                 const pf = elf.targetLoad(&ph.flags);

@@ -1648,8 +1648,8 @@ pub const CompareOperator = enum {
     }
 
     test reverse {
-        inline for (@typeInfo(CompareOperator).@"enum".fields) |op_field| {
-            const op = @as(CompareOperator, @enumFromInt(op_field.value));
+        inline for (@typeInfo(CompareOperator).@"enum".field_values) |op_field_value| {
+            const op = @as(CompareOperator, @enumFromInt(op_field_value));
             try testing.expect(compare(2, op, 3) == compare(3, op.reverse(), 2));
             try testing.expect(compare(3, op, 3) == compare(3, op.reverse(), 3));
             try testing.expect(compare(4, op, 3) == compare(3, op.reverse(), 4));

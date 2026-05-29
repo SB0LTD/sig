@@ -68,11 +68,11 @@ fn ExtraData(comptime T: type) type {
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
-    const fields = @typeInfo(T).@"struct".fields;
+    const info = @typeInfo(T).@"struct";
     var i: usize = index;
     var result: T = undefined;
-    inline for (fields) |field| {
-        @field(result, field.name) = switch (field.type) {
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        @field(result, field_name) = switch (field_type) {
             u32 => code.extra[i],
 
             Inst.Ref,
@@ -1877,7 +1877,7 @@ pub const Inst = struct {
 
         // Uncomment to view how many tag slots are available.
         //comptime {
-        //    @compileLog("ZIR tags left: ", 256 - @typeInfo(Tag).@"enum".fields.len);
+        //    @compileLog("ZIR tags left: ", 256 - @typeInfo(Tag).@"enum".field_names.len);
         //}
     };
 
@@ -2325,7 +2325,7 @@ pub const Inst = struct {
 
         _,
 
-        pub const static_len = @typeInfo(@This()).@"enum".fields.len - 1;
+        pub const static_len = @typeInfo(@This()).@"enum".field_names.len - 1;
 
         pub fn toIndex(inst: Ref) ?Index {
             assert(inst != .none);
@@ -3186,7 +3186,7 @@ pub const Inst = struct {
 
     pub const ReifySliceArgInfo = enum(u16) {
         /// Input element type is `type`.
-        /// Output element type is `std.lang.Type.Fn.Param.Attributes`.
+        /// Output element type is `std.lang.Type.Fn.ParamAttributes`.
         type_to_fn_param_attrs,
         /// Input element type is `[]const u8`.
         /// Output element type is `type`.
@@ -3194,10 +3194,10 @@ pub const Inst = struct {
         /// Identical to `string_to_struct_field_type` aside from emitting slightly different error messages.
         string_to_union_field_type,
         /// Input element type is `[]const u8`.
-        /// Output element type is `std.lang.Type.StructField.Attributes`.
+        /// Output element type is `std.lang.Type.Struct.FieldAttributes`.
         string_to_struct_field_attrs,
         /// Input element type is `[]const u8`.
-        /// Output element type is `std.lang.Type.UnionField.Attributes`.
+        /// Output element type is `std.lang.Type.Union.FieldAttributes`.
         string_to_union_field_attrs,
     };
 
@@ -4842,7 +4842,7 @@ pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
             const extra_index = extra.end +
                 extra.data.ret_ty.body_len +
                 extra.data.body_len +
-                @typeInfo(Inst.Func.SrcLocs).@"struct".fields.len;
+                @typeInfo(Inst.Func.SrcLocs).@"struct".field_names.len;
             return @bitCast([4]u32{
                 zir.extra[extra_index + 0],
                 zir.extra[extra_index + 1],
@@ -4869,7 +4869,7 @@ pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
             } else extra_index += @intFromBool(bits.has_ret_ty_ref);
             extra_index += @intFromBool(bits.has_any_noalias);
             extra_index += extra.data.body_len;
-            extra_index += @typeInfo(Zir.Inst.Func.SrcLocs).@"struct".fields.len;
+            extra_index += @typeInfo(Zir.Inst.Func.SrcLocs).@"struct".field_names.len;
             return @bitCast([4]u32{
                 zir.extra[extra_index + 0],
                 zir.extra[extra_index + 1],

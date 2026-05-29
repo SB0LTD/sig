@@ -11,7 +11,7 @@ pub fn main(init: std.process.Init) !void {
     };
 }
 fn printFieldCount(w: *Writer) Writer.Error!void {
-    try w.print("{d} ", .{@typeInfo(S).@"struct".fields.len});
+    try w.print("{d} ", .{@typeInfo(S).@"struct".field_names.len});
 }
 fn printOneField(w: *Writer) Writer.Error!void {
     const val: S = .{ .x = 100 };
@@ -34,7 +34,7 @@ pub fn main(init: std.process.Init) !void {
     };
 }
 fn printFieldCount(w: *Writer) Writer.Error!void {
-    try w.print("{d} ", .{@typeInfo(S).@"struct".fields.len});
+    try w.print("{d} ", .{@typeInfo(S).@"struct".field_names.len});
 }
 fn printOneField(w: *Writer) Writer.Error!void {
     const val: S = .{ .x = 100 };
@@ -57,7 +57,7 @@ pub fn main(init: std.process.Init) !void {
     };
 }
 fn printFieldCount(w: *Writer) Writer.Error!void {
-    try w.print("{d} ", .{@typeInfo(S).@"struct".fields.len});
+    try w.print("{d} ", .{@typeInfo(S).@"struct".field_names.len});
 }
 fn printOneField(w: *Writer) Writer.Error!void {
     const val: S = .{ .x = 100 };
@@ -81,7 +81,7 @@ pub fn main(init: std.process.Init) !void {
     };
 }
 fn printFieldCount(w: *Writer) Writer.Error!void {
-    try w.print("{d} ", .{@typeInfo(S).@"struct".fields.len});
+    try w.print("{d} ", .{@typeInfo(S).@"struct".field_names.len});
 }
 fn printOneField(w: *Writer) Writer.Error!void {
     //const val: S = .{ .x = 100 };

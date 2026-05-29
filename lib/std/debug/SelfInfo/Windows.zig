@@ -513,8 +513,8 @@ const Module = struct {
             if (coff_obj.getSectionByName(".debug_info") == null) break :dwarf null;
 
             var sections: Dwarf.SectionArray = undefined;
-            inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
-                sections[i] = if (coff_obj.getSectionByName("." ++ section.name)) |section_header| .{
+            inline for (@typeInfo(Dwarf.Section.Id).@"enum".field_names, 0..) |section_name, i| {
+                sections[i] = if (coff_obj.getSectionByName("." ++ section_name)) |section_header| .{
                     .data = try coff_obj.getSectionDataAlloc(section_header, arena),
                     .owned = false,
                 } else null;

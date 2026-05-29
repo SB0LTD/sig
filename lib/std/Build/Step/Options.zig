@@ -299,14 +299,14 @@ fn printEnum(
     try out.appendNTimes(gpa, ' ', indent);
     try out.print(gpa, "pub const {f} = enum ({s}) {{\n", .{ std.zig.fmtId(@typeName(T)), @typeName(val.tag_type) });
 
-    inline for (val.fields) |field| {
+    inline for (val.field_names, val.field_values) |field_name, field_value| {
         try out.appendNTimes(gpa, ' ', indent);
         try out.print(gpa, "    {f} = {d},\n", .{
-            std.zig.fmtIdFlags(field.name, .{ .allow_primitive = true }), field.value,
+            std.zig.fmtIdFlags(field_name, .{ .allow_primitive = true }), field_value,
         });
     }
 
-    if (!val.is_exhaustive) {
+    if (val.mode == .nonexhaustive) {
         try out.appendNTimes(gpa, ' ', indent);
         try out.appendSlice(gpa, "    _,\n");
     }
@@ -315,7 +315,13 @@ fn printEnum(
     try out.appendSlice(gpa, "};\n");
 }
 
-fn printStruct(options: *Options, out: *std.ArrayList(u8), comptime T: type, comptime val: std.builtin.Type.Struct, indent: u8) !void {
+fn printStruct(
+    options: *Options,
+    out: *std.ArrayList(u8),
+    comptime T: type,
+    comptime val: std.builtin.Type.Struct,
+    indent: u8,
+) !void {
     const gpa = options.step.owner.allocator;
     const gop = try options.encountered_types.getOrPut(gpa, @typeName(T));
     if (gop.found_existing) return;
@@ -331,32 +337,32 @@ fn printStruct(options: *Options, out: *std.ArrayList(u8), comptime T: type, com
 
     try out.appendSlice(gpa, " {\n");
 
-    inline for (val.fields) |field| {
+    inline for (val.field_names, val.field_types, val.field_attrs) |field_name, field_type, field_attrs| {
         try out.appendNTimes(gpa, ' ', indent);
 
-        const type_name = @typeName(field.type);
+        const type_name = @typeName(field_type);
 
         // If the type name doesn't contains a '.' the type is from zig builtins.
         if (std.mem.containsAtLeast(u8, type_name, 1, ".")) {
             try out.print(gpa, "    {f}: {f}", .{
-                std.zig.fmtIdFlags(field.name, .{ .allow_underscore = true, .allow_primitive = true }),
+                std.zig.fmtIdFlags(field_name, .{ .allow_underscore = true, .allow_primitive = true }),
                 std.zig.fmtId(type_name),
             });
         } else {
             try out.print(gpa, "    {f}: {s}", .{
-                std.zig.fmtIdFlags(field.name, .{ .allow_underscore = true, .allow_primitive = true }),
+                std.zig.fmtIdFlags(field_name, .{ .allow_underscore = true, .allow_primitive = true }),
                 type_name,
             });
         }
 
-        if (field.defaultValue()) |default_value| {
+        if (field_attrs.defaultValue(field_type)) |default_value| {
             try out.appendSlice(gpa, " = ");
-            switch (@typeInfo(@TypeOf(default_value))) {
+            switch (@typeInfo(field_type)) {
                 .@"enum" => try out.print(gpa, ".{s},\n", .{@tagName(default_value)}),
                 .@"struct" => |info| {
                     try printStructValue(options, out, info, default_value, indent + 4);
                 },
-                else => try printType(options, out, @TypeOf(default_value), default_value, indent, null),
+                else => try printType(options, out, field_type, default_value, indent, null),
             }
         } else {
             try out.appendSlice(gpa, ",\n");
@@ -368,8 +374,8 @@ fn printStruct(options: *Options, out: *std.ArrayList(u8), comptime T: type, com
     try out.appendNTimes(gpa, ' ', indent);
     try out.appendSlice(gpa, "};\n");
 
-    inline for (val.fields) |field| {
-        try printUserDefinedType(options, out, field.type, 0);
+    inline for (val.field_types) |field_type| {
+        try printUserDefinedType(options, out, field_type, 0);
     }
 }
 
@@ -384,24 +390,24 @@ fn printStructValue(
     try out.appendSlice(gpa, ".{\n");
 
     if (struct_val.is_tuple) {
-        inline for (struct_val.fields) |field| {
+        inline for (struct_val.field_names) |field_name| {
             try out.appendNTimes(gpa, ' ', indent);
-            try printType(options, out, @TypeOf(@field(val, field.name)), @field(val, field.name), indent, null);
+            try printType(options, out, @TypeOf(@field(val, field_name)), @field(val, field_name), indent, null);
         }
     } else {
-        inline for (struct_val.fields) |field| {
+        inline for (struct_val.field_names) |field_name| {
             try out.appendNTimes(gpa, ' ', indent);
             try out.print(gpa, "    .{f} = ", .{
-                std.zig.fmtIdFlags(field.name, .{ .allow_primitive = true, .allow_underscore = true }),
+                std.zig.fmtIdFlags(field_name, .{ .allow_primitive = true, .allow_underscore = true }),
             });
 
-            const field_name = @field(val, field.name);
-            switch (@typeInfo(@TypeOf(field_name))) {
-                .@"enum" => try out.print(gpa, ".{s},\n", .{@tagName(field_name)}),
+            const field_val = @field(val, field_name);
+            switch (@typeInfo(@TypeOf(field_val))) {
+                .@"enum" => try out.print(gpa, ".{s},\n", .{@tagName(field_val)}),
                 .@"struct" => |struct_info| {
-                    try printStructValue(options, out, struct_info, field_name, indent + 4);
+                    try printStructValue(options, out, struct_info, field_val, indent + 4);
                 },
-                else => try printType(options, out, @TypeOf(field_name), field_name, indent, null),
+                else => try printType(options, out, @TypeOf(field_val), field_val, indent, null),
             }
         }
     }

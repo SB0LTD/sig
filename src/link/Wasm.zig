@@ -2992,8 +2992,8 @@ pub fn createEmpty(
 
     if (options.object_host_name) |name| wasm.object_host_name = (try wasm.internString(name)).toOptional();
 
-    inline for (@typeInfo(PreloadedStrings).@"struct".fields) |field| {
-        @field(wasm.preloaded_strings, field.name) = try wasm.internString(field.name);
+    inline for (@typeInfo(PreloadedStrings).@"struct".field_names) |field_name| {
+        @field(wasm.preloaded_strings, field_name) = try wasm.internString(field_name);
     }
 
     wasm.entry_name = switch (options.entry) {

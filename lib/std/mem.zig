@@ -297,9 +297,13 @@ pub fn zeroes(comptime T: type) T {
                 return item;
             } else {
                 var structure: T = undefined;
-                inline for (struct_info.fields) |field| {
-                    if (!field.is_comptime) {
-                        @field(structure, field.name) = zeroes(field.type);
+                inline for (
+                    struct_info.field_names,
+                    struct_info.field_types,
+                    struct_info.field_attrs,
+                ) |field_name, field_type, field_attrs| {
+                    if (!field_attrs.@"comptime") {
+                        @field(structure, field_name) = zeroes(field_type);
                     }
                 }
                 return structure;
@@ -321,7 +325,7 @@ pub fn zeroes(comptime T: type) T {
                     return null;
                 },
                 .one, .many => {
-                    if (ptr_info.is_allowzero) return @ptrFromInt(0);
+                    if (ptr_info.attrs.@"allowzero") return @ptrFromInt(0);
                     @compileError("Only nullable and allowzero pointers can be set to zero.");
                 },
             }
@@ -471,44 +475,49 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
             switch (@typeInfo(Init)) {
                 .@"struct" => |init_info| {
                     if (init_info.is_tuple) {
-                        if (init_info.fields.len > struct_info.fields.len) {
+                        if (init_info.field_names.len > struct_info.field_names.len) {
                             @compileError("Tuple initializer has more elements than there are fields in `" ++ @typeName(T) ++ "`");
                         }
                     } else {
-                        inline for (init_info.fields) |field| {
-                            if (!@hasField(T, field.name)) {
-                                @compileError("Encountered an initializer for `" ++ field.name ++ "`, but it is not a field of " ++ @typeName(T));
+                        inline for (init_info.field_names) |field_name| {
+                            if (!@hasField(T, field_name)) {
+                                @compileError("Encountered an initializer for `" ++ field_name ++ "`, but it is not a field of " ++ @typeName(T));
                             }
                         }
                     }
 
                     var value: T = if (struct_info.layout == .@"extern") zeroes(T) else undefined;
 
-                    inline for (struct_info.fields, 0..) |field, i| {
-                        if (field.is_comptime) {
+                    inline for (
+                        struct_info.field_names,
+                        struct_info.field_types,
+                        struct_info.field_attrs,
+                        0..,
+                    ) |f_name, f_type, f_attr, i| {
+                        if (f_attr.@"comptime") {
                             continue;
                         }
 
-                        if (init_info.is_tuple and init_info.fields.len > i) {
-                            @field(value, field.name) = @field(init, init_info.fields[i].name);
-                        } else if (@hasField(@TypeOf(init), field.name)) {
-                            switch (@typeInfo(field.type)) {
+                        if (init_info.is_tuple and init_info.field_names.len > i) {
+                            @field(value, f_name) = @field(init, init_info.field_names[i]);
+                        } else if (@hasField(@TypeOf(init), f_name)) {
+                            switch (@typeInfo(f_type)) {
                                 .@"struct" => {
-                                    @field(value, field.name) = zeroInit(field.type, @field(init, field.name));
+                                    @field(value, f_name) = zeroInit(f_type, @field(init, f_name));
                                 },
                                 else => {
-                                    @field(value, field.name) = @field(init, field.name);
+                                    @field(value, f_name) = @field(init, f_name);
                                 },
                             }
-                        } else if (field.defaultValue()) |val| {
-                            @field(value, field.name) = val;
+                        } else if (f_attr.defaultValue(f_type)) |val| {
+                            @field(value, f_name) = val;
                         } else {
-                            switch (@typeInfo(field.type)) {
+                            switch (@typeInfo(f_type)) {
                                 .@"struct" => {
-                                    @field(value, field.name) = std.mem.zeroInit(field.type, .{});
+                                    @field(value, f_name) = std.mem.zeroInit(f_type, .{});
                                 },
                                 else => {
-                                    @field(value, field.name) = std.mem.zeroes(@TypeOf(@field(value, field.name)));
+                                    @field(value, f_name) = std.mem.zeroes(@TypeOf(@field(value, f_name)));
                                 },
                             }
                         }
@@ -867,13 +876,9 @@ fn Span(comptime T: type) type {
                 .many => ptr_info.sentinel() orelse @compileError("invalid type given to std.mem.span: " ++ @typeName(T)),
                 .c => 0,
             };
-            return @Pointer(.slice, .{
-                .@"const" = ptr_info.is_const,
-                .@"volatile" = ptr_info.is_volatile,
-                .@"allowzero" = ptr_info.is_allowzero and ptr_info.size != .c,
-                .@"align" = ptr_info.alignment,
-                .@"addrspace" = ptr_info.address_space,
-            }, ptr_info.child, new_sentinel);
+            var attrs = ptr_info.attrs;
+            attrs.@"allowzero" = attrs.@"allowzero" and ptr_info.size != .c;
+            return @Pointer(.slice, attrs, ptr_info.child, new_sentinel);
         },
         else => {},
     }
@@ -933,13 +938,9 @@ fn SliceTo(comptime T: type, comptime end: std.meta.Elem(T)) type {
                 .many => if (std.meta.sentinel(T)) |s| s == end else true,
                 .c => true,
             };
-            return @Pointer(.slice, .{
-                .@"const" = ptr_info.is_const,
-                .@"volatile" = ptr_info.is_volatile,
-                .@"allowzero" = ptr_info.is_allowzero and ptr_info.size != .c,
-                .@"align" = ptr_info.alignment,
-                .@"addrspace" = ptr_info.address_space,
-            }, Elem, if (have_sentinel) end else null);
+            var attrs = ptr_info.attrs;
+            attrs.@"allowzero" = attrs.@"allowzero" and ptr_info.size != .c;
+            return @Pointer(.slice, attrs, Elem, if (have_sentinel) end else null);
         },
         else => {},
     }
@@ -2210,19 +2211,19 @@ pub fn byteSwapAllFieldsAligned(comptime S: type, comptime a: Alignment, ptr: *a
         .@"struct" => |struct_info| {
             if (struct_info.backing_integer) |Int| {
                 ptr.* = @bitCast(@byteSwap(@as(Int, @bitCast(ptr.*))));
-            } else inline for (std.meta.fields(S)) |f| {
-                switch (@typeInfo(f.type)) {
-                    .@"struct" => byteSwapAllFieldsAligned(f.type, .fromByteUnits(f.alignment orelse @alignOf(f.type)), &@field(ptr, f.name)),
-                    .@"union", .array => byteSwapAllFieldsAligned(f.type, .fromByteUnits(f.alignment orelse @alignOf(f.type)), &@field(ptr, f.name)),
+            } else inline for (struct_info.field_types, struct_info.field_names, struct_info.field_attrs) |f_type, f_name, f_attr| {
+                switch (@typeInfo(f_type)) {
+                    .@"struct" => byteSwapAllFieldsAligned(f_type, .fromByteUnits(f_attr.@"align" orelse @alignOf(f_type)), &@field(ptr, f_name)),
+                    .@"union", .array => byteSwapAllFieldsAligned(f_type, .fromByteUnits(f_attr.@"align" orelse @alignOf(f_type)), &@field(ptr, f_name)),
                     .@"enum" => {
-                        @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
+                        @field(ptr, f_name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f_name))));
                     },
                     .bool => {},
                     .float => |float_info| {
-                        @field(ptr, f.name) = @bitCast(@byteSwap(@as(@Int(.unsigned, float_info.bits), @bitCast(@field(ptr, f.name)))));
+                        @field(ptr, f_name) = @bitCast(@byteSwap(@as(@Int(.unsigned, float_info.bits), @bitCast(@field(ptr, f_name)))));
                     },
                     else => {
-                        @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
+                        @field(ptr, f_name) = @byteSwap(@field(ptr, f_name));
                     },
                 }
             }
@@ -2232,9 +2233,9 @@ pub fn byteSwapAllFieldsAligned(comptime S: type, comptime a: Alignment, ptr: *a
                 @compileError("byteSwapAllFields expects an untagged union");
             }
 
-            const first_size = @bitSizeOf(union_info.fields[0].type);
-            inline for (union_info.fields) |field| {
-                if (@bitSizeOf(field.type) != first_size) {
+            const first_size = @bitSizeOf(union_info.field_types[0]);
+            inline for (union_info.field_types) |field_type| {
+                if (@bitSizeOf(field_type) != first_size) {
                     @compileError("Unable to byte-swap unions with varying field sizes");
                 }
             }
@@ -3940,15 +3941,8 @@ pub fn ReverseIterator(comptime T: type) type {
         .many, .c => @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'"),
     }
     const Element = std.meta.Elem(T);
-    const attrs: std.builtin.Type.Pointer.Attributes = .{
-        .@"const" = ptr.is_const,
-        .@"volatile" = ptr.is_volatile,
-        .@"allowzero" = ptr.is_allowzero,
-        .@"align" = ptr.alignment,
-        .@"addrspace" = ptr.address_space,
-    };
-    const Pointer = @Pointer(.many, attrs, Element, std.meta.sentinel(T));
-    const ElementPointer = @Pointer(.one, attrs, Element, null);
+    const Pointer = @Pointer(.many, ptr.attrs, Element, std.meta.sentinel(T));
+    const ElementPointer = @Pointer(.one, ptr.attrs, Element, null);
     return struct {
         ptr: Pointer,
         index: usize,
@@ -4255,7 +4249,7 @@ pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
         @compileError("expected many item pointer, got " ++ @typeName(T));
 
     // Do nothing if the pointer is already well-aligned.
-    if (align_to <= info.pointer.alignment orelse @alignOf(info.pointer.child))
+    if (align_to <= info.pointer.attrs.@"align" orelse @alignOf(info.pointer.child))
         return 0;
 
     // Calculate the aligned base address with an eye out for overflow.
@@ -4309,17 +4303,14 @@ fn CopyPtrAttrs(
     comptime child: type,
 ) type {
     const ptr = @typeInfo(source).pointer;
-    return @Pointer(size, .{
-        .@"const" = ptr.is_const,
-        .@"volatile" = ptr.is_volatile,
-        .@"allowzero" = ptr.is_allowzero,
-        .@"align" = ptr.alignment orelse a: {
-            // If the new child is aligned differently than the old one, explicitly align the type.
-            const want = @alignOf(ptr.child);
-            break :a if (@alignOf(child) == want) null else want;
-        },
-        .@"addrspace" = ptr.address_space,
-    }, child, null);
+    var attrs = ptr.attrs;
+    if (attrs.@"align" == null) {
+        const want = @alignOf(ptr.child);
+        if (@alignOf(child) != want) {
+            attrs.@"align" = want;
+        }
+    }
+    return @Pointer(size, attrs, child, null);
 }
 
 fn AsBytesReturnType(comptime P: type) type {
@@ -4383,10 +4374,13 @@ test "asBytes preserves pointer attributes" {
     const in = @typeInfo(@TypeOf(inPtr)).pointer;
     const out = @typeInfo(@TypeOf(outSlice)).pointer;
 
-    try testing.expectEqual(in.is_const, out.is_const);
-    try testing.expectEqual(in.is_volatile, out.is_volatile);
-    try testing.expectEqual(in.is_allowzero, out.is_allowzero);
-    try testing.expectEqual(in.alignment, out.alignment);
+    const in_attrs = in.attrs;
+    const out_attrs = out.attrs;
+
+    try testing.expectEqual(in_attrs.@"const", out_attrs.@"const");
+    try testing.expectEqual(in_attrs.@"volatile", out_attrs.@"volatile");
+    try testing.expectEqual(in_attrs.@"allowzero", out_attrs.@"allowzero");
+    try testing.expectEqual(in_attrs.@"align", out_attrs.@"align");
 }
 
 /// Given any value, returns a copy of its bytes in an array.
@@ -4463,13 +4457,13 @@ test "bytesAsValue preserves pointer attributes" {
     const inSlice = @as(*align(16) const volatile [4]u8, @ptrCast(&inArr))[0..];
     const outPtr = bytesAsValue(u32, inSlice);
 
-    const in = @typeInfo(@TypeOf(inSlice)).pointer;
-    const out = @typeInfo(@TypeOf(outPtr)).pointer;
+    const in_attrs = @typeInfo(@TypeOf(inSlice)).pointer.attrs;
+    const out_attrs = @typeInfo(@TypeOf(outPtr)).pointer.attrs;
 
-    try testing.expectEqual(in.is_const, out.is_const);
-    try testing.expectEqual(in.is_volatile, out.is_volatile);
-    try testing.expectEqual(in.is_allowzero, out.is_allowzero);
-    try testing.expectEqual(in.alignment, out.alignment);
+    try testing.expectEqual(in_attrs.@"const", out_attrs.@"const");
+    try testing.expectEqual(in_attrs.@"volatile", out_attrs.@"volatile");
+    try testing.expectEqual(in_attrs.@"allowzero", out_attrs.@"allowzero");
+    try testing.expectEqual(in_attrs.@"align", out_attrs.@"align");
 }
 
 /// Given a pointer to an array of bytes, returns a value of the specified type backed by a
@@ -4566,13 +4560,13 @@ test "bytesAsSlice preserves pointer attributes" {
     const inSlice = @as(*align(16) const volatile [4]u8, @ptrCast(&inArr))[0..];
     const outSlice = bytesAsSlice(u16, inSlice);
 
-    const in = @typeInfo(@TypeOf(inSlice)).pointer;
-    const out = @typeInfo(@TypeOf(outSlice)).pointer;
+    const in_attrs = @typeInfo(@TypeOf(inSlice)).pointer.attrs;
+    const out_attrs = @typeInfo(@TypeOf(outSlice)).pointer.attrs;
 
-    try testing.expectEqual(in.is_const, out.is_const);
-    try testing.expectEqual(in.is_volatile, out.is_volatile);
-    try testing.expectEqual(in.is_allowzero, out.is_allowzero);
-    try testing.expectEqual(in.alignment, out.alignment);
+    try testing.expectEqual(in_attrs.@"const", out_attrs.@"const");
+    try testing.expectEqual(in_attrs.@"volatile", out_attrs.@"volatile");
+    try testing.expectEqual(in_attrs.@"allowzero", out_attrs.@"allowzero");
+    try testing.expectEqual(in_attrs.@"align", out_attrs.@"align");
 }
 
 test "bytesAsSlice with zero-bit element type" {
@@ -4678,25 +4672,19 @@ test "sliceAsBytes preserves pointer attributes" {
     const inSlice = @as(*align(16) const volatile [2]u16, @ptrCast(&inArr))[0..];
     const outSlice = sliceAsBytes(inSlice);
 
-    const in = @typeInfo(@TypeOf(inSlice)).pointer;
-    const out = @typeInfo(@TypeOf(outSlice)).pointer;
+    const in_attrs = @typeInfo(@TypeOf(inSlice)).pointer.attrs;
+    const out_attrs = @typeInfo(@TypeOf(outSlice)).pointer.attrs;
 
-    try testing.expectEqual(in.is_const, out.is_const);
-    try testing.expectEqual(in.is_volatile, out.is_volatile);
-    try testing.expectEqual(in.is_allowzero, out.is_allowzero);
-    try testing.expectEqual(in.alignment, out.alignment);
+    try testing.expectEqual(in_attrs.@"const", out_attrs.@"const");
+    try testing.expectEqual(in_attrs.@"volatile", out_attrs.@"volatile");
+    try testing.expectEqual(in_attrs.@"allowzero", out_attrs.@"allowzero");
+    try testing.expectEqual(in_attrs.@"align", out_attrs.@"align");
 }
 
 fn AbsorbSentinelReturnType(comptime Slice: type) type {
     const info = @typeInfo(Slice).pointer;
     assert(info.size == .slice);
-    return @Pointer(.slice, .{
-        .@"const" = info.is_const,
-        .@"volatile" = info.is_volatile,
-        .@"allowzero" = info.is_allowzero,
-        .@"addrspace" = info.address_space,
-        .@"align" = info.alignment,
-    }, info.child, null);
+    return @Pointer(.slice, info.attrs, info.child, null);
 }
 
 /// If the provided slice is not sentinel terminated, do nothing and return that slice.
@@ -4949,13 +4937,9 @@ test "freeing empty string with null-terminated sentinel" {
 /// all other pointer attributes copied from `AttributeSource`.
 fn AlignedSlice(comptime AttributeSource: type, comptime new_alignment: usize) type {
     const ptr = @typeInfo(AttributeSource).pointer;
-    return @Pointer(.slice, .{
-        .@"const" = ptr.is_const,
-        .@"volatile" = ptr.is_volatile,
-        .@"allowzero" = ptr.is_allowzero,
-        .@"align" = new_alignment,
-        .@"addrspace" = ptr.address_space,
-    }, ptr.child, null);
+    var attrs = ptr.attrs;
+    attrs.@"align" = new_alignment;
+    return @Pointer(.slice, attrs, ptr.child, null);
 }
 
 /// Returns the largest slice in the given bytes that conforms to the new alignment,

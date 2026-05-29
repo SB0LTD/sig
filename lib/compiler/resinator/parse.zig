@@ -137,7 +137,7 @@ pub const Parser = struct {
     fn parseOptionalStatements(self: *Self, resource: ResourceType) ![]*Node {
         var optional_statements: std.ArrayList(*Node) = .empty;
 
-        const num_statement_types = @typeInfo(rc.OptionalStatements).@"enum".fields.len;
+        const num_statement_types = @typeInfo(rc.OptionalStatements).@"enum".field_names.len;
         var statement_type_has_duplicates: [num_statement_types]bool = @splat(false);
         var last_statement_per_type: [num_statement_types]?*Node = @splat(null);
 

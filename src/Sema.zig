@@ -3945,7 +3945,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 _ = try replacement_block.addBr(placeholder_inst, .void_value);
                 try sema.air_extra.ensureUnusedCapacity(
                     gpa,
-                    @typeInfo(Air.Block).@"struct".fields.len + replacement_block.instructions.items.len,
+                    @typeInfo(Air.Block).@"struct".field_names.len + replacement_block.instructions.items.len,
                 );
                 sema.air_instructions.set(@intFromEnum(placeholder_inst), .{
                     .tag = .block,
@@ -5186,7 +5186,7 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
 
         try child_block.instructions.append(gpa, loop_inst);
 
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len + loop_block_len + 1);
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".field_names.len + loop_block_len + 1);
         sema.air_instructions.items(.data)[@intFromEnum(loop_inst)].ty_pl.payload = sema.addExtraAssumeCapacity(
             Air.Block{ .body_len = @intCast(loop_block_len + 1) },
         );
@@ -5285,7 +5285,7 @@ fn resolveBlockBody(
                     // We need a runtime block for scoping reasons.
                     _ = try child_block.addBr(merges.block_inst, .void_value);
                     try parent_block.instructions.append(sema.gpa, merges.block_inst);
-                    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Block).@"struct".fields.len +
+                    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Block).@"struct".field_names.len +
                         child_block.instructions.items.len);
                     sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
                         .ty = .void_type,
@@ -5361,7 +5361,7 @@ fn resolveAnalyzedBlock(
             .dbg_inline_block => {
                 // Create a block containing all instruction from the body.
                 try parent_block.instructions.append(gpa, merges.block_inst);
-                try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).@"struct".fields.len +
+                try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).@"struct".field_names.len +
                     child_block.instructions.items.len);
                 sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
                     .ty = .noreturn_type,
@@ -5399,7 +5399,7 @@ fn resolveAnalyzedBlock(
             try parent_block.instructions.append(gpa, merges.block_inst);
             switch (block_tag) {
                 .block => {
-                    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len +
+                    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".field_names.len +
                         child_block.instructions.items.len);
                     sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
                         .ty = .void_type,
@@ -5409,7 +5409,7 @@ fn resolveAnalyzedBlock(
                     } };
                 },
                 .dbg_inline_block => {
-                    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).@"struct".fields.len +
+                    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).@"struct".field_names.len +
                         child_block.instructions.items.len);
                     sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
                         .ty = .void_type,
@@ -5464,7 +5464,7 @@ fn resolveAnalyzedBlock(
     const ty_inst = Air.internedToRef(resolved_ty.toIntern());
     switch (block_tag) {
         .block => {
-            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len +
+            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".field_names.len +
                 child_block.instructions.items.len);
             sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
                 .ty = ty_inst,
@@ -5474,7 +5474,7 @@ fn resolveAnalyzedBlock(
             } };
         },
         .dbg_inline_block => {
-            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).@"struct".fields.len +
+            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).@"struct".field_names.len +
                 child_block.instructions.items.len);
             sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
                 .ty = ty_inst,
@@ -5511,7 +5511,7 @@ fn resolveAnalyzedBlock(
         // Convert the br instruction to a block instruction that has the coercion
         // and then a new br inside that returns the coerced instruction.
         const sub_block_len: u32 = @intCast(coerce_block.instructions.items.len + 1);
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len +
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".field_names.len +
             sub_block_len);
         try sema.air_instructions.ensureUnusedCapacity(gpa, 1);
         const sub_br_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
@@ -6072,7 +6072,7 @@ fn popErrorReturnTrace(
         // The result might be an error. If it is, we leave the error trace alone. If it isn't, we need
         // to pop any error trace that may have been propagated from our arguments.
 
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len);
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".field_names.len);
         const cond_block_inst = try block.addInstAsIndex(.{
             .tag = .block,
             .data = .{
@@ -6100,9 +6100,9 @@ fn popErrorReturnTrace(
         defer else_block.instructions.deinit(gpa);
         _ = try else_block.addBr(cond_block_inst, .void_value);
 
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".fields.len +
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".field_names.len +
             then_block.instructions.items.len + else_block.instructions.items.len +
-            @typeInfo(Air.Block).@"struct".fields.len + 1); // +1 for the sole .cond_br instruction in the .block
+            @typeInfo(Air.Block).@"struct".field_names.len + 1); // +1 for the sole .cond_br instruction in the .block
 
         const cond_br_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
         try sema.air_instructions.append(gpa, .{
@@ -7019,7 +7019,7 @@ fn analyzeCall(
             => unreachable,
         };
 
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).@"struct".fields.len + runtime_args.len);
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).@"struct".field_names.len + runtime_args.len);
         const call_ref = try block.addInst(.{
             .tag = call_tag,
             .data = .{ .pl_op = .{
@@ -9969,7 +9969,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         }
     }
 
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".fields.len +
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".field_names.len +
         non_err_block.instructions.items.len + switch_block.instructions.items.len);
     const cond_br_payload = sema.addExtraAssumeCapacity(Air.CondBr{
         .then_body_len = @intCast(non_err_block.instructions.items.len),
@@ -10325,7 +10325,7 @@ fn analyzeSwitchBlock(
             _ = try sema.analyzeBodyRuntimeBreak(&case_block, body);
         }
 
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len +
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".field_names.len +
             case_block.instructions.items.len);
         const payload_index = sema.addExtraAssumeCapacity(Air.Block{
             .body_len = @intCast(case_block.instructions.items.len),
@@ -10416,7 +10416,7 @@ fn analyzeSwitchBlock(
 
         // Replace placeholder with a block.
         // No `br` is needed as the block is a switch dispatch so necessarily `noreturn`.
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len +
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".field_names.len +
             replacement_block.instructions.items.len);
         sema.air_instructions.set(@intFromEnum(placeholder_inst), .{
             .tag = .block,
@@ -10519,7 +10519,7 @@ fn finishSwitchBr(
     defer branch_hints.bags.deinit(gpa);
 
     var cases_extra: std.ArrayList(u32) = try .initCapacity(gpa, estimated_cases_len *
-        @typeInfo(Air.SwitchBr.Case).@"struct".fields.len);
+        @typeInfo(Air.SwitchBr.Case).@"struct".field_names.len);
     defer cases_extra.deinit(gpa);
 
     // We will reuse this block for each case.
@@ -10609,7 +10609,7 @@ fn finishSwitchBr(
                 };
                 branch_hints.appendAssumeCapacity(prong_hint);
 
-                try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".field_names.len +
                     1 + // `item`, no ranges
                     case_block.instructions.items.len);
                 cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
@@ -10696,7 +10696,7 @@ fn finishSwitchBr(
                     );
                     try branch_hints.append(gpa, prong_hint);
 
-                    try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                    try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".field_names.len +
                         1 + // `item`, no ranges
                         case_block.instructions.items.len);
                     cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
@@ -10752,7 +10752,7 @@ fn finishSwitchBr(
         };
         try branch_hints.append(gpa, prong_hint);
 
-        try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+        try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".field_names.len +
             item_refs.len +
             2 * range_refs.len +
             case_block.instructions.items.len);
@@ -10839,7 +10839,7 @@ fn finishSwitchBr(
                 };
                 try branch_hints.append(gpa, prong_hint);
 
-                try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".field_names.len +
                     1 + // `item`, no ranges
                     case_block.instructions.items.len);
                 cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
@@ -10899,11 +10899,11 @@ fn finishSwitchBr(
             };
             try branch_hints.append(gpa, prong_hint);
 
-            try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+            try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".field_names.len +
                 (validated_switch.seen_enum_fields.len + 1 - zir_switch.totalItemsLen()) + // +1 because totalItemsLen includes the _
                 case_block.instructions.items.len);
             const extra_case = cases_extra.addManyAsArrayAssumeCapacity(
-                @typeInfo(Air.SwitchBr.Case).@"struct".fields.len,
+                @typeInfo(Air.SwitchBr.Case).@"struct".field_names.len,
             );
             var items_len: u32 = 0;
             for (validated_switch.seen_enum_fields, 0..) |seen_field, field_i| {
@@ -10996,7 +10996,7 @@ fn finishSwitchBr(
 
     assert(branch_hints.count == cases_len + 1); // +1 for catch-all hint
 
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr).@"struct".fields.len +
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr).@"struct".field_names.len +
         branch_hints.bags.items.len +
         cases_extra.items.len +
         catch_all_extra.len);
@@ -12367,7 +12367,7 @@ fn analyzeSwitchPayloadCapture(
                 const coerced = try sema.coerce(&coerce_block, capture_ty, uncoerced, case_src);
                 _ = try coerce_block.addBr(capture_block_inst, coerced);
 
-                try cases_extra.ensureUnusedCapacity(@typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                try cases_extra.ensureUnusedCapacity(@typeInfo(Air.SwitchBr.Case).@"struct".field_names.len +
                     1 + // `item`, no ranges
                     coerce_block.instructions.items.len);
                 cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
@@ -12395,9 +12395,9 @@ fn analyzeSwitchPayloadCapture(
             break :len coerce_block.instructions.items.len;
         };
 
-        try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.SwitchBr).@"struct".fields.len +
+        try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.SwitchBr).@"struct".field_names.len +
             cases_extra.items.len +
-            @typeInfo(Air.Block).@"struct".fields.len +
+            @typeInfo(Air.Block).@"struct".field_names.len +
             1);
 
         const switch_br_inst: u32 = @intCast(sema.air_instructions.len);
@@ -15237,7 +15237,7 @@ fn zirAsm(
 
     var extra_i = extra.end;
     var output_type_bits = extra.data.output_type_bits;
-    var needed_capacity: usize = @typeInfo(Air.Asm).@"struct".fields.len + outputs_len + inputs_len;
+    var needed_capacity: usize = @typeInfo(Air.Asm).@"struct".field_names.len + outputs_len + inputs_len;
 
     const ConstraintName = struct { c: []const u8, n: []const u8 };
     const out_args = try sema.arena.alloc(Air.Inst.Ref, outputs_len);
@@ -17368,9 +17368,9 @@ fn finishCondBr(
 ) !Air.Inst.Ref {
     const gpa = sema.gpa;
 
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".fields.len +
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".field_names.len +
         then_block.instructions.items.len + else_block.instructions.items.len +
-        @typeInfo(Air.Block).@"struct".fields.len + child_block.instructions.items.len + 1);
+        @typeInfo(Air.Block).@"struct".field_names.len + child_block.instructions.items.len + 1);
 
     const cond_br_payload = sema.addExtraAssumeCapacity(Air.CondBr{
         .then_body_len = @intCast(then_block.instructions.items.len),
@@ -17579,7 +17579,7 @@ fn zirCondbr(
         break :h .unlikely;
     } else try sema.analyzeBodyRuntimeBreak(&sub_block, else_body);
 
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".fields.len +
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".field_names.len +
         true_instructions.len + sub_block.instructions.items.len);
     _ = try parent_block.addInst(.{
         .tag = .cond_br,
@@ -17651,7 +17651,7 @@ fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!
     // The only interesting hint here is `.cold`, which can come from e.g. `errdefer @panic`.
     const is_cold = sema.branch_hint == .cold;
 
-    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Try).@"struct".fields.len +
+    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Try).@"struct".field_names.len +
         sub_block.instructions.items.len);
     const try_inst = try parent_block.addInst(.{
         .tag = if (is_cold) .try_cold else .@"try",
@@ -17731,7 +17731,7 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
         },
     });
     const res_ty_ref = Air.internedToRef(res_ty.toIntern());
-    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.TryPtr).@"struct".fields.len +
+    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.TryPtr).@"struct".field_names.len +
         sub_block.instructions.items.len);
     const try_inst = try parent_block.addInst(.{
         .tag = if (is_cold) .try_ptr_cold else .try_ptr,
@@ -17979,9 +17979,9 @@ fn maybePushErrorTrace(
     try sema.air_instructions.ensureUnusedCapacity(gpa, 4);
     try sema.air_extra.ensureUnusedCapacity(
         gpa,
-        @typeInfo(Air.Block).@"struct".fields.len +
+        @typeInfo(Air.Block).@"struct".field_names.len +
             1 + // the main block contains only the `cond_br`
-            @typeInfo(Air.CondBr).@"struct".fields.len +
+            @typeInfo(Air.CondBr).@"struct".field_names.len +
             1 + // the non-error branch contains only a `br`
             err_block.instructions.items.len + 1, // the error branch contains the `returnError` call and a `br`
     );
@@ -19970,7 +19970,7 @@ fn zirReifyFn(
             block,
             param_attrs_src,
             try param_attrs_arr.elemValue(pt, param_idx),
-            std.lang.Type.Fn.Param.Attributes,
+            std.lang.Type.Fn.ParamAttributes,
         );
         try sema.checkParamType(
             block,
@@ -20161,15 +20161,15 @@ fn zirReifyStruct(
         const field_name = try sema.sliceToIpString(block, field_names_src, field_name_val, .{ .simple = .struct_field_names });
 
         const field_attr_comptime = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-            std.lang.Type.StructField.Attributes,
+            std.lang.Type.Struct.FieldAttributes,
             "comptime",
         ).?);
         const field_attr_align = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-            std.lang.Type.StructField.Attributes,
+            std.lang.Type.Struct.FieldAttributes,
             "align",
         ).?);
         const field_attr_default_value_ptr = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-            std.lang.Type.StructField.Attributes,
+            std.lang.Type.Struct.FieldAttributes,
             "default_value_ptr",
         ).?);
 
@@ -20246,15 +20246,15 @@ fn zirReifyStruct(
                 wip.field_types.get(ip)[field_idx] = field_ty.toIntern();
 
                 const field_attr_comptime = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-                    std.lang.Type.StructField.Attributes,
+                    std.lang.Type.Struct.FieldAttributes,
                     "comptime",
                 ).?);
                 const field_attr_align = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-                    std.lang.Type.StructField.Attributes,
+                    std.lang.Type.Struct.FieldAttributes,
                     "align",
                 ).?);
                 const field_attr_default_value_ptr = try field_attrs_val.fieldValue(pt, std.meta.fieldIndex(
-                    std.lang.Type.StructField.Attributes,
+                    std.lang.Type.Struct.FieldAttributes,
                     "default_value_ptr",
                 ).?);
 
@@ -20444,7 +20444,7 @@ fn zirReifyUnion(
             block,
             field_attrs_src,
             try field_attrs_arr.elemValue(pt, field_idx),
-            std.lang.Type.UnionField.Attributes,
+            std.lang.Type.Union.FieldAttributes,
         );
         if (field_attrs.@"align") |bytes| {
             if (layout == .@"packed") {
@@ -20493,7 +20493,7 @@ fn zirReifyUnion(
                     block,
                     .unneeded,
                     try field_attrs_arr.elemValue(pt, field_idx),
-                    std.lang.Type.UnionField.Attributes,
+                    std.lang.Type.Union.FieldAttributes,
                 );
                 if (field_attrs.@"align") |bytes| {
                     // No source location; first loop checked this is valid.
@@ -25459,9 +25459,9 @@ fn addSafetyCheckExtra(
 
     try parent_block.instructions.ensureUnusedCapacity(gpa, 1);
 
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len +
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".field_names.len +
         1 + // The main block only needs space for the cond_br.
-        @typeInfo(Air.CondBr).@"struct".fields.len +
+        @typeInfo(Air.CondBr).@"struct".field_names.len +
         1 + // The ok branch of the cond_br only needs space for the br.
         fail_block.instructions.items.len);
 
@@ -33269,8 +33269,8 @@ pub fn getTmpAir(sema: Sema) Air {
 }
 
 pub fn addExtra(sema: *Sema, extra: anytype) Allocator.Error!u32 {
-    const fields = std.meta.fields(@TypeOf(extra));
-    try sema.air_extra.ensureUnusedCapacity(sema.gpa, fields.len);
+    const field_count = std.meta.fieldNames(@TypeOf(extra)).len;
+    try sema.air_extra.ensureUnusedCapacity(sema.gpa, field_count);
     return sema.addExtraAssumeCapacity(extra);
 }
 
@@ -33280,15 +33280,15 @@ pub fn addExtraAssumeCapacity(sema: *Sema, extra: anytype) u32 {
     return result;
 }
 
-fn payloadToExtraItems(data: anytype) [@typeInfo(@TypeOf(data)).@"struct".fields.len]u32 {
-    const fields = @typeInfo(@TypeOf(data)).@"struct".fields;
-    var result: [fields.len]u32 = undefined;
-    inline for (&result, fields) |*val, field| {
-        val.* = switch (field.type) {
-            u32 => @field(data, field.name),
-            i32, Air.CondBr.BranchHints, Air.Asm.Flags => @bitCast(@field(data, field.name)),
-            Air.Inst.Ref, InternPool.Index => @intFromEnum(@field(data, field.name)),
-            else => @compileError("bad field type: " ++ @typeName(field.type)),
+fn payloadToExtraItems(data: anytype) [@typeInfo(@TypeOf(data)).@"struct".field_names.len]u32 {
+    const info = @typeInfo(@TypeOf(data)).@"struct";
+    var result: [info.field_names.len]u32 = undefined;
+    inline for (&result, info.field_names, info.field_types) |*val, field_name, field_type| {
+        val.* = switch (field_type) {
+            u32 => @field(data, field_name),
+            i32, Air.CondBr.BranchHints, Air.Asm.Flags => @bitCast(@field(data, field_name)),
+            Air.Inst.Ref, InternPool.Index => @intFromEnum(@field(data, field_name)),
+            else => @compileError("bad field type: " ++ @typeName(field_type)),
         };
     }
     return result;

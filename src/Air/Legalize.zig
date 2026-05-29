@@ -2635,7 +2635,7 @@ const Block = struct {
             .data = .{ .legalize_compiler_rt_call = .{
                 .func = func,
                 .payload = payload: {
-                    const extra_len = @typeInfo(Air.Call).@"struct".fields.len + args.len;
+                    const extra_len = @typeInfo(Air.Call).@"struct".field_names.len + args.len;
                     try l.air_extra.ensureUnusedCapacity(l.pt.zcu.gpa, extra_len);
                     const index = l.addExtra(Air.Call, .{ .args_len = @intCast(args.len) }) catch unreachable;
                     l.air_extra.appendSliceAssumeCapacity(@ptrCast(args));
@@ -2913,12 +2913,12 @@ fn addInstAssumeCapacity(l: *Legalize, inst: Air.Inst) Air.Inst.Index {
 }
 
 fn addExtra(l: *Legalize, comptime Extra: type, extra: Extra) Error!u32 {
-    const extra_fields = @typeInfo(Extra).@"struct".fields;
-    try l.air_extra.ensureUnusedCapacity(l.pt.zcu.gpa, extra_fields.len);
-    defer inline for (extra_fields) |field| l.air_extra.appendAssumeCapacity(switch (field.type) {
-        u32 => @field(extra, field.name),
-        Air.Inst.Ref => @intFromEnum(@field(extra, field.name)),
-        else => @compileError(@typeName(field.type)),
+    const extra_info = @typeInfo(Extra).@"struct";
+    try l.air_extra.ensureUnusedCapacity(l.pt.zcu.gpa, extra_info.field_names.len);
+    defer inline for (extra_info.field_names, extra_info.field_types) |field_name, field_type| l.air_extra.appendAssumeCapacity(switch (field_type) {
+        u32 => @field(extra, field_name),
+        Air.Inst.Ref => @intFromEnum(@field(extra, field_name)),
+        else => @compileError(@typeName(field_type)),
     });
     return @intCast(l.air_extra.items.len);
 }
@@ -2954,7 +2954,7 @@ fn compilerRtCall(
     const func_ret_ty = func.returnType();
 
     if (func_ret_ty.toIntern() == result_ty.toIntern()) {
-        try l.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).@"struct".fields.len + args.len);
+        try l.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).@"struct".field_names.len + args.len);
         const payload = l.addExtra(Air.Call, .{ .args_len = @intCast(args.len) }) catch unreachable;
         l.air_extra.appendSliceAssumeCapacity(@ptrCast(args));
         return l.replaceInst(orig_inst, .legalize_compiler_rt_call, .{ .legalize_compiler_rt_call = .{

@@ -52,7 +52,7 @@ pub const Diags = struct {
         alloc_failure_occurred: bool = false,
 
         const Int = blk: {
-            const bits = @typeInfo(@This()).@"struct".fields.len;
+            const bits = @typeInfo(@This()).@"struct".field_names.len;
             break :blk @Int(.unsigned, bits);
         };
 

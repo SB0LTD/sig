@@ -332,8 +332,8 @@ test "fsync" {
 test "getrlimit and setrlimit" {
     if (posix.system.rlimit_resource == void) return error.SkipZigTest;
 
-    inline for (@typeInfo(posix.rlimit_resource).@"enum".fields) |field| {
-        const resource: posix.rlimit_resource = @enumFromInt(field.value);
+    inline for (@typeInfo(posix.rlimit_resource).@"enum".field_values) |field_value| {
+        const resource: posix.rlimit_resource = @enumFromInt(field_value);
         const limit = try posix.getrlimit(resource);
 
         // XNU kernel does not support RLIMIT_STACK if a custom stack is active,

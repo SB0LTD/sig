@@ -1627,7 +1627,7 @@ test "packed struct field in anonymous struct" {
     try std.testing.expect(countFields(.{ .t = T{} }) == 1);
 }
 fn countFields(v: anytype) usize {
-    return @typeInfo(@TypeOf(v)).@"struct".fields.len;
+    return @typeInfo(@TypeOf(v)).@"struct".field_names.len;
 }
 
 test "struct init with no result pointer sets field result types" {

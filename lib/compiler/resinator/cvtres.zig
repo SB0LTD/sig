@@ -1054,17 +1054,18 @@ pub const supported_targets = struct {
             .ebc,
         };
         comptime {
-            for (@typeInfo(Arch).@"enum".fields) |enum_field| {
-                _ = std.mem.indexOfScalar(Arch, ordered_for_display, @enumFromInt(enum_field.value)) orelse {
-                    @compileError(std.fmt.comptimePrint("'{s}' missing from ordered_for_display", .{enum_field.name}));
+            const info = @typeInfo(Arch).@"enum";
+            for (info.field_names, info.field_values) |field_name, field_value| {
+                _ = std.mem.indexOfScalar(Arch, ordered_for_display, @enumFromInt(field_value)) orelse {
+                    @compileError(std.fmt.comptimePrint("'{s}' missing from ordered_for_display", .{field_name}));
                 };
             }
         }
 
         pub const longest_name = blk: {
             var len = 0;
-            for (@typeInfo(Arch).@"enum".fields) |field| {
-                if (field.name.len > len) len = field.name.len;
+            for (@typeInfo(Arch).@"enum".field_names) |field_name| {
+                if (field_name.len > len) len = field_name.len;
             }
             break :blk len;
         };
@@ -1106,14 +1107,14 @@ pub const supported_targets = struct {
         // Enforce two things:
         // 1. Arch enum field names are all lowercase (necessary for how fromStringIgnoreCase is implemented)
         // 2. All enum fields in Arch have an associated RVA relocation type when converted to a coff.IMAGE.FILE.MACHINE
-        for (@typeInfo(Arch).@"enum".fields) |enum_field| {
-            const all_lower = all_lower: for (enum_field.name) |c| {
+        for (@typeInfo(Arch).@"enum".field_names) |field_name| {
+            const all_lower = all_lower: for (field_name) |c| {
                 if (std.ascii.isUpper(c)) break :all_lower false;
             } else break :all_lower true;
-            if (!all_lower) @compileError(std.fmt.comptimePrint("Arch field is not all lowercase: {s}", .{enum_field.name}));
-            const coff_machine = @field(Arch, enum_field.name).toCoffMachineType();
+            if (!all_lower) @compileError(std.fmt.comptimePrint("Arch field is not all lowercase: {s}", .{field_name}));
+            const coff_machine = @field(Arch, field_name).toCoffMachineType();
             _ = rvaRelocationTypeIndicator(coff_machine) orelse {
-                @compileError(std.fmt.comptimePrint("No RVA relocation for Arch: {s}", .{enum_field.name}));
+                @compileError(std.fmt.comptimePrint("No RVA relocation for Arch: {s}", .{field_name}));
             };
         }
     }

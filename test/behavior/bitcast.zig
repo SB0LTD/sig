@@ -359,8 +359,8 @@ test "comptime @bitCast packed struct to int and back" {
     _ = &i;
     const rt_cast = @as(S, @bitCast(i));
     const ct_cast = comptime @as(S, @bitCast(@as(Int, 0)));
-    inline for (@typeInfo(S).@"struct".fields) |field| {
-        try expectEqual(@field(rt_cast, field.name), @field(ct_cast, field.name));
+    inline for (@typeInfo(S).@"struct".field_names) |field_name| {
+        try expectEqual(@field(rt_cast, field_name), @field(ct_cast, field_name));
     }
 }
 

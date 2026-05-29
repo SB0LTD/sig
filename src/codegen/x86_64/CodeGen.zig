@@ -1214,20 +1214,20 @@ fn addInst(self: *CodeGen, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
 }
 
 fn addExtra(self: *CodeGen, extra: anytype) Allocator.Error!u32 {
-    const fields = std.meta.fields(@TypeOf(extra));
-    try self.mir_extra.ensureUnusedCapacity(self.gpa, fields.len);
+    const field_count = std.meta.fieldNames(@TypeOf(extra)).len;
+    try self.mir_extra.ensureUnusedCapacity(self.gpa, field_count);
     return self.addExtraAssumeCapacity(extra);
 }
 
 fn addExtraAssumeCapacity(self: *CodeGen, extra: anytype) u32 {
-    const fields = std.meta.fields(@TypeOf(extra));
+    const info = @typeInfo(@TypeOf(extra)).@"struct";
     const result: u32 = @intCast(self.mir_extra.items.len);
-    inline for (fields) |field| {
-        self.mir_extra.appendAssumeCapacity(switch (field.type) {
-            u32 => @field(extra, field.name),
-            i32, Mir.Memory.Info => @bitCast(@field(extra, field.name)),
-            FrameIndex => @intFromEnum(@field(extra, field.name)),
-            else => @compileError("bad field type: " ++ field.name ++ ": " ++ @typeName(field.type)),
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        self.mir_extra.appendAssumeCapacity(switch (field_type) {
+            u32 => @field(extra, field_name),
+            i32, Mir.Memory.Info => @bitCast(@field(extra, field_name)),
+            FrameIndex => @intFromEnum(@field(extra, field_name)),
+            else => @compileError("bad field type: " ++ field_name ++ ": " ++ @typeName(field_type)),
         });
     }
     return result;
@@ -177140,7 +177140,7 @@ fn airBr(self: *CodeGen, inst: Air.Inst.Index) !void {
 }
 
 fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
-    @setEvalBranchQuota(1_100 + @typeInfo(Mir.Inst.Fixes).@"enum".fields.len);
+    @setEvalBranchQuota(1_100 + @typeInfo(Mir.Inst.Fixes).@"enum".field_names.len);
     const pt = self.pt;
     const zcu = pt.zcu;
     const unwrapped_asm = self.air.unwrapAsm(inst);
@@ -177748,8 +177748,8 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
         std.mem.reverse(Operand, ops[0..ops_len]);
         if (mnem_size.size != .none and !mnem_size.used) {
             comptime var max_mnem_len: usize = 0;
-            inline for (@typeInfo(encoder.Instruction.Mnemonic).@"enum".fields) |mnem|
-                max_mnem_len = @max(mnem.name.len, max_mnem_len);
+            inline for (@typeInfo(encoder.Instruction.Mnemonic).@"enum".field_names) |mnem_name|
+                max_mnem_len = @max(mnem_name.len, max_mnem_len);
             var intel_mnem_buf: [max_mnem_len + 1]u8 = undefined;
             const intel_mnem_str = std.fmt.bufPrint(&intel_mnem_buf, "{s}{c}", .{
                 @tagName(mnem_tag),

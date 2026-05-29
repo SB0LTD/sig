@@ -177,27 +177,27 @@ pub fn StaticMap(comptime Enum: type) type {
         pub fn initComptime(comptime key_pairs: anytype) ReturnType {
             const struct_info = @typeInfo(@TypeOf(key_pairs)).@"struct";
             const error_msg = "Each field of '" ++ @typeName(Enum) ++ "' must map to exactly one OID";
-            if (!enum_info.is_exhaustive or enum_info.fields.len != struct_info.fields.len) {
+            if (enum_info.mode == .nonexhaustive or enum_info.field_names.len != struct_info.field_names.len) {
                 @compileError(error_msg);
             }
 
             comptime var enum_to_oid = EnumToOid.initUndefined();
 
             const KeyPair = struct { []const u8, Enum };
-            comptime var static_key_pairs: [enum_info.fields.len]KeyPair = undefined;
+            comptime var static_key_pairs: [enum_info.field_names.len]KeyPair = undefined;
 
-            comptime for (enum_info.fields, 0..) |f, i| {
-                if (!@hasField(@TypeOf(key_pairs), f.name)) {
-                    @compileError("Field '" ++ f.name ++ "' missing Oid.StaticMap entry");
+            comptime for (enum_info.field_names, enum_info.field_values, 0..) |f_name, f_value, i| {
+                if (!@hasField(@TypeOf(key_pairs), f_name)) {
+                    @compileError("Field '" ++ f_name ++ "' missing Oid.StaticMap entry");
                 }
-                const encoded = &encodeComptime(@field(key_pairs, f.name));
-                const tag: Enum = @enumFromInt(f.value);
+                const encoded = &encodeComptime(@field(key_pairs, f_name));
+                const tag: Enum = @enumFromInt(f_value);
                 static_key_pairs[i] = .{ encoded, tag };
                 enum_to_oid.set(tag, encoded);
             };
 
             const oid_to_enum = std.StaticStringMap(Enum).initComptime(static_key_pairs);
-            if (oid_to_enum.values().len != enum_info.fields.len) @compileError(error_msg);
+            if (oid_to_enum.values().len != enum_info.field_names.len) @compileError(error_msg);
 
             return ReturnType{ .oid_to_enum = oid_to_enum, .enum_to_oid = enum_to_oid };
         }

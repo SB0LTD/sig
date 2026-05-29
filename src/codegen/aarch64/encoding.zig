@@ -1271,9 +1271,9 @@ pub const Register = struct {
                 if (symbol_it.next() != null) break :encoded;
                 return .{ .op0 = op0, .op1 = op1, .CRn = CRn, .CRm = CRm, .op2 = op2 };
             }
-            inline for (@typeInfo(System).@"struct".decls) |decl| {
-                if (@TypeOf(@field(System, decl.name)) != System) continue;
-                if (toLowerEqlAssertLower(reg, decl.name)) return @field(System, decl.name);
+            inline for (@typeInfo(System).@"struct".decl_names) |decl_name| {
+                if (@TypeOf(@field(System, decl_name)) != System) continue;
+                if (toLowerEqlAssertLower(reg, decl_name)) return @field(System, decl_name);
             }
             return null;
         }
@@ -16561,30 +16561,30 @@ pub const Instruction = packed union {
                 if (info.layout != .@"packed" or @bitSizeOf(Type) != @bitSizeOf(Backing)) {
                     @compileLog(name ++ " should have u32 abi");
                 }
-                for (info.fields) |field| verify(name ++ "." ++ field.name, field.type);
+                for (info.field_names, info.field_types) |field_name, field_type| verify(name ++ "." ++ field_name, field_type);
             },
             .@"struct" => |info| {
                 if (info.layout != .@"packed" or info.backing_integer != Backing) {
                     @compileLog(name ++ " should have u32 abi");
                 }
                 var bit_offset = 0;
-                for (info.fields) |field| {
-                    if (std.mem.startsWith(u8, field.name, "encoded")) {
-                        if (if (std.fmt.parseInt(u5, field.name["encoded".len..], 10)) |encoded_bit_offset| encoded_bit_offset != bit_offset else |_| true) {
-                            @compileError(std.fmt.comptimePrint("{s}.{s} should be named encoded{d}", .{ name, field.name, bit_offset }));
+                for (info.field_names, info.field_types, info.field_attrs) |field_name, field_type, field_attrs| {
+                    if (std.mem.startsWith(u8, field_name, "encoded")) {
+                        if (if (std.fmt.parseInt(u5, field_name["encoded".len..], 10)) |encoded_bit_offset| encoded_bit_offset != bit_offset else |_| true) {
+                            @compileError(std.fmt.comptimePrint("{s}.{s} should be named encoded{d}", .{ name, field_name, bit_offset }));
                         }
-                        if (field.default_value_ptr != null) {
-                            @compileError(std.fmt.comptimePrint("{s}.{s} should be named decoded{d}", .{ name, field.name, bit_offset }));
+                        if (field_attrs.default_value_ptr != null) {
+                            @compileError(std.fmt.comptimePrint("{s}.{s} should be named decoded{d}", .{ name, field_name, bit_offset }));
                         }
-                    } else if (std.mem.startsWith(u8, field.name, "decoded")) {
-                        if (if (std.fmt.parseInt(u5, field.name["decoded".len..], 10)) |decoded_bit_offset| decoded_bit_offset != bit_offset else |_| true) {
-                            @compileError(std.fmt.comptimePrint("{s}.{s} should be named decoded{d}", .{ name, field.name, bit_offset }));
+                    } else if (std.mem.startsWith(u8, field_name, "decoded")) {
+                        if (if (std.fmt.parseInt(u5, field_name["decoded".len..], 10)) |decoded_bit_offset| decoded_bit_offset != bit_offset else |_| true) {
+                            @compileError(std.fmt.comptimePrint("{s}.{s} should be named decoded{d}", .{ name, field_name, bit_offset }));
                         }
-                        if (field.default_value_ptr == null) {
-                            @compileError(std.fmt.comptimePrint("{s}.{s} should be named encoded{d}", .{ name, field.name, bit_offset }));
+                        if (field_attrs.default_value_ptr == null) {
+                            @compileError(std.fmt.comptimePrint("{s}.{s} should be named encoded{d}", .{ name, field_name, bit_offset }));
                         }
                     }
-                    bit_offset += @bitSizeOf(field.type);
+                    bit_offset += @bitSizeOf(field_type);
                 }
             },
             else => @compileError(name ++ " has an unexpected field type"),

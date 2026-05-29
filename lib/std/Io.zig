@@ -396,12 +396,13 @@ pub const Operation = union(enum) {
     };
 
     pub const Result = Result: {
-        const operation_fields = @typeInfo(Operation).@"union".fields;
-        var field_names: [operation_fields.len][]const u8 = undefined;
-        var field_types: [operation_fields.len]type = undefined;
-        for (operation_fields, &field_names, &field_types) |field, *field_name, *field_type| {
-            field_name.* = field.name;
-            field_type.* = if (field.type == noreturn) noreturn else field.type.Result;
+        const operation_info = @typeInfo(Operation).@"union";
+        const operation_count = operation_info.field_names.len;
+        var field_names: [operation_count][]const u8 = undefined;
+        var field_types: [operation_count]type = undefined;
+        for (operation_info.field_names, operation_info.field_types, &field_names, &field_types) |f_name, f_type, *field_name, *field_type| {
+            field_name.* = f_name;
+            field_type.* = if (f_type == noreturn) noreturn else f_type.Result;
         }
         break :Result @Union(.auto, Tag, &field_names, &field_types, &@splat(.{}));
     };

@@ -389,9 +389,10 @@ fn createChild(
 
 fn userInputOptionsFromArgs(arena: Allocator, args: anytype) UserInputOptionsMap {
     var map = UserInputOptionsMap.init(arena);
-    inline for (@typeInfo(@TypeOf(args)).@"struct".fields) |field| {
-        if (field.type == @TypeOf(null)) continue;
-        addUserInputOptionFromArg(arena, &map, field, field.type, @field(args, field.name));
+    const args_info = @typeInfo(@TypeOf(args)).@"struct";
+    inline for (args_info.field_names, args_info.field_types) |field_name, field_type| {
+        if (field_type == @TypeOf(null)) continue;
+        addUserInputOptionFromArg(arena, &map, field_name, field_type, @field(args, field_name));
     }
     return map;
 }
@@ -399,15 +400,15 @@ fn userInputOptionsFromArgs(arena: Allocator, args: anytype) UserInputOptionsMap
 fn addUserInputOptionFromArg(
     arena: Allocator,
     map: *UserInputOptionsMap,
-    field: std.builtin.Type.StructField,
+    field_name: [:0]const u8,
     comptime T: type,
     /// If null, the value won't be added, but `T` will still be type-checked.
     maybe_value: ?T,
 ) void {
     switch (T) {
         Target.Query => return if (maybe_value) |v| {
-            map.put(field.name, .{
-                .name = field.name,
+            map.put(field_name, .{
+                .name = field_name,
                 .value = .{ .scalar = v.zigTriple(arena) catch @panic("OOM") },
                 .used = false,
             }) catch @panic("OOM");
@@ -418,8 +419,8 @@ fn addUserInputOptionFromArg(
             }) catch @panic("OOM");
         },
         ResolvedTarget => return if (maybe_value) |v| {
-            map.put(field.name, .{
-                .name = field.name,
+            map.put(field_name, .{
+                .name = field_name,
                 .value = .{ .scalar = v.query.zigTriple(arena) catch @panic("OOM") },
                 .used = false,
             }) catch @panic("OOM");
@@ -430,15 +431,15 @@ fn addUserInputOptionFromArg(
             }) catch @panic("OOM");
         },
         std.zig.BuildId => return if (maybe_value) |v| {
-            map.put(field.name, .{
-                .name = field.name,
+            map.put(field_name, .{
+                .name = field_name,
                 .value = .{ .scalar = std.fmt.allocPrint(arena, "{f}", .{v}) catch @panic("OOM") },
                 .used = false,
             }) catch @panic("OOM");
         },
         LazyPath => return if (maybe_value) |v| {
-            map.put(field.name, .{
-                .name = field.name,
+            map.put(field_name, .{
+                .name = field_name,
                 .value = .{ .lazy_path = v.dupeInner(arena) },
                 .used = false,
             }) catch @panic("OOM");
@@ -446,15 +447,15 @@ fn addUserInputOptionFromArg(
         []const LazyPath => return if (maybe_value) |v| {
             var list = std.array_list.Managed(LazyPath).initCapacity(arena, v.len) catch @panic("OOM");
             for (v) |lp| list.appendAssumeCapacity(lp.dupeInner(arena));
-            map.put(field.name, .{
-                .name = field.name,
+            map.put(field_name, .{
+                .name = field_name,
                 .value = .{ .lazy_path_list = list },
                 .used = false,
             }) catch @panic("OOM");
         },
         []const u8 => return if (maybe_value) |v| {
-            map.put(field.name, .{
-                .name = field.name,
+            map.put(field_name, .{
+                .name = field_name,
                 .value = .{ .scalar = arena.dupe(u8, v) catch @panic("OOM") },
                 .used = false,
             }) catch @panic("OOM");
@@ -462,37 +463,37 @@ fn addUserInputOptionFromArg(
         []const []const u8 => return if (maybe_value) |v| {
             var list = std.array_list.Managed([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
             for (v) |s| list.appendAssumeCapacity(arena.dupe(u8, s) catch @panic("OOM"));
-            map.put(field.name, .{
-                .name = field.name,
+            map.put(field_name, .{
+                .name = field_name,
                 .value = .{ .list = list },
                 .used = false,
             }) catch @panic("OOM");
         },
         else => switch (@typeInfo(T)) {
             .bool => return if (maybe_value) |v| {
-                map.put(field.name, .{
-                    .name = field.name,
+                map.put(field_name, .{
+                    .name = field_name,
                     .value = .{ .scalar = if (v) "true" else "false" },
                     .used = false,
                 }) catch @panic("OOM");
             },
             .@"enum", .enum_literal => return if (maybe_value) |v| {
-                map.put(field.name, .{
-                    .name = field.name,
+                map.put(field_name, .{
+                    .name = field_name,
                     .value = .{ .scalar = @tagName(v) },
                     .used = false,
                 }) catch @panic("OOM");
             },
             .comptime_int, .int => return if (maybe_value) |v| {
-                map.put(field.name, .{
-                    .name = field.name,
+                map.put(field_name, .{
+                    .name = field_name,
                     .value = .{ .scalar = std.fmt.allocPrint(arena, "{d}", .{v}) catch @panic("OOM") },
                     .used = false,
                 }) catch @panic("OOM");
             },
             .comptime_float, .float => return if (maybe_value) |v| {
-                map.put(field.name, .{
-                    .name = field.name,
+                map.put(field_name, .{
+                    .name = field_name,
                     .value = .{ .scalar = std.fmt.allocPrint(arena, "{x}", .{v}) catch @panic("OOM") },
                     .used = false,
                 }) catch @panic("OOM");
@@ -503,7 +504,7 @@ fn addUserInputOptionFromArg(
                         addUserInputOptionFromArg(
                             arena,
                             map,
-                            field,
+                            field_name,
                             @Pointer(.slice, .{ .@"const" = true }, array_info.child, null),
                             maybe_value orelse null,
                         );
@@ -515,8 +516,8 @@ fn addUserInputOptionFromArg(
                     .@"enum" => return if (maybe_value) |v| {
                         var list = std.array_list.Managed([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
                         for (v) |tag| list.appendAssumeCapacity(@tagName(tag));
-                        map.put(field.name, .{
-                            .name = field.name,
+                        map.put(field_name, .{
+                            .name = field_name,
                             .value = .{ .list = list },
                             .used = false,
                         }) catch @panic("OOM");
@@ -525,7 +526,7 @@ fn addUserInputOptionFromArg(
                         addUserInputOptionFromArg(
                             arena,
                             map,
-                            field,
+                            field_name,
                             @Pointer(ptr_info.size, .{ .@"const" = true }, ptr_info.child, null),
                             maybe_value orelse null,
                         );
@@ -541,7 +542,7 @@ fn addUserInputOptionFromArg(
                     addUserInputOptionFromArg(
                         arena,
                         map,
-                        field,
+                        field_name,
                         info.child,
                         maybe_value orelse null,
                     );
@@ -551,7 +552,7 @@ fn addUserInputOptionFromArg(
             else => {},
         },
     }
-    @compileError("option '" ++ field.name ++ "' has unsupported type: " ++ @typeName(field.type));
+    @compileError("option '" ++ field_name ++ "' has unsupported type: " ++ @typeName(T));
 }
 
 const OrderedUserValue = union(enum) {
@@ -1114,11 +1115,11 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
     const type_id = comptime typeToEnum(T);
     const enum_options = if (type_id == .@"enum" or type_id == .enum_list) blk: {
         const EnumType = if (type_id == .enum_list) @typeInfo(T).pointer.child else T;
-        const fields = comptime std.meta.fields(EnumType);
-        var options = std.array_list.Managed([]const u8).initCapacity(arena, fields.len) catch @panic("OOM");
+        const field_names = comptime std.meta.fieldNames(EnumType);
+        var options = std.array_list.Managed([]const u8).initCapacity(b.allocator, field_names.len) catch @panic("OOM");
 
-        inline for (fields) |field| {
-            options.appendAssumeCapacity(field.name);
+        inline for (field_names) |field_name| {
+            options.appendAssumeCapacity(field_name);
         }
 
         break :blk options.toOwnedSlice() catch @panic("OOM");
@@ -1407,8 +1408,8 @@ pub fn parseTargetQuery(options: std.Target.Query.ParseOptions) error{ParseFaile
                 \\available operating systems:
                 \\
             , .{diags.os_name.?});
-            inline for (std.meta.fields(Target.Os.Tag)) |field| {
-                std.debug.print(" {s}\n", .{field.name});
+            inline for (comptime std.meta.fieldNames(Target.Os.Tag)) |field_name| {
+                std.debug.print(" {s}\n", .{field_name});
             }
             return error.ParseFailed;
         },
@@ -1811,8 +1812,8 @@ pub fn findProgram(b: *Build, options: FindProgramOptions) ?[]const u8 {
 }
 
 fn supportedWindowsProgramExtension(ext: []const u8) bool {
-    inline for (@typeInfo(std.process.WindowsExtension).@"enum".fields) |field| {
-        if (std.ascii.eqlIgnoreCase(ext, "." ++ field.name)) return true;
+    inline for (@typeInfo(std.process.WindowsExtension).@"enum".field_names) |field_name| {
+        if (std.ascii.eqlIgnoreCase(ext, "." ++ field_name)) return true;
     }
     return false;
 }
@@ -2072,8 +2073,7 @@ inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, c
     const deps = build_runner.dependencies;
     const arena = b.graph.arena;
 
-    const b_pkg_hash, const b_pkg_deps = comptime for (@typeInfo(deps.packages).@"struct".decls) |decl| {
-        const pkg_hash = decl.name;
+    const b_pkg_hash, const b_pkg_deps = comptime for (@typeInfo(deps.packages).@"struct".decl_names) |pkg_hash| {
         const pkg = @field(deps.packages, pkg_hash);
         if (@hasDecl(pkg, "build_zig") and pkg.build_zig == asking_build_zig) break .{ pkg_hash, pkg.deps };
     } else .{ "", deps.root_deps };
@@ -2116,9 +2116,9 @@ pub fn lazyDependency(b: *Build, name: []const u8, args: anytype) ?*Dependency {
     const deps = build_runner.dependencies;
     const pkg_hash = findPkgHashOrFatal(b, name);
 
-    inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
-        if (mem.eql(u8, decl.name, pkg_hash)) {
-            const pkg = @field(deps.packages, decl.name);
+    inline for (@typeInfo(deps.packages).@"struct".decl_names) |decl_name| {
+        if (mem.eql(u8, decl_name, pkg_hash)) {
+            const pkg = @field(deps.packages, decl_name);
             const available = !@hasDecl(pkg, "available") or pkg.available;
             if (!available) {
                 markNeededLazyDep(b, pkg_hash);
@@ -2136,9 +2136,9 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     const deps = build_runner.dependencies;
     const pkg_hash = findPkgHashOrFatal(b, name);
 
-    inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
-        if (mem.eql(u8, decl.name, pkg_hash)) {
-            const pkg = @field(deps.packages, decl.name);
+    inline for (@typeInfo(deps.packages).@"struct".decl_names) |decl_name| {
+        if (mem.eql(u8, decl_name, pkg_hash)) {
+            const pkg = @field(deps.packages, decl_name);
             if (@hasDecl(pkg, "available")) {
                 panic("dependency '{s}{s}' is marked as lazy in build.zig.zon which means it must use the lazyDependency function instead", .{ b.dep_prefix, name });
             }
@@ -2166,9 +2166,9 @@ pub inline fn lazyImport(
     const deps = build_runner.dependencies;
     const pkg_hash = findImportPkgHashOrFatal(b, asking_build_zig, dep_name);
 
-    inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
-        if (comptime mem.eql(u8, decl.name, pkg_hash)) {
-            const pkg = @field(deps.packages, decl.name);
+    inline for (@typeInfo(deps.packages).@"struct".decl_names) |decl_name| {
+        if (comptime mem.eql(u8, decl_name, pkg_hash)) {
+            const pkg = @field(deps.packages, decl_name);
             const available = !@hasDecl(pkg, "available") or pkg.available;
             if (!available) {
                 markNeededLazyDep(b, pkg_hash);
@@ -2197,8 +2197,7 @@ pub fn dependencyFromBuildZig(
     const arena = graph.arena;
 
     find_dep: {
-        const pkg, const pkg_hash = inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
-            const pkg_hash = decl.name;
+        const pkg, const pkg_hash = inline for (@typeInfo(deps.packages).@"struct".decl_names) |pkg_hash| {
             const pkg = @field(deps.packages, pkg_hash);
             if (@hasDecl(pkg, "build_zig") and pkg.build_zig == build_zig) break .{ pkg, pkg_hash };
         } else break :find_dep;

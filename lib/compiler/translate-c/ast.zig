@@ -925,18 +925,18 @@ const Context = struct {
     }
 
     fn addExtra(c: *Context, extra: anytype) Allocator.Error!std.zig.Ast.ExtraIndex {
-        const fields = std.meta.fields(@TypeOf(extra));
-        try c.extra_data.ensureUnusedCapacity(c.gpa, fields.len);
+        const info = @typeInfo(@TypeOf(extra)).@"struct";
+        try c.extra_data.ensureUnusedCapacity(c.gpa, info.field_names.len);
         const result: std.zig.Ast.ExtraIndex = @enumFromInt(c.extra_data.items.len);
-        inline for (fields) |field| {
-            const data: u32 = switch (field.type) {
+        inline for (info.field_names, info.field_types) |field_name, field_type| {
+            const data: u32 = switch (field_type) {
                 NodeIndex,
                 std.zig.Ast.Node.OptionalIndex,
                 std.zig.Ast.OptionalTokenIndex,
                 std.zig.Ast.ExtraIndex,
-                => @intFromEnum(@field(extra, field.name)),
+                => @intFromEnum(@field(extra, field_name)),
                 TokenIndex,
-                => @field(extra, field.name),
+                => @field(extra, field_name),
                 else => @compileError("unexpected field type"),
             };
             c.extra_data.appendAssumeCapacity(data);

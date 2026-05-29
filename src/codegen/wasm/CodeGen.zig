@@ -563,24 +563,24 @@ fn addCallIntrinsic(cg: *CodeGen, intrinsic: Mir.Intrinsic) error{OutOfMemory}!v
 /// Appends entries to `mir_extra` based on the type of `extra`.
 /// Returns the index into `mir_extra`
 fn addExtra(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
-    const fields = std.meta.fields(@TypeOf(extra));
-    try cg.mir_extra.ensureUnusedCapacity(cg.gpa, fields.len);
+    const field_count = std.meta.fieldNames(@TypeOf(extra)).len;
+    try cg.mir_extra.ensureUnusedCapacity(cg.gpa, field_count);
     return cg.addExtraAssumeCapacity(extra);
 }
 
 /// Appends entries to `mir_extra` based on the type of `extra`.
 /// Returns the index into `mir_extra`
 fn addExtraAssumeCapacity(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
-    const fields = std.meta.fields(@TypeOf(extra));
+    const info = @typeInfo(@TypeOf(extra)).@"struct";
     const result: u32 = @intCast(cg.mir_extra.items.len);
-    inline for (fields) |field| {
-        cg.mir_extra.appendAssumeCapacity(switch (field.type) {
-            u32 => @field(extra, field.name),
-            i32 => @bitCast(@field(extra, field.name)),
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        cg.mir_extra.appendAssumeCapacity(switch (field_type) {
+            u32 => @field(extra, field_name),
+            i32 => @bitCast(@field(extra, field_name)),
             InternPool.Index,
             InternPool.Nav.Index,
-            => @intFromEnum(@field(extra, field.name)),
-            else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
+            => @intFromEnum(@field(extra, field_name)),
+            else => @compileError("Unsupported field type " ++ @typeName(field_type)),
         });
     }
     return result;
