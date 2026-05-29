@@ -31,7 +31,7 @@ jobs:
           - os: ubuntu-latest
             llvm_asset: llvm-22-x86_64-linux.tar.xz
             artifact: bootstrap-sig-x86_64-linux
-            deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev
+            deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev clang libc++-dev libc++abi-dev
             zlib_flag: "-DZLIB=$(find /usr/lib/x86_64-linux-gnu -name 'libz.a' 2>/dev/null | head -1)"
             zstd_flag: "-DZSTD=$(find /usr/lib/x86_64-linux-gnu -name 'libzstd.a' 2>/dev/null | head -1)"
           - os: macos-14
@@ -71,11 +71,19 @@ jobs:
         shell: bash
         run: |
           export PATH="$PWD/llvm-22/bin:$PATH"
+          # Use clang/libc++ on Linux to match LLVM libs
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            export CC=clang CXX=clang++
+            LIBCXX_FLAG="-DLLVM_ENABLE_LIBCXX=ON"
+          else
+            LIBCXX_FLAG=""
+          fi
           mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
             -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
             -DCMAKE_BUILD_TYPE=Release \
+            ${LIBCXX_FLAG} \
             -DZIG_USE_LLVM_CONFIG=ON \
             -DZIG_NO_LIB=ON \
             -DZIG_TARGET_MCPU="baseline" \
