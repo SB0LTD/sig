@@ -148,12 +148,12 @@ pub const timespec = switch (native_os) {
 };
 
 pub const dev_t = switch (native_os) {
-    .linux => linux.dev_t,
     .emscripten => emscripten.dev_t,
     .wasi => wasi.device_t,
     .openbsd, .haiku, .illumos, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => i32,
+    // glibc and musl define dev_t as u64, while in Linux kernel it is u32.
     // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L43
-    .netbsd, .freebsd, .serenity => u64,
+    .linux, .netbsd, .freebsd, .serenity => u64,
     else => void,
 };
 
