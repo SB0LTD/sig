@@ -1,4 +1,4 @@
-# [sig] Build LLVM 22 from source for all platforms using zig cc cross-compilation.
+# [sig] Build LLVM 23 from source for all platforms using zig cc cross-compilation.
 # All targets are cross-compiled from Linux using zig cc, matching upstream zig's approach.
 # One-time setup — re-run only when upgrading LLVM version.
 name: build-llvm
@@ -10,8 +10,8 @@ permissions:
   contents: write
 
 env:
-  LLVM_TAG: "llvmorg-22.1.3"
-  RELEASE_TAG: "llvm-22"
+  LLVM_TAG: "llvmorg-23.1.1"
+  RELEASE_TAG: "llvm-23"
   ZIG_VERSION: "0.14.1"
 
 jobs:
@@ -22,11 +22,11 @@ jobs:
       matrix:
         include:
           - target: x86_64-linux-musl
-            artifact: llvm-22-x86_64-linux.tar.xz
+            artifact: llvm-23-x86_64-linux.tar.xz
           - target: aarch64-macos-none
-            artifact: llvm-22-aarch64-macos.tar.xz
+            artifact: llvm-23-aarch64-macos.tar.xz
           - target: x86_64-windows-gnu
-            artifact: llvm-22-x86_64-windows.tar.xz
+            artifact: llvm-23-x86_64-windows.tar.xz
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
@@ -74,14 +74,13 @@ jobs:
       - name: Cross-compile zlib
         run: |
           git clone --depth 1 --branch v1.3.1 https://github.com/madler/zlib.git zlib-src
-          cmake -S zlib-src -B zlib-build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$PWD/zlib-out" \
-            -DCMAKE_SYSTEM_NAME=${{ steps.cmake-sys.outputs.name }} \
-            -DCMAKE_C_COMPILER=/tmp/zig-cc \
-            -DCMAKE_AR=/tmp/zig-ar \
-            -DCMAKE_RANLIB=/tmp/zig-ranlib
-          ninja -C zlib-build install
+          mkdir zlib-build && cd zlib-build
+          zig cc -target ${{ matrix.target }} -O2 -c ../zlib-src/*.c
+          zig ar rcs libz.a *.o
+          cd ..
+          mkdir -p zlib-out/lib zlib-out/include
+          cp zlib-build/libz.a zlib-out/lib/
+          cp zlib-src/zlib.h zlib-src/zconf.h zlib-out/include/
           echo "ZLIB_PREFIX=$PWD/zlib-out" >> "$GITHUB_ENV"
 
       - name: Cross-compile zstd
@@ -115,8 +114,8 @@ jobs:
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
             -DLLVM_ENABLE_PROJECTS="clang;lld" \
-            -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SystemZ;VE;WebAssembly;X86;XCore" \
-            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="M68k;Xtensa;ARC;CSKY;SPIRV" \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SPIRV;SystemZ;VE;WebAssembly;X86;XCore" \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="ARC;CSKY;DirectX;M68k;Xtensa" \
             -DLLVM_ENABLE_TERMINFO=OFF \
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_ENABLE_ZLIB=FORCE_ON \
@@ -154,7 +153,7 @@ jobs:
         run: |
           gh release view "${{ env.RELEASE_TAG }}" >/dev/null 2>&1 || \
             gh release create "${{ env.RELEASE_TAG }}" \
-              --title "LLVM 22 (build artifacts)" \
-              --notes "Pre-built LLVM 22.1.3 with Clang + LLD. Cross-compiled for all targets using zig cc." \
+              --title "LLVM 23 (build artifacts)" \
+              --notes "Pre-built LLVM 23.1.1 with Clang + LLD. Cross-compiled for all targets using zig cc." \
               --prerelease
           gh release upload "${{ env.RELEASE_TAG }}" "${{ matrix.artifact }}" --clobber
