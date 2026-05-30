@@ -592,7 +592,7 @@ pub fn main(init: process.Init.Minimal) !void {
 
         .error_style = error_style,
         .multiline_errors = multiline_errors,
-        .summary = summary orelse if (watch or webui_listen != null) .line else .failures,
+        .summary = summary orelse if (watch or webui_listen != null) .new else .failures,
     };
     defer {
         maker.memory_blocked_steps.deinit(gpa);
@@ -997,7 +997,7 @@ fn makeStepNames(
             t.setColor(.reset) catch {};
         }
 
-        w.writeAll("\n") catch {};
+        w.writeByte('\n') catch {};
 
         if (maker.summary == .line) break :summary;
 
