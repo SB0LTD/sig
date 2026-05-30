@@ -104,12 +104,10 @@
 #define zig_darwin
 #elif defined(__DragonFly__)
 #define zig_dragonfly
-#define zig_bsd
 #elif defined(__EMSCRIPTEN__)
 #define zig_emscripten
 #elif defined(__FreeBSD__)
 #define zig_freebsd
-#define zig_bsd
 #elif defined(__Fuchsia__)
 #define zig_fuchsia
 #elif defined(__HAIKU__)
@@ -120,10 +118,8 @@
 #define zig_linux
 #elif defined(__NetBSD__)
 #define zig_netbsd
-#define zig_bsd
 #elif defined(__OpenBSD__)
 #define zig_openbsd
-#define zig_bsd
 #elif defined(__illumos__)
 #define zig_illumos
 #elif defined(__wasi__)
