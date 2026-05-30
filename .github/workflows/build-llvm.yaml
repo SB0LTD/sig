@@ -129,6 +129,9 @@ jobs:
             -Dzstd_LIBRARY="${ZSTD_PREFIX}/lib/libzstd.a" \
             -Dzstd_INCLUDE_DIR="${ZSTD_PREFIX}/include" \
             -DLLVM_ENABLE_THREADS=ON \
+            -DLLVM_BUILD_LLVM_DYLIB=OFF \
+            -DLLVM_LINK_LLVM_DYLIB=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
             -DCLANG_ENABLE_ARCMT=OFF \
             -DCLANG_ENABLE_STATIC_ANALYZER=ON \
             -DLLVM_ENABLE_BINDINGS=OFF \
