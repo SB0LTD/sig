@@ -124,8 +124,8 @@
 #elif defined(__OpenBSD__)
 #define zig_openbsd
 #define zig_bsd
-#elif defined(__SVR4)
-#define zig_solaris
+#elif defined(__illumos__)
+#define zig_illumos
 #elif defined(__wasi__)
 #define zig_wasi
 #elif defined(_WIN32)
