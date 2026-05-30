@@ -2041,21 +2041,33 @@ const incremental_targets: []const []const u8 = &.{
 
 fn compatible32bitArch(host: *const std.Target) ?std.Target.Cpu.Arch {
     return switch (host.os.tag) {
-        .windows => switch (host.cpu.arch) {
-            .x86_64 => .x86,
-            .aarch64 => .thumb,
-            .aarch64_be => .thumbeb,
-            else => null,
-        },
         .freebsd => switch (host.cpu.arch) {
             .aarch64 => .arm,
-            .aarch64_be => .armeb,
+            .powerpc64 => .powerpc,
             else => null,
         },
-        .linux, .netbsd => switch (host.cpu.arch) {
+        .illumos => switch (host.cpu.arch) {
             .x86_64 => .x86,
+            else => null,
+        },
+        .linux => switch (host.cpu.arch) {
             .aarch64 => .arm,
             .aarch64_be => .armeb,
+            .mips64 => .mips,
+            .mips64el => .mipsel,
+            .powerpc64 => .powerpc,
+            .sparc64 => .sparc,
+            .x86_64 => .x86,
+            else => null,
+        },
+        .netbsd => switch (host.cpu.arch) {
+            .riscv64 => .riscv32,
+            .sparc64 => .sparc,
+            .x86_64 => .x86,
+            else => null,
+        },
+        .windows => switch (host.cpu.arch) {
+            .x86_64 => .x86,
             else => null,
         },
         else => null,
