@@ -11,8 +11,6 @@
 #elif defined(__GNUC__)
 #define zig_gcc
 #define zig_gnuc
-#elif defined(__IBMC__)
-#define zig_xlc
 #elif defined(__TINYC__)
 #define zig_tinyc
 #elif defined(__slimcc__)
