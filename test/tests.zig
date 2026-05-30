@@ -1668,6 +1668,8 @@ const module_test_targets = blk: {
             },
             .use_llvm = false,
             .use_lld = false,
+            // https://codeberg.org/ziglang/zig/issues/35537
+            .skip_modules = &.{"behavior"},
         },
         .{
             .target = .{
