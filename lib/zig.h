@@ -100,7 +100,7 @@
 #define zig_big_endian 1
 #endif
 
-#if defined(__MACH__)
+#if defined(__APPLE__)
 #define zig_darwin
 #elif defined(__DragonFly__)
 #define zig_dragonfly
