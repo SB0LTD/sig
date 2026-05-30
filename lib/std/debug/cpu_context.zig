@@ -50,7 +50,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
         };
 
         // I have no idea why the kernel is storing these registers in such a bizarre order...
-        std.mem.reverse(native.r[0..]);
+        std.mem.reverse(u32, native.r[0..]);
 
         return native;
     } else if (native_arch == .loongarch32 and native_os == .linux) {
