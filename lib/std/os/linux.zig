@@ -8549,7 +8549,7 @@ pub const V = if (is_mips) enum(u32) {
     STOP = 14,
     LNEXT = 15,
     DISCARD = 16,
-} else if (arch_bits == .alpha) enum(u32) {
+} else if (native_arch == .alpha) enum(u32) {
     EOF = 0,
     EOL = 1,
     EOL2 = 2,
