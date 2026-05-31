@@ -84,7 +84,7 @@ jobs:
             -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
             -DCMAKE_BUILD_TYPE=Release \
             ${EXTRA_FLAGS} \
-            -DZIG_USE_LLVM_CONFIG=ON \
+            -DZIG_USE_LLVM_CONFIG=OFF \
             -DZIG_NO_LIB=ON \
             -DZIG_TARGET_MCPU="baseline" \
             ${{ matrix.zlib_flag }} \
