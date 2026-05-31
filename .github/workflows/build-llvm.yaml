@@ -152,7 +152,14 @@ jobs:
             -DLLVM_INCLUDE_DOCS=OFF \
             -DLLVM_HOST_TRIPLE="${{ matrix.target }}" \
             -DLLVM_DEFAULT_TARGET_TRIPLE="${{ matrix.target }}"
-          ninja -C llvm-build install -j$(nproc)
+          ninja -C llvm-build \
+            install-llvm-libraries \
+            install-clang-libraries \
+            install-lld-libraries \
+            install-llvm-headers \
+            install-clang-headers \
+            install-lld-headers \
+            -j$(nproc)
         timeout-minutes: 240
 
       - name: Include zlib/zstd in package
