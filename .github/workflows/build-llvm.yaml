@@ -160,9 +160,8 @@ jobs:
             install-clang-headers \
             install-lld-headers \
             -j$(nproc)
-          # Copy clang static libs manually (install-clang-libraries tries to build libclang.dylib on macOS)
-          find llvm-build -path '*/lib/libclang*.a' -exec cp {} "$PWD/llvm-install/lib/" \;
-          find llvm-build -path '*/lib/liblld*.a' -exec cp {} "$PWD/llvm-install/lib/" \; 2>/dev/null || true
+          # Copy ALL static libs from build dir (avoids install-clang-libraries which builds dylibs)
+          find llvm-build/lib -maxdepth 1 -name '*.a' -exec cp {} "$PWD/llvm-install/lib/" \;
         timeout-minutes: 300
 
       - name: Include zlib/zstd in package
