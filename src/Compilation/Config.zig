@@ -441,7 +441,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b false;
         }
 
-        if (!target_util.hasNewLinkerSupport(target.ofmt, backend)) {
+        if (!target_util.hasNewLinker(target.ofmt)) {
             if (options.use_new_linker == true) return error.NewLinkerIncompatibleObjectFormat;
             break :b false;
         }

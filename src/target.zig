@@ -275,12 +275,10 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
     };
 }
 
-pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat, backend: std.lang.CompilerBackend) bool {
+/// Returns `true` if `ofmt` has two linker implementations, so `-fnew-linker` is meaningful.
+pub fn hasNewLinker(ofmt: std.Target.ObjectFormat) bool {
     return switch (ofmt) {
-        .elf, .coff => switch (backend) {
-            .stage2_x86_64 => true,
-            else => false,
-        },
+        .elf => true,
         else => false,
     };
 }
