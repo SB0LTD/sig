@@ -135,7 +135,7 @@ jobs:
           fetch-depth: 0
       - name: Build and Test
         run: sh ci/powerpc64le-linux-debug.sh
-        timeout-minutes: 360
+        timeout-minutes: 420
   powerpc64le-linux-release:
     runs-on: [self-hosted, powerpc64le-linux]
     steps:
