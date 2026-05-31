@@ -31,7 +31,7 @@ const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
 const FrameIndex = bits.FrameIndex;
 
-const InnerError = codegen.CodeGenError || error{OutOfRegisters};
+const InnerError = codegen.Error || error{OutOfRegisters};
 
 pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
     return comptime &.initMany(&.{
@@ -106,7 +106,6 @@ va_info: union {
 ret_mcv: InstTracking,
 err_ret_trace_reg: Register,
 fn_type: Type,
-src_loc: Zcu.LazySrcLoc,
 
 eflags_inst: ?Air.Inst.Index = null,
 
@@ -869,11 +868,10 @@ const CodeGen = @This();
 pub fn generate(
     bin_file: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: *const Air,
     liveness: *const ?Air.Liveness,
-) codegen.CodeGenError!Mir {
+) codegen.Error!Mir {
     _ = bin_file;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -898,7 +896,6 @@ pub fn generate(
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
         .err_ret_trace_reg = undefined, // populated after `resolveCallingConventionValues`
         .fn_type = fn_type,
-        .src_loc = src_loc,
     };
     defer {
         function.frame_allocs.deinit(gpa);
@@ -937,10 +934,7 @@ pub fn generate(
     );
 
     const fn_info = zcu.typeToFunc(fn_type).?;
-    var call_info = function.resolveCallingConventionValues(fn_info, &.{}, .args_frame) catch |err| switch (err) {
-        error.CodegenFail => |e| return e,
-        else => |e| return e,
-    };
+    var call_info = try function.resolveCallingConventionValues(fn_info, &.{}, .args_frame);
     defer call_info.deinit(&function);
 
     function.args = call_info.args;
@@ -983,7 +977,6 @@ pub fn generate(
     }
 
     function.gen(&file.zir.?, func_zir.inst, func.comptime_args, call_info.air_arg_count) catch |err| switch (err) {
-        error.CodegenFail => |e| return e,
         error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
@@ -1027,12 +1020,11 @@ pub fn getTmpMir(cg: *CodeGen) Mir {
 pub fn generateLazy(
     bin_file: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     atom_id: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
-) codegen.CodeGenError!void {
+) codegen.Error!void {
     const gpa = pt.zcu.gpa;
     // This function is for generating global code, so we use the root module.
     const mod = pt.zcu.comp.root_mod;
@@ -1050,7 +1042,6 @@ pub fn generateLazy(
         .ret_mcv = undefined,
         .err_ret_trace_reg = undefined,
         .fn_type = undefined,
-        .src_loc = src_loc,
     };
     defer {
         function.inst_tracking.deinit(gpa);
@@ -1068,12 +1059,11 @@ pub fn generateLazy(
     }
 
     function.genLazy(lazy_sym) catch |err| switch (err) {
-        error.CodegenFail => |e| return e,
         error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
 
-    try function.getTmpMir().emitLazy(bin_file, pt, src_loc, lazy_sym, atom_id, w, debug_output);
+    try function.getTmpMir().emitLazy(bin_file, pt, lazy_sym, atom_id, w, debug_output);
 }
 
 const FormatNavData = struct {
@@ -1111,7 +1101,10 @@ fn formatWipMir(data: FormatWipMirData, w: *Writer) Writer.Error!void {
         .allocator = data.self.gpa,
         .mir = data.self.getTmpMir(),
         .cc = .auto,
-        .src_loc = data.self.src_loc,
+        .src_loc = switch (data.self.owner) {
+            .nav_index => |nav| data.self.pt.zcu.navSrcLoc(nav),
+            .lazy_sym => |lazy_sym| Type.fromInterned(lazy_sym.ty).srcLocOrNull(data.self.pt.zcu) orelse .unneeded,
+        },
     };
     var first = true;
     for ((lower.lowerMir(data.inst) catch |err| switch (err) {
@@ -181508,7 +181501,7 @@ fn resolveCallingConventionValues(
     return result;
 }
 
-fn fail(cg: *CodeGen, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
+fn fail(cg: *CodeGen, comptime format: []const u8, args: anytype) error{ OutOfMemory, AlreadyReported } {
     @branchHint(.cold);
     const zcu = cg.pt.zcu;
     return switch (cg.owner) {

@@ -255,7 +255,7 @@ pub fn flush(
     arena: Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
-) link.File.FlushError!void {
+) link.Error!void {
     dev.check(.lld_linker);
     _ = tid;
 
@@ -277,7 +277,7 @@ pub fn flush(
         .wasm => wasmLink(lld, arena),
     };
     result catch |err| switch (err) {
-        error.OutOfMemory, error.LinkFailure => |e| return e,
+        error.OutOfMemory, error.AlreadyReported => |e| return e,
         else => |e| return lld.base.comp.link_diags.fail("failed to link with LLD: {t}", .{e}),
     };
 }
@@ -1620,7 +1620,7 @@ fn spawnLld(comp: *Compilation, arena: Allocator, argv: []const []const u8) !voi
         const exit_code = try lldMain(arena, argv, false);
         if (exit_code == 0) return;
         if (comp.clang_passthrough_mode) std.process.exit(exit_code);
-        return error.LinkFailure;
+        return error.AlreadyReported;
     }
 
     var stderr: []u8 = &.{};
@@ -1720,7 +1720,7 @@ fn spawnLld(comp: *Compilation, arena: Allocator, argv: []const []const u8) !voi
         .exited => |code| if (code != 0) {
             if (comp.clang_passthrough_mode) std.process.exit(code);
             diags.lockAndParseLldStderr(argv[1], stderr);
-            return error.LinkFailure;
+            return error.AlreadyReported;
         },
         .signal => |sig| {
             if (comp.clang_passthrough_mode) std.process.abort();

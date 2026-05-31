@@ -274,7 +274,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         }
     }
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     // Merge indirect function tables.
     try f.indirect_function_table.ensureUnusedCapacity(gpa, wasm.zcu_indirect_function_set.entries.len +
@@ -513,7 +513,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         if (initial_memory > std.math.maxInt(u32)) {
             diags.addError("initial memory value {d} exceeds 32-bit address space", .{initial_memory});
         }
-        if (diags.hasErrors()) return error.LinkFailure;
+        if (diags.hasErrors()) return error.AlreadyReported;
         memory_ptr = initial_memory;
     } else {
         memory_ptr = mem.alignForward(u64, memory_ptr, std.wasm.page_size);
@@ -535,7 +535,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         if (max_memory > std.math.maxInt(u32)) {
             diags.addError("maximum memory value {d} exceeds 32-bit address space", .{max_memory});
         }
-        if (diags.hasErrors()) return error.LinkFailure;
+        if (diags.hasErrors()) return error.AlreadyReported;
         wasm.memories.limits.max = @intCast(max_memory / page_size);
         wasm.memories.limits.flags.has_max = true;
         if (shared_memory) wasm.memories.limits.flags.is_shared = true;

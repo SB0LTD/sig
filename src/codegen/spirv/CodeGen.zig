@@ -156,7 +156,6 @@ inst_results: std.AutoHashMapUnmanaged(Air.Inst.Index, Id) = .empty,
 id_scratch: std.ArrayList(Id) = .empty,
 prologue: Section = .{},
 body: Section = .{},
-error_msg: ?*Zcu.ErrorMsg = null,
 
 pub fn deinit(cg: *CodeGen) void {
     const gpa = cg.module.gpa;
@@ -168,7 +167,7 @@ pub fn deinit(cg: *CodeGen) void {
     cg.body.deinit(gpa);
 }
 
-const Error = error{ CodegenFail, OutOfMemory };
+const Error = error{ AlreadyReported, OutOfMemory };
 
 pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
     const gpa = cg.module.gpa;
@@ -363,11 +362,7 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
 
 pub fn fail(cg: *CodeGen, comptime format: []const u8, args: anytype) Error {
     @branchHint(.cold);
-    const zcu = cg.module.zcu;
-    const src_loc = zcu.navSrcLoc(cg.owner_nav);
-    assert(cg.error_msg == null);
-    cg.error_msg = try Zcu.ErrorMsg.create(zcu.gpa, src_loc, format, args);
-    return error.CodegenFail;
+    return cg.module.zcu.codegenFail(cg.owner_nav, format, args);
 }
 
 pub fn todo(cg: *CodeGen, comptime format: []const u8, args: anytype) Error {
@@ -5934,14 +5929,14 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             // them as notes here.
             // TODO: Translate proper error locations.
             assert(ass.errors.items.len != 0);
-            assert(cg.error_msg == null);
-            const src_loc = zcu.navSrcLoc(cg.owner_nav);
-            cg.error_msg = try Zcu.ErrorMsg.create(zcu.gpa, src_loc, "failed to assemble SPIR-V inline assembly", .{});
-            const notes = try zcu.gpa.alloc(Zcu.ErrorMsg, ass.errors.items.len);
+            const msg: *Zcu.ErrorMsg = msg: {
+                const src_loc = zcu.navSrcLoc(cg.owner_nav);
+                var msg: *Zcu.ErrorMsg = try .create(zcu.gpa, src_loc, "failed to assemble SPIR-V inline assembly", .{});
+                errdefer msg.destroy(zcu.gpa);
 
-            // Sub-scope to prevent `return error.CodegenFail` from running the errdefers.
-            {
+                const notes = try zcu.gpa.alloc(Zcu.ErrorMsg, ass.errors.items.len);
                 errdefer zcu.gpa.free(notes);
+
                 var i: usize = 0;
                 errdefer for (notes[0..i]) |*note| {
                     note.deinit(zcu.gpa);
@@ -5950,9 +5945,10 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 while (i < ass.errors.items.len) : (i += 1) {
                     notes[i] = try Zcu.ErrorMsg.init(zcu.gpa, src_loc, "{s}", .{ass.errors.items[i].msg});
                 }
-            }
-            cg.error_msg.?.notes = notes;
-            return error.CodegenFail;
+
+                break :msg msg;
+            };
+            return zcu.codegenFailMsg(cg.owner_nav, msg);
         },
         else => |others| return others,
     };

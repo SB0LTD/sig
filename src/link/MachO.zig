@@ -341,7 +341,7 @@ pub fn flush(
     arena: Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
-) link.File.FlushError!void {
+) link.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -490,7 +490,7 @@ pub fn flush(
         }
     };
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     {
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
@@ -504,7 +504,7 @@ pub fn flush(
     try self.resolveSymbols();
     try self.convertTentativeDefsAndResolveSpecialSymbols();
     self.dedupLiterals() catch |err| switch (err) {
-        error.LinkFailure => |e| return e,
+        error.AlreadyReported => |e| return e,
         else => |e| return diags.fail("failed to deduplicate literals: {s}", .{@errorName(e)}),
     };
 
@@ -513,7 +513,7 @@ pub fn flush(
     }
 
     self.checkDuplicates() catch |err| switch (err) {
-        error.HasDuplicates => return error.LinkFailure,
+        error.HasDuplicates => return error.AlreadyReported,
         else => |e| return diags.fail("failed to check for duplicate symbol definitions: {s}", .{@errorName(e)}),
     };
 
@@ -528,7 +528,7 @@ pub fn flush(
     self.claimUnresolved();
 
     self.scanRelocs() catch |err| switch (err) {
-        error.HasUndefinedSymbols => return error.LinkFailure,
+        error.HasUndefinedSymbols => return error.AlreadyReported,
         else => |e| return diags.fail("failed to scan relocations: {s}", .{@errorName(e)}),
     };
 
@@ -542,7 +542,7 @@ pub fn flush(
 
     try self.initSegments();
     self.allocateSections() catch |err| switch (err) {
-        error.LinkFailure => |e| return e,
+        error.AlreadyReported => |e| return e,
         else => |e| return diags.fail("failed to allocate sections: {s}", .{@errorName(e)}),
     };
     self.allocateSegments();
@@ -558,7 +558,7 @@ pub fn flush(
 
     if (self.getZigObject()) |zo| {
         zo.resolveRelocs(self) catch |err| switch (err) {
-            error.ResolveFailed => return error.LinkFailure,
+            error.ResolveFailed => return error.AlreadyReported,
             else => |e| return e,
         };
     }
@@ -567,7 +567,7 @@ pub fn flush(
     try self.writeSectionsToFile();
     try self.allocateLinkeditSegment();
     self.writeLinkeditSectionsToFile() catch |err| switch (err) {
-        error.OutOfMemory, error.LinkFailure => |e| return e,
+        error.OutOfMemory, error.AlreadyReported => |e| return e,
         else => |e| return diags.fail("failed to write linkedit sections to file: {t}", .{e}),
     };
 
@@ -594,11 +594,11 @@ pub fn flush(
 
     const ncmds, const sizeofcmds, const uuid_cmd_offset = self.writeLoadCommands() catch |err| switch (err) {
         error.WriteFailed => unreachable,
-        error.OutOfMemory, error.LinkFailure => |e| return e,
+        error.OutOfMemory, error.AlreadyReported => |e| return e,
     };
     try self.writeHeader(ncmds, sizeofcmds);
     self.writeUuid(uuid_cmd_offset, self.requiresCodeSig()) catch |err| switch (err) {
-        error.OutOfMemory, error.LinkFailure => |e| return e,
+        error.OutOfMemory, error.AlreadyReported => |e| return e,
         else => |e| return diags.fail("failed to calculate and write uuid: {s}", .{@errorName(e)}),
     };
     if (self.getDebugSymbols()) |dsym| dsym.flush(self) catch |err| switch (err) {
@@ -609,7 +609,7 @@ pub fn flush(
     // Code signing always comes last.
     if (codesig) |*csig| {
         self.writeCodeSignature(csig) catch |err| switch (err) {
-            error.OutOfMemory, error.LinkFailure => |e| return e,
+            error.OutOfMemory, error.AlreadyReported => |e| return e,
             else => |e| return diags.fail("failed to write code signature: {s}", .{@errorName(e)}),
         };
         const emit = self.base.emit;
@@ -968,7 +968,7 @@ pub fn parseInputFiles(self: *MachO) !void {
         }
     }
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 }
 
 fn parseInputFileWorker(self: *MachO, file: File) void {
@@ -1365,7 +1365,7 @@ fn convertTentativeDefsAndResolveSpecialSymbols(self: *MachO) !void {
             resolveSpecialSymbolsWorker(self, obj);
         }
     }
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 }
 
 fn convertTentativeDefinitionsWorker(self: *MachO, object: *Object) void {
@@ -1450,7 +1450,7 @@ fn checkDuplicates(self: *MachO) !void {
         }
     }
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     try self.reportDuplicates();
 }
@@ -1517,7 +1517,7 @@ fn scanRelocs(self: *MachO) !void {
         }
     }
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     if (self.getInternalObject()) |obj| {
         try obj.checkUndefs(self);
@@ -1990,7 +1990,7 @@ fn calcSectionSizes(self: *MachO) !void {
         }
     }
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     try self.calcSymtabSize();
 
@@ -2527,7 +2527,7 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
         };
     }
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 }
 
 fn writeAtomsWorker(self: *MachO, file: File) void {
@@ -3074,15 +3074,15 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
-) link.File.UpdateNavError!void {
+) link.Error!void {
     return self.getZigObject().?.updateFunc(self, pt, func_index, mir);
 }
 
-pub fn updateNav(self: *MachO, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
+pub fn updateNav(self: *MachO, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.Error!void {
     return self.getZigObject().?.updateNav(self, pt, nav);
 }
 
-pub fn updateLineNumber(self: *MachO, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
+pub fn updateLineNumber(self: *MachO, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) link.Error!void {
     return self.getZigObject().?.updateLineNumber(pt, ti_id);
 }
 
@@ -3091,7 +3091,7 @@ pub fn updateExports(
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
-) link.File.UpdateExportsError!void {
+) link.Error!void {
     return self.getZigObject().?.updateExports(self, pt, exported, export_indices);
 }
 
@@ -3116,9 +3116,8 @@ pub fn lowerUav(
     pt: Zcu.PerThread,
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Zcu.LazySrcLoc,
-) !codegen.SymbolResult {
-    return self.getZigObject().?.lowerUav(self, pt, uav, explicit_alignment, src_loc);
+) !link.File.SymbolId {
+    return self.getZigObject().?.lowerUav(self, pt, uav, explicit_alignment);
 }
 
 pub fn getUavVAddr(self: *MachO, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
@@ -3265,7 +3264,11 @@ fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64
     file_writer.pos = new_offset;
     const size_u = math.cast(usize, size) orelse return error.Overflow;
     const n = file_writer.interface.sendFileAll(&file_reader, .limited(size_u)) catch |err| switch (err) {
-        error.ReadFailed => return file_reader.err.?,
+        error.ReadFailed => switch (file_reader.err.?) {
+            error.ConnectionResetByPeer => return error.Unexpected, // not a socket
+            error.SocketUnconnected => return error.Unexpected, // not a socket
+            else => |e| return e,
+        },
         error.WriteFailed => return file_writer.err.?,
     };
     assert(n == size_u);
@@ -5373,7 +5376,7 @@ fn isReachable(atom: *const Atom, rel: Relocation, macho_file: *MachO) bool {
     return true;
 }
 
-pub fn pwriteAll(macho_file: *MachO, bytes: []const u8, offset: u64) error{LinkFailure}!void {
+pub fn pwriteAll(macho_file: *MachO, bytes: []const u8, offset: u64) error{AlreadyReported}!void {
     const comp = macho_file.base.comp;
     const io = comp.io;
     const diags = &comp.link_diags;
@@ -5381,7 +5384,7 @@ pub fn pwriteAll(macho_file: *MachO, bytes: []const u8, offset: u64) error{LinkF
         return diags.fail("failed to write: {t}", .{err});
 }
 
-pub fn setLength(macho_file: *MachO, length: u64) error{LinkFailure}!void {
+pub fn setLength(macho_file: *MachO, length: u64) error{AlreadyReported}!void {
     const comp = macho_file.base.comp;
     const io = comp.io;
     const diags = &comp.link_diags;
@@ -5389,7 +5392,7 @@ pub fn setLength(macho_file: *MachO, length: u64) error{LinkFailure}!void {
         return diags.fail("failed to set file end pos: {t}", .{err});
 }
 
-pub fn cast(macho_file: *MachO, comptime T: type, x: anytype) error{LinkFailure}!T {
+pub fn cast(macho_file: *MachO, comptime T: type, x: anytype) error{AlreadyReported}!T {
     return std.math.cast(T, x) orelse {
         const comp = macho_file.base.comp;
         const diags = &comp.link_diags;
@@ -5397,7 +5400,7 @@ pub fn cast(macho_file: *MachO, comptime T: type, x: anytype) error{LinkFailure}
     };
 }
 
-pub fn alignPow(macho_file: *MachO, x: u32) error{LinkFailure}!u32 {
+pub fn alignPow(macho_file: *MachO, x: u32) error{AlreadyReported}!u32 {
     const result, const ov = @shlWithOverflow(@as(u32, 1), try cast(macho_file, u5, x));
     if (ov != 0) {
         const comp = macho_file.base.comp;

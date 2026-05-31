@@ -140,19 +140,8 @@ fn generate(
     };
 
     linker.cg.genNav(do_codegen) catch |err| switch (err) {
-        error.CodegenFail => switch (zcu.codegenFailMsg(nav_index, linker.cg.error_msg.?)) {
-            error.CodegenFail => {},
-            error.OutOfMemory => |e| return e,
-        },
-        else => |other| {
-            // There might be an error that happened *after* linker.error_msg
-            // was already allocated, so be sure to free it.
-            if (linker.cg.error_msg) |error_msg| {
-                error_msg.deinit(gpa);
-            }
-
-            return other;
-        },
+        error.AlreadyReported => return,
+        else => |e| return e,
     };
 }
 
@@ -168,7 +157,7 @@ pub fn updateFunc(
     try linker.generate(pt, nav, air.*, liveness.*.?, true);
 }
 
-pub fn updateNav(linker: *Linker, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
+pub fn updateNav(linker: *Linker, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.Error!void {
     const ip = &pt.zcu.intern_pool;
     log.debug("lowering nav {f}({d})", .{ ip.getNav(nav).fqn.fmt(ip), nav });
     try linker.generate(pt, nav, undefined, undefined, false);
@@ -231,7 +220,7 @@ pub fn flush(
     arena: Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
-) link.File.FlushError!void {
+) link.Error!void {
     // The goal is to never use this because it's only needed if we need to
     // write to InternPool, but flush is too late to be writing to the
     // InternPool.

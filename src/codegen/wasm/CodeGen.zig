@@ -329,7 +329,7 @@ const bookkeeping_init = if (std.debug.runtime_safety) @as(usize, 0) else {};
 const InnerError = error{
     OutOfMemory,
     /// An error occurred when trying to lower AIR to MIR.
-    CodegenFail,
+    AlreadyReported,
     /// Compiler implementation could not handle a large integer.
     Overflow,
 } || link.File.UpdateDebugInfoError;
@@ -355,7 +355,7 @@ pub fn deinit(cg: *CodeGen) void {
     cg.* = undefined;
 }
 
-pub fn fail(cg: *CodeGen, comptime fmt: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
+pub fn fail(cg: *CodeGen, comptime fmt: []const u8, args: anytype) error{ OutOfMemory, AlreadyReported } {
     const zcu = cg.pt.zcu;
     const func = zcu.funcInfo(cg.func_index);
     return zcu.codegenFail(func.owner_nav, fmt, args);
@@ -756,21 +756,17 @@ fn ensureAllocLocal(cg: *CodeGen, ty: Type) InnerError!WValue {
 
 pub const Error = error{
     OutOfMemory,
-    /// Compiler was asked to operate on a number larger than supported.
-    Overflow,
     /// Indicates the error is already stored in Zcu `failed_codegen`.
-    CodegenFail,
+    AlreadyReported,
 };
 
 pub fn generate(
     bin_file: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: *const Air,
     liveness: *const ?Air.Liveness,
 ) Error!Mir {
-    _ = src_loc;
     _ = bin_file;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -814,9 +810,8 @@ pub fn generate(
     try code_gen.mir_func_tys.putNoClobber(gpa, fn_ty.toIntern(), {});
 
     return generateInner(&code_gen, any_returns) catch |err| switch (err) {
-        error.CodegenFail,
+        error.AlreadyReported,
         error.OutOfMemory,
-        error.Overflow,
         => |e| return e,
         else => |e| return code_gen.fail("failed to generate function: {s}", .{@errorName(e)}),
     };

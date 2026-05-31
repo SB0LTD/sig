@@ -3912,12 +3912,12 @@ pub fn getTarget(zcu: *const Zcu) *const Target {
 pub fn handleUpdateExports(
     zcu: *Zcu,
     export_indices: []const Export.Index,
-    result: link.File.UpdateExportsError!void,
-) Allocator.Error!void {
+    result: link.Error!void,
+) (Allocator.Error || Io.Cancelable)!void {
     const gpa = zcu.gpa;
     result catch |err| switch (err) {
-        error.OutOfMemory => |e| return e,
-        error.AnalysisFail => {
+        else => |e| return e,
+        error.AlreadyReported => {
             const export_idx = export_indices[0];
             const new_export = export_idx.ptr(zcu);
             new_export.status = .failed_retryable;
@@ -4688,7 +4688,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
 
 pub const CodegenFailError = error{
     /// Indicates the error message has been already stored at `Zcu.failed_codegen`.
-    CodegenFail,
+    AlreadyReported,
     OutOfMemory,
 };
 
@@ -4713,16 +4713,7 @@ pub fn codegenFailMsg(zcu: *Zcu, nav_index: InternPool.Nav.Index, msg: *ErrorMsg
         errdefer msg.deinit(gpa);
         try zcu.failed_codegen.putNoClobber(gpa, nav_index, msg);
     }
-    return error.CodegenFail;
-}
-
-/// Asserts that `zcu.failed_codegen` contains the key `nav`, with the necessary lock held.
-pub fn assertCodegenFailed(zcu: *Zcu, nav: InternPool.Nav.Index) void {
-    const comp = zcu.comp;
-    const io = comp.io;
-    comp.mutex.lockUncancelable(io);
-    defer comp.mutex.unlock(io);
-    assert(zcu.failed_codegen.contains(nav));
+    return error.AlreadyReported;
 }
 
 pub fn codegenFailType(
@@ -4735,7 +4726,7 @@ pub fn codegenFailType(
     try zcu.failed_types.ensureUnusedCapacity(gpa, 1);
     const msg = try Zcu.ErrorMsg.create(gpa, zcu.typeSrcLoc(ty_index), format, args);
     zcu.failed_types.putAssumeCapacityNoClobber(ty_index, msg);
-    return error.CodegenFail;
+    return error.AlreadyReported;
 }
 
 pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg) CodegenFailError {
@@ -4745,7 +4736,7 @@ pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg)
         try zcu.failed_types.ensureUnusedCapacity(gpa, 1);
     }
     zcu.failed_types.putAssumeCapacityNoClobber(ty_index, msg);
-    return error.CodegenFail;
+    return error.AlreadyReported;
 }
 
 /// Asserts that `zcu.multi_module_err != null`.

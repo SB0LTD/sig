@@ -80,7 +80,7 @@ pub const Mir = struct {
     }
 };
 
-pub const Error = Writer.Error || Allocator.Error || error{AnalysisFail};
+pub const Error = Writer.Error || Allocator.Error || error{AlreadyReported};
 
 pub const CType = @import("c/type.zig").CType;
 
@@ -637,7 +637,6 @@ pub const DeclGen = struct {
     owner_nav: InternPool.Nav.Index.Optional,
     is_naked_fn: bool,
     expected_block: ?u32,
-    error_msg: ?*Zcu.ErrorMsg,
     ctype_deps: CType.Dependencies,
     /// This map contains all the UAVs we saw generating this function.
     /// `link.C` will merge them into its `uavs`/`aligned_uavs` fields.
@@ -648,10 +647,7 @@ pub const DeclGen = struct {
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @branchHint(.cold);
-        const zcu = dg.pt.zcu;
-        const src_loc = zcu.navSrcLoc(dg.owner_nav.unwrap().?);
-        dg.error_msg = try Zcu.ErrorMsg.create(dg.gpa, src_loc, format, args);
-        return error.AnalysisFail;
+        return dg.pt.zcu.codegenFail(dg.owner_nav.unwrap().?, format, args);
     }
 
     fn renderUav(
@@ -2184,15 +2180,13 @@ pub fn genLazyCallModifierFn(
 pub fn generate(
     lf: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: *const Air,
     liveness: *const ?Air.Liveness,
-) @import("../codegen.zig").CodeGenError!Mir {
+) @import("../codegen.zig").Error!Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
-    _ = src_loc;
     assert(lf.tag == .c);
 
     const func = zcu.funcInfo(func_index);
@@ -2210,7 +2204,6 @@ pub fn generate(
             .arena = arena.allocator(),
             .pt = pt,
             .mod = zcu.navFileScope(func.owner_nav).mod.?,
-            .error_msg = null,
             .owner_nav = func.owner_nav.toOptional(),
             .is_naked_fn = Type.fromInterned(func.ty).fnCallingConvention(zcu) == .naked,
             .expected_block = null,
@@ -2237,9 +2230,8 @@ pub fn generate(
     defer code_header.deinit();
 
     genFunc(&function, &fwd_decl.writer, &code_header.writer) catch |err| switch (err) {
-        error.AnalysisFail => return zcu.codegenFailMsg(func.owner_nav, function.dg.error_msg.?),
         error.WriteFailed => return error.OutOfMemory,
-        error.OutOfMemory => |e| return e,
+        else => |e| return e,
     };
 
     var mir: Mir = .{

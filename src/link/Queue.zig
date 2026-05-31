@@ -135,7 +135,7 @@ pub fn finishPrelinkQueue(q: *Queue, comp: *Compilation) Io.Cancelable!void {
             lf.post_prelink = true;
         } else |err| switch (err) {
             error.OutOfMemory => comp.link_diags.setAllocFailure(),
-            error.LinkFailure => {},
+            error.AlreadyReported => {},
             error.Canceled => |e| return e,
         }
     }
@@ -178,7 +178,7 @@ fn runLinkTasks(q: *Queue, comp: *Compilation) void {
             } else |err| switch (err) {
                 error.OutOfMemory => comp.link_diags.setAllocFailure(),
                 error.Canceled => @panic("TODO"),
-                error.LinkFailure => {},
+                error.AlreadyReported => {},
             }
         }
     }
@@ -205,7 +205,11 @@ fn runIdleTask(comp: *Compilation, tid: Zcu.PerThread.Id) bool {
             comp.link_diags.setAllocFailure();
             break :have_more false;
         },
-        error.LinkFailure => false,
+        error.AlreadyReported => false,
+        error.Canceled => {
+            comp.io.recancel();
+            return false;
+        },
     };
 }
 

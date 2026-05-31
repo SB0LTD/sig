@@ -3700,7 +3700,7 @@ fn processExportsInner(
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
     skip_linker_work: bool,
-) error{OutOfMemory}!void {
+) error{ OutOfMemory, Canceled }!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -4533,7 +4533,7 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) Ru
     return codegen_result catch |err| {
         switch (err) {
             error.OutOfMemory => comp.setAllocFailure(),
-            error.CodegenFail => zcu.assertCodegenFailed(zcu.funcInfo(func_index).owner_nav),
+            error.AlreadyReported => {},
             error.NoLinkFile => assert(comp.bin_file == null),
             error.BackendDoesNotProduceMir => switch (target_util.zigBackend(
                 &zcu.root_mod.resolved_target.result,
@@ -4552,7 +4552,7 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) Ru
 fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) error{
     OutOfMemory,
     Canceled,
-    CodegenFail,
+    AlreadyReported,
     NoLinkFile,
     BackendDoesNotProduceMir,
 }!codegen.AnyMir {
@@ -4628,19 +4628,12 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
             switch (err) {
                 error.OutOfMemory => comp.link_diags.setAllocFailure(),
             }
-            return error.CodegenFail;
+            return error.AlreadyReported;
         };
         return error.BackendDoesNotProduceMir;
     }
 
-    return codegen.generateFunction(lf, pt, zcu.navSrcLoc(nav), func_index, air, &liveness) catch |err| switch (err) {
-        error.OutOfMemory,
-        error.CodegenFail,
-        => |e| return e,
-        error.Overflow,
-        error.RelocationNotByteAligned,
-        => return zcu.codegenFail(nav, "unable to codegen: {s}", .{@errorName(err)}),
-    };
+    return codegen.generateFunction(lf, pt, func_index, air, &liveness);
 }
 
 fn printVerboseAir(

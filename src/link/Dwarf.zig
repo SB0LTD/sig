@@ -51,21 +51,15 @@ pub const UpdateError = error{
     Underflow,
     UnexpectedEndOfFile,
     NonResizable,
-    /// TODO why is this in the error set?
-    ConnectionResetByPeer,
-    /// TODO why is this in the error set?
-    SocketUnconnected,
+    Overflow,
 } ||
-    codegen.GenerateSymbolError ||
+    link.Error ||
     Io.File.OpenError ||
     Io.File.LengthError ||
     Io.File.ReadPositionalError ||
     Io.File.WritePositionalError;
 
-pub const FlushError = UpdateError;
-
-pub const RelocError =
-    Io.File.PWriteError;
+pub const RelocError = Io.File.PWriteError;
 
 pub const AddressSize = enum(u8) {
     @"32" = 4,
@@ -1579,19 +1573,17 @@ pub const WipNav = struct {
     pub const LocalConstTag = enum { comptime_arg, local_const };
     pub fn genLocalConstDebugInfo(
         wip_nav: *WipNav,
-        src_loc: Zcu.LazySrcLoc,
         tag: LocalConstTag,
         opt_name: ?[]const u8,
         val: Value,
     ) UpdateError!void {
-        return wip_nav.genLocalConstDebugInfoWriterError(src_loc, tag, opt_name, val) catch |err| switch (err) {
+        return wip_nav.genLocalConstDebugInfoWriterError(tag, opt_name, val) catch |err| switch (err) {
             error.WriteFailed => error.OutOfMemory,
             else => |e| e,
         };
     }
     fn genLocalConstDebugInfoWriterError(
         wip_nav: *WipNav,
-        src_loc: Zcu.LazySrcLoc,
         tag: LocalConstTag,
         opt_name: ?[]const u8,
         val: Value,
@@ -1617,7 +1609,7 @@ pub const WipNav = struct {
         });
         if (opt_name) |name| try wip_nav.strp(name);
         try wip_nav.refType(ty);
-        if (has_runtime_bits) try wip_nav.blockValue(src_loc, val);
+        if (has_runtime_bits) try wip_nav.blockValue(val);
         if (has_comptime_state) try wip_nav.refValue(val);
         wip_nav.any_children = true;
     }
@@ -2106,7 +2098,6 @@ pub const WipNav = struct {
 
     fn blockValue(
         wip_nav: *WipNav,
-        src_loc: Zcu.LazySrcLoc,
         val: Value,
     ) (UpdateError || Writer.Error)!void {
         const ty = val.typeOf(wip_nav.pt.zcu);
@@ -2118,7 +2109,6 @@ pub const WipNav = struct {
         try codegen.generateSymbol(
             wip_nav.dwarf.bin_file,
             wip_nav.pt,
-            src_loc,
             val,
             &wip_nav.debug_info.writer,
             .{ .debug_output = .{ .dwarf = wip_nav } },
@@ -2592,7 +2582,7 @@ pub fn initWipNav(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
     sym_index: link.File.SymbolId,
-) error{ OutOfMemory, CodegenFail }!WipNav {
+) error{ OutOfMemory, AlreadyReported }!WipNav {
     return initWipNavInner(dwarf, pt, nav_index, sym_index) catch |err| switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         else => |e| pt.zcu.codegenFail(nav_index, "failed to init dwarf: {s}", .{@errorName(e)}),
@@ -3017,7 +3007,7 @@ fn finishWipNavWriterError(
     try dwarf.const_pool.flushPending(pt, .{ .dwarf = dwarf });
 }
 
-pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error{ OutOfMemory, CodegenFail }!void {
+pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error{ OutOfMemory, AlreadyReported }!void {
     return updateComptimeNavInner(dwarf, pt, nav_index) catch |err| switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         else => |e| pt.zcu.codegenFail(nav_index, "failed to update dwarf: {s}", .{@errorName(e)}),
@@ -3027,7 +3017,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    const nav_src_loc = zcu.navSrcLoc(nav_index);
 
     const nav = ip.getNav(nav_index);
     const inst_info = nav.srcInst(ip).resolveFull(ip).?;
@@ -3207,7 +3196,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
             }.toSlice(ip));
             const nav_ty = nav_val.typeOf(zcu);
             try wip_nav.refType(nav_ty);
-            try wip_nav.blockValue(nav_src_loc, nav_val);
+            try wip_nav.blockValue(nav_val);
             try diw.writeUleb128(nav.resolved.?.@"align".toByteUnits() orelse
                 nav_ty.abiAlignment(zcu).toByteUnits().?);
             try diw.writeByte(@intFromBool(decl.linkage != .normal));
@@ -3241,7 +3230,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
             try diw.writeUleb128(nav.resolved.?.@"align".toByteUnits() orelse
                 nav_ty.abiAlignment(zcu).toByteUnits().?);
             try diw.writeByte(@intFromBool(decl.linkage != .normal));
-            if (has_runtime_bits) try wip_nav.blockValue(nav_src_loc, nav_val);
+            if (has_runtime_bits) try wip_nav.blockValue(nav_val);
             if (has_comptime_state) try wip_nav.refValue(nav_val);
             wip_nav.finishForward(nav_ty_reloc_index);
             try wip_nav.abbrevCode(.is_const);
@@ -3551,19 +3540,6 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
     };
     defer wip_nav.deinit();
 
-    // TODO: we really shouldn't need source locations at this point in the pipeline: we've lost
-    // that information by now. If the linker fundamentally cannot lower certain values, that needs
-    // to be caught in the frontend; if it can only hit transient failures, they should be reported
-    // without trying to tie them to a bogus source location.
-    const src_loc: Zcu.LazySrcLoc = .{
-        .base_node_inst = inst: {
-            const mod_root_file_index = zcu.module_roots.get(zcu.std_mod).?.unwrap().?;
-            const mod_root_type_index = zcu.fileRootType(mod_root_file_index);
-            break :inst ip.loadStructType(mod_root_type_index).zir_index;
-        },
-        .offset = .{ .byte_abs = 0 },
-    };
-
     const diw = &wip_nav.debug_info.writer;
     var big_int_space: Value.BigIntSpace = undefined;
     switch (value_ip_key) {
@@ -3588,7 +3564,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                     else => if (ptr_type.sentinel == .none) .ptr_aligned_type else .ptr_aligned_sentinel_type,
                 });
                 try wip_nav.strpFmt("{f}", .{val.toType().fmt(pt)});
-                if (ptr_type.sentinel != .none) try wip_nav.blockValue(src_loc, .fromInterned(ptr_type.sentinel));
+                if (ptr_type.sentinel != .none) try wip_nav.blockValue(.fromInterned(ptr_type.sentinel));
                 if (ptr_type.flags.alignment.toByteUnits()) |a| try diw.writeUleb128(a);
                 try diw.writeByte(@intFromEnum(ptr_type.flags.address_space));
                 if (ptr_type.flags.is_const or ptr_type.flags.is_volatile) try wip_nav.infoSectionOffset(
@@ -3633,7 +3609,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
             const array_child_type: Type = .fromInterned(array_type.child);
             try wip_nav.abbrevCode(if (array_type.sentinel == .none) .array_type else .array_sentinel_type);
             try wip_nav.strpFmt("{f}", .{val.toType().fmt(pt)});
-            if (array_type.sentinel != .none) try wip_nav.blockValue(src_loc, .fromInterned(array_type.sentinel));
+            if (array_type.sentinel != .none) try wip_nav.blockValue(.fromInterned(array_type.sentinel));
             try wip_nav.refType(array_child_type);
             try wip_nav.abbrevCode(.array_len);
             try wip_nav.refType(.usize);
@@ -3880,7 +3856,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                 if (has_comptime_state)
                     try wip_nav.refValue(.fromInterned(comptime_value))
                 else if (has_runtime_bits)
-                    try wip_nav.blockValue(src_loc, .fromInterned(comptime_value));
+                    try wip_nav.blockValue(.fromInterned(comptime_value));
             }
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
         },
@@ -3967,7 +3943,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                             if (has_comptime_state)
                                 try wip_nav.refValue(.fromInterned(field_init))
                             else if (has_runtime_bits)
-                                try wip_nav.blockValue(ty.srcLoc(zcu), .fromInterned(field_init));
+                                try wip_nav.blockValue(.fromInterned(field_init));
                         }
                         try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
                     }
@@ -4332,7 +4308,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                     if (has_comptime_state)
                         try wip_nav.refValue(.fromInterned(payload_val))
                     else
-                        try wip_nav.blockValue(src_loc, .fromInterned(payload_val));
+                        try wip_nav.blockValue(.fromInterned(payload_val));
                 },
             }
             {
@@ -4500,7 +4476,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
             {
                 try wip_nav.abbrevCode(.comptime_value_field_runtime_bits);
                 try wip_nav.strp("len");
-                try wip_nav.blockValue(src_loc, .fromInterned(slice.len));
+                try wip_nav.blockValue(.fromInterned(slice.len));
             }
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
         },
@@ -4513,8 +4489,8 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                 try wip_nav.strp("has_value");
                 switch (optRepr(opt_child_type, zcu)) {
                     .opv_null => try diw.writeUleb128(0),
-                    .unpacked => try wip_nav.blockValue(src_loc, .makeBool(opt.val != .none)),
-                    .error_set, .pointer => try wip_nav.blockValue(src_loc, .fromInterned(value_index)),
+                    .unpacked => try wip_nav.blockValue(.makeBool(opt.val != .none)),
+                    .error_set, .pointer => try wip_nav.blockValue(.fromInterned(value_index)),
                 }
             }
             if (opt.val != .none) child_field: {
@@ -4530,7 +4506,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                 if (has_comptime_state)
                     try wip_nav.refValue(.fromInterned(opt.val))
                 else
-                    try wip_nav.blockValue(src_loc, .fromInterned(opt.val));
+                    try wip_nav.blockValue(.fromInterned(opt.val));
             }
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
         },
@@ -4561,7 +4537,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                         if (has_comptime_state)
                             try wip_nav.refValue(field_value)
                         else
-                            try wip_nav.blockValue(src_loc, field_value);
+                            try wip_nav.blockValue(field_value);
                     }
                 },
                 .tuple_type => |tuple_type| for (0..tuple_type.types.len) |field_index| {
@@ -4588,7 +4564,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                     if (has_comptime_state)
                         try wip_nav.refValue(field_value)
                     else
-                        try wip_nav.blockValue(src_loc, field_value);
+                        try wip_nav.blockValue(field_value);
                 },
                 inline .array_type, .vector_type => |sequence_type| {
                     const child_type: Type = .fromInterned(sequence_type.child);
@@ -4608,7 +4584,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                         if (has_comptime_state)
                             try wip_nav.refValue(.fromInterned(elem))
                         else
-                            try wip_nav.blockValue(src_loc, .fromInterned(elem));
+                            try wip_nav.blockValue(.fromInterned(elem));
                     }
                 },
                 else => unreachable,
@@ -4636,7 +4612,7 @@ fn updateConstInner(dwarf: *Dwarf, pt: Zcu.PerThread, debug_const_index: link.Co
                 if (has_comptime_state)
                     try wip_nav.refValue(.fromInterned(un.val))
                 else
-                    try wip_nav.blockValue(src_loc, .fromInterned(un.val));
+                    try wip_nav.blockValue(.fromInterned(un.val));
             }
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
         },
@@ -4708,13 +4684,13 @@ fn refAbbrevCode(
     return @intFromEnum(abbrev_code);
 }
 
-pub fn flush(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
+pub fn flush(dwarf: *Dwarf, pt: Zcu.PerThread) UpdateError!void {
     return dwarf.flushWriterError(pt) catch |err| switch (err) {
         error.WriteFailed => error.OutOfMemory,
         else => |e| e,
     };
 }
-fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (FlushError || Writer.Error)!void {
+fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (UpdateError || Writer.Error)!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const comp = dwarf.bin_file.comp;

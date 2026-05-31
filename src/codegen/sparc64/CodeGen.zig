@@ -19,7 +19,6 @@ const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const Type = @import("../../Type.zig");
-const CodeGenError = codegen.CodeGenError;
 const Endian = std.lang.Endian;
 const Alignment = InternPool.Alignment;
 
@@ -39,7 +38,7 @@ const gp = abi.RegisterClass.gp;
 
 const Self = @This();
 
-const InnerError = CodeGenError || error{OutOfRegisters};
+const InnerError = codegen.Error || error{OutOfRegisters};
 
 pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
     return null;
@@ -57,12 +56,10 @@ liveness: Air.Liveness,
 bin_file: *link.File,
 target: *const std.Target,
 func_index: InternPool.Index,
-err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
 fn_type: Type,
 arg_index: usize,
-src_loc: Zcu.LazySrcLoc,
 stack_align: Alignment,
 
 /// MIR Instructions
@@ -264,11 +261,10 @@ const BigTomb = struct {
 pub fn generate(
     lf: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: *const Air,
     liveness: *const ?Air.Liveness,
-) CodeGenError!Mir {
+) codegen.Error!Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
@@ -292,13 +288,11 @@ pub fn generate(
         .target = target,
         .bin_file = lf,
         .func_index = func_index,
-        .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
         .fn_type = func_ty,
         .arg_index = 0,
         .branch_stack = &branch_stack,
-        .src_loc = src_loc,
         .stack_align = undefined,
         .end_di_line = func.rbrace_line,
         .end_di_column = func.rbrace_column,
@@ -307,10 +301,7 @@ pub fn generate(
     defer function.blocks.deinit(gpa);
     defer function.exitlude_jump_relocs.deinit(gpa);
 
-    var call_info = function.resolveCallingConventionValues(func_ty, .callee) catch |err| switch (err) {
-        error.CodegenFail => |e| return e,
-        else => |e| return e,
-    };
+    var call_info = try function.resolveCallingConventionValues(func_ty, .callee);
     defer call_info.deinit(&function);
 
     function.args = call_info.args;
@@ -319,7 +310,6 @@ pub fn generate(
     function.max_end_stack = call_info.stack_byte_count;
 
     function.gen() catch |err| switch (err) {
-        error.CodegenFail => |e| return e,
         error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
@@ -3446,15 +3436,15 @@ fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) 
     }
 }
 
-fn fail(self: *Self, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
+fn fail(self: *Self, comptime format: []const u8, args: anytype) error{ OutOfMemory, AlreadyReported } {
     @branchHint(.cold);
     const zcu = self.pt.zcu;
     const func = zcu.funcInfo(self.func_index);
-    const msg = try ErrorMsg.create(zcu.gpa, self.src_loc, format, args);
+    const msg = try ErrorMsg.create(zcu.gpa, zcu.navSrcLoc(func.owner_nav), format, args);
     return zcu.codegenFailMsg(func.owner_nav, msg);
 }
 
-fn failMsg(self: *Self, msg: *ErrorMsg) error{ OutOfMemory, CodegenFail } {
+fn failMsg(self: *Self, msg: *ErrorMsg) error{ OutOfMemory, AlreadyReported } {
     @branchHint(.cold);
     const zcu = self.pt.zcu;
     const func = zcu.funcInfo(self.func_index);
@@ -4036,21 +4026,14 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
     const mcv: MCValue = switch (try codegen.genTypedValue(
         self.bin_file,
         pt,
-        self.src_loc,
         val,
         self.target,
     )) {
-        .mcv => |mcv| switch (mcv) {
-            .none => .none,
-            .undef => .undef,
-            .load_got, .load_symbol, .load_direct, .lea_symbol, .lea_direct => unreachable, // TODO
-            .immediate => |imm| .{ .immediate = imm },
-            .memory => |addr| .{ .memory = addr },
-        },
-        .fail => |msg| {
-            self.err_msg = msg;
-            return error.CodegenFail;
-        },
+        .none => .none,
+        .undef => .undef,
+        .load_got, .load_symbol, .load_direct, .lea_symbol, .lea_direct => unreachable, // TODO
+        .immediate => |imm| .{ .immediate = imm },
+        .memory => |addr| .{ .memory = addr },
     };
     return mcv;
 }

@@ -474,7 +474,7 @@ pub fn updateContainerType(
     pt: Zcu.PerThread,
     ty: InternPool.Index,
     success: bool,
-) link.File.UpdateContainerTypeError!void {
+) link.Error!void {
     try c.type_pool.updateContainerType(pt, .{ .c = c }, ty, success);
 }
 
@@ -570,7 +570,6 @@ pub fn updateNav(
             .arena = arena.allocator(),
             .pt = pt,
             .mod = zcu.navFileScope(nav_index).mod.?,
-            .error_msg = null,
             .owner_nav = nav_index.toOptional(),
             .is_naked_fn = false,
             .expected_block = null,
@@ -588,10 +587,7 @@ pub fn updateNav(
             defer c.string_bytes = aw.toArrayList();
             const start = aw.written().len;
             codegen.genDeclFwd(&dg, &aw.writer) catch |err| switch (err) {
-                error.AnalysisFail => switch (zcu.codegenFailMsg(nav_index, dg.error_msg.?)) {
-                    error.CodegenFail => return,
-                    error.OutOfMemory => |e| return e,
-                },
+                error.AlreadyReported => return,
                 error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
             };
             break :fwd_decl .{
@@ -605,10 +601,7 @@ pub fn updateNav(
             defer c.string_bytes = aw.toArrayList();
             const start = aw.written().len;
             codegen.genDecl(&dg, &aw.writer) catch |err| switch (err) {
-                error.AnalysisFail => switch (zcu.codegenFailMsg(nav_index, dg.error_msg.?)) {
-                    error.CodegenFail => return,
-                    error.OutOfMemory => |e| return e,
-                },
+                error.AlreadyReported => return,
                 error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
             };
             break :code .{
@@ -661,7 +654,6 @@ fn updateUav(
         .arena = arena.allocator(),
         .pt = pt,
         .mod = pt.zcu.root_mod,
-        .error_msg = null,
         .owner_nav = .none,
         .is_naked_fn = false,
         .expected_block = null,
@@ -683,9 +675,7 @@ fn updateUav(
             .@"threadlocal" = false,
             .init_val = val,
         }) catch |err| switch (err) {
-            error.AnalysisFail => {
-                @panic("TODO: CBE error.AnalysisFail on uav");
-            },
+            error.AlreadyReported => return,
             error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
         };
         break :fwd_decl .{
@@ -704,9 +694,7 @@ fn updateUav(
             .@"threadlocal" = false,
             .init_val = val,
         }) catch |err| switch (err) {
-            error.AnalysisFail => {
-                @panic("TODO: CBE error.AnalysisFail on uav");
-            },
+            error.AlreadyReported => return,
             error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
         };
         break :code .{
@@ -726,7 +714,7 @@ pub fn updateLineNumber(c: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.
     _ = ti_id;
 }
 
-pub fn flush(c: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flush(c: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1112,7 +1100,6 @@ pub fn flush(c: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Prog
             .owner_nav = .none,
             .is_naked_fn = false,
             .expected_block = null,
-            .error_msg = null,
             .ctype_deps = .empty,
             .uavs = .empty,
         };
@@ -1156,14 +1143,14 @@ pub fn flush(c: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Prog
             codegen.genLazyCallModifierFn(&lazy_dg, fn_nav, .never_tail, &lazy_decls_aw.writer) catch |err| switch (err) {
                 error.WriteFailed => return error.OutOfMemory,
                 error.OutOfMemory => |e| return e,
-                error.AnalysisFail => unreachable,
+                error.AlreadyReported => unreachable,
             };
         }
         for (need_never_inline_funcs.keys()) |fn_nav| {
             codegen.genLazyCallModifierFn(&lazy_dg, fn_nav, .never_inline, &lazy_decls_aw.writer) catch |err| switch (err) {
                 error.WriteFailed => return error.OutOfMemory,
                 error.OutOfMemory => |e| return e,
-                error.AnalysisFail => unreachable,
+                error.AlreadyReported => unreachable,
             };
         }
     }
@@ -1256,7 +1243,6 @@ pub fn updateExports(
         .owner_nav = .none,
         .is_naked_fn = false,
         .expected_block = null,
-        .error_msg = null,
         .ctype_deps = .empty,
         .uavs = .empty,
     };

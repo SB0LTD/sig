@@ -3376,7 +3376,7 @@ fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id) (Io.Cancel
                 .fuzz = comp.config.any_fuzz,
                 .lto = comp.config.lto,
             }) catch |err| switch (err) {
-                error.LinkFailure => {}, // Already reported.
+                error.AlreadyReported => {},
                 error.OutOfMemory => |e| return e,
             };
         }
@@ -3390,7 +3390,7 @@ fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id) (Io.Cancel
         };
         // This is needed before reading the error flags.
         lf.flush(arena, tid, comp.link_prog_node) catch |err| switch (err) {
-            error.LinkFailure => {}, // Already reported.
+            error.AlreadyReported => {},
             error.OutOfMemory, error.Canceled => |e| return e,
         };
     }
@@ -5249,7 +5249,7 @@ fn workerUpdateCObject(
     progress_node: std.Progress.Node,
 ) void {
     comp.updateCObject(c_object, progress_node) catch |err| switch (err) {
-        error.AnalysisFail => return,
+        error.AlreadyReported => return,
         else => {
             comp.reportRetryableCObjectError(c_object, err) catch |oom| switch (oom) {
                 // Swallowing this error is OK because it's implied to be OOM when
@@ -5266,7 +5266,7 @@ fn workerUpdateWin32Resource(
     progress_node: std.Progress.Node,
 ) void {
     comp.updateWin32Resource(win32_resource, progress_node) catch |err| switch (err) {
-        error.AnalysisFail => return,
+        error.AlreadyReported => return,
         else => {
             comp.reportRetryableWin32ResourceError(win32_resource, err) catch |oom| switch (oom) {
                 // Swallowing this error is OK because it's implied to be OOM when
@@ -5489,7 +5489,7 @@ fn reportRetryableCObjectError(comp: *Compilation, c_object: *CObject, err: anye
     c_object.status = .failure_retryable;
 
     switch (comp.failCObj(c_object, "{t}", .{err})) {
-        error.AnalysisFail => return,
+        error.AlreadyReported => return,
         else => |e| return e,
     }
 }
@@ -6852,7 +6852,7 @@ fn failCObj(
     c_object: *CObject,
     comptime format: []const u8,
     args: anytype,
-) error{ OutOfMemory, AnalysisFail } {
+) error{ OutOfMemory, AlreadyReported } {
     @branchHint(.cold);
     const diag_bundle = blk: {
         const diag_bundle = try comp.gpa.create(CObject.Diag.Bundle);
@@ -6876,7 +6876,7 @@ fn failCObjWithOwnedDiagBundle(
     comp: *Compilation,
     c_object: *CObject,
     diag_bundle: *CObject.Diag.Bundle,
-) error{ OutOfMemory, AnalysisFail } {
+) error{ OutOfMemory, AlreadyReported } {
     @branchHint(.cold);
     assert(diag_bundle.diags.len > 0);
     {
@@ -6890,10 +6890,10 @@ fn failCObjWithOwnedDiagBundle(
         comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, diag_bundle);
     }
     c_object.status = .failure;
-    return error.AnalysisFail;
+    return error.AlreadyReported;
 }
 
-fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptime format: []const u8, args: anytype) error{ OutOfMemory, AnalysisFail } {
+fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptime format: []const u8, args: anytype) error{ OutOfMemory, AlreadyReported } {
     @branchHint(.cold);
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(comp.gpa);
@@ -6920,7 +6920,7 @@ fn failWin32ResourceWithOwnedBundle(
     comp: *Compilation,
     win32_resource: *Win32Resource,
     err_bundle: ErrorBundle,
-) error{ OutOfMemory, AnalysisFail } {
+) error{ OutOfMemory, AlreadyReported } {
     @branchHint(.cold);
     {
         const io = comp.io;
@@ -6929,7 +6929,7 @@ fn failWin32ResourceWithOwnedBundle(
         try comp.failed_win32_resources.putNoClobber(comp.gpa, win32_resource, err_bundle);
     }
     win32_resource.status = .failure;
-    return error.AnalysisFail;
+    return error.AlreadyReported;
 }
 
 pub const FileExt = enum {

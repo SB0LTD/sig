@@ -17,6 +17,7 @@ relocs: std.ArrayList(Reloc),
 table_relocs: std.ArrayList(TableReloc),
 
 pub const Error = Lower.Error || error{
+    AlreadyReported,
     EmitFail,
     NotFile,
 } || std.posix.MMapError || std.posix.MRemapError || link.File.UpdateDebugInfoError;
@@ -101,20 +102,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .inst => |inst| .{ .inst = inst },
                     .table => .table,
                     .nav => |nav| {
-                        const symbol_id = switch (try codegen.genNavRef(
+                        const symbol_id = try codegen.genNavRef(
                             emit.bin_file,
                             emit.pt,
-                            emit.lower.src_loc,
                             nav,
-                            emit.lower.target,
-                        )) {
-                            .sym_index => |symbol_id| symbol_id,
-                            .fail => |em| {
-                                assert(emit.lower.err_msg == null);
-                                emit.lower.err_msg = em;
-                                return error.EmitFail;
-                            },
-                        };
+                        );
                         const target_symbol: RelocInfo.Target.Symbol = if (ip.getNav(nav).getExtern(ip)) |@"extern"| .{
                             .symbol = symbol_id,
                             .is_extern = switch (@"extern".visibility) {
@@ -133,19 +125,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                         }
                     },
                     .uav => |uav| .{ .symbol = .{
-                        .symbol = switch (try emit.bin_file.lowerUav(
+                        .symbol = try emit.bin_file.lowerUav(
                             emit.pt,
                             uav.val,
                             Type.fromInterned(uav.orig_ty).ptrAlignment(emit.pt.zcu),
-                            emit.lower.src_loc,
-                        )) {
-                            .sym_index => |symbol_id| symbol_id,
-                            .fail => |em| {
-                                assert(emit.lower.err_msg == null);
-                                emit.lower.err_msg = em;
-                                return error.EmitFail;
-                            },
-                        },
+                        ),
                         .is_extern = false,
                     } },
                     .lazy_sym => |lazy_sym| .{ .symbol = .{
@@ -168,17 +152,14 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .extern_func => |extern_func| .{ .symbol = .{
                         .symbol = if (emit.bin_file.cast(.elf)) |elf_file|
                             @enumFromInt(try elf_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null))
-                        else if (emit.bin_file.cast(.elf2)) |elf| elf.externSymbol(.{
+                        else if (emit.bin_file.cast(.elf2)) |elf| try elf.externSymbol(.{
                             .name = extern_func.toSlice(&emit.lower.mir).?,
                             .lib_name = switch (comp.compiler_rt_strat) {
                                 .none, .lib, .obj, .zcu => null,
                                 .dyn_lib => "compiler_rt",
                             },
                             .type = .FUNC,
-                        }) catch |err| switch (err) {
-                            error.LinkOnceUnsupported => unreachable,
-                            else => |e| return e,
-                        } else if (emit.bin_file.cast(.macho)) |macho_file|
+                        }) else if (emit.bin_file.cast(.macho)) |macho_file|
                             @enumFromInt(try macho_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null))
                         else if (emit.bin_file.cast(.coff2)) |coff| @enumFromInt(@intFromEnum(try coff.globalSymbol(
                             extern_func.toSlice(&emit.lower.mir).?,
@@ -313,14 +294,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                                         .symbol = if (emit.bin_file.cast(.elf)) |elf_file| @enumFromInt(try elf_file.getGlobalSymbol(
                                             "__tls_get_addr",
                                             if (comp.config.link_libc) "c" else null,
-                                        )) else if (emit.bin_file.cast(.elf2)) |elf| elf.externSymbol(.{
+                                        )) else if (emit.bin_file.cast(.elf2)) |elf| try elf.externSymbol(.{
                                             .name = "__tls_get_addr",
                                             .lib_name = if (comp.config.link_libc) "c" else null,
                                             .type = .FUNC,
-                                        }) catch |err| switch (err) {
-                                            error.LinkOnceUnsupported => unreachable,
-                                            else => |e| return e,
-                                        } else unreachable,
+                                        }) else unreachable,
                                         .is_extern = true,
                                     } },
                                 }});
@@ -584,37 +562,16 @@ pub fn emitMir(emit: *Emit) Error!void {
                                                 .none => .{ .constu = 0 },
                                                 .reg => |reg| .{ .breg = reg.dwarfNum() },
                                                 .frame, .table, .rip_inst => unreachable,
-                                                .nav => |nav| .{ .addr_reloc = switch (codegen.genNavRef(
+                                                .nav => |nav| .{ .addr_reloc = try codegen.genNavRef(
                                                     emit.bin_file,
                                                     emit.pt,
-                                                    emit.lower.src_loc,
                                                     nav,
-                                                    emit.lower.target,
-                                                ) catch |err| switch (err) {
-                                                    error.CodegenFail,
-                                                    => return emit.fail("unable to codegen: {s}", .{@errorName(err)}),
-                                                    else => |e| return e,
-                                                }) {
-                                                    .sym_index => |sym_index| sym_index,
-                                                    .fail => |em| {
-                                                        assert(emit.lower.err_msg == null);
-                                                        emit.lower.err_msg = em;
-                                                        return error.EmitFail;
-                                                    },
-                                                } },
-                                                .uav => |uav| .{ .addr_reloc = switch (try emit.bin_file.lowerUav(
+                                                ) },
+                                                .uav => |uav| .{ .addr_reloc = try emit.bin_file.lowerUav(
                                                     emit.pt,
                                                     uav.val,
                                                     Type.fromInterned(uav.orig_ty).ptrAlignment(emit.pt.zcu),
-                                                    emit.lower.src_loc,
-                                                )) {
-                                                    .sym_index => |sym_index| sym_index,
-                                                    .fail => |em| {
-                                                        assert(emit.lower.err_msg == null);
-                                                        emit.lower.err_msg = em;
-                                                        return error.EmitFail;
-                                                    },
-                                                } },
+                                                ) },
                                                 .lazy_sym, .extern_func => unreachable,
                                             };
                                             break :base &loc_buf[0];
@@ -666,7 +623,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             const local = &emit.lower.mir.locals[local_index];
                             local_index += 1;
                             try dwarf.genLocalConstDebugInfo(
-                                emit.lower.src_loc,
                                 switch (mir_inst.ops) {
                                     else => unreachable,
                                     .pseudo_dbg_arg_val => .comptime_arg,

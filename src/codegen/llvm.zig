@@ -771,7 +771,7 @@ pub const Object = struct {
         lto: std.zig.LtoMode,
     };
 
-    pub fn emit(o: *Object, pt: Zcu.PerThread, options: EmitOptions) error{ LinkFailure, OutOfMemory }!void {
+    pub fn emit(o: *Object, pt: Zcu.PerThread, options: EmitOptions) error{ AlreadyReported, OutOfMemory }!void {
         const zcu = o.zcu;
         const comp = zcu.comp;
         const io = comp.io;
@@ -1705,7 +1705,7 @@ pub const Object = struct {
         o: *Object,
         exported: Zcu.Exported,
         export_indices: []const Zcu.Export.Index,
-    ) link.File.UpdateExportsError!void {
+    ) link.Error!void {
         const zcu = o.zcu;
         const ip = &zcu.intern_pool;
         const ty: Type, const llvm_ptr: Builder.Constant = switch (exported) {
@@ -1735,7 +1735,7 @@ pub const Object = struct {
         global_index: Builder.Global.Index,
         ty: Type,
         export_indices: []const Zcu.Export.Index,
-    ) link.File.UpdateExportsError!void {
+    ) link.Error!void {
         const zcu = o.zcu;
         const comp = zcu.comp;
         const ip = &zcu.intern_pool;

@@ -5,6 +5,7 @@ const is_linux = builtin.os.tag == .linux;
 const is_windows = builtin.os.tag == .windows;
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const assert = std.debug.assert;
 const linux = std.os.linux;
@@ -24,14 +25,40 @@ large: std.ArrayList(u64),
 updates: std.ArrayList(Node.Index),
 update_prog_node: std.Progress.Node,
 writers: std.SinglyLinkedList,
+io_err: ?IoError,
 
 pub const growth_factor = 4;
 
-pub const Error = error{
+pub const IoError = Io.UnexpectedError || error{
+    DiskQuota,
+    FileTooBig,
+    InputOutput,
+    NoSpaceLeft,
+    AccessDenied,
+    PermissionDenied,
+    SystemResources,
+    LockViolation,
+    LockedMemoryLimitExceeded,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    FileBusy,
+    DeviceBusy,
+    NoDevice,
+    PathAlreadyExists,
+    IsDir,
     NotFile,
-} || Io.File.MemoryMap.CreateError || Io.File.MemoryMap.SetLengthError || Io.File.WritePositionalError;
+    BrokenPipe,
+    NonResizable,
+    Unseekable,
+};
 
-pub fn init(file: Io.File, gpa: std.mem.Allocator, io: Io) !MappedFile {
+pub const Error = Allocator.Error || Io.Cancelable || error{
+    /// Some I/O operation on the memory-mapped file failed. The underlying error is available in
+    /// the `MappedFile.io_err` field.
+    MappedFileIo,
+};
+
+pub fn init(file: Io.File, gpa: std.mem.Allocator, io: Io) (Allocator.Error || Io.Cancelable || IoError)!MappedFile {
     var mf: MappedFile = .{
         .io = io,
         .flags = undefined,
@@ -47,10 +74,14 @@ pub fn init(file: Io.File, gpa: std.mem.Allocator, io: Io) !MappedFile {
         .updates = .empty,
         .update_prog_node = .none,
         .writers = .{},
+        .io_err = null,
     };
     errdefer mf.deinit(gpa);
     const size: u64, const block_size = stat: {
-        const stat = try file.stat(io);
+        const stat = file.stat(io) catch |err| switch (err) {
+            error.Streaming => return error.PathAlreadyExists,
+            else => |e| return e,
+        };
         if (stat.kind != .file) return error.PathAlreadyExists;
         break :stat .{ stat.size, @max(std.heap.pageSize(), stat.block_size) };
     };
@@ -61,14 +92,16 @@ pub fn init(file: Io.File, gpa: std.mem.Allocator, io: Io) !MappedFile {
         .fallocate_punch_hole_unsupported = false,
     };
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
-    assert(try mf.addNode(gpa, .{
-        .add_node = .{
-            .size = size,
-            .alignment = mf.flags.block_size,
-            .fixed = true,
-        },
-    }) == Node.Index.root);
-    try mf.ensureTotalCapacity(@intCast(size));
+    const root_ni = mf.addNode(gpa, .{ .add_node = .{
+        .size = size,
+        .alignment = mf.flags.block_size,
+        .fixed = true,
+    } }) catch |err| switch (err) {
+        error.MappedFileIo => return mf.io_err.?,
+        else => |e| return e,
+    };
+    assert(root_ni == Node.Index.root);
+    try mf.ensureTotalCapacityInner(@intCast(size));
     return mf;
 }
 
@@ -174,7 +207,7 @@ pub const Node = extern struct {
             return .{ .mf = mf, .ni = ni.get(mf).last };
         }
 
-        pub fn childrenMoved(ni: Node.Index, gpa: std.mem.Allocator, mf: *MappedFile) !void {
+        pub fn childrenMoved(ni: Node.Index, gpa: std.mem.Allocator, mf: *MappedFile) Allocator.Error!void {
             var child_ni = ni.get(mf).last;
             while (child_ni != .none) {
                 try child_ni.moved(gpa, mf);
@@ -192,7 +225,7 @@ pub const Node = extern struct {
             }
             return false;
         }
-        pub fn moved(ni: Node.Index, gpa: std.mem.Allocator, mf: *MappedFile) !void {
+        pub fn moved(ni: Node.Index, gpa: std.mem.Allocator, mf: *MappedFile) Allocator.Error!void {
             try mf.updates.ensureUnusedCapacity(gpa, 1);
             ni.movedAssumeCapacity(mf);
         }
@@ -213,7 +246,7 @@ pub const Node = extern struct {
         pub fn hasResized(ni: Node.Index, mf: *const MappedFile) bool {
             return ni.get(mf).flags.resized;
         }
-        pub fn resized(ni: Node.Index, gpa: std.mem.Allocator, mf: *MappedFile) !void {
+        pub fn resized(ni: Node.Index, gpa: std.mem.Allocator, mf: *MappedFile) Allocator.Error!void {
             try mf.updates.ensureUnusedCapacity(gpa, 1);
             ni.resizedAssumeCapacity(mf);
         }
@@ -296,8 +329,16 @@ pub const Node = extern struct {
             return mf.memory_map.memory[@intCast(file_loc.offset)..][0..@intCast(file_loc.size)];
         }
 
-        pub fn resize(ni: Node.Index, mf: *MappedFile, gpa: std.mem.Allocator, size: u64) !void {
-            try mf.resizeNode(gpa, ni, size);
+        pub fn resize(ni: Node.Index, mf: *MappedFile, gpa: std.mem.Allocator, size: u64) Error!void {
+            mf.resizeNode(gpa, ni, size) catch |err| switch (err) {
+                error.OutOfMemory,
+                error.Canceled,
+                => |e| return e,
+                else => |e| {
+                    mf.io_err = e;
+                    return error.MappedFileIo;
+                },
+            };
             var writers_it = mf.writers.first;
             while (writers_it) |writer_node| : (writers_it = writer_node.next) {
                 const w: *Node.Writer = @fieldParentPtr("writer_node", writer_node);
@@ -313,8 +354,16 @@ pub const Node = extern struct {
             mf: *MappedFile,
             gpa: std.mem.Allocator,
             new_alignment: std.mem.Alignment,
-        ) !void {
-            try mf.realignNode(gpa, ni, new_alignment);
+        ) Error!void {
+            mf.realignNode(gpa, ni, new_alignment) catch |err| switch (err) {
+                error.OutOfMemory,
+                error.Canceled,
+                => |e| return e,
+                else => |e| {
+                    mf.io_err = e;
+                    return error.MappedFileIo;
+                },
+            };
             var writers_it = mf.writers.first;
             while (writers_it) |writer_node| : (writers_it = writer_node.next) {
                 const w: *Node.Writer = @fieldParentPtr("writer_node", writer_node);
@@ -422,9 +471,16 @@ pub const Node = extern struct {
                         file_reader.pos,
                         w.ni.fileLocation(w.mf, true).offset + interface.end,
                         limit.minInt(interface.unusedCapacityLen()),
-                    ) catch |err| {
-                        w.err = err;
-                        return error.WriteFailed;
+                    ) catch |err| switch (err) {
+                        error.Canceled => |e| {
+                            w.err = e;
+                            return error.WriteFailed;
+                        },
+                        else => |e| {
+                            w.mf.io_err = e;
+                            w.err = error.MappedFileIo;
+                            return error.WriteFailed;
+                        },
                     });
                     if (n == 0) return error.Unimplemented;
                     file_reader.pos += n;
@@ -472,7 +528,7 @@ fn addNode(mf: *MappedFile, gpa: std.mem.Allocator, opts: struct {
     next: Node.Index = .none,
     offset: u64 = 0,
     add_node: AddNodeOptions,
-}) !Node.Index {
+}) Error!Node.Index {
     if (opts.add_node.moved or opts.add_node.resized) try mf.updates.ensureUnusedCapacity(gpa, 1);
     const offset = opts.add_node.alignment.forward(@intCast(opts.offset));
     const location_tag: Node.Location.Tag, const location_payload: Node.Location.Payload = location: {
@@ -544,7 +600,7 @@ pub fn addOnlyChildNode(
     gpa: std.mem.Allocator,
     parent_ni: Node.Index,
     opts: AddNodeOptions,
-) !Node.Index {
+) Error!Node.Index {
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const parent = parent_ni.get(mf);
     assert(parent.first == .none and parent.last == .none);
@@ -559,7 +615,7 @@ pub fn addFirstChildNode(
     gpa: std.mem.Allocator,
     parent_ni: Node.Index,
     opts: AddNodeOptions,
-) !Node.Index {
+) Error!Node.Index {
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const parent = parent_ni.get(mf);
     return mf.addNode(gpa, .{
@@ -574,7 +630,7 @@ pub fn addLastChildNode(
     gpa: std.mem.Allocator,
     parent_ni: Node.Index,
     opts: AddNodeOptions,
-) !Node.Index {
+) Error!Node.Index {
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const parent = parent_ni.get(mf);
     return mf.addNode(gpa, .{
@@ -596,7 +652,7 @@ pub fn addNodeAfter(
     gpa: std.mem.Allocator,
     prev_ni: Node.Index,
     opts: AddNodeOptions,
-) !Node.Index {
+) Error!Node.Index {
     assert(prev_ni != .none);
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const prev = prev_ni.get(mf);
@@ -610,7 +666,7 @@ pub fn addNodeAfter(
     });
 }
 
-fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested_size: u64) !void {
+fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested_size: u64) (Allocator.Error || Io.Cancelable || IoError)!void {
     const io = mf.io;
     const node = ni.get(mf);
     const old_offset, const old_size = node.location().resolve(mf);
@@ -618,9 +674,13 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
     // Resize the entire file
     if (ni == Node.Index.root) {
         try mf.ensureCapacityForSetLocation(gpa);
-        try mf.memory_map.write(io);
+        mf.memory_map.write(io) catch |err| switch (err) {
+            error.WouldBlock => return error.Unexpected, // file was not opened as non-blocking
+            error.NotOpenForWriting => return error.Unexpected, // we definitely opened the file for writing
+            else => |e| return e,
+        };
         try mf.memory_map.file.setLength(io, new_size);
-        try mf.ensureTotalCapacity(@intCast(new_size));
+        try mf.ensureTotalCapacityInner(@intCast(new_size));
         ni.setLocationAssumeCapacity(mf, old_offset, new_size);
         return;
     }
@@ -643,7 +703,11 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
     if (is_linux and !mf.flags.fallocate_insert_range_unsupported and
         node.flags.alignment.order(mf.flags.block_size).compare(.gte))
     insert_range: {
-        try mf.memory_map.write(io);
+        mf.memory_map.write(io) catch |err| switch (err) {
+            error.WouldBlock => return error.Unexpected, // file was not opened as non-blocking
+            error.NotOpenForWriting => return error.Unexpected, // we definitely opened the file for writing
+            else => |e| return e,
+        };
         // Ask the filesystem driver to insert extents into the file without copying any data
         const last_offset, const last_size = parent.last.location(mf).resolve(mf);
         const last_end = last_offset + last_size;
@@ -674,7 +738,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
                     enclosing_ni.setLocationAssumeCapacity(mf, enclosing_offset, new_enclosing_size);
                     if (enclosing_ni == Node.Index.root) {
                         assert(enclosing_offset == 0);
-                        try mf.ensureTotalCapacity(@intCast(new_enclosing_size));
+                        try mf.ensureTotalCapacityInner(@intCast(new_enclosing_size));
                         break;
                     }
                     var after_ni = enclosing.next;
@@ -865,7 +929,7 @@ fn realignNode(
     gpa: std.mem.Allocator,
     ni: Node.Index,
     new_alignment: std.mem.Alignment,
-) !void {
+) (Allocator.Error || Io.Cancelable || IoError)!void {
     assert(ni != Node.Index.root); // currently unsupported
 
     const node = ni.get(mf);
@@ -936,7 +1000,7 @@ fn realignNode(
     }
 }
 
-fn moveRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: u64) !void {
+fn moveRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: u64) (Io.Cancelable || IoError)!void {
     // make a copy of this node at the new location
     try mf.copyRange(old_file_offset, new_file_offset, size);
     // delete the copy of this node at the old location
@@ -966,7 +1030,7 @@ fn moveRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: 
     @memset(mf.memory_map.memory[@intCast(old_file_offset)..][0..@intCast(size)], 0);
 }
 
-fn copyRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: u64) !void {
+fn copyRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: u64) (Io.Cancelable || IoError)!void {
     const copy_size = try mf.copyFileRange(mf.memory_map.file, old_file_offset, new_file_offset, size);
     if (copy_size < size) @memcpy(
         mf.memory_map.memory[@intCast(new_file_offset + copy_size)..][0..@intCast(size - copy_size)],
@@ -980,9 +1044,13 @@ fn copyFileRange(
     old_file_offset: u64,
     new_file_offset: u64,
     size: u64,
-) !u64 {
+) (Io.Cancelable || IoError)!u64 {
     const io = mf.io;
-    try mf.memory_map.write(io);
+    mf.memory_map.write(io) catch |err| switch (err) {
+        error.WouldBlock => return error.Unexpected, // file was not opened as non-blocking
+        error.NotOpenForWriting => return error.Unexpected, // we definitely opened the file for writing
+        else => |e| return e,
+    };
     var remaining_size = size;
     if (is_linux and !mf.flags.copy_file_range_unsupported) {
         var old_file_offset_mut: i64 = @intCast(old_file_offset);
@@ -1021,17 +1089,41 @@ fn copyFileRange(
     return size - remaining_size;
 }
 
-fn ensureCapacityForSetLocation(mf: *MappedFile, gpa: std.mem.Allocator) !void {
+fn ensureCapacityForSetLocation(mf: *MappedFile, gpa: std.mem.Allocator) Allocator.Error!void {
     try mf.large.ensureUnusedCapacity(gpa, 2);
     try mf.updates.ensureUnusedCapacity(gpa, 1);
 }
 
-pub fn ensureTotalCapacity(mf: *MappedFile, new_capacity: usize) !void {
+pub fn ensureTotalCapacity(mf: *MappedFile, new_capacity: usize) Error!void {
+    mf.ensureTotalCapacityInner(new_capacity) catch |err| switch (err) {
+        error.OutOfMemory,
+        error.Canceled,
+        => |e| return e,
+
+        else => |e| {
+            mf.io_err = e;
+            return error.MappedFileIo;
+        },
+    };
+}
+fn ensureTotalCapacityInner(mf: *MappedFile, new_capacity: usize) (Allocator.Error || Io.Cancelable || IoError)!void {
     if (mf.memory_map.memory.len >= new_capacity) return;
-    try mf.ensureTotalCapacityPrecise(new_capacity +| new_capacity / growth_factor);
+    try mf.ensureTotalCapacityPreciseInner(new_capacity +| new_capacity / growth_factor);
 }
 
-pub fn ensureTotalCapacityPrecise(mf: *MappedFile, new_capacity: usize) !void {
+pub fn ensureTotalCapacityPrecise(mf: *MappedFile, new_capacity: usize) Error!void {
+    mf.ensureTotalCapacityPreciseInner(new_capacity) catch |err| switch (err) {
+        error.OutOfMemory,
+        error.Canceled,
+        => |e| return e,
+
+        else => |e| {
+            mf.io_err = e;
+            return error.MappedFileIo;
+        },
+    };
+}
+fn ensureTotalCapacityPreciseInner(mf: *MappedFile, new_capacity: usize) (Allocator.Error || Io.Cancelable || IoError)!void {
     if (mf.memory_map.memory.len >= new_capacity) return;
     const io = mf.io;
     const aligned_capacity = mf.flags.block_size.forward(new_capacity);
@@ -1047,7 +1139,11 @@ pub fn ensureTotalCapacityPrecise(mf: *MappedFile, new_capacity: usize) !void {
     }
 
     const file = mf.memory_map.file;
-    mf.memory_map = try .create(io, file, .{ .len = aligned_capacity });
+    mf.memory_map = Io.File.MemoryMap.create(io, file, .{ .len = aligned_capacity }) catch |err| switch (err) {
+        error.WouldBlock => return error.Unexpected, // file was not opened as non-blocking
+        error.NotOpenForReading => return error.Unexpected, // we definitely opened the file for writing
+        else => |e| return e,
+    };
 }
 
 pub fn unmap(mf: *MappedFile) void {
@@ -1059,9 +1155,22 @@ pub fn unmap(mf: *MappedFile) void {
     mf.memory_map.file = file;
 }
 
-pub fn flush(mf: *MappedFile) Io.File.WritePositionalError!void {
-    const io = mf.io;
-    try mf.memory_map.write(io);
+pub fn flush(mf: *MappedFile) (Io.Cancelable || error{MappedFileIo})!void {
+    mf.memory_map.write(mf.io) catch |err| switch (err) {
+        error.Canceled => |e| return e,
+
+        error.WouldBlock, // file was not opened as non-blocking
+        error.NotOpenForWriting, // we definitely opened the file for writing
+        => {
+            mf.io_err = error.Unexpected;
+            return error.MappedFileIo;
+        },
+
+        else => |e| {
+            mf.io_err = e;
+            return error.MappedFileIo;
+        },
+    };
 }
 
 fn verify(mf: *MappedFile) void {
