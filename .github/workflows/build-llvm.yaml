@@ -152,7 +152,11 @@ jobs:
             -DLLVM_INCLUDE_DOCS=OFF \
             -DLLVM_HOST_TRIPLE="${{ matrix.target }}" \
             -DLLVM_DEFAULT_TARGET_TRIPLE="${{ matrix.target }}"
-          # Install LLVM and LLD (these work fine as static-only)
+          # Build all static libraries first (this avoids triggering shared lib linking)
+          ninja -C llvm-build \
+            $(ninja -C llvm-build -t targets all | grep -E '^lib/lib(clang|lld|LLVM).*\.a:' | cut -d: -f1 | tr '\n' ' ') \
+            -j$(nproc)
+          # Install LLVM headers and libs
           ninja -C llvm-build \
             install-llvm-libraries \
             install-lld-libraries \
@@ -160,8 +164,8 @@ jobs:
             install-clang-headers \
             install-lld-headers \
             -j$(nproc)
-          # Copy ALL static libs from build dir (avoids install-clang-libraries which builds dylibs)
-          find llvm-build/lib -name '*.a' -exec cp {} "$PWD/llvm-install/lib/" \;
+          # Copy ALL static libs from build dir into install prefix
+          find llvm-build/lib -name '*.a' -exec cp -n {} "$PWD/llvm-install/lib/" \;
         timeout-minutes: 300
 
       - name: Include zlib/zstd in package
