@@ -161,7 +161,7 @@ jobs:
             install-lld-headers \
             -j$(nproc)
           # Copy ALL static libs from build dir (avoids install-clang-libraries which builds dylibs)
-          find llvm-build/lib -maxdepth 1 -name '*.a' -exec cp {} "$PWD/llvm-install/lib/" \;
+          find llvm-build/lib -name '*.a' -exec cp {} "$PWD/llvm-install/lib/" \;
         timeout-minutes: 300
 
       - name: Include zlib/zstd in package
