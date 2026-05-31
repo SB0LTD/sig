@@ -207,11 +207,6 @@ pub fn createEmpty(
     const output_mode = comp.config.output_mode;
     const optimize_mode = comp.root_mod.optimize_mode;
 
-    const obj_file_ext: []const u8 = switch (target.ofmt) {
-        .coff => "obj",
-        .elf, .wasm => "o",
-        else => unreachable,
-    };
     const gc_sections: bool = options.gc_sections orelse switch (target.ofmt) {
         .coff => optimize_mode != .Debug,
         .elf => optimize_mode != .Debug and output_mode != .Obj,
@@ -230,7 +225,6 @@ pub fn createEmpty(
             .tag = .lld,
             .comp = comp,
             .emit = emit,
-            .zcu_object_basename = try allocPrint(arena, "{s}_zcu.{s}", .{ fs.path.stem(emit.sub_path), obj_file_ext }),
             .gc_sections = gc_sections,
             .print_gc_sections = options.print_gc_sections,
             .stack_size = stack_size,
@@ -290,8 +284,8 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
     const full_out_path_z = try arena.dupeSentinel(u8, full_out_path, 0);
     const opt_zcu = comp.zcu;
 
-    const zcu_obj_path: ?Cache.Path = if (opt_zcu != null) p: {
-        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
+    const zcu_obj_path: ?Cache.Path = if (opt_zcu) |zcu| p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, zcu.llvm_object.?.out_bin_basename);
     } else null;
 
     log.debug("zcu_obj_path={?f}", .{zcu_obj_path});
@@ -376,8 +370,8 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
     const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
 
-    const zcu_obj_path: ?Cache.Path = if (comp.zcu != null) p: {
-        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
+    const zcu_obj_path: ?Cache.Path = if (comp.zcu) |zcu| p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, zcu.llvm_object.?.out_bin_basename);
     } else null;
 
     const is_lib = comp.config.output_mode == .Lib;
@@ -766,8 +760,8 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
     const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
 
-    const zcu_obj_path: ?Cache.Path = if (comp.zcu != null) p: {
-        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
+    const zcu_obj_path: ?Cache.Path = if (comp.zcu) |zcu| p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, zcu.llvm_object.?.out_bin_basename);
     } else null;
 
     const output_mode = comp.config.output_mode;
@@ -1364,8 +1358,8 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
     const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
 
-    const zcu_obj_path: ?Cache.Path = if (comp.zcu != null) p: {
-        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
+    const zcu_obj_path: ?Cache.Path = if (comp.zcu) |zcu| p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, zcu.llvm_object.?.out_bin_basename);
     } else null;
 
     const is_obj = comp.config.output_mode == .Obj;

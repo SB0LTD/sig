@@ -181,10 +181,6 @@ pub fn createEmpty(
             .tag = .macho,
             .comp = comp,
             .emit = emit,
-            .zcu_object_basename = if (use_llvm)
-                try std.fmt.allocPrint(arena, "{s}_zcu.o", .{fs.path.stem(emit.sub_path)})
-            else
-                null,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
             .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 16777216,
@@ -353,9 +349,11 @@ pub fn flush(
     const sub_prog_node = prog_node.start("MachO Flush", 0);
     defer sub_prog_node.end();
 
-    const zcu_obj_path: ?Path = if (self.base.zcu_object_basename) |raw| p: {
-        break :p try comp.resolveEmitPathFlush(arena, .temp, raw);
-    } else null;
+    const zcu_obj_path: ?Path = p: {
+        const zcu = comp.zcu orelse break :p null;
+        const llvm_object = zcu.llvm_object orelse break :p null;
+        break :p try comp.resolveEmitPathFlush(arena, .temp, llvm_object.out_bin_basename);
+    };
 
     // --verbose-link
     if (comp.verbose_link) try self.dumpArgv(comp);
@@ -630,10 +628,12 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
     const directory = self.base.emit.root_dir;
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
-    const zcu_obj_path: ?[]const u8 = if (self.base.zcu_object_basename) |raw| p: {
-        const p = try comp.resolveEmitPathFlush(arena, .temp, raw);
+    const zcu_obj_path: ?[]const u8 = p: {
+        const zcu = comp.zcu orelse break :p null;
+        const llvm_object = zcu.llvm_object orelse break :p null;
+        const p = try comp.resolveEmitPathFlush(arena, .temp, llvm_object.out_bin_basename);
         break :p try p.toString(arena);
-    } else null;
+    };
 
     var argv = std.array_list.Managed([]const u8).init(arena);
 

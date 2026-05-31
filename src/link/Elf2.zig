@@ -4825,25 +4825,29 @@ pub fn prelink(elf: *Elf, prog_node: std.Progress.Node) link.Error!void {
 fn prelinkInner(elf: *Elf) Error!void {
     const comp = elf.base.comp;
     const gpa = comp.gpa;
-    try elf.ensureUnusedSymbolCapacity(1, .all_local);
-    try elf.inputs.ensureUnusedCapacity(gpa, 1);
-    const zcu_name = try std.fmt.allocPrint(gpa, "{s}_zcu", .{
-        std.fs.path.stem(elf.base.emit.sub_path),
-    });
-    defer gpa.free(zcu_name);
-    const zcu_file_symbol = elf.addLocalSymbolAssumeCapacity(.{
-        .node = .none,
-        .name = try elf.string(.strtab, zcu_name),
-        .value = 0,
-        .size = 0,
-        .type = .FILE,
-        .shndx = .ABS,
-    });
-    elf.inputs.addOneAssumeCapacity().* = .{
-        .path = elf.base.emit,
-        .member = null,
-        .file_symbol = zcu_file_symbol,
-    };
+
+    if (comp.zcu != null and !comp.config.use_llvm) {
+        // We're use self-hosted codegen---add an input representing the Zig "object".
+        try elf.ensureUnusedSymbolCapacity(1, .all_local);
+        try elf.inputs.ensureUnusedCapacity(gpa, 1);
+        const zcu_name = try std.fmt.allocPrint(gpa, "{s}_zcu", .{
+            std.fs.path.stem(elf.base.emit.sub_path),
+        });
+        defer gpa.free(zcu_name);
+        const zcu_file_symbol = elf.addLocalSymbolAssumeCapacity(.{
+            .node = .none,
+            .name = try elf.string(.strtab, zcu_name),
+            .value = 0,
+            .size = 0,
+            .type = .FILE,
+            .shndx = .ABS,
+        });
+        elf.inputs.addOneAssumeCapacity().* = .{
+            .path = elf.base.emit,
+            .member = null,
+            .file_symbol = zcu_file_symbol,
+        };
+    }
 
     if (elf.shndx.dynamic != .UNDEF) switch (elf.identClass()) {
         .NONE, _ => unreachable,
@@ -5859,8 +5863,8 @@ pub fn flush(
 ) link.Error!void {
     const comp = elf.base.comp;
     const diags = &comp.link_diags;
-    _ = arena;
     _ = prog_node;
+    _ = arena;
 
     if (comp.config.output_mode == .Exe) {
         var any_undef = false;

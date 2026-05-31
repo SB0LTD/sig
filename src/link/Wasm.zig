@@ -2944,7 +2944,6 @@ pub fn createEmpty(
     const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .wasm);
 
-    const use_llvm = comp.config.use_llvm;
     const output_mode = comp.config.output_mode;
     const wasi_exec_model = comp.config.wasi_exec_model;
 
@@ -2954,10 +2953,6 @@ pub fn createEmpty(
             .tag = .wasm,
             .comp = comp,
             .emit = emit,
-            .zcu_object_basename = if (use_llvm)
-                try std.fmt.allocPrint(arena, "{s}_zcu.o", .{fs.path.stem(emit.sub_path)})
-            else
-                null,
             // Garbage collection is so crucial to WebAssembly that we design
             // the linker around the assumption that it will be on in the vast
             // majority of cases, and therefore express "no garbage collection"
@@ -3019,22 +3014,6 @@ pub fn createEmpty(
     wasm.name = emit.sub_path;
 
     return wasm;
-}
-
-fn openParseObjectReportingFailure(wasm: *Wasm, path: Path) void {
-    const comp = wasm.base.comp;
-    const io = comp.io;
-    const diags = &comp.link_diags;
-    const obj = link.openObject(io, path, false, false) catch |err| {
-        switch (diags.failParse(path, "failed to open object: {t}", .{err})) {
-            error.AlreadyReported => return,
-        }
-    };
-    wasm.parseObject(obj) catch |err| {
-        switch (diags.failParse(path, "failed to parse object: {t}", .{err})) {
-            error.AlreadyReported => return,
-        }
-    };
 }
 
 fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
@@ -3822,6 +3801,7 @@ pub fn flush(
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
 ) link.Error!void {
+    _ = arena;
     // The goal is to never use this because it's only needed if we need to
     // write to InternPool, but flush is too late to be writing to the
     // InternPool.
@@ -3832,12 +3812,6 @@ pub fn flush(
     const io = comp.io;
 
     if (comp.verbose_link) try Compilation.dumpArgv(io, wasm.dump_argv_list.items);
-
-    if (wasm.base.zcu_object_basename) |raw| {
-        const zcu_obj_path: Path = try comp.resolveEmitPathFlush(arena, .temp, raw);
-        openParseObjectReportingFailure(wasm, zcu_obj_path);
-        try prelink(wasm, prog_node);
-    }
 
     const tracy = trace(@src());
     defer tracy.end();

@@ -130,14 +130,17 @@ pub fn finishPrelinkQueue(q: *Queue, comp: *Compilation) Io.Cancelable!void {
     prelink: {
         const lf = comp.bin_file orelse break :prelink;
         if (lf.post_prelink) break :prelink;
+        if (comp.zcu != null and comp.zcu.?.llvm_object != null) {
+            // Don't call `prelink` just yet. It will be the frontend's responsibility instead,
+            // after it sends the ZCU object emitted by LLVM as the final link input.
+            break :prelink;
+        }
 
-        if (lf.prelink()) |_| {
-            lf.post_prelink = true;
-        } else |err| switch (err) {
+        lf.prelink() catch |err| switch (err) {
             error.OutOfMemory => comp.link_diags.setAllocFailure(),
             error.AlreadyReported => {},
             error.Canceled => |e| return e,
-        }
+        };
     }
 }
 
@@ -171,16 +174,19 @@ fn runLinkTasks(q: *Queue, comp: *Compilation) void {
     }
 
     // We've finished the prelink tasks, so run prelink if necessary.
-    if (comp.bin_file) |lf| {
-        if (!lf.post_prelink) {
-            if (lf.prelink()) |_| {
-                lf.post_prelink = true;
-            } else |err| switch (err) {
-                error.OutOfMemory => comp.link_diags.setAllocFailure(),
-                error.Canceled => @panic("TODO"),
-                error.AlreadyReported => {},
-            }
+    prelink: {
+        const lf = comp.bin_file orelse break :prelink;
+        if (lf.post_prelink) break :prelink;
+        if (comp.zcu != null and comp.zcu.?.llvm_object != null) {
+            // Don't call `prelink` just yet. It will be the frontend's responsibility instead,
+            // after it sends the ZCU object emitted by LLVM as the final link input.
+            break :prelink;
         }
+        lf.prelink() catch |err| switch (err) {
+            error.OutOfMemory => comp.link_diags.setAllocFailure(),
+            error.Canceled => @panic("TODO"),
+            error.AlreadyReported => {},
+        };
     }
 
     zcu_tasks: while (true) {

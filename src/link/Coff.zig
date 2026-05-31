@@ -1524,7 +1524,7 @@ pub fn addReloc(
     target.target_relocs = ri;
 }
 
-pub fn prelink(coff: *Coff, prog_node: std.Progress.Node) void {
+pub fn prelink(coff: *Coff, prog_node: std.Progress.Node) link.Error!void {
     _ = coff;
     _ = prog_node;
 }

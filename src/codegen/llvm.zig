@@ -518,6 +518,12 @@ pub const Object = struct {
     gpa: Allocator,
     builder: Builder,
 
+    /// The basename of the object file which will emitted by LLVM for the ZCU. Once it it emitted,
+    /// this object file is passed to the active linker implementation as an ordinary link input.
+    ///
+    /// For the full path, use `Compilation.resolveEmitPath` with `kind == .temp`.
+    out_bin_basename: []const u8,
+
     /// This pool contains only types (and not `@as(type, undefined)`). It has two purposes:
     ///
     /// * Lazily tracking ABI alignment of types, so that `@"align"` attributes can be set to a
@@ -657,6 +663,14 @@ pub const Object = struct {
         obj.* = .{
             .gpa = gpa,
             .builder = builder,
+            .out_bin_basename = try std.zig.binNameAlloc(arena, .{
+                .root_name = try std.fmt.allocPrint(arena, "{s}_zcu", .{comp.root_name}),
+                .cpu_arch = target.cpu.arch,
+                .os_tag = target.os.tag,
+                .ofmt = target.ofmt,
+                .abi = target.abi,
+                .output_mode = .Obj,
+            }),
             .type_pool = .empty,
             .lazy_abi_aligns = .empty,
             .debug_compile_unit = debug_compile_unit,

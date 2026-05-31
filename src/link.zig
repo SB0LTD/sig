@@ -402,11 +402,6 @@ pub const File = struct {
     emit: Path,
 
     file: ?Io.File,
-    /// When using the LLVM backend, the emitted object is written to a file with this name. This
-    /// object file then becomes a normal link input to LLD or a self-hosted linker.
-    ///
-    /// To convert this to an actual path, see `Compilation.resolveEmitPath` (with `kind == .temp`).
-    zcu_object_basename: ?[]const u8 = null,
     gc_sections: bool,
     print_gc_sections: bool,
     build_id: std.zig.BuildId,
@@ -1196,20 +1191,22 @@ pub const File = struct {
     /// Called when all linker inputs have been sent via `loadInput`. After
     /// this, `loadInput` will not be called anymore.
     pub fn prelink(base: *File) Error!void {
-        assert(!base.post_prelink);
-
-        // In this case, an object file is created by the LLVM backend, so
-        // there is no prelink phase. The Zig code is linked as a standard
-        // object along with the others.
-        if (base.zcu_object_basename != null) return;
+        // The guard on this assertion is a temporary hack to make the LLVM backend with LLD work with
+        // `-fincremental`. This works only because `File.Lld` does nothing in prelink.
+        // Related: https://codeberg.org/ziglang/zig/issues/32081
+        if (base.tag != .lld) {
+            assert(!base.post_prelink);
+        }
 
         switch (base.tag) {
             inline .elf2, .coff2, .wasm => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).prelink(base.comp.link_prog_node);
+                try @as(*tag.Type(), @fieldParentPtr("base", base)).prelink(base.comp.link_prog_node);
             },
             else => {},
         }
+
+        base.post_prelink = true;
     }
 
     /// Legacy function for old linker code
@@ -1407,7 +1404,12 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
         return;
     };
 
-    assert(!base.post_prelink);
+    // The guard on this assertion is a temporary hack to make the LLVM backend with LLD work with
+    // `-fincremental`. This works only because `File.Lld` does nothing in prelink.
+    // Related: https://codeberg.org/ziglang/zig/issues/32081
+    if (base.tag != .lld) {
+        assert(!base.post_prelink);
+    }
 
     var timer = comp.startTimer();
     defer if (timer.finish(io)) |ns| {

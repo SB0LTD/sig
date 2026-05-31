@@ -3344,15 +3344,15 @@ fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id) (Io.Cancel
                 comp.time_report.?.stats.real_ns_llvm_emit = ns;
             };
 
+            const zcu_obj_path: ?Cache.Path = if (comp.bin_file != null) p: {
+                break :p try comp.resolveEmitPathFlush(arena, .temp, llvm_object.out_bin_basename);
+            } else null;
+
             llvm_object.emit(pt, .{
                 .pre_ir_path = comp.verbose_llvm_ir,
                 .pre_bc_path = comp.verbose_llvm_bc,
 
-                .bin_path = p: {
-                    const lf = comp.bin_file orelse break :p null;
-                    const p = try comp.resolveEmitPathFlush(arena, .temp, lf.zcu_object_basename.?);
-                    break :p try p.toStringZ(arena);
-                },
+                .bin_path = if (zcu_obj_path) |p| try p.toStringZ(arena) else null,
                 .asm_path = p: {
                     const raw = comp.emit_asm orelse break :p null;
                     const p = try comp.resolveEmitPathFlush(arena, .artifact, raw);
@@ -3379,6 +3379,17 @@ fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id) (Io.Cancel
                 error.AlreadyReported => {},
                 error.OutOfMemory => |e| return e,
             };
+
+            if (zcu_obj_path) |path| {
+                // Tell the linker backend about the ZCU object emitted by LLVM.
+                link.doPrelinkTask(comp, .{ .load_object = path });
+                // `link.Queue` has not called `prelink` because it knew we would want to send that
+                // final link input. It is *our* responsibility to call `prelink` now we're done.
+                comp.bin_file.?.prelink() catch |err| switch (err) {
+                    error.AlreadyReported => return,
+                    else => |e| return e,
+                };
+            }
         }
     }
     if (comp.bin_file) |lf| {
@@ -3390,7 +3401,7 @@ fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id) (Io.Cancel
         };
         // This is needed before reading the error flags.
         lf.flush(arena, tid, comp.link_prog_node) catch |err| switch (err) {
-            error.AlreadyReported => {},
+            error.AlreadyReported => return,
             error.OutOfMemory, error.Canceled => |e| return e,
         };
     }

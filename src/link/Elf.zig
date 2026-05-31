@@ -260,10 +260,6 @@ pub fn createEmpty(
             .tag = .elf,
             .comp = comp,
             .emit = emit,
-            .zcu_object_basename = if (use_llvm)
-                try std.fmt.allocPrint(arena, "{s}_zcu.o", .{fs.path.stem(emit.sub_path)})
-            else
-                null,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
             .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 16777216,
@@ -762,17 +758,13 @@ pub fn flush(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std
 }
 
 fn flushInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
+    _ = arena;
+
     const comp = self.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
 
-    const zcu_obj_path: ?Path = if (self.base.zcu_object_basename) |raw| p: {
-        break :p try comp.resolveEmitPathFlush(arena, .temp, raw);
-    } else null;
-
     if (self.zigObjectPtr()) |zig_object| try zig_object.flush(self, tid);
-
-    if (zcu_obj_path) |path| openParseObjectReportingFailure(self, path);
 
     switch (comp.config.output_mode) {
         .Obj => return relocatable.flushObject(self, comp),
@@ -1044,27 +1036,6 @@ fn dumpArgvInit(self: *Elf, arena: Allocator) !void {
             }
         }
     }
-}
-
-pub fn openParseObjectReportingFailure(self: *Elf, path: Path) void {
-    const comp = self.base.comp;
-    const io = comp.io;
-    const diags = &comp.link_diags;
-    const obj = link.openObject(io, path, false, false) catch |err| {
-        switch (diags.failParse(path, "failed to open object: {t}", .{err})) {
-            error.AlreadyReported => return,
-        }
-    };
-    self.parseObjectReportingFailure(obj);
-}
-
-fn parseObjectReportingFailure(self: *Elf, obj: link.Input.Object) void {
-    const comp = self.base.comp;
-    const diags = &comp.link_diags;
-    self.parseObject(obj) catch |err| switch (err) {
-        error.AlreadyReported => return, // already reported
-        else => |e| diags.addParseError(obj.path, "failed to parse object: {t}", .{e}),
-    };
 }
 
 fn parseObject(self: *Elf, obj: link.Input.Object) !void {
