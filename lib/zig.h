@@ -72,6 +72,8 @@
 #define zig_riscv
 #elif defined(__s390x__)
 #define zig_s390x
+#elif defined(__sh__)
+#define zig_sh
 #elif defined(__sparc__) && defined(__arch64__)
 #define zig_sparc64
 #define zig_sparc
@@ -432,6 +434,8 @@
 #define zig_trap() __asm__ volatile("unimp")
 #elif defined(zig_s390x)
 #define zig_trap() __asm__ volatile("j 0x2")
+#elif defined(zig_sh)
+#define zig_trap() __asm__ volatile(".word 0x0001")
 #elif defined(zig_sparc)
 #define zig_trap() __asm__ volatile("illtrap")
 #elif defined(zig_x86_16)
@@ -484,6 +488,8 @@
 #define zig_breakpoint() __asm__ volatile("ebreak")
 #elif defined(zig_s390x)
 #define zig_breakpoint() __asm__ volatile("j 0x6")
+#elif defined(zig_sh)
+#define zig_breakpoint() __asm__ volatile("trapa #0xc3")
 #elif defined(zig_sparc)
 #define zig_breakpoint() __asm__ volatile("ta 0x1")
 #elif defined(zig_x86)
