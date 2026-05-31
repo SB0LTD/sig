@@ -48,6 +48,8 @@
 #define zig_m68k
 #elif defined(__m88k__)
 #define zig_m88k
+#elif defined(__microblaze__)
+#define zig_microblaze
 #elif defined(__mips64)
 #define zig_mips64
 #define zig_mips
@@ -420,6 +422,8 @@
 #define zig_trap() __asm__ volatile("illegal")
 #elif defined(zig_m88k)
 #define zig_trap() __asm__ volatile("tb0 0, %%r0, 511")
+#elif defined(zig_microblaze)
+#define zig_trap() __asm__ volatile("getd r0, r0")
 #elif defined(zig_mips)
 #define zig_trap() __asm__ volatile(".word 0x3d")
 #elif defined(zig_or1k)
@@ -468,6 +472,8 @@
 #define zig_breakpoint() __asm__ volatile("break 0x0")
 #elif defined(zig_m88k)
 #define zig_breakpoint() __asm__ volatile("illop1")
+#elif defined(zig_microblaze)
+#define zig_breakpoint() __asm__ volatile("brki r16, 0x0018")
 #elif defined(zig_mips)
 #define zig_breakpoint() __asm__ volatile("break")
 #elif defined(zig_or1k)
