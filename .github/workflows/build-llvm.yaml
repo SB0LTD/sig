@@ -152,15 +152,18 @@ jobs:
             -DLLVM_INCLUDE_DOCS=OFF \
             -DLLVM_HOST_TRIPLE="${{ matrix.target }}" \
             -DLLVM_DEFAULT_TARGET_TRIPLE="${{ matrix.target }}"
+          # Install LLVM and LLD (these work fine as static-only)
           ninja -C llvm-build \
             install-llvm-libraries \
-            install-clang-libraries \
             install-lld-libraries \
             install-llvm-headers \
             install-clang-headers \
             install-lld-headers \
             -j$(nproc)
-        timeout-minutes: 240
+          # Copy clang static libs manually (install-clang-libraries tries to build libclang.dylib on macOS)
+          find llvm-build -path '*/lib/libclang*.a' -exec cp {} "$PWD/llvm-install/lib/" \;
+          find llvm-build -path '*/lib/liblld*.a' -exec cp {} "$PWD/llvm-install/lib/" \; 2>/dev/null || true
+        timeout-minutes: 300
 
       - name: Include zlib/zstd in package
         run: |
