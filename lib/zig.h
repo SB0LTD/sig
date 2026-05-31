@@ -28,6 +28,8 @@
 #define zig_arm
 #elif defined(__arc__)
 #define zig_arc
+#elif defined(__csky__)
+#define zig_csky
 #elif defined(__hexagon__)
 #define zig_hexagon
 #elif defined(__hppa__) && defined(_LP64)
@@ -414,6 +416,8 @@
 #define zig_trap() __asm__ volatile("udf #0xfdee")
 #elif defined(zig_arc)
 #define zig_trap() __asm__ volatile("unimp_s")
+#elif defined(zig_csky)
+#define zig_trap() __asm__ volatile(".word 0x3fff")
 #elif defined(zig_hexagon)
 #define zig_trap() __asm__ volatile("r27:26 = memd(#0xbadc0fee)")
 #elif defined(zig_hppa)
@@ -462,7 +466,7 @@
 
 #if defined(zig_alpha)
 #define zig_breakpoint() __asm__ volatile("call_pal 0x000080")
-#elif defined(zig_arm)
+#elif defined(zig_arm) || defined(zig_csky)
 #define zig_breakpoint() __asm__ volatile("bkpt #0x0")
 #elif defined(zig_aarch64)
 #define zig_breakpoint() __asm__ volatile("brk #0xf000")
