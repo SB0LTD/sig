@@ -88,6 +88,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Bootstrap needs libc++ (built with -stdlib=libc++)
+          sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1
           gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "bootstrap-sig-x86_64-linux.tar.gz" --dir /tmp
           mkdir -p /tmp/bootstrap
           tar -xzf /tmp/bootstrap-sig-x86_64-linux.tar.gz -C /tmp/bootstrap
