@@ -29,7 +29,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            llvm_asset: llvm-22-x86_64-linux.tar.xz
+            llvm_asset: llvm-22-x86_64-linux-native.tar.xz
             artifact: bootstrap-sig-x86_64-linux
             deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev clang libc++-dev libc++abi-dev
             zlib_flag: "-DZLIB=$(find /usr/lib/x86_64-linux-gnu -name 'libz.a' 2>/dev/null | head -1)"
@@ -84,7 +84,7 @@ jobs:
             -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
             -DCMAKE_BUILD_TYPE=Release \
             ${EXTRA_FLAGS} \
-            -DZIG_USE_LLVM_CONFIG=OFF \
+            -DZIG_USE_LLVM_CONFIG=ON \
             -DZIG_NO_LIB=ON \
             -DZIG_TARGET_MCPU="baseline" \
             ${{ matrix.zlib_flag }} \

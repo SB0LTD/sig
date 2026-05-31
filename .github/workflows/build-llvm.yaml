@@ -21,6 +21,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - target: native
+            artifact: llvm-22-x86_64-linux-native.tar.xz
           - target: x86_64-linux-musl
             artifact: llvm-22-x86_64-linux.tar.xz
           - target: aarch64-macos-none
@@ -32,9 +34,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install build deps
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build python3
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build python3 zlib1g-dev libzstd-dev
 
       - name: Setup Zig
+        if: matrix.target != 'native'
         uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
@@ -43,6 +46,7 @@ jobs:
         run: git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
 
       - name: Determine cmake system name
+        if: matrix.target != 'native'
         id: cmake-sys
         run: |
           case "${{ matrix.target }}" in
@@ -52,6 +56,7 @@ jobs:
           esac
 
       - name: Create zig cc wrappers
+        if: matrix.target != 'native'
         run: |
           cat > /tmp/zig-cc << EOF
           #!/bin/bash
@@ -72,6 +77,7 @@ jobs:
           chmod +x /tmp/zig-cc /tmp/zig-cxx /tmp/zig-ar /tmp/zig-ranlib
 
       - name: Cross-compile zlib
+        if: matrix.target != 'native'
         run: |
           git clone --depth 1 --branch v1.3.1 https://github.com/madler/zlib.git zlib-src
           mkdir zlib-build && cd zlib-build
@@ -86,6 +92,7 @@ jobs:
           echo "ZLIB_PREFIX=$PWD/zlib-out" >> "$GITHUB_ENV"
 
       - name: Cross-compile zstd
+        if: matrix.target != 'native'
         run: |
           git clone --depth 1 --branch v1.5.6 https://github.com/facebook/zstd.git zstd-src
           cmake -S zstd-src/build/cmake -B zstd-build -G Ninja \
@@ -103,7 +110,8 @@ jobs:
           ninja -C zstd-build install
           echo "ZSTD_PREFIX=$PWD/zstd-out" >> "$GITHUB_ENV"
 
-      - name: Build LLVM
+      - name: Build LLVM (cross-compile)
+        if: matrix.target != 'native'
         run: |
           cmake -S llvm-src/llvm -B llvm-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -168,7 +176,36 @@ jobs:
           find llvm-build/lib -name '*.a' -exec cp -n {} "$PWD/llvm-install/lib/" \;
         timeout-minutes: 300
 
+      - name: Build LLVM (native)
+        if: matrix.target == 'native'
+        run: |
+          cmake -S llvm-src/llvm -B llvm-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" \
+            -DLLVM_ENABLE_PROJECTS="clang;lld" \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SPIRV;SystemZ;VE;WebAssembly;X86;XCore" \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="ARC;CSKY;DirectX;M68k;Xtensa" \
+            -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_ENABLE_ZLIB=FORCE_ON \
+            -DLLVM_ENABLE_ZSTD=FORCE_ON \
+            -DLLVM_USE_STATIC_ZSTD=ON \
+            -DLLVM_STATIC_LINK_CXX_STDLIB=ON \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLVM_BUILD_LLVM_DYLIB=OFF \
+            -DLLVM_BUILD_TOOLS=ON \
+            -DCLANG_ENABLE_ARCMT=OFF \
+            -DCLANG_ENABLE_STATIC_ANALYZER=ON \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF
+          ninja -C llvm-build install -j$(nproc)
+        timeout-minutes: 180
+
       - name: Include zlib/zstd in package
+        if: matrix.target != 'native'
         run: |
           cp "${ZLIB_PREFIX}/lib/libz.a" llvm-install/lib/
           cp "${ZSTD_PREFIX}/lib/libzstd.a" llvm-install/lib/
