@@ -2811,45 +2811,66 @@ fn addOneModuleTest(
 
         compile_c.addCSourceFile(.{
             .file = these_tests.getEmittedBin(),
-            .flags = &.{
-                // Tracking issue for making the C backend generate C89 compatible code:
-                // https://github.com/ziglang/zig/issues/19468
-                "-std=c99",
-                "-Werror",
+            .flags = blk: {
+                const invariant_cflags: []const []const u8 = &.{
+                    // Tracking issue for making the C backend generate C89 compatible code:
+                    // https://github.com/ziglang/zig/issues/19468
+                    "-std=c99",
+                    "-Werror",
 
-                "-Wall",
-                "-Wembedded-directive",
-                "-Wempty-translation-unit",
-                "-Wextra",
-                "-Wgnu",
-                "-Winvalid-utf8",
-                "-Wkeyword-macro",
-                "-Woverlength-strings",
+                    "-Wall",
+                    "-Wembedded-directive",
+                    "-Wempty-translation-unit",
+                    "-Wextra",
+                    "-Wgnu",
+                    "-Winvalid-utf8",
+                    "-Wkeyword-macro",
+                    "-Woverlength-strings",
 
-                // Tracking issue for making the C backend generate code
-                // that does not trigger warnings:
-                // https://github.com/ziglang/zig/issues/19467
+                    // Tracking issue for making the C backend generate code
+                    // that does not trigger warnings:
+                    // https://github.com/ziglang/zig/issues/19467
 
-                // spotted everywhere
-                "-Wno-builtin-requires-header",
+                    // spotted everywhere
+                    "-Wno-builtin-requires-header",
 
-                // spotted on linux
-                "-Wno-braced-scalar-init",
-                "-Wno-excess-initializers",
-                "-Wno-incompatible-pointer-types-discards-qualifiers",
-                "-Wno-unused",
-                "-Wno-unused-parameter",
+                    // spotted on linux
+                    "-Wno-braced-scalar-init",
+                    "-Wno-excess-initializers",
+                    "-Wno-incompatible-pointer-types-discards-qualifiers",
+                    "-Wno-unused",
+                    "-Wno-unused-parameter",
 
-                // spotted on darwin
-                "-Wno-incompatible-pointer-types",
+                    // spotted on darwin
+                    "-Wno-incompatible-pointer-types",
 
-                // https://github.com/llvm/llvm-project/issues/153314
-                "-Wno-unterminated-string-initialization",
+                    // https://github.com/llvm/llvm-project/issues/153314
+                    "-Wno-unterminated-string-initialization",
 
-                // In both Zig and C it is legal to return a pointer to a
-                // local. The C backend lowers such thing directly, so the
-                // corresponding warning in C must be disabled.
-                "-Wno-return-stack-address",
+                    // In both Zig and C it is legal to return a pointer to a
+                    // local. The C backend lowers such thing directly, so the
+                    // corresponding warning in C must be disabled.
+                    "-Wno-return-stack-address",
+                };
+
+                const function_data_sections = switch (target.cpu.arch) {
+                    .arm,
+                    .armeb,
+                    .thumb,
+                    .thumbeb,
+                    .hexagon,
+                    .powerpc,
+                    .powerpcle,
+                    .powerpc64,
+                    .powerpc64le,
+                    => true,
+                    else => false,
+                };
+
+                break :blk if (function_data_sections) invariant_cflags ++ &[_][]const u8{
+                    "-ffunction-sections",
+                    "-fdata-sections",
+                } else invariant_cflags;
             },
         });
         compile_c.addIncludePath(b.path("lib")); // for zig.h
