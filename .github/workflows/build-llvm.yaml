@@ -180,6 +180,8 @@ jobs:
         if: matrix.target == 'native'
         run: |
           cmake -S llvm-src/llvm -B llvm-build -G Ninja \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++ \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" \
             -DLLVM_ENABLE_PROJECTS="clang;lld" \
