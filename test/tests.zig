@@ -1995,14 +1995,13 @@ const c_abi_targets = blk: {
 
         // Windows Targets
 
-        // https://codeberg.org/ziglang/zig/issues/35521
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .x86,
-        //        .os_tag = .windows,
-        //        .abi = .gnu,
-        //    },
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .x86,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+        },
         .{
             .target = .{
                 .cpu_arch = .x86_64,

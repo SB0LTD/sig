@@ -2846,6 +2846,7 @@ void run_c_tests(void) {
 #if !defined(__mips64)
 #if !defined(ZIG_PPC32)
 #if !defined(__s390x__)
+#if !(defined(_WIN32) && defined(__i386__))
     {
         struct Struct_u8 s = zig_ret_struct_u8();
         assert_or_panic(s.a == 1);
@@ -2854,10 +2855,12 @@ void run_c_tests(void) {
 #endif
 #endif
 #endif
+#endif
 
 #if !defined(__mips64)
 #if !defined(ZIG_PPC32)
 #if !defined(__s390x__)
+#if !(defined(_WIN32) && defined(__i386__))
     {
         struct Struct_u16 s = zig_ret_struct_u16();
         assert_or_panic(s.a == 7);
@@ -2866,10 +2869,12 @@ void run_c_tests(void) {
 #endif
 #endif
 #endif
+#endif
 
 #if !defined(__mips64)
 #if !defined(ZIG_PPC32)
 #if !defined(__s390x__)
+#if !(defined(_WIN32) && defined(__i386__))
     {
         struct Struct_u32 s = zig_ret_struct_u32();
         assert_or_panic(s.a == 13);
@@ -2878,15 +2883,18 @@ void run_c_tests(void) {
 #endif
 #endif
 #endif
+#endif
 
 #if !defined(ZIG_PPC32)
 #if !defined(ZIG_RISCV32)
 #if !defined(__s390x__)
+#if !(defined(_WIN32) && defined(__i386__))
     {
         struct Struct_u64 s = zig_ret_struct_u64();
         assert_or_panic(s.a == 19);
         zig_struct_u64((struct Struct_u64){ .a = 20 }, 21);
     }
+#endif
 #endif
 #endif
 #endif
@@ -2908,20 +2916,24 @@ void run_c_tests(void) {
     }
 
 #if !defined(__mips64__)
+#if !(defined(_WIN32) && defined(__i386__))
     {
         struct Struct_f32 s = zig_ret_struct_f32();
         assert_or_panic(s.a == 2.5f);
         zig_struct_f32((struct Struct_f32){ .a = 2.5f });
     }
 #endif
+#endif
 
 #if !(defined(__arm__) && defined(__SOFTFP__))
 #if !defined(ZIG_RISCV32)
+#if !(defined(_WIN32) && defined(__i386__))
     {
         struct Struct_f64 s = zig_ret_struct_f64();
         assert_or_panic(s.a == 2.5);
         zig_struct_f64((struct Struct_f64){ .a = 2.5 });
     }
+#endif
 #endif
 #endif
 
@@ -2987,6 +2999,7 @@ void run_c_tests(void) {
 #endif
 
 #if !defined(__powerpc__) && !defined(__loongarch__) && !defined(__mips64__)
+#if !(defined(_WIN32) && defined(__i386__))
     {
         struct Struct_u32_Union_u32_u32u32 s = zig_ret_struct_u32_union_u32_u32u32();
         assert_or_panic(s.a == 1);
@@ -2999,6 +3012,7 @@ void run_c_tests(void) {
         struct Struct_i32_i32 s = {1, 2};
         zig_struct_i32_i32(s);
     }
+#endif
 #endif
 
 #if !defined(__powerpc64__) && !defined(__loongarch__) && !defined(__mips64__)
