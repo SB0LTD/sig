@@ -1611,8 +1611,6 @@ const module_test_targets = blk: {
                 .abi = .msvc,
             },
             .link_libc = true,
-            // https://codeberg.org/ziglang/zig/issues/35517
-            .skip_modules = &.{"libc"},
         },
         .{
             .target = .{
@@ -1628,8 +1626,6 @@ const module_test_targets = blk: {
                 .abi = .gnu,
             },
             .link_libc = true,
-            // https://codeberg.org/ziglang/zig/issues/35517
-            .skip_modules = &.{"libc"},
         },
 
         .{
@@ -1657,8 +1653,6 @@ const module_test_targets = blk: {
                 .abi = .msvc,
             },
             .link_libc = true,
-            // https://codeberg.org/ziglang/zig/issues/35517
-            .skip_modules = &.{"libc"},
         },
         .{
             .target = .{
