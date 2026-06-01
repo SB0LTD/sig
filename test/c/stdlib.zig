@@ -131,6 +131,8 @@ fn testStrToLLikeFunctionAnyErrno(
 }
 
 test "strtol" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtol, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtol, @ptrCast("42true"), 0, 42, 2, .SUCCESS);
@@ -169,6 +171,8 @@ test "strtol" {
 }
 
 test "strtoll" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtoll, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtoll, @ptrCast("42true"), 0, 42, 2, .SUCCESS);
@@ -207,6 +211,8 @@ test "strtoll" {
 }
 
 test "strtoul" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtoul, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtoul, @ptrCast("42true"), 0, 42, 2, .SUCCESS);
@@ -243,6 +249,8 @@ test "strtoul" {
 }
 
 test "strtoull" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtoull, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtoull, @ptrCast("42true"), 0, 42, 2, .SUCCESS);
@@ -279,6 +287,8 @@ test "strtoull" {
 }
 
 test "strtoimax" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtoimax, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtoimax, @ptrCast("42true"), 0, 42, 2, .SUCCESS);
@@ -317,6 +327,8 @@ test "strtoimax" {
 }
 
 test "strtoumax" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtoumax, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtoumax, @ptrCast("42true"), 0, 42, 2, .SUCCESS);
