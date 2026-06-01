@@ -190,7 +190,6 @@ jobs:
             -DLLVM_ENABLE_ZLIB=FORCE_ON \
             -DLLVM_ENABLE_ZSTD=FORCE_ON \
             -DLLVM_USE_STATIC_ZSTD=ON \
-            -DLLVM_STATIC_LINK_CXX_STDLIB=ON \
             -DBUILD_SHARED_LIBS=OFF \
             -DLLVM_BUILD_LLVM_DYLIB=OFF \
             -DLLVM_BUILD_TOOLS=ON \
