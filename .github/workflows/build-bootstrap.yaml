@@ -31,15 +31,9 @@ jobs:
           - os: ubuntu-latest
             llvm_asset: llvm-22-x86_64-linux-native.tar.xz
             artifact: bootstrap-sig-x86_64-linux
-            deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev clang libc++-dev libc++abi-dev
+            deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev
             zlib_flag: "-DZLIB=$(find /usr/lib/x86_64-linux-gnu -name 'libz.a' 2>/dev/null | head -1)"
             zstd_flag: "-DZSTD=$(find /usr/lib/x86_64-linux-gnu -name 'libzstd.a' 2>/dev/null | head -1)"
-          - os: macos-14
-            llvm_asset: llvm-22-aarch64-macos.tar.xz
-            artifact: bootstrap-sig-aarch64-macos
-            deps: brew install cmake ninja zstd
-            zlib_flag: ""
-            zstd_flag: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     steps:
@@ -71,19 +65,11 @@ jobs:
         shell: bash
         run: |
           export PATH="$PWD/llvm-22/bin:$PATH"
-          # Use clang/libc++ on Linux to match LLVM libs
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            export CC=clang CXX=clang++
-            EXTRA_FLAGS="-DCMAKE_CXX_FLAGS=-stdlib=libc++ -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++"
-          else
-            EXTRA_FLAGS=""
-          fi
           mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
             -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
             -DCMAKE_BUILD_TYPE=Release \
-            ${EXTRA_FLAGS} \
             -DZIG_USE_LLVM_CONFIG=ON \
             -DZIG_NO_LIB=ON \
             -DZIG_TARGET_MCPU="baseline" \
