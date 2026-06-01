@@ -114,11 +114,8 @@ jobs:
           ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
           echo "Building ${{ matrix.zig_target }} (version: ${ZIG_VER_BASE})"
 
-          # Experimental targets only for Linux/macOS (Windows cross-compiled LLVM has issues with them)
-          EXP_FLAGS=""
-          if [ "${{ matrix.target }}" != "x86_64-windows" ]; then
-            EXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"
-          fi
+          # Experimental targets (all platforms have them in the LLVM package)
+          EXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"
 
           "${BOOTSTRAP_BIN}" build \
             --prefix stage3-out \
