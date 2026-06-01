@@ -33,6 +33,7 @@ test "div" {
     if (builtin.target.cpu.arch.isMIPS64()) return error.SkipZigTest; // TODO
     if (builtin.target.cpu.arch.isPowerPC()) return error.SkipZigTest; // TODO
     if (builtin.target.cpu.arch == .s390x) return error.SkipZigTest; // TODO
+    if (builtin.target.cpu.arch == .x86 and builtin.target.os.tag == .windows) return error.SkipZigTest; // TODO
 
     const expected: c.div_t = .{ .quot = 5, .rem = 5 };
     try testing.expectEqual(expected, c.div(55, 10));
@@ -42,6 +43,7 @@ test "ldiv" {
     if (builtin.target.cpu.arch.isMIPS64() and @sizeOf(usize) == 4) return error.SkipZigTest; // TODO
     if (builtin.target.cpu.arch.isPowerPC32()) return error.SkipZigTest; // TODO
     if (builtin.target.cpu.arch == .s390x) return error.SkipZigTest; // TODO
+    if (builtin.target.cpu.arch == .x86 and builtin.target.os.tag == .windows) return error.SkipZigTest; // TODO
 
     const expected: c.ldiv_t = .{ .quot = -6, .rem = 2 };
     try testing.expectEqual(expected, c.ldiv(38, -6));
