@@ -2650,11 +2650,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         const target = &resolved_target.result;
 
-        if (target.cpu.arch == .powerpc64le and target.ofmt == .c) {
-            // https://codeberg.org/ziglang/zig/issues/35522
-            continue;
-        }
-
         if (target.cpu.arch == .s390x and target.ofmt == .c) {
             // https://codeberg.org/ziglang/zig/issues/35523
             continue;
