@@ -516,7 +516,6 @@ const Writer = struct {
         try w.writeOperand(s, inst, 1, bin.lhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 2, bin.rhs);
-        try s.writeAll(", ");
     }
 
     fn writeLegalizeCompilerRtCall(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {

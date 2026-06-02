@@ -179453,7 +179453,26 @@ fn airBitCast(self: *CodeGen, inst: Air.Inst.Index) !void {
                     .gt => src_ty,
                 },
                 .register_mask => src_ty,
-            }, dst_mcv, src_mcv, .{});
+            }, dst_mcv, if (src_ty.isVector(zcu) and src_ty.childType(zcu).toIntern() == .bool_type) src_mcv: {
+                try self.spillEflagsIfOccupied();
+                const dst_signedness: std.builtin.Signedness = if (dst_ty.scalarType(zcu).isSignedInt(zcu)) .signed else .unsigned;
+                switch (src_mcv) {
+                    .immediate => |src_imm| break :src_mcv .{ .immediate = switch (dst_signedness) {
+                        .unsigned => @as(u1, @truncate(src_imm)),
+                        .signed => @as(u8, @bitCast(@as(i8, @as(i1, @bitCast(@as(u1, @truncate(src_imm))))))),
+                    } },
+                    else => {
+                        try self.spillEflagsIfOccupied();
+                        const tmp_reg = try self.copyToTmpRegister(.u8, src_mcv);
+                        try self.asmRegisterImmediate(.{ ._, .@"and" }, tmp_reg.to8(), .u(1));
+                        switch (dst_signedness) {
+                            .unsigned => {},
+                            .signed => try self.asmRegister(.{ ._, .neg }, tmp_reg.to8()),
+                        }
+                        break :src_mcv .{ .register = tmp_reg };
+                    },
+                }
+            } else src_mcv, .{});
             break :dst dst_mcv;
         };
 
@@ -182778,7 +182797,7 @@ const Temp = struct {
                         break :part_ty .usize;
                     },
                 },
-                .struct_type => {
+                .struct_type, .union_type => {
                     assert(src_regs.len - part_index == std.math.divCeil(u32, src_abi_size, 8) catch unreachable);
                     break :part_ty switch (src_abi_size) {
                         0, 3, 5...7 => unreachable,
