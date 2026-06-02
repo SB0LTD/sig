@@ -1494,6 +1494,8 @@ pub const E = enum(u16) {
     OWNERDEAD = 105,
     /// Interface output queue is full
     QFULL = 106,
+    /// Capabilities insufficient
+    NOTCAPABLE = 107,
     _,
 };
 
