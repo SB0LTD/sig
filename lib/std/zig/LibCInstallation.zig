@@ -421,7 +421,7 @@ fn findNativeCrtDirWindows(
     const arch_sub_dir = switch (target.cpu.arch) {
         .x86 => "x86",
         .x86_64 => "x64",
-        .arm, .armeb => "arm",
+        .thumb => "arm",
         .aarch64 => "arm64",
         else => return error.UnsupportedArchitecture,
     };
@@ -488,7 +488,7 @@ fn findNativeKernel32LibDir(
     const arch_sub_dir = switch (args.target.cpu.arch) {
         .x86 => "x86",
         .x86_64 => "x64",
-        .arm, .armeb => "arm",
+        .thumb => "arm",
         .aarch64 => "arm64",
         else => return error.UnsupportedArchitecture,
     };
