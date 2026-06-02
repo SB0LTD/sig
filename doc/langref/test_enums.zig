@@ -111,4 +111,10 @@ test "@tagName" {
     try expectEqualStrings(@tagName(Small.three), "three");
 }
 
+// Empty enums are uninstantiable, their tag type is always noreturn.
+const Empty = enum {};
+test "empty enum" {
+    try expectEqual(noreturn, @typeInfo(Empty).@"enum".tag_type);
+}
+
 // test

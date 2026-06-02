@@ -2401,7 +2401,7 @@ or
       {#header_open|enum#}
       {#code|test_enums.zig#}
 
-      {#see_also|@typeInfo|@tagName|@sizeOf#}
+      {#see_also|@typeInfo|@tagName|@sizeOf|noreturn#}
 
       {#header_open|extern enum#}
       <p>

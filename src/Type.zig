@@ -3058,9 +3058,15 @@ pub fn unpackable(ty: Type, zcu: *const Zcu) ?UnpackableReason {
             .one, .many, .c => .pointer,
         },
 
-        .@"enum" => switch (zcu.intern_pool.loadEnumType(ty.toIntern()).int_tag_mode) {
-            .explicit => null,
-            .auto => .{ .enum_inferred_int_tag = ty },
+        .@"enum" => {
+            const enum_obj = zcu.intern_pool.loadEnumType(ty.toIntern());
+            return switch (enum_obj.int_tag_mode) {
+                .explicit => if (enum_obj.int_tag_type != .noreturn_type)
+                    null
+                else
+                    .other,
+                .auto => .{ .enum_inferred_int_tag = ty },
+            };
         },
 
         .@"struct" => switch (ty.containerLayout(zcu)) {

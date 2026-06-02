@@ -1120,7 +1120,7 @@ test "zig fmt: empty enum decls" {
         \\const A = enum {};
         \\const B = enum(u32) {};
         \\const C = extern enum(c_int) {};
-        \\const D = packed enum(u8) {};
+        \\const D = packed enum(noreturn) {};
         \\
     );
 }

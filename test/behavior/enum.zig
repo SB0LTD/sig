@@ -1451,29 +1451,6 @@ test "comptime @enumFromInt with signed arithmetic" {
     comptime assert(@intFromEnum(x) == 0);
 }
 
-test "switch on empty enum" {
-    const E = enum {};
-    var e: E = undefined;
-    _ = &e;
-    switch (e) {}
-}
-
-test "switch on empty enum with a specified tag type" {
-    const E = enum(u8) {};
-    var e: E = undefined;
-    _ = &e;
-    switch (e) {}
-}
-
-test "empty enum passed as argument" {
-    const E = enum {
-        fn f(e: @This()) void {
-            switch (e) {}
-        }
-    };
-    E.f(@as(E, undefined));
-}
-
 test "enum int tag type uses declaration inside the enum" {
     const static = struct {
         const E = enum(E.IntTag) {

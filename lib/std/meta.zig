@@ -408,7 +408,8 @@ pub fn FieldEnum(comptime T: type) type {
         else => {},
     }
 
-    const IntTag = std.math.IntFittingRange(0, field_names.len -| 1);
+    if (field_names.len == 0) return enum {};
+    const IntTag = std.math.IntFittingRange(0, field_names.len - 1);
     return @Enum(IntTag, .exhaustive, field_names, &std.simd.iota(IntTag, field_names.len));
 }
 
@@ -469,7 +470,8 @@ test FieldEnum {
 
 pub fn DeclEnum(comptime T: type) type {
     const decl_names = declarations(T);
-    const IntTag = std.math.IntFittingRange(0, decl_names.len -| 1);
+    if (decl_names.len == 0) return enum {};
+    const IntTag = std.math.IntFittingRange(0, decl_names.len - 1);
     return @Enum(IntTag, .exhaustive, decl_names, &std.simd.iota(IntTag, decl_names.len));
 }
 

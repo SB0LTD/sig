@@ -270,7 +270,7 @@ test "Type.Union from empty regular enum" {
 }
 
 test "Type.Union from empty Type.Enum" {
-    const E = @Enum(u0, .exhaustive, &.{}, &.{});
+    const E = @Enum(noreturn, .exhaustive, &.{}, &.{});
     const U = @Union(.auto, E, &.{}, &.{}, &.{});
     try testing.expectEqual(@typeInfo(U).@"union".field_names.len, 0);
 }

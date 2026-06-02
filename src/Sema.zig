@@ -7854,14 +7854,7 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     };
     const enum_tag_ty = sema.typeOf(enum_tag);
     const int_tag_ty = enum_tag_ty.intTagType(zcu);
-
-    // TODO: use correct solution
-    // https://github.com/ziglang/zig/issues/15909
-    if (enum_tag_ty.enumFieldCount(zcu) == 0 and !enum_tag_ty.isNonexhaustiveEnum(zcu)) {
-        return sema.fail(block, operand_src, "cannot use @intFromEnum on empty enum '{f}'", .{
-            enum_tag_ty.fmt(pt),
-        });
-    }
+    assert(int_tag_ty.classify(zcu) != .no_possible_value);
 
     if (sema.resolveValue(enum_tag)) |enum_tag_val| {
         if (enum_tag_val.isUndef(zcu)) return pt.undefRef(int_tag_ty);
@@ -7908,10 +7901,6 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             });
         }
         return Air.internedToRef((try pt.getCoerced(int_val, dest_ty)).toIntern());
-    }
-
-    if (dest_ty.intTagType(zcu).zigTypeTag(zcu) == .comptime_int) {
-        return sema.failWithNeededComptime(block, operand_src, .{ .simple = .casted_to_comptime_enum });
     }
 
     if (try dest_ty.onePossibleValue(pt)) |opv| {
@@ -9939,13 +9928,6 @@ fn analyzeSwitchBlock(
     const tagged_union_originally = operand_ty.zigTypeTag(zcu) == .@"union" and
         operand_ty.containerLayout(zcu) != .@"packed";
     const err_set = operand_ty.zigTypeTag(zcu) == .error_set;
-
-    if (item_ty.zigTypeTag(zcu) == .@"enum" and
-        validated_switch.seen_enum_fields.len == 0 and
-        !operand_ty.isNonexhaustiveEnum(zcu))
-    {
-        return .void_value; // switch on empty enum/union
-    }
 
     const cond_ref = switch (operand) {
         .simple => |s| s.cond,
@@ -19567,14 +19549,6 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             operand_ty.fmt(pt),
         }),
     };
-    if (enum_ty.enumFieldCount(zcu) == 0) {
-        // TODO I don't think this is the correct way to handle this but
-        // it prevents a crash.
-        // https://github.com/ziglang/zig/issues/15909
-        return sema.fail(block, operand_src, "cannot get @tagName of empty enum '{f}'", .{
-            enum_ty.fmt(pt),
-        });
-    }
     const casted_operand = try sema.coerce(block, enum_ty, operand, operand_src);
     if (try sema.resolveDefinedValue(block, operand_src, casted_operand)) |val| {
         const field_index = enum_ty.enumTagFieldIndex(val, zcu) orelse {
@@ -33985,6 +33959,7 @@ fn enumHasInt(sema: *Sema, ty: Type, int: Value) CompileError!bool {
     // The `tagValueIndex` function call below relies on the type being the integer tag type.
     // `getCoerced` assumes the value will fit the new type.
     const int_tag_ty: Type = .fromInterned(enum_type.int_tag_type);
+    if (int_tag_ty.classify(zcu) == .no_possible_value) return false;
     if (!int.intFitsInType(int_tag_ty, null, zcu)) return false;
     const int_coerced = try pt.getCoerced(int, int_tag_ty);
     return enum_type.tagValueIndex(&zcu.intern_pool, int_coerced.toIntern()) != null;

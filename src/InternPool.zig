@@ -5040,7 +5040,6 @@ pub const Tag = enum(u8) {
     /// The set of values that are encoded this way is:
     /// * An array or vector which has length 0.
     /// * A struct which has all fields comptime-known.
-    /// * An empty enum or union. TODO: this value's existence is strange, because such a type in reality has no values. See #15909
     /// data is Index of the type, which is known to be zero bits at runtime.
     only_possible_value,
     /// data is extra index to Key.Union.
@@ -7740,12 +7739,8 @@ pub fn get(ip: *InternPool, gpa: Allocator, io: Io, tid: Zcu.PerThread.Id, key: 
         }),
 
         .enum_tag => |enum_tag| {
-            assert(ip.isEnumType(enum_tag.ty));
-            switch (ip.indexToKey(enum_tag.ty)) {
-                .simple_type => assert(ip.isIntegerType(ip.typeOf(enum_tag.int))),
-                .enum_type => assert(ip.typeOf(enum_tag.int) == ip.loadEnumType(enum_tag.ty).int_tag_type),
-                else => unreachable,
-            }
+            const enum_obj = ip.loadEnumType(enum_tag.ty);
+            assert(ip.typeOf(enum_tag.int) == enum_obj.int_tag_type);
             items.appendAssumeCapacity(.{
                 .tag = .enum_tag,
                 .data = try addExtra(extra, enum_tag),
