@@ -176364,7 +176364,7 @@ fn genTry(
         .close_scope = true,
     });
 
-    self.performReloc(reloc);
+    if (reloc) |r| self.performReloc(r);
 
     for (liveness_cond_br.then_deaths) |death| try self.processDeath(death, .{});
 
@@ -176377,30 +176377,26 @@ fn genTry(
     return result;
 }
 
-fn genCondBrMir(self: *CodeGen, ty: Type, mcv: MCValue) !Mir.Inst.Index {
-    const pt = self.pt;
-    const abi_size = ty.abiSize(pt.zcu);
+fn genCondBrMir(self: *CodeGen, ty: Type, mcv: MCValue) !?Mir.Inst.Index {
     switch (mcv) {
-        .eflags => |cc| {
-            // Here we map the opposites since the jump is to the false branch.
-            return self.asmJccReloc(cc.negate(), undefined);
-        },
+        .eflags => |cc| return try self.asmJccReloc(cc.negate(), undefined),
         .register => |reg| {
             try self.spillEflagsIfOccupied();
             try self.asmRegisterImmediate(.{ ._, .@"test" }, reg.to8(), .u(1));
-            return self.asmJccReloc(.z, undefined);
+            return try self.asmJccReloc(.z, undefined);
         },
-        .immediate,
-        .load_frame,
-        => {
+        .immediate => |imm| switch (@as(u1, @truncate(imm))) {
+            0 => return try self.asmJmpReloc(undefined),
+            1 => return null,
+        },
+        .load_frame => {
             try self.spillEflagsIfOccupied();
-            if (abi_size <= 8) {
-                const reg = try self.copyToTmpRegister(ty, mcv);
-                return self.genCondBrMir(ty, .{ .register = reg });
-            }
-            return self.fail("TODO implement condbr when condition is {f} with abi larger than 8 bytes", .{mcv});
+            try self.asmMemoryImmediate(.{ ._, .@"test" }, try mcv.mem(self, .{ .size = .byte }), .u(1));
+            return try self.asmJccReloc(.z, undefined);
         },
-        else => return self.fail("TODO implement condbr when condition is {s}", .{@tagName(mcv)}),
+        else => return self.fail("TODO implement condbr when condition is {f} {s}", .{
+            ty.fmt(self.pt), @tagName(mcv),
+        }),
     }
 }
 
@@ -176433,7 +176429,7 @@ fn airCondBr(self: *CodeGen, inst: Air.Inst.Index) !void {
         .close_scope = true,
     });
 
-    self.performReloc(reloc);
+    if (reloc) |r| self.performReloc(r);
 
     for (liveness_cond_br.else_deaths) |death| try self.processDeath(death, .{});
     try self.genBodyBlock(else_body);
