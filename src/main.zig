@@ -75,13 +75,13 @@ var stdout_buffer: [4096]u8 align(std.heap.page_size_min) = undefined;
 pub const @"bad O(N)" = void;
 
 const normal_usage =
-    \\Usage: zig [command] [options]
+    \\Usage: sig [command] [options]
     \\
     \\Commands:
     \\
-    \\  build            Build project from build.zig
+    \\  build            Build project from build.sig
     \\  fetch            Copy a package into global cache and print its hash
-    \\  init             Initialize a Zig package in the current directory
+    \\  init             Initialize a Sig package in the current directory
     \\
     \\  build-exe        Create executable from source or object files
     \\  build-lib        Create library from source or object files
@@ -91,19 +91,19 @@ const normal_usage =
     \\  run              Create executable and run immediately
     \\
     \\  ast-check        Look for simple compile errors in any set of files
-    \\  fmt              Reformat Zig source into canonical form
+    \\  fmt              Reformat Sig source into canonical form
     \\  reduce           Minimize a bug report
-    \\  translate-c      Convert C code to Zig code
+    \\  translate-c      Convert C code to Sig code
     \\
     \\  ar               Combine object files into static archive
-    \\  cc               Use Zig as a drop-in C compiler
-    \\  c++              Use Zig as a drop-in C++ compiler
-    \\  dlltool          Use Zig as a drop-in dlltool.exe
-    \\  lib              Use Zig as a drop-in lib.exe
+    \\  cc               Use Sig as a drop-in C compiler
+    \\  c++              Use Sig as a drop-in C++ compiler
+    \\  dlltool          Use Sig as a drop-in dlltool.exe
+    \\  lib              Use Sig as a drop-in lib.exe
     \\  objcopy          Manipulate executables and relocatables
     \\  objdump          Print information about executables and relocatables
-    \\  ranlib           Use Zig as a drop-in ranlib
-    \\  rc               Use Zig as a drop-in rc.exe
+    \\  ranlib           Use Sig as a drop-in ranlib
+    \\  rc               Use Sig as a drop-in rc.exe
     \\
     \\  env              Print lib path, std path, cache directory, and version
     \\  help             Print this help and exit
@@ -111,7 +111,7 @@ const normal_usage =
     \\  libc             Display native libc paths file or validate one
     \\  targets          List available compilation targets
     \\  version          Print version number and exit
-    \\  zen              Print Zen of Zig and exit
+    \\  zen              Print Zen of Sig and exit
     \\
     \\General Options:
     \\
@@ -413,16 +413,16 @@ fn mainArgs(
 }
 
 const usage_build_generic =
-    \\Usage: zig build-exe   [options] [files]
-    \\       zig build-lib   [options] [files]
-    \\       zig build-obj   [options] [files]
-    \\       zig test        [options] [files]
-    \\       zig run         [options] [files] [-- [args]]
-    \\       zig translate-c [options] [file]
+    \\Usage: sig build-exe   [options] [files]
+    \\       sig build-lib   [options] [files]
+    \\       sig build-obj   [options] [files]
+    \\       sig test        [options] [files]
+    \\       sig run         [options] [files] [-- [args]]
+    \\       sig translate-c [options] [file]
     \\
     \\Supported file types:
-    \\                         .zig    Zig source code
     \\                         .sig    Sig source code
+    \\                         .zig    Zig source code (compatible)
     \\                           .o    ELF object file
     \\                           .o    Mach-O (macOS) object file
     \\                           .o    WebAssembly object file
@@ -466,7 +466,7 @@ const usage_build_generic =
     \\  --show-builtin            Output the source of @import("builtin") then exit
     \\  --cache-dir [path]        Override the local cache directory
     \\  --global-cache-dir [path] Override the global cache directory
-    \\  --zig-lib-dir [path]      Override path to Zig installation lib directory
+    \\  --zig-lib-dir [path]      Override path to Sig installation lib directory
     \\
     \\Global Compile Options:
     \\  --name [name]             Compilation unit name (not a file path)
@@ -695,12 +695,12 @@ const usage_build_generic =
     \\  --test-runner [path]           Specify a custom test runner
     \\  --test-execve                  Runs the test binary with execve if available instead of as a child process
     \\
-    \\Debug Options (Zig Compiler Development):
+    \\Debug Options (Sig Compiler Development):
     \\  -fopt-bisect-limit=[limit]   Only run [limit] first LLVM optimization passes
     \\  -fstack-report               Print stack size diagnostics
     \\  --verbose-link               Display linker invocations
     \\  --verbose-cc                 Display C compiler invocations
-    \\  --verbose-air                Enable compiler debug output for Zig AIR
+    \\  --verbose-air                Enable compiler debug output for Sig AIR
     \\  --verbose-intern-pool        Enable compiler debug output for InternPool
     \\  --verbose-generic-instances  Enable compiler debug output for generic instance generation
     \\  --verbose-llvm-ir[=path]     Enable compiler debug output for unoptimized LLVM IR
@@ -1365,7 +1365,7 @@ fn buildOutputType(
                         listen = .stdio;
                     } else if (mem.eql(u8, arg, "--debug-link-snapshot")) {
                         if (!build_options.enable_link_snapshots) {
-                            warn("Zig was compiled without linker snapshots enabled (-Dlink-snapshot). --debug-link-snapshot has no effect.", .{});
+                            warn("Sig was compiled without linker snapshots enabled (-Dlink-snapshot). --debug-link-snapshot has no effect.", .{});
                         } else {
                             enable_link_snapshots = true;
                         }
@@ -1377,7 +1377,7 @@ fn buildOutputType(
                         if (build_options.enable_debug_extensions) {
                             debug_incremental = true;
                         } else {
-                            warn("Zig was compiled without debug extensions. --debug-incremental has no effect.", .{});
+                            warn("Sig was compiled without debug extensions. --debug-incremental has no effect.", .{});
                         }
                     } else if (mem.eql(u8, arg, "-fincremental")) {
                         dev.check(.incremental);
@@ -1702,7 +1702,7 @@ fn buildOutputType(
                         if (build_options.enable_debug_extensions) {
                             debug_compile_errors = true;
                         } else {
-                            warn("Zig was compiled without debug extensions. --debug-compile-errors has no effect.", .{});
+                            warn("Sig was compiled without debug extensions. --debug-compile-errors has no effect.", .{});
                         }
                     } else if (mem.eql(u8, arg, "--verbose-link")) {
                         verbose_link = true;
@@ -2886,9 +2886,9 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "-V")) {
                     warn("ignoring request for supported emulations: unimplemented", .{});
                 } else if (mem.eql(u8, arg, "-v")) {
-                    try Io.File.stdout().writeStreamingAll(io, "zig ld " ++ build_options.version ++ "\n");
+                    try Io.File.stdout().writeStreamingAll(io, "sig ld " ++ build_options.version ++ "\n");
                 } else if (mem.eql(u8, arg, "--version")) {
-                    try Io.File.stdout().writeStreamingAll(io, "zig ld " ++ build_options.version ++ "\n");
+                    try Io.File.stdout().writeStreamingAll(io, "sig ld " ++ build_options.version ++ "\n");
                     process.exit(0);
                 } else {
                     fatal("unsupported linker arg: {s}", .{arg});
@@ -2915,7 +2915,7 @@ fn buildOutputType(
                 }
             }
 
-            // precompiled header syntax: "zig cc -x c-header test.h -o test.pch"
+            // precompiled header syntax: "sig cc -x c-header test.h -o test.pch"
             const emit_pch = if (file_ext) |fe| switch (fe) {
                 .h, .hpp, .hm, .hmm => c_out_mode == null,
                 else => false,
@@ -3661,15 +3661,15 @@ fn buildOutputType(
                     if (t.arch == target.cpu.arch and t.os == target.os.tag) {
                         // If there's a `glibc_min`, there's also an `os_ver`.
                         if (t.glibc_min) |glibc_min| {
-                            std.log.info("zig can provide libc for related target {t}-{t}.{f}-{t}.{d}.{d}", .{
+                            std.log.info("sig can provide libc for related target {t}-{t}.{f}-{t}.{d}.{d}", .{
                                 t.arch, t.os, t.os_ver.?, t.abi, glibc_min.major, glibc_min.minor,
                             });
                         } else if (t.os_ver) |os_ver| {
-                            std.log.info("zig can provide libc for related target {t}-{t}.{f}-{t}", .{
+                            std.log.info("sig can provide libc for related target {t}-{t}.{f}-{t}", .{
                                 t.arch, t.os, os_ver, t.abi,
                             });
                         } else {
-                            std.log.info("zig can provide libc for related target {t}-{t}-{t}", .{
+                            std.log.info("sig can provide libc for related target {t}-{t}-{t}", .{
                                 t.arch, t.os, t.abi,
                             });
                         }
@@ -4134,9 +4134,9 @@ fn createModule(
             error.SanitizeThreadRequiresPie => fatal("thread sanitization requires position independent executables", .{}),
             error.SanitizeThreadRequiresLlvmBackend => fatal("thread sanitization requires the LLVM backend", .{}),
             error.BackendLacksErrorTracing => fatal("the selected backend has not yet implemented error return tracing", .{}),
-            error.LlvmLibraryUnavailable => fatal("zig was compiled without LLVM libraries", .{}),
-            error.LldUnavailable => fatal("zig was compiled without LLD libraries", .{}),
-            error.ClangUnavailable => fatal("zig was compiled without Clang libraries", .{}),
+            error.LlvmLibraryUnavailable => fatal("sig was compiled without LLVM libraries", .{}),
+            error.LldUnavailable => fatal("sig was compiled without LLD libraries", .{}),
+            error.ClangUnavailable => fatal("sig was compiled without Clang libraries", .{}),
             error.DllExportFnsRequiresWindows => fatal("only Windows OS targets support DLLs", .{}),
             error.NewLinkerIncompatibleObjectFormat => fatal("using the new linker to link {s} files is unsupported", .{@tagName(target.ofmt)}),
             error.NewLinkerIncompatibleWithLld => fatal("using the new linker is incompatible with using lld", .{}),
@@ -4764,9 +4764,9 @@ pub fn translateC(
 }
 
 const usage_init =
-    \\Usage: zig init
+    \\Usage: sig init
     \\
-    \\   Initializes a `zig build` project in the current working
+    \\   Initializes a `sig build` project in the current working
     \\   directory.
     \\
     \\Options:
@@ -4864,8 +4864,8 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
                 \\
             , .{}) catch |err| switch (err) {
                 else => fatal("failed to create {q}: {t}", .{ Package.build_zig_basename, err }),
-                // `build.zig` already existing is okay: the user has just used `zig init` to set up
-                // their `build.zig.zon` *after* writing their `build.zig`. So this one isn't fatal.
+                // `build.sig` already existing is okay: the user has just used `sig init` to set up
+                // their `build.sig.zon` *after* writing their `build.sig`. So this one isn't fatal.
                 error.PathAlreadyExists => {
                     std.log.info("successfully populated {q}, preserving existing {q}", .{
                         Package.Manifest.basename, Package.build_zig_basename,
@@ -5109,7 +5109,7 @@ fn cmdBuild(
                     if (build_options.enable_debug_extensions) {
                         debug_compile_errors = true;
                     } else {
-                        warn("Zig was compiled without debug extensions. --debug-compile-errors has no effect.", .{});
+                        warn("Sig was compiled without debug extensions. --debug-compile-errors has no effect.", .{});
                     }
                 } else if (mem.eql(u8, arg, "--debug-target")) {
                     if (i + 1 >= args.len) fatal("expected argument after {q}", .{arg});
@@ -5117,7 +5117,7 @@ fn cmdBuild(
                     if (build_options.enable_debug_extensions) {
                         debug_target = args[i];
                     } else {
-                        warn("Zig was compiled without debug extensions. --debug-target has no effect.", .{});
+                        warn("Sig was compiled without debug extensions. --debug-target has no effect.", .{});
                     }
                     continue;
                 } else if (mem.eql(u8, arg, "--debug-libc")) {
@@ -5126,7 +5126,7 @@ fn cmdBuild(
                     if (build_options.enable_debug_extensions) {
                         debug_libc_paths_file = args[i];
                     } else {
-                        warn("Zig was compiled without debug extensions. --debug-libc has no effect.", .{});
+                        warn("Sig was compiled without debug extensions. --debug-libc has no effect.", .{});
                     }
                     continue;
                 } else if (mem.eql(u8, arg, "--verbose-link")) {
@@ -6520,9 +6520,9 @@ fn parseCodeModel(arg: []const u8) std.lang.CodeModel {
 }
 
 const usage_ast_check =
-    \\Usage: zig ast-check [file]
+    \\Usage: sig ast-check [file]
     \\
-    \\    Given a .zig source file or .zon file, reports any compile errors
+    \\    Given a .sig source file or .zon file, reports any compile errors
     \\    that can be ascertained on the basis of the source code alone,
     \\    without target information or type checking.
     \\
@@ -7086,8 +7086,8 @@ fn parseRcIncludes(arg: []const u8) std.zig.RcIncludes {
 }
 
 const usage_fetch =
-    \\Usage: zig fetch [options] <url>
-    \\Usage: zig fetch [options] <path>
+    \\Usage: sig fetch [options] <url>
+    \\Usage: sig fetch [options] <path>
     \\
     \\    Copy a package into the global cache and print its hash.
     \\    <url> must point to one of the following:
@@ -7098,12 +7098,12 @@ const usage_fetch =
     \\
     \\Examples:
     \\
-    \\  zig fetch --save git+https://example.com/andrewrk/fun-example-tool.git
-    \\  zig fetch --save https://example.com/andrewrk/fun-example-tool/archive/refs/heads/master.tar.gz
+    \\  sig fetch --save git+https://example.com/andrewrk/fun-example-tool.git
+    \\  sig fetch --save https://example.com/andrewrk/fun-example-tool/archive/refs/heads/master.tar.gz
     \\
     \\Options:
     \\  -h, --help                    Print this help and exit
-    \\  --global-cache-dir [path]     Override path to global Zig cache directory
+    \\  --global-cache-dir [path]     Override path to global Sig cache directory
     \\  --cache-dir [path]            Override path to local cache directory
     \\  --pkg-dir [path]              Override path to local package directory
     \\  --debug-hash                  Print verbose hash information to stdout
@@ -7302,7 +7302,7 @@ fn cmdFetch(
         .yes, .exact => |name| name: {
             if (name) |n| break :name n;
             if (!fetch.have_manifest)
-                fatal("unable to determine name; fetched package has no build.zig.zon file", .{});
+                fatal("unable to determine name; fetched package has no build.sig.zon file", .{});
             break :name fetch.manifest.name;
         },
     };
@@ -7561,11 +7561,11 @@ fn findBuildRoot(arena: Allocator, io: Io, options: FindBuildRootOptions) !Build
         } else |err| switch (err) {
             error.FileNotFound => {
                 dirname = fs.path.dirname(dirname) orelse {
-                    std.log.info("initialize {s} template file with 'zig init'", .{
+                    std.log.info("initialize {s} template file with 'sig init'", .{
                         Package.build_zig_basename,
                     });
-                    std.log.info("see 'zig --help' for more options", .{});
-                    fatal("no build.zig file found, in the current directory or any parent directories", .{});
+                    std.log.info("see 'sig --help' for more options", .{});
+                    fatal("no build.sig file found, in the current directory or any parent directories", .{});
                 };
                 continue;
             },
@@ -7898,7 +7898,7 @@ fn randInt(io: Io, comptime T: type) T {
 
 fn addDebugLog(arena: Allocator, scope_name: []const u8) error{OutOfMemory}!void {
     if (!build_options.enable_logging) {
-        warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
+        warn("Sig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
     } else {
         try log_scopes.append(arena, scope_name);
     }
