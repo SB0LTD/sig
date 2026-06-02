@@ -1443,9 +1443,7 @@ fn analyzeBodyInner(
                         continue;
                     },
                     .breakpoint => {
-                        if (!block.isComptime()) {
-                            _ = try block.addNoOp(.breakpoint);
-                        }
+                        try sema.zirBreakpoint(block, extended);
                         i += 1;
                         continue;
                     },
@@ -5080,6 +5078,14 @@ fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     if (block.isComptime())
         return sema.fail(block, src, "encountered @trap at comptime", .{});
     _ = try block.addNoOp(.trap);
+}
+
+fn zirBreakpoint(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
+    const src_node: std.zig.Ast.Node.Offset = @enumFromInt(@as(i32, @bitCast(extended.operand)));
+    const src = block.nodeOffset(src_node);
+    if (block.isComptime())
+        return sema.fail(block, src, "encountered @breakpoint at comptime", .{});
+    _ = try block.addNoOp(.breakpoint);
 }
 
 fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
