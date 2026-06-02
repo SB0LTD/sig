@@ -130,7 +130,7 @@ pub const ResolveError = error{
     ZigLacksTargetSupport,
     EmittingBinaryRequiresLlvmLibrary,
     LldIncompatibleObjectFormat,
-    LldCannotIncrementallyLink,
+    LldIncompatibleWithSelfHostedBackend,
     LtoRequiresLld,
     SanitizeThreadRequiresLibCpp,
     LibCRequiresLibUnwind,
@@ -400,10 +400,10 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b true;
         }
 
-        // If there's no ZCU we aren't using the LLVM backend but
-        // it shouldn't influence which linker we pick
-        if (!use_llvm and options.have_zcu) {
-            if (options.use_lld == true) return error.LldCannotIncrementallyLink;
+        // If we have Zig code (i.e. a ZCU) and are compiling with a self-hosted backend, then we
+        // also need to use a self-hosted linker.
+        if (options.have_zcu and !use_llvm) {
+            if (options.use_lld == true) return error.LldIncompatibleWithSelfHostedBackend;
             break :b false;
         }
 
