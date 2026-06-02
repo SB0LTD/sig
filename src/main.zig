@@ -5454,6 +5454,9 @@ fn cmdBuild(
         }
         defer Fork.deinitList(forks.items);
 
+        var file_system_inputs: std.ArrayList(u8) = .empty;
+        defer file_system_inputs.deinit(gpa);
+
         // This loop is re-evaluated when the build script exits with an indication that it
         // could not continue due to missing lazy dependencies.
         const configuration_path: Path, const poisoned: bool = cp: while (true) {
@@ -5679,6 +5682,7 @@ fn cmdBuild(
 
                 try root_mod.deps.put(arena, "@build", build_mod);
 
+                file_system_inputs.clearRetainingCapacity();
                 var create_diag: Compilation.CreateDiagnostic = undefined;
                 const comp = Compilation.create(gpa, arena, io, &create_diag, .{
                     .libc_installation = libc_installation,
@@ -5702,6 +5706,7 @@ fn cmdBuild(
                     .reference_trace = reference_trace,
                     .debug_compile_errors = debug_compile_errors,
                     .environ_map = environ_map,
+                    .file_system_inputs = &file_system_inputs,
                 }) catch |err| switch (err) {
                     error.CreateFail => fatal("failed to create compilation: {f}", .{create_diag}),
                     else => |e| fatal("failed to create compilation: {t}", .{e}),
@@ -5764,10 +5769,10 @@ fn cmdBuild(
                     .argv = configure_argv.items,
                     .stdout = .{ .file = config_tmp_file },
                     .progress_node = child_node,
-                }) catch |err| fatal("failed to spawn configure script {s}: {t}", .{ configure_argv.items[0], err });
+                }) catch |err| fatal("failed to spawn configure script {q}: {t}", .{ configure_argv.items[0], err });
                 defer child.kill(io);
                 break :term child.wait(io) catch |err|
-                    fatal("failed to wait configure script {s}: {t}", .{ configure_argv.items[0], err });
+                    fatal("failed to wait configure script {q}: {t}", .{ configure_argv.items[0], err });
             };
             if (!term.success()) {
                 // Failure to produce the configuration file.
@@ -5814,6 +5819,21 @@ fn cmdBuild(
             for (configuration.path_deps_base, configuration.path_deps_sub) |base, sub| {
                 const conf_path: std.Build.Configuration.Path = .{ .base = base, .sub = sub };
                 try config_man.addPathPost(conf_path.toCachePath(&configuration, arena));
+            }
+
+            // We need to add to the configuration cache the source files of
+            // configurer itself, so that the maker process can watch the file system
+            // for those changes and restart itself. By doing this, we make it
+            // possible to bypass creating a Compilation for configurer on
+            // Configuration cache hit.
+            {
+                var it = mem.splitScalar(u8, file_system_inputs.items, 0);
+                while (it.next()) |input| {
+                    _ = try config_man.addPrefixedPathPost(.{
+                        .prefix = input[0],
+                        .sub_path = input[1..],
+                    });
+                }
             }
 
             // If it is poisoned, there is no point in moving it to cached
@@ -6247,14 +6267,15 @@ fn jitCmdInner(
 
     child_argv.appendSliceAssumeCapacity(args);
 
+    if (EnvVar.ZIG_DEBUG_CMD.isSet(environ_map)) {
+        const cmd = try std.mem.join(arena, " ", child_argv.items);
+        std.debug.print("{s}\n", .{cmd});
+    }
+
     if (process.can_replace and options.capture == null) {
-        if (EnvVar.ZIG_DEBUG_CMD.isSet(environ_map)) {
-            const cmd = try std.mem.join(arena, " ", child_argv.items);
-            std.debug.print("{s}\n", .{cmd});
-        }
         const err = process.replace(io, .{ .argv = child_argv.items, .environ_map = environ_map });
         const cmd = try std.mem.join(arena, " ", child_argv.items);
-        fatal("the following command failed to execve with '{t}':\n{s}", .{ err, cmd });
+        fatal("the following command failed to execve with {t}:\n{s}", .{ err, cmd });
     }
 
     if (!process.can_spawn) {
@@ -6264,7 +6285,7 @@ fn jitCmdInner(
         });
     }
 
-    switch (t: {
+    const term = t: {
         _ = try io.lockStderr(&.{}, .no_color);
         defer io.unlockStderr();
 
@@ -6282,28 +6303,13 @@ fn jitCmdInner(
         }
 
         break :t try child.wait(io);
-    }) {
-        .exited => |code| {
-            if (code == 0) {
-                if (options.capture != null) return;
-                return cleanExit(io);
-            }
-            const cmd = try std.mem.join(arena, " ", child_argv.items);
-            fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
-        },
-        .signal => |sig| {
-            const cmd = try std.mem.join(arena, " ", child_argv.items);
-            fatal("the following build command terminated with signal {t}:\n{s}", .{ sig, cmd });
-        },
-        .stopped => |sig| {
-            const cmd = try std.mem.join(arena, " ", child_argv.items);
-            fatal("the following build command stopped with signal {t}:\n{s}", .{ sig, cmd });
-        },
-        .unknown => {
-            const cmd = try std.mem.join(arena, " ", child_argv.items);
-            fatal("the following build command crashed:\n{s}", .{cmd});
-        },
+    };
+    if (term.success()) {
+        if (options.capture != null) return;
+        return cleanExit(io);
     }
+    const cmd = try std.mem.join(arena, " ", child_argv.items);
+    fatal("the following build command {f}:\n{s}", .{ term, cmd });
 }
 
 const info_zen =

@@ -64,6 +64,11 @@ pkg_hash: []const u8,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
 
+pub const ConfigureDependency = struct {
+    lazy_path: LazyPath,
+    mode: std.Build.Configuration.PathDep.Mode,
+};
+
 pub const ReleaseMode = enum {
     off,
     any,
@@ -101,6 +106,12 @@ pub const Graph = struct {
     cache_poison: CachePoison = .pure,
     /// Observing this data causes cache poisoning. See `CachePoison`.
     search_prefixes: std.ArrayList([]const u8) = .empty,
+
+    /// Populated by calling one of:
+    /// * `dependOnFileContents`
+    /// * `dependOnFileMetadata`
+    /// * `dependOnDirectory`
+    configure_dependencies: ArrayList(ConfigureDependency) = .empty,
 
     /// If the cache is poisoned means that the **configure logic** had side
     /// effects, or otherwise did something that could not be tracked by the
@@ -165,7 +176,7 @@ pub const Graph = struct {
 
     /// A path whose components and contents are known at some point during
     /// `Step` resolution, relative to the provided base directory.
-    pub fn path(graph: *Graph, base: Configuration.Path.Base, sub_path: []const u8) LazyPath {
+    pub fn path(graph: *Graph, base: Configuration.LazyPath.Relative.Base, sub_path: []const u8) LazyPath {
         return .{ .relative = .{
             .base = base,
             .sub_path = @This().dupePath(graph, sub_path),
@@ -204,6 +215,9 @@ pub const Graph = struct {
     /// did something that could not be tracked by the cache system.
     ///
     /// See `CachePoison` documentation for more details.
+    ///
+    /// As an alternative to calling this function, consider these APIs instead:
+    /// * `dependOnFileContents`
     pub fn poisonCache(graph: *Graph) void {
         switch (graph.cache_poison) {
             .pure => graph.cache_poison = .poisoned,
@@ -2318,14 +2332,13 @@ fn dependencyInner(
         .root_dir = .{
             .path = build_root_string,
             .handle = Io.Dir.cwd().openDir(io, build_root_string, .{}) catch |err|
-                process.fatal("unable to open {s}: {t}", .{ build_root_string, err }),
+                process.fatal("failed to open {q}: {t}", .{ build_root_string, err }),
         },
     };
 
-    const sub_builder = b.createChild(name, dep_root, pkg_hash, pkg_deps, user_input_options) catch
-        @panic("unhandled error");
+    const sub_builder = b.createChild(name, dep_root, pkg_hash, pkg_deps, user_input_options) catch @panic("OOM");
     if (build_zig) |bz| {
-        sub_builder.runBuild(bz) catch @panic("unhandled error");
+        sub_builder.runBuild(bz);
 
         if (sub_builder.validateUserInputDidItFail()) {
             std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
@@ -2343,11 +2356,10 @@ fn dependencyInner(
 }
 
 /// Build system implementation detail.
-pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
+pub fn runBuild(b: *Build, build_zig: anytype) void {
     switch (@typeInfo(@typeInfo(@TypeOf(build_zig.build)).@"fn".return_type.?)) {
-        .void => build_zig.build(b),
-        .error_union => try build_zig.build(b),
-        else => @compileError("expected return type of build to be 'void' or '!void'"),
+        .error_union => return build_zig.build(b) catch unreachable,
+        else => return build_zig.build(b),
     }
 }
 
@@ -2411,7 +2423,7 @@ pub const LazyPath = union(enum) {
     },
 
     relative: struct {
-        base: Configuration.Path.Base,
+        base: Configuration.LazyPath.Relative.Base,
         sub_path: []const u8 = "",
 
         pub fn eql(a: @This(), b: @This()) bool {
@@ -2714,6 +2726,95 @@ pub fn systemIntegrationOption(
             gop.value_ptr.* = .declared_disabled;
             return false;
         }
+    }
+}
+
+/// Indicates that the build.zig logic depends on a particular file's contents.
+///
+/// If the file is created, deleted, or has its contents changed, the configure
+/// phase will be repeated. If the inode or mtime change, but the file contents
+/// remain the same, it will not cause the configure logic to be repeated.
+///
+/// This is an alternative to `Graph.poisonCache` that avoids making every invocation
+/// of `zig build` into a cache miss.
+///
+/// Only a subset of `LazyPath` are supported:
+/// - Relative to cwd
+/// - Relative to any package root
+/// - Relative to zig cache or zig installation
+///
+/// If the file would be inside one of the search prefixes, then the dependency
+/// cannot be tracked; `Graph.poisonCache` must be used instead.
+pub fn dependOnFileContents(b: *Build, lazy_path: LazyPath) void {
+    validateConfigureDependency(lazy_path);
+    const graph = b.graph;
+    graph.configure_dependencies.append(graph.arena, .{
+        .lazy_path = lazy_path.dupe(graph),
+        .mode = .contents,
+    }) catch @panic("OOM");
+}
+
+/// Indicates that the build.zig logic depends on a particular file's size,
+/// inode, mtime, and contents.
+///
+/// If the file is created, deleted, has its contents changed, or the inode
+/// changes, or the mtime changes, the configure phase will be repeated.
+///
+/// This is an alternative to `Graph.poisonCache` that avoids making every invocation
+/// of `zig build` into a cache miss.
+///
+/// Only a subset of `LazyPath` are supported:
+/// - Relative to cwd
+/// - Relative to any package root
+/// - Relative to zig cache or zig installation
+///
+/// If the file would be inside one of the search prefixes, then the dependency
+/// cannot be tracked; `Graph.poisonCache` must be used instead.
+pub fn dependOnFileMetadata(b: *Build, lazy_path: LazyPath) void {
+    validateConfigureDependency(lazy_path);
+    const graph = b.graph;
+    graph.configure_dependencies.append(graph.arena, .{
+        .lazy_path = lazy_path.dupe(graph),
+        .mode = .metadata,
+    }) catch @panic("OOM");
+}
+
+/// Indicates that the build.zig logic depends on a particular directory's entries.
+///
+/// This is an alternative to `Graph.poisonCache` that avoids making every invocation
+/// of `zig build` into a cache miss.
+///
+/// If any file is created, deleted, or renamed in this directory, the
+/// configure phase will be repeated.
+///
+/// Only a subset of `LazyPath` are supported:
+/// - Relative to cwd
+/// - Relative to any package root
+/// - Relative to zig cache or zig installation
+///
+/// If the directory would be inside one of the search prefixes, then the dependency
+/// cannot be tracked; `Graph.poisonCache` must be used instead.
+pub fn dependOnDirectory(b: *Build, lazy_path: LazyPath) void {
+    validateConfigureDependency(lazy_path);
+    const graph = b.graph;
+    graph.configure_dependencies.append(graph.arena, .{
+        .lazy_path = lazy_path.dupe(graph),
+        .mode = .directory,
+    }) catch @panic("OOM");
+}
+
+fn validateConfigureDependency(lazy_path: LazyPath) void {
+    switch (lazy_path) {
+        .src_path, .cwd_relative, .dependency => {}, // OK
+        .generated => @panic("configure phase cannot depend on files generated during make phase"),
+        .relative => |relative| switch (relative.base) {
+            .cwd, .build_root, .local_cache, .global_cache, .zig_exe, .zig_lib => {}, // OK
+            .install_prefix,
+            .install_lib,
+            .install_bin,
+            .install_include,
+            => @panic("configure phase cannot depend on files installed during make phase"),
+        },
     }
 }
 

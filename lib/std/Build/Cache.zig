@@ -57,7 +57,7 @@ pub fn prefixes(cache: *const Cache) []const Directory {
     return cache.prefixes_buffer[0..cache.prefixes_len];
 }
 
-const PrefixedPath = struct {
+pub const PrefixedPath = struct {
     prefix: u8,
     sub_path: []const u8,
 
@@ -1000,18 +1000,21 @@ pub const Manifest = struct {
     /// other files will need to be recompiled if the imported file is changed.
     pub fn addFilePost(self: *Manifest, file_path: []const u8) !void {
         assert(self.manifest_file != null);
-
         const gpa = self.cache.gpa;
         const prefixed_path = try self.cache.findPrefix(file_path);
-        errdefer gpa.free(prefixed_path.sub_path);
+        var keep = false;
+        defer if (!keep) gpa.free(prefixed_path.sub_path);
+        keep = try addPrefixedPathPost(self, prefixed_path);
+    }
 
-        const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
-        errdefer _ = self.files.pop();
+    pub fn addPrefixedPathPost(man: *Manifest, prefixed_path: PrefixedPath) !bool {
+        assert(man.manifest_file != null);
+        const gpa = man.cache.gpa;
 
-        if (gop.found_existing) {
-            gpa.free(prefixed_path.sub_path);
-            return;
-        }
+        const gop = try man.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
+        errdefer _ = man.files.pop();
+
+        if (gop.found_existing) return false;
 
         gop.key_ptr.* = .{
             .prefixed_path = prefixed_path,
@@ -1022,10 +1025,11 @@ pub const Manifest = struct {
             .contents = null,
         };
 
-        self.files.lockPointers();
-        defer self.files.unlockPointers();
+        man.files.lockPointers();
+        defer man.files.unlockPointers();
 
-        try self.populateFileHash(gop.key_ptr);
+        try man.populateFileHash(gop.key_ptr);
+        return true;
     }
 
     pub fn addPathPost(man: *Manifest, path: Path) !void {

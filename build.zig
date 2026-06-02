@@ -265,9 +265,8 @@ pub fn build(b: *std.Build) !void {
             std.process.exit(1);
         }
 
-        // Ensure git version changes get picked up
-        // https://codeberg.org/ziglang/zig/issues/35473
-        b.graph.poisonCache();
+        // Ensure git version changes get picked up.
+        b.dependOnFileContents(b.graph.path(.build_root, ".git/HEAD"));
 
         const version_string = b.fmt("{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
 
