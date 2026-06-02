@@ -1839,7 +1839,7 @@ fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
             while (it.next()) |ext| {
                 if (!supportedWindowsProgramExtension(ext)) continue;
 
-                const extended_path = try mem.concat(arena, &.{ full_path, ext });
+                const extended_path = try mem.concat(arena, u8, &.{ full_path, ext });
 
                 if (Io.Dir.cwd().access(io, extended_path, .{ .execute = true })) |_| {
                     return extended_path;
@@ -2707,4 +2707,5 @@ pub fn systemIntegrationOption(
 test {
     _ = Cache;
     _ = Step;
+    _ = &findProgram;
 }
