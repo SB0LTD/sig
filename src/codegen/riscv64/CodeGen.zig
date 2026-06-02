@@ -3163,7 +3163,7 @@ fn airMulWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
         switch (lhs_ty.zigTypeTag(zcu)) {
             else => |x| return func.fail("TODO: airMulWithOverflow {s}", .{@tagName(x)}),
             .int => {
-                if (std.debug.runtime_safety) assert(lhs_ty.eql(rhs_ty, zcu));
+                if (std.debug.runtime_safety) assert(lhs_ty.eql(rhs_ty));
 
                 const trunc_reg = try func.copyToTmpRegister(lhs_ty, .{ .register = dest_reg });
                 const trunc_reg_lock = func.register_manager.lockRegAssumeUnused(trunc_reg);

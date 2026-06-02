@@ -744,7 +744,7 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         switch (lhs_ty.zigTypeTag(zcu)) {
             .vector => return self.fail("TODO implement add_with_overflow/sub_with_overflow for vectors", .{}),
             .int => {
-                assert(lhs_ty.eql(rhs_ty, zcu));
+                assert(lhs_ty.eql(rhs_ty));
                 const int_info = lhs_ty.intInfo(zcu);
                 switch (int_info.bits) {
                     32, 64 => {
@@ -1797,7 +1797,7 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
     const rhs = try self.resolveInst(bin_op.rhs);
     const lhs_ty = self.typeOf(bin_op.lhs);
     const rhs_ty = self.typeOf(bin_op.rhs);
-    assert(lhs_ty.eql(rhs_ty, self.pt.zcu));
+    assert(lhs_ty.eql(rhs_ty));
 
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -1950,7 +1950,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         switch (lhs_ty.zigTypeTag(zcu)) {
             .vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
             .int => {
-                assert(lhs_ty.eql(rhs_ty, zcu));
+                assert(lhs_ty.eql(rhs_ty));
                 const int_info = lhs_ty.intInfo(zcu);
                 switch (int_info.bits) {
                     1...32 => {
@@ -2780,7 +2780,7 @@ fn binOp(
                 .float => return self.fail("TODO binary operations on floats", .{}),
                 .vector => return self.fail("TODO binary operations on vectors", .{}),
                 .int => {
-                    assert(lhs_ty.eql(rhs_ty, zcu));
+                    assert(lhs_ty.eql(rhs_ty));
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
                         // Only say yes if the operation is
@@ -2870,7 +2870,7 @@ fn binOp(
             switch (lhs_ty.zigTypeTag(zcu)) {
                 .vector => return self.fail("TODO binary operations on vectors", .{}),
                 .int => {
-                    assert(lhs_ty.eql(rhs_ty, zcu));
+                    assert(lhs_ty.eql(rhs_ty));
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
                         const rhs_immediate_ok = switch (tag) {
@@ -4226,7 +4226,7 @@ fn minMax(
 ) InnerError!MCValue {
     const pt = self.pt;
     const zcu = pt.zcu;
-    assert(lhs_ty.eql(rhs_ty, zcu));
+    assert(lhs_ty.eql(rhs_ty));
     switch (lhs_ty.zigTypeTag(zcu)) {
         .float => return self.fail("TODO min/max on floats", .{}),
         .vector => return self.fail("TODO min/max on vectors", .{}),

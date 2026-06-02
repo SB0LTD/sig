@@ -4633,7 +4633,7 @@ fn unionInit(
         const layout_payload_ty_id = try cg.resolveType(layout.payload_ty, .indirect);
         const pl_ptr_ty_id = try cg.module.ptrType(layout_payload_ty_id, .function);
         const pl_ptr_id = try cg.accessChain(pl_ptr_ty_id, tmp_id, &.{layout.payload_index});
-        const active_pl_ptr_id = if (!layout.payload_ty.eql(payload_ty, zcu)) blk: {
+        const active_pl_ptr_id = if (!layout.payload_ty.eql(payload_ty)) blk: {
             const payload_ty_id = try cg.resolveType(payload_ty, .indirect);
             const active_pl_ptr_ty_id = try cg.module.ptrType(payload_ty_id, .function);
             const active_pl_ptr_id = cg.module.allocId();

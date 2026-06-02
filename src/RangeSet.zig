@@ -20,8 +20,8 @@ pub fn ensureUnusedCapacity(self: *RangeSet, allocator: Allocator, additional_co
 }
 
 pub fn addAssumeCapacity(set: *RangeSet, new: Range, ty: Type, zcu: *Zcu) ?LazySrcLoc {
-    assert(new.first.typeOf(zcu).eql(ty, zcu));
-    assert(new.last.typeOf(zcu).eql(ty, zcu));
+    assert(new.first.typeOf(zcu).eql(ty));
+    assert(new.last.typeOf(zcu).eql(ty));
 
     for (set.ranges.items) |range| {
         if (new.last.compareScalar(.gte, range.first, ty, zcu) and
@@ -56,8 +56,8 @@ pub fn spans(
     ty: Type,
     zcu: *Zcu,
 ) Allocator.Error!bool {
-    assert(first.typeOf(zcu).eql(ty, zcu));
-    assert(last.typeOf(zcu).eql(ty, zcu));
+    assert(first.typeOf(zcu).eql(ty));
+    assert(last.typeOf(zcu).eql(ty));
     if (set.ranges.items.len == 0) return false;
 
     std.mem.sort(Range, set.ranges.items, SortCtx{ .ty = ty, .zcu = zcu }, lessThan);

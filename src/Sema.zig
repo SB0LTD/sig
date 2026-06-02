@@ -5462,7 +5462,7 @@ fn resolveAnalyzedBlock(
         const br_operand = sema.air_instructions.items(.data)[@intFromEnum(br)].br.operand;
         const br_operand_src = src;
         const br_operand_ty = sema.typeOf(br_operand);
-        if (br_operand_ty.eql(resolved_ty, zcu)) {
+        if (br_operand_ty.eql(resolved_ty)) {
             // No type coercion needed.
             continue;
         }
@@ -12092,7 +12092,7 @@ fn analyzeSwitchPayloadCaptureTaggedUnion(
     // PTR! This will also allow us to emit simpler code.
     const same_types = for (field_indices[1..]) |field_idx| {
         const field_ty: Type = .fromInterned(union_obj.field_types.get(ip)[field_idx]);
-        if (!field_ty.eql(first_field_ty, zcu)) break false;
+        if (!field_ty.eql(first_field_ty)) break false;
     } else true;
 
     const capture_ty: Type = capture_ty: {
@@ -15301,7 +15301,7 @@ fn zirCmpEq(
     if (lhs_ty_tag == .type and rhs_ty_tag == .type) {
         const lhs_as_type = try sema.analyzeAsType(block, lhs_src, .type, lhs);
         const rhs_as_type = try sema.analyzeAsType(block, rhs_src, .type, rhs);
-        return if (lhs_as_type.eql(rhs_as_type, zcu) == (op == .eq)) .bool_true else .bool_false;
+        return if (lhs_as_type.eql(rhs_as_type) == (op == .eq)) .bool_true else .bool_false;
     }
     return sema.analyzeCmp(block, src, lhs, rhs, op, lhs_src, rhs_src, true);
 }
@@ -26437,7 +26437,7 @@ fn fieldCallBind(
                 (first_param_type.zigTypeTag(zcu) == .pointer and
                     (first_param_type.ptrSize(zcu) == .one or
                         first_param_type.ptrSize(zcu) == .c) and
-                    first_param_type.childType(zcu).eql(concrete_ty, zcu)))
+                    first_param_type.childType(zcu).eql(concrete_ty)))
             {
                 // Note that if the param type is generic poison, we know that it must
                 // specifically be `anytype` since it's the first parameter, meaning we
@@ -26448,7 +26448,7 @@ fn fieldCallBind(
                     .func_inst = decl_val,
                     .arg0_inst = object_ptr,
                 } };
-            } else if (first_param_type.eql(concrete_ty, zcu)) {
+            } else if (first_param_type.eql(concrete_ty)) {
                 const deref = try sema.analyzeLoad(block, src, object_ptr, src);
                 return .{ .method = .{
                     .func_inst = decl_val,
@@ -26456,7 +26456,7 @@ fn fieldCallBind(
                 } };
             } else if (first_param_type.zigTypeTag(zcu) == .optional) {
                 const child = first_param_type.optionalChild(zcu);
-                if (child.eql(concrete_ty, zcu)) {
+                if (child.eql(concrete_ty)) {
                     const deref = try sema.analyzeLoad(block, src, object_ptr, src);
                     return .{ .method = .{
                         .func_inst = decl_val,
@@ -26464,7 +26464,7 @@ fn fieldCallBind(
                     } };
                 } else if (child.zigTypeTag(zcu) == .pointer and
                     child.ptrSize(zcu) == .one and
-                    child.childType(zcu).eql(concrete_ty, zcu))
+                    child.childType(zcu).eql(concrete_ty))
                 {
                     return .{ .method = .{
                         .func_inst = decl_val,
@@ -26472,7 +26472,7 @@ fn fieldCallBind(
                     } };
                 }
             } else if (first_param_type.zigTypeTag(zcu) == .error_union and
-                first_param_type.errorUnionPayload(zcu).eql(concrete_ty, zcu))
+                first_param_type.errorUnionPayload(zcu).eql(concrete_ty))
             {
                 const deref = try sema.analyzeLoad(block, src, object_ptr, src);
                 return .{ .method = .{
@@ -27675,7 +27675,7 @@ fn coerceExtra(
     try sema.ensureLayoutResolved(dest_ty, inst_src, .coerce);
 
     // If the types are the same, we can return the operand.
-    if (dest_ty.eql(inst_ty, zcu))
+    if (dest_ty.eql(inst_ty))
         return inst;
 
     const maybe_inst_val = sema.resolveValue(inst);
@@ -28726,7 +28726,7 @@ pub fn coerceInMemoryAllowed(
         assert(val.typeOf(zcu).toIntern() == src_ty.toIntern());
     }
 
-    if (dest_ty.eql(src_ty, zcu))
+    if (dest_ty.eql(src_ty))
         return .ok;
 
     const dest_tag = dest_ty.zigTypeTag(zcu);
@@ -32240,7 +32240,7 @@ fn resolvePeerTypesInner(
         .nullable => {
             for (peer_tys, 0..) |opt_ty, i| {
                 const ty = opt_ty orelse continue;
-                if (!ty.eql(.null, zcu)) return .{ .conflict = .{
+                if (!ty.eql(.null)) return .{ .conflict = .{
                     .peer_idx_a = strat_reason,
                     .peer_idx_b = i,
                 } };
@@ -32328,7 +32328,7 @@ fn resolvePeerTypesInner(
                 } };
 
                 const peer_elem_ty = ty.childType(zcu);
-                if (!peer_elem_ty.eql(elem_ty, zcu)) coerce: {
+                if (!peer_elem_ty.eql(elem_ty)) coerce: {
                     const peer_elem_coerces_to_elem =
                         try sema.coerceInMemoryAllowed(block, elem_ty, peer_elem_ty, false, zcu.getTarget(), src, src, null);
                     if (peer_elem_coerces_to_elem == .ok) {
@@ -32909,11 +32909,11 @@ fn resolvePeerTypesInner(
                     .@"enum" => switch (ty.zigTypeTag(zcu)) {
                         .enum_literal => {},
                         .@"enum" => {
-                            if (!ty.eql(cur_ty, zcu)) return generic_err;
+                            if (!ty.eql(cur_ty)) return generic_err;
                         },
                         .@"union" => {
                             const tag_ty = ty.unionTagTypeHypothetical(zcu);
-                            if (!tag_ty.eql(cur_ty, zcu)) return generic_err;
+                            if (!tag_ty.eql(cur_ty)) return generic_err;
                             opt_cur_ty = ty;
                             cur_ty_idx = i;
                         },
@@ -32923,10 +32923,10 @@ fn resolvePeerTypesInner(
                         .enum_literal => {},
                         .@"enum" => {
                             const cur_tag_ty = cur_ty.unionTagTypeHypothetical(zcu);
-                            if (!ty.eql(cur_tag_ty, zcu)) return generic_err;
+                            if (!ty.eql(cur_tag_ty)) return generic_err;
                         },
                         .@"union" => {
-                            if (!ty.eql(cur_ty, zcu)) return generic_err;
+                            if (!ty.eql(cur_ty)) return generic_err;
                         },
                         else => unreachable,
                     },
@@ -33059,7 +33059,7 @@ fn resolvePeerTypesInner(
                     .comptime_float, .comptime_int, .int => {},
                     .float => {
                         if (opt_cur_ty) |cur_ty| {
-                            if (cur_ty.eql(ty, zcu)) continue;
+                            if (cur_ty.eql(ty)) continue;
                             // Recreate the type so we eliminate any c_longdouble
                             const bits = @max(cur_ty.floatBits(target), ty.floatBits(target));
                             opt_cur_ty = switch (bits) {
@@ -33234,7 +33234,7 @@ fn resolvePeerTypesInner(
             for (peer_tys, 0..) |opt_ty, i| {
                 const ty = opt_ty orelse continue;
                 if (expect_ty) |expect| {
-                    if (!ty.eql(expect, zcu)) return .{ .conflict = .{
+                    if (!ty.eql(expect)) return .{ .conflict = .{
                         .peer_idx_a = first_idx,
                         .peer_idx_b = i,
                     } };
@@ -33300,7 +33300,7 @@ fn typeIsArrayLike(sema: *Sema, ty: Type) ?ArrayLike {
             };
             const elem_ty = ty.fieldType(0, zcu);
             for (1..field_count) |i| {
-                if (!ty.fieldType(i, zcu).eql(elem_ty, zcu)) {
+                if (!ty.fieldType(i, zcu).eql(elem_ty)) {
                     return null;
                 }
             }
