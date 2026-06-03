@@ -10192,6 +10192,7 @@ pub fn getCoerced(
             .enum_type => {
                 const enum_type = ip.loadEnumType(new_ty);
                 const index = enum_type.nameIndex(ip, enum_literal).?;
+                assert(enum_type.int_tag_type != .noreturn_type);
                 return ip.get(gpa, io, tid, .{ .enum_tag = .{
                     .ty = new_ty,
                     .int = if (enum_type.field_values.len != 0)

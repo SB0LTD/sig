@@ -231,6 +231,7 @@ const Writer = struct {
 
             .not,
             .bit_cast,
+            .bit_cast_safe,
             .ptr_cast,
             .ptr_from_int,
             .int_from_ptr,

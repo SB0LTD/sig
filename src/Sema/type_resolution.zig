@@ -63,7 +63,7 @@ pub const LayoutResolveReason = enum {
             .@"export"     => "for export here",
             .@"extern"     => "for extern declaration here",
             .asm_out_type  => "for inline assembly output type declared here",
-            .std_lang_type  => "from 'std.lang'",
+            .std_lang_type => "from 'std.lang'",
             // zig fmt: on
         };
     }

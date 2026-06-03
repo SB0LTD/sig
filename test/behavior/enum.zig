@@ -1465,3 +1465,18 @@ test "enum int tag type uses declaration inside the enum" {
     try expect(val == .b);
     try expect(@intFromEnum(val) == 1);
 }
+
+test "convert from/to backing int" {
+    const E = enum(u33) {
+        a,
+        b,
+        c,
+        fn doTheTest(s: @This()) !void {
+            const backing_int = @backingInt(s);
+            const reconstructed: @This() = @fromBackingInt(backing_int);
+            try expect(reconstructed == s);
+        }
+    };
+    try E.doTheTest(.b);
+    try comptime E.doTheTest(.b);
+}

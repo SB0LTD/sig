@@ -32,6 +32,7 @@ const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 
 pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
     return comptime &.initMany(&.{
+        .expand_bit_cast_safe,
         .expand_int_cast_safe,
         .expand_int_from_float_safe,
         .expand_int_from_float_optimized_safe,
@@ -615,7 +616,7 @@ pub fn typeToValtype(ty: Type, zcu: *const Zcu, target: *const std.Target) std.w
             .unrolled => .i32,
         },
         .@"union", .@"struct" => switch (ty.containerLayout(zcu)) {
-            .@"packed" => typeToValtype(ty.bitpackBackingInt(zcu), zcu, target),
+            .@"packed" => typeToValtype(ty.backingIntType(zcu), zcu, target),
             .auto, .@"extern" => .i32,
         },
         else => .i32, // all represented as reference/immediate
@@ -1226,7 +1227,7 @@ fn isByRef(ty: Type, zcu: *const Zcu, target: *const std.Target) bool {
         .frame,
         => return ty.hasRuntimeBits(zcu),
         .@"struct", .@"union" => switch (ty.containerLayout(zcu)) {
-            .@"packed" => return isByRef(ty.bitpackBackingInt(zcu), zcu, target),
+            .@"packed" => return isByRef(ty.backingIntType(zcu), zcu, target),
             .@"extern", .auto => return ty.hasRuntimeBits(zcu),
         },
         .vector => return determineSimdStoreStrategy(ty, zcu, target) == .unrolled,
@@ -1905,6 +1906,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .add_safe,
         .sub_safe,
         .mul_safe,
+        .bit_cast_safe,
         .int_cast_safe,
         .int_from_float_safe,
         .int_from_float_optimized_safe,
@@ -5134,7 +5136,7 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
             return .{ .imm32 = 0xaaaaaaaa };
         },
         .@"struct", .@"union" => {
-            const backing_int_ty = ty.bitpackBackingInt(zcu);
+            const backing_int_ty = ty.backingIntType(zcu);
             return cg.emitUndefined(backing_int_ty);
         },
         else => return cg.fail("Wasm TODO: emitUndefined for type: {t}\n", .{ty.zigTypeTag(zcu)}),

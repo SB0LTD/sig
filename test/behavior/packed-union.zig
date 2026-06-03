@@ -227,3 +227,17 @@ test "initialize packed union field to undefined at comptime" {
     const val: U = .{ .x = undefined };
     _ = val;
 }
+
+test "convert from/to backing int" {
+    const U = packed union(u10) {
+        a: i10,
+        b: enum(u10) { x, y, z },
+        fn doTheTest(u: @This()) !void {
+            const backing_int = @backingInt(u);
+            const reconstructed: @This() = @fromBackingInt(backing_int);
+            try expect(reconstructed == u);
+        }
+    };
+    try U.doTheTest(.{ .a = 123 });
+    try comptime U.doTheTest(.{ .a = 123 });
+}
