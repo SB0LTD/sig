@@ -229,6 +229,57 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     return mainArgs(gpa, arena, io, args, &environ_map);
 }
 
+const cmd_map = std.StaticStringMap(void).initEnum(Cmd);
+
+const Cmd = enum {
+    @"build-exe",
+    @"build-lib",
+    @"build-obj",
+    @"test",
+    @"test-obj",
+    run,
+
+    dlltool,
+    ranlib,
+    lib,
+    ar,
+
+    build,
+
+    clang,
+    @"-cc1",
+    @"-cc1as",
+
+    @"ld.lld",
+    @"lld-link",
+    @"wasm-ld",
+
+    cc,
+    @"c++",
+    @"translate-c",
+    rc,
+    fmt,
+    objcopy,
+    objdump,
+    fetch,
+    libc,
+    std,
+    init,
+    targets,
+    version,
+    env,
+    reduce,
+    zen,
+    @"ast-check",
+
+    help,
+    @"-h",
+    @"--help",
+
+    changelist,
+    @"dump-zir",
+};
+
 fn mainArgs(
     gpa: Allocator,
     arena: Allocator,
@@ -271,144 +322,169 @@ fn mainArgs(
 
     const cmd = args[1];
     const cmd_args = args[2..];
-    if (mem.eql(u8, cmd, "build-exe")) {
-        dev.check(.build_exe_command);
-        return buildOutputType(gpa, arena, io, args, .{ .build = .Exe }, environ_map);
-    } else if (mem.eql(u8, cmd, "build-lib")) {
-        dev.check(.build_lib_command);
-        return buildOutputType(gpa, arena, io, args, .{ .build = .Lib }, environ_map);
-    } else if (mem.eql(u8, cmd, "build-obj")) {
-        dev.check(.build_obj_command);
-        return buildOutputType(gpa, arena, io, args, .{ .build = .Obj }, environ_map);
-    } else if (mem.eql(u8, cmd, "test")) {
-        dev.check(.test_command);
-        return buildOutputType(gpa, arena, io, args, .zig_test, environ_map);
-    } else if (mem.eql(u8, cmd, "test-obj")) {
-        dev.check(.test_command);
-        return buildOutputType(gpa, arena, io, args, .zig_test_obj, environ_map);
-    } else if (mem.eql(u8, cmd, "run")) {
-        dev.check(.run_command);
-        return buildOutputType(gpa, arena, io, args, .run, environ_map);
-    } else if (mem.eql(u8, cmd, "dlltool") or
-        mem.eql(u8, cmd, "ranlib") or
-        mem.eql(u8, cmd, "lib") or
-        mem.eql(u8, cmd, "ar"))
-    {
-        dev.check(.ar_command);
-        return process.exit(try llvmArMain(arena, args));
-    } else if (mem.eql(u8, cmd, "build")) {
-        dev.check(.build_command);
-        return cmdBuild(gpa, arena, io, cmd_args, environ_map);
-    } else if (mem.eql(u8, cmd, "clang") or
-        mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
-    {
-        dev.check(.clang_command);
-        return process.exit(try clangMain(arena, args));
-    } else if (mem.eql(u8, cmd, "ld.lld") or
-        mem.eql(u8, cmd, "lld-link") or
-        mem.eql(u8, cmd, "wasm-ld"))
-    {
-        dev.check(.lld_linker);
-        return process.exit(try lldMain(arena, args, true));
-    } else if (mem.eql(u8, cmd, "cc")) {
-        dev.check(.cc_command);
-        return buildOutputType(gpa, arena, io, args, .cc, environ_map);
-    } else if (mem.eql(u8, cmd, "c++")) {
-        dev.check(.cc_command);
-        return buildOutputType(gpa, arena, io, args, .cpp, environ_map);
-    } else if (mem.eql(u8, cmd, "translate-c")) {
-        dev.check(.translate_c_command);
-        return buildOutputType(gpa, arena, io, args, .translate_c, environ_map);
-    } else if (mem.eql(u8, cmd, "rc")) {
-        const use_server = cmd_args.len > 0 and std.mem.eql(u8, cmd_args[0], "--zig-integration");
-        return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
-            .cmd_name = "resinator",
-            .root_src_path = "resinator/main.zig",
-            .depend_on_aro = true,
-            .prepend_zig_lib_dir_path = true,
-            .server = use_server,
-            .color = Color.settingFromEnvironment(environ_map),
-        });
-    } else if (mem.eql(u8, cmd, "fmt")) {
-        dev.check(.fmt_command);
-        return @import("fmt.zig").run(gpa, arena, io, cmd_args);
-    } else if (mem.eql(u8, cmd, "objcopy")) {
-        return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
-            .cmd_name = "objcopy",
-            .root_src_path = "objcopy.zig",
-            .color = Color.settingFromEnvironment(environ_map),
-        });
-    } else if (mem.eql(u8, cmd, "objdump")) {
-        return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
-            .cmd_name = "objdump",
-            .root_src_path = "objdump.zig",
-            .color = Color.settingFromEnvironment(environ_map),
-        });
-    } else if (mem.eql(u8, cmd, "fetch")) {
-        return cmdFetch(gpa, arena, io, cmd_args, environ_map);
-    } else if (mem.eql(u8, cmd, "libc")) {
-        return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
-            .cmd_name = "libc",
-            .root_src_path = "libc.zig",
-            .prepend_zig_lib_dir_path = true,
-            .color = Color.settingFromEnvironment(environ_map),
-        });
-    } else if (mem.eql(u8, cmd, "std")) {
-        return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
-            .cmd_name = "std",
-            .root_src_path = "std-docs.zig",
-            .prepend_zig_lib_dir_path = true,
-            .prepend_zig_exe_path = true,
-            .prepend_global_cache_path = true,
-            .color = Color.settingFromEnvironment(environ_map),
-        });
-    } else if (mem.eql(u8, cmd, "init")) {
-        return cmdInit(gpa, arena, io, cmd_args);
-    } else if (mem.eql(u8, cmd, "targets")) {
-        dev.check(.targets_command);
-        const host = std.zig.resolveTargetQueryOrFatal(io, .{});
-        var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
-        try @import("print_targets.zig").cmdTargets(arena, io, cmd_args, &stdout_writer.interface, &host);
-        return stdout_writer.interface.flush();
-    } else if (mem.eql(u8, cmd, "version")) {
-        dev.check(.version_command);
-        try Io.File.stdout().writeStreamingAll(io, build_options.version ++ "\n");
-        return;
-    } else if (mem.eql(u8, cmd, "env")) {
-        dev.check(.env_command);
-        const host = std.zig.resolveTargetQueryOrFatal(io, .{});
-        var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
-        try @import("print_env.zig").cmdEnv(
-            arena,
-            io,
-            &stdout_writer.interface,
-            args,
-            preopens,
-            &host,
-            environ_map,
-        );
-        return stdout_writer.interface.flush();
-    } else if (mem.eql(u8, cmd, "reduce")) {
-        return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
-            .cmd_name = "reduce",
-            .root_src_path = "reduce.zig",
-            .color = Color.settingFromEnvironment(environ_map),
-        });
-    } else if (mem.eql(u8, cmd, "zen")) {
-        dev.check(.zen_command);
-        return Io.File.stdout().writeStreamingAll(io, info_zen);
-    } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
-        dev.check(.help_command);
-        return Io.File.stdout().writeStreamingAll(io, usage);
-    } else if (mem.eql(u8, cmd, "ast-check")) {
-        return cmdAstCheck(arena, io, cmd_args, environ_map);
-    } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "changelist")) {
-        return cmdChangelist(arena, io, cmd_args, environ_map);
-    } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "dump-zir")) {
-        return cmdDumpZir(arena, io, cmd_args);
-    } else {
+    switch (@as(Cmd, @enumFromInt(cmd_map.getIndex(cmd) orelse {
         std.log.info("{s}", .{usage});
         fatal("unknown command: {s}", .{args[1]});
+    }))) {
+        .@"build-exe" => {
+            dev.check(.build_exe_command);
+            return buildOutputType(gpa, arena, io, args, .{ .build = .Exe }, environ_map);
+        },
+        .@"build-lib" => {
+            dev.check(.build_lib_command);
+            return buildOutputType(gpa, arena, io, args, .{ .build = .Lib }, environ_map);
+        },
+        .@"build-obj" => {
+            dev.check(.build_obj_command);
+            return buildOutputType(gpa, arena, io, args, .{ .build = .Obj }, environ_map);
+        },
+        .@"test" => {
+            dev.check(.test_command);
+            return buildOutputType(gpa, arena, io, args, .zig_test, environ_map);
+        },
+        .@"test-obj" => {
+            dev.check(.test_command);
+            return buildOutputType(gpa, arena, io, args, .zig_test_obj, environ_map);
+        },
+        .run => {
+            dev.check(.run_command);
+            return buildOutputType(gpa, arena, io, args, .run, environ_map);
+        },
+        .dlltool, .ranlib, .lib, .ar => {
+            dev.check(.ar_command);
+            return process.exit(try llvmArMain(arena, args));
+        },
+        .build => {
+            dev.check(.build_command);
+            return cmdBuild(gpa, arena, io, cmd_args, environ_map);
+        },
+        .clang, .@"-cc1", .@"-cc1as" => {
+            dev.check(.clang_command);
+            return process.exit(try clangMain(arena, args));
+        },
+        .@"ld.lld", .@"lld-link", .@"wasm-ld" => {
+            dev.check(.lld_linker);
+            return process.exit(try lldMain(arena, args, true));
+        },
+        .cc => {
+            dev.check(.cc_command);
+            return buildOutputType(gpa, arena, io, args, .cc, environ_map);
+        },
+        .@"c++" => {
+            dev.check(.cc_command);
+            return buildOutputType(gpa, arena, io, args, .cpp, environ_map);
+        },
+        .@"translate-c" => {
+            dev.check(.translate_c_command);
+            return buildOutputType(gpa, arena, io, args, .translate_c, environ_map);
+        },
+        .rc => {
+            const use_server = cmd_args.len > 0 and std.mem.eql(u8, cmd_args[0], "--zig-integration");
+            return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
+                .cmd_name = "resinator",
+                .root_src_path = "resinator/main.zig",
+                .depend_on_aro = true,
+                .prepend_zig_lib_dir_path = true,
+                .server = use_server,
+                .color = Color.settingFromEnvironment(environ_map),
+            });
+        },
+        .fmt => {
+            dev.check(.fmt_command);
+            return @import("fmt.zig").run(gpa, arena, io, cmd_args);
+        },
+        .objcopy => {
+            return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
+                .cmd_name = "objcopy",
+                .root_src_path = "objcopy.zig",
+                .color = Color.settingFromEnvironment(environ_map),
+            });
+        },
+        .objdump => {
+            return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
+                .cmd_name = "objdump",
+                .root_src_path = "objdump.zig",
+                .color = Color.settingFromEnvironment(environ_map),
+            });
+        },
+        .fetch => {
+            return cmdFetch(gpa, arena, io, cmd_args, environ_map);
+        },
+        .libc => {
+            return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
+                .cmd_name = "libc",
+                .root_src_path = "libc.zig",
+                .prepend_zig_lib_dir_path = true,
+                .color = Color.settingFromEnvironment(environ_map),
+            });
+        },
+        .std => {
+            return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
+                .cmd_name = "std",
+                .root_src_path = "std-docs.zig",
+                .prepend_zig_lib_dir_path = true,
+                .prepend_zig_exe_path = true,
+                .prepend_global_cache_path = true,
+                .color = Color.settingFromEnvironment(environ_map),
+            });
+        },
+        .init => {
+            return cmdInit(gpa, arena, io, cmd_args);
+        },
+        .targets => {
+            dev.check(.targets_command);
+            const host = std.zig.resolveTargetQueryOrFatal(io, .{});
+            var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
+            try @import("print_targets.zig").cmdTargets(arena, io, cmd_args, &stdout_writer.interface, &host);
+            return stdout_writer.interface.flush();
+        },
+        .version => {
+            dev.check(.version_command);
+            try Io.File.stdout().writeStreamingAll(io, build_options.version ++ "\n");
+            return;
+        },
+        .env => {
+            dev.check(.env_command);
+            const host = std.zig.resolveTargetQueryOrFatal(io, .{});
+            var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
+            try @import("print_env.zig").cmdEnv(
+                arena,
+                io,
+                &stdout_writer.interface,
+                args,
+                preopens,
+                &host,
+                environ_map,
+            );
+            return stdout_writer.interface.flush();
+        },
+        .reduce => {
+            return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
+                .cmd_name = "reduce",
+                .root_src_path = "reduce.zig",
+                .color = Color.settingFromEnvironment(environ_map),
+            });
+        },
+        .zen => {
+            dev.check(.zen_command);
+            return Io.File.stdout().writeStreamingAll(io, info_zen);
+        },
+        .help, .@"-h", .@"--help" => {
+            dev.check(.help_command);
+            return Io.File.stdout().writeStreamingAll(io, usage);
+        },
+        .@"ast-check" => {
+            dev.check(.ast_check_command);
+            return cmdAstCheck(arena, io, cmd_args, environ_map);
+        },
+        .changelist => {
+            dev.check(.changelist_command);
+            return cmdChangelist(arena, io, cmd_args, environ_map);
+        },
+        .@"dump-zir" => {
+            dev.check(.dump_zir_command);
+            return cmdDumpZir(arena, io, cmd_args);
+        },
     }
 }
 
@@ -6538,8 +6614,6 @@ const usage_ast_check =
 ;
 
 fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8, environ_map: *const std.process.Environ.Map) !void {
-    dev.check(.ast_check_command);
-
     const Zir = std.zig.Zir;
 
     var color: Color = Color.settingFromEnvironment(environ_map);
@@ -6706,8 +6780,6 @@ fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8, environ_map: 
 
 /// This is only enabled for debug builds.
 fn cmdDumpZir(arena: Allocator, io: Io, args: []const []const u8) !void {
-    dev.check(.dump_zir_command);
-
     const Zir = std.zig.Zir;
 
     const cache_file = args[0];
@@ -6750,8 +6822,6 @@ fn cmdDumpZir(arena: Allocator, io: Io, args: []const []const u8) !void {
 
 /// This is only enabled for debug builds.
 fn cmdChangelist(arena: Allocator, io: Io, args: []const []const u8, environ_map: *const std.process.Environ.Map) !void {
-    dev.check(.changelist_command);
-
     const color: Color = Color.settingFromEnvironment(environ_map);
     const Zir = std.zig.Zir;
 
