@@ -1376,7 +1376,7 @@ const LinuxThreadImpl = struct {
                     \\  mov %%g1, %%o0 // ptr
                     \\  mov %%g2, %%o1 // len
                     \\  mov 73, %%g1 // SYS_munmap
-                    \\  t 0x3 # ST_FLUSH_WINDOWS
+                    \\  t 0x3 // ST_FLUSH_WINDOWS
                     \\  t 0x10
                     \\  mov 1, %%g1 // SYS_exit
                     \\  mov 0, %%o0
