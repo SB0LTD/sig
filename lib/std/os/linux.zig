@@ -51,6 +51,7 @@ const arch_bits = switch (native_arch) {
     .riscv32 => @import("linux/riscv32.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .s390x => @import("linux/s390x.zig"),
+    .sparc => @import("linux/sparc.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
     .x86 => @import("linux/x86.zig"),
     .x86_64 => switch (builtin.abi) {
@@ -223,7 +224,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .sparc64 => packed struct(u32) {
+    .sparc, .sparc64 => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -444,7 +445,7 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _23: u9 = 0,
     },
-    .sparc64 => packed struct(u32) {
+    .sparc, .sparc64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u1 = 0,
         APPEND: bool = false,
@@ -1994,7 +1995,7 @@ pub const F = struct {
                 const SETLKW = 7;
             },
         },
-        .alpha, .sparc64 => struct {
+        .alpha, .sparc, .sparc64 => struct {
             const GETLK = 7;
             const SETLK = 8;
             const SETLKW = 9;
@@ -6585,7 +6586,7 @@ const TFD_TIMER = packed struct(u32) {
 };
 
 pub const TFD = switch (native_arch) {
-    .sparc64 => packed struct(u32) {
+    .sparc, .sparc64 => packed struct(u32) {
         _0: u14 = 0,
         NONBLOCK: bool = false,
         _15: u7 = 0,
