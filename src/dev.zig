@@ -76,7 +76,6 @@ pub const Env = enum {
                 .test_command,
                 .run_command,
                 .ar_command,
-                .build_command,
                 .clang_command,
                 .stdio_listen,
                 .build_import_lib,
@@ -162,7 +161,6 @@ pub const Env = enum {
                 else => Env.ast_gen.supports(feature),
             },
             .@"aarch64-linux" => switch (feature) {
-                .build_command,
                 .stdio_listen,
                 .incremental,
                 .aarch64_backend,
@@ -179,7 +177,6 @@ pub const Env = enum {
                 else => Env.sema.supports(feature),
             },
             .@"powerpc-linux" => switch (feature) {
-                .build_command,
                 .stdio_listen,
                 .incremental,
                 .x86_64_backend,
@@ -210,7 +207,6 @@ pub const Env = enum {
                 else => Env.sema.supports(feature),
             },
             .@"x86_64-linux" => switch (feature) {
-                .build_command,
                 .stdio_listen,
                 .incremental,
                 .legalize,
@@ -251,7 +247,6 @@ pub const Feature = enum {
     test_command,
     run_command,
     ar_command,
-    build_command,
     clang_command,
     cc_command,
     translate_c_command,
