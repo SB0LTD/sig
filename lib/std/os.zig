@@ -15,8 +15,6 @@ pub fn targetRequiresLibC(target: *const std.Target) bool {
     if (target.requiresLibC()) return true;
     return switch (target.os.tag) {
         .linux => switch (target.cpu.arch) {
-            // https://codeberg.org/ziglang/zig/issues/30942
-            .csky,
             // https://codeberg.org/ziglang/zig/issues/30943
             .hppa,
             .hppa64,
