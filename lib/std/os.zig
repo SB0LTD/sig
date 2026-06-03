@@ -24,8 +24,6 @@ pub fn targetRequiresLibC(target: *const std.Target) bool {
             // https://codeberg.org/ziglang/zig/issues/30946
             .sh,
             .sheb,
-            // https://codeberg.org/ziglang/zig/issues/30945
-            .sparc,
             => true,
             else => false,
         },
