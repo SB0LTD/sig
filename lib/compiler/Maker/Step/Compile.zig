@@ -984,6 +984,11 @@ fn addFlag(gpa: Allocator, args: *std.ArrayList([]const u8), comptime name: []co
     try args.append(gpa, if (cond) "-f" ++ name else "-fno-" ++ name);
 }
 
+fn addArchFlag(gpa: Allocator, args: *std.ArrayList([]const u8), comptime name: []const u8, opt: ?bool) !void {
+    const cond = opt orelse return;
+    try args.append(gpa, if (cond) "-m" ++ name else "-mno-" ++ name);
+}
+
 fn checkCompileErrors(arena: Allocator, maker: *Maker, step_index: Configuration.Step.Index) Step.ExtendedMakeError!void {
     const step = maker.stepByIndex(step_index);
     const conf = &maker.scanned_config.configuration;
@@ -1249,9 +1254,9 @@ fn appendModuleFlags(
     try addFlag(gpa, zig_args, "fuzz", m.flags.fuzz.toBool());
     try addFlag(gpa, zig_args, "valgrind", m.flags2.valgrind.toBool());
     try addFlag(gpa, zig_args, "PIC", m.flags2.pic.toBool());
-    try addFlag(gpa, zig_args, "red-zone", m.flags2.red_zone.toBool());
     try addFlag(gpa, zig_args, "no-builtin", m.flags2.no_builtin.toBool());
 
+    try addArchFlag(gpa, zig_args, "red-zone", m.flags2.red_zone.toBool());
     {
         try zig_args.ensureUnusedCapacity(gpa, 6);
 
