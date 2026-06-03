@@ -212,7 +212,8 @@ pub fn clone() callconv(.naked) u64 {
         \\ mov 217, %%g1 // SYS_clone
         \\ mov %%i2, %%o0
         \\
-        \\ # Add some extra space for the initial frame
+        \\ # Align, and add some extra space for the initial frame
+        \\ and %%i1, -16, %%i1
         \\ sub %%i1, 192 + 2047, %%o1
         \\
         \\ mov %%i4, %%o2
