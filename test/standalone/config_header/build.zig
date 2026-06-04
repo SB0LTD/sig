@@ -5,9 +5,7 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const config_header = b.addConfigHeader(
-        .{ .style = .{
-            .autoconf_undef = b.path("autoconf_undef/config.h.in"),
-        } },
+        .{ .style = .{ .autoconf_undef = b.path("autoconf_undef/config.h.in") } },
         .{
             .SOME_NO = null,
             .SOME_TRUE = true,
@@ -30,9 +28,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const config_header_autoconf_at = b.addConfigHeader(
-        .{ .style = .{
-            .autoconf_at = b.path("autoconf_at/autoconf_at.txt.in"),
-        } },
+        .{ .style = .{ .autoconf_at = b.path("autoconf_at/autoconf_at.txt.in") } },
         .{
             .undefined = null,
             .defined = {},
@@ -54,132 +50,85 @@ pub fn build(b: *std.Build) void {
 
 fn addCmakeChecks(b: *std.Build, test_step: *std.Build.Step) void {
     const config_header = b.addConfigHeader(
+        .{ .style = .{ .cmake = b.path("cmake/config.h.in") } },
         .{
-            .style = .{ .cmake = b.path("cmake/config.h.in") },
-            .include_path = "config.h",
-        },
-        .{
-            .noval = null,
-            .trueval = true,
-            .falseval = false,
-            .zeroval = 0,
-            .oneval = 1,
-            .tenval = 10,
-            .stringval = "test",
+            .NOVAL = null,
+            .TRUEVAL = true,
+            .FALSEVAL = false,
+            .ZEROVAL = 0,
+            .ONEVAL = 1,
+            .TENVAL = 10,
+            .STRINGVAL = "test",
 
-            .boolnoval = {},
-            .booltrueval = true,
-            .boolfalseval = false,
-            .boolzeroval = 0,
-            .booloneval = 1,
-            .booltenval = 10,
-            .boolstringval = "test",
+            .BOOLNOVAL = {},
+            .BOOLTRUEVAL = true,
+            .BOOLFALSEVAL = false,
+            .BOOLZEROVAL = 0,
+            .BOOLONEVAL = 1,
+            .BOOLTENVAL = 10,
+            .BOOLSTRINGVAL = "test",
         },
     );
     const check_config_header = b.addCheckFile(config_header.getOutputFile(), .{
-        .expected_exact = @embedFile("cmake/expected_config.h"),
+        .expected_exact = @embedFile("cmake/config.h"),
     });
     test_step.dependOn(&check_config_header.step);
 
     const pwd_sh = b.addConfigHeader(
-        .{
-            .style = .{ .cmake = b.path("cmake/pwd.sh.in") },
-            .include_path = "pwd.sh",
-        },
+        .{ .style = .{ .cmake = b.path("cmake/pwd.sh.in") } },
         .{ .DIR = "${PWD}" },
     );
     const check_pwd_sh = b.addCheckFile(pwd_sh.getOutputFile(), .{
-        .expected_exact = @embedFile("cmake/expected_pwd.sh"),
+        .expected_exact = @embedFile("cmake/pwd.sh"),
     });
     test_step.dependOn(&check_pwd_sh.step);
 
-    const sigil_header = b.addConfigHeader(
+    const config_header_edge_cases = b.addConfigHeader(
+        .{ .style = .{ .cmake = b.path("cmake/edge_cases.h.in") } },
         .{
-            .style = .{ .cmake = b.path("cmake/sigil.h.in") },
-            .include_path = "sigil.h",
-        },
-        .{},
-    );
-    const check_sigil_header = b.addCheckFile(sigil_header.getOutputFile(), .{
-        .expected_exact = @embedFile("cmake/expected_sigil.h"),
-    });
-    test_step.dependOn(&check_sigil_header.step);
-
-    const stack_header = b.addConfigHeader(
-        .{
-            .style = .{ .cmake = b.path("cmake/stack.h.in") },
-            .include_path = "stack.h",
-        },
-        .{
+            .DOLLAR = "$",
             .UNDERSCORE = "_",
+            .STRING = "text",
+            .STRING_PROXY = "STRING",
+            .STRING_AT = "@STRING@",
+            .STRING_CURLY = "{STRING}",
+            .STRING_VAR = "${STRING}",
             .NEST_UNDERSCORE_PROXY = "UNDERSCORE",
             .NEST_PROXY = "NEST_UNDERSCORE_PROXY",
         },
     );
-    const check_stack_header = b.addCheckFile(stack_header.getOutputFile(), .{
-        .expected_exact = @embedFile("cmake/expected_stack.h"),
+    const check_config_header_edge_cases = b.addCheckFile(config_header_edge_cases.getOutputFile(), .{
+        .expected_exact = @embedFile("cmake/edge_cases.h"),
     });
-    test_step.dependOn(&check_stack_header.step);
+    test_step.dependOn(&check_config_header_edge_cases.step);
 
-    const wrapper_header = b.addConfigHeader(
+    const config_header_cmakedefine_edge_cases = b.addConfigHeader(
         .{
-            .style = .{ .cmake = b.path("cmake/wrapper.h.in") },
-            .include_path = "wrapper.h",
+            .style = .{ .cmake = b.path("cmake/cmakedefine_edge_cases.h.in") },
+            .include_path = "cmakedefine_edge_cases_renamed.h",
         },
         .{
-            .DOLLAR = "$",
-            .TEXT = "TRAP",
-
-            .STRING = "TEXT",
-            .STRING_AT = "@STRING@",
-            .STRING_CURLY = "{STRING}",
-            .STRING_VAR = "${STRING}",
-        },
-    );
-    const check_wrapper_header = b.addCheckFile(wrapper_header.getOutputFile(), .{
-        .expected_exact = @embedFile("cmake/expected_wrapper.h"),
-    });
-    test_step.dependOn(&check_wrapper_header.step);
-
-    const config_header_cmake = b.addConfigHeader(
-        .{ .style = .{
-            .cmake = b.path("cmake/cmake.txt.in"),
-        } },
-        .{
-            .undef = null,
-            .defined = {},
-            .true = true,
-            .false = false,
-            .int = 42,
-            .ident = "value",
-            .string = "text",
+            .MULTI_WORD = true,
+            .MULTI_WORD_FALSE = false,
+            .NO_VALUE = true,
+            .NO_VALUE_FALSE = false,
+            .WITH_UNDERSCORE_TRUE = true,
+            .WITH_UNDERSCORE_FALSE = false,
+            ._LEADING = true,
+            .TRAILING_ = true,
+            ._UNDER_01 = true,
+            .UNDER_01_ = true,
+            .SUBST_VAL = true,
+            .SUBST_VAL_FALSE = false,
+            .STRING = "text",
+            .VAR_NAME = "ACTUAL_VAR",
+            .ACTUAL_VAR = true,
+            .AT_SIGN = "@",
+            .DOLLAR_SIGN = "$",
         },
     );
-    const check_config_header_cmake = b.addCheckFile(config_header_cmake.getOutputFile(), .{
-        .expected_exact = @embedFile("cmake/cmake.txt"),
+    const check_config_header_cmakedefine_edge_cases = b.addCheckFile(config_header_cmakedefine_edge_cases.getOutputFile(), .{
+        .expected_exact = @embedFile("cmake/cmakedefine_edge_cases.h"),
     });
-    test_step.dependOn(&check_config_header_cmake.step);
-
-    const config_header_cmake_edge_cases = b.addConfigHeader(
-        .{ .style = .{
-            .cmake = b.path("cmake/cmake_edge_cases.txt.in"),
-        } },
-        .{
-            // .at = "@",
-            // .trueval = true,
-            .dollar = "$",
-            .underscore = "_",
-            .string = "text",
-            .string_proxy = "string",
-            .string_at = "@string@",
-            .string_curly = "{string}",
-            .string_var = "${string}",
-            .nest_underscore_proxy = "underscore",
-            .nest_proxy = "nest_underscore_proxy",
-        },
-    );
-    const check_config_header_cmake_edge_cases = b.addCheckFile(config_header_cmake_edge_cases.getOutputFile(), .{
-        .expected_exact = @embedFile("cmake/cmake_edge_cases.txt"),
-    });
-    test_step.dependOn(&check_config_header_cmake_edge_cases.step);
+    test_step.dependOn(&check_config_header_cmakedefine_edge_cases.step);
 }
