@@ -33324,6 +33324,7 @@ fn checkIndexable(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void {
             const msg = try sema.errMsg(src, "type '{f}' does not support indexing", .{ty.fmt(pt)});
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(src, msg, "operand must be an array, slice, tuple, or vector", .{});
+            try sema.addDeclaredHereNote(msg, ty);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
