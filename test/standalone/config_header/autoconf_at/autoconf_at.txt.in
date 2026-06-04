@@ -34,3 +34,15 @@ what is 6*7? @integer@!
 @@string@@
 // expanded variables are considered strings after expansion
 @string_at@
+
+// variable name with underscores
+@underscored_var@
+
+// backslash before at-sigil does not prevent resolution
+\@string@
+
+// value that is an at-sign itself
+@at_sign@
+
+// incomplete key mid-line is preserved, trailing content kept
+@incomplete trailing content

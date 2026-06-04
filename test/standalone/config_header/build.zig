@@ -21,6 +21,8 @@ pub fn build(b: *std.Build) void {
             .PREFIX_TAB = null,
             .POSTFIX_SPACE = null,
             .POSTFIX_TAB = null,
+
+            .SOME_UNDERSCORED = true,
         },
     );
     const check_config_header = b.addCheckFile(config_header.getOutputFile(), .{
@@ -37,6 +39,9 @@ pub fn build(b: *std.Build) void {
             .integer = 42,
             .string = "text",
             .string_at = "@string@",
+
+            .underscored_var = "value",
+            .at_sign = "@",
         },
     );
     const check_config_header_autoconf_at = b.addCheckFile(config_header_autoconf_at.getOutputFile(), .{

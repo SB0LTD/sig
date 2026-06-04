@@ -20,4 +20,15 @@ int foo();
 /* #undef PREFIX_TAB */
 /* #undef POSTFIX_SPACE */
 /* #undef POSTFIX_TAB */
+
+// #undef with underscored variable name
+#define SOME_UNDERSCORED 1
+
+// #undef with extra tokens after variable name (ignored)
+#define SOME_ONE 1
+
+// non-#undef # lines pass through unchanged
+#define KEPT_DEFINE value
+#include <kept.h>
 // TODO: unexpected newline is being added here
+
