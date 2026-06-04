@@ -6,8 +6,7 @@
 /* #undef MULTI_WORD_FALSE */
 
 // cmakedefine with no replacement value (truthy)
-// TODO: unexpected whitespace is being added here
-#define NO_VALUE 
+#define NO_VALUE
 
 // cmakedefine with no replacement value (falsy)
 /* #undef NO_VALUE_FALSE */

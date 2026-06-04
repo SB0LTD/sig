@@ -418,7 +418,12 @@ fn renderValueC(conf: *const Configuration, w: *Writer, name: []const u8, value:
 }
 
 fn renderValueCIdent(w: *Writer, name: []const u8, ident: []const u8) Writer.Error!void {
-    return w.print("#define {s} {s}\n", .{ name, ident });
+    try w.print("#define {s}", .{name});
+    if (ident.len > 0) {
+        try w.writeByte(' ');
+        try w.writeAll(ident);
+    }
+    return w.writeByte('\n');
 }
 
 fn renderValueCBool(w: *Writer, name: []const u8, b: bool) Writer.Error!void {

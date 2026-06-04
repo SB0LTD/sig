@@ -5,7 +5,6 @@
 #cmakedefine MULTI_WORD_FALSE "hello world"
 
 // cmakedefine with no replacement value (truthy)
-// TODO: unexpected whitespace is being added here
 #cmakedefine NO_VALUE
 
 // cmakedefine with no replacement value (falsy)
