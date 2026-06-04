@@ -1,0 +1,37 @@
+// empty lines are preserved
+
+// @-substition tests
+// @-vars resolved only when they wrap valid characters, otherwise considered literals
+@@string@@
+@${string}@
+
+// at-vars are resolved inside curly-vars
+${@string_proxy@}
+
+// expanded variables are considered strings after expansion
+@string_at@
+${string_at}
+$@string_curly@
+$${string_curly}
+${string_var}
+@string_var@
+${dollar}{${string}}
+@dollar@{${string}}
+@dollar@{@string@}
+
+// nested expanded variables are expanded from the inside out
+${string${underscore}proxy}
+${string@underscore@proxy}
+
+// nested vars are only expanded when curly braces are closed
+${nest${underscore}proxy}
+${nest${${nest_underscore${underscore}proxy}}proxy}
+
+// backslash is an invalid character for @ lookup
+\@string\@
+
+// backslash is preserved, but doesn't affect $curly-braces variable expansion
+\${string}
+
+// backslash breaks $curly-braces opening bracket identification
+$\{string}

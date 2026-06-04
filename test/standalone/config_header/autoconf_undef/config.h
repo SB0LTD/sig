@@ -20,4 +20,4 @@ int foo();
 /* #undef PREFIX_TAB */
 /* #undef POSTFIX_SPACE */
 /* #undef POSTFIX_TAB */
-
+// TODO: unexpected newline is being added here
