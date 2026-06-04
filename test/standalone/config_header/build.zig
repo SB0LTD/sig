@@ -50,6 +50,51 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(&check_config_header.step);
     test_step.dependOn(&check_config_header_autoconf_at.step);
+
+    const config_header_blank = b.addConfigHeader(
+        .{
+            .style = .blank,
+            .include_path = "config.h",
+        },
+        .{
+            .UNDEFINED = null,
+            .DEFINED = {},
+            .TRUE = true,
+            .FALSE = false,
+            .ZERO = 0,
+            .ONE = 1,
+            .TEN = 10,
+            .IDENT = @as(enum { identifier }, .identifier),
+            .STRING = "test",
+        },
+    );
+    const check_config_header_blank = b.addCheckFile(config_header_blank.getOutputFile(), .{
+        .expected_exact = @embedFile("blank/config.h"),
+    });
+    test_step.dependOn(&check_config_header_blank.step);
+
+    const config_header_nasm = b.addConfigHeader(
+        .{
+            .style = .nasm,
+            .include_path = "config.asm",
+        },
+        .{
+            .UNDEFINED = null,
+            .DEFINED = {},
+            .TRUE = true,
+            .FALSE = false,
+            .ZERO = 0,
+            .ONE = 1,
+            .TEN = 10,
+            .IDENT = @as(enum { identifier }, .identifier),
+            .STRING = "test",
+        },
+    );
+    const check_config_header_nasm = b.addCheckFile(config_header_nasm.getOutputFile(), .{
+        .expected_exact = @embedFile("nasm/config.asm"),
+    });
+    test_step.dependOn(&check_config_header_nasm.step);
+
     addCmakeChecks(b, test_step);
 }
 
