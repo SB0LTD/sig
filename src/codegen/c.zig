@@ -4984,6 +4984,8 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 (mem.eql(u8, field_name, "ccr") or mem.eql(u8, field_name, "icc") or mem.eql(u8, field_name, "xcc"))) name: {
                     // C compilers just use `icc` to encompass all of these.
                     break :name "icc";
+                } else if (target.cpu.arch.isRISCV() and mem.eql(u8, field_name, "fp")) name: {
+                    break :name "s0";
                 } else field_name;
 
             try w.print(" {f}", .{fmtStringLiteral(name, null)});
