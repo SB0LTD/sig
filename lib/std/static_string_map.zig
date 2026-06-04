@@ -240,7 +240,7 @@ pub fn StaticStringMapWithEql(
             return self.kvs.values[self.getIndex(str) orelse return null];
         }
 
-        pub fn getIndex(self: Self, str: []const u8) ?usize {
+        fn getIndex(self: Self, str: []const u8) ?usize {
             const kvs = self.kvs.*;
             if (kvs.len == 0)
                 return null;
@@ -583,13 +583,13 @@ test "sorting kvs doesn't exceed eval branch quota" {
 }
 
 test "initEnum" {
-    const map = StaticStringMap(void).initEnum(TestEnum);
+    const UnsortedEnum = enum { BB, A, CCC, DDD };
+    const map = StaticStringMap(void).initEnum(UnsortedEnum);
     try testing.expect(map.has("A"));
     try testing.expect(!map.has("a"));
-    try testing.expectEqual(0, map.getIndex("A"));
-    try testing.expectEqual(1, map.getIndex("B"));
-    try testing.expectEqual(2, map.getIndex("C"));
-    try testing.expectEqual(3, map.getIndex("D"));
-    try testing.expectEqual(4, map.getIndex("E"));
+    try testing.expectEqual(0, map.getIndex("BB"));
+    try testing.expectEqual(1, map.getIndex("A"));
+    try testing.expectEqual(2, map.getIndex("CCC"));
+    try testing.expectEqual(3, map.getIndex("DDD"));
     try testing.expectEqual(null, map.getIndex("F"));
 }
