@@ -2648,6 +2648,11 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
         }
 
+        if (target.cpu.arch == .riscv64 and target.ofmt == .c) {
+            // https://codeberg.org/ziglang/zig/issues/30930
+            continue;
+        }
+
         if (std.mem.eql(u8, options.name, "libc")) {
             // The libc API tests obviously need to link libc. So for test
             // target entries where we wouldn't link libc by default, skip the
