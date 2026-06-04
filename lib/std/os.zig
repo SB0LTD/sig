@@ -18,9 +18,6 @@ pub fn targetRequiresLibC(target: *const std.Target) bool {
             // https://codeberg.org/ziglang/zig/issues/30943
             .hppa,
             .hppa64,
-            // https://codeberg.org/ziglang/zig/issues/30944
-            .microblaze,
-            .microblazeel,
             // https://codeberg.org/ziglang/zig/issues/30946
             .sh,
             .sheb,
