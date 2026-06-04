@@ -1264,7 +1264,7 @@ const LinuxThreadImpl = struct {
                     \\ ori r12, r0, 91 # SYS_munmap
                     \\ brki r14, 0x8
                     \\ ori r12, r0, 1 # SYS_exit
-                    \\ or r5, r0, r0
+                    \\ ori r5, r0, 0
                     \\ brki r14, 0x8
                     :
                     : [ptr] "{r5}" (@intFromPtr(self.mapped.ptr)),
