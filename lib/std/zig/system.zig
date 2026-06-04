@@ -152,7 +152,7 @@ pub fn getExternalExecutor(io: Io, candidate: *const std.Target, options: GetExt
                         // TODO: Actually check the SuperH version.
                         .sh => "qemu-sh4",
                         .sheb => "qemu-sh4eb",
-                        .sparc => if (candidate.cpu.has(.sparc, .v8plus)) "qemu-sparc32plus" else "qemu-sparc",
+                        .sparc => "qemu-sparc32plus",
                         .thumb => "qemu-arm",
                         .thumbeb => "qemu-armeb",
                         else => "qemu-" ++ @tagName(t),
