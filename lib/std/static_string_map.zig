@@ -102,12 +102,12 @@ pub fn StaticStringMapWithEql(
 
         /// Returns a map backed by static, comptime allocated memory.
         ///
-        /// `V` must be `void`. The enum's tag names will be used as the keys.
-        pub inline fn initEnum(comptime E: type) Self {
+        /// `V` must be an enum. The enum's tag names will be used as the keys.
+        pub inline fn initEnum() Self {
             comptime {
                 var self: Self = .{};
 
-                const field_names = @typeInfo(E).@"enum".field_names;
+                const field_names = @typeInfo(V).@"enum".field_names;
                 if (field_names.len == 0) return self;
 
                 // Since the KVs are sorted, a linearly-growing bound will never
@@ -116,7 +116,8 @@ pub fn StaticStringMapWithEql(
                 @setEvalBranchQuota(10 * field_names.len * std.math.log2_int_ceil(usize, field_names.len));
 
                 var sorted_keys: [field_names.len][]const u8 = field_names[0..field_names.len].*;
-                var sorted_vals: [field_names.len]V = @splat({});
+                var sorted_vals: [field_names.len]V = undefined;
+                for (&sorted_vals, @typeInfo(V).@"enum".field_values) |*x, i| x.* = @enumFromInt(i);
 
                 for (field_names) |field_name| {
                     self.min_len = @min(self.min_len, field_name.len);
@@ -584,12 +585,12 @@ test "sorting kvs doesn't exceed eval branch quota" {
 
 test "initEnum" {
     const UnsortedEnum = enum { BB, A, CCC, DDD };
-    const map = StaticStringMap(void).initEnum(UnsortedEnum);
+    const map = StaticStringMap(UnsortedEnum).initEnum();
     try testing.expect(map.has("A"));
     try testing.expect(!map.has("a"));
-    try testing.expectEqual(0, map.getIndex("BB"));
-    try testing.expectEqual(1, map.getIndex("A"));
-    try testing.expectEqual(2, map.getIndex("CCC"));
-    try testing.expectEqual(3, map.getIndex("DDD"));
+    try testing.expectEqual(.BB, map.get("BB"));
+    try testing.expectEqual(.A, map.get("A"));
+    try testing.expectEqual(.CCC, map.get("CCC"));
+    try testing.expectEqual(.DDD, map.get("DDD"));
     try testing.expectEqual(null, map.getIndex("F"));
 }

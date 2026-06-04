@@ -229,7 +229,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     return mainArgs(gpa, arena, io, args, &environ_map);
 }
 
-const cmd_map = std.StaticStringMap(void).initEnum(Cmd);
+const cmd_map = std.StaticStringMap(Cmd).initEnum();
 
 const Cmd = enum {
     @"build-exe",
@@ -322,10 +322,10 @@ fn mainArgs(
 
     const cmd = args[1];
     const cmd_args = args[2..];
-    switch (@as(Cmd, @enumFromInt(cmd_map.getIndex(cmd) orelse {
+    switch (cmd_map.get(cmd) orelse {
         std.log.info("{s}", .{usage});
         fatal("unknown command: {s}", .{args[1]});
-    }))) {
+    }) {
         .@"build-exe" => {
             dev.check(.build_exe_command);
             return buildOutputType(gpa, arena, io, args, .{ .build = .Exe }, environ_map);
