@@ -728,8 +728,9 @@ pub fn flush(c: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Prog
     const zcu = c.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
     const target = zcu.getTarget();
-    const pt: Zcu.PerThread = .activate(zcu, tid);
-    defer pt.deactivate();
+    const active = zcu.activate(tid);
+    defer active.deactivate();
+    const pt = active.pt;
 
     // If it's somehow not made it into the pool, we need to generate the type `[:0]const u8` for
     // error names.

@@ -108,9 +108,9 @@ pub const empty: InternPool = .{
     .shards = &.{},
     .global_error_set = .empty,
     .tid_width = 0,
-    .tid_shift_30 = if (single_threaded) 0 else 31,
-    .tid_shift_31 = if (single_threaded) 0 else 31,
-    .tid_shift_32 = if (single_threaded) 0 else 31,
+    .tid_shift_30 = 0,
+    .tid_shift_31 = 0,
+    .tid_shift_32 = 0,
     .src_hash_deps = .empty,
     .nav_val_deps = .empty,
     .nav_ty_deps = .empty,
@@ -648,15 +648,15 @@ pub const Nav = struct {
 
             fn wrap(unwrapped: Unwrapped, ip: *const InternPool) Nav.Index {
                 assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
-                assert(unwrapped.index <= ip.getIndexMask(u32));
-                return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_32) |
+                assert(unwrapped.index <= ip.getIndexMask(u30));
+                return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_30) |
                     unwrapped.index);
             }
         };
         fn unwrap(nav_index: Nav.Index, ip: *const InternPool) Unwrapped {
             return .{
-                .tid = @enumFromInt(@intFromEnum(nav_index) >> ip.tid_shift_32 & ip.getTidMask()),
-                .index = @intFromEnum(nav_index) & ip.getIndexMask(u32),
+                .tid = @enumFromInt(@intFromEnum(nav_index) >> ip.tid_shift_30 & ip.getTidMask()),
+                .index = @intFromEnum(nav_index) & ip.getIndexMask(u30),
             };
         }
 
@@ -4168,10 +4168,7 @@ pub const Index = enum(u32) {
         const debug_state = InternPool.debug_state;
     };
     pub fn unwrap(index: Index, ip: *const InternPool) Unwrapped {
-        return if (single_threaded) .{
-            .tid = .main,
-            .index = @intFromEnum(index),
-        } else .{
+        return .{
             .tid = @enumFromInt(@intFromEnum(index) >> ip.tid_shift_30 & ip.getTidMask()),
             .index = @intFromEnum(index) & ip.getIndexMask(u30),
         };
@@ -5061,9 +5058,9 @@ pub const Tag = enum(u8) {
             field_types: []Index,
         },
         .config = .{
-            .@"trailing.type_hash.?" = .@"payload.captures_len == .reified",
-            .@"trailing.captures.?" = .@"payload.captures_len != .reified",
-            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.captures_len)",
+            .@"trailing.type_hash.?" = .@"payload.bits.captures_len == .reified",
+            .@"trailing.captures.?" = .@"payload.bits.captures_len != .reified",
+            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.bits.captures_len)",
             .@"trailing.field_names.len" = .@"payload.fields_len",
             .@"trailing.field_types.len" = .@"payload.fields_len",
         },
@@ -5079,9 +5076,9 @@ pub const Tag = enum(u8) {
             field_defaults: []Index,
         },
         .config = .{
-            .@"trailing.type_hash.?" = .@"payload.captures_len == .reified",
-            .@"trailing.captures.?" = .@"payload.captures_len != .reified",
-            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.captures_len)",
+            .@"trailing.type_hash.?" = .@"payload.bits.captures_len == .reified",
+            .@"trailing.captures.?" = .@"payload.bits.captures_len != .reified",
+            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.bits.captures_len)",
             .@"trailing.field_names.len" = .@"payload.fields_len",
             .@"trailing.field_types.len" = .@"payload.fields_len",
             .@"trailing.field_defaults.len" = .@"payload.fields_len",
@@ -5096,9 +5093,9 @@ pub const Tag = enum(u8) {
             field_types: []Index,
         },
         .config = .{
-            .@"trailing.type_hash.?" = .@"payload.captures_len == .reified",
-            .@"trailing.captures.?" = .@"payload.captures_len != .reified",
-            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.captures_len)",
+            .@"trailing.type_hash.?" = .@"payload.bits.captures_len == .reified",
+            .@"trailing.captures.?" = .@"payload.bits.captures_len != .reified",
+            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.bits.captures_len)",
             .@"trailing.field_types.len" = .@"payload.fields_len",
         },
     };
@@ -5115,11 +5112,11 @@ pub const Tag = enum(u8) {
             field_values: []Index,
         },
         .config = .{
-            .@"trailing.owner_union.?" = .@"payload.captures_len == .generated_union_tag",
-            .@"trailing.zir_index.?" = .@"payload.captures_len != .generated_union_tag",
-            .@"trailing.type_hash.?" = .@"payload.captures_len == .reified",
-            .@"trailing.captures.?" = .@"payload.captures_len != .reified and payload.captures_len != .generated_enum_tag",
-            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.captures_len)",
+            .@"trailing.owner_union.?" = .@"payload.bits.captures_len == .generated_union_tag",
+            .@"trailing.zir_index.?" = .@"payload.bits.captures_len != .generated_union_tag",
+            .@"trailing.type_hash.?" = .@"payload.bits.captures_len == .reified",
+            .@"trailing.captures.?" = .@"payload.bits.captures_len != .reified and payload.bits.captures_len != .generated_union_tag",
+            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.bits.captures_len)",
             .@"trailing.field_names.len" = .@"payload.fields_len",
             .@"trailing.field_values.len" = .@"payload.fields_len",
         },
@@ -5249,11 +5246,11 @@ pub const Tag = enum(u8) {
                 field_names: []NullTerminatedString,
             },
             .config = .{
-                .@"trailing.owner_union.?" = .@"payload.captures_len == .generated_union_tag",
-                .@"trailing.zir_index.?" = .@"payload.captures_len != .generated_union_tag",
-                .@"trailing.type_hash.?" = .@"payload.captures_len == .reified",
-                .@"trailing.captures.?" = .@"payload.captures_len != .reified and payload.captures_len != .generated_enum_tag",
-                .@"trailing.captures.?.len" = .@"@intFromEnum(payload.captures_len)",
+                .@"trailing.owner_union.?" = .@"payload.bits.captures_len == .generated_union_tag",
+                .@"trailing.zir_index.?" = .@"payload.bits.captures_len != .generated_union_tag",
+                .@"trailing.type_hash.?" = .@"payload.bits.captures_len == .reified",
+                .@"trailing.captures.?" = .@"payload.bits.captures_len != .reified and payload.bits.captures_len != .generated_union_tag",
+                .@"trailing.captures.?.len" = .@"@intFromEnum(payload.bits.captures_len)",
                 .@"trailing.field_names.len" = .@"payload.fields_len",
             },
         },
@@ -6379,7 +6376,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, io: Io, available_threads: usize) !
 }
 
 pub fn deinit(ip: *InternPool, gpa: Allocator, io: Io) void {
-    if (debug_state.enable_checks) std.debug.assert(debug_state.intern_pool == null);
+    std.debug.assert(debug_state.intern_pool == null);
 
     ip.src_hash_deps.deinit(gpa);
     ip.nav_val_deps.deinit(gpa);
@@ -6424,8 +6421,15 @@ pub fn deinit(ip: *InternPool, gpa: Allocator, io: Io) void {
     ip.* = undefined;
 }
 
-pub fn activate(ip: *const InternPool) void {
-    if (!debug_state.enable) return;
+pub const Active = struct {
+    prev_ip: if (debug_state.enable) ?*const InternPool else void,
+    pub fn deactivate(active: Active) void {
+        if (!debug_state.enable) return;
+        debug_state.intern_pool = active.prev_ip;
+    }
+};
+pub fn activate(ip: *const InternPool) Active {
+    if (!debug_state.enable) return .{ .prev_ip = {} };
     _ = Index.Unwrapped.debug_state;
     _ = String.debug_state;
     _ = OptionalString.debug_state;
@@ -6435,20 +6439,16 @@ pub fn activate(ip: *const InternPool) void {
     _ = TrackedInst.Index.Optional.debug_state;
     _ = Nav.Index.debug_state;
     _ = Nav.Index.Optional.debug_state;
-    if (debug_state.enable_checks) std.debug.assert(debug_state.intern_pool == null);
-    debug_state.intern_pool = ip;
-}
-
-pub fn deactivate(ip: *const InternPool) void {
-    if (!debug_state.enable) return;
-    std.debug.assert(debug_state.intern_pool == ip);
-    if (debug_state.enable_checks) debug_state.intern_pool = null;
+    defer debug_state.intern_pool = ip;
+    return .{ .prev_ip = debug_state.intern_pool };
 }
 
 /// For debugger access only.
 const debug_state = struct {
-    const enable = false;
-    const enable_checks = enable and !builtin.single_threaded;
+    const enable = switch (builtin.zig_backend) {
+        else => false,
+        .stage2_x86_64 => !builtin.strip_debug_info and build_options.io_mode == .threaded,
+    };
     threadlocal var intern_pool: ?*const InternPool = null;
 };
 

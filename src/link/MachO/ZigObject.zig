@@ -560,14 +560,14 @@ pub fn flush(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.E
 
     // Handle any lazy symbols that were emitted by incremental compilation.
     if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
-        const pt: Zcu.PerThread = .activate(macho_file.base.comp.zcu.?, tid);
-        defer pt.deactivate();
+        const active = macho_file.base.comp.zcu.?.activate(tid);
+        defer active.deactivate();
 
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
         if (metadata.text_state != .unused) self.updateLazySymbol(
             macho_file,
-            pt,
+            active.pt,
             .{ .kind = .code, .ty = .anyerror_type },
             metadata.text_symbol_index,
         ) catch |err| switch (err) {
@@ -576,7 +576,7 @@ pub fn flush(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.E
         };
         if (metadata.const_state != .unused) self.updateLazySymbol(
             macho_file,
-            pt,
+            active.pt,
             .{ .kind = .const_data, .ty = .anyerror_type },
             metadata.const_symbol_index,
         ) catch |err| switch (err) {
@@ -590,9 +590,9 @@ pub fn flush(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.E
     }
 
     if (self.dwarf) |*dwarf| {
-        const pt: Zcu.PerThread = .activate(macho_file.base.comp.zcu.?, tid);
-        defer pt.deactivate();
-        dwarf.flush(pt) catch |err| switch (err) {
+        const active = macho_file.base.comp.zcu.?.activate(tid);
+        defer active.deactivate();
+        dwarf.flush(active.pt) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             else => |e| return diags.fail("failed to flush dwarf module: {s}", .{@errorName(e)}),
         };

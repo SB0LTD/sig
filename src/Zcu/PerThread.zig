@@ -125,14 +125,6 @@ pub const Id = if (InternPool.single_threaded) enum {
     }
 };
 
-pub fn activate(zcu: *Zcu, tid: Id) Zcu.PerThread {
-    zcu.intern_pool.activate();
-    return .{ .zcu = zcu, .tid = tid };
-}
-pub fn deactivate(pt: Zcu.PerThread) void {
-    pt.zcu.intern_pool.deactivate();
-}
-
 /// Called from `Compilation.performAllTheWork`. Performs one incremental update of the ZCU: detects
 /// changes to files, runs AstGen, and then enters the main semantic analysis loop, where we build
 /// up a graph of declarations, functions, etc, while also sending declarations and functions to
@@ -378,10 +370,10 @@ fn workerUpdateFile(
     const child_prog_node = prog_node.start(std.fs.path.basename(file.path.sub_path), 0);
     defer child_prog_node.end();
 
-    const pt: Zcu.PerThread = .activate(comp.zcu.?, tid);
-    defer pt.deactivate();
-    pt.updateFile(file_index, file) catch |err| {
-        pt.reportRetryableFileError(file_index, "unable to load '{s}': {s}", .{ std.fs.path.basename(file.path.sub_path), @errorName(err) }) catch |oom| switch (oom) {
+    const active = comp.zcu.?.activate(tid);
+    defer active.deactivate();
+    active.pt.updateFile(file_index, file) catch |err| {
+        active.pt.reportRetryableFileError(file_index, "unable to load '{s}': {s}", .{ std.fs.path.basename(file.path.sub_path), @errorName(err) }) catch |oom| switch (oom) {
             error.OutOfMemory => {
                 comp.mutex.lockUncancelable(io);
                 defer comp.mutex.unlock(io);
@@ -411,7 +403,7 @@ fn workerUpdateFile(
 
             const import_path = file.zir.?.nullTerminatedString(item.data.name);
 
-            if (pt.discoverImport(file.path, import_path)) |res| switch (res) {
+            if (active.pt.discoverImport(file.path, import_path)) |res| switch (res) {
                 .module, .existing_file => {},
                 .new_file => |new| {
                     group.async(io, workerUpdateFile, .{
@@ -443,13 +435,15 @@ fn workerUpdateEmbedFile(comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: 
 fn detectEmbedFileUpdate(comp: *Compilation, tid: Zcu.PerThread.Id, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) !void {
     const io = comp.io;
     const zcu = comp.zcu.?;
-    const pt: Zcu.PerThread = .activate(zcu, tid);
-    defer pt.deactivate();
 
     const old_val = ef.val;
     const old_err = ef.err;
 
-    try pt.updateEmbedFile(ef, null);
+    {
+        const active = zcu.activate(tid);
+        defer active.deactivate();
+        try active.pt.updateEmbedFile(ef, null);
+    }
 
     if (ef.val != .none and ef.val == old_val) return; // success, value unchanged
     if (ef.val == .none and old_val == .none and ef.err == old_err) return; // failure, error unchanged
@@ -458,27 +452,6 @@ fn detectEmbedFileUpdate(comp: *Compilation, tid: Zcu.PerThread.Id, ef_index: Zc
     defer comp.mutex.unlock(io);
 
     try zcu.markDependeeOutdated(.not_marked_po, .{ .embed_file = ef_index });
-}
-
-fn deinitFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) void {
-    const zcu = pt.zcu;
-    const gpa = zcu.gpa;
-    const file = zcu.fileByIndex(file_index);
-    log.debug("deinit File {f}", .{file.path.fmt(zcu.comp)});
-    file.path.deinit(gpa);
-    file.unload(gpa);
-    if (file.prev_zir) |prev_zir| {
-        prev_zir.deinit(gpa);
-        gpa.destroy(prev_zir);
-    }
-    file.* = undefined;
-}
-
-pub fn destroyFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) void {
-    const gpa = pt.zcu.gpa;
-    const file = pt.zcu.fileByIndex(file_index);
-    pt.deinitFile(file_index);
-    gpa.destroy(file);
 }
 
 /// Ensures that `file` has up-to-date ZIR. If not, loads the ZIR cache or runs

@@ -101,8 +101,6 @@ pub fn enqueueZcu(
 ) Io.Cancelable!void {
     const io = comp.io;
 
-    assert(tid == .main);
-
     if (q.future != null) {
         if (q.zcu_queue.putOne(io, task)) |_| {
             return;

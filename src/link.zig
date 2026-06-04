@@ -1529,8 +1529,9 @@ pub fn doZcuTask(comp: *Compilation, tid: Zcu.PerThread.Id, task: ZcuTask) void 
     const diags = &comp.link_diags;
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
-    const pt: Zcu.PerThread = .activate(zcu, tid);
-    defer pt.deactivate();
+    const active = zcu.activate(tid);
+    defer active.deactivate();
+    const pt = active.pt;
 
     var timer = comp.startTimer();
 

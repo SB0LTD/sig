@@ -2308,9 +2308,9 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
 
         if (opt_zcu) |zcu| {
             // Populate `zcu.module_roots`.
-            const pt: Zcu.PerThread = .activate(zcu, .main);
-            defer pt.deactivate();
-            pt.populateModuleRootTable() catch |err| switch (err) {
+            const active = zcu.acquire();
+            defer active.release();
+            active.pt.populateModuleRootTable() catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 error.IllegalZigImport => return diag.fail(.illegal_zig_import),
             };
@@ -3044,9 +3044,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
     }
 
     if (comp.zcu) |zcu| {
-        const pt: Zcu.PerThread = .activate(zcu, .main);
-        defer pt.deactivate();
-
         assert(zcu.cur_analysis_timer == null);
 
         zcu.skip_analysis_this_update = false;
@@ -3099,8 +3096,9 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
     try comp.performAllTheWork(main_progress_node, arena);
 
     if (comp.zcu) |zcu| {
-        const pt: Zcu.PerThread = .activate(zcu, .main);
-        defer pt.deactivate();
+        const active = zcu.acquire();
+        defer active.release();
+        const pt = active.pt;
 
         assert(zcu.cur_analysis_timer == null);
 
@@ -3151,9 +3149,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
     }
 
     switch (comp.cache_use) {
-        .none, .incremental => {
-            try flush(comp, arena, .main);
-        },
+        .none, .incremental => try flush(comp, arena),
         .whole => |whole| {
             if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
             if (comp.parent_whole_cache) |pwc| {
@@ -3234,7 +3230,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                 };
             }
 
-            try flush(comp, arena, .main);
+            try flush(comp, arena);
 
             // Calling `flush` may have produced errors, in which case the
             // cache manifest must not be written.
@@ -3325,12 +3321,12 @@ pub fn resolveEmitPathFlush(
     }
 }
 
-fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id) (Io.Cancelable || Allocator.Error)!void {
+fn flush(comp: *Compilation, arena: Allocator) (Io.Cancelable || Allocator.Error)!void {
     const io = comp.io;
+    const tid: Zcu.PerThread.Id = .acquire(io);
+    defer tid.release(io);
     if (comp.zcu) |zcu| {
         if (zcu.llvm_object) |llvm_object| {
-            const pt: Zcu.PerThread = .activate(zcu, tid);
-            defer pt.deactivate();
 
             // Emit the ZCU object from LLVM now; it's required to flush the output file.
             // If there's an output file, it wants to decide where the LLVM object goes!
@@ -3348,7 +3344,9 @@ fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id) (Io.Cancel
                 break :p try comp.resolveEmitPathFlush(arena, .temp, llvm_object.out_bin_basename);
             } else null;
 
-            llvm_object.emit(pt, .{
+            const active = zcu.activate(tid);
+            defer active.deactivate();
+            llvm_object.emit(active.pt, .{
                 .pre_ir_path = comp.verbose_llvm_ir,
                 .pre_bc_path = comp.verbose_llvm_bc,
 
@@ -4502,13 +4500,11 @@ fn performAllTheWork(
 
     defer if (comp.zcu) |zcu| zcu.codegen_task_pool.cancel(zcu);
     if (comp.zcu) |zcu| {
-        const pt: Zcu.PerThread = .activate(zcu, .main);
-        defer {
-            pt.deactivate();
-            // Regardless of errors, `comp.zcu` needs to update its generation number.
-            zcu.generation += 1;
-        }
-        try pt.update(main_progress_node, &decl_work_timer);
+        // Regardless of errors, `comp.zcu` needs to update its generation number.
+        defer zcu.generation += 1;
+        const active = zcu.acquire();
+        defer active.release();
+        try active.pt.update(main_progress_node, &decl_work_timer);
     }
 
     comp.link_queue.finishZcuQueue(comp);
