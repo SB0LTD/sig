@@ -935,7 +935,7 @@ pub fn abiAlignment(ty: Type, zcu: *const Zcu) Alignment {
                     const bytes = ((elem_bits * vector_type.len) + 7) / 8;
                     return .fromByteUnits(std.math.ceilPowerOfTwoAssert(u32, bytes));
                 },
-                .stage2_c, .stage2_wasm => return Type.fromInterned(vector_type.child).abiAlignment(zcu),
+                .stage2_c, .stage2_wasm => return Type.fromInterned(vector_type.child).defaultStructFieldAlignment(.auto, zcu),
                 .stage2_x86_64 => {
                     if (vector_type.child == .bool_type) {
                         if (vector_type.len > 256 and target.cpu.has(.x86, .avx512f)) return .@"64";
@@ -2492,7 +2492,12 @@ pub fn defaultStructFieldAlignment(
     };
     const abi_align = field_ty.abiAlignment(zcu);
     assert(abi_align != .none);
-    if (overalign_big_int and field_ty.isAbiInt(zcu) and field_ty.intInfo(zcu).bits >= 128) {
+    // We check for anything over 64 here, because the C backend will lower e.g. u64 to a 128-bit
+    // integer, which has 16-byte alignment.
+    if (overalign_big_int and
+        ((field_ty.isAbiInt(zcu) and field_ty.intInfo(zcu).bits > 64) or
+            (field_ty.toIntern() == .f80_type and zcu.getTarget().cTypeBitSize(.longdouble) != 80)))
+    {
         return abi_align.maxStrict(.@"16");
     }
     return abi_align;
