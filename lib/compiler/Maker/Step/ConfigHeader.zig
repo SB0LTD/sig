@@ -177,16 +177,18 @@ fn renderAutoConfUndef(
     var line_index: u32 = 0;
     var line_it = std.mem.splitScalar(u8, contents, '\n');
     while (line_it.next()) |line| : (line_index += 1) {
+        const last_line = line_it.index == line_it.buffer.len;
+
         if (!std.mem.startsWith(u8, line, "#")) {
             try w.writeAll(line);
-            try w.writeByte('\n');
+            if (!last_line) try w.writeByte('\n');
             continue;
         }
         var it = std.mem.tokenizeAny(u8, line[1..], " \t\r");
         const undef = it.next().?;
         if (!std.mem.eql(u8, undef, "undef")) {
             try w.writeAll(line);
-            try w.writeByte('\n');
+            if (!last_line) try w.writeByte('\n');
             continue;
         }
         const name = it.next().?;

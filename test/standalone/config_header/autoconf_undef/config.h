@@ -30,5 +30,3 @@ int foo();
 // non-#undef # lines pass through unchanged
 #define KEPT_DEFINE value
 #include <kept.h>
-// TODO: unexpected newline is being added here
-
