@@ -912,7 +912,8 @@ pub const Symbol = struct {
         dll_storage_class: DllStorageClass,
         // Only defined for .alias_si and .alias_name
         weak_external_strat: WeakExternalStrat,
-        _: u8 = 0,
+        has_exports: bool,
+        _: u7 = 0,
     },
     /// Relocations contained within this symbol
     loc_relocs: Reloc.Index,
@@ -924,7 +925,11 @@ pub const Symbol = struct {
         /// Only valid when outputting objects
         sti: SymbolTable.Index,
         /// Only valid when .ni == .input_section and .value_tag == .node_offset
+        /// TODO: This is only used for name lookups, could just be String?
         isli: Node.InputSection.LocalIndex,
+        /// Only valid if flags.has_exports is set. The first in a contiguous
+        /// list of symbols that are exports of this symbol.
+        first_export_si: Symbol.Index,
     },
 
     pub const DllStorageClass = enum(u2) {
@@ -1063,6 +1068,15 @@ pub const Symbol = struct {
             sym.rva = coff.computeNodeRva(sym.ni) + sym.nodeOffset(coff);
             si.applyLocationRelocs(coff);
             si.applyTargetRelocs(coff, .none);
+
+            if (sym.flags.has_exports) {
+                for (coff.symbols.items[@intFromEnum(sym.extra.first_export_si)..]) |*export_sym| {
+                    if (export_sym.ni != sym.ni) break;
+                    export_sym.rva = sym.rva;
+                    const export_si: Symbol.Index = @enumFromInt(export_sym - coff.symbols.items.ptr);
+                    export_si.applyTargetRelocs(coff, .none);
+                }
+            }
         }
 
         pub fn flushSymbolTableIndex(si: Symbol.Index, coff: *Coff) void {
@@ -2547,6 +2561,7 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
             .type = .unknown,
             .dll_storage_class = .default,
             .weak_external_strat = undefined,
+            .has_exports = false,
         },
         .loc_relocs = .none,
         .target_relocs = .none,
@@ -7063,9 +7078,14 @@ fn updateExportsInner(
     const machine = coff.targetLoad(&coff.headerPtr().machine);
     const exported_ni = exported_si.node(coff);
     const exported_sym = exported_si.get(coff);
+    exported_sym.extra = .{ .first_export_si = @enumFromInt(coff.symbols.items.len) };
+    exported_sym.flags.has_exports = true;
+
     for (export_indices) |export_index| {
         const @"export" = export_index.ptr(zcu);
         const name = @"export".opts.name.toSlice(ip);
+        // TODO: Add an errMsg if this conflicts with an existing global from an input
+        //       first_export_si relies on this being a new symbol.
         const export_si = try coff.globalSymbol(.{
             .name = name,
             .lib_name = null,
