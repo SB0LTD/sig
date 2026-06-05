@@ -4475,18 +4475,10 @@ fn performAllTheWork(
 
     comp.link_queue.finishZcuQueue(comp);
 
-    // This has to happen after the main semantic analysis loop because it is possible for Sema to
+    // This has to happen again after the main semantic analysis loop because it is possible for Sema to
     // call `addLinkLib` and hence add more items to `comp.windows_libs`.
-    for (comp.windows_libs.keys()[comp.windows_libs_num_done..]) |link_lib| {
-        mingw.buildImportLib(comp, link_lib) catch |err| {
-            // TODO Surface more error details.
-            comp.lockAndSetMiscFailure(
-                .windows_import_lib,
-                "unable to generate DLL import .lib file for {s}: {t}",
-                .{ link_lib, err },
-            );
-        };
-    }
+    for (comp.windows_libs.keys()[comp.windows_libs_num_done..]) |lib_name|
+        comp.buildMingwImportLib(lib_name, false, main_progress_node);
     comp.windows_libs_num_done = @intCast(comp.windows_libs.count());
 
     // Main thread work is all done, now just wait for all async work.
@@ -4690,6 +4682,15 @@ fn dispatchPrelinkWork(comp: *Compilation, main_progress_node: std.Progress.Node
         prelink_group.async(io, workerUpdateWin32Resource, .{
             comp, win32_resource, main_progress_node,
         });
+    }
+
+    while (comp.windows_libs_num_done < comp.windows_libs.count()) {
+        prelink_group.async(
+            io,
+            buildMingwImportLib,
+            .{ comp, comp.windows_libs.keys()[comp.windows_libs_num_done], true, main_progress_node },
+        );
+        comp.windows_libs_num_done += 1;
     }
 
     prelink_group.await(io) catch |err| switch (err) {
@@ -5375,6 +5376,34 @@ fn buildMingwCrtFile(comp: *Compilation, crt_file: mingw.CrtFile, prog_node: std
             @tagName(crt_file), @errorName(err),
         }),
     }
+}
+
+fn buildMingwImportLib(comp: *Compilation, lib_name: []const u8, is_prelink: bool, prog_node: std.Progress.Node) void {
+    const crt_file_path = mingw.buildImportLib(comp, lib_name, prog_node) catch |err| switch (err) {
+        // TODO: This isn't actually true for self-hosted
+        // In the non-prelink case we will end up putting foo.lib onto the linker line and letting the linker
+        // use its library paths to look for libraries and report any problems.
+        error.DefNotFound => return if (is_prelink) {
+            comp.lockAndSetMiscFailure(
+                .windows_import_lib,
+                "definition not found for required mingw DLL import .lib {s}",
+                .{lib_name},
+            );
+        },
+        // TODO Surface more error details.
+        else => |e| return comp.lockAndSetMiscFailure(
+            .windows_import_lib,
+            "unable to generate mingw DLL import .lib file for {s}: {t}",
+            .{ lib_name, e },
+        ),
+    };
+
+    if (is_prelink)
+        comp.queuePrelinkTasks(&.{.{ .load_archive = crt_file_path }}) catch |err| comp.lockAndSetMiscFailure(
+            .windows_import_lib,
+            "unable to queue prelink task for mingw import lib {f}: {t}",
+            .{ crt_file_path, err },
+        );
 }
 
 fn buildWasiLibcCrtFile(comp: *Compilation, crt_file: wasi_libc.CrtFile, prog_node: std.Progress.Node) void {

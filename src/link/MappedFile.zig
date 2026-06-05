@@ -351,15 +351,17 @@ pub const Node = extern struct {
         }
 
         /// Moves and expands a node such that its offset and size are aligned to `new_alignment`.
-        ///
+        /// If it is possible to move the node backwards, this will be done instead of moving it forward.
+        /// If `set_alignment` is set, persists `new_alignment` as the node's alignment for future operations.
         /// Asserts that `ni` is not `Node.Index.root`.
         pub fn realign(
             ni: Node.Index,
             mf: *MappedFile,
             gpa: std.mem.Allocator,
             new_alignment: std.mem.Alignment,
+            set_alignment: bool,
         ) Error!void {
-            mf.realignNode(gpa, ni, new_alignment) catch |err| switch (err) {
+            mf.realignNode(gpa, ni, new_alignment, true, set_alignment) catch |err| switch (err) {
                 error.OutOfMemory,
                 error.Canceled,
                 => |e| return e,
@@ -554,6 +556,24 @@ fn addNode(mf: *MappedFile, gpa: std.mem.Allocator, opts: struct {
 }) Error!Node.Index {
     if (opts.add_node.moved or opts.add_node.resized) try mf.updates.ensureUnusedCapacity(gpa, 1);
     const offset = opts.add_node.alignment.forward(@intCast(opts.offset));
+    if (opts.parent != .none) {
+        const new_end = offset + opts.add_node.size;
+        switch (opts.next) {
+            .none => {
+                _, const parent_size = opts.parent.location(mf).resolve(mf);
+                if (new_end > parent_size)
+                    try opts.parent.resize(mf, gpa, new_end);
+            },
+            else => |next_ni| {
+                const next_offset, _ = next_ni.location(mf).resolve(mf);
+                if (new_end > next_offset)
+                    mf.realignNode(gpa, next_ni, opts.add_node.alignment, false, false) catch |err| switch (err) {
+                        error.Unimplemented => unreachable,
+                        else => |e| return e,
+                    };
+            },
+        }
+    }
     const location_tag: Node.Location.Tag, const location_payload: Node.Location.Payload = location: {
         if (std.math.cast(u32, offset)) |small_offset| break :location .{ .small, .{
             .small = .{ .offset = small_offset, .size = 0 },
@@ -595,16 +615,12 @@ fn addNode(mf: *MappedFile, gpa: std.mem.Allocator, opts: struct {
         },
         .location_payload = location_payload,
     };
+
     {
-        defer {
-            free_node.flags.moved = false;
-            free_node.flags.resized = false;
-        }
-        _, const parent_size = opts.parent.location(mf).resolve(mf);
-        const required_parent_size = offset + opts.add_node.size;
-        if (required_parent_size > parent_size)
-            try opts.parent.resize(mf, gpa, required_parent_size);
         try free_ni.resize(mf, gpa, opts.add_node.size);
+        if (opts.add_node.moved or opts.add_node.resized) try mf.updates.ensureUnusedCapacity(gpa, 1);
+        free_node.flags.moved = false;
+        free_node.flags.resized = false;
     }
     if (opts.add_node.moved) free_ni.movedAssumeCapacity(mf);
     if (opts.add_node.resized) free_ni.resizedAssumeCapacity(mf);
@@ -703,6 +719,7 @@ fn shrinkNode(
 
     // This would require unmapping first
     if (ni == Node.Index.root) return error.Unimplemented;
+    defer if (std.debug.runtime_safety) mf.verify();
 
     if (node.last != .none) {
         const last = node.last.get(mf);
@@ -725,9 +742,10 @@ fn shrinkNode(
         const old_file_offset = node.next.fileLocation(mf, false).offset;
         const new_file_offset = (old_file_offset - old_next_offset) + new_next_offset;
         @memmove(
-            mf.memory_map.memory[new_file_offset..][0..next_size],
-            mf.memory_map.memory[old_file_offset..][0..next_size],
+            mf.memory_map.memory[@intCast(new_file_offset)..][0..@intCast(next_size)],
+            mf.memory_map.memory[@intCast(old_file_offset)..][0..@intCast(next_size)],
         );
+        @memset(mf.memory_map.memory[@intCast(new_file_offset + next_size)..@intCast(old_file_offset + next_size)], 0);
     }
 
     node.next.setLocationAssumeCapacity(mf, new_next_offset, next_size);
@@ -999,6 +1017,8 @@ fn realignNode(
     gpa: std.mem.Allocator,
     ni: Node.Index,
     new_alignment: std.mem.Alignment,
+    try_backward: bool,
+    set_alignment: bool,
 ) (Allocator.Error || Io.Cancelable || IoError)!void {
     assert(ni != Node.Index.root); // currently unsupported
 
@@ -1009,7 +1029,12 @@ fn realignNode(
 
     defer if (std.debug.runtime_safety) mf.verify();
 
+    const prev_alignment = node.flags.alignment;
     node.flags.alignment = new_alignment;
+    defer {
+        // alignment needs to be temporarily set for the resizes below
+        if (!set_alignment) node.flags.alignment = prev_alignment;
+    }
 
     const new_size = node.flags.alignment.forward(@intCast(size));
     if (new_alignment.check(@intCast(old_offset))) {
@@ -1025,6 +1050,37 @@ fn realignNode(
             break :trailing_end next_offset;
         },
     };
+
+    if (try_backward) {
+        const backward_offset = new_alignment.backward(old_offset);
+        const prev_end = if (node.prev == .none) 0 else prev: {
+            const prev_offset, const prev_size = node.prev.location(mf).resolve(mf);
+            break :prev prev_offset + prev_size;
+        };
+
+        if (backward_offset >= prev_end) {
+            try mf.ensureCapacityForSetLocation(gpa);
+
+            if (node.flags.has_content) {
+                const old_file_offset = ni.fileLocation(mf, false).offset;
+                const new_file_offset = (old_file_offset - old_offset) + backward_offset;
+                @memmove(
+                    mf.memory_map.memory[@intCast(new_file_offset)..][0..@intCast(size)],
+                    mf.memory_map.memory[@intCast(old_file_offset)..][0..@intCast(size)],
+                );
+                @memset(mf.memory_map.memory[@intCast(new_file_offset + size)..@intCast(old_file_offset + size)], 0);
+            }
+
+            if (backward_offset + new_size <= trailing_end) {
+                ni.setLocationAssumeCapacity(mf, backward_offset, new_size);
+            } else {
+                ni.setLocationAssumeCapacity(mf, backward_offset, size);
+                try mf.resizeNode(gpa, ni, new_size);
+            }
+
+            return;
+        }
+    }
 
     const forward_offset = new_alignment.forward(@intCast(old_offset));
     if (forward_offset + new_size <= trailing_end) {

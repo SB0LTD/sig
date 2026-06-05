@@ -482,7 +482,7 @@ pub const File = struct {
         rpath_list: []const []const u8,
 
         /// Zig compiler development linker flags.
-        /// Enable dumping of linker's state as JSON.
+        /// Enable dumping of linker's state.
         enable_link_snapshots: bool,
 
         /// Darwin-specific linker flags:
@@ -1527,20 +1527,11 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
                 }
             }
 
-            if (target.os.tag == .windows) {
+            if (target.os.tag == .windows and target.abi == .msvc) {
                 const inputs: []const struct {
                     dir: enum { crt, msvc_lib, kernel32_lib },
                     name: []const u8,
-                } = if (target.abi.isGnu()) switch (comp.config.link_mode) {
-                    .dynamic => &.{
-                        .{ .dir = .crt, .name = "dllcrt2.obj" },
-                        .{ .dir = .crt, .name = "libmingw32.lib" },
-                    },
-                    .static => &.{
-                        .{ .dir = .crt, .name = "crt2.obj" },
-                        .{ .dir = .crt, .name = "libmingw32.lib" },
-                    },
-                } else switch (comp.config.link_mode) {
+                } = switch (comp.config.link_mode) {
                     .dynamic => &.{
                         .{ .dir = .msvc_lib, .name = "msvcrt.lib" },
                         .{ .dir = .msvc_lib, .name = "vcruntime.lib" },

@@ -2017,6 +2017,16 @@ fn initHeaders(
             .{ .read = true, .write = !is_image },
         );
     }
+
+    // Linker-supplied symbols
+    {
+        const target = &comp.root_mod.resolved_target.result;
+        if (is_image and target.isMinGW()) {
+            const si = try coff.globalSymbol(.{ .name = "__ImageBase", .type = .data });
+            const sym = si.get(coff);
+            sym.ni = Node.known.header;
+        }
+    }
 }
 
 pub fn startProgress(coff: *Coff, prog_node: std.Progress.Node) void {
@@ -2044,7 +2054,7 @@ pub fn endProgress(coff: *Coff) void {
     coff.mf.update_prog_node = .none;
     coff.input_prog_node.end();
     coff.input_prog_node = .none;
-    if (!isImage(coff)) {
+    if (!coff.isImage()) {
         coff.member_prog_node.end();
         coff.member_prog_node = .none;
         coff.symbol_prog_node.end();
@@ -3103,7 +3113,7 @@ fn objectSectionMapIndex(
 
     const object_section_gop = try coff.object_section_table.getOrPut(gpa, name);
     const osmi: Node.ObjectSectionMapIndex = @enumFromInt(object_section_gop.index);
-    const sn = if (!object_section_gop.found_existing) sn: {
+    const sym = if (!object_section_gop.found_existing) sn: {
         try coff.ensureUnusedStringCapacity(name_slice.len);
         const parent_name = coff.getOrPutStringAssumeCapacity(coff.objectSectionParentName(name_slice));
         const parent = (try coff.pseudoSectionMapIndex(parent_name, alignment, effective_attributes)).symbol(coff);
@@ -3140,14 +3150,24 @@ fn objectSectionMapIndex(
         assert(sym.loc_relocs == .none);
         sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
         coff.nodes.appendAssumeCapacity(.{ .object_section = osmi });
-        break :sn sym.section_number;
-    } else object_section_gop.value_ptr.get(coff).section_number;
+        break :sn sym;
+    } else object_section_gop.value_ptr.get(coff);
+
+    const parent_ni = sym.ni.parent(&coff.mf);
+    const parent_alignment = parent_ni.alignment(&coff.mf);
+    if (alignment.compare(.gt, parent_alignment)) {
+        log.debug("realignParent({s}, {d}) {d}->{d}", .{ name.toSlice(coff), parent_ni, parent_alignment, alignment });
+        parent_ni.realign(&coff.mf, gpa, alignment, true) catch |err| switch (err) {
+            error.Unimplemented => unreachable,
+            else => |e| return e,
+        };
+    }
 
     try coff.verifyParentSectionAttributes(
         .object,
-        sn.name(coff),
+        sym.section_number.name(coff),
         name,
-        .fromFlags(sn.header(coff).flags),
+        .fromFlags(sym.section_number.header(coff).flags),
         effective_attributes,
     );
 
@@ -4135,7 +4155,7 @@ fn loadObject(
                 },
                 .weak_external => unreachable,
             });
-            sym.section_number = symbol.section_number;
+            sym.section_number = section.si.get(coff).section_number;
         }
 
         log.debug("addInputSymbol({s}, 0x{x}, {t}=0x{x}) = {d}@{d}", .{
@@ -4988,7 +5008,7 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
                         const other_ioi = isi.input(coff);
                         if (loc_sym.gmi == .none) {
                             // TODO: We could report the name here if we interned it in loadObject
-                            err.addNote("referenced internally by input '{f}{f}'", .{
+                            err.addNote("referenced by input '{f}{f}'", .{
                                 other_ioi.path(coff).fmtEscapeString(),
                                 fmtMemberNameString(other_ioi.memberName(coff)),
                             });
@@ -5430,6 +5450,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         return true;
     }
 
+    // TODO: Only do this if actually referenced? Might have to do on-demand?
     {
         // Resolve unresolved .WEAK_EXTERNAL symbols to their aliases
         const alias_si = sym.weakAlias();

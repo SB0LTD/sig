@@ -20,8 +20,6 @@ pub fn build(b: *std.Build) void {
         if (!use_llvm and target.result.cpu.arch == .loongarch64) continue; // TODO
         if (!use_llvm and target.result.cpu.arch == .powerpc64le) continue; // TODO
         if (!use_llvm and target.result.cpu.arch == .s390x) continue; // TODO
-        if (!use_llvm and target.result.os.tag == .windows and target.result.abi == .gnu and dyn_libc)
-            continue; // TODO: sub-compilation of compiler_rt failed (failed to link with LLD: LibCInstallationNotAvailable)
 
         const lib = b.addLibrary(.{
             .linkage = .dynamic,
