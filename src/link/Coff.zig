@@ -19,6 +19,7 @@ const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");
 const ModuleDefinition = @import("../libs/mingw/def.zig").ModuleDefinition;
 const implib = @import("../libs/mingw/implib.zig");
+const Path = std.Build.Cache.Path;
 
 base: link.File,
 mf: MappedFile,
@@ -35,16 +36,19 @@ inputs: std.ArrayHashMapUnmanaged(std.Build.Cache.Path, void, std.Build.Cache.Pa
 input_archives: std.ArrayList(InputArchive),
 input_archive_members: std.ArrayList(InputArchive.Member),
 input_archive_symbols: std.ArrayList(InputArchive.Member.Symbol),
-input_archive_symbol_indices: std.AutoArrayHashMapUnmanaged(String, struct {
-    first: InputArchive.Member.Symbol.Index,
-    last: InputArchive.Member.Symbol.Index,
-}),
+input_archive_symbol_indices: std.AutoArrayHashMapUnmanaged(String, InputArchive.SearchList),
 pending_input: ?InputArchive.Member.Index,
+pending_default_libs: std.ArrayList(struct {
+    path: []const u8,
+    ioi: InputObject.Index,
+}),
+alternate_names: std.AutoArrayHashMapUnmanaged(String, String),
 input_objects: std.ArrayList(InputObject),
 input_symbols: std.ArrayList(Symbol.Index),
 input_sections: std.ArrayList(Node.InputSection),
 input_section_pending_index: u32,
 inputs_complete: bool,
+exports_complete: bool,
 strings: std.HashMapUnmanaged(
     u32,
     void,
@@ -58,6 +62,8 @@ object_section_table: std.array_hash_map.Auto(String, Symbol.Index),
 symbols: std.ArrayList(Symbol),
 globals: std.array_hash_map.Auto(GlobalName, Symbol.Index),
 global_pending_index: u32,
+late_globals: std.ArrayList(Node.GlobalMapIndex),
+late_globals_pending_index: u32,
 navs: std.array_hash_map.Auto(InternPool.Nav.Index, Symbol.Index),
 uavs: std.array_hash_map.Auto(InternPool.Index, Symbol.Index),
 lazy: std.EnumArray(link.File.LazySymbol.Kind, struct {
@@ -73,6 +79,7 @@ synth_prog_node: std.Progress.Node,
 symbol_prog_node: std.Progress.Node,
 member_prog_node: std.Progress.Node,
 input_prog_node: std.Progress.Node,
+subsystem: ?std.zig.Subsystem,
 dump_snapshot: bool,
 
 pub const default_file_alignment: u16 = 0x200;
@@ -434,6 +441,11 @@ pub const InputArchive = struct {
                 _,
             };
         };
+    };
+
+    pub const SearchList = struct {
+        first: InputArchive.Member.Symbol.Index,
+        last: InputArchive.Member.Symbol.Index,
     };
 };
 
@@ -825,6 +837,23 @@ pub const Section = struct {
 
 pub const GlobalName = struct { name: String, lib_name: String.Optional };
 
+pub const WeakExternalStrat = enum(u2) {
+    no_library,
+    library,
+    alias,
+    anti_dependency,
+
+    pub fn fromFlag(flag: std.coff.WeakExternalFlag) WeakExternalStrat {
+        return switch (flag) {
+            .SEARCH_NOLIBRARY => .no_library,
+            .SEARCH_LIBRARY => .library,
+            .SEARCH_ALIAS => .alias,
+            .ANTI_DEPENDENCY => .anti_dependency,
+            _ => unreachable,
+        };
+    }
+};
+
 pub const Symbol = struct {
     ni: MappedFile.Node.Index,
     rva: u32,
@@ -833,7 +862,9 @@ pub const Symbol = struct {
         value_tag: ValueTag,
         type: Symbol.Type,
         dll_storage_class: DllStorageClass,
-        _: u10 = 0,
+        // Only defined for .alias_si and .alias_name
+        weak_external_strat: WeakExternalStrat,
+        _: u8 = 0,
     },
     /// Relocations contained within this symbol
     loc_relocs: Reloc.Index,
@@ -859,15 +890,22 @@ pub const Symbol = struct {
     const ValueTag = enum(u2) {
         node_offset,
         alias_si,
+        alias_name,
         size,
     };
 
     pub const Value = union(ValueTag) {
-        /// The offset of the symbol within it's node
+        /// The offset of the symbol within its node. Used with symbols that
+        /// don't create their own nodes: .input_section, .import_address_table
         node_offset: u32,
-        /// For undefined globals, this is a weak alias
-        /// that can replace this symbol, or .null if none exists
+        /// This is a weak alias that can replace this symbol
+        /// Globals only.
         alias_si: Symbol.Index,
+        /// For weak externals that have an alias that is also an undef
+        /// external, this is the name of the alias global that should
+        /// be generated if this symbol is not resolved.
+        /// Globals only.
+        alias_name: String,
         /// The symbol size, or 0 if unknown
         size: u32,
     };
@@ -895,10 +933,6 @@ pub const Symbol = struct {
             },
             else => 0,
         };
-    }
-
-    pub fn weakAlias(sym: *const Symbol) Symbol.Index {
-        return if (sym.flags.value_tag == .alias_si) sym.value.alias_si else .null;
     }
 
     pub fn size(sym: *const Symbol) u32 {
@@ -1465,11 +1499,14 @@ fn create(
         .input_archive_symbols = .empty,
         .input_archive_symbol_indices = .empty,
         .pending_input = null,
+        .pending_default_libs = .empty,
+        .alternate_names = .empty,
         .input_objects = .empty,
         .input_symbols = .empty,
         .input_sections = .empty,
         .input_section_pending_index = 0,
         .inputs_complete = false,
+        .exports_complete = false,
         .strings = .empty,
         .string_bytes = .empty,
         .section_table = .empty,
@@ -1478,6 +1515,8 @@ fn create(
         .symbols = .empty,
         .globals = .empty,
         .global_pending_index = 0,
+        .late_globals = .empty,
+        .late_globals_pending_index = 0,
         .navs = .empty,
         .uavs = .empty,
         .lazy = .initFill(.{
@@ -1491,6 +1530,7 @@ fn create(
         .symbol_prog_node = .none,
         .member_prog_node = .none,
         .input_prog_node = .none,
+        .subsystem = options.subsystem,
         .dump_snapshot = options.enable_link_snapshots,
     };
     errdefer coff.deinit();
@@ -1533,6 +1573,9 @@ pub fn deinit(coff: *Coff) void {
     coff.input_archive_members.deinit(gpa);
     coff.input_archive_symbols.deinit(gpa);
     coff.input_archive_symbol_indices.deinit(gpa);
+    for (coff.pending_default_libs.items) |l| gpa.free(l.path);
+    coff.pending_default_libs.deinit(gpa);
+    coff.alternate_names.deinit(gpa);
     coff.input_objects.deinit(gpa);
     coff.input_symbols.deinit(gpa);
     coff.input_sections.deinit(gpa);
@@ -1543,6 +1586,7 @@ pub fn deinit(coff: *Coff) void {
     coff.object_section_table.deinit(gpa);
     coff.symbols.deinit(gpa);
     coff.globals.deinit(gpa);
+    coff.late_globals.deinit(gpa);
     coff.navs.deinit(gpa);
     coff.uavs.deinit(gpa);
     for (&coff.lazy.values) |*lazy| lazy.map.deinit(gpa);
@@ -1579,8 +1623,12 @@ fn isObj(coff: *const Coff) bool {
     return coff.base.comp.config.output_mode == .Obj;
 }
 
-fn zcuSectionParent(coff: *Coff) MappedFile.Node.Index {
-    assert(coff.base.comp.zcu != null);
+fn hasCoffHeader(coff: *const Coff) bool {
+    return coff.base.comp.zcu != null or !coff.isArchive();
+}
+
+fn sectionParent(coff: *Coff) MappedFile.Node.Index {
+    assert(coff.hasCoffHeader());
     return if (coff.isArchive()) Node.known.zcu_member else Node.known.file;
 }
 
@@ -1611,7 +1659,7 @@ fn initHeaders(
         0;
 
     var expected_nodes_len: usize = Node.known_count;
-    if (comp.zcu != null) {
+    if (coff.hasCoffHeader()) {
         // Sections
         expected_nodes_len += 3;
 
@@ -1663,7 +1711,7 @@ fn initHeaders(
         @memcpy(signature_slice, archive_signature);
     }
 
-    const opt_zcu_coff_parent_ni = if (is_archive) parent: {
+    const opt_coff_parent_ni = if (is_archive) parent: {
         const initial_member_count = Member.Index.known_count + @intFromBool(comp.zcu != null);
         try coff.members.ensureTotalCapacity(gpa, initial_member_count);
 
@@ -1709,10 +1757,10 @@ fn initHeaders(
             if (placeholder_ni == Node.known.zcu_member) break;
         }
 
-        break :parent if (comp.zcu != null) Node.known.header else null;
+        break :parent Node.known.header;
     };
 
-    const zcu_coff_parent_ni = opt_zcu_coff_parent_ni orelse {
+    const coff_parent_ni = opt_coff_parent_ni orelse {
         // If we're not generating any code, no more known nodes are used
         while (coff.nodes.len < Node.known_count) {
             _ = try coff.mf.addNodeAfter(gpa, Node.known.header, .{});
@@ -1723,7 +1771,7 @@ fn initHeaders(
     };
 
     const coff_header_ni = Node.known.coff_header;
-    assert(coff_header_ni == try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
+    assert(coff_header_ni == try coff.mf.addLastChildNode(gpa, coff_parent_ni, .{
         .size = @sizeOf(std.coff.Header),
         .alignment = .@"4",
         .fixed = true,
@@ -1751,7 +1799,7 @@ fn initHeaders(
     }
 
     const optional_header_ni = Node.known.optional_header;
-    assert(optional_header_ni == try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
+    assert(optional_header_ni == try coff.mf.addLastChildNode(gpa, coff_parent_ni, .{
         .size = optional_header_size,
         .alignment = .@"4",
         .fixed = true,
@@ -1863,7 +1911,7 @@ fn initHeaders(
     }
 
     const data_directories_ni = Node.known.data_directories;
-    assert(data_directories_ni == try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
+    assert(data_directories_ni == try coff.mf.addLastChildNode(gpa, coff_parent_ni, .{
         .size = data_directories_size,
         .alignment = .@"4",
         .fixed = true,
@@ -1879,7 +1927,7 @@ fn initHeaders(
     }
 
     const section_table_ni = Node.known.section_table;
-    assert(section_table_ni == try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
+    assert(section_table_ni == try coff.mf.addLastChildNode(gpa, coff_parent_ni, .{
         .alignment = .@"4",
         .fixed = true,
     }));
@@ -1889,14 +1937,14 @@ fn initHeaders(
 
     if (!is_image) {
         // TODO: These two nodes could be inside one movable node?
-        coff.symbol_table.ni = try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
+        coff.symbol_table.ni = try coff.mf.addLastChildNode(gpa, coff_parent_ni, .{
             .alignment = .@"2",
             .fixed = true,
             .moved = true,
         });
         coff.nodes.appendAssumeCapacity(.symbol_table);
 
-        coff.symbol_table.strings_ni = try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
+        coff.symbol_table.strings_ni = try coff.mf.addLastChildNode(gpa, coff_parent_ni, .{
             .size = @sizeOf(u32),
             .fixed = true,
             .resized = true,
@@ -2030,16 +2078,19 @@ pub fn initBuiltins(coff: *Coff) !void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     const target = &comp.root_mod.resolved_target.result;
-    if (coff.isImage() and target.isMinGW() and comp.config.link_libc) {
-        try coff.symbols.ensureUnusedCapacity(gpa, 5);
-        try coff.globals.ensureUnusedCapacity(gpa, 2);
-        try coff.nodes.ensureUnusedCapacity(gpa, 3);
+    if (coff.isImage()) {
+        try coff.symbols.ensureUnusedCapacity(gpa, 1);
+        try coff.globals.ensureUnusedCapacity(gpa, 1);
 
-        {
-            const si = try coff.globalSymbol(.{ .name = "__ImageBase", .type = .data });
-            const sym = si.get(coff);
-            sym.ni = Node.known.header;
-        }
+        const si = try coff.globalSymbol(.{ .name = "__ImageBase", .type = .data });
+        const sym = si.get(coff);
+        sym.ni = Node.known.header;
+    }
+
+    if (coff.isImage() and target.isMinGW() and comp.config.link_libc) {
+        try coff.symbols.ensureUnusedCapacity(gpa, 6);
+        try coff.globals.ensureUnusedCapacity(gpa, 2);
+        try coff.nodes.ensureUnusedCapacity(gpa, 6);
 
         const lists: []const struct { global: []const u8, start: String, end: String } = &.{
             .{ .global = "__CTOR_LIST__", .start = .@".ctors", .end = .@".ctors$ZZZ" },
@@ -2083,7 +2134,10 @@ pub fn startProgress(coff: *Coff, prog_node: std.Progress.Node) void {
     prog_node.increaseEstimatedTotalItems(3);
     coff.const_prog_node = prog_node.start("Constants", coff.pending_uavs.count());
     coff.synth_prog_node = prog_node.start("Synthetics", count: {
-        var count = coff.globals.count() - coff.global_pending_index;
+        var count =
+            coff.globals.count() - coff.global_pending_index +
+            coff.late_globals.items.len - coff.late_globals_pending_index;
+
         for (&coff.lazy.values) |*lazy| count += lazy.map.count() - lazy.pending_index;
         break :count count;
     });
@@ -2246,7 +2300,7 @@ fn targetStore(coff: *const Coff, ptr: anytype, val: @typeInfo(@TypeOf(ptr)).poi
 }
 
 pub fn headerPtr(coff: *Coff) *std.coff.Header {
-    assert(coff.base.comp.zcu != null);
+    assert(coff.hasCoffHeader());
     return @ptrCast(@alignCast(Node.known.coff_header.slice(&coff.mf)));
 }
 
@@ -2405,6 +2459,7 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
             .value_tag = .size,
             .type = .unknown,
             .dll_storage_class = .default,
+            .weak_external_strat = undefined,
         },
         .loc_relocs = .none,
         .target_relocs = .none,
@@ -2509,7 +2564,6 @@ fn getOrPutGlobalSymbol(
     if (!sym_gop.found_existing) {
         const si = coff.addSymbolAssumeCapacity();
         const sym = si.get(coff);
-        sym.setValue(.{ .alias_si = .null });
         sym.gmi = .wrap(@intCast(sym_gop.index));
         sym.flags.type = opts.type;
         sym.flags.dll_storage_class = opts.dll_storage_class;
@@ -2982,7 +3036,7 @@ fn flushInputSection(coff: *Coff, isi: Node.InputSection.Index) !void {
 }
 
 fn addSection(coff: *Coff, name: String, flags: std.coff.SectionHeader.Flags) !Symbol.Index {
-    assert(coff.base.comp.zcu != null);
+    assert(coff.hasCoffHeader());
 
     const gpa = coff.base.comp.gpa;
     try coff.nodes.ensureUnusedCapacity(gpa, 1);
@@ -3000,7 +3054,7 @@ fn addSection(coff: *Coff, name: String, flags: std.coff.SectionHeader.Flags) !S
         @sizeOf(std.coff.SectionHeader) * section_table_len,
     );
 
-    const ni = try coff.mf.addLastChildNode(gpa, coff.zcuSectionParent(), .{
+    const ni = try coff.mf.addLastChildNode(gpa, coff.sectionParent(), .{
         .alignment = coff.mf.flags.block_size,
         .moved = true,
         .bubbles_moved = false,
@@ -3185,7 +3239,7 @@ fn objectSectionMapIndex(
 
     const object_section_gop = try coff.object_section_table.getOrPut(gpa, name);
     const osmi: Node.ObjectSectionMapIndex = @enumFromInt(object_section_gop.index);
-    const sym = if (!object_section_gop.found_existing) sn: {
+    const sym = if (!object_section_gop.found_existing) sym: {
         try coff.ensureUnusedStringCapacity(name_slice.len);
         const parent_name = coff.getOrPutStringAssumeCapacity(coff.objectSectionParentName(name_slice));
         const parent = (try coff.pseudoSectionMapIndex(parent_name, alignment, effective_attributes)).symbol(coff);
@@ -3222,7 +3276,7 @@ fn objectSectionMapIndex(
         assert(sym.loc_relocs == .none);
         sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
         coff.nodes.appendAssumeCapacity(.{ .object_section = osmi });
-        break :sn sym;
+        break :sym sym;
     } else object_section_gop.value_ptr.get(coff);
 
     const parent_ni = sym.ni.parent(&coff.mf);
@@ -3334,7 +3388,7 @@ pub fn addReloc(
             const new_size = new_num_relocations * std.coff.Relocation.sizeOf();
             if (section.relocation_table_ni == .none) {
                 try coff.nodes.ensureUnusedCapacity(gpa, 1);
-                section.relocation_table_ni = try coff.mf.addLastChildNode(gpa, coff.zcuSectionParent(), .{
+                section.relocation_table_ni = try coff.mf.addLastChildNode(gpa, coff.sectionParent(), .{
                     .size = new_size,
                     .alignment = .@"2",
                     .moved = true,
@@ -3637,13 +3691,6 @@ fn loadObject(
                     section_i,
                     section_name_slice,
                 });
-
-            if (section.header.flags.LNK_REMOVE or
-                section.header.flags.MEM_DISCARDABLE)
-            {
-                // TODO: Convert .debug$* sections into PDB
-                continue;
-            }
         }
 
         break :sections sections;
@@ -3684,14 +3731,16 @@ fn loadObject(
             section: u32,
             // Offset within the section
             static: u32,
-            // If section is defined, the symbol size. Otherwise offset within the section.
+            // If section is undefined, the symbol size. Otherwise offset within the section.
             external: u32,
-            // The index of the target symbol of this alias
+            // The index of the target symbol of this weak external
             weak_external: u32,
+            // Trails .weak_external
+            weak_external_aux: WeakExternalStrat,
         },
         section_number: Symbol.SectionNumber,
         si: Symbol.Index,
-        // The index of the weak_external that targest this symbol
+        // If a weak external targets this symbol, the index of the weak external
         weak_external_psi: PendingSymbolIndex,
     };
 
@@ -3741,11 +3790,12 @@ fn loadObject(
 
         const psi: PendingSymbolIndex = .wrap(@intCast(pending_symbols.count()));
         const section_number: Symbol.SectionNumber = @enumFromInt(@intFromEnum(symbol.section_number));
-        const opt_value: ?@FieldType(PendingSymbol, "value") = pending_symbol: switch (symbol.storage_class) {
+
+        const values: []const @FieldType(PendingSymbol, "value") = pending_symbols: switch (symbol.storage_class) {
             .STATIC, .LABEL => |storage_class| switch (section_number) {
                 // TODO: Do we need to do anything with @feat.00?
                 //       https://llvm.org/doxygen/namespacellvm_1_1COFF.html#aeffa16735e18df727a173beaf748c392
-                .UNDEFINED, .DEBUG, .ABSOLUTE => null,
+                .UNDEFINED, .DEBUG, .ABSOLUTE => &.{},
                 else => |sn| {
                     const section = &sections[sn.toIndex()];
 
@@ -3803,10 +3853,10 @@ fn loadObject(
                         section.psi = psi;
                     }
 
-                    break :pending_symbol if (is_section)
+                    break :pending_symbols &.{if (is_section)
                         .{ .section = section.header.size_of_raw_data }
                     else
-                        .{ .static = symbol.value };
+                        .{ .static = symbol.value }};
                 },
             },
             .WEAK_EXTERNAL => switch (symbol.section_number) {
@@ -3830,16 +3880,12 @@ fn loadObject(
                             .{ weak_external.tag_index, symbol_i },
                         );
 
-                    break :pending_symbol switch (weak_external.flag) {
-                        .SEARCH_NOLIBRARY,
-                        .SEARCH_LIBRARY,
-                        => return diags.failParse(
-                            path,
-                            "TODO handle weak external characteristic 0x{x} for symbol 0x{x}",
-                            .{ weak_external.flag, symbol_i },
-                        ),
-                        .SEARCH_ALIAS => .{ .weak_external = weak_external.tag_index },
-                        else => return diags.failParse(
+                    break :pending_symbols switch (weak_external.flag) {
+                        else => |flag| &.{
+                            .{ .weak_external = weak_external.tag_index },
+                            .{ .weak_external_aux = WeakExternalStrat.fromFlag(flag) },
+                        },
+                        _ => return diags.failParse(
                             path,
                             "encountered unknown weak external characteristic 0x{x} for symbol 0x{x}",
                             .{ weak_external.flag, symbol_i },
@@ -3853,7 +3899,7 @@ fn loadObject(
                 ),
             },
             .EXTERNAL => switch (section_number) {
-                .UNDEFINED => .{ .external = symbol.value },
+                .UNDEFINED => &.{.{ .external = symbol.value }},
                 .ABSOLUTE => return diags.failParse(
                     path,
                     "TODO unhandled external absolute symbol 0x{x}: '{s}'",
@@ -3864,7 +3910,7 @@ fn loadObject(
                     "unexpected external symbol 0x{x} in DEBUG section: '{s}'",
                     .{ symbol_i, name },
                 ),
-                else => .{ .external = symbol.value },
+                else => &.{.{ .external = symbol.value }},
             },
             .FILE => {
                 if (!std.mem.eql(u8, name, ".file"))
@@ -3878,7 +3924,7 @@ fn loadObject(
                 @memcpy(std.mem.asBytes(&file)[0..symbol_size], aux_symbols[0..symbol_size]);
 
                 input.source_name = (try coff.getOrPutString(file.getFileName())).toOptional();
-                break :pending_symbol null;
+                break :pending_symbols &.{};
             },
             else => |storage_class| return diags.failParse(
                 path,
@@ -3887,10 +3933,13 @@ fn loadObject(
             ),
         };
 
-        if (opt_value) |value| {
+        for (values, 0..) |value, i| {
             switch (value) {
                 .section => {},
-                .static, .external, .weak_external => {
+                .static,
+                .external,
+                .weak_external,
+                => {
                     num_global_symbols += 1;
                     if (section_number.hasIndex()) {
                         const section = &sections[section_number.toIndex()];
@@ -3899,10 +3948,11 @@ fn loadObject(
                             section.comdat_psi = psi;
                     }
                 },
+                .weak_external_aux => {},
             }
 
             const symbol_name = coff.getOrPutStringAssumeCapacity(name);
-            pending_symbols.putAssumeCapacity(symbol_i, .{
+            pending_symbols.putAssumeCapacity(symbol_i + @as(u32, @intCast(i)), .{
                 .name = symbol_name,
                 .value = value,
                 .section_number = section_number,
@@ -3917,6 +3967,7 @@ fn loadObject(
         if (section.header.flags.LNK_INFO) {
             if (std.mem.eql(u8, &section.header.name, ".drectve")) {
                 try fr.seekTo(fl.offset + section.header.pointer_to_raw_data);
+                // TODO: Don't really want an additional buffer here, but want to limit to size_of_raw_data
                 var buf: [128]u8 = undefined;
                 var section_r = r.limited(.limited(section.header.size_of_raw_data), &buf);
                 while (section_r.interface.takeDelimiter(' ') catch |err| switch (err) {
@@ -3926,9 +3977,60 @@ fn loadObject(
                     // Microsoft tools emit 3 space characters into this section even with /Zl
                     if (arg.len == 0) continue;
 
-                    if (std.mem.cutPrefix(u8, arg, "-exclude-symbols:")) |rest| {
-                        // TODO: When implementing mingw auto-exports, use this to not export this symbol
-                        _ = rest;
+                    if (std.ascii.startsWithIgnoreCase(arg, "-exclude-symbols:")) {
+                        // TODO: When implementing mingw auto-exports (if at all?), use this to not export this symbol
+                    } else if (std.ascii.startsWithIgnoreCase(arg, "/include:")) {
+                        _ = try coff.globalSymbol(.{ .name = arg["/include:".len..] });
+                    } else if (std.ascii.startsWithIgnoreCase(arg, "/alternatename:")) {
+                        var split = std.mem.splitScalar(u8, arg["/alternatename:".len..], '=');
+                        const orig = split.first();
+                        const alt = split.next() orelse
+                            return diags.failParse(path, "malformed .drectve argument: '{s}'", .{arg});
+
+                        try coff.ensureManyUnusedStringCapacity(2, orig.len + alt.len + 2);
+                        const orig_str = coff.getOrPutStringAssumeCapacity(orig);
+                        const alt_str = coff.getOrPutStringAssumeCapacity(alt);
+                        const gop = try coff.alternate_names.getOrPut(gpa, orig_str);
+                        if (!gop.found_existing) {
+                            log.debug("alternateName({s}={s})", .{ orig, alt });
+                            gop.value_ptr.* = alt_str;
+                        } else if (gop.value_ptr.* != alt_str)
+                            return diags.failParse(
+                                path,
+                                "conflicting /alternatename .drectve arguments: first seen as {s}={s}, now seen as {s}={s}",
+                                .{ orig, gop.value_ptr.toSlice(coff), orig, alt },
+                            );
+                    } else if (std.ascii.startsWithIgnoreCase(arg, "/guardsym:")) {
+                        // TODO: https://learn.microsoft.com/en-us/windows/win32/secbp/pe-metadata
+                    } else if (std.ascii.startsWithIgnoreCase(arg, "/merge:")) {
+                        var split = std.mem.splitScalar(u8, arg["/merge:".len..], '=');
+                        const from = split.first();
+                        const to = split.next() orelse
+                            return diags.failParse(path, "malformed .drectve argument: '{s}'", .{arg});
+
+                        // TODO: Override the parent selection for generated sections below
+                        _ = from;
+                        _ = to;
+                    } else if (std.ascii.startsWithIgnoreCase(arg, "/disallowlib:")) {
+                        const lib_name = arg["/disallowlib:".len..];
+                        // TODO: Track these and issue error in prelink if any match
+                        _ = lib_name;
+                    } else if (std.ascii.startsWithIgnoreCase(arg, "/defaultlib:")) {
+                        const lib_path = arg["/defaultlib:".len..];
+                        const trim = std.mem.trim(u8, lib_path, "\"");
+                        if (lib_path.len == trim.len or lib_path.len - 2 == trim.len) {
+                            if (!comp.config.link_libc or comp.libc_installation == null)
+                                return diags.failParse(path, "encountered /DEFAULTLIB .drectve argument when libc was not available: {s}", .{arg});
+
+                            (try coff.pending_default_libs.addOne(gpa)).* = .{
+                                .path = try gpa.dupe(u8, lib_path),
+                                .ioi = ioi,
+                            };
+                        } else return diags.failParse(
+                            path,
+                            "malformed /DEFAULTLIB .drectve argument: `{s}`",
+                            .{arg},
+                        );
                     } else return diags.failParse(path, "unsupported argument in .drectve section: `{s}`", .{arg});
                 }
             }
@@ -3940,6 +4042,7 @@ fn loadObject(
         if (section.header.flags.LNK_REMOVE or
             section.header.flags.MEM_DISCARDABLE)
         {
+            // TODO: Convert .debug$* sections into PDB
             section.comdat_result = .skip;
             continue;
         }
@@ -3973,6 +4076,7 @@ fn loadObject(
                 const symbol = &pending_symbols.values()[psi];
                 const si = existing: switch (symbol.value) {
                     .weak_external => unreachable,
+                    .weak_external_aux => unreachable,
                     .static => break :comdat .include,
                     .section => {
                         assert(section.comdat_psi == .none);
@@ -4145,14 +4249,21 @@ fn loadObject(
     }
 
     for (pending_symbols.values(), pending_symbols.keys(), 0..) |*symbol, index, i| {
-        defer log.debug("addInputSymbol({s}, 0x{x}, {t}=0x{x}, {d}) = {d}@{d}", .{
+        switch (symbol.value) {
+            .weak_external_aux => continue,
+            else => {},
+        }
+
+        defer log.debug("addInputSymbol({s}, 0x{x}, {t}=0x{x}, {d}) = n{d} {d}@{d}", .{
             symbol.name.toSlice(coff),
             index,
             symbol.value,
-            symbol.section_number,
             switch (symbol.value) {
+                .weak_external_aux => unreachable,
                 inline else => |v| v,
             },
+            symbol.section_number,
+            symbol.si.get(coff).ni,
             symbol.si,
             symbol.si.get(coff).section_number,
         });
@@ -4161,34 +4272,50 @@ fn loadObject(
             .UNDEFINED => switch (symbol.value) {
                 .section,
                 .static,
+                .weak_external_aux,
                 => unreachable,
-                .external,
-                .weak_external,
-                => |value, tag| {
+                .external => {
+                    if (symbol.weak_external_psi.unwrap()) |weak_external_i| {
+                        // If the alias itself is an undef external, we need to wait until flushing the weak
+                        // external global before creating a global for the alias, as another input
+                        // could still provide the weak external.
+                        const weak_sym = pending_symbols.values()[weak_external_i].si.get(coff);
+                        weak_sym.setValue(.{ .alias_name = symbol.name });
+                        weak_sym.flags.weak_external_strat = pending_symbols.values()[weak_external_i + 1].value.weak_external_aux;
+                    }
+
+                    // Deferred until referenced by a reloc in this object.
+                    // vcruntime.lib defines symbols like this (ie. memcpy_$fo$) that are not referenced
+                    continue;
+                },
+                .weak_external => |alias_index| {
                     const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = symbol.name.toSlice(coff) });
                     symbol.si = global_gop.value_ptr.*;
                     if (!global_gop.found_existing or symbol.si.get(coff).ni == .none) {
                         const sym = symbol.si.get(coff);
-                        if (tag == .external) {
-                            sym.setValue(.{ .size = @max(sym.size(), value) });
-                        } else {
-                            const alias = pending_symbols.getPtr(value) orelse
-                                return diags.failParse(
-                                    path,
-                                    "weak external 0x{x} {s}{f} targets unknown symbol index 0x{x}",
-                                    .{
-                                        index,
-                                        symbol.name.toSlice(coff),
-                                        fmtMemberNameString(member_name),
-                                        value,
-                                    },
-                                );
+                        const alias = pending_symbols.getPtr(alias_index) orelse
+                            return diags.failParse(
+                                path,
+                                "weak external 0x{x} {s}{f} targets unknown symbol index 0x{x}",
+                                .{
+                                    index,
+                                    symbol.name.toSlice(coff),
+                                    fmtMemberNameString(member_name),
+                                    alias_index,
+                                },
+                            );
 
-                            if (alias.si == .null) {
-                                alias.weak_external_psi = .wrap(@intCast(i));
-                            } else {
-                                sym.setValue(.{ .alias_si = alias.si });
-                            }
+                        if (alias.si == .null and alias_index > index) {
+                            // Resolve this once we see alias
+                            alias.weak_external_psi = .wrap(@intCast(i));
+                        } else {
+                            sym.setValue(if (alias.si == .null) .{
+                                // See .external branch above
+                                .alias_name = alias.name,
+                            } else .{
+                                .alias_si = alias.si,
+                            });
+                            sym.flags.weak_external_strat = pending_symbols.values()[i + 1].value.weak_external_aux;
                         }
                     }
 
@@ -4217,13 +4344,17 @@ fn loadObject(
                     if (global_gop.found_existing and sym.ni != .none)
                         return coff.failMultipleDefinitions(path, member_name, symbol.name, index, global_gop.value_ptr.*, .none);
                 },
-                .weak_external => unreachable,
+                .weak_external,
+                .weak_external_aux,
+                => unreachable,
             }
         }
 
         if (symbol.weak_external_psi.unwrap()) |weak_external_i| {
             assert(symbol.si != .null);
-            pending_symbols.values()[weak_external_i].si.get(coff).setValue(.{ .alias_si = symbol.si });
+            const weak_sym = pending_symbols.values()[weak_external_i].si.get(coff);
+            weak_sym.setValue(.{ .alias_si = symbol.si });
+            weak_sym.flags.weak_external_strat = pending_symbols.values()[weak_external_i + 1].value.weak_external_aux;
         }
 
         if (section.si != symbol.si) {
@@ -4237,7 +4368,9 @@ fn loadObject(
                     .UNDEFINED, .ABSOLUTE, .DEBUG => unreachable,
                     else => .{ .node_offset = v },
                 },
-                .weak_external => unreachable,
+                .weak_external,
+                .weak_external_aux,
+                => unreachable,
             });
             sym.section_number = section.si.get(coff).section_number;
         }
@@ -4260,13 +4393,33 @@ fn loadObject(
             if (target_endian != native_endian)
                 std.mem.byteSwapAllFields(std.coff.Relocation, &reloc);
 
-            // TODO: This error should show member name for lib
-            const symbol = pending_symbols.get(reloc.symbol_table_index) orelse
+            const symbol = pending_symbols.getPtr(reloc.symbol_table_index) orelse
                 return diags.failParse(
                     path,
-                    "relocation 0x{x} in section '{s}'{f} targets invalid symbol index 0x{x}",
-                    .{ reloc_i, section.name.toSlice(coff), fmtMemberNameString(member_name), reloc.symbol_table_index },
+                    "relocation 0x{x} in section '{s}' of {f}{f} targets invalid symbol index 0x{x}",
+                    .{
+                        reloc_i,
+                        section.name.toSlice(coff),
+                        path.fmtEscapeString(),
+                        fmtMemberNameString(member_name),
+                        reloc.symbol_table_index,
+                    },
                 );
+
+            if (symbol.si == .null) {
+                assert(symbol.section_number == .UNDEFINED);
+                switch (symbol.value) {
+                    .external => |size| {
+                        const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = symbol.name.toSlice(coff) });
+                        symbol.si = global_gop.value_ptr.*;
+                        if (!global_gop.found_existing or symbol.si.get(coff).ni == .none) {
+                            const sym = symbol.si.get(coff);
+                            sym.setValue(.{ .size = @max(sym.size(), size) });
+                        }
+                    },
+                    else => unreachable,
+                }
+            }
 
             assert(symbol.si != .null);
             try coff.addReloc(
@@ -4299,7 +4452,7 @@ fn loadObject(
     var prev_sn: Symbol.SectionNumber = .DEBUG;
     var include_section = false;
     for (pending_symbols.values()) |symbol| {
-        // The symbol may have not been included, or it's an undefined external
+        // The symbol may have not been included, or it's an undefined external / aux
         if (symbol.si == .null or symbol.si.get(coff).ni == .none) continue;
 
         if (prev_sn != symbol.section_number) {
@@ -4731,6 +4884,71 @@ pub fn prelink(coff: *Coff, prog_node: std.Progress.Node) link.Error!void {
     _ = prog_node;
     log.debug("prelink()", .{});
 
+    if (coff.pending_default_libs.items.len > 0) {
+        // Libs provided by /DEFAULTLIB arguments in objects are searched after all other inputs
+        const base = coff.base;
+        const comp = base.comp;
+        const gpa = comp.gpa;
+        const arena = comp.arena;
+        const target = &comp.root_mod.resolved_target.result;
+
+        defer {
+            for (coff.pending_default_libs.items) |l| gpa.free(l.path);
+            coff.pending_default_libs.clearAndFree(gpa);
+        }
+
+        assert(comp.config.link_libc);
+        const libc_installation = comp.libc_installation.?;
+        const all_paths: [3]?[]const u8 = .{
+            libc_installation.crt_dir,
+            libc_installation.msvc_lib_dir,
+            libc_installation.kernel32_lib_dir,
+        };
+        const search_paths = all_paths[0..if (target.abi == .msvc or target.abi == .itanium) 3 else 1];
+        lib: for (coff.pending_default_libs.items) |lib| {
+            if (!std.mem.eql(u8, std.fs.path.extension(lib.path), ".lib"))
+                return comp.link_diags.failParse(
+                    lib.ioi.path(coff),
+                    "/DEFAULTLIB library '{s}' had unexpected extension",
+                    .{lib.path},
+                );
+
+            log.debug("loadDefaultLib({s}, {f})", .{ lib.path, lib.ioi.path(coff) });
+            for (search_paths) |opt_path| if (opt_path) |search_path| {
+                const lib_path = try Path.initCwd(search_path).join(arena, lib.path);
+                const archive = link.openObject(comp.io, lib_path, false, false) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        arena.free(lib_path.sub_path);
+                        continue;
+                    },
+                    else => |e| return comp.link_diags.failParse(
+                        lib.ioi.path(coff),
+                        "error opening /DEFAULTLIB library '{s}': {t}",
+                        .{ lib.path, e },
+                    ),
+                };
+                errdefer archive.file.close(comp.io);
+
+                coff.loadInput(.{ .archive = archive }) catch |err| switch (err) {
+                    error.LinkFailure => return,
+                    else => |e| return comp.link_diags.failParse(
+                        lib.ioi.path(coff),
+                        "error loading /DEFAULTLIB library '{s}': {t}",
+                        .{ lib.path, e },
+                    ),
+                };
+
+                break :lib;
+            };
+
+            return comp.link_diags.failParse(
+                lib.ioi.path(coff),
+                "/DEFAULTLIB library '{s}' was not found",
+                .{lib.path},
+            );
+        }
+    }
+
     coff.inputs_complete = true;
 }
 
@@ -5143,6 +5361,11 @@ pub fn flush(
 ) !void {
     _ = arena;
     _ = prog_node;
+
+    // TODO: When https://github.com/ziglang/zig/issues/23617 is in,
+    //       this should be set after updateExports instead
+    coff.exports_complete = true;
+
     while (try coff.idle(tid)) {}
 
     if (coff.isImage())
@@ -5219,6 +5442,22 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
                     .{coff.mf.io_err.?},
                 ),
             }) coff.global_pending_index += 1;
+            break :task;
+        }
+        if (coff.exports_complete and coff.late_globals_pending_index < coff.late_globals.items.len) {
+            const gmi: Node.GlobalMapIndex = coff.late_globals.items[coff.late_globals_pending_index];
+            const sub_prog_node = coff.synth_prog_node.start(
+                gmi.globalName(coff).name.toSlice(coff),
+                0,
+            );
+            defer sub_prog_node.end();
+            if (coff.flushGlobal(gmi) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                else => |e| return comp.link_diags.fail(
+                    "linker failed to lower constant: {t}",
+                    .{e},
+                ),
+            }) coff.late_globals_pending_index += 1;
             break :task;
         }
         var lazy_it = coff.lazy.iterator();
@@ -5357,6 +5596,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     if (coff.pending_uavs.count() > 0) return true;
     if (coff.pending_input != null) return true;
     if (coff.inputs_complete and coff.globals.count() > coff.global_pending_index) return true;
+    if (coff.exports_complete and coff.late_globals.items.len > coff.late_globals_pending_index) return true;
     for (&coff.lazy.values) |lazy| if (lazy.map.count() > lazy.pending_index) return true;
     if (coff.symbol_table.pending.count() > 0) return true;
     if (coff.input_sections.items.len > coff.input_section_pending_index) return true;
@@ -5504,10 +5744,11 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     const gn = gmi.globalName(coff);
     const si = gmi.symbol(coff);
     const sym = si.get(coff);
+    const is_late = gmi.unwrap().? < coff.global_pending_index;
 
     log.debug(
-        "flushGlobal({s}, {?s}) = {d} ({d})",
-        .{ gn.name.toSlice(coff), gn.lib_name.toSlice(coff), si, sym.ni },
+        "flushGlobal({s}, {?s}, {}) = {d} ({d})",
+        .{ gn.name.toSlice(coff), gn.lib_name.toSlice(coff), is_late, si, sym.ni },
     );
 
     if (!coff.isImage()) {
@@ -5519,16 +5760,6 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             );
 
         return true;
-    }
-
-    // TODO: Only do this if actually referenced? Might have to do on-demand?
-    {
-        // Resolve unresolved .WEAK_EXTERNAL symbols to their aliases
-        const alias_si = sym.weakAlias();
-        if (alias_si != .null) {
-            try coff.aliasGlobal(gmi, alias_si);
-            return true;
-        }
     }
 
     const Import = struct {
@@ -5555,9 +5786,41 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             break :name .{ coff.getOrPutStringAssumeCapacity(name), true };
         };
 
-        // TODO: Try to search for __imp_ even when !is_imp, we want to not use thunks if we can
+        const opt_alt_search_name = coff.alternate_names.get(search_name);
+        const search_libs = if (is_late) switch (sym.flags.value_tag) {
+            .alias_si, .alias_name => switch (sym.flags.weak_external_strat) {
+                .no_library => false,
+                .library,
+                .alias,
+                => true,
+                .anti_dependency => return comp.link_diags.fail(
+                    // TODO: Figure out what the purpose of this is
+                    "TODO support anti_dependency weak external: {s}",
+                    .{gn.name.toSlice(coff)},
+                ),
+            },
+            else => true,
+        } else search_libs: {
+            if (switch (sym.flags.value_tag) {
+                .alias_si, .alias_name => true,
+                else => opt_alt_search_name != null,
+            }) {
+                // We need to wait until all exports are known before resolving these
+                coff.synth_prog_node.increaseEstimatedTotalItems(1);
+                (try coff.late_globals.addOne(gpa)).* = gmi;
+                return true;
+            }
 
-        if (coff.input_archive_symbol_indices.get(search_name)) |indices_list| {
+            break :search_libs true;
+        };
+
+        const opt_indices_lists: []const ?InputArchive.SearchList = if (search_libs) &.{
+            coff.input_archive_symbol_indices.get(search_name),
+            if (opt_alt_search_name) |alt| coff.input_archive_symbol_indices.get(alt) else null,
+        } else &.{};
+
+        for (opt_indices_lists) |opt_indices_list| {
+            const indices_list = opt_indices_list orelse continue;
             var iter: InputArchive.Member.Symbol.Index = indices_list.first;
             while (true) {
                 const archive_sym = &coff.input_archive_symbols.items[@intFromEnum(iter)];
@@ -5628,6 +5891,32 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
 
                 if (archive_sym.next == iter) break;
                 iter = archive_sym.next;
+            }
+        }
+
+        switch (sym.flags.value_tag) {
+            .alias_si => {
+                assert(is_late);
+                try coff.aliasGlobal(gmi, sym.value.alias_si);
+                return true;
+            },
+            .alias_name => {
+                assert(is_late);
+                // Convert an unresolved weak external that itself refers to an undef external
+                // into a (possibly new) global, so it can be resolved separately.
+                const alias_gop = try coff.getOrPutGlobalSymbol(.{ .name = sym.value.alias_name.toSlice(coff) });
+                try coff.aliasGlobal(gmi, alias_gop.value_ptr.*);
+                return true;
+            },
+            else => {},
+        }
+
+        // If there was an object that had the alternate name, we've attempted to load it
+        if (opt_alt_search_name) |alt_search_name| {
+            assert(is_late);
+            if (coff.globals.get(.{ .name = alt_search_name, .lib_name = .none })) |alias_si| {
+                try coff.aliasGlobal(gmi, alias_si);
+                return true;
             }
         }
 
