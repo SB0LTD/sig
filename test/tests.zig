@@ -10,6 +10,7 @@ const error_traces = @import("error_traces.zig");
 const stack_traces = @import("stack_traces.zig");
 const llvm_ir = @import("llvm_ir.zig");
 const libc = @import("libc.zig");
+const link = @import("link.zig");
 
 // Implementations
 pub const ErrorTracesContext = @import("src/ErrorTrace.zig");
@@ -17,6 +18,7 @@ pub const StackTracesContext = @import("src/StackTrace.zig");
 pub const DebuggerContext = @import("src/Debugger.zig");
 pub const LlvmIrContext = @import("src/LlvmIr.zig");
 pub const LibcContext = @import("src/Libc.zig");
+pub const LinkContext = @import("src/Link.zig");
 
 const ModuleTestTarget = struct {
     linkage: ?std.builtin.LinkMode = null,
@@ -2059,6 +2061,57 @@ const c_abi_targets = blk: {
     };
 };
 
+const LinkTarget = struct {
+    target: std.Target.Query = .{},
+    link_libc: bool = false,
+    use_llvm: bool = false,
+    use_lld: bool = false,
+};
+
+const link_targets = blk: {
+    @setEvalBranchQuota(30000);
+    break :blk [_]LinkTarget{
+        // Native Targets
+
+        // .{
+        //     .use_llvm = true,
+        // },
+
+        // Windows Targets
+
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .msvc,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .msvc,
+            },
+            .link_libc = true,
+        },
+    };
+};
+
 /// Unlike `test_targets` and `c_abi_targets`, these targets are just simple strings which we pass
 /// directly to `incr-check`. They include the target triple and the compiler backend.
 ///
@@ -3078,6 +3131,61 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
             const run = b.addRunArtifact(test_step);
             run.skip_foreign_checks = true;
             step.dependOn(&run.step);
+        }
+    }
+    return step;
+}
+
+const LinkTestOptions = struct {
+    test_target_filters: []const []const u8,
+    test_filters: []const []const u8,
+    optimize_modes: []const OptimizeMode,
+    skip_non_native: bool,
+    skip_windows: bool,
+    skip_llvm: bool,
+    max_rss: usize,
+};
+
+pub fn addLinkTests(b: *std.Build, options: LinkTestOptions) *Step {
+    const step = b.step("test-link", "Run the linker tests");
+
+    for (link_targets) |link_target| {
+        if (options.skip_non_native and !link_target.target.isNative()) continue;
+        if (options.skip_windows and link_target.target.os_tag == .windows) continue;
+
+        const resolved_target = b.resolveTargetQuery(link_target.target);
+        const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
+        const target = &resolved_target.result;
+
+        if (options.test_target_filters.len > 0) {
+            for (options.test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+            } else continue;
+        }
+
+        for (options.optimize_modes) |optimize_mode| {
+            const would_use_llvm = wouldUseLlvm(link_target.use_llvm, link_target.target, optimize_mode);
+            if (options.skip_llvm and would_use_llvm) continue;
+            if (link_target.link_libc and target.abi == .msvc and b.graph.host.result.os.tag != .windows) continue;
+
+            link.addCases(.{
+                .b = b,
+                .step = step,
+                .optimize = optimize_mode,
+                .target = resolved_target,
+                .suffix = std.fmt.allocPrint(b.allocator, "{s}-{t}{s}{s}{s}", .{
+                    target.zigTriple(b.allocator) catch @panic("OOM"),
+                    optimize_mode,
+                    if (link_target.use_llvm) "-llvm" else "",
+                    if (link_target.use_lld) "-lld" else "",
+                    if (link_target.link_libc) "-libc" else "",
+                }) catch @panic("OOM"),
+                .use_llvm = link_target.use_llvm,
+                .use_lld = link_target.use_lld,
+                .link_libc = link_target.link_libc,
+                .test_filters = options.test_filters,
+                .max_rss = options.max_rss,
+            });
         }
     }
     return step;

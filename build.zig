@@ -631,6 +631,15 @@ pub fn build(b: *std.Build) !void {
         .skip_llvm = skip_llvm,
         .max_rss = 3_300_000_000,
     }));
+    test_step.dependOn(tests.addLinkTests(b, .{
+        .test_target_filters = test_target_filters,
+        .test_filters = test_filters,
+        .optimize_modes = optimize_modes,
+        .skip_non_native = skip_non_native,
+        .skip_windows = skip_windows,
+        .skip_llvm = skip_llvm,
+        .max_rss = 100_000_000,
+    }));
     test_step.dependOn(tests.addStackTraceTests(b, test_filters, skip_non_native));
     test_step.dependOn(tests.addErrorTraceTests(b, test_filters, optimize_modes, skip_non_native));
     test_step.dependOn(tests.addCliTests(b));
