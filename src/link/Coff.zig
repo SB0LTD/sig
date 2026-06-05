@@ -334,7 +334,10 @@ pub const Member = struct {
     kind: Kind,
     header_ni: MappedFile.Node.Index,
     content_ni: MappedFile.Node.Index,
-    first_linker_indices: std.AutoArrayHashMapUnmanaged(Symbol.Index, FirstLinkerIndex),
+    first_linker_indices: std.AutoArrayHashMapUnmanaged(struct {
+        mi: Member.Index,
+        name: String,
+    }, FirstLinkerIndex),
 
     pub const Kind = enum {
         first_linker,
@@ -670,7 +673,7 @@ pub const Symbol = struct {
     section_number: SectionNumber,
     sti: SymbolTable.Index,
     gmi: Node.GlobalMapIndex,
-    unused1: u16 = 0,
+    unused0: u16 = 0,
 
     pub const SectionNumber = enum(i16) {
         UNDEFINED = 0,
@@ -1319,8 +1322,11 @@ fn initHeaders(
             break :parent zcu_member.content_ni;
         }
 
-        assert(Node.known.zcu_member_header == try coff.mf.addLastChildNode(gpa, Node.known.file, .{}));
-        assert(Node.known.zcu_member == try coff.mf.addLastChildNode(gpa, Node.known.file, .{}));
+        // These placeholder nodes are placed before the first member - if there are
+        // no other members then the last linker member (longnames) needs to expand
+        // to fill the padding at the end of the file.
+        assert(Node.known.zcu_member_header == try coff.mf.addNodeAfter(gpa, Node.known.header, .{}));
+        assert(Node.known.zcu_member == try coff.mf.addNodeAfter(gpa, Node.known.header, .{}));
         coff.nodes.appendAssumeCapacity(.placeholder);
         coff.nodes.appendAssumeCapacity(.placeholder);
 
@@ -1339,7 +1345,7 @@ fn initHeaders(
     const zcu_coff_parent_ni = opt_zcu_coff_parent_ni orelse {
         // If we're not generating any code, no more known nodes are used
         while (coff.nodes.len < Node.known_count) {
-            _ = try coff.mf.addLastChildNode(gpa, Node.known.file, .{});
+            _ = try coff.mf.addNodeAfter(gpa, Node.known.header, .{});
             coff.nodes.appendAssumeCapacity(.placeholder);
         }
 
@@ -1976,11 +1982,20 @@ fn getOrPutOptionalString(coff: *Coff, string: ?[]const u8) !String.Optional {
     return (try coff.getOrPutString(string orelse return .none)).toOptional();
 }
 
+/// `len` does not include null terminators
 fn ensureUnusedStringCapacity(coff: *Coff, len: usize) !void {
     const gpa = coff.base.comp.gpa;
     try coff.strings.ensureUnusedCapacityContext(gpa, 1, .{ .bytes = &coff.string_bytes });
     try coff.string_bytes.ensureUnusedCapacity(gpa, len + 1);
 }
+
+/// `total_len` includes null terminators
+fn ensureManyUnusedStringCapacity(coff: *Coff, num_strings: u32, total_len: usize) !void {
+    const gpa = coff.base.comp.gpa;
+    try coff.strings.ensureUnusedCapacityContext(gpa, num_strings, .{ .bytes = &coff.string_bytes });
+    try coff.string_bytes.ensureUnusedCapacity(gpa, total_len + num_strings);
+}
+
 fn getOrPutStringAssumeCapacity(coff: *Coff, string: []const u8) String {
     const gop = coff.strings.getOrPutAssumeCapacityAdapted(
         string,
@@ -1995,10 +2010,15 @@ fn getOrPutStringAssumeCapacity(coff: *Coff, string: []const u8) String {
     return @enumFromInt(gop.key_ptr.*);
 }
 
-pub fn globalSymbol(coff: *Coff, opts: struct {
+const GlobalOptions = struct {
     name: []const u8,
     lib_name: ?[]const u8 = null,
-}) !Symbol.Index {
+};
+
+fn getOrPutGlobalSymbol(
+    coff: *Coff,
+    opts: GlobalOptions,
+) !std.AutoArrayHashMapUnmanaged(GlobalName, Symbol.Index).GetOrPutResult {
     const gpa = coff.base.comp.gpa;
     try coff.symbols.ensureUnusedCapacity(gpa, 1);
     const sym_gop = try coff.globals.getOrPut(gpa, .{
@@ -2012,7 +2032,11 @@ pub fn globalSymbol(coff: *Coff, opts: struct {
         coff.synth_prog_node.increaseEstimatedTotalItems(1);
     }
 
-    return sym_gop.value_ptr.*;
+    return sym_gop;
+}
+
+pub fn globalSymbol(coff: *Coff, opts: GlobalOptions) !Symbol.Index {
+    return (try coff.getOrPutGlobalSymbol(opts)).value_ptr.*;
 }
 
 pub fn pendingSymbolTableEntry(coff: *Coff, si: Symbol.Index) !void {
@@ -2225,21 +2249,13 @@ fn appendMemberSymbolString(
     name_slice[name.len] = 0;
 }
 
-fn ensureMemberSymbol(
-    coff: *Coff,
-    name: String,
-    mi: Member.Index,
-    si: Symbol.Index,
-) !void {
+fn ensureMemberSymbol(coff: *Coff, mi: Member.Index, name: String) !void {
     const gpa = coff.base.comp.gpa;
     const member = mi.get(coff);
     assert(member.kind == .coff);
 
-    const gop = try member.first_linker_indices.getOrPut(gpa, si);
+    const gop = try member.first_linker_indices.getOrPut(gpa, .{ .mi = mi, .name = name });
     if (gop.found_existing) return;
-
-    // TODO: Detect duplicate names (ie. a name used by a symbol in another member,
-    //       not the zcu since those already go through globals)
 
     const mfli: Member.FirstLinkerIndex = blk: {
         const num_symbols_ptr = coff.firstLinkerMemberNumSymbolsPtr();
@@ -2276,14 +2292,15 @@ fn ensureMemberSymbol(
         const new_header_size = old_header_size + @sizeOf(u16);
         try Node.known.second_linker_member.resize(&coff.mf, gpa, new_header_size + new_string_table_size);
 
-        const needs_sort = if (coff.lib_string_table.items.len > 0)
+        const old_needs_sort = coff.pending_members.get(Member.Index.second) != null;
+        const needs_sort = old_needs_sort or (if (coff.lib_string_table.items.len > 0)
             std.mem.lessThan(
                 u8,
                 name_slice,
                 coff.lib_string_table.items[coff.lib_string_table.items.len - 1].toSlice(coff),
             )
         else
-            false;
+            false);
 
         try coff.lib_string_table.append(gpa, name);
 
@@ -2291,13 +2308,13 @@ fn ensureMemberSymbol(
         const num_symbols_ptr: *u32 = @ptrCast(@alignCast(slice[@sizeOf(u32) + num_members * @sizeOf(u32) ..]));
         coff.targetStore(num_symbols_ptr, @intFromEnum(mfli) + 1);
 
-        if (needs_sort) {
-            // The entire string table is rebuilt in flushMember after sorting
-            coff.pending_members.putAssumeCapacity(Member.Index.second, {});
-        } else {
+        if (!needs_sort) {
             @memmove(slice[new_header_size..][0..coff.lib_string_len], slice[old_header_size..][0..coff.lib_string_len]);
             @memcpy(slice[new_header_size + coff.lib_string_len ..][0..name_slice.len], name_slice[0..name_slice.len]);
             slice[new_header_size + coff.lib_string_len + name_slice.len] = 0;
+        } else if (!old_needs_sort) {
+            // The entire string table is rebuilt in flushMember after sorting
+            coff.pending_members.putAssumeCapacity(Member.Index.second, {});
         }
 
         // Indices in this table are 1-based
@@ -2708,14 +2725,214 @@ pub fn addReloc(
     target.target_relocs = ri;
 }
 
-pub fn loadInput(coff: *Coff, input: link.Input) void {
-    _ = coff;
+pub fn loadInput(coff: *Coff, input: link.Input) (Io.File.Reader.SizeError ||
+    Io.File.Reader.Error || MappedFile.Error || error{ WriteFailed, EndOfStream, BadMagic, LinkFailure })!void {
+    const io = coff.base.comp.io;
+    var buf: [4096]u8 = undefined;
     switch (input) {
-        .dso_exact => unreachable,
-        inline else => |i, tag| {
-            log.debug("loadInput({s}: {f})", .{ @tagName(tag), i.path.fmtEscapeString() });
+        .object => |object| {
+            var fr = object.file.reader(io, &buf);
+            coff.loadObject(object.path, null, &fr, .{
+                .offset = fr.logicalPos(),
+                .size = try fr.getSize(),
+            }) catch |err| switch (err) {
+                error.ReadFailed => return fr.err.?,
+                else => |e| return e,
+            };
         },
+        .archive => |archive| {
+            var fr = archive.file.reader(io, &buf);
+            coff.loadArchive(archive.path, &fr) catch |err| switch (err) {
+                error.ReadFailed => return fr.err.?,
+                else => |e| return e,
+            };
+        },
+        .res => |res| {
+            var fr = res.file.reader(io, &buf);
+            coff.loadRes(res.path, &fr) catch |err| switch (err) {
+                error.ReadFailed => return fr.err.?,
+                else => |e| return e,
+            };
+        },
+        .dso => |dso| {
+            var fr = dso.file.reader(io, &buf);
+            coff.loadDll(dso.path, &fr) catch |err| switch (err) {
+                error.ReadFailed => return fr.err.?,
+                else => |e| return e,
+            };
+        },
+        .dso_exact => unreachable,
     }
+}
+
+fn fmtArchiveNameString(archiveName: ?[]const u8) std.fmt.Alt(?[]const u8, archiveNameStringEscape) {
+    return .{ .data = archiveName };
+}
+fn archiveNameStringEscape(archiveName: ?[]const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    try w.print("({f})", .{std.zig.fmtString(archiveName orelse return)});
+}
+
+fn loadObject(
+    coff: *Coff,
+    path: std.Build.Cache.Path,
+    archive_name: ?[]const u8,
+    fr: *Io.File.Reader,
+    fl: MappedFile.Node.FileLocation,
+) !void {
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    const diags = &comp.link_diags;
+    const r = &fr.interface;
+    const target = &comp.root_mod.resolved_target.result;
+    const target_endian = coff.targetEndian();
+    const is_archive = coff.isArchive();
+
+    log.debug("loadObject({f}{f})", .{ path.fmtEscapeString(), fmtArchiveNameString(archive_name) });
+    const header = try r.peekStruct(std.coff.Header, coff.targetEndian());
+    if (header.machine != target.toCoffMachine())
+        return diags.failParse(path, "machine mismatch: expected {t}, found {t}", .{
+            target.toCoffMachine(),
+            header.machine,
+        });
+    if (header.number_of_sections == 0) return;
+    if (@sizeOf(std.coff.Header) + header.number_of_sections * @sizeOf(std.coff.SectionHeader) > fl.size)
+        return diags.failParse(path, "invalid section table", .{});
+    const unexpected_flags: []const std.meta.FieldEnum(std.coff.Header.Flags) = &.{
+        .RELOCS_STRIPPED,
+        .EXECUTABLE_IMAGE,
+        .AGGRESSIVE_WS_TRIM,
+        .RESERVED,
+        .BYTES_REVERSED_LO,
+        .DLL,
+        .BYTES_REVERSED_HI,
+    };
+    inline for (unexpected_flags) |flag|
+        if (@field(header.flags, @tagName(flag)))
+            return diags.failParse(path, "unexpected flag set: {t}", .{flag});
+
+    if (header.size_of_optional_header != 0)
+        return diags.failParse(path, "unexpected optional header", .{});
+
+    const symbol_table_len = header.number_of_symbols * std.coff.Symbol.sizeOf();
+    const symbol_table_end = header.pointer_to_symbol_table + symbol_table_len;
+    // String table length (which includes the length field) immediately trails the symbol table
+    if (symbol_table_end + @sizeOf(u32) > fl.size)
+        return diags.failParse(path, "bad symbol table location", .{});
+
+    try fr.seekTo(fl.offset + symbol_table_end);
+    const string_table_len = try r.peekInt(u32, target_endian);
+    if (string_table_len < @sizeOf(u32) or
+        symbol_table_end + string_table_len > fl.size)
+        return diags.failParse(path, "bad string table", .{});
+
+    const string_table = string_table: {
+        const string_table = try gpa.alloc(u8, string_table_len);
+        errdefer gpa.free(string_table);
+        try r.readSliceAll(string_table);
+        break :string_table string_table;
+    };
+    defer gpa.free(string_table);
+
+    try coff.ensureManyUnusedStringCapacity(
+        header.number_of_symbols,
+        string_table_len - @sizeOf(u32),
+    );
+
+    const mi = if (is_archive) mi: {
+        try coff.nodes.ensureUnusedCapacity(gpa, 2);
+        try coff.members.ensureUnusedCapacity(gpa, 1);
+
+        const mi = try coff.addMemberAssumeCapacity(.coff, fl.size);
+        const member = mi.get(coff);
+        try member.initHeader(coff, path.sub_path, header.time_date_stamp);
+
+        {
+            var nw: MappedFile.Node.Writer = undefined;
+            member.content_ni.writer(&coff.mf, gpa, &nw);
+            defer nw.deinit();
+
+            try fr.seekTo(fl.offset);
+            try r.streamExact(&nw.interface, fl.size);
+        }
+
+        break :mi mi;
+    } else undefined;
+
+    try fr.seekTo(fl.offset + header.pointer_to_symbol_table);
+    const symbol_size = std.coff.Symbol.sizeOf();
+
+    var symbol_ix: u32 = 0;
+    while (symbol_ix < header.number_of_symbols) {
+        const symbol: *align(2) std.coff.Symbol = @ptrCast(@alignCast(try r.take(symbol_size)));
+        defer {
+            r.toss(symbol.number_of_aux_symbols * symbol_size);
+            symbol_ix += symbol.number_of_aux_symbols + 1;
+        }
+
+        switch (symbol.section_number) {
+            .UNDEFINED, .ABSOLUTE, .DEBUG => continue,
+            else => switch (symbol.storage_class) {
+                .STATIC => if (symbol.value == 0) continue,
+                .EXTERNAL => {},
+                else => continue,
+            },
+        }
+
+        const name = std.mem.sliceTo(if (std.mem.eql(u8, symbol.name[0..4], "\x00\x00\x00\x00")) name: {
+            const index = std.mem.readInt(u32, symbol.name[4..], target_endian);
+            if (index >= string_table.len)
+                return diags.failParse(path, "bad string offset for symbol {d}", .{symbol_ix});
+            break :name string_table[index..];
+        } else &symbol.name, 0);
+
+        if (is_archive) {
+            try coff.ensureMemberSymbol(mi, coff.getOrPutStringAssumeCapacity(name));
+            continue;
+        }
+
+        const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = name });
+        if (global_gop.found_existing)
+            return diags.failParse(path, "multiple definitions of '{s}'", .{name});
+    }
+}
+
+fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    const diags = &comp.link_diags;
+    const r = &fr.interface;
+
+    log.debug("loadArchive({f})", .{path.fmtEscapeString()});
+
+    _ = gpa;
+    _ = diags;
+    _ = r;
+}
+
+fn loadRes(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    const diags = &comp.link_diags;
+    const r = &fr.interface;
+
+    log.debug("loadRes({f})", .{path.fmtEscapeString()});
+
+    _ = gpa;
+    _ = diags;
+    _ = r;
+}
+
+fn loadDll(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    const diags = &comp.link_diags;
+    const r = &fr.interface;
+
+    log.debug("loadDll({f})", .{path.fmtEscapeString()});
+
+    _ = gpa;
+    _ = diags;
+    _ = r;
 }
 
 pub fn prelink(coff: *Coff, prog_node: std.Progress.Node) link.Error!void {
@@ -3074,7 +3291,6 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             break :task;
         }
         if (coff.global_pending_index < coff.globals.count()) {
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = tid };
             const gmi: Node.GlobalMapIndex = .wrap(coff.global_pending_index);
             coff.global_pending_index += 1;
             const sub_prog_node = coff.synth_prog_node.start(
@@ -3082,7 +3298,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
                 0,
             );
             defer sub_prog_node.end();
-            coff.flushGlobal(pt, gmi) catch |err| switch (err) {
+            coff.flushGlobal(gmi) catch |err| switch (err) {
                 else => |e| return e,
                 error.MappedFileIo => return comp.link_diags.fail(
                     "linker failed to lower constant: {t}",
@@ -3301,22 +3517,19 @@ fn flushUav(
     si.applyLocationRelocs(coff);
 }
 
-fn flushGlobal(coff: *Coff, pt: Zcu.PerThread, gmi: Node.GlobalMapIndex) !void {
-    const zcu = pt.zcu;
-    const comp = zcu.comp;
-    const gpa = zcu.gpa;
+fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !void {
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
     const gn = gmi.globalName(coff);
     log.debug("flushGlobal({s}, {?s}) = {d}", .{ gn.name.toSlice(coff), gn.lib_name.toSlice(coff), gmi.symbol(coff) });
 
     if (!coff.isImage()) {
         const si = gmi.symbol(coff);
         try coff.pendingSymbolTableEntry(si);
-
         if (coff.isArchive() and si.get(coff).ni != .none)
             try coff.ensureMemberSymbol(
-                gn.name,
                 coff.getNode(Node.known.zcu_member).archive_member,
-                si,
+                gn.name,
             );
 
         return;
@@ -3715,6 +3928,7 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .file => {
             if (coff.isArchive() and coff.members.items.len > 0) {
                 const last_member = coff.members.items[coff.members.items.len - 1];
+                // See .archive_member branch for reasoning
                 assert(Node.known.file.reverseChildren(&coff.mf).ni == last_member.content_ni);
                 try coff.flushResized(last_member.content_ni);
             }
@@ -3866,6 +4080,8 @@ fn flushMember(coff: *Coff, mi: Member.Index) !void {
                     std.mem.swap(String, &ctx.strings[lhs], &ctx.strings[rhs]);
                 }
             };
+
+            // TODO: Does this sort need to also sort by linker input order (if names equal)?
 
             std.sort.pdqContext(0, coff.lib_string_table.items.len, Context{
                 .coff = coff,
