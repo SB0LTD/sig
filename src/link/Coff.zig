@@ -49,7 +49,7 @@ input_sections: std.ArrayList(Node.InputSection),
 input_section_pending_index: u32,
 inputs_complete: bool,
 exports_complete: bool,
-special_symbols_complete: bool,
+pending_special_symbol: SpecialSymbol,
 strings: std.HashMapUnmanaged(
     u32,
     void,
@@ -790,6 +790,7 @@ pub const ImportTable = struct {
 };
 
 pub const String = enum(u32) {
+    // TODO: Re-order
     @".data" = 0,
     @".idata" = 6,
     @".rdata" = 13,
@@ -802,6 +803,7 @@ pub const String = enum(u32) {
     @".dtors$ZZZ" = 64,
     @".bss" = 75,
     @".fptable" = 80,
+    @".tls" = 89,
     _,
 
     pub const Optional = enum(u32) {
@@ -817,6 +819,7 @@ pub const String = enum(u32) {
         @".dtors$ZZZ" = @intFromEnum(String.@".dtors$ZZZ"),
         @".bss" = @intFromEnum(String.@".bss"),
         @".fptable" = @intFromEnum(String.@".fptable"),
+        @".tls" = @intFromEnum(String.@".tls"),
         none = std.math.maxInt(u32),
         _,
 
@@ -890,6 +893,12 @@ pub const WeakExternalStrat = enum(u2) {
             _ => unreachable,
         };
     }
+};
+
+const SpecialSymbol = enum {
+    entry,
+    tls,
+    none,
 };
 
 pub const Symbol = struct {
@@ -1538,7 +1547,7 @@ fn create(
         .input_section_pending_index = 0,
         .inputs_complete = false,
         .exports_complete = false,
-        .special_symbols_complete = false,
+        .pending_special_symbol = .entry,
         .strings = .empty,
         .string_bytes = .empty,
         .section_table = .empty,
@@ -1718,7 +1727,7 @@ fn initHeaders(
         // TLS section
         if (comp.config.any_non_single_threaded) {
             if (!is_image) expected_nodes_len += 1;
-            expected_nodes_len += 2;
+            expected_nodes_len += 1;
         }
     }
     defer assert(coff.nodes.len == expected_nodes_len);
@@ -2130,10 +2139,11 @@ fn initHeaders(
             });
 
         // While tls variables allocated at runtime are writable, the template itself is not.
-        // In images, this call triggers the creation of a .tls pseudo section in .rdata.
-        // In objects / archives, this section is part of the above .tls$ section.
-        _ = try coff.objectSectionMapIndex(
-            .@".tls$",
+        // In images, the template is in a .tls pseudo section in .rdata.
+        // In objects / archives, this section is part of the above .tls$ section. The suffix
+        // is maintained so merging can occur with other input tls symbols when linked later.
+        _ = try coff.pseudoSectionMapIndex(
+            if (is_image) .@".tls" else .@".tls$",
             coff.mf.flags.block_size,
             .{ .read = true, .write = !is_image, .initialized = true },
         );
@@ -5622,15 +5632,15 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             }) coff.late_globals_pending_index += 1;
             break :task;
         }
-        if (coff.exports_complete and !coff.special_symbols_complete) {
-            coff.special_symbols_complete = true;
-            coff.flushSpecialSymbols() catch |err| switch (err) {
-                error.OutOfMemory => |e| return e,
-                else => |e| return comp.link_diags.fail(
-                    "linker failed to flush special symbols: {t}",
-                    .{e},
-                ),
-            };
+        if (coff.exports_complete and coff.pending_special_symbol != .none) {
+            coff.pending_special_symbol = coff.flushSpecialSymbol(coff.pending_special_symbol) catch |err|
+                switch (err) {
+                    error.OutOfMemory => |e| return e,
+                    else => |e| return comp.link_diags.fail(
+                        "linker failed to flush special symbols: {t}",
+                        .{e},
+                    ),
+                };
             break :task;
         }
         var lazy_it = coff.lazy.iterator();
@@ -5773,7 +5783,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     if (coff.inputs_complete and coff.globals.count() > coff.global_pending_index) return true;
     assert(!coff.exports_complete or coff.inputs_complete);
     if (coff.exports_complete and coff.late_globals.items.len > coff.late_globals_pending_index) return true;
-    if (coff.exports_complete and !coff.special_symbols_complete) return true;
+    if (coff.exports_complete and coff.pending_special_symbol != .none) return true;
     for (&coff.lazy.values) |lazy| if (lazy.map.count() > lazy.pending_index) return true;
     if (coff.symbol_table.pending.count() > 0) return true;
     if (coff.input_sections.items.len > coff.input_section_pending_index) return true;
@@ -6318,103 +6328,116 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     return true;
 }
 
-fn flushSpecialSymbols(coff: *Coff) !void {
+fn flushSpecialSymbol(coff: *Coff, pending: SpecialSymbol) !SpecialSymbol {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     const machine = coff.targetLoad(&coff.headerPtr().machine);
 
-    if (coff.isImage()) {
-        // TODO: Use explicitly specified entry if set, add err if not found
-        const entries: []const struct { ?[]const u8, []const u8 } = if (coff.isExe())
-            if (comp.config.link_libc) switch (coff.optionalHeaderField(.subsystem)) {
-                .WINDOWS_CUI => &.{
-                    .{ "main", "mainCRTStartup" },
-                    .{ "wmain", "wmainCRTStartup" },
-                },
-                .WINDOWS_GUI => &.{
-                    .{ "WinMain", "WinMainCRTStartup" },
-                    .{ "wWinMain", "wWinMainCRTStartup" },
-                },
-                else => unreachable,
-            } else &.{
-                .{ "wWinMainCRTStartup", "wWinMainCRTStartup" },
+    if (!coff.isImage()) return .none;
+    return next: switch (pending) {
+        .entry => {
+            // TODO: Use explicitly specified entry if set, add err if not found
+            const entries: []const struct { ?[]const u8, []const u8 } = if (coff.isExe())
+                if (comp.config.link_libc) switch (coff.optionalHeaderField(.subsystem)) {
+                    .WINDOWS_CUI => &.{
+                        .{ "main", "mainCRTStartup" },
+                        .{ "wmain", "wmainCRTStartup" },
+                    },
+                    .WINDOWS_GUI => &.{
+                        .{ "WinMain", "WinMainCRTStartup" },
+                        .{ "wWinMain", "wWinMainCRTStartup" },
+                    },
+                    else => unreachable,
+                } else &.{
+                    .{ "wWinMainCRTStartup", "wWinMainCRTStartup" },
+                }
+            else
+                &.{.{ null, "_DllMainCRTStartup" }};
+
+            const entry_si = for (entries) |entry| {
+                if (entry[0]) |required_name|
+                    if (coff.getDefinedGlobal(required_name) == .null) continue;
+
+                break try coff.globalSymbol(.{ .name = entry[1], .type = .code });
+            } else .null;
+
+            if (entry_si != .null) {
+                log.debug(
+                    "entry({s}, {d})",
+                    .{ entry_si.get(coff).gmi.globalName(coff).name.toSlice(coff), entry_si },
+                );
+
+                try coff.symbols.ensureUnusedCapacity(gpa, 1);
+                const optional_hdr_si = coff.addSymbolAssumeCapacity();
+                const optional_hdr_sym = optional_hdr_si.get(coff);
+                optional_hdr_sym.ni = Node.known.optional_header;
+                assert(optional_hdr_sym.loc_relocs == .none);
+                optional_hdr_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+
+                const optional_hdr = coff.optionalHeaderStandardPtr();
+                optional_hdr.address_of_entry_point = std.mem.nativeTo(
+                    u32,
+                    entry_si.get(coff).rva,
+                    coff.targetEndian(),
+                );
+
+                try coff.addReloc(
+                    optional_hdr_si,
+                    @intFromPtr(&optional_hdr.address_of_entry_point) - @intFromPtr(optional_hdr),
+                    entry_si,
+                    .{ .known = 0 },
+                    switch (machine) {
+                        else => |tag| @panic(@tagName(tag)),
+                        .AMD64 => .{ .AMD64 = .ADDR32NB },
+                        .I386 => .{ .I386 = .DIR32NB },
+                    },
+                );
             }
-        else
-            &.{.{ null, "_DllMainCRTStartup" }};
 
-        const entry_si = for (entries) |entry| {
-            if (entry[0]) |required_name|
-                if (coff.getDefinedGlobal(required_name) == .null) continue;
+            // Referencing the startup functions may trigger loading the object containing them,
+            // we need to wait until that is done before looking for further symbols.
+            break :next .tls;
+        },
+        .tls => {
+            if (coff.getDefinedGlobal("_tls_used").unwrap()) |tls_used_si| {
+                log.debug("tlsDir({d})", .{tls_used_si});
 
-            break try coff.globalSymbol(.{ .name = entry[1], .type = .code });
-        } else .null;
+                const tls_directory = coff.dataDirectoryPtr(.TLS);
+                tls_directory.* = .{
+                    .virtual_address = tls_used_si.get(coff).rva,
+                    .size = switch (coff.targetLoad(&coff.optionalHeaderStandardPtr().magic)) {
+                        _ => unreachable,
+                        .PE32 => 24,
+                        .@"PE32+" => 40,
+                    },
+                };
+                if (coff.targetEndian() != native_endian)
+                    std.mem.byteSwapAllFields(std.coff.ImageDataDirectory, tls_directory);
 
-        if (entry_si != .null) {
-            log.debug(
-                "entry({s}, {d})",
-                .{ entry_si.get(coff).gmi.globalName(coff).name.toSlice(coff), entry_si },
-            );
+                try coff.symbols.ensureUnusedCapacity(gpa, 1);
+                const data_dir_si = coff.addSymbolAssumeCapacity();
+                const data_dir_sym = data_dir_si.get(coff);
+                data_dir_sym.ni = Node.known.data_directories;
+                assert(data_dir_sym.loc_relocs == .none);
+                data_dir_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
 
-            try coff.symbols.ensureTotalCapacity(gpa, 1);
-            const optional_hdr_si = coff.addSymbolAssumeCapacity();
-            const optional_hdr_sym = optional_hdr_si.get(coff);
-            optional_hdr_sym.ni = Node.known.optional_header;
-            assert(optional_hdr_sym.loc_relocs == .none);
-            optional_hdr_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+                try coff.addReloc(
+                    data_dir_si,
+                    @intFromPtr(&tls_directory.virtual_address) - @intFromPtr(coff.dataDirectorySlice().ptr),
+                    tls_used_si,
+                    .{ .known = 0 },
+                    switch (machine) {
+                        else => |tag| @panic(@tagName(tag)),
+                        .AMD64 => .{ .AMD64 = .ADDR32NB },
+                        .I386 => .{ .I386 = .DIR32NB },
+                    },
+                );
+            }
 
-            const optional_hdr = coff.optionalHeaderStandardPtr();
-            optional_hdr.address_of_entry_point = std.mem.nativeTo(
-                u32,
-                entry_si.get(coff).rva,
-                coff.targetEndian(),
-            );
-
-            try coff.addReloc(
-                optional_hdr_si,
-                @intFromPtr(&optional_hdr.address_of_entry_point) - @intFromPtr(optional_hdr),
-                entry_si,
-                .{ .known = 0 },
-                switch (machine) {
-                    else => |tag| @panic(@tagName(tag)),
-                    .AMD64 => .{ .AMD64 = .ADDR32NB },
-                    .I386 => .{ .I386 = .DIR32NB },
-                },
-            );
-        }
-    }
-
-    if (coff.getDefinedGlobal("_tls_used").unwrap()) |tls_used_si| {
-        const tls_directory = coff.dataDirectoryPtr(.TLS);
-        tls_directory.* = .{
-            .virtual_address = tls_used_si.get(coff).rva,
-            .size = switch (coff.targetLoad(&coff.optionalHeaderStandardPtr().magic)) {
-                _ => unreachable,
-                .PE32 => 24,
-                .@"PE32+" => 40,
-            },
-        };
-        if (coff.targetEndian() != native_endian)
-            std.mem.byteSwapAllFields(std.coff.ImageDataDirectory, tls_directory);
-
-        try coff.symbols.ensureTotalCapacity(gpa, 1);
-        const data_dir_si = coff.addSymbolAssumeCapacity();
-        const data_dir_sym = data_dir_si.get(coff);
-        data_dir_sym.ni = Node.known.data_directories;
-        assert(data_dir_sym.loc_relocs == .none);
-        data_dir_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
-
-        try coff.addReloc(
-            data_dir_si,
-            @intFromPtr(&tls_directory.virtual_address) - @intFromPtr(coff.dataDirectorySlice().ptr),
-            tls_used_si,
-            .{ .known = 0 },
-            switch (machine) {
-                else => |tag| @panic(@tagName(tag)),
-                .AMD64 => .{ .AMD64 = .ADDR32NB },
-                .I386 => .{ .I386 = .DIR32NB },
-            },
-        );
-    }
+            break :next .none;
+        },
+        .none => unreachable,
+    };
 }
 
 fn flushLazy(coff: *Coff, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
@@ -7137,9 +7160,66 @@ fn dumpStderr(coff: *Coff, tid: Zcu.PerThread.Id) !void {
 pub fn dump(coff: *Coff, w: *Io.Writer, tid: Zcu.PerThread.Id) !link.File.DumpResult {
     if (coff.dump_snapshot) {
         try coff.printNode(tid, w, .root, 0);
+        try w.writeAll("Section table:\n");
+        for (coff.section_table.keys(), coff.section_table.values()) |name, sec|
+            try coff.printSection(w, name, sec.si);
+        try w.writeAll("Symbol table:\n");
+        for (1..coff.symbols.items.len) |si|
+            try coff.printSymbol(w, @enumFromInt(si));
+
         return .enabled;
     }
     return .disabled;
+}
+
+fn printSection(coff: *Coff, w: *Io.Writer, name: String, si: Symbol.Index) !void {
+    const sym = si.get(coff);
+    try w.print("{d:0>6}@{d:0>2} {x:08} n{d:0>8} | {s}\n", .{
+        si,
+        sym.section_number,
+        if (sym.flags.value_tag == .size) sym.value.size else 0,
+        sym.ni,
+        name.toSlice(coff),
+    });
+}
+
+fn printSymbol(coff: *Coff, w: *Io.Writer, si: Symbol.Index) !void {
+    const sym = si.get(coff);
+    const node = coff.getNode(sym.ni);
+    try w.print("{d:0>6}@{d:0>2} {x:08} {s} n{d:0>8}+{x:08}:{t: <26} | {x:08} | {f}\n", .{
+        si,
+        sym.section_number,
+        if (sym.flags.value_tag == .size)
+            @as(u64, sym.value.size)
+        else if (sym.ni != .none)
+            sym.ni.location(&coff.mf).resolve(&coff.mf)[1]
+        else
+            0,
+        switch (sym.flags.type) {
+            .unknown => "u",
+            .code => "c",
+            .data => "d",
+        },
+        sym.ni,
+        if (sym.flags.value_tag == .node_offset) sym.value.node_offset else 0,
+        node,
+        sym.rva,
+        fmtGlobalName(coff, sym.gmi),
+    });
+}
+
+const FmtGlobalName = struct { coff: *Coff, gmi: Node.GlobalMapIndex };
+
+fn fmtGlobalName(coff: *Coff, gmi: Node.GlobalMapIndex) std.fmt.Alt(FmtGlobalName, globalNameEscape) {
+    return .{ .data = .{ .coff = coff, .gmi = gmi } };
+}
+
+fn globalNameEscape(data: FmtGlobalName, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    if (data.gmi == .none) return;
+    const gn = data.gmi.globalName(data.coff);
+    try w.writeAll(gn.name.toSlice(data.coff));
+    if (gn.lib_name.unwrap()) |lib_name|
+        try w.print("({s})", .{lib_name.toSlice(data.coff)});
 }
 
 pub fn printNode(
