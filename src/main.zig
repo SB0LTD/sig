@@ -20,6 +20,7 @@ const LibCInstallation = std.zig.LibCInstallation;
 const AstGen = std.zig.AstGen;
 const ZonGen = std.zig.ZonGen;
 const Server = std.zig.Server;
+const stringToEnum = std.meta.stringToEnum;
 
 pub const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
@@ -229,8 +230,6 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     return mainArgs(gpa, arena, io, args, &environ_map);
 }
 
-const cmd_map = std.StaticStringMap(Cmd).initEnum();
-
 const Cmd = enum {
     @"build-exe",
     @"build-lib",
@@ -322,7 +321,7 @@ fn mainArgs(
 
     const cmd = args[1];
     const cmd_args = args[2..];
-    switch (cmd_map.get(cmd) orelse {
+    switch (stringToEnum.get(Cmd, cmd) orelse {
         std.log.info("{s}", .{usage});
         fatal("unknown command: {s}", .{args[1]});
     }) {
@@ -1221,7 +1220,7 @@ fn buildOutputType(
                         const next_arg = args_iter.next() orelse {
                             fatal("expected [auto|on|off] after --color", .{});
                         };
-                        color = std.meta.stringToEnum(Color, next_arg) orelse {
+                        color = stringToEnum(Color, next_arg) orelse {
                             fatal("expected [auto|on|off] after --color, found {q}", .{next_arg});
                         };
                     } else if (mem.cutPrefix(u8, arg, "-j")) |str| {
@@ -1265,7 +1264,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-install_name")) {
                         install_name = args_iter.nextOrFatal();
                     } else if (mem.cutPrefix(u8, arg, "--compress-debug-sections=")) |param| {
-                        linker_compress_debug_sections = std.meta.stringToEnum(std.zig.CompressDebugSections, param) orelse {
+                        linker_compress_debug_sections = stringToEnum(std.zig.CompressDebugSections, param) orelse {
                             fatal("expected --compress-debug-sections=[none|zlib|zstd], found: {s}", .{param});
                         };
                     } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
@@ -2517,7 +2516,7 @@ fn buildOutputType(
                         if (it.only_arg.len == 0) {
                             linker_compress_debug_sections = .zlib;
                         } else {
-                            linker_compress_debug_sections = std.meta.stringToEnum(std.zig.CompressDebugSections, it.only_arg) orelse {
+                            linker_compress_debug_sections = stringToEnum(std.zig.CompressDebugSections, it.only_arg) orelse {
                                 fatal("expected [none|zlib|zstd] after --compress-debug-sections, found {q}", .{it.only_arg});
                             };
                         }
@@ -2669,7 +2668,7 @@ fn buildOutputType(
                     linker_print_map = true;
                 } else if (mem.eql(u8, arg, "--sort-section")) {
                     const arg1 = linker_args_it.nextOrFatal();
-                    linker_sort_section = std.meta.stringToEnum(link.File.Lld.Elf.SortSection, arg1) orelse {
+                    linker_sort_section = stringToEnum(link.File.Lld.Elf.SortSection, arg1) orelse {
                         fatal("expected [name|alignment] after --sort-section, found {q}", .{arg1});
                     };
                 } else if (mem.eql(u8, arg, "--allow-shlib-undefined") or
@@ -2725,7 +2724,7 @@ fn buildOutputType(
                     }
                 } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
                     const arg1 = linker_args_it.nextOrFatal();
-                    linker_compress_debug_sections = std.meta.stringToEnum(std.zig.CompressDebugSections, arg1) orelse {
+                    linker_compress_debug_sections = stringToEnum(std.zig.CompressDebugSections, arg1) orelse {
                         fatal("expected [none|zlib|zstd] after --compress-debug-sections, found {q}", .{arg1});
                     };
                 } else if (mem.cutPrefix(u8, arg, "-z")) |z_rest| {
@@ -2936,7 +2935,7 @@ fn buildOutputType(
                     mem.eql(u8, arg, "--hash-style"))
                 {
                     const next_arg = linker_args_it.nextOrFatal();
-                    hash_style = std.meta.stringToEnum(link.File.Lld.Elf.HashStyle, next_arg) orelse {
+                    hash_style = stringToEnum(link.File.Lld.Elf.HashStyle, next_arg) orelse {
                         fatal("expected [sysv|gnu|both] after --hash-style, found {q}", .{next_arg});
                     };
                 } else if (mem.eql(u8, arg, "-wrap")) {
@@ -5092,7 +5091,7 @@ fn cmdBuild(
                     configure_argv.appendAssumeCapacity(arg); // Intentionally "--system" only; not the path.
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "--color=")) |rest| {
-                    color = std.meta.stringToEnum(Color, rest) orelse
+                    color = stringToEnum(Color, rest) orelse
                         fatal("expected --color=[auto|on|off]; found {q}", .{arg});
 
                     try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
@@ -5104,7 +5103,7 @@ fn cmdBuild(
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "--cache-poison=")) |rest| {
                     // Allow the configurer process to report parse failure.
-                    if (std.meta.stringToEnum(std.Build.Graph.CachePoison, rest)) |poison| {
+                    if (stringToEnum(std.Build.Graph.CachePoison, rest)) |poison| {
                         cache_poison = poison;
                     }
                     configure_argv.appendAssumeCapacity(arg);
@@ -5156,7 +5155,7 @@ fn cmdBuild(
                     fetch_only = true;
                 } else if (mem.cutPrefix(u8, arg, "--fetch=")) |sub_arg| {
                     fetch_only = true;
-                    fetch_mode = std.meta.stringToEnum(Package.Fetch.JobQueue.Mode, sub_arg) orelse
+                    fetch_mode = stringToEnum(Package.Fetch.JobQueue.Mode, sub_arg) orelse
                         fatal("expected [needed|all] after \"--fetch=\", found: {s}", .{sub_arg});
                 } else if (mem.cutPrefix(u8, arg, "--fork=")) |sub_arg| {
                     try forks.append(arena, .init(sub_arg));
@@ -6592,7 +6591,7 @@ pub const ClangArgIterator = struct {
 };
 
 fn parseCodeModel(arg: []const u8) std.lang.CodeModel {
-    return std.meta.stringToEnum(std.lang.CodeModel, arg) orelse
+    return stringToEnum(std.lang.CodeModel, arg) orelse
         fatal("unsupported machine code model: {q}", .{arg});
 }
 
@@ -6639,7 +6638,7 @@ fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8, environ_map: 
                 }
                 i += 1;
                 const next_arg = args[i];
-                color = std.meta.stringToEnum(Color, next_arg) orelse {
+                color = stringToEnum(Color, next_arg) orelse {
                     fatal("expected [auto|on|off] after --color, found {q}", .{next_arg});
                 };
             } else {
@@ -7021,7 +7020,7 @@ fn warnAboutForeignBinaries(
 }
 
 fn parseSubsystem(arg: []const u8) !std.zig.Subsystem {
-    return std.meta.stringToEnum(std.zig.Subsystem, arg) orelse
+    return stringToEnum(std.zig.Subsystem, arg) orelse
         fatal("invalid: --subsystem: {q}. Options are:\n{s}", .{
             arg,
             \\  console
@@ -7152,7 +7151,7 @@ fn accessFrameworkPath(
 }
 
 fn parseRcIncludes(arg: []const u8) std.zig.RcIncludes {
-    return std.meta.stringToEnum(std.zig.RcIncludes, arg) orelse
+    return stringToEnum(std.zig.RcIncludes, arg) orelse
         fatal("unsupported rc includes type: {q}", .{arg});
 }
 
@@ -7818,12 +7817,12 @@ fn findTemplates(gpa: Allocator, arena: Allocator, io: Io) Templates {
 }
 
 fn parseOptimizeMode(s: []const u8) std.lang.OptimizeMode {
-    return std.meta.stringToEnum(std.lang.OptimizeMode, s) orelse
+    return stringToEnum(std.lang.OptimizeMode, s) orelse
         fatal("unrecognized optimization mode: {q}", .{s});
 }
 
 fn parseWasiExecModel(s: []const u8) std.lang.WasiExecModel {
-    return std.meta.stringToEnum(std.lang.WasiExecModel, s) orelse
+    return stringToEnum(std.lang.WasiExecModel, s) orelse
         fatal("expected [command|reactor] for -mexec-mode=[value], found {q}", .{s});
 }
 
