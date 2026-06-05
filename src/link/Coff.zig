@@ -1032,7 +1032,7 @@ pub const Symbol = struct {
             const sym = si.get(coff);
             sym.rva = coff.computeNodeRva(sym.ni) + sym.nodeOffset(coff);
             si.applyLocationRelocs(coff);
-            si.applyTargetRelocs(coff);
+            si.applyTargetRelocs(coff, .none);
         }
 
         pub fn flushSymbolTableIndex(si: Symbol.Index, coff: *Coff) void {
@@ -1065,7 +1065,7 @@ pub const Symbol = struct {
             }
         }
 
-        pub fn applyTargetRelocs(si: Symbol.Index, coff: *Coff) void {
+        pub fn applyTargetRelocs(si: Symbol.Index, coff: *Coff, end: Reloc.Index) void {
             const sym = si.get(coff);
 
             // TODO: Would this be better modeled using an actual reloc? Would need a si for the header
@@ -1075,7 +1075,7 @@ pub const Symbol = struct {
             }
 
             var ri = sym.target_relocs;
-            while (ri != .none) {
+            while (ri != end) {
                 const reloc = ri.get(coff);
                 assert(reloc.target == si);
                 reloc.apply(coff);
@@ -3403,7 +3403,7 @@ pub fn addReloc(
     const target = target_si.get(coff);
 
     const ri: Reloc.Index = @enumFromInt(coff.relocs.items.len);
-    log.debug("addReloc({d}@{d}+{d} -> {d}@{d}+{d}{s}) = {d}", .{
+    log.debug("addReloc({d}@{d}+0x{x} -> {d}@{d}+0x{x}{s}) = {d}", .{
         loc_si,
         loc_si.get(coff).section_number,
         offset,
@@ -4306,15 +4306,15 @@ fn loadObject(
             else => {},
         }
 
-        defer log.debug("addInputSymbol({s}, 0x{x}, {t}=0x{x}, {d}) = n{d} {d}@{d}", .{
+        defer log.debug("addInputSymbol({s}, 0x{x}@{d}, {t}=0x{x}) = n{d} {d}@{d}", .{
             symbol.name.toSlice(coff),
             index,
+            symbol.section_number,
             symbol.value,
             switch (symbol.value) {
                 .weak_external_aux => unreachable,
                 inline else => |v| v,
             },
-            symbol.section_number,
             symbol.si.get(coff).ni,
             symbol.si,
             symbol.si.get(coff).section_number,
@@ -5799,10 +5799,18 @@ fn aliasGlobal(coff: *Coff, gmi: Node.GlobalMapIndex, alias_si: Symbol.Index) !v
     const gn = gmi.globalName(coff);
     const si = gmi.symbol(coff);
     const sym = si.get(coff);
+    const alias_sym = alias_si.get(coff);
     assert(sym.section_number == .UNDEFINED);
     assert(sym.loc_relocs == .none);
 
-    const alias_sym = alias_si.get(coff);
+    log.debug("aliasGlobal({s}, {?s}) {d}->{d} ({?s})", .{
+        gn.name.toSlice(coff),
+        gn.lib_name.toSlice(coff),
+        si,
+        alias_si,
+        if (alias_sym.gmi != .none) alias_sym.gmi.globalName(coff).name.toSlice(coff) else null,
+    });
+
     var ri = sym.target_relocs;
     while (ri != .none) {
         const reloc = ri.get(coff);
@@ -5812,22 +5820,19 @@ fn aliasGlobal(coff: *Coff, gmi: Node.GlobalMapIndex, alias_si: Symbol.Index) !v
             reloc.next = alias_sym.target_relocs;
             if (alias_sym.target_relocs != .none)
                 alias_sym.target_relocs.get(coff).prev = ri;
+            break;
         }
         ri = reloc.next;
     }
 
+    const prev_target_relocs = alias_sym.target_relocs;
+    if (sym.target_relocs != .none)
+        alias_sym.target_relocs = sym.target_relocs;
     sym.target_relocs = .none;
     sym.gmi = alias_sym.gmi;
     coff.globals.values()[gmi.unwrap().?] = alias_si;
-    alias_si.applyTargetRelocs(coff);
-
-    log.debug("aliasGlobal({s}, {?s}) {d}->{d} ({?s})", .{
-        gn.name.toSlice(coff),
-        gn.lib_name.toSlice(coff),
-        si,
-        alias_si,
-        if (alias_sym.gmi != .none) alias_sym.gmi.globalName(coff).name.toSlice(coff) else null,
-    });
+    // Only apply the new relocs
+    alias_si.applyTargetRelocs(coff, prev_target_relocs);
 }
 
 fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
@@ -5839,8 +5844,8 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     const is_late = gmi.unwrap().? < coff.global_pending_index;
 
     log.debug(
-        "flushGlobal({s}, {?s}, {}) = {d} ({d})",
-        .{ gn.name.toSlice(coff), gn.lib_name.toSlice(coff), is_late, si, sym.ni },
+        "flushGlobal({s}, {?s}, {}) = n{d} {d}@{d}",
+        .{ gn.name.toSlice(coff), gn.lib_name.toSlice(coff), is_late, sym.ni, si, sym.section_number },
     );
 
     if (!coff.isImage()) {
@@ -6759,7 +6764,7 @@ fn updateExportsInner(
         export_sym.rva = exported_sym.rva;
         export_sym.setValue(.{ .size = exported_sym.value.size });
         export_sym.section_number = exported_sym.section_number;
-        defer export_si.applyTargetRelocs(coff);
+        defer export_si.applyTargetRelocs(coff, .none);
 
         if (coff.isImage()) {
             if (@"export".opts.name.eqlSlice("_tls_used", ip)) {
