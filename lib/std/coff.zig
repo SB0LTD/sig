@@ -1392,6 +1392,10 @@ pub const Relocation = extern struct {
     virtual_address: u32,
     symbol_table_index: u32,
     type: u16,
+
+    pub fn sizeOf() usize {
+        return 10;
+    }
 };
 
 pub const IMAGE = struct {

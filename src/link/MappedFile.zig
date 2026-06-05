@@ -696,7 +696,7 @@ fn shrinkNode(
     gpa: std.mem.Allocator,
     ni: Node.Index,
     size: u64,
-    shrink_next: bool,
+    shift_next: bool,
 ) !void {
     const node = ni.get(mf);
     const old_offset, _ = node.location().resolve(mf);
@@ -714,7 +714,7 @@ fn shrinkNode(
     try mf.updates.ensureUnusedCapacity(gpa, 2);
 
     ni.setLocationAssumeCapacity(mf, old_offset, size);
-    if (!shrink_next or node.next == .none) return;
+    if (!shift_next or node.next == .none) return;
 
     const next = node.next.get(mf);
     const old_next_offset, const next_size = next.location().resolve(mf);
@@ -738,7 +738,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
     const node = ni.get(mf);
     const old_offset, const old_size = node.location().resolve(mf);
     const new_size = node.flags.alignment.forward(@intCast(requested_size));
-    if (new_size <= old_size) return;
+    //if (new_size <= old_size) return;
 
     // Resize the entire file
     if (ni == Node.Index.root) {
