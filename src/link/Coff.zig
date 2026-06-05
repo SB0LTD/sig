@@ -279,15 +279,17 @@ pub const Node = union(enum) {
 
 pub const ExportTable = struct {
     ni: MappedFile.Node.Index,
-    export_address_table_ni: MappedFile.Node.Index,
+    export_address_table_si: Symbol.Index,
     name_pointer_table_ni: MappedFile.Node.Index,
     ordinal_table_ni: MappedFile.Node.Index,
     name_table_ni: MappedFile.Node.Index,
     entries: std.AutoArrayHashMapUnmanaged(void, Entry),
+    pending_sort: bool = false,
 
     pub const Entry = struct {
         name_index: u32,
         name_len: u32,
+        export_address_table_ri: Reloc.Index,
     };
 
     const Adapter = struct {
@@ -306,10 +308,10 @@ pub const ExportTable = struct {
         }
     };
 
-    pub const Index = enum(u32) {
+    pub const Ordinal = enum(u16) {
         _,
 
-        pub fn get(export_index: ExportTable.Index, coff: *Coff) *Entry {
+        pub fn get(export_index: ExportTable.Ordinal, coff: *Coff) *Entry {
             return &coff.export_table.entries.values()[@intFromEnum(export_index)];
         }
     };
@@ -744,7 +746,7 @@ fn create(
         },
         .export_table = .{
             .ni = .none,
-            .export_address_table_ni = .none,
+            .export_address_table_si = .null,
             .name_pointer_table_ni = .none,
             .ordinal_table_ni = .none,
             .name_table_ni = .none,
@@ -1083,10 +1085,21 @@ fn initHeaders(
         );
         @memcpy(coff.export_table.ni.slice(&coff.mf)[name_index..][0 .. name.len + 1], name[0 .. name.len + 1]);
 
-        coff.export_table.export_address_table_ni = try coff.mf.addLastChildNode(gpa, edata_section_ni, .{
+        const export_address_table_ni = try coff.mf.addLastChildNode(gpa, edata_section_ni, .{
             .alignment = .of(u32),
             .moved = true,
         });
+
+        try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+        coff.export_table.export_address_table_si = coff.addSymbolAssumeCapacity();
+
+        const export_address_table_sym = coff.export_table.export_address_table_si.get(coff);
+        export_address_table_sym.ni = export_address_table_ni;
+        assert(export_address_table_sym.loc_relocs == .none);
+        export_address_table_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        export_address_table_sym.section_number =
+            coff.getNode(edata_section_ni).pseudo_section.symbol(coff).get(coff).section_number;
+
         coff.export_table.name_pointer_table_ni = try coff.mf.addLastChildNode(gpa, edata_section_ni, .{
             .alignment = .of(u32),
             .moved = true,
@@ -1120,6 +1133,8 @@ fn initHeaders(
             .name_pointer_table_rva = 0,
             .ordinal_table_rva = 0,
         };
+        if (target_endian != native_endian)
+            std.mem.byteSwapAllFields(std.coff.ExportDirectoryTable, export_directory_table);
     }
 
     // While tls variables allocated at runtime are writable, the template itself is not
@@ -1313,10 +1328,6 @@ pub fn importDirectoryEntryPtr(
 
 pub fn exportDirectoryTable(coff: *Coff) *std.coff.ExportDirectoryTable {
     return @ptrCast(@alignCast(coff.export_table.ni.slice(&coff.mf)));
-}
-
-pub fn exportAddressTableSlice(coff: *Coff) []std.coff.ExportAddressTableEntry {
-    return @ptrCast(@alignCast(coff.export_table.export_address_table_ni.slice(&coff.mf)));
 }
 
 pub fn exportNamePointerTableSlice(coff: *Coff) []std.coff.ExportNamePointerTableEntry {
@@ -1875,82 +1886,6 @@ pub fn updateErrorData(coff: *Coff, pt: Zcu.PerThread) !void {
     };
 }
 
-fn flushExports(coff: *Coff, tid: Zcu.PerThread.Id) !void {
-    const export_count = coff.export_table.entries.count();
-    if (export_count == 0) return;
-
-    const gpa = coff.base.comp.zcu.?.gpa;
-    const edt = coff.exportDirectoryTable();
-    edt.number_of_names = @intCast(export_count);
-    edt.number_of_entries = @intCast(export_count);
-
-    try coff.export_table.name_pointer_table_ni.resize(
-        &coff.mf,
-        gpa,
-        export_count * @sizeOf(std.coff.ExportNamePointerTableEntry),
-    );
-
-    try coff.export_table.ordinal_table_ni.resize(
-        &coff.mf,
-        gpa,
-        export_count * @sizeOf(std.coff.ExportOrdinalTableEntry),
-    );
-
-    while (try coff.idle(tid)) {}
-    if (coff.targetEndian() != native_endian)
-        std.mem.byteSwapAllFields(std.coff.ExportDirectoryTable, edt);
-
-    const name_table_rva = coff.computeNodeRva(coff.export_table.name_table_ni);
-    for (
-        coff.exportNamePointerTableSlice(),
-        coff.exportOrdinalTableSlice(),
-        coff.export_table.entries.values(),
-        0..,
-    ) |*np, *ord, entry, entry_i| {
-        np.name_rva = name_table_rva + entry.name_index;
-        if (coff.targetEndian() != native_endian)
-            std.mem.byteSwapAllFields(std.coff.ExportNamePointerTableEntry, np);
-
-        ord.unbiased_ordinal = @intCast(entry_i);
-        if (coff.targetEndian() != native_endian)
-            std.mem.byteSwapAllFields(std.coff.ExportOrdinalTableEntry, &ord);
-    }
-
-    const Context = struct {
-        np: []std.coff.ExportNamePointerTableEntry,
-        ord: []std.coff.ExportOrdinalTableEntry,
-        entries: []ExportTable.Entry,
-        names: []const u8,
-
-        pub fn lessThan(ctx: @This(), lhs: usize, rhs: usize) bool {
-            const lhs_entry = &ctx.entries[lhs];
-            const rhs_entry = &ctx.entries[rhs];
-            return std.mem.lessThan(
-                u8,
-                ctx.names[lhs_entry.name_index..][0..lhs_entry.name_len],
-                ctx.names[rhs_entry.name_index..][0..rhs_entry.name_len],
-            );
-        }
-
-        pub fn swap(ctx: @This(), lhs: usize, rhs: usize) void {
-            std.mem.swap(std.coff.ExportNamePointerTableEntry, &ctx.np[lhs], &ctx.np[rhs]);
-            std.mem.swap(std.coff.ExportOrdinalTableEntry, &ctx.ord[lhs], &ctx.ord[rhs]);
-            std.mem.swap(ExportTable.Entry, &ctx.entries[lhs], &ctx.entries[rhs]);
-        }
-    };
-
-    std.sort.pdqContext(0, export_count, Context{
-        .np = coff.exportNamePointerTableSlice(),
-        .ord = coff.exportOrdinalTableSlice(),
-        .entries = coff.export_table.entries.values(),
-        .names = coff.export_table.name_table_ni.slice(&coff.mf),
-    });
-
-    // TODO: Is there a way to know if this is the last flush? We could skip doing this if so.
-    // TODO: Need to reindex with adaptor?
-    //try coff.export_table.entries.reIndexContext(gpa, ExportTable.Adapter{ .coff = coff });
-}
-
 pub fn flush(
     coff: *Coff,
     arena: std.mem.Allocator,
@@ -1960,9 +1895,6 @@ pub fn flush(
     _ = arena;
     _ = prog_node;
     while (try coff.idle(tid)) {}
-
-    coff.flushExports(tid) catch |err|
-        return coff.base.comp.link_diags.fail("linker failed to flush exports: {t}", .{err});
 
     // hack for stage2_x86_64 + coff
     const comp = coff.base.comp;
@@ -2061,11 +1993,17 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
                 break :task;
             } else coff.mf.update_prog_node.completeOne();
         }
+        if (coff.export_table.pending_sort) {
+            coff.export_table.pending_sort = false;
+            coff.flushExportsSort();
+            break :task;
+        }
     }
     if (coff.pending_uavs.count() > 0) return true;
     if (coff.globals.count() > coff.global_pending_index) return true;
     for (&coff.lazy.values) |lazy| if (lazy.map.count() > lazy.pending_index) return true;
     if (coff.mf.updates.items.len > 0) return true;
+    if (coff.export_table.pending_sort) return true;
     return false;
 }
 
@@ -2158,18 +2096,18 @@ fn flushGlobal(coff: *Coff, pt: Zcu.PerThread, gmi: Node.GlobalMapIndex) !void {
     const gpa = zcu.gpa;
     const gn = gmi.globalName(coff);
 
-    const target_endian = coff.targetEndian();
-    const magic = coff.targetLoad(&coff.optionalHeaderStandardPtr().magic);
-    const addr_size: u64, const addr_align: std.mem.Alignment = switch (magic) {
-        _ => unreachable,
-        .PE32 => .{ 4, .@"4" },
-        .@"PE32+" => .{ 8, .@"8" },
-    };
-
-    const name = gn.name.toSlice(coff);
     if (gn.lib_name.toSlice(coff)) |lib_name| {
+        const name = gn.name.toSlice(coff);
         try coff.nodes.ensureUnusedCapacity(gpa, 4);
         try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+
+        const target_endian = coff.targetEndian();
+        const magic = coff.targetLoad(&coff.optionalHeaderStandardPtr().magic);
+        const addr_size: u64, const addr_align: std.mem.Alignment = switch (magic) {
+            _ => unreachable,
+            .PE32 => .{ 4, .@"4" },
+            .@"PE32+" => .{ 8, .@"8" },
+        };
 
         const gop = try coff.import_table.entries.getOrPutAdapted(
             gpa,
@@ -2315,47 +2253,6 @@ fn flushGlobal(coff: *Coff, pt: Zcu.PerThread, gmi: Node.GlobalMapIndex) !void {
         coff.nodes.appendAssumeCapacity(.{ .global = gmi });
         sym.rva = coff.computeNodeRva(sym.ni);
         si.applyLocationRelocs(coff);
-    } else {
-        const entries_ctx = ExportTable.Adapter{ .coff = coff };
-        const gop = try coff.export_table.entries.getOrPutAdapted(
-            gpa,
-            name,
-            entries_ctx,
-        );
-
-        if (!gop.found_existing) {
-            errdefer _ = coff.export_table.entries.pop();
-            if (coff.export_table.entries.count() > std.math.maxInt(@FieldType(std.coff.ExportDirectoryTable, "number_of_entries")))
-                return coff.base.comp.link_diags.fail("exceeded maximum number of exports", .{});
-
-            const name_index = coff.export_table.name_table_ni.fileLocation(&coff.mf, true).size;
-            const new_name_table_size = name_index + name.len + 1;
-            if (new_name_table_size > std.math.maxInt(@FieldType(ExportTable.Entry, "name_index")))
-                return coff.base.comp.link_diags.fail("exports name table limit reached", .{});
-
-            try coff.export_table.name_table_ni.resize(&coff.mf, gpa, new_name_table_size);
-
-            const name_table_slice = coff.export_table.name_table_ni.slice(&coff.mf);
-            @memcpy(name_table_slice[name_index..][0 .. name.len + 1], name[0 .. name.len + 1]);
-
-            gop.value_ptr.* = .{
-                .name_index = @intCast(name_index),
-                .name_len = @intCast(name.len),
-            };
-
-            const si = gmi.symbol(coff);
-            const sym = si.get(coff);
-
-            try coff.export_table.export_address_table_ni.resize(
-                &coff.mf,
-                gpa,
-                coff.export_table.entries.count() * @sizeOf(std.coff.ExportAddressTableEntry),
-            );
-            const ea = &coff.exportAddressTableSlice()[gop.index];
-            ea.export_or_forwarder_rva = sym.rva;
-            if (coff.targetEndian() != native_endian)
-                std.mem.byteSwapAllFields(std.coff.ExportAddressTableEntry, &ea);
-        }
     }
 }
 
@@ -2490,10 +2387,19 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
             coff.targetStore(&coff.dataDirectoryPtr(.EXPORT).virtual_address, rva);
             coff.targetStore(&coff.exportDirectoryTable().name_rva, rva + @sizeOf(std.coff.ExportDirectoryTable));
         },
-        .export_address_table => coff.targetStore(
-            &coff.exportDirectoryTable().export_address_table_rva,
-            coff.computeNodeRva(ni),
-        ),
+        .export_address_table => {
+            coff.export_table.export_address_table_si.flushMoved(coff);
+
+            // These relocs are applied directly here instead of via the above flushMoved call as
+            // they are non-contiguous, and not tracked under export_address_table_si.
+            for (coff.export_table.entries.values()) |entry|
+                entry.export_address_table_ri.get(coff).apply(coff);
+
+            coff.targetStore(
+                &coff.exportDirectoryTable().export_address_table_rva,
+                coff.computeNodeRva(ni),
+            );
+        },
         .export_name_pointer_table => coff.targetStore(
             &coff.exportDirectoryTable().name_pointer_table_rva,
             coff.computeNodeRva(ni),
@@ -2503,8 +2409,18 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
             coff.computeNodeRva(ni),
         ),
         .export_name_table => {
-            // .export_name_pointer_table entries are updated in flush
-            log.warn("flushMoved export_name_table unhandled", .{});
+            const name_table_rva = coff.computeNodeRva(coff.export_table.name_table_ni);
+            for (
+                coff.exportNamePointerTableSlice(),
+                coff.exportOrdinalTableSlice(),
+            ) |*np, target_ord| {
+                const ord: ExportTable.Ordinal = @enumFromInt(coff.targetLoad(&target_ord.unbiased_ordinal));
+                const entry = ord.get(coff);
+                coff.targetStore(
+                    &np.name_rva,
+                    @intCast(name_table_rva + entry.name_index),
+                );
+            }
         },
         inline .pseudo_section,
         .object_section,
@@ -2571,6 +2487,40 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .global, .nav, .uav, .lazy_code, .lazy_const_data => {},
     }
 }
+
+fn flushExportsSort(coff: *Coff) void {
+    const Context = struct {
+        coff: *Coff,
+        np: []std.coff.ExportNamePointerTableEntry,
+        ord: []std.coff.ExportOrdinalTableEntry,
+        entries: []ExportTable.Entry,
+        nt: []const u8,
+
+        pub fn lessThan(ctx: @This(), lhs: usize, rhs: usize) bool {
+            const lhs_entry = &ctx.entries[ctx.coff.targetLoad(&ctx.ord[lhs].unbiased_ordinal)];
+            const rhs_entry = &ctx.entries[ctx.coff.targetLoad(&ctx.ord[rhs].unbiased_ordinal)];
+            return std.mem.lessThan(
+                u8,
+                ctx.nt[lhs_entry.name_index..][0..lhs_entry.name_len],
+                ctx.nt[rhs_entry.name_index..][0..rhs_entry.name_len],
+            );
+        }
+
+        pub fn swap(ctx: @This(), lhs: usize, rhs: usize) void {
+            std.mem.swap(std.coff.ExportNamePointerTableEntry, &ctx.np[lhs], &ctx.np[rhs]);
+            std.mem.swap(std.coff.ExportOrdinalTableEntry, &ctx.ord[lhs], &ctx.ord[rhs]);
+        }
+    };
+
+    std.sort.pdqContext(0, coff.export_table.entries.count(), Context{
+        .coff = coff,
+        .np = coff.exportNamePointerTableSlice(),
+        .ord = coff.exportOrdinalTableSlice(),
+        .entries = coff.export_table.entries.values(),
+        .nt = coff.export_table.name_table_ni.slice(&coff.mf),
+    });
+}
+
 fn virtualSlide(coff: *Coff, start_section_index: usize, start_rva: u32) !void {
     var rva = start_rva;
     for (
@@ -2592,6 +2542,17 @@ fn virtualSlide(coff: *Coff, start_section_index: usize, start_rva: u32) !void {
 }
 
 pub fn updateExports(
+    coff: *Coff,
+    pt: Zcu.PerThread,
+    exported: Zcu.Exported,
+    export_indices: []const Zcu.Export.Index,
+) !void {
+    return coff.updateExportsInner(pt, exported, export_indices) catch |err| switch (err) {
+        error.OutOfMemory => error.OutOfMemory,
+        else => |e| coff.base.comp.link_diags.fail("updateExports failed {t}", .{e}) catch error.AnalysisFail,
+    };
+}
+fn updateExportsInner(
     coff: *Coff,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
@@ -2622,7 +2583,8 @@ pub fn updateExports(
     const exported_sym = exported_si.get(coff);
     for (export_indices) |export_index| {
         const @"export" = export_index.ptr(zcu);
-        const export_si = try coff.globalSymbol(@"export".opts.name.toSlice(ip), null);
+        const name = @"export".opts.name.toSlice(ip);
+        const export_si = try coff.globalSymbol(name, null);
         const export_sym = export_si.get(coff);
         export_sym.ni = exported_ni;
         export_sym.rva = exported_sym.rva;
@@ -2636,6 +2598,90 @@ pub fn updateExports(
             tls_directory.* = .{ .virtual_address = exported_sym.rva, .size = exported_sym.size };
             if (coff.targetEndian() != native_endian)
                 std.mem.byteSwapAllFields(std.coff.ImageDataDirectory, tls_directory);
+        }
+
+        const entries_ctx = ExportTable.Adapter{ .coff = coff };
+        const gop = try coff.export_table.entries.getOrPutAdapted(
+            gpa,
+            name,
+            entries_ctx,
+        );
+
+        if (!gop.found_existing) {
+            errdefer _ = coff.export_table.entries.pop();
+
+            const export_count = coff.export_table.entries.count();
+            if (export_count > std.math.maxInt(@FieldType(std.coff.ExportDirectoryTable, "number_of_entries")))
+                return coff.base.comp.link_diags.fail("exceeded maximum number of exports", .{});
+
+            const name_index = coff.export_table.name_table_ni.fileLocation(&coff.mf, true).size;
+            const new_name_table_size = name_index + name.len + 1;
+            if (new_name_table_size > std.math.maxInt(@FieldType(ExportTable.Entry, "name_index")))
+                return coff.base.comp.link_diags.fail("exports name table limit reached", .{});
+
+            try coff.export_table.name_table_ni.resize(&coff.mf, gpa, new_name_table_size);
+
+            const name_table_slice = coff.export_table.name_table_ni.slice(&coff.mf);
+            @memcpy(name_table_slice[name_index..][0 .. name.len + 1], name[0 .. name.len + 1]);
+
+            // If the new name sorts after the current tail of the sorted list, we don't need to re-sort
+            const ordinal_table_slice = coff.exportOrdinalTableSlice();
+            if (ordinal_table_slice.len > 0 and !coff.export_table.pending_sort) {
+                const tail_index: ExportTable.Ordinal =
+                    @enumFromInt(ordinal_table_slice[ordinal_table_slice.len - 1].unbiased_ordinal);
+                const tail_entry = tail_index.get(coff);
+                const tail_name = name_table_slice[tail_entry.name_index..][0..tail_entry.name_len];
+                coff.export_table.pending_sort = std.mem.lessThan(u8, name, tail_name);
+            }
+
+            const edt = coff.exportDirectoryTable();
+            coff.targetStore(&edt.number_of_names, @intCast(export_count));
+            edt.number_of_entries = edt.number_of_names;
+
+            try coff.export_table.export_address_table_si.node(coff).resize(
+                &coff.mf,
+                gpa,
+                export_count * @sizeOf(std.coff.ExportAddressTableEntry),
+            );
+
+            try coff.export_table.name_pointer_table_ni.resize(
+                &coff.mf,
+                gpa,
+                export_count * @sizeOf(std.coff.ExportNamePointerTableEntry),
+            );
+
+            try coff.export_table.ordinal_table_ni.resize(
+                &coff.mf,
+                gpa,
+                export_count * @sizeOf(std.coff.ExportOrdinalTableEntry),
+            );
+
+            coff.targetStore(
+                &coff.exportNamePointerTableSlice()[gop.index].name_rva,
+                @intCast(coff.computeNodeRva(coff.export_table.name_table_ni) + name_index),
+            );
+            coff.targetStore(
+                &coff.exportOrdinalTableSlice()[gop.index].unbiased_ordinal,
+                @intCast(gop.index),
+            );
+
+            gop.value_ptr.* = .{
+                .name_index = @intCast(name_index),
+                .name_len = @intCast(name.len),
+                .export_address_table_ri = @enumFromInt(coff.relocs.items.len),
+            };
+
+            try coff.addReloc(
+                coff.export_table.export_address_table_si,
+                @intCast(@sizeOf(std.coff.ExportAddressTableEntry) * gop.index),
+                export_si,
+                0,
+                .{ .AMD64 = .ADDR32NB },
+            );
+        } else {
+            const reloc = gop.value_ptr.*.export_address_table_ri.get(coff);
+            reloc.target = export_si;
+            export_si.applyTargetRelocs(coff);
         }
     }
 }
