@@ -654,6 +654,10 @@ pub const SectionHeader = extern struct {
                 std.debug.assert(std.math.isPowerOfTwo(n));
                 return @enumFromInt(@ctz(n) + 1);
             }
+
+            pub fn alignment(a: Align) ?std.mem.Alignment {
+                return .fromByteUnitsOptional(a.toByteUnits() orelse null);
+            }
         };
     };
 };
