@@ -10,10 +10,13 @@ const native_endian = builtin.cpu.arch.endian();
 var stdout_buffer: [4000]u8 = undefined;
 
 const Options = struct {
-    input_path: []const u8,
+    exports: bool,
     file_headers: bool,
+    imports: bool,
+    input_path: []const u8,
     member_filters: []const []const u8 = &.{},
     member_headers: bool,
+    relocs: bool,
     section_filters: []const []const u8 = &.{},
     section_headers: bool,
     strings: bool,
@@ -30,14 +33,16 @@ pub fn main(init: std.process.Init) !void {
 
     var i: usize = 1;
 
-    var opt_input_path: ?[]const u8 = null;
+    var opt_exports: ?bool = null;
     var opt_file_headers: ?bool = null;
+    var opt_imports: ?bool = null;
+    var opt_input_path: ?[]const u8 = null;
     var opt_linker_member: ?std.coff.ArchiveMemberHeader.Kind = null;
     var opt_member_headers: ?bool = null;
+    var opt_relocs: ?bool = null;
     var opt_section_headers: ?bool = null;
     var opt_strings: ?bool = null;
     var opt_symbols: ?bool = null;
-    var opt_relocs: ?bool = null;
     var section_filters: std.ArrayList([]const u8) = .empty;
     var member_filters: std.ArrayList([]const u8) = .empty;
     while (i < args.len) : (i += 1) {
@@ -51,11 +56,17 @@ pub fn main(init: std.process.Init) !void {
                 opt_section_headers = true;
                 opt_symbols = true;
                 opt_relocs = true;
+            } else if (mem.eql(u8, arg, "--exports")) {
+                opt_exports = true;
             } else if (mem.eql(u8, arg, "--file-headers")) {
                 opt_file_headers = true;
+            } else if (mem.eql(u8, arg, "--imports")) {
+                opt_imports = true;
             } else if (mem.startsWith(u8, arg, "--linker-member")) {
                 if (mem.eql(u8, arg["--linker-member".len..], "=1"))
                     opt_linker_member = .first_linker
+                else if (mem.eql(u8, arg["--linker-member".len..], "=longnames"))
+                    opt_linker_member = .longnames
                 else
                     opt_linker_member = .second_linker;
             } else if (mem.eql(u8, arg, "--member-headers")) {
@@ -84,9 +95,12 @@ pub fn main(init: std.process.Init) !void {
 
     const opts: Options = .{
         .input_path = opt_input_path orelse fatal("missing input file path positional argument", .{}),
+        .exports = opt_exports orelse false,
         .file_headers = opt_file_headers orelse false,
+        .imports = opt_imports orelse false,
         .section_filters = section_filters.items,
         .section_headers = opt_section_headers orelse false,
+        .relocs = opt_relocs orelse false,
         .strings = opt_strings orelse false,
         .symbols = opt_symbols orelse false,
         .member_filters = member_filters.items,
@@ -129,6 +143,7 @@ fn dump(gpa: std.mem.Allocator, opts: *const Options, fr: *Io.File.Reader, w: *I
     }
     coff: {
         const ext = std.fs.path.extension(opts.input_path);
+        const basename = std.fs.path.basename(opts.input_path);
         if (std.mem.eql(u8, ext, ".exe") or std.mem.eql(u8, ext, ".dll")) {
             if (!mem.eql(u8, r.buffered()[0..2], "MZ")) break :coff;
             try r.discardAll(std.coff.pe_pointer_offset);
@@ -141,16 +156,16 @@ fn dump(gpa: std.mem.Allocator, opts: *const Options, fr: *Io.File.Reader, w: *I
                 return error.ParseFailure;
             }
 
-            try w.print("{s}: PE/COFF image\n\n", .{std.fs.path.basename(opts.input_path)});
-            return coff.dumpObject(gpa, opts, true, fr, w);
+            try w.print("{s}: PE/COFF image\n\n", .{basename});
+            return coff.dumpObject(gpa, opts, true, basename, fr, w);
         } else if (std.mem.eql(u8, ext, ".lib")) {
             r.fill(std.coff.archive_signature.len) catch break :coff;
             if (!mem.eql(u8, r.buffered()[0..std.coff.archive_signature.len], std.coff.archive_signature)) break :coff;
-            try w.print("{s}: COFF archive\n\n", .{std.fs.path.basename(opts.input_path)});
+            try w.print("{s}: COFF archive\n\n", .{basename});
             return coff.dumpArchive(gpa, opts, fr, w);
         } else if (std.mem.eql(u8, ext, ".obj")) {
-            try w.print("{s}: COFF object\n\n", .{std.fs.path.basename(opts.input_path)});
-            return coff.dumpObject(gpa, opts, false, fr, w);
+            try w.print("{s}: COFF object\n\n", .{basename});
+            return coff.dumpObject(gpa, opts, false, basename, fr, w);
         }
     }
     return error.UnknownFile;
@@ -242,7 +257,10 @@ const coff = struct {
             if (!std.mem.eql(u8, &raw_header.end_of_header, std.coff.archive_end_of_header))
                 return failParse(opts, "malformed end-of-header field in member '{s}': {x}", .{ header.name, raw_header.end_of_header });
 
-            const dump_header = opts.member_headers and filterMatches(opts.member_filters, header.name);
+            const dump_header =
+                (opts.member_headers and filterMatches(opts.member_filters, header.name)) or
+                (opts.linker_member == opt_expected_kind);
+
             if (dump_header)
                 try dumpArchiveHeader(w, &header, @intCast(pos));
 
@@ -264,11 +282,12 @@ const coff = struct {
                         , .{ expected_kind, num_symbols });
 
                     if (opts.linker_member == .first_linker) {
-                        try w.print(
-                            \\Archives symbols ({d}):
+                        try w.writeAll(
+                            \\
+                            \\Archive symbols:
                             \\& Member Symbol
                             \\
-                        , .{num_symbols});
+                        );
 
                         const offsets = try r.readAlloc(gpa, num_symbols * 4);
                         defer gpa.free(offsets);
@@ -320,11 +339,12 @@ const coff = struct {
                         symbol_member_indices.addOneAssumeCapacity().* = (try r.takeInt(u16, .little)) - 1;
 
                     if (opts.linker_member == .second_linker) {
-                        try w.print(
-                            \\Archive symbols ({d} members, {d} symbols):
+                        try w.writeAll(
+                            \\
+                            \\Archive Symbols:
                             \\& Member Symbol
                             \\
-                        , .{ num_members, num_symbols });
+                        );
 
                         pos = fr.logicalPos();
                         var symbol_i: u32 = 0;
@@ -362,6 +382,21 @@ const coff = struct {
                         opt_longnames = try r.readAlloc(gpa, header.size);
                         if (dump_header)
                             try w.print("{t: >16} type\n", .{expected_kind});
+
+                        if (opts.linker_member == .longnames) {
+                            try w.print(
+                                \\
+                                \\Longnames (0x{x} bytes):
+                                \\
+                            , .{opt_longnames.?.len});
+
+                            var lr = Io.Reader.fixed(opt_longnames.?);
+                            while (try lr.takeDelimiter(0)) |str| {
+                                try w.writeAll(str);
+                                try w.writeByte('\n');
+                            }
+                            try w.writeByte('\n');
+                        }
                     }
 
                     opt_expected_kind = null;
@@ -390,13 +425,50 @@ const coff = struct {
                 @enumFromInt(std.mem.readInt(u16, member_sig[0..2], .little));
             const sig = std.mem.readInt(u16, member_sig[2..4], .little);
 
-            const is_import = machine == std.coff.IMAGE.FILE.MACHINE.UNKNOWN and sig == 0xffff;
+            const is_imp_lib = machine == std.coff.IMAGE.FILE.MACHINE.UNKNOWN and sig == 0xffff;
 
-            if (opts.member_headers) {
+            if (opts.member_headers or (opts.exports and is_imp_lib)) {
                 try dumpArchiveHeader(w, &header, member.offset);
-                if (is_import) {
-                    try w.writeAll("   Import header type\n");
-                    // TODO: Dump import header
+                if (is_imp_lib) {
+                    try w.writeAll("\nImport header:\n");
+
+                    const imp_header = try r.takeStruct(std.coff.ImportHeader, .little);
+                    try dumpHeader(w, std.coff.ImportHeader, &imp_header, struct {
+                        pub fn sig1(_: *const std.coff.ImportHeader, _: *Io.Writer) !void {}
+                        pub fn sig2(_: *const std.coff.ImportHeader, _: *Io.Writer) !void {}
+                        pub fn types(h: *const std.coff.ImportHeader, cw: *Io.Writer) !void {
+                            try cw.print(
+                                \\{t: >16} import_type 
+                                \\{t: >16} name_type 
+                                \\
+                            , .{ h.types.type, h.types.name_type });
+                        }
+                    });
+
+                    const sym_name = (try r.takeDelimiter(0)).?;
+                    const imp_dll = (try r.takeDelimiter(0)).?;
+                    const imp_name = imp_name: switch (imp_header.types.name_type) {
+                        .NAME_NOPREFIX,
+                        .NAME_UNDECORATE,
+                        => |tag| {
+                            var imp_name = std.mem.trimStart(u8, sym_name, "?@_");
+                            if (tag == .NAME_UNDECORATE)
+                                imp_name = std.mem.sliceTo(imp_name, '@');
+                            break :imp_name imp_name;
+                        },
+                        else => sym_name,
+                    };
+
+                    try w.print(
+                        \\     symbol name | {s}
+                        \\     import name | {s}
+                        \\             dll | {s}
+                        \\
+                    , .{
+                        sym_name,
+                        imp_name,
+                        imp_dll,
+                    });
                 } else {
                     try w.writeAll("     COFF object type\n");
                 }
@@ -409,7 +481,7 @@ const coff = struct {
                 opts.symbols)
             {
                 try w.print("{s}({s}): COFF object\n\n", .{ std.fs.path.basename(opts.input_path), header.name });
-                try dumpObject(gpa, opts, false, fr, w);
+                try dumpObject(gpa, opts, false, header.name, fr, w);
             }
         }
     }
@@ -418,6 +490,7 @@ const coff = struct {
         gpa: std.mem.Allocator,
         opts: *const Options,
         is_image: bool,
+        obj_name: []const u8,
         fr: *Io.File.Reader,
         w: *Io.Writer,
     ) !void {
@@ -430,6 +503,11 @@ const coff = struct {
             try w.writeAll("COFF Header:\n");
             try dumpHeader(w, std.coff.Header, &header, struct {});
             try w.writeByte('\n');
+        }
+
+        switch (header.machine) {
+            _ => return failParse(opts, "unknown machine type: {x}", .{header.machine}),
+            else => {},
         }
 
         if (header.size_of_optional_header > 0) opt_header: {
@@ -541,59 +619,65 @@ const coff = struct {
             try w.writeByte('\n');
         }
 
-        var sections: std.ArrayList(std.coff.SectionHeader) = .empty;
+        var sections: std.ArrayList(struct {
+            header: std.coff.SectionHeader,
+            name: []const u8,
+        }) = .empty;
         defer sections.deinit(gpa);
 
-        const load_sections = opts.section_headers or opts.symbols;
+        const load_sections =
+            opts.section_headers or
+            opts.symbols or
+            opts.relocs;
+
         if (load_sections) {
             if (opts.section_headers)
-                try w.writeAll(
-                    \\Section Table:
+                try w.print(
+                    \\Sections ({s}):
                     \\Num Name          RVA Virt Size Data Size   & Data & Relocs  & Lines # Relocs  # Lines    Flags
                     \\
-                );
+                , .{obj_name});
 
             try sections.resize(gpa, header.number_of_sections);
             for (sections.items, 0..) |*section, section_i| {
-                section.* = r.takeStruct(std.coff.SectionHeader, .little) catch |err|
+                section.header = r.takeStruct(std.coff.SectionHeader, .little) catch |err|
                     return failParse(opts, "unable to read section header {x}: {t}", .{ section_i, err });
+                section.name = headerName(&section.header.name, string_table) catch |err| switch (err) {
+                    error.Overflow,
+                    error.InvalidCharacter,
+                    => return failParse(opts, "unable to parse section name offset '{s}': {t}", .{
+                        section.name,
+                        err,
+                    }),
+                    error.OutOfBounds => return failParse(opts, "section name offset '{s}' was out of bounds (>= {x})", .{
+                        section.name,
+                        string_table.len,
+                    }),
+                };
 
                 if (opts.section_headers) {
-                    const name = headerName(&section.name, string_table) catch |err| switch (err) {
-                        error.Overflow,
-                        error.InvalidCharacter,
-                        => return failParse(opts, "unable to parse section name offset '{s}': {t}", .{
-                            section.name,
-                            err,
-                        }),
-                        error.OutOfBounds => return failParse(opts, "section name offset '{s}' was out of bounds (>= {x})", .{
-                            section.name,
-                            string_table.len,
-                        }),
-                    };
-
-                    if (!filterMatches(opts.section_filters, name)) continue;
-                    const raw_name = std.mem.sliceTo(&section.name, 0);
+                    if (!filterMatches(opts.section_filters, section.name)) continue;
+                    const raw_name = std.mem.sliceTo(&section.header.name, 0);
                     try w.print(
                         "{x: >3} {s: <8} {x: >8} {x: >9} {x: >9} {x: >8} {x: >8} {x: >8} {x: >8} {x: >8} {x:0>8} | ",
                         .{
                             section_i + 1,
                             raw_name,
-                            section.virtual_address,
-                            section.virtual_size,
-                            section.size_of_raw_data,
-                            section.pointer_to_raw_data,
-                            section.pointer_to_relocations,
-                            section.pointer_to_linenumbers,
-                            section.number_of_relocations,
-                            section.number_of_linenumbers,
-                            @as(u32, @bitCast(section.flags)),
+                            section.header.virtual_address,
+                            section.header.virtual_size,
+                            section.header.size_of_raw_data,
+                            section.header.pointer_to_raw_data,
+                            section.header.pointer_to_relocations,
+                            section.header.pointer_to_linenumbers,
+                            section.header.number_of_relocations,
+                            section.header.number_of_linenumbers,
+                            @as(u32, @bitCast(section.header.flags)),
                         },
                     );
 
-                    try dumpFlags(w, "{s} ", std.coff.SectionHeader.Flags, &section.flags, 0);
-                    if (name.len > 8)
-                        try w.print("| {s}", .{name});
+                    try dumpFlags(w, "{s} ", std.coff.SectionHeader.Flags, &section.header.flags, 1);
+                    if (section.name.len > 8)
+                        try w.print("| {s}", .{section.name});
 
                     try w.writeByte('\n');
                 }
@@ -602,16 +686,21 @@ const coff = struct {
             if (opts.section_headers) try w.writeByte('\n');
         }
 
+        var symbol_names: std.ArrayList([]const u8) = .empty;
+        defer symbol_names.deinit(gpa);
+        if (opts.relocs)
+            try symbol_names.ensureUnusedCapacity(gpa, header.number_of_symbols);
+
         if (opts.symbols) {
             if (header.pointer_to_symbol_table > 0) {
                 fr.seekTo(file_location + header.pointer_to_symbol_table) catch |err|
                     return failParse(opts, "unable to seek to symbol table: {t}", .{err});
 
-                try w.writeAll(
-                    \\Symbol Table:
+                try w.print(
+                    \\Symbols ({s}):
                     \\ Ord    Value  Sect Type           Storage   Name
                     \\
-                );
+                , .{obj_name});
 
                 const symbol_size = std.coff.Symbol.sizeOf();
                 var symbol_i: u32 = 0;
@@ -633,9 +722,16 @@ const coff = struct {
                     const name = std.mem.sliceTo(if (std.mem.eql(u8, symbol.name[0..4], "\x00\x00\x00\x00")) name: {
                         const index = std.mem.readInt(u32, symbol.name[4..], .little);
                         if (index >= string_table.len)
-                            return failParse(opts, "invalid name offset for symbol {x} ({x} >= {x})", .{ symbol_i, index, string_table.len });
+                            return failParse(opts, "invalid name offset for symbol {x} ({x} >= {x})", .{
+                                symbol_i,
+                                index,
+                                string_table.len,
+                            });
                         break :name string_table[index..];
                     } else &symbol.name, 0);
+
+                    if (opts.relocs)
+                        symbol_names.appendNTimesAssumeCapacity(name, 1 + symbol.number_of_aux_symbols);
 
                     try w.print("{x: >4} {x:0>8} ", .{ symbol_i, symbol.value });
                     try switch (symbol.section_number) {
@@ -743,18 +839,18 @@ const coff = struct {
                                 std.mem.byteSwapAllFields(std.coff.SectionDefinition, &section_def);
 
                             const section = &sections.items[section_i];
-                            if (section_def.number_of_relocations != section.number_of_relocations) {
+                            if (section_def.number_of_relocations != section.header.number_of_relocations) {
                                 try w.print(
                                     " !! relocation count did not match section header: {d} vs {d}",
-                                    .{ section_def.number_of_relocations, section.number_of_relocations },
+                                    .{ section_def.number_of_relocations, section.header.number_of_relocations },
                                 );
                                 continue;
                             }
 
-                            if (section_def.number_of_linenumbers != section.number_of_linenumbers) {
+                            if (section_def.number_of_linenumbers != section.header.number_of_linenumbers) {
                                 try w.print(
                                     " !! line number count did not match section header: {d} vs {d}",
-                                    .{ section_def.number_of_linenumbers, section.number_of_linenumbers },
+                                    .{ section_def.number_of_linenumbers, section.header.number_of_linenumbers },
                                 );
                                 continue;
                             }
@@ -784,6 +880,52 @@ const coff = struct {
                 try w.writeByte('\n');
             } else {
                 try w.writeAll("No symbol table found\n");
+            }
+        }
+
+        if (opts.relocs) {
+            const relocation_size = std.coff.Relocation.sizeOf();
+
+            for (sections.items, 0..) |section, section_i| {
+                if (section.header.pointer_to_relocations == 0) continue;
+
+                try w.print(
+                    \\Relocs for section {x} '{s}' in {s}:
+                    \\  Offset Type                Symbol   Name
+                    \\
+                , .{ section_i + 1, section.name, obj_name });
+
+                fr.seekTo(file_location + section.header.pointer_to_relocations) catch |err|
+                    return failParse(opts, "unable to seek to section {x} relocation table: {t}", .{ section_i + 1, err });
+
+                for (0..section.header.number_of_relocations) |reloc_i| {
+                    var reloc: std.coff.Relocation = undefined;
+                    @memcpy(std.mem.asBytes(&reloc)[0..relocation_size], try r.take(relocation_size));
+                    if (native_endian != .little)
+                        std.mem.byteSwapAllFields(std.coff.Relocation, &reloc);
+
+                    try w.print("{x:0>8} ", .{reloc.virtual_address});
+                    switch (header.machine) {
+                        _ => unreachable,
+                        inline else => |m| switch (m.RelocationType()) {
+                            void => try w.writeAll("(unknown arch)"),
+                            else => |RelocationType| try w.print(
+                                "{t: <17} ",
+                                .{@as(RelocationType, @enumFromInt(reloc.type))},
+                            ),
+                        },
+                    }
+
+                    if (reloc.symbol_table_index >= symbol_names.items.len)
+                        return failParse(
+                            opts,
+                            "reloc {x} in section {x} has out-of-bounds symbol index {x}",
+                            .{ reloc_i, section_i + 1, reloc.symbol_table_index },
+                        );
+
+                    try w.print("{x: >8} | {s}\n", .{ reloc.symbol_table_index, symbol_names.items[reloc.symbol_table_index] });
+                }
+                try w.writeByte('\n');
             }
         }
     }
@@ -903,12 +1045,14 @@ const usage =
     \\  -h, --help                              Print this help and exit
     \\  --all-headers                           Alias for --file-headers --member-headers --section-headers --relocs --symbols
     \\  --file-headers                          Display file-format specific headers
-    \\  --linker-member[=1|2]                   (Coff) Display contents of the specified linker member (default 2)
+    \\  --imports                               Display imported symbols
+    \\  --exports                               Display exported symbols
+    \\  --linker-member[=1|2|longnames]         (Coff) Display contents of the specified linker member (default 2)
     \\  --member-headers                        Display archive member headers
     \\  --only-member=[name]                    Only consider archive members that contain [name]. Can be specified multiple times.
     \\  --only-section=[name]                   Only consider sections that contain [name]. Can be specified multiple times.
     \\  --section-headers                       Display section headers
-    \\  --strings                               Display string table
+    \\  --strings                               Display string tables
     \\  --symbols                               Display symbol tables
     \\  --relocs                                Display relocations
 ;

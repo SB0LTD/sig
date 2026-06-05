@@ -1520,6 +1520,36 @@ pub const IMAGE = struct {
             _,
             /// AXP 64 (Same as Alpha 64)
             pub const AXP64: IMAGE.FILE.MACHINE = .ALPHA64;
+
+            pub fn RelocationType(comptime machine: IMAGE.FILE.MACHINE) type {
+                return switch (machine) {
+                    .AMD64,
+                    => REL.AMD64,
+                    .ARM,
+                    .ARMNT,
+                    => REL.ARM,
+                    .ARM64,
+                    .ARM64EC,
+                    .ARM64X,
+                    => REL.ARM64,
+                    .I386 => REL.I386,
+                    .IA64 => REL.IA64,
+                    .M32R => REL.M32R,
+                    .MIPS16,
+                    .MIPSFPU,
+                    .MIPSFPU16,
+                    => REL.MIPS,
+                    .POWERPC,
+                    .POWERPCFP,
+                    => REL.PPC,
+                    .SH3,
+                    .SH3DSP,
+                    .SH4,
+                    .SH5,
+                    => REL.SH,
+                    else => void,
+                };
+            }
         };
     };
 
