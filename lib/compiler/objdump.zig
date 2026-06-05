@@ -687,10 +687,13 @@ const coff = struct {
             if (opts.section_headers) try w.writeByte('\n');
         }
 
-        var symbol_names: std.ArrayList([]const u8) = .empty;
-        defer symbol_names.deinit(gpa);
+        var symbols: std.ArrayList(struct {
+            name: []const u8,
+            section_number: std.coff.SectionNumber,
+        }) = .empty;
+        defer symbols.deinit(gpa);
         if (opts.relocs)
-            try symbol_names.ensureUnusedCapacity(gpa, header.number_of_symbols);
+            try symbols.ensureUnusedCapacity(gpa, header.number_of_symbols);
 
         if (opts.symbols or opts.relocs) {
             if (header.pointer_to_symbol_table > 0) {
@@ -733,7 +736,10 @@ const coff = struct {
                     } else &symbol.name, 0);
 
                     if (opts.relocs)
-                        symbol_names.appendNTimesAssumeCapacity(name, 1 + symbol.number_of_aux_symbols);
+                        symbols.appendNTimesAssumeCapacity(.{
+                            .name = name,
+                            .section_number = symbol.section_number,
+                        }, 1 + symbol.number_of_aux_symbols);
 
                     if (!opts.symbols)
                         continue;
@@ -896,7 +902,7 @@ const coff = struct {
 
                 try w.print(
                     \\Relocs for section {x} '{s}' in {s}:
-                    \\  Offset Type                Symbol   Name
+                    \\  Offset Type                Symbol -> Sect   Name
                     \\
                 , .{ section_i + 1, section.name, obj_name });
 
@@ -921,14 +927,19 @@ const coff = struct {
                         },
                     }
 
-                    if (reloc.symbol_table_index >= symbol_names.items.len)
+                    if (reloc.symbol_table_index >= symbols.items.len)
                         return failParse(
                             opts,
                             "reloc {x} in section {x} has out-of-bounds symbol index {x}",
                             .{ reloc_i, section_i + 1, reloc.symbol_table_index },
                         );
 
-                    try w.print("{x: >8} | {s}\n", .{ reloc.symbol_table_index, symbol_names.items[reloc.symbol_table_index] });
+                    try w.print("{x: >8}   ", .{reloc.symbol_table_index});
+
+                    const sym = &symbols.items[reloc.symbol_table_index];
+                    try sectionNumberString(sym.section_number, w);
+
+                    try w.print(" | {s}\n", .{sym.name});
                 }
                 try w.writeByte('\n');
             }
