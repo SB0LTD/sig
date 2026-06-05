@@ -16,7 +16,7 @@ const Options = struct {
     input_path: []const u8,
     member_filters: []const []const u8 = &.{},
     member_headers: bool,
-    omit_elements: std.enums.EnumArray(Element, bool),
+    elements: std.enums.EnumArray(Element, bool),
     redact: std.enums.EnumArray(FieldKind, bool),
     relocs: bool,
     section_filters: []const []const u8 = &.{},
@@ -39,9 +39,10 @@ const FieldKind = enum {
 
 const Element = enum {
     @"file-type",
-    @"table-header",
-    @"header-names",
+    @"header-name",
+    @"member-path",
     newlines,
+    @"table-header",
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -57,7 +58,8 @@ pub fn main(init: std.process.Init) !void {
     var opt_input_path: ?[]const u8 = null;
     var opt_linker_member: ?std.coff.ArchiveMemberHeader.Kind = null;
     var opt_member_headers: ?bool = null;
-    var omit_elements: @FieldType(Options, "omit_elements") = .initFill(false);
+    var any_elements = false;
+    var elements: ?@FieldType(Options, "elements") = null;
     var redact: @FieldType(Options, "redact") = .initFill(false);
     var opt_relocs: ?bool = null;
     var opt_section_headers: ?bool = null;
@@ -93,14 +95,23 @@ pub fn main(init: std.process.Init) !void {
                     opt_linker_member = .second_linker;
             } else if (mem.eql(u8, arg, "--member-headers")) {
                 opt_member_headers = true;
-            } else if (mem.startsWith(u8, arg, "--omit-element=")) {
-                const kind = arg["--omit-element=".len..];
-                if (std.meta.stringToEnum(Element, kind)) |format_kind| {
-                    omit_elements.set(format_kind, true);
-                } else if (std.mem.eql(u8, kind, "all")) {
-                    omit_elements = .initFill(true);
-                } else {
-                    fatal("unrecognized element: {s}", .{kind});
+            } else if (mem.startsWith(u8, arg, "--elements=")) {
+                any_elements = true;
+                var split = std.mem.splitScalar(u8, arg["--elements=".len..], ',');
+                while (split.next()) |element| {
+                    const kind, const add = if (element.len > 0 and element[0] == '-')
+                        .{ element[1..], false }
+                    else
+                        .{ element, true };
+
+                    if (elements == null) elements = .initFill(false);
+                    if (std.meta.stringToEnum(Element, kind)) |format_kind| {
+                        elements.?.set(format_kind, add);
+                    } else if (std.mem.eql(u8, kind, "all")) {
+                        elements.? = .initFill(add);
+                    } else {
+                        fatal("unrecognized element: '{s}'", .{kind});
+                    }
                 }
             } else if (mem.startsWith(u8, arg, "--only-member=")) {
                 (try member_filters.addOne(arena)).* = try arena.dupe(u8, arg["--only-member=".len..]);
@@ -122,7 +133,7 @@ pub fn main(init: std.process.Init) !void {
             } else if (mem.eql(u8, arg, "--section-headers")) {
                 opt_section_headers = true;
             } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--snapshot")) {
-                omit_elements = .initFill(true);
+                elements = .initFill(false);
                 redact = .initFill(true);
             } else if (mem.eql(u8, arg, "--strings")) {
                 opt_strings = true;
@@ -148,7 +159,7 @@ pub fn main(init: std.process.Init) !void {
         .linker_member = opt_linker_member,
         .member_filters = member_filters.items,
         .member_headers = opt_member_headers orelse false,
-        .omit_elements = omit_elements,
+        .elements = elements orelse .initFill(true),
         .redact = redact,
         .relocs = opt_relocs orelse false,
         .section_filters = section_filters.items,
@@ -215,20 +226,26 @@ fn dump(d: *const DumpContext) !void {
                 return error.ParseFailure;
             }
 
-            if (d.element(.@"file-type"))
+            if (d.element(.@"file-type")) {
                 try d.w.print("{s}: PE/COFF image\n\n", .{basename});
+                if (d.element(.newlines)) try d.w.writeByte('\n');
+            }
 
             return coff.dumpObject(d, true, basename);
         } else if (std.mem.eql(u8, ext, ".lib")) {
             r.fill(std.coff.archive_signature.len) catch break :coff;
             if (!mem.eql(u8, r.buffered()[0..std.coff.archive_signature.len], std.coff.archive_signature)) break :coff;
-            if (d.element(.@"file-type"))
-                try d.w.print("{s}: COFF archive\n\n", .{basename});
+            if (d.element(.@"file-type")) {
+                try d.w.print("{s}: COFF archive\n", .{basename});
+                if (d.element(.newlines)) try d.w.writeByte('\n');
+            }
 
             return coff.dumpArchive(d);
         } else if (std.mem.eql(u8, ext, ".obj")) {
-            if (d.element(.@"file-type"))
-                try d.w.print("{s}: COFF object\n\n", .{basename});
+            if (d.element(.@"file-type")) {
+                try d.w.print("{s}: COFF object\n", .{basename});
+                if (d.element(.newlines)) try d.w.writeByte('\n');
+            }
 
             return coff.dumpObject(d, false, basename);
         }
@@ -243,7 +260,7 @@ const DumpContext = struct {
     w: *Io.Writer,
 
     fn element(self: *const DumpContext, e: Element) bool {
-        return !self.opts.omit_elements.get(e);
+        return self.opts.elements.get(e);
     }
 
     fn redacted(self: *const DumpContext, opt_kind: ?FieldKind) bool {
@@ -589,9 +606,19 @@ const coff = struct {
                 d.opts.strings or
                 d.opts.symbols)
             {
-                if (d.element(.@"file-type"))
-                    try w.print("{s}({s}): COFF object\n\n", .{ std.fs.path.basename(d.opts.input_path), header.name });
-                try dumpObject(d, false, header.name);
+                const member_name = if (d.element(.@"member-path"))
+                    header.name
+                else
+                    std.fs.path.basename(header.name);
+
+                if (d.element(.@"file-type")) {
+                    try w.print("{s}({s}): COFF object\n", .{
+                        std.fs.path.basename(d.opts.input_path),
+                        member_name,
+                    });
+                    if (d.element(.newlines)) try w.writeByte('\n');
+                }
+                try dumpObject(d, false, member_name);
             }
         }
     }
@@ -611,7 +638,7 @@ const coff = struct {
             return d.failParse("unable to read COFF header: {t}", .{err});
 
         if (d.opts.file_headers) {
-            if (d.element(.@"header-names")) try w.writeAll("COFF Header:\n");
+            if (d.element(.@"header-name")) try w.writeAll("COFF Header:\n");
             try dumpHeader(d, std.coff.Header, &header, struct {});
             if (d.element(.newlines)) try w.writeByte('\n');
         }
@@ -639,7 +666,7 @@ const coff = struct {
                 break :image_info null;
             }
 
-            if (d.opts.file_headers and d.element(.@"header-names"))
+            if (d.opts.file_headers and d.element(.@"header-name"))
                 try w.writeAll("COFF Optional Header:\n");
 
             const magic: std.coff.OptionalHeader.Magic = @enumFromInt(try r.peekInt(u16, .little));
@@ -701,7 +728,7 @@ const coff = struct {
                 else => return d.failParse("invalid optional header magic number: {x}", .{magic}),
             };
 
-            if (d.opts.file_headers and d.element(.@"header-names"))
+            if (d.opts.file_headers and d.element(.@"header-name"))
                 try w.writeAll("Data Directories:\n");
 
             for (0..num_directory_entries) |dir_i| {
@@ -753,7 +780,7 @@ const coff = struct {
                     \\
                 , .{string_table.len});
 
-            var sr = Io.Reader.fixed(string_table[4..]);
+            var sr = Io.Reader.fixed(string_table[@sizeOf(u32)..]);
             while (try sr.takeDelimiter(0)) |str| {
                 try w.writeAll(str);
                 try w.writeByte('\n');
@@ -1631,28 +1658,29 @@ const usage =
     \\Options:
     \\  -h, --help                         Print this help and exit
     \\  --all-headers                      Alias for --file-headers --member-headers --section-headers --relocs --symbols
+    \\  --exports                          Display exported symbols
     \\  --file-headers                     Display file-format specific headers
     \\  --imports                          Display imported symbols
-    \\  --exports                          Display exported symbols
     \\  --linker-member[=1|2|longnames]    (Coff) Display contents of the specified archive linker member (default 2)
     \\  --member-headers                   Display archive member headers
+    \\  --elements=[e1],[e2],-[e3],...     Select which formatting elements are displayed. Intended for snapshot testing.
+    \\      file-type                      File type summary
+    \\      header-name                    Name that precedes a header block     
+    \\      member-path                    Display full member paths. If removed, only basenames will be used.
+    \\      newlines                       Newlines between output sections
+    \\      table-header                   Table headers with column names
+    \\      all                            (default) All of the above
+    \\  --only-member=[name]               Only consider archive members names that contain [name]. Can be specified multiple times.
+    \\  --only-section=[name]              Only consider section names that contain [name]. Can be specified multiple times.
+    \\  --only-symbol=[name]               Only consider symbol names that contain [name]. Can be specified multiple times.
     \\  --redact=[kind]                    Redact the specified field kind. Intended for snapshot testing.
     \\      rva                            Relative virtual addresses
     \\      va                             Virtual addresses and file offsets
     \\      ord                            Symbol ordinals / hints
     \\      size                           Sizes and lengths
     \\      all                            All of the above
-    \\  --omit-element=[kind]              Omit specific parts of the output. Intended for snapshot testing.
-    \\      file-type                      File type summary
-    \\      table-headers                  Table headers with column names
-    \\      header-names                   Name that precedes a header block     
-    \\      newlines                       Newlines between output sections
-    \\      all                            All of the above
-    \\  --only-member=[name]               Only consider archive members names that contain [name]. Can be specified multiple times.
-    \\  --only-section=[name]              Only consider section names that contain [name]. Can be specified multiple times.
-    \\  --only-symbol=[name]               Only consider symbol names that contain [name]. Can be specified multiple times.
     \\  --relocs                           Display relocations
-    \\  -s, --snapshot                     Alias for --redact=all --omit-format=all
+    \\  -s, --snapshot                     Alias for --redact=all --elements=-all
     \\  --section-headers                  Display section headers
     \\  --strings                          Display string tables
     \\  --symbols                          Display symbol tables
