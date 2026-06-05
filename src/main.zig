@@ -321,7 +321,7 @@ fn mainArgs(
 
     const cmd = args[1];
     const cmd_args = args[2..];
-    switch (stringToEnum.get(Cmd, cmd) orelse {
+    switch (stringToEnum(Cmd, cmd) orelse {
         std.log.info("{s}", .{usage});
         fatal("unknown command: {s}", .{args[1]});
     }) {
