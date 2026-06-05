@@ -60,6 +60,8 @@ string_bytes: std.ArrayList(u8),
 section_table: std.AutoArrayHashMapUnmanaged(String, Section),
 pseudo_section_table: std.array_hash_map.Auto(String, Symbol.Index),
 object_section_table: std.array_hash_map.Auto(String, Symbol.Index),
+section_merges: std.AutoArrayHashMapUnmanaged(String, String),
+section_merge_pending_index: u32,
 symbols: std.ArrayList(Symbol),
 globals: std.array_hash_map.Auto(GlobalName, Symbol.Index),
 global_pending_index: u32,
@@ -92,6 +94,8 @@ pub const archive_signature = "!<arch>\n";
 pub const archive_end_of_header = "`\n";
 
 pub const imp_prefix = "__imp_";
+
+const header_name_max_len = @typeInfo(@FieldType(std.coff.SectionHeader, "name")).array.len;
 
 /// This is the start of a Portable Executable (PE) file.
 /// It starts with a MS-DOS header followed by a MS-DOS stub program.
@@ -797,6 +801,7 @@ pub const String = enum(u32) {
     @".dtors" = 57,
     @".dtors$ZZZ" = 64,
     @".bss" = 75,
+    @".fptable" = 80,
     _,
 
     pub const Optional = enum(u32) {
@@ -811,6 +816,7 @@ pub const String = enum(u32) {
         @".dtors" = @intFromEnum(String.@".dtors"),
         @".dtors$ZZZ" = @intFromEnum(String.@".dtors$ZZZ"),
         @".bss" = @intFromEnum(String.@".bss"),
+        @".fptable" = @intFromEnum(String.@".fptable"),
         none = std.math.maxInt(u32),
         _,
 
@@ -1242,11 +1248,6 @@ pub const Reloc = extern struct {
                     .ADDR32,
                     .ADDR32NB,
                     .SECREL,
-                    => std.mem.readInt(
-                        u32,
-                        loc_slice[0..4],
-                        target_endian,
-                    ),
                     .REL32,
                     .REL32_1,
                     .REL32_2,
@@ -1263,11 +1264,6 @@ pub const Reloc = extern struct {
                     else => |kind| @panic(@tagName(kind)),
                     .ABSOLUTE => 0,
                     .DIR16,
-                    => std.mem.readInt(
-                        u16,
-                        loc_slice[0..2],
-                        target_endian,
-                    ),
                     .REL16,
                     => std.mem.readInt(
                         i16,
@@ -1277,11 +1273,6 @@ pub const Reloc = extern struct {
                     .DIR32,
                     .DIR32NB,
                     .SECREL,
-                    => std.mem.readInt(
-                        u32,
-                        loc_slice[0..4],
-                        target_endian,
-                    ),
                     .REL32,
                     => std.mem.readInt(
                         i32,
@@ -1553,6 +1544,8 @@ fn create(
         .section_table = .empty,
         .pseudo_section_table = .empty,
         .object_section_table = .empty,
+        .section_merges = .empty,
+        .section_merge_pending_index = 0,
         .symbols = .empty,
         .globals = .empty,
         .global_pending_index = 0,
@@ -1698,7 +1691,7 @@ fn initHeaders(
     const file_align: std.mem.Alignment = comptime .fromByteUnits(default_file_alignment);
     const is_image = coff.isImage();
     const is_archive = coff.isArchive();
-
+    const target = &comp.root_mod.resolved_target.result;
     const optional_header_size: u16 = if (is_image) switch (magic) {
         _ => unreachable,
         inline else => |ct_magic| @sizeOf(@field(std.coff.OptionalHeader, @tagName(ct_magic))),
@@ -1713,12 +1706,14 @@ fn initHeaders(
         // Sections
         expected_nodes_len += 4;
 
-        if (is_image)
+        if (is_image) {
             // Pseudo-sections and import / export table
-            expected_nodes_len += 9
-        else
-            // Symbol table
-            expected_nodes_len += 2;
+            expected_nodes_len += 9;
+            if (comp.config.link_libc and target.abi == .msvc)
+                expected_nodes_len += 1;
+        } else
+        // Symbol table
+        expected_nodes_len += 2;
 
         // TLS section
         if (comp.config.any_non_single_threaded) {
@@ -2004,9 +1999,10 @@ fn initHeaders(
 
     try coff.symbols.ensureTotalCapacity(gpa, Symbol.Index.known_count);
     assert(coff.addSymbolAssumeCapacity() == .null);
+
     // TODO: How do we tell MappedFile not to allocate physical space for these?
     // TODO: Could have a node flag 'virtual' that can never have slice* called on it or fileLocation
-
+    // TODO: Instead of it's own section, we can place .bss as a pseudo-section at the end of .text in the extra space
     assert(try coff.addSection(.@".bss", .{
         .CNT_UNINITIALIZED_DATA = true,
         .MEM_READ = true,
@@ -2028,6 +2024,18 @@ fn initHeaders(
     }) == .text);
 
     if (is_image) {
+        if (comp.config.link_libc and target.abi == .msvc) {
+            // This section contains a function pointer table used by control flow guard:
+            // https://learn.microsoft.com/en-us/windows/win32/secbp/control-flow-guard
+            // The page containing it is set to PAGE_READONLY during startup, so this can't
+            // be merged into .data this protection would overlap writable memory.
+            _ = try coff.addSection(.@".fptable", .{
+                .CNT_INITIALIZED_DATA = true,
+                .MEM_READ = true,
+                .MEM_WRITE = true,
+            });
+        }
+
         coff.import_table.ni = try coff.mf.addLastChildNode(
             gpa,
             (try coff.objectSectionMapIndex(
@@ -2199,7 +2207,8 @@ pub fn startProgress(coff: *Coff, prog_node: std.Progress.Node) void {
     coff.synth_prog_node = prog_node.start("Synthetics", count: {
         var count =
             coff.globals.count() - coff.global_pending_index +
-            coff.late_globals.items.len - coff.late_globals_pending_index;
+            coff.late_globals.items.len - coff.late_globals_pending_index +
+            coff.section_merges.count() - coff.section_merge_pending_index;
 
         for (&coff.lazy.values) |*lazy| count += lazy.map.count() - lazy.pending_index;
         break :count count;
@@ -2562,7 +2571,8 @@ fn getString(coff: *Coff, string: []const u8) String.Optional {
 fn getOrPutSymbolName(coff: *Coff, name: []const u8, opt_string: ?String) !SymbolTable.SymbolName {
     assert(!coff.isImage());
     const gpa = coff.base.comp.gpa;
-    return if (name.len > 8) name: {
+
+    return if (name.len > header_name_max_len) name: {
         const string = opt_string orelse try coff.getOrPutString(name);
         const string_gop = try coff.symbol_table.strings.getOrPut(gpa, string);
         if (!string_gop.found_existing) {
@@ -3202,8 +3212,6 @@ const ObjectSectionAttributes = packed struct {
     initialized: bool = false,
     uninitialized: bool = false,
 
-    // TODO: Include init / not init flags?
-
     pub fn fromFlags(flags: std.coff.SectionHeader.Flags) ObjectSectionAttributes {
         return .{
             .read = flags.MEM_READ,
@@ -3244,26 +3252,22 @@ fn pseudoSectionMapIndex(
     const gpa = coff.base.comp.gpa;
     const pseudo_section_gop = try coff.pseudo_section_table.getOrPut(gpa, name);
     const psmi: Node.PseudoSectionMapIndex = @enumFromInt(pseudo_section_gop.index);
-    const sn = if (!pseudo_section_gop.found_existing) sn: {
-        const default_parent: Symbol.Index = if (attributes.uninitialized)
-            .bss
-        else if (attributes.execute)
-            .text
-        else if (attributes.write)
-            .data
-        else
-            .rdata;
+    const parent_sn = if (!pseudo_section_gop.found_existing) sn: {
+        const effective_name = coff.section_merges.get(name) orelse name;
+        const parent = if (coff.section_table.get(effective_name)) |existing_sec|
+            existing_sec.si
+        else if (coff.isImage()) parent: {
+            const parent: Symbol.Index = if (attributes.uninitialized)
+                .bss
+            else if (attributes.execute)
+                .text
+            else if (attributes.write)
+                .data
+            else
+                .rdata;
 
-        const parent = if (coff.isImage() or std.mem.eql(
-            u8,
-            name.toSlice(coff),
-            default_parent.knownString().toSlice(coff).?,
-        ))
-            default_parent
-        else if (coff.section_table.get(name)) |section|
-            section.si
-        else
-            try coff.addSection(name, attributes.asFlags());
+            break :parent parent;
+        } else try coff.addSection(effective_name, attributes.asFlags());
 
         try coff.nodes.ensureUnusedCapacity(gpa, 1);
         try coff.symbols.ensureUnusedCapacity(gpa, 1);
@@ -3282,9 +3286,9 @@ fn pseudoSectionMapIndex(
 
     try coff.verifyParentSectionAttributes(
         .pseudo,
-        sn.name(coff),
+        parent_sn.name(coff),
         name,
-        .fromFlags(sn.header(coff).flags),
+        .fromFlags(parent_sn.header(coff).flags),
         attributes,
     );
 
@@ -3614,6 +3618,8 @@ fn loadObject(
     const target_endian = coff.targetEndian();
     const is_archive = coff.isArchive();
     assert(!coff.isObj());
+    // We want to evaluate new merges as we see them in .drectve sections to avoid redundant work
+    assert(coff.section_merge_pending_index == coff.section_merges.count());
 
     log.debug("loadObject({f}{f})", .{ path.fmtEscapeString(), fmtMemberNameString(member_name) });
 
@@ -3826,9 +3832,14 @@ fn loadObject(
     var num_global_symbols: u32 = 0;
     var pending_symbols: std.AutoArrayHashMapUnmanaged(u32, PendingSymbol) = .empty;
     defer pending_symbols.deinit(gpa);
-
     if (!is_archive)
         try pending_symbols.ensureUnusedCapacity(gpa, header.number_of_symbols);
+
+    var section_merges: std.ArrayList(struct {
+        from: String,
+        to: String,
+    }) = .empty;
+    defer section_merges.deinit(gpa);
 
     // Discover symbol names and COMDAT symbol mappings
     var symbol_i: u32 = 0;
@@ -4081,15 +4092,48 @@ fn loadObject(
                             );
                     } else if (std.ascii.startsWithIgnoreCase(arg, "/guardsym:")) {
                         // TODO: https://learn.microsoft.com/en-us/windows/win32/secbp/pe-metadata
-                    } else if (std.ascii.startsWithIgnoreCase(arg, "/merge:")) {
+                    } else if (std.ascii.startsWithIgnoreCase(arg, "/merge:")) merge: {
                         var split = std.mem.splitScalar(u8, arg["/merge:".len..], '=');
                         const from = split.first();
                         const to = split.next() orelse
                             return diags.failParse(path, "malformed .drectve argument: '{s}'", .{arg});
+                        if (to.len > header_name_max_len)
+                            return diags.failParse(
+                                path,
+                                "/merge .drectve target exceeds max length of {d}: '{s}'",
+                                .{ header_name_max_len, arg },
+                            );
+                        if (std.mem.eql(u8, from, to)) break :merge;
 
-                        // TODO: Override the parent selection for generated sections below
-                        _ = from;
-                        _ = to;
+                        try coff.ensureManyUnusedStringCapacity(2, from.len + to.len + 2);
+                        const from_str = coff.getOrPutStringAssumeCapacity(from);
+                        const to_str = coff.getOrPutStringAssumeCapacity(to);
+
+                        {
+                            var iter = to_str;
+                            while (coff.section_merges.get(iter)) |next_to| {
+                                if (next_to == from_str)
+                                    return diags.failParse(
+                                        path,
+                                        "/merge .drectve argument would create a cycle: {s}={s} leads to {s}={s}",
+                                        .{ from, to, iter.toSlice(coff), to },
+                                    );
+
+                                iter = next_to;
+                            }
+                        }
+
+                        try coff.section_merges.ensureUnusedCapacity(gpa, 1);
+                        const gop = coff.section_merges.getOrPutAssumeCapacity(from_str);
+                        if (!gop.found_existing) {
+                            coff.synth_prog_node.increaseEstimatedTotalItems(1);
+                            gop.value_ptr.* = to_str;
+                        } else if (gop.value_ptr.* != to_str)
+                            return diags.failParse(
+                                path,
+                                "conflicting /merge .drectve arguments: first seen as {s}={s}, now seen as {s}={s}",
+                                .{ from, gop.value_ptr.toSlice(coff), from, to },
+                            );
                     } else if (std.ascii.startsWithIgnoreCase(arg, "/disallowlib:")) {
                         const lib_name = arg["/disallowlib:".len..];
                         // TODO: Track these and issue error in prelink if any match
@@ -4250,6 +4294,9 @@ fn loadObject(
         };
     }
 
+    while (coff.section_merge_pending_index < coff.section_merges.count()) : (coff.section_merge_pending_index += 1)
+        try coff.flushSectionMerge(coff.section_merge_pending_index);
+
     // Resolve pending associations, create parent sections
     var num_included_sections: u16 = 0;
     var num_included_symbols: u32 = 0;
@@ -4276,6 +4323,11 @@ fn loadObject(
             .pending => unreachable,
         }
 
+        // TODO: Until we support sorting .pdata, we shouldn't merge these in, the result would be invalid
+        const section_name = section.name.toSlice(coff);
+        if (std.mem.startsWith(u8, section_name, ".pdata"))
+            continue;
+
         num_included_sections += 1;
         num_included_symbols += section.num_symbols;
         num_included_relocs += section.header.number_of_relocations;
@@ -4293,7 +4345,7 @@ fn loadObject(
     try coff.input_sections.ensureUnusedCapacity(gpa, num_included_sections);
 
     for (sections) |*section| {
-        if (section.comdat_result != .include) continue;
+        if (section.parent_si == .null) continue;
 
         const ni = try coff.mf.addLastChildNode(gpa, section.parent_si.node(coff), .{
             .size = section.header.size_of_raw_data,
@@ -4457,7 +4509,7 @@ fn loadObject(
 
     const relocation_size = std.coff.Relocation.sizeOf();
     for (sections) |section| {
-        if (section.comdat_result != .include) continue;
+        if (section.si == .null) continue;
 
         const loc_sym = section.si.get(coff);
         assert(loc_sym.loc_relocs == .none);
@@ -5481,6 +5533,26 @@ pub fn flush(
 pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     const comp = coff.base.comp;
     task: {
+        while (coff.section_merge_pending_index < coff.section_merges.count()) {
+            defer coff.section_merge_pending_index += 1;
+            const sub_prog_node = coff.synth_prog_node.start(
+                coff.section_merges.keys()[coff.section_merge_pending_index].toSlice(coff),
+                0,
+            );
+            defer sub_prog_node.end();
+            coff.flushSectionMerge(coff.section_merge_pending_index) catch |err| switch (err) {
+                //error.OutOfMemory => |e| return e,
+                else => |e| return comp.link_diags.fail(
+                    "linker failed to merge section {s} into {s}: {t}",
+                    .{
+                        coff.section_merges.keys()[coff.section_merge_pending_index].toSlice(coff),
+                        coff.section_merges.values()[coff.section_merge_pending_index].toSlice(coff),
+                        e,
+                    },
+                ),
+            };
+            break :task;
+        }
         while (coff.pending_uavs.pop()) |pending_uav| {
             const sub_prog_node = coff.idleProgNode(tid, coff.const_prog_node, .{ .uav = pending_uav.key });
             defer sub_prog_node.end();
@@ -5655,7 +5727,8 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             try coff.flushMember(pending_mi.key);
             break :task;
         }
-        // TODO: This and the next task ideally only run once, as it's wasteful otherwise
+        // TODO: All the sort / shrink tasks ideally run only once - otherwise it's wasteful
+        //       Defer until exports_complete?
         if (coff.export_table.pending_sort) {
             defer coff.export_table.pending_sort = false;
             const sub_prog_node = coff.idleProgNode(
@@ -5694,6 +5767,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             break :task;
         }
     }
+    if (coff.section_merge_pending_index < coff.section_merges.count()) return true;
     if (coff.pending_uavs.count() > 0) return true;
     if (coff.pending_input != null) return true;
     if (coff.inputs_complete and coff.globals.count() > coff.global_pending_index) return true;
@@ -6803,6 +6877,70 @@ fn flushExportsSort(coff: *Coff) void {
         .entries = coff.export_table.entries.values(),
         .nt = coff.export_table.name_table_ni.slice(&coff.mf),
     });
+}
+
+fn flushSectionMerge(coff: *Coff, index: u32) !void {
+    assert(coff.isImage());
+    const from = coff.section_merges.keys()[index];
+    const to = coff.section_merges.values()[index];
+    assert(from != to);
+
+    log.debug("flushSectionMerge({s}->{s})", .{ from.toSlice(coff), to.toSlice(coff) });
+
+    const opt_to_sec = coff.section_table.getPtr(to);
+    if (coff.section_table.getPtr(from)) |from_sec| {
+        const from_sym = from_sec.si.get(coff);
+        if (opt_to_sec) |to_sec| {
+            const to_sym = to_sec.si.get(coff);
+
+            // TODO: Create a pseudo-section named `from` in `to`, copy `from_sec` ni into that pseudo section
+            // TODO: Update .section_number for all contained syms
+            // TODO: Remove `from_sec` from section table (set size = 0 and can do it in flushResized?).
+            //       This is non-trivial as we can't leave holes in the section table.
+            // TODO: Merge section flags
+            _ = to_sym;
+
+            return coff.base.comp.link_diags.fail("TODO implement section to section merge", .{});
+        } else if (coff.pseudo_section_table.get(to)) |to_ps_si| {
+            const to_sym = to_ps_si.get(coff);
+            if (from_sym.section_number == to_sym.section_number)
+                return;
+
+            // TODO: Same as above, except place `from` into a node in `to_psmi`'s parent
+            return coff.base.comp.link_diags.fail("TODO implement section to pseudosection merge", .{});
+        }
+
+        // If `to` doesn't exist, /MERGE is defined as renaming `from` to `to`.
+        // No other path will create image-level sections, so we can safely rename this now
+        const from_name = &from_sec.si.get(coff).section_number.header(coff).name;
+        const to_slice = to.toSlice(coff);
+        @memcpy(from_name[0..to_slice.len], to_slice);
+        @memset(from_name[to_slice.len..], 0);
+    } else if (coff.pseudo_section_table.getIndex(from)) |from_index| {
+        const from_psmi: Node.PseudoSectionMapIndex = @enumFromInt(from_index);
+        const from_sym = from_psmi.symbol(coff).get(coff);
+        if (opt_to_sec) |to_sec| {
+            const to_sym = to_sec.si.get(coff);
+            if (from_sym.section_number == to_sym.section_number)
+                return;
+
+            // TODO: Move from_psmi's node into to_sec
+            // TODO: Update .section_number for all contained syms
+            // TODO: Merge section flags
+
+            return coff.base.comp.link_diags.fail("TODO implement pseudosection to section merge", .{});
+        } else if (coff.pseudo_section_table.get(to)) |to_ps_si| {
+            const to_sym = to_ps_si.get(coff);
+            if (from_sym.section_number == to_sym.section_number)
+                return;
+
+            // TODO: Same as above, but move from_psmi's node after to_psmi's node in its parent
+
+            return coff.base.comp.link_diags.fail("TODO implement pseudosection to pseudosection merge", .{});
+        }
+
+        // Renaming pseudo-sections have no effect on the output, so this is a no-op.
+    }
 }
 
 fn virtualSlide(coff: *Coff, start_section_index: usize, start_rva: u32) !void {
