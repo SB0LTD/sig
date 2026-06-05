@@ -74,12 +74,12 @@ pending_uavs: std.array_hash_map.Auto(Node.UavMapIndex, struct {
     alignment: InternPool.Alignment,
 }),
 relocs: std.ArrayList(Reloc),
+entry: Node.GlobalMapIndex,
 const_prog_node: std.Progress.Node,
 synth_prog_node: std.Progress.Node,
 symbol_prog_node: std.Progress.Node,
 member_prog_node: std.Progress.Node,
 input_prog_node: std.Progress.Node,
-subsystem: ?std.zig.Subsystem,
 dump_snapshot: bool,
 
 pub const default_file_alignment: u16 = 0x200;
@@ -728,9 +728,36 @@ pub const ImportTable = struct {
         import_lookup_table_ni: MappedFile.Node.Index,
         import_address_table_si: Symbol.Index,
         import_hint_name_table_ni: MappedFile.Node.Index,
+        // All .iat_ptr globals that reference this table.
+        // This is separate from `iat_symbol_indices` because multiple symbols
+        // can reference to the same iat entry, after name demangling.
+        import_address_table_symbols: std.ArrayList(Symbol.Index),
         len: u32,
         hint_name_len: u32,
     };
+
+    pub fn TableEntry(comptime magic: std.coff.OptionalHeader.Magic) type {
+        const Payload = packed union(u31) {
+            ordinal: packed struct(u31) {
+                ordinal: u16,
+                _: u15 = 0,
+            },
+            hint_name_rva: u31,
+        };
+
+        return switch (magic) {
+            _ => comptime unreachable,
+            .PE32 => packed struct(u32) {
+                payload: Payload,
+                is_ordinal: bool,
+            },
+            .@"PE32+" => packed struct(u64) {
+                payload: Payload,
+                _: u32 = 0,
+                is_ordinal: bool,
+            },
+        };
+    }
 
     const Adapter = struct {
         coff: *Coff,
@@ -864,7 +891,8 @@ pub const Symbol = struct {
         dll_storage_class: DllStorageClass,
         // Only defined for .alias_si and .alias_name
         weak_external_strat: WeakExternalStrat,
-        _: u8 = 0,
+        is_entry: bool,
+        _: u7 = 0,
     },
     /// Relocations contained within this symbol
     loc_relocs: Reloc.Index,
@@ -1038,7 +1066,15 @@ pub const Symbol = struct {
         }
 
         pub fn applyTargetRelocs(si: Symbol.Index, coff: *Coff) void {
-            var ri = si.get(coff).target_relocs;
+            const sym = si.get(coff);
+
+            // TODO: Would this be better modeled using an actual reloc? Would need a si for the header
+            if (sym.flags.is_entry) {
+                log.debug("updateEntryRVA({d}, 0x{x})", .{ si, sym.rva });
+                coff.optionalHeaderStandardPtr().address_of_entry_point = sym.rva;
+            }
+
+            var ri = sym.target_relocs;
             while (ri != .none) {
                 const reloc = ri.get(coff);
                 assert(reloc.target == si);
@@ -1525,12 +1561,12 @@ fn create(
         }),
         .pending_uavs = .empty,
         .relocs = .empty,
+        .entry = .none,
         .const_prog_node = .none,
         .synth_prog_node = .none,
         .symbol_prog_node = .none,
         .member_prog_node = .none,
         .input_prog_node = .none,
-        .subsystem = options.subsystem,
         .dump_snapshot = options.enable_link_snapshots,
     };
     errdefer coff.deinit();
@@ -1549,6 +1585,11 @@ fn create(
         major_subsystem_version,
         minor_subsystem_version,
         magic,
+        if (options.subsystem) |s| switch (s) {
+            .console => .WINDOWS_CUI,
+            .windows => .WINDOWS_GUI,
+            else => return error.UnsupportedCOFFSubsystem,
+        } else .WINDOWS_CUI,
         section_align,
         std.fs.path.basename(path.sub_path),
     );
@@ -1619,6 +1660,10 @@ fn isArchive(coff: *const Coff) bool {
     };
 }
 
+fn isExe(coff: *const Coff) bool {
+    return coff.base.comp.config.output_mode == .Exe;
+}
+
 fn isObj(coff: *const Coff) bool {
     return coff.base.comp.config.output_mode == .Obj;
 }
@@ -1639,6 +1684,7 @@ fn initHeaders(
     major_subsystem_version: u16,
     minor_subsystem_version: u16,
     magic: std.coff.OptionalHeader.Magic,
+    subsystem: std.coff.Subsystem,
     section_align: std.mem.Alignment,
     file_name: []const u8,
 ) !void {
@@ -1841,7 +1887,7 @@ fn initHeaders(
                     .size_of_image = 0,
                     .size_of_headers = 0,
                     .checksum = 0,
-                    .subsystem = .WINDOWS_CUI,
+                    .subsystem = subsystem,
                     .dll_flags = .{
                         .HIGH_ENTROPY_VA = true,
                         .DYNAMIC_BASE = true,
@@ -1890,7 +1936,7 @@ fn initHeaders(
                     .size_of_image = 0,
                     .size_of_headers = 0,
                     .checksum = 0,
-                    .subsystem = .WINDOWS_CUI,
+                    .subsystem = subsystem,
                     .dll_flags = .{
                         .HIGH_ENTROPY_VA = true,
                         .DYNAMIC_BASE = true,
@@ -2079,9 +2125,6 @@ pub fn initBuiltins(coff: *Coff) !void {
     const gpa = comp.gpa;
     const target = &comp.root_mod.resolved_target.result;
     if (coff.isImage()) {
-        try coff.symbols.ensureUnusedCapacity(gpa, 1);
-        try coff.globals.ensureUnusedCapacity(gpa, 1);
-
         const si = try coff.globalSymbol(.{ .name = "__ImageBase", .type = .data });
         const sym = si.get(coff);
         sym.ni = Node.known.header;
@@ -2099,8 +2142,16 @@ pub fn initBuiltins(coff: *Coff) !void {
 
         for (lists) |list| {
             const addr_info = coff.targetAddrInfo();
-            const start_osmi = try coff.objectSectionMapIndex(list.start, addr_info.alignment, .{ .read = true });
-            const end_osmi = try coff.objectSectionMapIndex(list.end, addr_info.alignment, .{ .read = true });
+            const start_osmi = try coff.objectSectionMapIndex(
+                list.start,
+                addr_info.alignment,
+                .{ .read = true },
+            );
+            const end_osmi = try coff.objectSectionMapIndex(
+                list.end,
+                addr_info.alignment,
+                .{ .read = true },
+            );
 
             const start_sym = start_osmi.symbol(coff).get(coff);
             try start_sym.ni.resize(&coff.mf, gpa, addr_info.size);
@@ -2460,6 +2511,7 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
             .type = .unknown,
             .dll_storage_class = .default,
             .weak_external_strat = undefined,
+            .is_entry = false,
         },
         .loc_relocs = .none,
         .target_relocs = .none,
@@ -2482,14 +2534,14 @@ fn getOrPutString(coff: *Coff, string: []const u8) !String {
 fn getOrPutOptionalString(coff: *Coff, string: ?[]const u8) !String.Optional {
     return (try coff.getOrPutString(string orelse return .none)).toOptional();
 }
-fn getString(coff: *Coff, string: []const u8) ?String {
+fn getString(coff: *Coff, string: []const u8) String.Optional {
     if (coff.strings.getKeyAdapted(
         string,
         std.hash_map.StringIndexAdapter{ .bytes = &coff.string_bytes },
     )) |key|
-        return @enumFromInt(key)
+        return @as(String, @enumFromInt(key)).toOptional()
     else
-        return null;
+        return .none;
 }
 
 /// If the name does not fit in the symbol header, adds it to the symbol table string table.
@@ -4882,12 +4934,13 @@ fn loadDll(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
 
 pub fn prelink(coff: *Coff, prog_node: std.Progress.Node) link.Error!void {
     _ = prog_node;
+    const base = coff.base;
+    const comp = base.comp;
+
     log.debug("prelink()", .{});
 
     if (coff.pending_default_libs.items.len > 0) {
         // Libs provided by /DEFAULTLIB arguments in objects are searched after all other inputs
-        const base = coff.base;
-        const comp = base.comp;
         const gpa = comp.gpa;
         const arena = comp.arena;
         const target = &comp.root_mod.resolved_target.result;
@@ -4946,6 +4999,34 @@ pub fn prelink(coff: *Coff, prog_node: std.Progress.Node) link.Error!void {
                 "/DEFAULTLIB library '{s}' was not found",
                 .{lib.path},
             );
+        }
+    }
+
+    if (coff.isImage() and comp.config.link_libc) {
+        const entries: []const struct { ?[]const u8, []const u8 } = if (coff.isExe())
+            if (comp.zcu == null) switch (coff.optionalHeaderField(.subsystem)) {
+                .WINDOWS_CUI => &.{
+                    .{ "main", "mainCRTStartup" },
+                    .{ "wmain", "wmainCRTStartup" },
+                },
+                .WINDOWS_GUI => &.{
+                    .{ "WinMain", "WinMainCRTStartup" },
+                    .{ "wWinMain", "wWinMainCRTStartup" },
+                },
+                else => unreachable,
+            } else &.{}
+        else
+            &.{.{ null, "_DllMainCRTStartup" }};
+
+        for (entries) |entry| {
+            if (entry[0]) |required_name| {
+                const str = coff.getString(required_name).unwrap() orelse continue;
+                const si = coff.globals.get(.{ .name = str, .lib_name = .none }) orelse continue;
+                if (si.get(coff).ni == .none) continue;
+            }
+
+            const si = try coff.globalSymbol(.{ .name = entry[1], .type = .code });
+            coff.updateEntry(si.get(coff).gmi);
         }
     }
 
@@ -5240,6 +5321,17 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     const max_notes = 4;
+
+    if (coff.isImage()) {
+        if (coff.entry == .none)
+            comp.link_diags.addError("no entry point defined", .{})
+        else if (coff.entry.symbol(coff).get(coff).ni == .none) {
+            comp.link_diags.addError(
+                "no definition for entry point '{s}' found",
+                .{coff.entry.globalName(coff).name.toSlice(coff)},
+            );
+        }
+    }
 
     var undef_indices: std.ArrayListUnmanaged(u32) = .empty;
     for (coff.relocs.items, 0..) |reloc, reloc_i| {
@@ -5988,6 +6080,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
                 .import_lookup_table_ni = import_lookup_table_ni,
                 .import_address_table_si = import_address_table_si,
                 .import_hint_name_table_ni = import_hint_name_table_ni,
+                .import_address_table_symbols = .empty,
                 .len = 0,
                 .hint_name_len = @intCast(import_hint_name_table_len),
             };
@@ -6034,19 +6127,19 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             gop.value_ptr.len = import_symbol_index + 1;
             const new_symbol_table_size = addr_info.size * (import_symbol_index + 2);
 
+            try gop.value_ptr.import_lookup_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
+            const import_address_table_ni = gop.value_ptr.import_address_table_si.node(coff);
+            try import_address_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
+
             const opt_name = import.name.toSlice(coff);
             const opt_import_hint_name_index = if (opt_name) |name| blk: {
                 const import_hint_name_index = gop.value_ptr.hint_name_len;
                 gop.value_ptr.hint_name_len = @intCast(
                     import_hint_name_align.forward(import_hint_name_index + 2 + name.len + 1),
                 );
+                try gop.value_ptr.import_hint_name_table_ni.resize(&coff.mf, gpa, gop.value_ptr.hint_name_len);
                 break :blk import_hint_name_index;
             } else null;
-
-            try gop.value_ptr.import_lookup_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
-            const import_address_table_ni = gop.value_ptr.import_address_table_si.node(coff);
-            try import_address_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
-            try gop.value_ptr.import_hint_name_table_ni.resize(&coff.mf, gpa, gop.value_ptr.hint_name_len);
 
             const import_hint_name_rva = if (opt_import_hint_name_index) |import_hint_name_index| blk: {
                 const import_hint_name_slice = gop.value_ptr.import_hint_name_table_ni.slice(&coff.mf);
@@ -6062,26 +6155,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             switch (addr_info.magic) {
                 _ => unreachable,
                 inline .PE32, .@"PE32+" => |ct_magic| {
-                    const Payload = packed union(u31) {
-                        ordinal: packed struct(u31) {
-                            ordinal: u16,
-                            _: u15 = 0,
-                        },
-                        hint_name_rva: u31,
-                    };
-
-                    const Entry = switch (ct_magic) {
-                        _ => comptime unreachable,
-                        .PE32 => packed struct(u32) {
-                            payload: Payload,
-                            is_ordinal: bool,
-                        },
-                        .@"PE32+" => packed struct(u64) {
-                            payload: Payload,
-                            _: u32 = 0,
-                            is_ordinal: bool,
-                        },
-                    };
+                    const Entry = ImportTable.TableEntry(ct_magic);
                     const import_lookup_table: []Entry = @ptrCast(@alignCast(import_lookup_slice));
                     const import_address_table: []Entry = @ptrCast(@alignCast(import_address_slice));
                     const import_hint_name_rvas: [2]Entry = .{
@@ -6112,6 +6186,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
                 sym.ni = iat_sym.ni;
                 sym.setValue(.{ .node_offset = iat_offset });
                 si.flushMoved(coff);
+                (try gop.value_ptr.import_address_table_symbols.addOne(gpa)).* = si;
             },
             .thunk => {
                 sym.section_number = Symbol.Index.text.get(coff).section_number;
@@ -6281,15 +6356,18 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
             coff.computeNodeRva(ni),
         ),
         .import_address_table => |import_index| {
-            const import_address_table_si = import_index.get(coff).import_address_table_si;
+            const entry = import_index.get(coff);
+            const import_address_table_si = entry.import_address_table_si;
             import_address_table_si.flushMoved(coff);
             coff.targetStore(
                 &coff.importDirectoryEntryPtr(import_index).import_address_table_rva,
                 import_address_table_si.get(coff).rva,
             );
+
+            for (entry.import_address_table_symbols.items) |iat_ptr_si|
+                iat_ptr_si.flushMoved(coff);
         },
         .import_hint_name_table => |import_index| {
-            const target_endian = coff.targetEndian();
             const magic = coff.targetLoad(&coff.optionalHeaderStandardPtr().magic);
             const import_hint_name_rva = coff.computeNodeRva(ni);
             coff.targetStore(
@@ -6302,32 +6380,36 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
                 import_entry.import_address_table_si.node(coff).slice(&coff.mf);
             const import_hint_name_slice = ni.slice(&coff.mf);
             const import_hint_name_align = ni.alignment(&coff.mf);
+
             var import_hint_name_index: u32 = 0;
             for (0..import_entry.len) |import_symbol_index| {
-                import_hint_name_index = @intCast(import_hint_name_align.forward(
-                    std.mem.indexOfScalarPos(
-                        u8,
-                        import_hint_name_slice,
-                        import_hint_name_index,
-                        0,
-                    ).? + 1,
-                ));
                 switch (magic) {
                     _ => unreachable,
                     inline .PE32, .@"PE32+" => |ct_magic| {
-                        const Addr = TargetAddr(ct_magic);
-                        const import_lookup_table: []Addr = @ptrCast(@alignCast(import_lookup_slice));
-                        const import_address_table: []Addr = @ptrCast(@alignCast(import_address_slice));
-                        const rva = std.mem.nativeTo(
-                            Addr,
-                            import_hint_name_rva + import_hint_name_index,
-                            target_endian,
-                        );
-                        import_lookup_table[import_symbol_index] = rva;
-                        import_address_table[import_symbol_index] = rva;
+                        const Entry = ImportTable.TableEntry(ct_magic);
+                        const import_lookup_table: []Entry = @ptrCast(@alignCast(import_lookup_slice));
+                        const import_address_table: []Entry = @ptrCast(@alignCast(import_address_slice));
+
+                        var entry = coff.targetLoad(&import_lookup_table[import_symbol_index]);
+                        if (entry.is_ordinal)
+                            continue;
+
+                        import_hint_name_index = @intCast(import_hint_name_align.forward(
+                            std.mem.indexOfScalarPos(
+                                u8,
+                                import_hint_name_slice,
+                                import_hint_name_index,
+                                0,
+                            ).? + 1,
+                        ));
+
+                        entry.payload.hint_name_rva = @intCast(import_hint_name_rva + import_hint_name_index);
+                        import_hint_name_index += 2;
+
+                        coff.targetStore(&import_lookup_table[import_symbol_index], entry);
+                        coff.targetStore(&import_address_table[import_symbol_index], entry);
                     },
                 }
-                import_hint_name_index += 2;
             }
         },
         .export_directory_table => {
@@ -6679,14 +6761,16 @@ fn updateExportsInner(
         export_sym.section_number = exported_sym.section_number;
         defer export_si.applyTargetRelocs(coff);
 
-        if (isImage(coff)) {
-            if (@"export".opts.name.eqlSlice("wWinMainCRTStartup", ip)) {
-                coff.optionalHeaderStandardPtr().address_of_entry_point = exported_sym.rva;
-            } else if (@"export".opts.name.eqlSlice("_tls_used", ip)) {
+        if (coff.isImage()) {
+            if (@"export".opts.name.eqlSlice("_tls_used", ip)) {
                 const tls_directory = coff.dataDirectoryPtr(.TLS);
                 tls_directory.* = .{ .virtual_address = exported_sym.rva, .size = exported_sym.value.size };
                 if (coff.targetEndian() != native_endian)
                     std.mem.byteSwapAllFields(std.coff.ImageDataDirectory, tls_directory);
+            } else if ((coff.isExe() and @"export".opts.name.eqlSlice("wWinMainCRTStartup", ip)) or
+                (!coff.isExe() and @"export".opts.name.eqlSlice("_DllMainCRTStartup", ip)))
+            {
+                coff.updateEntry(export_sym.gmi);
             }
         } else continue;
 
@@ -6778,6 +6862,20 @@ fn updateExportsInner(
             reloc.target = export_si;
         }
     }
+}
+
+/// Caller ensures that `applyTargetRelocs` will be called on `si` eventually
+fn updateEntry(coff: *Coff, gmi: Node.GlobalMapIndex) void {
+    const si = gmi.symbol(coff);
+    log.debug("updateEntry({s}, {d})", .{ gmi.globalName(coff).name.toSlice(coff), si });
+
+    if (coff.entry != .none)
+        coff.entry.symbol(coff).get(coff).flags.is_entry = false;
+
+    // TODO: Should we detect the subsystem like link.exe does (if not explicitly set) based on entry name?
+
+    coff.entry = gmi;
+    si.get(coff).flags.is_entry = true;
 }
 
 pub fn deleteExport(coff: *Coff, exported: Zcu.Exported, name: InternPool.NullTerminatedString) void {

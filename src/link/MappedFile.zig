@@ -756,7 +756,6 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
     const node = ni.get(mf);
     const old_offset, const old_size = node.location().resolve(mf);
     const new_size = node.flags.alignment.forward(@intCast(requested_size));
-    //if (new_size <= old_size) return;
 
     // Resize the entire file
     if (ni == Node.Index.root) {
@@ -917,8 +916,9 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
                 if (new_last_fixed_offset + last_fixed_size <= old_first_floating_offset)
                     break :make_space;
                 assert(direction == .forward);
+                const shift_alignment = first_floating.flags.alignment.max(last_fixed.flags.alignment);
                 if (first_floating.flags.fixed) {
-                    shift = first_floating.flags.alignment.forward(@intCast(
+                    shift = shift_alignment.forward(@intCast(
                         @max(shift, first_floating_size),
                     ));
 
@@ -930,7 +930,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
                 // Move the found floating node to make space for preceding fixed nodes
                 const last = parent.last.get(mf);
                 const last_offset, const last_size = last.location().resolve(mf);
-                const new_first_floating_offset = first_floating.flags.alignment.forward(
+                const new_first_floating_offset = shift_alignment.forward(
                     @intCast(@max(new_last_fixed_offset + last_fixed_size, last_offset + last_size)),
                 );
                 const new_parent_size = new_first_floating_offset + first_floating_size;
