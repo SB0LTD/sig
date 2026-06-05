@@ -753,6 +753,10 @@ pub const String = enum(u32) {
     @".text" = 20,
     @".tls$" = 26,
     @".edata" = 32,
+    @".ctors" = 39,
+    @".ctors$ZZZ" = 46,
+    @".dtors" = 57,
+    @".dtors$ZZZ" = 64,
     _,
 
     pub const Optional = enum(u32) {
@@ -761,6 +765,8 @@ pub const String = enum(u32) {
         @".text" = @intFromEnum(String.@".text"),
         @".tls$" = @intFromEnum(String.@".tls$"),
         @".edata" = @intFromEnum(String.@".edata"),
+        @".dtors" = @intFromEnum(String.@".dtors"),
+        @".dtors$ZZZ" = @intFromEnum(String.@".dtors$ZZZ"),
         none = std.math.maxInt(u32),
         _,
 
@@ -1506,6 +1512,7 @@ fn create(
         section_align,
         std.fs.path.basename(path.sub_path),
     );
+    try coff.initBuiltins();
     return coff;
 }
 
@@ -2017,14 +2024,57 @@ fn initHeaders(
             .{ .read = true, .write = !is_image },
         );
     }
+}
 
-    // Linker-supplied symbols
-    {
-        const target = &comp.root_mod.resolved_target.result;
-        if (is_image and target.isMinGW()) {
+pub fn initBuiltins(coff: *Coff) !void {
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    const target = &comp.root_mod.resolved_target.result;
+    if (coff.isImage() and target.isMinGW() and comp.config.link_libc) {
+        try coff.symbols.ensureUnusedCapacity(gpa, 5);
+        try coff.globals.ensureUnusedCapacity(gpa, 2);
+        try coff.nodes.ensureUnusedCapacity(gpa, 3);
+
+        {
             const si = try coff.globalSymbol(.{ .name = "__ImageBase", .type = .data });
             const sym = si.get(coff);
             sym.ni = Node.known.header;
+        }
+
+        const lists: []const struct { global: []const u8, start: String, end: String } = &.{
+            .{ .global = "__CTOR_LIST__", .start = .@".ctors", .end = .@".ctors$ZZZ" },
+            .{ .global = "__DTOR_LIST__", .start = .@".dtors", .end = .@".dtors$ZZZ" },
+        };
+
+        for (lists) |list| {
+            const addr_info = coff.targetAddrInfo();
+            const start_osmi = try coff.objectSectionMapIndex(list.start, addr_info.alignment, .{ .read = true });
+            const end_osmi = try coff.objectSectionMapIndex(list.end, addr_info.alignment, .{ .read = true });
+
+            const start_sym = start_osmi.symbol(coff).get(coff);
+            try start_sym.ni.resize(&coff.mf, gpa, addr_info.size);
+            const start_slice = start_sym.ni.slice(&coff.mf);
+            switch (addr_info.magic) {
+                _ => unreachable,
+                inline .PE32, .@"PE32+" => |t| {
+                    const addr: *TargetAddr(t) = @ptrCast(@alignCast(start_slice));
+                    // For __CTOR_LIST__ -1 indicates that the list is null terminated.
+                    // For __DTOR_LIST__, this value is ignored.
+                    coff.targetStore(addr, std.math.maxInt(TargetAddr(t)));
+                },
+            }
+
+            // Any .(c|d)tor$(.*) input sections will merge in between these sections
+            // TODO: is it guaranteed that there will be no padding between those nodes?
+
+            const end_sym = end_osmi.symbol(coff).get(coff);
+            try end_sym.ni.resize(&coff.mf, gpa, addr_info.size);
+            @memset(end_sym.ni.slice(&coff.mf), 0);
+
+            const list_si = try coff.globalSymbol(.{ .name = list.global, .type = .data });
+            const list_sym = list_si.get(coff);
+            list_sym.ni = start_sym.ni;
+            list_sym.section_number = start_sym.section_number;
         }
     }
 }
@@ -2146,6 +2196,28 @@ fn computeSymbolSectionOffset(coff: *Coff, sym: *const Symbol) u32 {
 pub inline fn targetEndian(_: *const Coff) std.lang.Endian {
     return .little;
 }
+
+fn targetAddrInfo(coff: *Coff) struct {
+    size: u64,
+    alignment: std.mem.Alignment,
+    magic: std.coff.OptionalHeader.Magic,
+} {
+    const magic = coff.targetLoad(&coff.optionalHeaderStandardPtr().magic);
+    switch (magic) {
+        _ => unreachable,
+        .PE32 => return .{ .size = 4, .alignment = .@"4", .magic = magic },
+        .@"PE32+" => return .{ .size = 8, .alignment = .@"8", .magic = magic },
+    }
+}
+
+fn TargetAddr(comptime magic: std.coff.OptionalHeader.Magic) type {
+    return switch (magic) {
+        _ => comptime unreachable,
+        .PE32 => u32,
+        .@"PE32+" => u64,
+    };
+}
+
 fn targetLoad(coff: *const Coff, ptr: anytype) @typeInfo(@TypeOf(ptr)).pointer.child {
     const Child = @typeInfo(@TypeOf(ptr)).pointer.child;
     return switch (@typeInfo(Child)) {
@@ -4072,7 +4144,19 @@ fn loadObject(
         coff.synth_prog_node.increaseEstimatedTotalItems(1);
     }
 
-    for (pending_symbols.values(), pending_symbols.keys(), 0..) |*symbol, index, psi| {
+    for (pending_symbols.values(), pending_symbols.keys(), 0..) |*symbol, index, i| {
+        defer log.debug("addInputSymbol({s}, 0x{x}, {t}=0x{x}, {d}) = {d}@{d}", .{
+            symbol.name.toSlice(coff),
+            index,
+            symbol.value,
+            symbol.section_number,
+            switch (symbol.value) {
+                inline else => |v| v,
+            },
+            symbol.si,
+            symbol.si.get(coff).section_number,
+        });
+
         const section = switch (symbol.section_number) {
             .UNDEFINED => switch (symbol.value) {
                 .section,
@@ -4101,7 +4185,7 @@ fn loadObject(
                                 );
 
                             if (alias.si == .null) {
-                                alias.weak_external_psi = .wrap(@intCast(psi));
+                                alias.weak_external_psi = .wrap(@intCast(i));
                             } else {
                                 sym.setValue(.{ .alias_si = alias.si });
                             }
@@ -4137,9 +4221,9 @@ fn loadObject(
             }
         }
 
-        if (symbol.weak_external_psi.unwrap()) |i| {
+        if (symbol.weak_external_psi.unwrap()) |weak_external_i| {
             assert(symbol.si != .null);
-            pending_symbols.values()[i].si.get(coff).value = .{ .alias_si = symbol.si };
+            pending_symbols.values()[weak_external_i].si.get(coff).setValue(.{ .alias_si = symbol.si });
         }
 
         if (section.si != symbol.si) {
@@ -4157,17 +4241,6 @@ fn loadObject(
             });
             sym.section_number = section.si.get(coff).section_number;
         }
-
-        log.debug("addInputSymbol({s}, 0x{x}, {t}=0x{x}) = {d}@{d}", .{
-            symbol.name.toSlice(coff),
-            index,
-            symbol.value,
-            switch (symbol.value) {
-                inline else => |v| v,
-            },
-            symbol.si,
-            section.si.get(coff).section_number,
-        });
     }
 
     const relocation_size = std.coff.Relocation.sizeOf();
@@ -4979,11 +5052,11 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
 
     var start_i: usize = 0;
     var num_unique_references: usize = 1;
-    for (undef_indices.items[0..], 0..) |reloc_i, i| {
+    for (0..undef_indices.items.len) |i| {
         const target = coff.relocs.items[undef_indices.items[start_i]].target;
-        if (target != coff.relocs.items[reloc_i].target or i == undef_indices.items.len - 1) {
+        if (i == undef_indices.items.len - 1 or target != coff.relocs.items[undef_indices.items[i + 1]].target) {
             defer {
-                start_i = i;
+                start_i = i + 1;
                 num_unique_references = 1;
             }
 
@@ -4995,7 +5068,7 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
             try err.addMsg("undefined symbol: {s}", .{target_sym.gmi.globalName(coff).name.toSlice(coff)});
 
             var prev_loc_si: Symbol.Index = .null;
-            for (undef_indices.items[start_i..][0..@max(1, i - start_i)]) |reference_i| {
+            for (undef_indices.items[start_i .. i + 1]) |reference_i| {
                 if (err.note_slot == num_full_notes) break;
 
                 const loc_si = coff.relocs.items[reference_i].loc;
@@ -5007,7 +5080,7 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
                     .input_section => |isi| {
                         const other_ioi = isi.input(coff);
                         if (loc_sym.gmi == .none) {
-                            // TODO: We could report the name here if we interned it in loadObject
+                            // TODO: We could report non-global names here if we intern them in loadObject
                             err.addNote("referenced by input '{f}{f}'", .{
                                 other_ioi.path(coff).fmtEscapeString(),
                                 fmtMemberNameString(other_ioi.memberName(coff)),
@@ -5022,8 +5095,6 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
                     },
                     .import_thunk => |gmi| err.addNote("referenced by import thunk for '{s}'", .{
                         gmi.globalName(coff).name.toSlice(coff),
-                        // TODO: This won't always have a ZCU
-                        //comp.zcu.?.root_mod.fully_qualified_name,
                     }),
                     inline .nav,
                     .uav,
@@ -5583,12 +5654,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         try coff.symbols.ensureUnusedCapacity(gpa, 1);
 
         const target_endian = coff.targetEndian();
-        const magic = coff.targetLoad(&coff.optionalHeaderStandardPtr().magic);
-        const addr_size: u64, const addr_align: std.mem.Alignment = switch (magic) {
-            _ => unreachable,
-            .PE32 => .{ 4, .@"4" },
-            .@"PE32+" => .{ 8, .@"8" },
-        };
+        const addr_info = coff.targetAddrInfo();
         const gop = try coff.import_table.entries.getOrPutAdapted(
             gpa,
             lib_name,
@@ -5606,13 +5672,13 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
                 import_hint_name_align.forward(lib_name.len + ".dll".len + 1);
             const idata_section_ni = coff.import_table.ni.parent(&coff.mf);
             const import_lookup_table_ni = try coff.mf.addLastChildNode(gpa, idata_section_ni, .{
-                .size = addr_size * 2,
-                .alignment = addr_align,
+                .size = addr_info.size * 2,
+                .alignment = addr_info.alignment,
                 .moved = true,
             });
             const import_address_table_ni = try coff.mf.addLastChildNode(gpa, idata_section_ni, .{
-                .size = addr_size * 2,
-                .alignment = addr_align,
+                .size = addr_info.size * 2,
+                .alignment = addr_info.alignment,
                 .moved = true,
             });
             const import_address_table_si = coff.addSymbolAssumeCapacity();
@@ -5677,7 +5743,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             iat_symbol_gop.value_ptr.* = import_symbol_index;
 
             gop.value_ptr.len = import_symbol_index + 1;
-            const new_symbol_table_size = addr_size * (import_symbol_index + 2);
+            const new_symbol_table_size = addr_info.size * (import_symbol_index + 2);
 
             const opt_name = import.name.toSlice(coff);
             const opt_import_hint_name_index = if (opt_name) |name| blk: {
@@ -5704,7 +5770,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
 
             const import_lookup_slice = gop.value_ptr.import_lookup_table_ni.slice(&coff.mf);
             const import_address_slice = import_address_table_ni.slice(&coff.mf);
-            switch (magic) {
+            switch (addr_info.magic) {
                 _ => unreachable,
                 inline .PE32, .@"PE32+" => |ct_magic| {
                     const Payload = packed union(u31) {
@@ -5749,7 +5815,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         }
 
         assert(sym.loc_relocs == .none);
-        const iat_offset: u32 = @intCast(addr_size * iat_symbol_gop.value_ptr.*);
+        const iat_offset: u32 = @intCast(addr_info.size * iat_symbol_gop.value_ptr.*);
         switch (import.kind) {
             .iat_ptr => {
                 const iat_sym = gop.value_ptr.import_address_table_si.get(coff);
@@ -5960,11 +6026,7 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
                 switch (magic) {
                     _ => unreachable,
                     inline .PE32, .@"PE32+" => |ct_magic| {
-                        const Addr = switch (ct_magic) {
-                            _ => comptime unreachable,
-                            .PE32 => u32,
-                            .@"PE32+" => u64,
-                        };
+                        const Addr = TargetAddr(ct_magic);
                         const import_lookup_table: []Addr = @ptrCast(@alignCast(import_lookup_slice));
                         const import_address_table: []Addr = @ptrCast(@alignCast(import_address_slice));
                         const rva = std.mem.nativeTo(

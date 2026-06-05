@@ -210,6 +210,8 @@ fn addCrtCcArgs(
 pub fn buildImportLib(comp: *Compilation, lib_name: []const u8, prog_node: std.Progress.Node) !Cache.Path {
     dev.check(.build_import_lib);
 
+    log.debug("buildImportLib({s})", .{lib_name});
+
     const sub_node = prog_node.start(lib_name, 0);
     defer sub_node.end();
 

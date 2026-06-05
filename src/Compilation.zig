@@ -4475,14 +4475,16 @@ fn performAllTheWork(
 
     comp.link_queue.finishZcuQueue(comp);
 
+    // Main thread work is all done, now just wait for all async work.
+    try misc_group.await(io);
+
     // This has to happen again after the main semantic analysis loop because it is possible for Sema to
     // call `addLinkLib` and hence add more items to `comp.windows_libs`.
     for (comp.windows_libs.keys()[comp.windows_libs_num_done..]) |lib_name|
-        comp.buildMingwImportLib(lib_name, false, main_progress_node);
+        misc_group.async(io, buildMingwImportLib, .{ comp, lib_name, false, main_progress_node });
     comp.windows_libs_num_done = @intCast(comp.windows_libs.count());
-
-    // Main thread work is all done, now just wait for all async work.
     try misc_group.await(io);
+
     comp.link_queue.wait(io);
 }
 
@@ -4685,11 +4687,12 @@ fn dispatchPrelinkWork(comp: *Compilation, main_progress_node: std.Progress.Node
     }
 
     while (comp.windows_libs_num_done < comp.windows_libs.count()) {
-        prelink_group.async(
-            io,
-            buildMingwImportLib,
-            .{ comp, comp.windows_libs.keys()[comp.windows_libs_num_done], true, main_progress_node },
-        );
+        prelink_group.async(io, buildMingwImportLib, .{
+            comp,
+            comp.windows_libs.keys()[comp.windows_libs_num_done],
+            true,
+            main_progress_node,
+        });
         comp.windows_libs_num_done += 1;
     }
 
