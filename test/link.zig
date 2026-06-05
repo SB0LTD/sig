@@ -44,7 +44,7 @@ pub fn addCases(ctx: *LinkContext) void {
             "--elements=file-type",
             "--symbols",
             "--only-symbol=foo",
-        }, .{});
+        }, .{ .use_llvm = true });
 
         const exe = case.addExecutable(.{
             .name = "test",
@@ -192,20 +192,6 @@ pub fn addCases(ctx: *LinkContext) void {
             "--relocs",
         }, .{ .arch = true });
 
-        const exe_reloc_err = case.addExecutable(.{
-            .name = "test-reloc-err",
-            .zig_source_bytes =
-            \\extern const foo: usize;
-            \\pub fn main() !u8 {
-            \\    return @intFromBool(foo != 0xcafecafe);
-            \\}
-            ,
-        });
-        exe_reloc_err.root_module.addObject(abs);
-        case.expectLinkErrors(exe_reloc_err, .{
-            .contains = "error: absolute symbol 'foo' targeted by invalid relocation type: /?/",
-        });
-
         const exe = case.addExecutable(.{
             .name = "test",
             .zig_source_bytes =
@@ -220,6 +206,22 @@ pub fn addCases(ctx: *LinkContext) void {
 
         const run = case.addRunArtifact(exe);
         run.addCheck(.{ .expect_term = .{ .exited = 0 } });
+
+        if (!ctx.use_llvm) {
+            const exe_reloc_err = case.addExecutable(.{
+                .name = "test-reloc-err",
+                .zig_source_bytes =
+                \\extern const foo: u32;
+                \\pub fn main() !u8 {
+                \\    return @intFromBool(foo != 0xcafecafe);
+                \\}
+                ,
+            });
+            exe_reloc_err.root_module.addObject(abs);
+            case.expectLinkErrors(exe_reloc_err, .{
+                .contains = "error: absolute symbol 'foo' targeted by invalid relocation type: /?/",
+            });
+        }
     }
 }
 

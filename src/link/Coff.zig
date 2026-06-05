@@ -847,7 +847,8 @@ pub const Section = struct {
 
 pub const GlobalName = struct { name: String, lib_name: String.Optional };
 
-pub const WeakExternalStrat = enum(u2) {
+pub const WeakExternalStrat = enum(u3) {
+    none,
     no_library,
     library,
     alias,
@@ -880,9 +881,8 @@ pub const Symbol = struct {
         extra_tag: ExtraTag,
         type: Symbol.Type,
         dll_storage_class: DllStorageClass,
-        // Only defined for .alias_si and .alias_name
         weak_external_strat: WeakExternalStrat,
-        _: u6 = 0,
+        _: u5 = 0,
     },
     /// Relocations contained within this symbol
     loc_relocs: Reloc.Index,
@@ -915,12 +915,13 @@ pub const Symbol = struct {
         /// don't create their own nodes: .input_section, .import_address_table
         /// Images only.
         node_offset: u32,
-        /// This is a weak alias that can replace this symbol
-        /// Globals only, images only.
+        /// Images: the weak alias that should replace this symbol if it is not resolved.
+        /// Objects: he target of a weak external that hasn't been assigned an sti yet.
+        /// Globals only.
         weak_alias_si: Symbol.Index,
         /// For weak externals that have an alias that is also an undef
         /// external, this is the name of the alias global that should
-        /// be generated if this symbol is not resolved.
+        /// be generated and resolved if this symbol is not resolved.
         /// Globals only, images only.
         weak_alias_name: String,
         /// Index of this symbol in the symbol table
@@ -2096,6 +2097,7 @@ fn initHeaders(
             });
         }
 
+        // TODO: Lazily initialize this instead?
         coff.import_table.ni = try coff.mf.addLastChildNode(
             gpa,
             (try coff.objectSectionMapIndex(
@@ -2558,6 +2560,16 @@ pub fn symbolTableSectionAuxEntryPtr(coff: *Coff, si: Symbol.Index) ?*align(2) s
     }
 }
 
+pub fn symbolTableWeakExternalAuxEntryPtr(coff: *Coff, si: Symbol.Index) ?*align(2) std.coff.WeakExternalDefinition {
+    const sti = si.get(coff).value.sti;
+    if (symbolTableEntryPtr(coff, sti)) |entry| {
+        assert(entry.storage_class == .WEAK_EXTERNAL and entry.number_of_aux_symbols == 1);
+        return @ptrCast(@alignCast(symbolTableEntryStoragePtr(coff, sti.unwrap().? + 1)));
+    } else {
+        return null;
+    }
+}
+
 pub fn symbolTableStringLenPtr(coff: *Coff) *align(1) u32 {
     return @ptrCast(@alignCast(coff.symbol_table.strings_ni.slice(&coff.mf)[0..@sizeOf(u32)]));
 }
@@ -2599,7 +2611,7 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
             .extra_tag = .size,
             .type = .unknown,
             .dll_storage_class = .default,
-            .weak_external_strat = undefined,
+            .weak_external_strat = .none,
         },
         .loc_relocs = .none,
         .target_relocs = .none,
@@ -2686,8 +2698,8 @@ fn getOrPutStringAssumeCapacity(coff: *Coff, string: []const u8) String {
 
 const GlobalOptions = struct {
     name: []const u8,
-    type: Symbol.Type = .unknown,
     lib_name: ?[]const u8 = null,
+    type: Symbol.Type = .unknown,
     dll_storage_class: Symbol.DllStorageClass = .default,
 };
 
@@ -2749,13 +2761,14 @@ pub fn globalSymbol(coff: *Coff, opts: GlobalOptions) !Symbol.Index {
 pub fn pendingSymbolTableEntry(coff: *Coff, si: Symbol.Index) !void {
     assert(!coff.isImage());
     const sym = si.get(coff);
-    assert(sym.ni != .none or sym.gmi != .none);
+    if (sym.flags.value_tag == .sti and sym.value.sti != .none)
+        return;
 
+    assert(sym.ni != .none or sym.gmi != .none);
     const gpa = coff.base.comp.gpa;
     const pending_gop = try coff.symbol_table.pending.getOrPut(gpa, si);
-    if (!pending_gop.found_existing) {
+    if (!pending_gop.found_existing)
         coff.symbol_prog_node.increaseEstimatedTotalItems(1);
-    }
 }
 
 fn navSection(
@@ -3040,15 +3053,20 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
 
     const sym = si.get(coff);
     assert(sym.ni != .none or sym.gmi != .none);
+    const existing_sti = switch (sym.flags.value_tag) {
+        .sti => sym.value.sti,
+        .weak_alias_si => .none,
+        else => unreachable,
+    };
 
-    const entry = coff.symbolTableEntryPtr(sym.value.sti) orelse entry: {
+    const entry = coff.symbolTableEntryPtr(existing_sti) orelse entry: {
         var buf: [15]u8 = undefined;
         const symbol_name, const num_aux_symbols: u8, const complex_type: std.coff.ComplexType =
             if (sym.gmi != .none) blk: {
                 const gn = sym.gmi.globalName(coff);
                 break :blk .{
                     try coff.getOrPutSymbolName(gn.name.toSlice(coff), gn.name),
-                    0,
+                    @intFromBool(sym.flags.weak_external_strat != .none),
                     if (Symbol.Index.text.get(coff).section_number == sym.section_number)
                         .FUNCTION
                     else
@@ -3102,12 +3120,12 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
 
         const old_num_symbols = coff.targetLoad(&coff.headerPtr().number_of_symbols);
         const new_num_symbols = old_num_symbols + 1 + num_aux_symbols;
+        coff.targetStore(&coff.headerPtr().number_of_symbols, new_num_symbols);
 
         try coff.symbol_table.ni.resize(&coff.mf, gpa, new_num_symbols * std.coff.Symbol.sizeOf());
 
-        coff.targetStore(&coff.headerPtr().number_of_symbols, new_num_symbols);
-
-        sym.value.sti = .wrap(old_num_symbols);
+        const old_value = sym.value;
+        sym.setValue(.{ .sti = .wrap(old_num_symbols) });
         si.flushSymbolTableIndex(coff);
 
         const entry = coff.symbolTableEntryPtr(sym.value.sti).?;
@@ -3118,13 +3136,70 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
             .complex_type = complex_type,
             .base_type = .NULL,
         };
-        entry.storage_class = if (sym.gmi == .none) .STATIC else .EXTERNAL;
+
+        entry.storage_class = if (sym.flags.extra_tag == .next_alias_si) storage: {
+            // TODO: Could avoid this ordering issue by flushing these in fifo order, instead of lifo
+            // TODO: Instead keep a map of si -> sti (remove it from sym.value) and walk in forwards order
+            // Update any existing aux symbols for weak externals that reference this symbol
+            var any_weak_external = false;
+            var alias_sym = sym;
+            while (alias_sym.flags.extra_tag == .next_alias_si) {
+                const alias_si = alias_sym.extra.next_alias_si;
+                alias_sym = alias_si.get(coff);
+                assert(alias_sym.ni == sym.ni);
+
+                if (alias_sym.flags.weak_external_strat != .none) {
+                    switch (alias_sym.flags.value_tag) {
+                        .sti => if (coff.symbolTableWeakExternalAuxEntryPtr(alias_si)) |aux_ptr|
+                            coff.targetStore(&aux_ptr.tag_index, sym.value.sti.unwrap().?),
+                        .weak_alias_si => {},
+                        else => unreachable,
+                    }
+
+                    any_weak_external = true;
+                }
+            }
+
+            break :storage if (any_weak_external or sym.gmi != .none) .EXTERNAL else .STATIC;
+        } else if (sym.gmi == .none)
+            .STATIC
+        else
+            .EXTERNAL;
+
         entry.number_of_aux_symbols = num_aux_symbols;
         if (coff.targetEndian() != native_endian)
             std.mem.byteSwapAllFieldsAligned(std.coff.Symbol, .@"2", entry);
 
         if (num_aux_symbols > 0) aux_init: {
-            if (sym.gmi == .none) switch (coff.getNode(sym.ni)) {
+            if (sym.gmi != .none) {
+                entry.section_number = .UNDEFINED;
+                entry.storage_class = .WEAK_EXTERNAL;
+
+                const alias_si = old_value.weak_alias_si;
+                const alias_sym = alias_si.get(coff);
+                const tag_index = alias_sym.value.sti.unwrap() orelse tag_index: {
+                    // The alias will update `tag_index` when it is flushed
+                    assert(coff.symbol_table.pending.contains(alias_si));
+                    break :tag_index 0;
+                };
+
+                const aux_ptr = coff.symbolTableWeakExternalAuxEntryPtr(si).?;
+                aux_ptr.* = .{
+                    .tag_index = tag_index,
+                    .flag = switch (sym.flags.weak_external_strat) {
+                        .none => unreachable,
+                        .no_library => .SEARCH_NOLIBRARY,
+                        .library => .SEARCH_LIBRARY,
+                        .alias => .SEARCH_ALIAS,
+                        .anti_dependency => .ANTI_DEPENDENCY,
+                    },
+                    .unused = @splat(0),
+                };
+                if (coff.targetEndian() != native_endian)
+                    std.mem.byteSwapAllFields(std.coff.SectionDefinition, .@"2", aux_ptr);
+
+                break :aux_init;
+            } else switch (coff.getNode(sym.ni)) {
                 .image_section => |sec_si| {
                     assert(si == sec_si);
                     const header = sym.section_number.header(coff);
@@ -3144,7 +3219,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
                     break :aux_init;
                 },
                 else => {},
-            };
+            }
 
             unreachable;
         }
@@ -3153,7 +3228,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
     };
 
     coff.targetStore(&entry.value, switch (sym.section_number) {
-        .UNDEFINED => sym.size(),
+        .UNDEFINED => if (entry.storage_class == .WEAK_EXTERNAL) 0 else sym.size(),
         .ABSOLUTE,
         .DEBUG,
         => unreachable,
@@ -6128,6 +6203,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         const opt_alt_search_name = coff.alternate_names.get(search_name);
         const search_libs = if (is_late) switch (sym.flags.value_tag) {
             .weak_alias_si, .weak_alias_name => switch (sym.flags.weak_external_strat) {
+                .none => unreachable,
                 .no_library => false,
                 .library,
                 .alias,
@@ -7199,11 +7275,12 @@ fn updateExportsInner(
     const exported_ni = exported_si.node(coff);
     const exported_sym = exported_si.get(coff);
     var prev_alias_si = exported_si;
+
     for (export_indices) |export_index| {
         const @"export" = export_index.ptr(zcu);
         const name = @"export".opts.name.toSlice(ip);
-        // TODO: Add an errMsg if this conflicts with an existing global from an input
-        //       first_export_si relies on this being a new symbol.
+
+        // TODO: add an errMsg if this conflicts with an existing global
         const export_si = try coff.globalSymbol(.{
             .name = name,
             .lib_name = null,
@@ -7212,8 +7289,14 @@ fn updateExportsInner(
         export_sym.ni = exported_ni;
         export_sym.rva = exported_sym.rva;
         export_sym.section_number = exported_sym.section_number;
+        if (@"export".opts.linkage == .weak and !coff.isImage()) {
+            try coff.pendingSymbolTableEntry(exported_si);
+            export_sym.flags.weak_external_strat = .alias;
+            export_sym.setValue(.{ .weak_alias_si = exported_si });
+        }
         defer export_si.applyTargetRelocs(coff, .none) catch unreachable;
 
+        // The last symbol in the alias list holds the size
         const prev_alias_sym = prev_alias_si.get(coff);
         switch (prev_alias_sym.flags.extra_tag) {
             .size => export_sym.setExtra(.{ .size = prev_alias_sym.extra.size }),
