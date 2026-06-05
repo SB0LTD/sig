@@ -72,6 +72,7 @@ pub fn addCases(ctx: *LinkContext) void {
     if (ctx.includeTest("dynamic-lib-code")) |case| {
         const lib = case.addLibrary(.dynamic, .{
             .name = "lib",
+            .name_target = false,
             .zig_source_bytes =
             \\export fn foo1() callconv(.c) u64 {
             \\    return 0x1122334411223344;
@@ -91,9 +92,9 @@ pub fn addCases(ctx: *LinkContext) void {
         if (ctx.target.result.os.tag == .windows) {
             case.verifyObjdump(lib.getEmittedImplib(), &.{
                 "-s",
-                "--exports",
+                "--exports=sort",
                 "--only-symbol=foo",
-            }, .{ .sub_name = "implib", .os = true });
+            }, .{ .sub_name = "implib", .os = true, .arch = true });
         }
 
         const exe = case.addExecutable(.{
@@ -118,9 +119,13 @@ pub fn addCases(ctx: *LinkContext) void {
     if (ctx.includeTest("dynamic-lib-data")) |case| {
         const lib = case.addLibrary(.dynamic, .{
             .name = "lib",
+            .name_target = false,
             .zig_source_bytes =
-            \\export var array_foo: [2]u16 = .{ 0xffff, 0xabcd };
-            \\export var strong_foo: usize = 0x1122334411223344;
+            \\export var foo_array: [2]u16 = .{ 0xffff, 0xabcd };
+            \\export var foo_strong: usize = 0x1122334411223344;
+            \\comptime {
+            \\    @export(&foo_strong, .{ .name = "foo_strong_alias", .linkage = .strong });
+            \\}
             ,
         });
 
@@ -131,20 +136,24 @@ pub fn addCases(ctx: *LinkContext) void {
         }, .{});
 
         if (ctx.target.result.os.tag == .windows) {
-            // TODO: objdump implib on windows
+            case.verifyObjdump(lib.getEmittedImplib(), &.{
+                "-s",
+                "--exports=sort",
+                "--only-symbol=foo",
+            }, .{ .sub_name = "implib", .os = true, .arch = true });
         }
 
         const exe = case.addExecutable(.{
             .name = "test",
             .zig_source_bytes =
-            \\extern var array_foo: [2]u16;
-            \\extern var strong_foo: usize;
-            \\extern var strong_foo_alias: usize;
             \\pub fn main() !u8 {
-            \\    return @intFromBool(0x2244668822451255 != 
-            \\        array_foo[1] +
-            \\        strong_foo +
-            \\        strong_foo_alias);
+            \\    const foo_array = @extern(*[2]u16, .{ .name = "foo_array", .is_dll_import = true });
+            \\    const foo_strong = @extern(*usize, .{ .name = "foo_strong", .is_dll_import = true });
+            \\    const foo_strong_alias = @extern(*usize, .{ .name = "foo_strong_alias", .is_dll_import = true });
+            \\    return @intFromBool(0x2244668822451255 !=
+            \\        foo_array[1] +
+            \\            foo_strong.* +
+            \\            foo_strong_alias.*);
             \\}
             ,
         });

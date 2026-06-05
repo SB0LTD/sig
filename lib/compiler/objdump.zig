@@ -11,6 +11,7 @@ var stdout_buffer: [4000]u8 = undefined;
 
 const Options = struct {
     exports: bool,
+    exports_sort: bool,
     file_headers: bool,
     imports: bool,
     input_path: []const u8,
@@ -53,6 +54,7 @@ pub fn main(init: std.process.Init) !void {
     var i: usize = 1;
 
     var opt_exports: ?bool = null;
+    var opt_exports_sort: ?bool = null;
     var opt_file_headers: ?bool = null;
     var opt_imports: ?bool = null;
     var opt_input_path: ?[]const u8 = null;
@@ -81,9 +83,11 @@ pub fn main(init: std.process.Init) !void {
                 opt_section_headers = true;
                 opt_symbols = true;
                 opt_relocs = true;
-            } else if (mem.eql(u8, arg, "--exports")) {
+            } else if (mem.startsWith(u8, arg, "--exports")) {
                 opt_exports = true;
                 opt_linker_member = .second_linker;
+                if (mem.eql(u8, arg["--exports".len..], "=sort"))
+                    opt_exports_sort = true;
             } else if (mem.eql(u8, arg, "--file-headers")) {
                 opt_file_headers = true;
             } else if (mem.eql(u8, arg, "--imports")) {
@@ -156,6 +160,7 @@ pub fn main(init: std.process.Init) !void {
     const opts: Options = .{
         .input_path = opt_input_path orelse fatal("missing input file path positional argument", .{}),
         .exports = opt_exports orelse false,
+        .exports_sort = opt_exports_sort orelse false,
         .file_headers = opt_file_headers orelse false,
         .imports = opt_imports orelse false,
         .linker_member = opt_linker_member,
@@ -355,9 +360,12 @@ const coff = struct {
         const r = &fr.interface;
         r.toss(std.coff.archive_signature.len);
 
-        var members: std.ArrayList(struct {
+        const Member = struct {
             offset: u32,
-        }) = .empty;
+            order: ?u32,
+        };
+
+        var members: std.ArrayList(Member) = .empty;
         defer members.deinit(gpa);
         var symbol_member_indices: std.ArrayList(u32) = .empty;
         defer symbol_member_indices.deinit(gpa);
@@ -415,6 +423,10 @@ const coff = struct {
                         for (0..num_symbols) |symbol_i| {
                             const symbol = r.takeDelimiter(0) catch |err|
                                 return d.failParse("unable to read first linker member string table: {t}", .{err});
+
+                            if (!filterMatches(d.opts.symbol_filters, symbol.?))
+                                continue;
+
                             const offset = std.mem.readInt(u32, offsets[symbol_i * 4 ..][0..4], .big);
                             try w.print("{f} {s}\n", .{
                                 fmtIntField(d, offset, .{ .kind = .va }),
@@ -441,6 +453,7 @@ const coff = struct {
                     for (0..num_members) |_|
                         members.addOneAssumeCapacity().* = .{
                             .offset = try r.takeInt(u32, .little),
+                            .order = null,
                         };
 
                     const num_symbols = try r.takeInt(u32, .little);
@@ -451,14 +464,42 @@ const coff = struct {
                     if (dump_header)
                         try w.print(
                             \\{t: >16} type
-                            \\               | {d} symbols
-                            \\               | {d} members
+                            \\               | {f} symbols
+                            \\               | {f} members
                             \\
-                        , .{ expected_kind, num_symbols, num_members });
+                        , .{
+                            expected_kind,
+                            fmtIntField(d, num_symbols, .{ .kind = .size, .width = .auto }),
+                            fmtIntField(d, num_members, .{ .kind = .size, .width = .auto }),
+                        });
 
                     try symbol_member_indices.ensureTotalCapacity(gpa, num_symbols);
-                    for (0..num_symbols) |_|
-                        symbol_member_indices.addOneAssumeCapacity().* = (try r.takeInt(u16, .little)) - 1;
+                    for (0..num_symbols) |order| {
+                        const index = (try r.takeInt(u16, .little)) - 1;
+                        if (index >= members.items.len)
+                            return d.failParse("invalid member index 0x{x} in seconds linker member indices array", .{index});
+
+                        symbol_member_indices.addOneAssumeCapacity().* = index;
+
+                        if (members.items[index].order == null)
+                            members.items[index].order = @intCast(order);
+                    }
+
+                    if (d.opts.exports and d.opts.exports_sort) {
+                        std.sort.pdq(Member, members.items, {}, struct {
+                            fn lessThan(ctx: void, lhs: Member, rhs: Member) bool {
+                                _ = ctx;
+                                if (lhs.order == null and rhs.order == null)
+                                    return lhs.offset < rhs.offset
+                                else if (lhs.order) |lhs_order|
+                                    return if (rhs.order) |rhs_order| lhs_order < rhs_order else false
+                                else if (rhs.order) |rhs_order|
+                                    return if (lhs.order) |lhs_order| lhs_order < rhs_order else true
+                                else
+                                    unreachable;
+                            }
+                        }.lessThan);
+                    }
 
                     if (d.opts.linker_member == .second_linker) {
                         if (d.element(.@"table-header"))
@@ -479,6 +520,9 @@ const coff = struct {
                                 error.StreamTooLong => null,
                                 else => |e| return e,
                             }) |n| n else return d.failParse("unterminated string found in second linker member", .{});
+
+                            if (!filterMatches(d.opts.symbol_filters, symbol_name))
+                                continue;
 
                             try w.print("{f} {s}\n", .{
                                 fmtIntField(
@@ -844,8 +888,8 @@ const coff = struct {
                             section_i + 1,
                             raw_name,
                             fmtIntField(d, section.header.virtual_address, .{ .kind = .va }),
-                            fmtIntField(d, section.header.virtual_size, .{ .kind = .size, .width = 9 }),
-                            fmtIntField(d, section.header.size_of_raw_data, .{ .kind = .size, .width = 9 }),
+                            fmtIntField(d, section.header.virtual_size, .{ .kind = .size, .width = .{ .explicit = 9 } }),
+                            fmtIntField(d, section.header.size_of_raw_data, .{ .kind = .size, .width = .{ .explicit = 9 } }),
                             fmtIntField(d, section.header.pointer_to_raw_data, .{ .kind = .va }),
                             fmtIntField(d, section.header.pointer_to_relocations, .{ .kind = .va }),
                             fmtIntField(d, section.header.pointer_to_linenumbers, .{ .kind = .va }),
@@ -1309,14 +1353,16 @@ const coff = struct {
 
                     const dll_name = (try r.takeDelimiter(0)).?;
 
-                    try w.print("Import table entry for {s}:\n", .{dll_name});
+                    if (d.element(.@"header-name"))
+                        try w.print("Import table entry for {s}:\n", .{dll_name});
                     try dumpHeader(d, Entry, &entry, struct {});
 
-                    try w.print(
-                        \\
-                        \\ Ord Hint   Name
-                        \\
-                    , .{});
+                    if (d.element(.@"table-header"))
+                        try w.print(
+                            \\
+                            \\ Ord Hint   Name
+                            \\
+                        , .{});
 
                     const ilt_section = sectionContainingRva(
                         rva_index,
@@ -1565,7 +1611,7 @@ const coff = struct {
 
     const FormatIntField = struct {
         val: ?u64,
-        width: usize,
+        width: ?usize,
         zero_fill: bool,
     };
 
@@ -1574,14 +1620,22 @@ const coff = struct {
         val: anytype,
         params: struct {
             kind: ?FieldKind = null,
-            width: ?usize = null,
+            width: union(enum) {
+                fit_max,
+                auto,
+                explicit: usize,
+            } = .fit_max,
             zero_fill: bool = false,
         },
     ) std.fmt.Alt(FormatIntField, intFieldString) {
         return .{
             .data = .{
                 .val = if (d.redacted(params.kind)) null else val,
-                .width = params.width orelse @typeInfo(@TypeOf(val)).int.bits / 4,
+                .width = switch (params.width) {
+                    .fit_max => @typeInfo(@TypeOf(val)).int.bits / 4,
+                    .auto => null,
+                    .explicit => |w| w,
+                },
                 .zero_fill = params.zero_fill,
             },
         };
@@ -1594,7 +1648,7 @@ const coff = struct {
                 .alignment = .right,
                 .fill = if (field.zero_fill) '0' else ' ',
             });
-        } else try w.splatByteAll('x', field.width);
+        } else try w.splatByteAll('x', field.width orelse 1);
     }
 
     fn dumpFlags(w: *Io.Writer, comptime fmt: []const u8, comptime T: type, flags: *const T, cols: u32) !void {
@@ -1628,6 +1682,8 @@ const coff = struct {
         if (std.mem.startsWith(u8, name, "number_") or
             std.mem.startsWith(u8, name, "size"))
             return .size;
+        if (std.mem.startsWith(u8, name, "hint"))
+            return .ord;
         return null;
     }
 
@@ -1645,7 +1701,7 @@ const coff = struct {
                 switch (@typeInfo(field.type)) {
                     .int => try d.w.print("{f} {s}\n", .{ fmtIntField(d, val.*, .{
                         .kind = comptime fieldKind(field.name),
-                        .width = 16,
+                        .width = .{ .explicit = 16 },
                     }), field.name }),
                     .@"enum" => try d.w.print("{x: >16} {s} ({t})\n", .{ val.*, field.name, val.* }),
                     .@"struct" => |s| {
@@ -1690,7 +1746,9 @@ const usage =
     \\Options:
     \\  -h, --help                         Print this help and exit
     \\  --all-headers                      Alias for --file-headers --linker-member=2 --member-headers --section-headers --relocs --symbols
-    \\  --exports                          Display exported symbols. In the case of COFF import libraries, display import headers.
+    \\  --exports[=sort]                   Display exported symbols. 
+    \\                                     In the case of COFF import libraries, displays the symbol list and import headers.
+    \\                                     Specify =sort to optionally sort the import headers by symbol name.
     \\  --file-headers                     Display file-format specific headers
     \\  --imports                          Display imported symbols
     \\  --linker-member[=1|2|longnames]    (Coff) Display contents of the specified archive linker member (default 2)

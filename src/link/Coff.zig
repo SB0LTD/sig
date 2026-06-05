@@ -2103,7 +2103,7 @@ fn initHeaders(
                 coff.mf.flags.block_size,
                 .{ .read = true, .initialized = true },
             )).symbol(coff).node(coff),
-            .{ .alignment = .@"4", .moved = true },
+            .{ .alignment = .@"4" },
         );
         coff.nodes.appendAssumeCapacity(.import_directory_table);
 
@@ -6115,6 +6115,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         const imp_match = std.mem.startsWith(u8, global_name, imp_prefix);
 
         // Globals may have the __imp_ prefix already if they are undef externals from another input.
+        assert(sym.flags.dll_storage_class != .dllexport);
         const search_name, const is_imp = if (imp_match or sym.flags.dll_storage_class != .dllimport)
             .{ gn.name, imp_match }
         else name: {
@@ -6722,10 +6723,14 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
                 try input_symbol.si.flushMoved(coff);
             }
         },
-        .import_directory_table => coff.targetStore(
-            &coff.dataDirectoryPtr(.IMPORT).virtual_address,
-            coff.computeNodeRva(ni),
-        ),
+        .import_directory_table => {
+            _, const size = ni.location(&coff.mf).resolve(&coff.mf);
+            if (size > 0)
+                coff.targetStore(
+                    &coff.dataDirectoryPtr(.IMPORT).virtual_address,
+                    coff.computeNodeRva(ni),
+                );
+        },
         .import_lookup_table => |import_index| coff.targetStore(
             &coff.importDirectoryEntryPtr(import_index).import_lookup_table_rva,
             coff.computeNodeRva(ni),
@@ -6936,10 +6941,14 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
             }
         },
         .input_section => {},
-        .import_directory_table => coff.targetStore(
-            &coff.dataDirectoryPtr(.IMPORT).size,
-            @intCast(size),
-        ),
+        .import_directory_table => {
+            const prev_size = coff.targetLoad(&coff.dataDirectoryPtr(.IMPORT).size);
+            coff.targetStore(
+                &coff.dataDirectoryPtr(.IMPORT).size,
+                @intCast(size),
+            );
+            if (prev_size == 0) try coff.flushMoved(ni);
+        },
         .import_lookup_table,
         .import_address_table,
         .import_hint_name_table,

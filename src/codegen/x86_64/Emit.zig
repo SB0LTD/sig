@@ -113,6 +113,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 .default => true,
                                 .hidden, .protected => false,
                             },
+                            .is_dll_import = @"extern".is_dll_import,
                             .force_pcrel_direct = switch (@"extern".relocation) {
                                 .any => false,
                                 .pcrel => true,
@@ -171,7 +172,13 @@ pub fn emitMir(emit: *Emit) Error!void {
                     switch (lowered_inst.encoding.mnemonic) {
                         .call => {
                             reloc.target = .{ .branch = target };
-                            try emit.encodeInst(lowered_inst, reloc_info);
+                            if (target.is_dll_import and emit.bin_file.cast(.coff2) != null) {
+                                try emit.encodeInst(try .new(.none, .call, &.{
+                                    .{ .mem = .initRip(.ptr, 0) },
+                                }, emit.lower.target), reloc_info);
+                            } else {
+                                try emit.encodeInst(lowered_inst, reloc_info);
+                            }
                             continue :lowered_inst;
                         },
                         else => {},
@@ -247,7 +254,25 @@ pub fn emitMir(emit: *Emit) Error!void {
                             else => unreachable,
                         }
                     } else if (emit.bin_file.cast(.coff2)) |_| {
-                        switch (lowered_inst.encoding.mnemonic) {
+                        if (reloc.target.is_dll_import) switch (lowered_inst.encoding.mnemonic) {
+                            .lea => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(.ptr, 0) },
+                            }, emit.lower.target), reloc_info),
+                            .mov => {
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initRip(.ptr, 0) },
+                                }, emit.lower.target), reloc_info);
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initSib(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, .{ .base = .{
+                                        .reg = lowered_inst.ops[0].reg.to64(),
+                                    } }) },
+                                }, emit.lower.target), &.{});
+                            },
+                            else => unreachable,
+                        } else switch (lowered_inst.encoding.mnemonic) {
                             .lea => try emit.encodeInst(try .new(.none, .lea, &.{
                                 lowered_inst.ops[0],
                                 .{ .mem = .initRip(.none, 0) },
@@ -717,6 +742,7 @@ const RelocInfo = struct {
         const Symbol = struct {
             symbol: link.File.SymbolId,
             is_extern: bool,
+            is_dll_import: bool = false,
             force_pcrel_direct: bool = false,
         };
     };

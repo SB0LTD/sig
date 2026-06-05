@@ -185,7 +185,8 @@ pub const Case = struct {
         if (try snapshotNameInner(w, scope.link_libc, &sep))
             try w.writeAll(if (ctx.link_libc) "libc" else "no-libc");
 
-        if (sep == '-') try w.writeByte('.');
+        if (sep == '-') sep = '.';
+        try w.writeByte(sep);
         try w.writeAll("dmp");
 
         return try snapshot_name.toOwnedSlice();
