@@ -334,6 +334,7 @@ pub const Node = extern struct {
         }
 
         pub fn resize(ni: Node.Index, mf: *MappedFile, gpa: std.mem.Allocator, size: u64) Error!void {
+            defer if (std.debug.runtime_safety) mf.verify();
             mf.resizeNode(gpa, ni, size) catch |err| switch (err) {
                 error.OutOfMemory,
                 error.Canceled,
@@ -900,6 +901,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
     var last_fixed_ni = ni;
     var first_floating_ni = node.next;
     var shift = new_size - old_size;
+    var max_shift_align: std.mem.Alignment = .@"1";
     var direction: enum { forward, reverse } = .forward;
     while (true) {
         assert(last_fixed_ni != .none);
@@ -916,9 +918,9 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
                 if (new_last_fixed_offset + last_fixed_size <= old_first_floating_offset)
                     break :make_space;
                 assert(direction == .forward);
-                const shift_alignment = first_floating.flags.alignment.max(last_fixed.flags.alignment);
+                max_shift_align = max_shift_align.max(first_floating.flags.alignment.max(last_fixed.flags.alignment));
                 if (first_floating.flags.fixed) {
-                    shift = shift_alignment.forward(@intCast(
+                    shift = max_shift_align.forward(@intCast(
                         @max(shift, first_floating_size),
                     ));
 
@@ -930,7 +932,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
                 // Move the found floating node to make space for preceding fixed nodes
                 const last = parent.last.get(mf);
                 const last_offset, const last_size = last.location().resolve(mf);
-                const new_first_floating_offset = shift_alignment.forward(
+                const new_first_floating_offset = max_shift_align.forward(
                     @intCast(@max(new_last_fixed_offset + last_fixed_size, last_offset + last_size)),
                 );
                 const new_parent_size = new_first_floating_offset + first_floating_size;
@@ -991,7 +993,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
             last_fixed_ni.setLocationAssumeCapacity(
                 mf,
                 old_last_fixed_offset,
-                last_fixed_size + shift,
+                new_size,
             );
             return;
         }
