@@ -401,12 +401,13 @@ const coff = struct {
                         , .{ expected_kind, num_symbols });
 
                     if (d.opts.linker_member == .first_linker) {
-                        try w.writeAll(
-                            \\
-                            \\Archive symbols:
-                            \\& Member Symbol
-                            \\
-                        );
+                        if (d.element(.@"table-header"))
+                            try w.writeAll(
+                                \\
+                                \\Archive symbols:
+                                \\& Member Symbol
+                                \\
+                            );
 
                         const offsets = try r.readAlloc(gpa, num_symbols * 4);
                         defer gpa.free(offsets);

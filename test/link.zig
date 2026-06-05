@@ -1,29 +1,5 @@
 pub fn addCases(ctx: *LinkContext) void {
-    if (ctx.includeTest("exports-static")) |case| {
-        const lib = case.addLibrary(.static, .{
-            .name = "lib",
-            .zig_source_file = ctx.sourcePath("exports.zig"),
-        });
-        case.verifyObjdump(lib, &.{
-            "-s",
-            "--symbols",
-            "--only-symbol=foo",
-        }, .{});
-    }
-
-    if (ctx.includeTest("exports-dynamic")) |case| {
-        const lib = case.addLibrary(.dynamic, .{
-            .name = "lib",
-            .zig_source_file = ctx.sourcePath("exports.zig"),
-        });
-        case.verifyObjdump(lib, &.{
-            "-s",
-            "--exports",
-            "--only-symbol=foo",
-        }, .{});
-    }
-
-    if (ctx.includeTest("emit-static-lib")) |case| {
+    if (ctx.includeTest("static-lib")) |case| {
         const obj1 = case.addObject(.{
             .name = "obj1",
             .name_prefix = false,
@@ -43,14 +19,14 @@ pub fn addCases(ctx: *LinkContext) void {
             .name_prefix = false,
             .name_target = false,
             .zig_source_bytes =
-            \\fn weakFoo() callconv(.c) usize {
+            \\fn fooWeak() callconv(.c) usize {
             \\    return 0xaabbccddaabbccdd;
             \\}
-            \\export var array_foo: [2]u16 = .{ 0xffff, 0xabcd };
-            \\export var strong_foo: usize = 0x1122334411223344;
+            \\export var foo_array: [2]u16 = .{ 0xffff, 0xabcd };
+            \\export var foo_strong: usize = 0x1122334411223344;
             \\comptime {
-            \\    @export(&weakFoo, .{ .name = "weakFoo", .linkage = .weak });
-            \\    @export(&strong_foo, .{ .name = "strong_foo_alias", .linkage = .strong });
+            \\    @export(&fooWeak, .{ .name = "fooWeak", .linkage = .weak });
+            \\    @export(&foo_strong, .{ .name = "foo_strong_alias", .linkage = .strong });
             \\}
             ,
         });
@@ -63,25 +39,109 @@ pub fn addCases(ctx: *LinkContext) void {
         lib.root_module.addObject(obj1);
         lib.root_module.addObject(obj2);
 
-        case.verifyObjdump(lib, &.{
+        case.verifyObjdump(lib.getEmittedBin(), &.{
             "-s",
             "--elements=file-type",
             "--symbols",
             "--only-symbol=foo",
-            "--only-symbol=Foo",
         }, .{});
 
         const exe = case.addExecutable(.{
             .name = "test",
             .zig_source_bytes =
             \\extern fn fooBar() c_uint;
-            \\extern fn weakFoo() usize;
+            \\extern fn fooWeak() usize;
+            \\extern var foo_array: [2]u16;
+            \\extern var foo_strong: usize;
+            \\extern var foo_strong_alias: usize;
+            \\pub fn main() !u8 {
+            \\    return @intFromBool(0xcd003365cd00df35 != fooBar() +
+            \\        fooWeak() +
+            \\        foo_array[1] +
+            \\        foo_strong +
+            \\        foo_strong_alias);
+            \\}
+            ,
+        });
+        exe.root_module.linkLibrary(lib);
+
+        const run = case.addRunArtifact(exe);
+        run.addCheck(.{ .expect_term = .{ .exited = 0 } });
+    }
+
+    if (ctx.includeTest("dynamic-lib-code")) |case| {
+        const lib = case.addLibrary(.dynamic, .{
+            .name = "lib",
+            .zig_source_bytes =
+            \\export fn foo1() callconv(.c) u64 {
+            \\    return 0x1122334411223344;
+            \\}
+            \\export fn foo2() callconv(.c) u64 {
+            \\    return 0xaabbccddaabbccdd;
+            \\}
+            ,
+        });
+
+        case.verifyObjdump(lib.getEmittedBin(), &.{
+            "-s",
+            "--exports",
+            "--only-symbol=foo",
+        }, .{ .os = true });
+
+        if (ctx.target.result.os.tag == .windows) {
+            case.verifyObjdump(lib.getEmittedImplib(), &.{
+                "-s",
+                "--exports",
+                "--only-symbol=foo",
+            }, .{ .sub_name = "implib", .os = true });
+        }
+
+        const exe = case.addExecutable(.{
+            .name = "test",
+            .zig_source_bytes =
+            \\extern fn foo1() u64;
+            \\pub fn main() !u8 {
+            \\    const foo2 = @extern(
+            \\        *const fn () callconv(.c) u64,
+            \\        .{ .name = "foo2", .is_dll_import = true },
+            \\    );
+            \\    return @intFromBool(0xbbde0021bbde0021 != foo1() + foo2());
+            \\}
+            ,
+        });
+        exe.root_module.linkLibrary(lib);
+
+        const run = case.addRunArtifact(exe);
+        run.addCheck(.{ .expect_term = .{ .exited = 0 } });
+    }
+
+    if (ctx.includeTest("dynamic-lib-data")) |case| {
+        const lib = case.addLibrary(.dynamic, .{
+            .name = "lib",
+            .zig_source_bytes =
+            \\export var array_foo: [2]u16 = .{ 0xffff, 0xabcd };
+            \\export var strong_foo: usize = 0x1122334411223344;
+            ,
+        });
+
+        case.verifyObjdump(lib.getEmittedBin(), &.{
+            "-s",
+            "--exports",
+            "--only-symbol=foo",
+        }, .{});
+
+        if (ctx.target.result.os.tag == .windows) {
+            // TODO: objdump implib on windows
+        }
+
+        const exe = case.addExecutable(.{
+            .name = "test",
+            .zig_source_bytes =
             \\extern var array_foo: [2]u16;
             \\extern var strong_foo: usize;
             \\extern var strong_foo_alias: usize;
             \\pub fn main() !u8 {
-            \\    return @intFromBool(0xcd003365cd00df35 != fooBar() +
-            \\        weakFoo() +
+            \\    return @intFromBool(0x2244668822451255 != 
             \\        array_foo[1] +
             \\        strong_foo +
             \\        strong_foo_alias);
@@ -118,7 +178,7 @@ pub fn addCases(ctx: *LinkContext) void {
             ,
         });
 
-        case.verifyObjdump(abs_reloc, &.{
+        case.verifyObjdump(abs_reloc.getEmittedBin(), &.{
             "-s",
             "--relocs",
         }, .{ .arch = true });

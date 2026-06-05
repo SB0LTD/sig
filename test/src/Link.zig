@@ -101,7 +101,7 @@ pub const Case = struct {
     }
 
     const SnapshotScope = struct {
-        /// If a test case has multiple verifyObjdump calls, `opt_sub_name` can
+        /// If a test case has multiple verifyObjdump calls, `opt_sub_name` should
         /// be used to differentiate them.
         sub_name: ?[]const u8 = null,
         arch: bool = false,
@@ -120,7 +120,7 @@ pub const Case = struct {
     ///
     pub fn verifyObjdump(
         self: *const Case,
-        compile: *Step.Compile,
+        file: Build.LazyPath,
         args: []const []const u8,
         scope: SnapshotScope,
     ) void {
@@ -140,7 +140,7 @@ pub const Case = struct {
             .{ snapshot_name, ctx.target_desc },
         ));
         run_step.addArgs(&.{ ctx.b.graph.zig_exe, "objdump" });
-        run_step.addArtifactArg(compile);
+        run_step.addFileArg(file);
         run_step.addArgs(args);
         run_step.addCheck(.{ .expect_term = .{ .exited = 0 } });
 
@@ -166,21 +166,38 @@ pub const Case = struct {
         const w = &snapshot_name.writer;
 
         try w.writeAll(self.prefix);
-        if (scope.sub_name) |sub_name| {
-            try w.writeByte('.');
-            try w.writeAll(sub_name);
-        }
+        var sep: u8 = '.';
 
-        if (scope.arch) try w.print("-{t}", .{ctx.target.result.cpu.arch});
-        if (scope.os) try w.print("-{t}", .{ctx.target.result.os.tag});
-        if (scope.abi) try w.print("-{t}", .{ctx.target.result.abi});
-        if (scope.optimize) try w.print("-{t}", .{ctx.optimize});
-        if (scope.use_llvm) try w.writeAll(if (ctx.use_llvm) "-llvm" else "-no-llvm");
-        if (scope.use_lld) try w.writeAll(if (ctx.use_lld) "-lld" else "-no-lld");
-        if (scope.link_libc) try w.writeAll(if (ctx.link_libc) "-libc" else "-no-libc");
-        try w.writeAll(".dmp");
+        if (try snapshotNameInner(w, scope.sub_name != null, &sep))
+            try w.writeAll(scope.sub_name.?);
+        if (try snapshotNameInner(w, scope.arch, &sep))
+            try w.print("{t}", .{ctx.target.result.cpu.arch});
+        if (try snapshotNameInner(w, scope.os, &sep))
+            try w.print("{t}", .{ctx.target.result.os.tag});
+        if (try snapshotNameInner(w, scope.abi, &sep))
+            try w.print("{t}", .{ctx.target.result.abi});
+        if (try snapshotNameInner(w, scope.optimize, &sep))
+            try w.print("{t}", .{ctx.optimize});
+        if (try snapshotNameInner(w, scope.use_llvm, &sep))
+            try w.writeAll(if (ctx.use_llvm) "llvm" else "no-llvm");
+        if (try snapshotNameInner(w, scope.use_lld, &sep))
+            try w.writeAll(if (ctx.use_lld) "lld" else "no-lld");
+        if (try snapshotNameInner(w, scope.link_libc, &sep))
+            try w.writeAll(if (ctx.link_libc) "libc" else "no-libc");
+
+        if (sep == '-') try w.writeByte('.');
+        try w.writeAll("dmp");
 
         return try snapshot_name.toOwnedSlice();
+    }
+
+    fn snapshotNameInner(w: *std.Io.Writer, cond: bool, sep: *u8) !bool {
+        if (cond) {
+            try w.writeByte(sep.*);
+            sep.* = '-';
+        }
+
+        return cond;
     }
 };
 
