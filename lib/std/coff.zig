@@ -666,7 +666,7 @@ pub const Symbol = extern struct {
     storage_class: StorageClass,
     number_of_aux_symbols: u8,
 
-    pub fn sizeOf() usize {
+    pub fn sizeOf() comptime_int {
         return 18;
     }
 
@@ -929,7 +929,7 @@ pub const WeakExternalDefinition = extern struct {
 
     unused: [10]u8,
 
-    pub fn sizeOf() usize {
+    pub fn sizeOf() comptime_int {
         return 18;
     }
 };
@@ -1393,7 +1393,7 @@ pub const Relocation = extern struct {
     symbol_table_index: u32,
     type: u16,
 
-    pub fn sizeOf() usize {
+    pub fn sizeOf() comptime_int {
         return 10;
     }
 };
@@ -1986,11 +1986,14 @@ pub const ArchiveMemberHeader = extern struct {
     end_of_header: [2]u8,
 };
 
-pub const FirstLinkerMemberHeader = extern struct {
-    /// Big-endian symbol count
-    number_of_symbols: u32,
-};
+pub const LineNumber = extern struct {
+    type: extern union {
+        symbol_table_index: u32,
+        virtual_address: u32,
+    },
+    line_number: u16,
 
-pub const SecondLinkerMemberHeader = extern struct {
-    number_of_members: u32,
+    pub fn sizeOf() comptime_int {
+        return 6;
+    }
 };

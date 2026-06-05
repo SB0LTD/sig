@@ -816,7 +816,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             @enumFromInt(@intFromEnum(emit.atom_id)),
             end_offset - 4,
             @enumFromInt(@intFromEnum(target.symbol)),
-            reloc.off,
+            .{ .known = reloc.off },
             .{ .AMD64 = .REL32 },
         ) else unreachable,
         .branch => |target| if (emit.bin_file.cast(.elf)) |elf_file| {
@@ -854,7 +854,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             @enumFromInt(@intFromEnum(emit.atom_id)),
             end_offset - 4,
             @enumFromInt(@intFromEnum(target.symbol)),
-            reloc.off,
+            .{ .known = reloc.off },
             .{ .AMD64 = .REL32 },
         ) else return emit.fail("TODO implement {s} reloc for {s}", .{
             @tagName(reloc.target), @tagName(emit.bin_file.tag),
@@ -912,7 +912,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             @enumFromInt(@intFromEnum(emit.atom_id)),
             end_offset - 4,
             @enumFromInt(@intFromEnum(target.symbol)),
-            reloc.off,
+            .{ .known = reloc.off },
             .{ .AMD64 = .SECREL },
         ) else return emit.fail("TODO implement {s} reloc for {s}", .{
             @tagName(reloc.target), @tagName(emit.bin_file.tag),
