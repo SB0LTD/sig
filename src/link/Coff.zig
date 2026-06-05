@@ -17,6 +17,8 @@ const target_util = @import("../target.zig");
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");
+const ModuleDefinition = @import("../libs/mingw/def.zig").ModuleDefinition;
+const implib = @import("../libs/mingw/implib.zig");
 
 base: link.File,
 mf: MappedFile,
@@ -287,6 +289,7 @@ pub const ExportTable = struct {
     pending_sort: bool = false,
 
     pub const Entry = struct {
+        si: Symbol.Index,
         name_index: u32,
         name_len: u32,
         export_address_table_ri: Reloc.Index,
@@ -1888,6 +1891,81 @@ pub fn updateErrorData(coff: *Coff, pt: Zcu.PerThread) !void {
     };
 }
 
+fn flushImplib(
+    coff: *Coff,
+    implib_file: []const u8,
+) !void {
+    // Emitting implibs is only valid for images
+    assert(coff.export_table.ni != .none);
+
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    const io = comp.io;
+
+    const image_name = std.mem.sliceTo(
+        coff.export_table.ni.slice(&coff.mf)[@sizeOf(std.coff.ExportDirectoryTable)..],
+        0,
+    );
+    const machine_type = coff.targetLoad(&coff.headerPtr().machine);
+    const members = members: {
+        const def_arena: std.heap.ArenaAllocator = .init(gpa);
+        var def: ModuleDefinition = .{
+            .name = image_name,
+            .arena = def_arena,
+            .type = .mingw,
+        };
+        defer def.deinit();
+
+        try def.exports.ensureUnusedCapacity(
+            def.arena.allocator(),
+            coff.export_table.entries.count(),
+        );
+
+        const name_table_slice = coff.export_table.name_table_ni.slice(&coff.mf);
+        for (coff.export_table.entries.values(), 0..) |entry, ord| {
+            const name = name_table_slice[entry.name_index..][0..entry.name_len];
+            const section_number = entry.si.get(coff).section_number;
+            const import_type: std.coff.ImportType = switch (section_number.symbol(coff)) {
+                .data, .rdata => .DATA,
+                .text => .CODE,
+                else => return comp.link_diags.fail(
+                    "unsupported section for export '{s}': {s}",
+                    .{ name, &section_number.header(coff).name },
+                ),
+            };
+
+            def.exports.appendAssumeCapacity(.{
+                .name = name,
+                .mangled_symbol_name = null,
+                .ext_name = null,
+                .import_name = null,
+                .export_as = null,
+                .no_name = false,
+                .ordinal = @intCast(ord),
+                .type = import_type,
+                .private = false,
+            });
+        }
+
+        def.fixupForImportLibraryGeneration(machine_type);
+        break :members try implib.getMembers(gpa, def, machine_type);
+    };
+    defer members.deinit();
+
+    const lib_sub_path = try std.fs.path.join(gpa, &.{
+        std.fs.path.dirname(coff.base.emit.sub_path) orelse "",
+        implib_file,
+    });
+    defer gpa.free(lib_sub_path);
+
+    const lib_final_file = try coff.base.emit.root_dir.handle.createFile(io, lib_sub_path, .{ .truncate = true });
+    defer lib_final_file.close(io);
+    var buffer: [1024]u8 = undefined;
+    var file_writer = lib_final_file.writer(io, &buffer);
+    try implib.writeCoffArchive(gpa, &file_writer.interface, members);
+    try file_writer.interface.flush();
+}
+
 pub fn flush(
     coff: *Coff,
     arena: std.mem.Allocator,
@@ -1898,11 +1976,18 @@ pub fn flush(
     _ = prog_node;
     while (try coff.idle(tid)) {}
 
-    // hack for stage2_x86_64 + coff
     const comp = coff.base.comp;
+
+    // Implib generation should instead be done via building a MappedFile progressively
+    if (comp.emit_implib) |implib_file|
+        coff.flushImplib(implib_file) catch |err|
+            return comp.link_diags.fail("flushing implib '{s}' failed: {t}", .{ implib_file, err });
+
+    // hack for stage2_x86_64 + coff
     if (comp.compiler_rt_dyn_lib) |crt_file| {
         const gpa = comp.gpa;
         const io = comp.io;
+
         const compiler_rt_sub_path = try std.fs.path.join(gpa, &.{
             std.fs.path.dirname(coff.base.emit.sub_path) orelse "",
             std.fs.path.basename(crt_file.full_object_path.sub_path),
@@ -2670,6 +2755,7 @@ fn updateExportsInner(
             );
 
             gop.value_ptr.* = .{
+                .si = export_si,
                 .name_index = @intCast(name_index),
                 .name_len = @intCast(name.len),
                 .export_address_table_ri = @enumFromInt(coff.relocs.items.len),
@@ -2683,6 +2769,7 @@ fn updateExportsInner(
                 .{ .AMD64 = .ADDR32NB },
             );
         } else {
+            gop.value_ptr.si = export_si;
             const reloc = gop.value_ptr.*.export_address_table_ri.get(coff);
             reloc.target = export_si;
             export_si.applyTargetRelocs(coff);

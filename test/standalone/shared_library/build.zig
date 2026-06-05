@@ -7,11 +7,15 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
     const target = b.standardTargetOptions(.{});
 
-    const exe_names: []const []const u8 = &.{ "test", "test-dync" };
-    const lib_names: []const []const u8 = &.{ "mathtest", "mathtest-dync" };
-    const lib_link_libc: []const bool = &.{ false, true };
+    const exe_names: []const []const u8 = &.{ "test", "test-dync", "test-no-llvm", "test-no-llvm-dync" };
+    const lib_names: []const []const u8 = &.{ "mathtest", "mathtest-dync", "mathtest-no-llvm", "mathtest-no-llvm-dync" };
+    const lib_link_libc: []const bool = &.{ false, true, false, true };
+    const lib_use_llvm: []const bool = &.{ true, true, false, false };
 
-    for (exe_names, lib_names, lib_link_libc) |exe_name, lib_name, dyn_libc| {
+    for (exe_names, lib_names, lib_link_libc, lib_use_llvm) |exe_name, lib_name, dyn_libc, use_llvm| {
+        if (target.result.os.tag == .windows and target.result.abi == .gnu and dyn_libc and !use_llvm)
+            continue; // TODO: sub-compilation of compiler_rt failed (failed to link with LLD: LibCInstallationNotAvailable)
+
         const lib = b.addLibrary(.{
             .linkage = .dynamic,
             .name = lib_name,
@@ -22,6 +26,7 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
                 .link_libc = dyn_libc,
             }),
+            .use_llvm = use_llvm,
         });
 
         const exe = b.addExecutable(.{
