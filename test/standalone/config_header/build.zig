@@ -30,7 +30,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const config_header_autoconf_at = b.addConfigHeader(
-        .{ .style = .{ .autoconf_at = b.path("autoconf_at/autoconf_at.txt.in") } },
+        .{ .style = .{ .autoconf_at = b.path("autoconf_at/autoconf_at.h.in") } },
         .{
             .undefined = null,
             .defined = {},
@@ -45,7 +45,7 @@ pub fn build(b: *std.Build) void {
         },
     );
     const check_config_header_autoconf_at = b.addCheckFile(config_header_autoconf_at.getOutputFile(), .{
-        .expected_exact = @embedFile("autoconf_at/autoconf_at.txt"),
+        .expected_exact = @embedFile("autoconf_at/autoconf_at.h"),
     });
 
     test_step.dependOn(&check_config_header.step);
