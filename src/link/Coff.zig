@@ -3283,7 +3283,7 @@ fn loadObject(
             header.machine,
         });
     if (header.number_of_sections == 0) return;
-    if (@sizeOf(std.coff.Header) + header.number_of_sections * @sizeOf(std.coff.SectionHeader) > fl.size)
+    if (@sizeOf(std.coff.Header) + @as(usize, header.number_of_sections) * @sizeOf(std.coff.SectionHeader) > fl.size)
         return diags.failParse(path, "invalid section table", .{});
     const unexpected_header_flags: []const std.meta.FieldEnum(std.coff.Header.Flags) = &.{
         .RELOCS_STRIPPED,
@@ -4507,26 +4507,6 @@ pub fn flush(
         coff.flushImplib(implib_file) catch |err|
             return comp.link_diags.fail("flushing implib '{s}' failed: {t}", .{ implib_file, err });
 
-    // hack for stage2_x86_64 + coff
-    if (comp.compiler_rt_dyn_lib) |crt_file| {
-        const io = comp.io;
-        const gpa = comp.gpa;
-
-        const compiler_rt_sub_path = try std.fs.path.join(gpa, &.{
-            std.fs.path.dirname(coff.base.emit.sub_path) orelse "",
-            std.fs.path.basename(crt_file.full_object_path.sub_path),
-        });
-        defer gpa.free(compiler_rt_sub_path);
-        std.Io.Dir.copyFile(
-            crt_file.full_object_path.root_dir.handle,
-            crt_file.full_object_path.sub_path,
-            coff.base.emit.root_dir.handle,
-            compiler_rt_sub_path,
-            io,
-            .{},
-        ) catch |err| return comp.link_diags.fail("copy '{s}' failed: {t}", .{ compiler_rt_sub_path, err });
-    }
-
     coff.mf.flush() catch |err| switch (err) {
         error.Canceled => |e| return e,
         else => |e| return comp.link_diags.fail("flush write failed: {t}", .{e}),
@@ -4558,14 +4538,14 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
         }
         if (coff.pending_input) |pending_iami| {
             // TODO: Prog node?
+            coff.pending_input = null;
             coff.flushInputMember(pending_iami) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 else => |e| return comp.link_diags.fail(
-                    "linker failed to archive member: {t}",
+                    "linker failed to load archive member: {t}",
                     .{e},
                 ),
             };
-            coff.pending_input = null;
             break :task;
         }
         if (coff.global_pending_index < coff.globals.count()) {

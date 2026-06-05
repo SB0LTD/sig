@@ -223,8 +223,6 @@ compiler_rt_lib: ?CrtFile = null,
 /// Populated when we build the compiler_rt_obj object. A Job to build this is indicated
 /// by setting `queued_jobs.compiler_rt_obj` and resolved before calling linker.flush().
 compiler_rt_obj: ?CrtFile = null,
-/// hack for stage2_x86_64 + coff
-compiler_rt_dyn_lib: ?CrtFile = null,
 /// Populated when we build the libfuzzer static library. A Job to build this
 /// is indicated by setting `queued_jobs.fuzzer_lib` and resolved before
 /// calling linker.flush().
@@ -287,8 +285,6 @@ emit_llvm_bc: ?[]const u8,
 emit_docs: ?[]const u8,
 
 const QueuedJobs = struct {
-    /// hack for stage2_x86_64 + coff
-    compiler_rt_dyn_lib: bool = false,
     compiler_rt_lib: bool = false,
     compiler_rt_obj: bool = false,
     ubsan_rt_lib: bool = false,
@@ -1781,7 +1777,7 @@ fn addModuleTableToCacheHash(
     }
 }
 
-const RtStrat = enum { none, lib, obj, zcu, dyn_lib };
+const RtStrat = enum { none, lib, obj, zcu };
 
 pub const CreateDiagnostic = union(enum) {
     export_table_import_table_conflict,
@@ -1902,12 +1898,6 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
             };
             if (have_zcu and (!need_llvm or use_llvm)) {
                 if (output_mode == .Obj) break :s .zcu;
-                switch (target_util.zigBackend(target, use_llvm)) {
-                    else => {},
-                    .stage2_aarch64, .stage2_x86_64 => if (target.ofmt == .coff) {
-                        break :s if (is_exe_or_dyn_lib and build_options.have_llvm) .dyn_lib else .zcu;
-                    },
-                }
             }
             if (need_llvm and !build_options.have_llvm) break :s .none; // impossible to build without llvm
             if (is_exe_or_dyn_lib) break :s .lib;
@@ -2628,11 +2618,6 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                     log.debug("queuing a job to build compiler_rt_obj", .{});
                     comp.queued_jobs.compiler_rt_obj = true;
                 },
-                .dyn_lib => {
-                    // hack for stage2_x86_64 + coff
-                    log.debug("queuing a job to build compiler_rt_dyn_lib", .{});
-                    comp.queued_jobs.compiler_rt_dyn_lib = true;
-                },
             }
 
             switch (comp.ubsan_rt_strat) {
@@ -2645,7 +2630,6 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                     log.debug("queuing a job to build ubsan_rt_obj", .{});
                     comp.queued_jobs.ubsan_rt_obj = true;
                 },
-                .dyn_lib => unreachable, // hack for compiler_rt only
             }
 
             switch (comp.zigc_strat) {
@@ -2654,7 +2638,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                     log.debug("queuing a job to build libzigc", .{});
                     comp.queued_jobs.zigc_lib = true;
                 },
-                .obj, .dyn_lib => unreachable, // only available as a static library or inside an existing ZCU
+                .obj => unreachable, // only available as a static library or inside an existing ZCU
             }
 
             if (is_exe_or_dyn_lib and comp.config.any_fuzz) {
@@ -2713,7 +2697,6 @@ pub fn destroy(comp: *Compilation) void {
     if (comp.zigc_static_lib) |*crt_file| crt_file.deinit(gpa, io);
     if (comp.compiler_rt_lib) |*crt_file| crt_file.deinit(gpa, io);
     if (comp.compiler_rt_obj) |*crt_file| crt_file.deinit(gpa, io);
-    if (comp.compiler_rt_dyn_lib) |*crt_file| crt_file.deinit(gpa, io);
     if (comp.fuzzer_lib) |*crt_file| crt_file.deinit(gpa, io);
 
     if (comp.glibc_so_files) |*glibc_file| {
@@ -4563,24 +4546,6 @@ fn dispatchPrelinkWork(comp: *Compilation, main_progress_node: std.Progress.Node
                 .allow_lto = false,
             },
             &comp.compiler_rt_obj,
-        });
-    }
-
-    // hack for stage2_x86_64 + coff
-    if (comp.queued_jobs.compiler_rt_dyn_lib and comp.compiler_rt_dyn_lib == null) {
-        prelink_group.async(io, buildRt, .{
-            comp,
-            "compiler_rt.zig",
-            "compiler_rt",
-            .Lib,
-            .dynamic,
-            .compiler_rt,
-            main_progress_node,
-            RtOptions{
-                .checks_valgrind = true,
-                .allow_lto = false,
-            },
-            &comp.compiler_rt_dyn_lib,
         });
     }
 
