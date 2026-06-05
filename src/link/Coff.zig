@@ -6890,7 +6890,11 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
                 );
             }
 
-            smi.symbol(coff).get(coff).extra.size = @intCast(size);
+            var sym = smi.symbol(coff).get(coff);
+            while (sym.flags.extra_tag == .next_alias_si)
+                sym = sym.extra.next_alias_si.get(coff);
+
+            sym.extra.size = @intCast(size);
         },
         .import_thunk,
         .nav,
