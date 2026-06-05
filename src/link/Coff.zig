@@ -31,6 +31,7 @@ long_names_table: LongNamesTable,
 import_table: ImportTable,
 export_table: ExportTable,
 symbol_table: SymbolTable,
+inputs: std.ArrayHashMapUnmanaged(std.Build.Cache.Path, void, std.Build.Cache.Path.TableAdapter, false),
 input_archives: std.ArrayList(InputArchive),
 input_archive_members: std.ArrayList(InputArchive.Member),
 input_archive_symbols: std.ArrayList(InputArchive.Member.Symbol),
@@ -39,7 +40,7 @@ input_archive_symbol_indices: std.AutoArrayHashMapUnmanaged(String, struct {
     last: InputArchive.Member.Symbol.Index,
 }),
 pending_input: ?InputArchive.Member.Index,
-inputs: std.ArrayList(Input),
+input_objects: std.ArrayList(InputObject),
 input_symbols: std.ArrayList(Symbol.Index),
 input_sections: std.ArrayList(Node.InputSection),
 input_section_pending_index: u32,
@@ -254,6 +255,10 @@ pub const Node = union(enum) {
             return coff.globals.keys()[gmi.unwrap().?];
         }
 
+        pub fn globalNameMutable(gmi: GlobalMapIndex, coff: *Coff) *GlobalName {
+            return &coff.globals.keys()[gmi.unwrap().?];
+        }
+
         pub fn symbol(gmi: GlobalMapIndex, coff: *const Coff) Symbol.Index {
             return coff.globals.values()[gmi.unwrap().?];
         }
@@ -283,20 +288,8 @@ pub const Node = union(enum) {
         }
     };
 
-    pub const InputIndex = enum(u32) {
-        _,
-
-        pub fn path(ii: InputIndex, coff: *const Coff) std.Build.Cache.Path {
-            return coff.inputs.items[@intFromEnum(ii)].path;
-        }
-
-        pub fn memberName(ii: InputIndex, coff: *const Coff) ?[]const u8 {
-            return coff.inputs.items[@intFromEnum(ii)].member_name;
-        }
-    };
-
     const InputSection = struct {
-        ii: Node.InputIndex,
+        ioi: InputObject.Index,
         si: Symbol.Index,
         file_location: MappedFile.Node.FileLocation,
         first_li: Node.InputSection.LocalIndex,
@@ -309,8 +302,8 @@ pub const Node = union(enum) {
                 return &coff.input_sections.items[@intFromEnum(isi)];
             }
 
-            pub fn input(isi: Index, coff: *const Coff) InputIndex {
-                return coff.input_sections.items[@intFromEnum(isi)].ii;
+            pub fn input(isi: Index, coff: *const Coff) InputObject.Index {
+                return coff.input_sections.items[@intFromEnum(isi)].ioi;
             }
 
             pub fn fileLocation(isi: Index, coff: *const Coff) MappedFile.Node.FileLocation {
@@ -409,10 +402,20 @@ pub const InputArchive = struct {
     pub const Member = struct {
         iai: InputArchive.Index,
         name: String,
-        // This range includes the member header
-        file_location: MappedFile.Node.FileLocation,
+        content: union(enum) {
+            // This range includes the member header
+            object: MappedFile.Node.FileLocation,
+            import: struct {
+                symbol_name: String,
+                lib_name: String,
+                // Either ordinal or hint, depending on value of name_type
+                import_ordinal_hint: u16,
+                type: std.coff.ImportType,
+                name_type: std.coff.ImportNameType,
+            },
+        },
         flags: packed struct {
-            is_import: bool,
+            // Set if an attempt was made to load this member
             is_loaded: bool,
         },
 
@@ -436,10 +439,22 @@ pub const InputArchive = struct {
     };
 };
 
-pub const Input = struct {
+pub const InputObject = struct {
     path: std.Build.Cache.Path,
     member_name: ?[]const u8,
     source_name: String.Optional,
+
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn path(ioi: Index, coff: *const Coff) std.Build.Cache.Path {
+            return coff.input_objects.items[@intFromEnum(ioi)].path;
+        }
+
+        pub fn memberName(ioi: Index, coff: *const Coff) ?[]const u8 {
+            return coff.input_objects.items[@intFromEnum(ioi)].member_name;
+        }
+    };
 };
 
 pub const Member = struct {
@@ -952,7 +967,7 @@ pub const Symbol = struct {
     };
 
     comptime {
-        if (!std.debug.runtime_safety) std.debug.assert(@sizeOf(Symbol) == 32);
+        if (!std.debug.runtime_safety) std.debug.assert(@sizeOf(Symbol) == 36);
     }
 };
 
@@ -1381,12 +1396,13 @@ fn create(
             .pending = .empty,
             .pending_shrink = false,
         },
+        .inputs = .empty,
         .input_archives = .empty,
         .input_archive_members = .empty,
         .input_archive_symbols = .empty,
         .input_archive_symbol_indices = .empty,
         .pending_input = null,
-        .inputs = .empty,
+        .input_objects = .empty,
         .input_symbols = .empty,
         .input_sections = .empty,
         .input_section_pending_index = 0,
@@ -1447,11 +1463,12 @@ pub fn deinit(coff: *Coff) void {
     coff.export_table.entries.deinit(gpa);
     coff.symbol_table.strings.deinit(gpa);
     coff.symbol_table.pending.deinit(gpa);
+    coff.inputs.deinit(gpa);
     coff.input_archives.deinit(gpa);
     coff.input_archive_members.deinit(gpa);
     coff.input_archive_symbols.deinit(gpa);
     coff.input_archive_symbol_indices.deinit(gpa);
-    coff.inputs.deinit(gpa);
+    coff.input_objects.deinit(gpa);
     coff.input_symbols.deinit(gpa);
     coff.input_sections.deinit(gpa);
     coff.strings.deinit(gpa);
@@ -2772,23 +2789,28 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
 
 fn flushInputMember(coff: *Coff, iami: InputArchive.Member.Index) !void {
     const member = iami.member(coff);
-    if (member.file_location.size == 0) return;
     assert(!member.flags.is_loaded);
     defer member.flags.is_loaded = true;
-    const comp = coff.base.comp;
-    const io = comp.io;
-    const path = member.iai.path(coff);
-    const file = try path.root_dir.handle.openFile(io, path.sub_path, .{});
-    defer file.close(io);
-    var buffer: [4096]u8 = undefined;
-    var fr = file.reader(io, &buffer);
-    const offset = member.file_location.offset + @sizeOf(std.coff.ArchiveMemberHeader);
-    try fr.seekTo(offset);
-    log.debug("flushInputMember({f}({s}))", .{ path, member.name.toSlice(coff) });
-    try coff.loadObject(path, member.name.toSlice(coff), &fr, .{
-        .offset = offset,
-        .size = member.file_location.size,
-    });
+    switch (member.content) {
+        .import => unreachable,
+        .object => |file_location| {
+            if (file_location.size == 0) return;
+            const comp = coff.base.comp;
+            const io = comp.io;
+            const path = member.iai.path(coff);
+            const file = try path.root_dir.handle.openFile(io, path.sub_path, .{});
+            defer file.close(io);
+            var buffer: [4096]u8 = undefined;
+            var fr = file.reader(io, &buffer);
+            const offset = file_location.offset + @sizeOf(std.coff.ArchiveMemberHeader);
+            try fr.seekTo(offset);
+            log.debug("flushInputMember({f}({s}))", .{ path, member.name.toSlice(coff) });
+            try coff.loadObject(path, member.name.toSlice(coff), &fr, .{
+                .offset = offset,
+                .size = file_location.size,
+            });
+        },
+    }
 }
 
 fn flushInputSection(coff: *Coff, isi: Node.InputSection.Index) !void {
@@ -2797,8 +2819,8 @@ fn flushInputSection(coff: *Coff, isi: Node.InputSection.Index) !void {
     const comp = coff.base.comp;
     const io = comp.io;
     const gpa = comp.gpa;
-    const ii = isi.input(coff);
-    const path = ii.path(coff);
+    const ioi = isi.input(coff);
+    const path = ioi.path(coff);
     const file = try path.root_dir.handle.openFile(io, path.sub_path, .{});
     defer file.close(io);
     var fr = file.reader(io, &.{});
@@ -2809,7 +2831,7 @@ fn flushInputSection(coff: *Coff, isi: Node.InputSection.Index) !void {
     defer nw.deinit();
     log.debug("flushInputSection({f}{f}, {s})", .{
         path,
-        fmtMemberNameString(ii.memberName(coff)),
+        fmtMemberNameString(ioi.memberName(coff)),
         isi.symbol(coff).get(coff).section_number.name(coff).toSlice(coff),
     });
     if (try nw.interface.sendFileAll(&fr, .limited(@intCast(file_loc.size))) != file_loc.size)
@@ -3216,7 +3238,14 @@ pub fn addReloc(
 
 pub fn loadInput(coff: *Coff, input: link.Input) (Io.File.Reader.SizeError ||
     Io.File.Reader.Error || MappedFile.Error || error{ WriteFailed, EndOfStream, BadMagic, LinkFailure })!void {
-    const io = coff.base.comp.io;
+    const comp = coff.base.comp;
+    const io = comp.io;
+
+    const path = input.path() orelse unreachable;
+    const gop = try coff.inputs.getOrPut(comp.gpa, path);
+    if (gop.found_existing) return;
+    errdefer _ = coff.inputs.swapRemove(path);
+
     var buf: [4096]u8 = undefined;
     switch (input) {
         .object => |object| {
@@ -3340,9 +3369,9 @@ fn loadObject(
         symbol_table_end + string_table_len > fl.size)
         return diags.failParse(path, "bad string table", .{});
 
-    const ii: Node.InputIndex = @enumFromInt(coff.inputs.items.len);
-    try coff.inputs.ensureUnusedCapacity(gpa, 1);
-    const input = coff.inputs.addOneAssumeCapacity();
+    const ioi: InputObject.Index = @enumFromInt(coff.input_objects.items.len);
+    try coff.input_objects.ensureUnusedCapacity(gpa, 1);
+    const input = coff.input_objects.addOneAssumeCapacity();
     input.* = .{
         .path = path,
         .member_name = if (member_name) |m| try gpa.dupe(u8, m) else null,
@@ -3743,8 +3772,12 @@ fn loadObject(
                     else => |e| return e,
                 }) |arg| {
                     // Microsoft tools emit 3 space characters into this section even with /Zl
-                    if (arg.len > 0)
-                        return diags.failParse(path, "unsupported argument in .drectve section: `{s}`", .{arg});
+                    if (arg.len == 0) continue;
+
+                    if (std.mem.cutPrefix(u8, arg, "-exclude-symbols:")) |rest| {
+                        // TODO: When implementing mingw auto-exports, use this to not export this symbol
+                        _ = rest;
+                    } else return diags.failParse(path, "unsupported argument in .drectve section: `{s}`", .{arg});
                 }
             }
 
@@ -3784,29 +3817,37 @@ fn loadObject(
                 };
             },
             else => |comdat| {
-                const psi = section.comdat_psi.unwrap() orelse
-                    return diags.failParse(
-                        path,
-                        "COMDAT section symbol 0x{x} had no COMDAT symbol",
-                        .{pending_symbols.keys()[section.psi.unwrap().?]},
-                    );
-
+                const psi = section.comdat_psi.unwrap() orelse section.psi.unwrap().?;
                 const symbol = &pending_symbols.values()[psi];
-                switch (symbol.value) {
-                    .section, .weak_external => unreachable,
+                const si = existing: switch (symbol.value) {
+                    .weak_external => unreachable,
                     .static => break :comdat .include,
-                    else => {},
-                }
+                    .section => {
+                        assert(section.comdat_psi == .none);
+                        if (coff.object_section_table.get(section.name)) |si|
+                            break :existing si
+                        else if (coff.pseudo_section_table.get(section.name)) |si|
+                            break :existing si
+                        else if (coff.section_table.get(section.name)) |s|
+                            break :existing s.si
+                        else
+                            break :comdat .include;
+                    },
+                    else => {
+                        const global_gop = try coff.getOrPutGlobalSymbol(.{
+                            .name = symbol.name.toSlice(coff),
+                            .lib_name = null,
+                        });
+                        if (!global_gop.found_existing) {
+                            symbol.si = global_gop.value_ptr.*;
+                            break :comdat .include;
+                        }
 
-                // TODO: Do we need to use lib_name here?
-                const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = symbol.name.toSlice(coff), .lib_name = null });
-                if (!global_gop.found_existing) {
-                    symbol.si = global_gop.value_ptr.*;
-                    break :comdat .include;
-                }
+                        break :existing global_gop.value_ptr.*;
+                    },
+                };
 
                 const index = pending_symbols.keys()[psi];
-                const si = global_gop.value_ptr.*;
                 switch (comdat) {
                     .NODUPLICATES => return coff.failMultipleDefinitions(
                         path,
@@ -3816,12 +3857,17 @@ fn loadObject(
                         si,
                         .duplicate,
                     ),
-                    .ANY => break :comdat .skip,
+                    .ANY => {
+                        symbol.si = si;
+                        break :comdat .skip;
+                    },
                     .SAME_SIZE => {
                         // TODO: Verify that this node isn't resized after creation
                         _, const size = si.get(coff).ni.location(&coff.mf).resolve(&coff.mf);
-                        if (size == section.header.size_of_raw_data)
+                        if (size == section.header.size_of_raw_data) {
+                            symbol.si = si;
                             break :comdat .skip;
+                        }
 
                         return coff.failMultipleDefinitions(
                             path,
@@ -3840,8 +3886,10 @@ fn loadObject(
                             else => std.hash.crc.Crc32Jamcrc.hash(sym.ni.slice(&coff.mf)),
                         };
 
-                        if (existing_crc == section.comdat_crc)
+                        if (existing_crc == section.comdat_crc) {
+                            symbol.si = si;
                             break :comdat .skip;
+                        }
 
                         return coff.failMultipleDefinitions(
                             path,
@@ -3876,7 +3924,16 @@ fn loadObject(
                 continue :comdat root_result;
             },
             .include => {},
-            .skip => continue,
+            .skip => {
+                assert(switch (section.comdat) {
+                    .NONE, .ASSOCIATIVE => true,
+                    else => if (section.comdat_psi.unwrap()) |psi|
+                        pending_symbols.values()[psi].si != .null
+                    else
+                        pending_symbols.values()[section.psi.unwrap().?].si != .null,
+                });
+                continue;
+            },
             .pending => unreachable,
         }
 
@@ -3915,7 +3972,7 @@ fn loadObject(
         sym.section_number = section.parent_si.get(coff).section_number;
 
         coff.input_sections.addOneAssumeCapacity().* = .{
-            .ii = ii,
+            .ioi = ioi,
             .si = section.si,
             .file_location = .{
                 .offset = fl.offset + section.header.pointer_to_raw_data,
@@ -3987,8 +4044,7 @@ fn loadObject(
                     symbol.si = coff.addSymbolAssumeCapacity();
                 },
                 .external => {
-                    // COMDAT symbols were created when enumerating the sections
-                    assert(section.comdat == .NONE);
+                    // TODO: Assert this is not the comdat leader
                     const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = symbol.name.toSlice(coff) });
                     symbol.si = global_gop.value_ptr.*;
 
@@ -4086,20 +4142,26 @@ fn loadObject(
 
     try coff.input_symbols.ensureUnusedCapacity(gpa, num_included_symbols + num_included_sections);
     var prev_sn: Symbol.SectionNumber = .UNDEFINED;
+    var include_section = true;
     for (pending_symbols.values()) |symbol| {
         // The symbol may have not been included, or it's an undefined external
         if (symbol.si == .null or symbol.si.get(coff).ni == .none) continue;
-        assert(coff.getNode(symbol.si.get(coff).ni) == .input_section);
 
         if (prev_sn != symbol.section_number) {
             prev_sn = symbol.section_number;
 
             const section = &sections[symbol.section_number.toIndex()];
-            const isi = coff.getNode(section.si.get(coff).ni).input_section;
-            isi.inputSection(coff).first_li = @enumFromInt(coff.input_symbols.items.len);
+            include_section = section.comdat_result == .include;
+            if (include_section) {
+                const isi = coff.getNode(section.si.get(coff).ni).input_section;
+                isi.inputSection(coff).first_li = @enumFromInt(coff.input_symbols.items.len);
+            }
         }
 
-        coff.input_symbols.addOneAssumeCapacity().* = symbol.si;
+        if (include_section) {
+            assert(coff.getNode(symbol.si.get(coff).ni) == .input_section);
+            coff.input_symbols.addOneAssumeCapacity().* = symbol.si;
+        }
     }
 }
 
@@ -4123,16 +4185,15 @@ fn failMultipleDefinitions(
 
     switch (coff.getNode(existing_si.get(coff).ni)) {
         .input_section => |isi| {
-            const other_ii = isi.input(coff);
+            const other_ioi = isi.input(coff);
             err.addNote("first seen in input '{f}{f}'", .{
-                other_ii.path(coff).fmtEscapeString(),
-                fmtMemberNameString(other_ii.memberName(coff)),
+                other_ioi.path(coff).fmtEscapeString(),
+                fmtMemberNameString(other_ioi.memberName(coff)),
             });
         },
         .nav, .uav => err.addNote("first seen in module '{s}'", .{
             coff.base.comp.zcu.?.root_mod.fully_qualified_name,
         }),
-        //else => |_, tag| err.addNote("TODO multiple def for {t}", .{tag}),
         else => unreachable,
     }
 
@@ -4158,6 +4219,7 @@ const ArchiveMemberHeader = struct {
     size: u34,
 };
 
+/// Return value lifetime is that of `header`
 fn parseArchiveMemberHeader(
     diags: *link.Diags,
     path: std.Build.Cache.Path,
@@ -4346,10 +4408,14 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
                         coff.input_archive_members.addOneAssumeCapacity().* = .{
                             .iai = iai,
                             .name = undefined,
-                            .flags = undefined,
-                            .file_location = .{
-                                .offset = member_offset,
-                                .size = undefined,
+                            .content = .{
+                                .object = .{
+                                    .offset = member_offset,
+                                    .size = undefined,
+                                },
+                            },
+                            .flags = .{
+                                .is_loaded = false,
                             },
                         };
 
@@ -4394,9 +4460,9 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
         else => {},
     };
 
-    // Validate / read names and sizes of all the referenced members
+    // Validate / read names and sizes of all the referenced members, enumerate imports
     for (coff.input_archive_members.items[first_iami..]) |*member| {
-        try fr.seekTo(member.file_location.offset);
+        try fr.seekTo(member.content.object.offset);
 
         const header = try r.takeStruct(std.coff.ArchiveMemberHeader, target_endian);
         const res = try parseArchiveMemberHeader(diags, path, &header, opt_longnames);
@@ -4405,28 +4471,74 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
         member.name = coff.getOrPutStringAssumeCapacity(res.name);
 
         const member_sig = try r.peek(4);
-        const machine = std.mem.readInt(u16, member_sig[0..2], target_endian);
+        const machine: std.coff.IMAGE.FILE.MACHINE =
+            @enumFromInt(std.mem.readInt(u16, member_sig[0..2], target_endian));
         const sig = std.mem.readInt(u16, member_sig[2..4], target_endian);
-        member.flags = .{
-            .is_import = machine == @intFromEnum(std.coff.IMAGE.FILE.MACHINE.UNKNOWN) and sig == 0xffff,
-            .is_loaded = false,
-        };
-        member.file_location.size = res.size;
 
         log.debug("verifyArchiveMember({s}) = 0x{x}+{x}", .{
             res.name,
-            member.file_location.offset,
-            member.file_location.size,
+            member.content.object.offset,
+            res.size,
         });
 
-        if (member.flags.is_import) {
-            const import_header = try r.peekStruct(std.coff.ImportHeader, target_endian);
-            // TODO: Validate import table header fields
-            // TODO: Use this result in flushGlobal
-            return diags.failParse(path, "TODO implement parsing import headers: {t} {t}", .{
+        const expected_machine = comp.root_mod.resolved_target.result.toCoffMachine();
+        if (machine == std.coff.IMAGE.FILE.MACHINE.UNKNOWN and sig == 0xffff) {
+            const import_header = try r.takeStruct(std.coff.ImportHeader, target_endian);
+            const strings = r.take(import_header.size_of_data) catch |err| switch (err) {
+                error.EndOfStream => return diags.failParse(path, "invalid data size in import header '{s}'", .{res.name}),
+                else => |e| return e,
+            };
+
+            var split = std.mem.splitScalar(u8, strings, 0);
+            const symbol_name = split.next() orelse
+                return diags.failParse(path, "invalid symbol name string in import header '{s}'", .{res.name});
+            var lib_name = split.next() orelse
+                return diags.failParse(path, "invalid dll name string in import header '{s}' ('{s}')", .{ res.name, symbol_name });
+
+            if (import_header.machine != expected_machine)
+                return diags.failParse(path, "machine mismatch in import header '{s}' ('{s}'): expected {t}, found {t}", .{
+                    res.name,
+                    symbol_name,
+                    expected_machine,
+                    machine,
+                });
+
+            const ext = ".dll";
+            if (!std.mem.endsWith(u8, lib_name, ext))
+                return diags.failParse(
+                    path,
+                    "unexpected extension for import '{s} ('{s}'): '{s}'",
+                    .{ res.name, symbol_name, lib_name },
+                );
+
+            lib_name = lib_name[0 .. lib_name.len - ext.len];
+            log.debug("verifyArchiveImportHeader({s}, {s}, {s}) = {t} ({t})", .{
+                res.name,
+                symbol_name,
+                lib_name,
                 import_header.types.type,
                 import_header.types.name_type,
             });
+
+            try coff.ensureManyUnusedStringCapacity(2, strings.len - ext.len);
+            member.content = .{
+                .import = .{
+                    .symbol_name = coff.getOrPutStringAssumeCapacity(symbol_name),
+                    .lib_name = coff.getOrPutStringAssumeCapacity(lib_name),
+                    .import_ordinal_hint = import_header.hint,
+                    .type = import_header.types.type,
+                    .name_type = import_header.types.name_type,
+                },
+            };
+        } else {
+            member.content.object.size = res.size;
+            if (machine != expected_machine) {
+                return diags.failParse(path, "machine mismatch in member header '{s}': expected {t}, found {t}", .{
+                    res.name,
+                    expected_machine,
+                    machine,
+                });
+            }
         }
     }
 }
@@ -4808,18 +4920,18 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
                 const loc_sym = loc_si.get(coff);
                 switch (coff.getNode(loc_sym.ni)) {
                     .input_section => |isi| {
-                        const other_ii = isi.input(coff);
+                        const other_ioi = isi.input(coff);
                         if (loc_sym.gmi == .none) {
                             // TODO: We could report the name here if we interned it in loadObject
                             err.addNote("referenced internally by input '{f}{f}'", .{
-                                other_ii.path(coff).fmtEscapeString(),
-                                fmtMemberNameString(other_ii.memberName(coff)),
+                                other_ioi.path(coff).fmtEscapeString(),
+                                fmtMemberNameString(other_ioi.memberName(coff)),
                             });
                         } else {
                             err.addNote("referenced by input symbol '{s}' from '{f}{f}'", .{
                                 loc_sym.gmi.globalName(coff).name.toSlice(coff),
-                                other_ii.path(coff).fmtEscapeString(),
-                                fmtMemberNameString(other_ii.memberName(coff)),
+                                other_ioi.path(coff).fmtEscapeString(),
+                                fmtMemberNameString(other_ioi.memberName(coff)),
                             });
                         }
                     },
@@ -5010,13 +5122,13 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             defer sub_prog_node.end();
             coff.flushInputSection(isi) catch |err| switch (err) {
                 else => |e| {
-                    const ii = isi.input(coff);
+                    const ioi = isi.input(coff);
                     return comp.link_diags.fail(
                         "linker failed to read input section '{s}' from \"{f}{f}\": {t}",
                         .{
                             isi.symbol(coff).get(coff).section_number.name(coff).toSlice(coff),
-                            ii.path(coff).fmtEscapeString(),
-                            fmtMemberNameString(ii.memberName(coff)),
+                            ioi.path(coff).fmtEscapeString(),
+                            fmtMemberNameString(ioi.memberName(coff)),
                             e,
                         },
                     );
@@ -5110,10 +5222,10 @@ fn idleProgNode(
         .image_section => |si| std.mem.sliceTo(&si.get(coff).section_number.header(coff).name, 0),
         inline .pseudo_section, .object_section => |smi| smi.name(coff).toSlice(coff),
         .input_section => |isi| {
-            const ii = isi.input(coff);
+            const ioi = isi.input(coff);
             break :name std.fmt.bufPrint(&name, "{f}{f} {s}", .{
-                ii.path(coff).fmtEscapeString(),
-                fmtMemberNameString(ii.memberName(coff)),
+                ioi.path(coff).fmtEscapeString(),
+                fmtMemberNameString(ioi.memberName(coff)),
                 coff.getNode(isi.symbol(coff).node(coff).parent(&coff.mf)).object_section.name(coff).toSlice(coff),
             }) catch &name;
         },
@@ -5197,7 +5309,7 @@ fn flushUav(
 fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
-    const gn = gmi.globalName(coff);
+    const gn = gmi.globalNameMutable(coff);
     const si = gmi.symbol(coff);
     const sym = si.get(coff);
 
@@ -5217,8 +5329,142 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         return true;
     }
 
-    if (gn.lib_name.toSlice(coff)) |lib_name| {
-        const name = gn.name.toSlice(coff);
+    const Import = struct {
+        lib_name: String,
+        ref: union(enum) {
+            name: struct {
+                str: []const u8,
+                hint: ?u16,
+            },
+            ordinal: u16,
+        },
+    };
+
+    const opt_import: ?Import = if (gn.lib_name == .none and sym.ni == .none) import: {
+        switch (sym.value) {
+            .alias_si => |alias_si| {
+                assert(sym.section_number == .UNDEFINED);
+                assert(sym.loc_relocs == .none);
+
+                const alias_sym = alias_si.get(coff);
+                var ri = sym.target_relocs;
+                while (ri != .none) {
+                    const reloc = ri.get(coff);
+                    assert(reloc.target == si);
+                    reloc.target = alias_si;
+                    if (reloc.next == .none) {
+                        reloc.next = alias_sym.target_relocs;
+                        if (alias_sym.target_relocs != .none)
+                            alias_sym.target_relocs.get(coff).prev = ri;
+                    }
+                    ri = reloc.next;
+                }
+
+                sym.target_relocs = .none;
+                coff.globals.values()[gmi.unwrap().?] = alias_si;
+                alias_si.applyTargetRelocs(coff);
+
+                log.debug(
+                    "flushGlobal({s}, null) alias {d}->{d}",
+                    .{ gmi.globalName(coff).name.toSlice(coff), si, alias_si },
+                );
+                return true;
+            },
+            .size => {},
+            .input_offset => unreachable,
+        }
+
+        if (coff.input_archive_symbol_indices.get(gmi.globalName(coff).name)) |index| {
+            var iter: InputArchive.Member.Symbol.Index = index.first;
+            while (true) {
+                const archive_sym = &coff.input_archive_symbols.items[@intFromEnum(iter)];
+                const member = &coff.input_archive_members.items[@intFromEnum(archive_sym.iami)];
+                if (!member.flags.is_loaded) {
+                    switch (member.content) {
+                        .import => |import| switch (import.type) {
+                            .CODE,
+                            .DATA,
+                            => {
+                                defer member.flags.is_loaded = true;
+                                // gn.lib_name = import.lib_name.toOptional();
+                                // try coff.globals.setKey(gpa, gmi.unwrap().?, gn.*);
+
+                                // Switch this global to an import
+                                switch (import.name_type) {
+                                    .NAME,
+                                    .NAME_NOPREFIX,
+                                    .NAME_UNDECORATE,
+                                    => |tag| {
+                                        var name: []const u8 = import.symbol_name.toSlice(coff);
+                                        if (!(std.mem.eql(u8, name, gn.name.toSlice(coff))))
+                                            return comp.link_diags.fail("import '{s}' has mismatched symbol name: '{s}'", .{
+                                                import.symbol_name.toSlice(coff),
+                                                gn.name.toSlice(coff),
+                                            });
+
+                                        name = if (tag == .NAME) name else name: {
+                                            name = std.mem.trimStart(u8, name, "?@_");
+                                            if (tag == .NAME_UNDECORATE)
+                                                name = std.mem.sliceTo(name, '@');
+                                            break :name name;
+                                        };
+
+                                        break :import .{
+                                            .lib_name = import.lib_name,
+                                            .ref = .{
+                                                .name = .{
+                                                    .str = name,
+                                                    .hint = import.import_ordinal_hint,
+                                                },
+                                            },
+                                        };
+                                    },
+                                    .ORDINAL => break :import .{
+                                        .lib_name = import.lib_name,
+                                        .ref = .{ .ordinal = import.import_ordinal_hint },
+                                    },
+                                    else => |t| return comp.link_diags.fail("TODO handle name_type {t}", .{t}),
+                                }
+                            },
+                            .CONST => return comp.link_diags.fail("TODO handle import type CONST", .{}),
+                            else => |t| return comp.link_diags.fail("invalid import type: {d}", .{t}),
+                        },
+                        .object => {
+                            // Try loading the input member and then retry
+                            coff.pending_input = archive_sym.iami;
+                            return false;
+                        },
+                    }
+                }
+
+                if (archive_sym.next == iter) break;
+                iter = archive_sym.next;
+            }
+        }
+
+        break :import null;
+    } else if (gn.lib_name.unwrap()) |lib_name| .{
+        .lib_name = lib_name,
+        .ref = .{
+            .name = .{
+                .str = gn.name.toSlice(coff),
+                .hint = null,
+            },
+        },
+    } else null;
+
+    if (opt_import) |import| {
+        assert(sym.ni == .none);
+        const lib_name = import.lib_name.toSlice(coff);
+        const name = switch (import.ref) {
+            .name => |n| n.str,
+            .ordinal => return comp.link_diags.fail("TODO handle imports via ordinal", .{}),
+        };
+
+        log.debug("flushGlobalImport({s}, {s})", .{ name, lib_name });
+
+        // TODO: Handle hint
+
         try coff.nodes.ensureUnusedCapacity(gpa, 4);
         try coff.symbols.ensureUnusedCapacity(gpa, 1);
 
@@ -5371,57 +5617,6 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         coff.nodes.appendAssumeCapacity(.{ .global = gmi });
         sym.rva = coff.computeNodeRva(sym.ni);
         si.applyLocationRelocs(coff);
-    } else if (sym.ni == .none) {
-        switch (sym.value) {
-            .alias_si => |alias_si| {
-                assert(sym.section_number == .UNDEFINED);
-                assert(sym.loc_relocs == .none);
-
-                const alias_sym = alias_si.get(coff);
-                var ri = sym.target_relocs;
-                while (ri != .none) {
-                    const reloc = ri.get(coff);
-                    assert(reloc.target == si);
-                    reloc.target = alias_si;
-                    if (reloc.next == .none) {
-                        reloc.next = alias_sym.target_relocs;
-                        if (alias_sym.target_relocs != .none)
-                            alias_sym.target_relocs.get(coff).prev = ri;
-                    }
-                    ri = reloc.next;
-                }
-
-                sym.target_relocs = .none;
-                coff.globals.values()[gmi.unwrap().?] = alias_si;
-                alias_si.applyTargetRelocs(coff);
-
-                log.debug("flushGlobal({s}, {?s}) alias {d}->{d}", .{
-                    gmi.globalName(coff).name.toSlice(coff),
-                    gmi.globalName(coff).lib_name.toSlice(coff),
-                    si,
-                    alias_si,
-                });
-
-                return true;
-            },
-            .size => {},
-            .input_offset => unreachable,
-        }
-
-        if (coff.input_archive_symbol_indices.get(gmi.globalName(coff).name)) |index| {
-            var iter: InputArchive.Member.Symbol.Index = index.first;
-            while (true) {
-                const archive_sym = &coff.input_archive_symbols.items[@intFromEnum(iter)];
-                if (!coff.input_archive_members.items[@intFromEnum(archive_sym.iami)].flags.is_loaded) {
-                    // Try loading the input member and then retry
-                    coff.pending_input = archive_sym.iami;
-                    return false;
-                }
-
-                if (archive_sym.next == iter) break;
-                iter = archive_sym.next;
-            }
-        }
     }
 
     return true;
@@ -6097,10 +6292,10 @@ pub fn printNode(
             std.mem.sliceTo(&si.get(coff).section_number.header(coff).name, 0),
         }),
         .input_section => |isi| {
-            const ii = isi.input(coff);
+            const ioi = isi.input(coff);
             try w.print("({f}{f}, {s})", .{
-                ii.path(coff).fmtEscapeString(),
-                fmtMemberNameString(ii.memberName(coff)),
+                ioi.path(coff).fmtEscapeString(),
+                fmtMemberNameString(ioi.memberName(coff)),
                 coff.getNode(isi.symbol(coff).node(coff).parent(&coff.mf)).object_section.name(coff).toSlice(coff),
             });
         },
