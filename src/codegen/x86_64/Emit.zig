@@ -161,13 +161,13 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .type = .FUNC,
                         }) else if (emit.bin_file.cast(.macho)) |macho_file|
                             @enumFromInt(try macho_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null))
-                        else if (emit.bin_file.cast(.coff2)) |coff| @enumFromInt(@intFromEnum(try coff.globalSymbol(
-                            extern_func.toSlice(&emit.lower.mir).?,
-                            switch (comp.compiler_rt_strat) {
+                        else if (emit.bin_file.cast(.coff2)) |coff| @enumFromInt(@intFromEnum(try coff.globalSymbol(.{
+                            .name = extern_func.toSlice(&emit.lower.mir).?,
+                            .lib_name = switch (comp.compiler_rt_strat) {
                                 .none, .lib, .obj, .zcu => null,
                                 .dyn_lib => "compiler_rt",
                             },
-                        ))) else return emit.fail("external symbol unimplemented for {s}", .{@tagName(emit.bin_file.tag)}),
+                        }))) else return emit.fail("external symbol unimplemented for {s}", .{@tagName(emit.bin_file.tag)}),
                         .is_extern = true,
                     } },
                 },
@@ -374,7 +374,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                     .op_index = 1,
                                     .target = .{ .symbol = .{
                                         .symbol = @enumFromInt(@intFromEnum(
-                                            try coff.globalSymbol("__tls_index", null),
+                                            try coff.globalSymbol(.{ .name = "__tls_index" }),
                                         )),
                                         .is_extern = false,
                                     } },
@@ -409,7 +409,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                     .op_index = 1,
                                     .target = .{ .symbol = .{
                                         .symbol = @enumFromInt(@intFromEnum(
-                                            try coff.globalSymbol("_tls_index", null),
+                                            try coff.globalSymbol(.{ .name = "_tls_index" }),
                                         )),
                                         .is_extern = false,
                                     } },
