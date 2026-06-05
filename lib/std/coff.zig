@@ -452,6 +452,50 @@ pub const ImportHintNameEntry = extern struct {
     name: [1]u8,
 };
 
+pub const ExportDirectoryTable = extern struct {
+    /// Reserved
+    flags: u32,
+
+    /// Creation time of this table
+    time_date_stamp: u32,
+
+    major_version: u16,
+    minor_version: u16,
+
+    /// The address of an ASCII string that contains the name of the DLL.
+    /// This address is relative to the image base.
+    name_rva: u32,
+
+    /// The ordinal of the first export in this image
+    ordinal_base: u32,
+
+    /// Number of entries in the export address table
+    number_of_entries: u32,
+
+    /// Number of entries in the name pointer table and ordinal table
+    number_of_names: u32,
+
+    export_address_table_rva: u32,
+    name_pointer_table_rva: u32,
+    ordinal_table_rva: u32,
+};
+
+pub const ExportAddressTableEntry = extern struct {
+    /// If this address is within the export section, then this is the address of the export
+    /// Otherwise, this is the address of a string that specfies a symbol in another DLL:
+    ///   <dll name>.<export name>
+    ///   <dll name>.#<export ordinal>
+    export_or_forwarder_rva: u32,
+};
+
+pub const ExportNamePointerTableEntry = extern struct {
+    name_rva: u32,
+};
+
+pub const ExportOrdinalTableEntry = extern struct {
+    unbiased_ordinal: u16,
+};
+
 pub const SectionHeader = extern struct {
     name: [8]u8,
     virtual_size: u32,

@@ -22,6 +22,7 @@ base: link.File,
 mf: MappedFile,
 nodes: std.MultiArrayList(Node),
 import_table: ImportTable,
+export_table: ExportTable,
 strings: std.HashMapUnmanaged(
     u32,
     void,
@@ -145,6 +146,12 @@ pub const Node = union(enum) {
     import_lookup_table: ImportTable.Index,
     import_address_table: ImportTable.Index,
     import_hint_name_table: ImportTable.Index,
+
+    export_directory_table,
+    export_address_table,
+    export_name_pointer_table,
+    export_ordinal_table,
+    export_name_table,
 
     pseudo_section: PseudoSectionMapIndex,
     object_section: ObjectSectionMapIndex,
@@ -270,6 +277,44 @@ pub const Node = union(enum) {
     }
 };
 
+pub const ExportTable = struct {
+    ni: MappedFile.Node.Index,
+    export_address_table_ni: MappedFile.Node.Index,
+    name_pointer_table_ni: MappedFile.Node.Index,
+    ordinal_table_ni: MappedFile.Node.Index,
+    name_table_ni: MappedFile.Node.Index,
+    entries: std.AutoArrayHashMapUnmanaged(void, Entry),
+
+    pub const Entry = struct {
+        name_index: u32,
+        name_len: u32,
+    };
+
+    const Adapter = struct {
+        coff: *Coff,
+
+        pub fn eql(adapter: Adapter, lhs_key: []const u8, _: void, rhs_index: usize) bool {
+            const coff = adapter.coff;
+            const name_table_slice = coff.export_table.name_table_ni.slice(&coff.mf);
+            const rhs = coff.export_table.entries.values()[rhs_index];
+            return std.mem.eql(u8, name_table_slice[rhs.name_index..][0..rhs.name_len], lhs_key);
+        }
+
+        pub fn hash(_: Adapter, key: []const u8) u32 {
+            assert(std.mem.indexOfScalar(u8, key, 0) == null);
+            return std.array_hash_map.hashString(key);
+        }
+    };
+
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn get(export_index: ExportTable.Index, coff: *Coff) *Entry {
+            return &coff.export_table.entries.values()[@intFromEnum(export_index)];
+        }
+    };
+};
+
 pub const ImportTable = struct {
     ni: MappedFile.Node.Index,
     entries: std.array_hash_map.Auto(void, Entry),
@@ -314,6 +359,7 @@ pub const String = enum(u32) {
     @".rdata" = 13,
     @".text" = 20,
     @".tls$" = 26,
+    @".edata" = 32,
     _,
 
     pub const Optional = enum(u32) {
@@ -321,6 +367,7 @@ pub const String = enum(u32) {
         @".rdata" = @intFromEnum(String.@".rdata"),
         @".text" = @intFromEnum(String.@".text"),
         @".tls$" = @intFromEnum(String.@".tls$"),
+        @".edata" = @intFromEnum(String.@".edata"),
         none = std.math.maxInt(u32),
         _,
 
@@ -695,6 +742,14 @@ fn create(
             .ni = .none,
             .entries = .empty,
         },
+        .export_table = .{
+            .ni = .none,
+            .export_address_table_ni = .none,
+            .name_pointer_table_ni = .none,
+            .ordinal_table_ni = .none,
+            .name_table_ni = .none,
+            .entries = .empty,
+        },
         .strings = .empty,
         .string_bytes = .empty,
         .image_section_table = .empty,
@@ -741,6 +796,7 @@ pub fn deinit(coff: *Coff) void {
     coff.mf.deinit(gpa);
     coff.nodes.deinit(gpa);
     coff.import_table.entries.deinit(gpa);
+    coff.export_table.entries.deinit(gpa);
     coff.strings.deinit(gpa);
     coff.string_bytes.deinit(gpa);
     coff.image_section_table.deinit(gpa);
@@ -780,7 +836,7 @@ fn initHeaders(
     else
         0;
 
-    const expected_nodes_len = Node.known_count + 6 +
+    const expected_nodes_len = Node.known_count + 12 +
         @as(usize, @intFromBool(comp.config.any_non_single_threaded)) * 2;
     try coff.nodes.ensureTotalCapacity(gpa, expected_nodes_len);
     coff.nodes.appendAssumeCapacity(.file);
@@ -1005,6 +1061,67 @@ fn initHeaders(
     );
     coff.nodes.appendAssumeCapacity(.import_directory_table);
 
+    {
+        // TODO: Could create this lazily when processing the first export instead?
+        const edata_section_ni = (try coff.pseudoSectionMapIndex(
+            .@".edata",
+            .of(std.coff.ExportDirectoryTable),
+            .{ .read = true },
+        )).symbol(coff).node(coff);
+
+        const name = "TODO_NAME.dll";
+        const name_index = @sizeOf(std.coff.ExportDirectoryTable);
+        coff.export_table.ni = try coff.mf.addLastChildNode(
+            gpa,
+            edata_section_ni,
+            .{
+                .size = @sizeOf(std.coff.ExportDirectoryTable) + name.len + 1,
+                .alignment = .of(std.coff.ExportDirectoryTable),
+                .fixed = true,
+                .moved = true,
+            },
+        );
+        @memcpy(coff.export_table.ni.slice(&coff.mf)[name_index..][0 .. name.len + 1], name[0 .. name.len + 1]);
+
+        coff.export_table.export_address_table_ni = try coff.mf.addLastChildNode(gpa, edata_section_ni, .{
+            .alignment = .of(u32),
+            .moved = true,
+        });
+        coff.export_table.name_pointer_table_ni = try coff.mf.addLastChildNode(gpa, edata_section_ni, .{
+            .alignment = .of(u32),
+            .moved = true,
+        });
+        coff.export_table.ordinal_table_ni = try coff.mf.addLastChildNode(gpa, edata_section_ni, .{
+            .alignment = .of(u16),
+            .moved = true,
+        });
+        coff.export_table.name_table_ni = try coff.mf.addLastChildNode(gpa, edata_section_ni, .{
+            .alignment = .of(u8),
+            .moved = true,
+        });
+
+        coff.nodes.appendAssumeCapacity(.export_directory_table);
+        coff.nodes.appendAssumeCapacity(.export_address_table);
+        coff.nodes.appendAssumeCapacity(.export_name_pointer_table);
+        coff.nodes.appendAssumeCapacity(.export_ordinal_table);
+        coff.nodes.appendAssumeCapacity(.export_name_table);
+
+        const export_directory_table = coff.exportDirectoryTable();
+        export_directory_table.* = .{
+            .flags = 0,
+            .time_date_stamp = timestamp,
+            .major_version = 0,
+            .minor_version = 0,
+            .name_rva = 0,
+            .ordinal_base = 1,
+            .number_of_entries = 0,
+            .number_of_names = 0,
+            .export_address_table_rva = 0,
+            .name_pointer_table_rva = 0,
+            .ordinal_table_rva = 0,
+        };
+    }
+
     // While tls variables allocated at runtime are writable, the template itself is not
     if (comp.config.any_non_single_threaded) _ = try coff.objectSectionMapIndex(
         .@".tls$",
@@ -1048,6 +1165,7 @@ fn computeNodeRva(coff: *Coff, ni: MappedFile.Node.Index) u32 {
             .optional_header,
             .data_directories,
             .section_table,
+            .export_name_table,
             => unreachable,
             .image_section => |si| si,
             .import_directory_table => break :parent_rva coff.targetLoad(
@@ -1061,6 +1179,18 @@ fn computeNodeRva(coff: *Coff, ni: MappedFile.Node.Index) u32 {
             ),
             .import_hint_name_table => |import_index| break :parent_rva coff.targetLoad(
                 &coff.importDirectoryEntryPtr(import_index).name_rva,
+            ),
+            .export_directory_table => break :parent_rva coff.targetLoad(
+                &coff.dataDirectoryPtr(.EXPORT).virtual_address,
+            ),
+            .export_address_table => break :parent_rva coff.targetLoad(
+                &coff.exportDirectoryTable().export_address_table_rva,
+            ),
+            .export_name_pointer_table => break :parent_rva coff.targetLoad(
+                &coff.exportDirectoryTable().name_pointer_table_rva,
+            ),
+            .export_ordinal_table => break :parent_rva coff.targetLoad(
+                &coff.exportDirectoryTable().ordinal_table_rva,
             ),
             inline .pseudo_section,
             .object_section,
@@ -1179,6 +1309,22 @@ pub fn importDirectoryEntryPtr(
     import_index: ImportTable.Index,
 ) *std.coff.ImportDirectoryEntry {
     return &coff.importDirectoryTableSlice()[@intFromEnum(import_index)];
+}
+
+pub fn exportDirectoryTable(coff: *Coff) *std.coff.ExportDirectoryTable {
+    return @ptrCast(@alignCast(coff.export_table.ni.slice(&coff.mf)));
+}
+
+pub fn exportAddressTableSlice(coff: *Coff) []std.coff.ExportAddressTableEntry {
+    return @ptrCast(@alignCast(coff.export_table.export_address_table_ni.slice(&coff.mf)));
+}
+
+pub fn exportNamePointerTableSlice(coff: *Coff) []std.coff.ExportNamePointerTableEntry {
+    return @ptrCast(@alignCast(coff.export_table.name_pointer_table_ni.slice(&coff.mf)));
+}
+
+pub fn exportOrdinalTableSlice(coff: *Coff) []std.coff.ExportOrdinalTableEntry {
+    return @ptrCast(@alignCast(coff.export_table.ordinal_table_ni.slice(&coff.mf)));
 }
 
 fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
@@ -1729,6 +1875,82 @@ pub fn updateErrorData(coff: *Coff, pt: Zcu.PerThread) !void {
     };
 }
 
+fn flushExports(coff: *Coff, tid: Zcu.PerThread.Id) !void {
+    const export_count = coff.export_table.entries.count();
+    if (export_count == 0) return;
+
+    const gpa = coff.base.comp.zcu.?.gpa;
+    const edt = coff.exportDirectoryTable();
+    edt.number_of_names = @intCast(export_count);
+    edt.number_of_entries = @intCast(export_count);
+
+    try coff.export_table.name_pointer_table_ni.resize(
+        &coff.mf,
+        gpa,
+        export_count * @sizeOf(std.coff.ExportNamePointerTableEntry),
+    );
+
+    try coff.export_table.ordinal_table_ni.resize(
+        &coff.mf,
+        gpa,
+        export_count * @sizeOf(std.coff.ExportOrdinalTableEntry),
+    );
+
+    while (try coff.idle(tid)) {}
+    if (coff.targetEndian() != native_endian)
+        std.mem.byteSwapAllFields(std.coff.ExportDirectoryTable, edt);
+
+    const name_table_rva = coff.computeNodeRva(coff.export_table.name_table_ni);
+    for (
+        coff.exportNamePointerTableSlice(),
+        coff.exportOrdinalTableSlice(),
+        coff.export_table.entries.values(),
+        0..,
+    ) |*np, *ord, entry, entry_i| {
+        np.name_rva = name_table_rva + entry.name_index;
+        if (coff.targetEndian() != native_endian)
+            std.mem.byteSwapAllFields(std.coff.ExportNamePointerTableEntry, np);
+
+        ord.unbiased_ordinal = @intCast(entry_i);
+        if (coff.targetEndian() != native_endian)
+            std.mem.byteSwapAllFields(std.coff.ExportOrdinalTableEntry, &ord);
+    }
+
+    const Context = struct {
+        np: []std.coff.ExportNamePointerTableEntry,
+        ord: []std.coff.ExportOrdinalTableEntry,
+        entries: []ExportTable.Entry,
+        names: []const u8,
+
+        pub fn lessThan(ctx: @This(), lhs: usize, rhs: usize) bool {
+            const lhs_entry = &ctx.entries[lhs];
+            const rhs_entry = &ctx.entries[rhs];
+            return std.mem.lessThan(
+                u8,
+                ctx.names[lhs_entry.name_index..][0..lhs_entry.name_len],
+                ctx.names[rhs_entry.name_index..][0..rhs_entry.name_len],
+            );
+        }
+
+        pub fn swap(ctx: @This(), lhs: usize, rhs: usize) void {
+            std.mem.swap(std.coff.ExportNamePointerTableEntry, &ctx.np[lhs], &ctx.np[rhs]);
+            std.mem.swap(std.coff.ExportOrdinalTableEntry, &ctx.ord[lhs], &ctx.ord[rhs]);
+            std.mem.swap(ExportTable.Entry, &ctx.entries[lhs], &ctx.entries[rhs]);
+        }
+    };
+
+    std.sort.pdqContext(0, export_count, Context{
+        .np = coff.exportNamePointerTableSlice(),
+        .ord = coff.exportOrdinalTableSlice(),
+        .entries = coff.export_table.entries.values(),
+        .names = coff.export_table.name_table_ni.slice(&coff.mf),
+    });
+
+    // TODO: Is there a way to know if this is the last flush? We could skip doing this if so.
+    // TODO: Need to reindex with adaptor?
+    //try coff.export_table.entries.reIndexContext(gpa, ExportTable.Adapter{ .coff = coff });
+}
+
 pub fn flush(
     coff: *Coff,
     arena: std.mem.Allocator,
@@ -1738,6 +1960,9 @@ pub fn flush(
     _ = arena;
     _ = prog_node;
     while (try coff.idle(tid)) {}
+
+    coff.flushExports(tid) catch |err|
+        return coff.base.comp.link_diags.fail("linker failed to flush exports: {t}", .{err});
 
     // hack for stage2_x86_64 + coff
     const comp = coff.base.comp;
@@ -1932,18 +2157,19 @@ fn flushGlobal(coff: *Coff, pt: Zcu.PerThread, gmi: Node.GlobalMapIndex) !void {
     const comp = zcu.comp;
     const gpa = zcu.gpa;
     const gn = gmi.globalName(coff);
+
+    const target_endian = coff.targetEndian();
+    const magic = coff.targetLoad(&coff.optionalHeaderStandardPtr().magic);
+    const addr_size: u64, const addr_align: std.mem.Alignment = switch (magic) {
+        _ => unreachable,
+        .PE32 => .{ 4, .@"4" },
+        .@"PE32+" => .{ 8, .@"8" },
+    };
+
+    const name = gn.name.toSlice(coff);
     if (gn.lib_name.toSlice(coff)) |lib_name| {
-        const name = gn.name.toSlice(coff);
         try coff.nodes.ensureUnusedCapacity(gpa, 4);
         try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
-
-        const target_endian = coff.targetEndian();
-        const magic = coff.targetLoad(&coff.optionalHeaderStandardPtr().magic);
-        const addr_size: u64, const addr_align: std.mem.Alignment = switch (magic) {
-            _ => unreachable,
-            .PE32 => .{ 4, .@"4" },
-            .@"PE32+" => .{ 8, .@"8" },
-        };
 
         const gop = try coff.import_table.entries.getOrPutAdapted(
             gpa,
@@ -2089,6 +2315,47 @@ fn flushGlobal(coff: *Coff, pt: Zcu.PerThread, gmi: Node.GlobalMapIndex) !void {
         coff.nodes.appendAssumeCapacity(.{ .global = gmi });
         sym.rva = coff.computeNodeRva(sym.ni);
         si.applyLocationRelocs(coff);
+    } else {
+        const entries_ctx = ExportTable.Adapter{ .coff = coff };
+        const gop = try coff.export_table.entries.getOrPutAdapted(
+            gpa,
+            name,
+            entries_ctx,
+        );
+
+        if (!gop.found_existing) {
+            errdefer _ = coff.export_table.entries.pop();
+            if (coff.export_table.entries.count() > std.math.maxInt(@FieldType(std.coff.ExportDirectoryTable, "number_of_entries")))
+                return coff.base.comp.link_diags.fail("exceeded maximum number of exports", .{});
+
+            const name_index = coff.export_table.name_table_ni.fileLocation(&coff.mf, true).size;
+            const new_name_table_size = name_index + name.len + 1;
+            if (new_name_table_size > std.math.maxInt(@FieldType(ExportTable.Entry, "name_index")))
+                return coff.base.comp.link_diags.fail("exports name table limit reached", .{});
+
+            try coff.export_table.name_table_ni.resize(&coff.mf, gpa, new_name_table_size);
+
+            const name_table_slice = coff.export_table.name_table_ni.slice(&coff.mf);
+            @memcpy(name_table_slice[name_index..][0 .. name.len + 1], name[0 .. name.len + 1]);
+
+            gop.value_ptr.* = .{
+                .name_index = @intCast(name_index),
+                .name_len = @intCast(name.len),
+            };
+
+            const si = gmi.symbol(coff);
+            const sym = si.get(coff);
+
+            try coff.export_table.export_address_table_ni.resize(
+                &coff.mf,
+                gpa,
+                coff.export_table.entries.count() * @sizeOf(std.coff.ExportAddressTableEntry),
+            );
+            const ea = &coff.exportAddressTableSlice()[gop.index];
+            ea.export_or_forwarder_rva = sym.rva;
+            if (coff.targetEndian() != native_endian)
+                std.mem.byteSwapAllFields(std.coff.ExportAddressTableEntry, &ea);
+        }
     }
 }
 
@@ -2218,6 +2485,27 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
                 import_hint_name_index += 2;
             }
         },
+        .export_directory_table => {
+            const rva = coff.computeNodeRva(ni);
+            coff.targetStore(&coff.dataDirectoryPtr(.EXPORT).virtual_address, rva);
+            coff.targetStore(&coff.exportDirectoryTable().name_rva, rva + @sizeOf(std.coff.ExportDirectoryTable));
+        },
+        .export_address_table => coff.targetStore(
+            &coff.exportDirectoryTable().export_address_table_rva,
+            coff.computeNodeRva(ni),
+        ),
+        .export_name_pointer_table => coff.targetStore(
+            &coff.exportDirectoryTable().name_pointer_table_rva,
+            coff.computeNodeRva(ni),
+        ),
+        .export_ordinal_table => coff.targetStore(
+            &coff.exportDirectoryTable().ordinal_table_rva,
+            coff.computeNodeRva(ni),
+        ),
+        .export_name_table => {
+            // .export_name_pointer_table entries are updated in flush
+            log.warn("flushMoved export_name_table unhandled", .{});
+        },
         inline .pseudo_section,
         .object_section,
         .global,
@@ -2272,6 +2560,11 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
             @intCast(size),
         ),
         .import_lookup_table, .import_address_table, .import_hint_name_table => {},
+        .export_directory_table => coff.targetStore(
+            &coff.dataDirectoryPtr(.EXPORT).size,
+            @intCast(size),
+        ),
+        .export_address_table, .export_name_pointer_table, .export_ordinal_table, .export_name_table => {},
         inline .pseudo_section,
         .object_section,
         => |smi| smi.symbol(coff).get(coff).size = @intCast(size),
