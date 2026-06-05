@@ -912,7 +912,7 @@ pub const Symbol = struct {
         dll_storage_class: DllStorageClass,
         // Only defined for .alias_si and .alias_name
         weak_external_strat: WeakExternalStrat,
-        has_aliases: bool,
+        has_alias: bool,
         _: u7 = 0,
     },
     /// Relocations contained within this symbol
@@ -927,9 +927,9 @@ pub const Symbol = struct {
         /// Only valid when .ni == .input_section and .value_tag == .node_offset
         /// TODO: This is only used for name lookups, could just be String?
         isli: Node.InputSection.LocalIndex,
-        /// Only valid if flags.has_aliases is set. The first in a contiguous
-        /// list of symbols that are aliases of this symbol.
-        first_alias_si: Symbol.Index,
+        /// Only valid if flags.has_alias is set.
+        /// The next symbol in the list of aliases of this symbol.
+        next_alias_si: Symbol.Index,
     },
 
     pub const DllStorageClass = enum(u2) {
@@ -1069,13 +1069,13 @@ pub const Symbol = struct {
             si.applyLocationRelocs(coff);
             si.applyTargetRelocs(coff, .none);
 
-            if (sym.flags.has_aliases) {
-                for (coff.symbols.items[@intFromEnum(sym.extra.first_alias_si)..]) |*export_sym| {
-                    if (export_sym.ni != sym.ni) break;
-                    export_sym.rva = sym.rva;
-                    const export_si: Symbol.Index = @enumFromInt(export_sym - coff.symbols.items.ptr);
-                    export_si.applyTargetRelocs(coff, .none);
-                }
+            var alias_sym = sym;
+            while (alias_sym.flags.has_alias) {
+                const alias_si = alias_sym.extra.next_alias_si;
+                alias_sym = alias_si.get(coff);
+                assert(alias_sym.ni == sym.ni);
+                alias_sym.rva = sym.rva;
+                alias_si.applyTargetRelocs(coff, .none);
             }
         }
 
@@ -2028,9 +2028,9 @@ fn initHeaders(
     try coff.symbols.ensureTotalCapacity(gpa, Symbol.Index.known_count);
     assert(coff.addSymbolAssumeCapacity() == .null);
 
-    // TODO: How do we tell MappedFile not to allocate physical space for these?
-    // TODO: Could have a node flag 'virtual' that can never have slice* called on it or fileLocation
-    // TODO: Instead of it's own section, we can place .bss as a pseudo-section at the end of .text in the extra space
+    // TODO: How do we tell MappedFile not to allocate physical space for .bss?
+    // TODO: Could have a node flag 'virtual' that can never have slice* or fileLocation called on it
+    // TODO: Instead of it's own section, place .bss as a pseudo-section at the end of .text in the extra space
     assert(try coff.addSection(.@".bss", .{
         .CNT_UNINITIALIZED_DATA = true,
         .MEM_READ = true,
@@ -2203,9 +2203,6 @@ pub fn initBuiltins(coff: *Coff) !void {
             );
 
             const start_sym = start_osmi.symbol(coff).get(coff);
-            start_sym.extra = .{ .first_alias_si = @enumFromInt(coff.symbols.items.len) };
-            start_sym.flags.has_aliases = true;
-
             try start_sym.ni.resize(&coff.mf, gpa, addr_info.size);
             const start_slice = start_sym.ni.slice(&coff.mf);
             switch (addr_info.magic) {
@@ -2229,6 +2226,9 @@ pub fn initBuiltins(coff: *Coff) !void {
             const list_sym = list_si.get(coff);
             list_sym.ni = start_sym.ni;
             list_sym.section_number = start_sym.section_number;
+
+            start_sym.extra = .{ .next_alias_si = list_si };
+            start_sym.flags.has_alias = true;
         }
     }
 }
@@ -2564,7 +2564,7 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
             .type = .unknown,
             .dll_storage_class = .default,
             .weak_external_strat = undefined,
-            .has_aliases = false,
+            .has_alias = false,
         },
         .loc_relocs = .none,
         .target_relocs = .none,
@@ -2692,10 +2692,6 @@ fn getDefinedGlobal(coff: *Coff, name: []const u8) Symbol.Index {
 
 pub fn globalSymbol(coff: *Coff, opts: GlobalOptions) !Symbol.Index {
     const gop = try coff.getOrPutGlobalSymbol(opts);
-    if (gop.found_existing) {
-        // TODO: Need to know if this is an export or extern, in order to decide if this is duplicate, add to opts
-    }
-
     return gop.value_ptr.*;
 }
 
@@ -3525,7 +3521,6 @@ pub fn addReloc(
             );
 
             // TODO: These need to allocate from a free list (once deleting relocs is supported) (or can we just remove swap?)
-
             const sri: Section.RelocationIndex = .wrap(old_num_relocations);
             const entry = sri.entry(coff, loc_sn).?;
             if (sti.unwrap()) |index| coff.targetStore(&entry.symbol_table_index, index);
@@ -3826,7 +3821,7 @@ fn loadObject(
         try member.initHeader(coff, path_str, header.time_date_stamp);
 
         {
-            // TODO: This could be deferred to an idle task?
+            // TODO: This should be deferred to an idle task
             var nw: MappedFile.Node.Writer = undefined;
             member.content_ni.writer(&coff.mf, gpa, &nw);
             defer nw.deinit();
@@ -4101,7 +4096,7 @@ fn loadObject(
                     if (arg.len == 0) continue;
 
                     if (std.ascii.startsWithIgnoreCase(arg, "-exclude-symbols:")) {
-                        // TODO: When implementing mingw auto-exports (if at all?), use this to not export this symbol
+                        // TODO: When implementing mingw auto-exports (if at all?), track this to not export this symbol
                     } else if (std.ascii.startsWithIgnoreCase(arg, "/include:")) {
                         _ = try coff.globalSymbol(.{ .name = arg["/include:".len..] });
                     } else if (std.ascii.startsWithIgnoreCase(arg, "/alternatename:")) {
@@ -4251,7 +4246,7 @@ fn loadObject(
                             .lib_name = null,
                         });
 
-                        // TODO: What if the same symbol defined twice in this obj?
+                        // TODO: What if the same symbol is incorrectly defined twice in this obj?
                         // TODO: Would need to mark this global as pending, or notice it later when .ni != none
                         if (!global_gop.found_existing or global_gop.value_ptr.get(coff).ni == .none) {
                             symbol.si = global_gop.value_ptr.*;
@@ -4319,7 +4314,7 @@ fn loadObject(
                     .LARGEST => {
                         // TODO: Resize existing .ni and replace with this section's contents
                         // TODO: This will be tricky, what to do about existing InputSection?
-                        unreachable; // TODO
+                        unreachable;
                     },
                     .NONE, .ASSOCIATIVE, _ => unreachable,
                 }
@@ -4504,7 +4499,7 @@ fn loadObject(
                     symbol.si = coff.addSymbolAssumeCapacity();
                 },
                 .external => {
-                    // TODO: Assert this is not the comdat leader
+                    assert(index != section.comdat_psi.unwrap());
                     const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = symbol.name.toSlice(coff) });
                     symbol.si = global_gop.value_ptr.*;
 
@@ -5017,7 +5012,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
         } else {
             member.content.object.size = res.size;
             // TODO: If .UNKNOWN assert later that it contains no non-undef symbols?
-            // Microsoft's CRT contains members that set .UNKNOWN but do have symbols
+            // Microsoft's CRT contains members that set .UNKNOWN but do have undef symbols
             if (machine != expected_machine and machine != .UNKNOWN) {
                 return diags.failParse(path, "machine mismatch in member header '{s}': expected {t}, found {t}", .{
                     res.name,
@@ -5192,7 +5187,6 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         si.applyLocationRelocs(coff);
     }
 
-    // TODO: Did my MappedFile resize change affect this?
     if (nav.resolved.?.@"linksection".unwrap()) |_| {
         try ni.resize(&coff.mf, gpa, si.get(coff).value.size);
         var parent_ni = ni;
@@ -5746,7 +5740,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             };
             break :task;
         }
-        // TODO: Idle task for flushing obj into lib?
+        // TODO: Idle task for flushing obj into lib
         if (coff.input_section_pending_index < coff.input_sections.items.len) {
             const isi: Node.InputSection.Index = @enumFromInt(coff.input_section_pending_index);
             coff.input_section_pending_index += 1;
@@ -7087,14 +7081,11 @@ fn updateExportsInner(
             Type.fromInterned(ip.typeOf(uav)).abiAlignment(zcu),
         ))),
     };
-    while (try coff.idle(pt.tid)) {} // TODO: Is this necessary now that we handle exports moving via has_aliases?
 
     const machine = coff.targetLoad(&coff.headerPtr().machine);
     const exported_ni = exported_si.node(coff);
     const exported_sym = exported_si.get(coff);
-    exported_sym.extra = .{ .first_alias_si = @enumFromInt(coff.symbols.items.len) };
-    exported_sym.flags.has_aliases = true;
-
+    var prev_alias_si = exported_si;
     for (export_indices) |export_index| {
         const @"export" = export_index.ptr(zcu);
         const name = @"export".opts.name.toSlice(ip);
@@ -7110,6 +7101,12 @@ fn updateExportsInner(
         export_sym.setValue(.{ .size = exported_sym.value.size });
         export_sym.section_number = exported_sym.section_number;
         defer export_si.applyTargetRelocs(coff, .none);
+
+        const prev_alias_sym = prev_alias_si.get(coff);
+        assert(!prev_alias_sym.flags.has_alias);
+        prev_alias_sym.extra = .{ .next_alias_si = export_si };
+        prev_alias_sym.flags.has_alias = true;
+        prev_alias_si = export_si;
 
         if (!coff.isImage()) continue;
 
@@ -7153,7 +7150,8 @@ fn updateExportsInner(
             coff.targetStore(&edt.number_of_names, @intCast(export_count));
             edt.number_of_entries = edt.number_of_names;
 
-            // TODO: These should all be resized ahead of time to fit all exports (after https://github.com/ziglang/zig/issues/23616)
+            // TODO: These should all be resized ahead of time to fit all exports
+            //       after https://github.com/ziglang/zig/issues/23616
             try coff.export_table.export_address_table_si.node(coff).resize(
                 &coff.mf,
                 gpa,
