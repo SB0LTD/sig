@@ -39,6 +39,7 @@ strings: std.HashMapUnmanaged(
 ),
 string_bytes: std.ArrayList(u8),
 section_table: std.ArrayList(Section),
+tls_si: Symbol.Index,
 pseudo_section_table: std.array_hash_map.Auto(String, Symbol.Index),
 object_section_table: std.array_hash_map.Auto(String, Symbol.Index),
 symbols: std.ArrayList(Symbol),
@@ -56,6 +57,9 @@ pending_uavs: std.array_hash_map.Auto(Node.UavMapIndex, struct {
 relocs: std.ArrayList(Reloc),
 const_prog_node: std.Progress.Node,
 synth_prog_node: std.Progress.Node,
+symbol_prog_node: std.Progress.Node,
+member_prog_node: std.Progress.Node,
+dump_snapshot: bool,
 
 pub const default_file_alignment: u16 = 0x200;
 pub const default_size_of_stack_reserve: u32 = 0x1000000;
@@ -158,7 +162,6 @@ pub const Node = union(enum) {
     section_table,
     // Archives and objects only
     symbol_table,
-    symbol_table_entry,
     // Archives and objects only
     string_table,
     // Archives and objects only
@@ -314,8 +317,6 @@ pub const Node = union(enum) {
             optional_header,
             data_directories,
             section_table,
-            symbol_table,
-            string_table,
         };
         var mut_known: std.enums.EnumFieldStruct(Known, MappedFile.Node.Index, null) = undefined;
         const info = @typeInfo(Known).@"enum";
@@ -464,19 +465,17 @@ pub const LongNamesTable = struct {
 };
 
 pub const SymbolTable = struct {
+    ni: MappedFile.Node.Index,
+    strings_ni: MappedFile.Node.Index,
     strings: std.AutoArrayHashMapUnmanaged(String, StringIndex),
+    pending: std.AutoArrayHashMapUnmanaged(Symbol.Index, void),
 
-    // Adding nodes to the symbol table has the result of accumulating padding
+    // Resizing the symbol table node has the result of accumulating padding
     // between the last symbol in the symbol table node and the start of the
-    // string table node, due to the growth factor in MappedFile.
+    // string table node, due to the shifting method when resizing the parent in MappedFile.
     // The spec requires the string table begin immediately after the last symbol,
-    // so we compact the symbol table node if needed.
+    // so we compact the symbol table node and move the string table back if needed.
     pending_shrink: bool,
-
-    pub const Add = union(enum) {
-        section,
-        global,
-    };
 
     pub const StringIndex = enum(u32) {
         _,
@@ -1103,12 +1102,16 @@ fn create(
             .entries = .empty,
         },
         .symbol_table = .{
+            .ni = .none,
+            .strings_ni = .none,
             .strings = .empty,
+            .pending = .empty,
             .pending_shrink = false,
         },
         .strings = .empty,
         .string_bytes = .empty,
         .section_table = .empty,
+        .tls_si = .null,
         .pseudo_section_table = .empty,
         .object_section_table = .empty,
         .symbols = .empty,
@@ -1124,6 +1127,9 @@ fn create(
         .relocs = .empty,
         .const_prog_node = .none,
         .synth_prog_node = .none,
+        .symbol_prog_node = .none,
+        .member_prog_node = .none,
+        .dump_snapshot = options.enable_link_snapshots,
     };
     errdefer coff.deinit();
 
@@ -1155,6 +1161,7 @@ pub fn deinit(coff: *Coff) void {
     coff.import_table.entries.deinit(gpa);
     coff.export_table.entries.deinit(gpa);
     coff.symbol_table.strings.deinit(gpa);
+    coff.symbol_table.pending.deinit(gpa);
     coff.strings.deinit(gpa);
     coff.string_bytes.deinit(gpa);
     coff.section_table.deinit(gpa);
@@ -1222,14 +1229,21 @@ fn initHeaders(
 
     var expected_nodes_len: usize = Node.known_count;
     if (comp.zcu != null) {
-        // Section nodes
+        // Sections
         expected_nodes_len += 3;
-        // // Symbol table nodes
-        // if (is_archive) expected_nodes_len += 6;
-        // Pseudo-sections and import / export table nodes
-        if (is_image) expected_nodes_len += 9;
-        // TLS section nodes
-        expected_nodes_len += @as(usize, @intFromBool(comp.config.any_non_single_threaded)) * 2;
+
+        if (is_image)
+            // Pseudo-sections and import / export table
+            expected_nodes_len += 9
+        else
+            // Symbol table
+            expected_nodes_len += 2;
+
+        // TLS section
+        if (comp.config.any_non_single_threaded) {
+            if (!is_image) expected_nodes_len += 1;
+            expected_nodes_len += 2;
+        }
     }
     defer assert(coff.nodes.len == expected_nodes_len);
 
@@ -1486,25 +1500,25 @@ fn initHeaders(
     }));
     coff.nodes.appendAssumeCapacity(.section_table);
 
-    // TODO: These two nodes could be inside one movable node?
-    const symbol_table_ni = Node.known.symbol_table;
-    assert(symbol_table_ni == try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
-        .alignment = .@"2",
-        .fixed = true,
-        .moved = true,
-    }));
-    coff.nodes.appendAssumeCapacity(.symbol_table);
-
-    const string_table_ni = Node.known.string_table;
-    assert(string_table_ni == try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
-        .alignment = .@"2",
-        .size = if (!is_image) @sizeOf(u32) else 0,
-        .fixed = true,
-        .resized = true,
-    }));
-    coff.nodes.appendAssumeCapacity(.string_table);
-
     assert(coff.nodes.len == Node.known_count);
+
+    if (!is_image) {
+        // TODO: These two nodes could be inside one movable node?
+        coff.symbol_table.ni = try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
+            .alignment = .@"2",
+            .fixed = true,
+            .moved = true,
+        });
+        coff.nodes.appendAssumeCapacity(.symbol_table);
+
+        coff.symbol_table.strings_ni = try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
+            .alignment = .@"2",
+            .size = @sizeOf(u32),
+            .fixed = true,
+            .resized = true,
+        });
+        coff.nodes.appendAssumeCapacity(.string_table);
+    }
 
     try coff.symbols.ensureTotalCapacity(gpa, Symbol.Index.known_count);
     coff.symbols.addOneAssumeCapacity().* = .{
@@ -1618,12 +1632,23 @@ fn initHeaders(
             std.mem.byteSwapAllFields(std.coff.ExportDirectoryTable, export_directory_table);
     }
 
-    // While tls variables allocated at runtime are writable, the template itself is not
-    if (comp.config.any_non_single_threaded) _ = try coff.objectSectionMapIndex(
-        .@".tls$",
-        if (is_image) coff.mf.flags.block_size else .@"1",
-        .{ .read = true },
-    );
+    if (comp.config.any_non_single_threaded) {
+        if (!is_image)
+            coff.tls_si = try coff.addSection(".tls$", .{
+                .CNT_INITIALIZED_DATA = true,
+                .MEM_READ = true,
+                .MEM_WRITE = true,
+            });
+
+        // While tls variables allocated at runtime are writable, the template itself is not.
+        // In images, this call triggers the creation of a .tls pseudo section in .rdata.
+        // In objects / archives, this section is part of the above .tls$ section.
+        _ = try coff.objectSectionMapIndex(
+            .@".tls$",
+            coff.mf.flags.block_size,
+            .{ .read = true, .write = !is_image, .tls = true },
+        );
+    }
 }
 
 pub fn startProgress(coff: *Coff, prog_node: std.Progress.Node) void {
@@ -1634,12 +1659,23 @@ pub fn startProgress(coff: *Coff, prog_node: std.Progress.Node) void {
         for (&coff.lazy.values) |*lazy| count += lazy.map.count() - lazy.pending_index;
         break :count count;
     });
+    if (!isImage(coff)) {
+        prog_node.increaseEstimatedTotalItems(2);
+        coff.symbol_prog_node = prog_node.start("Symbols", coff.symbol_table.pending.count());
+        coff.member_prog_node = prog_node.start("Members", coff.pending_members.count());
+    }
     coff.mf.update_prog_node = prog_node.start("Relocations", coff.mf.updates.items.len);
 }
 
 pub fn endProgress(coff: *Coff) void {
     coff.mf.update_prog_node.end();
     coff.mf.update_prog_node = .none;
+    if (!isImage(coff)) {
+        coff.member_prog_node.end();
+        coff.member_prog_node = .none;
+        coff.symbol_prog_node.end();
+        coff.symbol_prog_node = .none;
+    }
     coff.synth_prog_node.end();
     coff.synth_prog_node = .none;
     coff.const_prog_node.end();
@@ -1665,7 +1701,6 @@ fn computeNodeRva(coff: *Coff, ni: MappedFile.Node.Index) u32 {
             .placeholder,
 
             .symbol_table,
-            .symbol_table_entry,
             .string_table,
             .relocation_table,
             .relocation_table_entry,
@@ -1858,7 +1893,7 @@ pub fn sectionTableSlice(coff: *Coff) []std.coff.SectionHeader {
 pub fn symbolTableEntryStoragePtr(coff: *Coff, index: u32) *[std.coff.Symbol.sizeOf()]u8 {
     assert(!coff.isImage());
     const offset = index * std.coff.Symbol.sizeOf();
-    return @ptrCast(@alignCast(Node.known.symbol_table.slice(&coff.mf)[offset..][0..std.coff.Symbol.sizeOf()]));
+    return @ptrCast(@alignCast(coff.symbol_table.ni.slice(&coff.mf)[offset..][0..std.coff.Symbol.sizeOf()]));
 }
 
 pub fn symbolTableEntryPtr(coff: *Coff, sti: SymbolTable.Index) ?*align(2) std.coff.Symbol {
@@ -1876,7 +1911,7 @@ pub fn symbolTableSectionAuxEntryPtr(coff: *Coff, si: Symbol.Index) *align(2) st
 }
 
 pub fn symbolTableStringLenPtr(coff: *Coff) *align(2) u32 {
-    return @ptrCast(@alignCast(Node.known.string_table.slice(&coff.mf)[0..@sizeOf(u32)]));
+    return @ptrCast(@alignCast(coff.symbol_table.strings_ni.slice(&coff.mf)[0..@sizeOf(u32)]));
 }
 
 pub fn importDirectoryTableSlice(coff: *Coff) []std.coff.ImportDirectoryEntry {
@@ -1971,6 +2006,18 @@ pub fn globalSymbol(coff: *Coff, opts: struct {
     return sym_gop.value_ptr.*;
 }
 
+pub fn pendingSymbolTableEntry(coff: *Coff, si: Symbol.Index) !void {
+    assert(!coff.isImage());
+    const sym = si.get(coff);
+    assert(sym.ni != .none or sym.gmi != .none);
+
+    const gpa = coff.base.comp.gpa;
+    const pending_gop = try coff.symbol_table.pending.getOrPut(gpa, si);
+    if (!pending_gop.found_existing) {
+        coff.symbol_prog_node.increaseEstimatedTotalItems(1);
+    }
+}
+
 fn navSection(
     coff: *Coff,
     zcu: *Zcu,
@@ -1979,7 +2026,7 @@ fn navSection(
     const ip = &zcu.intern_pool;
     const default: String, const attributes: ObjectSectionAttributes =
         if (nav_resolved.@"threadlocal" and coff.base.comp.config.any_non_single_threaded) .{
-            .@".tls$", .{ .read = true, .write = true },
+            .@".tls$", .{ .read = true, .write = true, .tls = true },
         } else if (ip.isFunctionType(nav_resolved.type)) .{
             .@".text", .{ .read = true, .execute = true },
         } else if (nav_resolved.@"const") .{
@@ -2149,6 +2196,7 @@ fn addMemberAssumeCapacity(coff: *Coff, kind: Member.Kind, size: usize) !Member.
                 gpa,
                 coff.pending_members.capacity() + 1,
             );
+            coff.member_prog_node.increaseEstimatedTotalItems(1);
         },
     }
 
@@ -2249,16 +2297,15 @@ fn ensureMemberSymbol(
     }
 
     coff.pending_members.putAssumeCapacity(mi, {});
+    coff.member_prog_node.increaseEstimatedTotalItems(1);
 }
 
-// TODO: -> flushSymbolTableEntry, and push all call sites onto a pending list instead?
-fn updateSymbolTableEntry(coff: *Coff, si: Symbol.Index) !SymbolTable.Index {
+fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void {
     assert(!coff.isImage());
     const gpa = coff.base.comp.gpa;
 
     const sym = si.get(coff);
-    const has_node = sym.ni != .none;
-    assert(has_node or sym.gmi != .none);
+    assert(sym.ni != .none or sym.gmi != .none);
 
     const entry = coff.symbolTableEntryPtr(sym.sti) orelse entry: {
         var buf: [15]u8 = undefined;
@@ -2274,14 +2321,14 @@ fn updateSymbolTableEntry(coff: *Coff, si: Symbol.Index) !SymbolTable.Index {
                     else
                         .NULL,
                 };
-            } else switch (coff.getNode(sym.ni)) {
+            } else blk: switch (coff.getNode(sym.ni)) {
                 .image_section => .{
                     &sym.section_number.header(coff).name,
                     null,
                     1,
                     .NULL,
                 },
-                .nav => |nmi| blk: {
+                .nav => |nmi| {
                     const zcu = coff.base.comp.zcu.?;
                     const ip = &zcu.intern_pool;
                     const nav = ip.getNav(nmi.navIndex(coff));
@@ -2292,14 +2339,25 @@ fn updateSymbolTableEntry(coff: *Coff, si: Symbol.Index) !SymbolTable.Index {
                         if (ip.isFunctionType(nav.resolved.?.type)) .FUNCTION else .NULL,
                     };
                 },
-                .uav => |umi| blk: {
+                .uav => |umi| {
                     var w = Io.Writer.fixed(&buf);
                     w.print("__anon_{x}", .{umi.uavValue(coff)}) catch unreachable;
                     break :blk .{ w.buffered(), null, 0, .NULL };
                 },
+                inline .lazy_code, .lazy_const_data => |mi, tag| {
+                    const lazy_sym = mi.lazySymbol(coff);
+                    const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{f}", .{
+                        @tagName(lazy_sym.kind),
+                        Type.fromInterned(lazy_sym.ty).fmt(pt),
+                    });
+                    defer gpa.free(name);
+
+                    const string = try coff.getOrPutString(name);
+                    break :blk .{ string.toSlice(coff), string, 0, if (tag == .lazy_code) .FUNCTION else .NULL };
+                },
                 else => {
-                    log.err("TODO implement symbol table init for {s}", .{@tagName(coff.getNode(sym.ni))});
-                    return .none;
+                    log.err("TODO implement symbol table init for {s} ({d})", .{ @tagName(coff.getNode(sym.ni)), si });
+                    unreachable;
                 },
             };
 
@@ -2307,11 +2365,11 @@ fn updateSymbolTableEntry(coff: *Coff, si: Symbol.Index) !SymbolTable.Index {
             const string = opt_name_string orelse try coff.getOrPutString(name_slice);
             const string_gop = try coff.symbol_table.strings.getOrPut(gpa, string);
             if (!string_gop.found_existing) {
-                const string_index = Node.known.string_table.location(&coff.mf).resolve(&coff.mf)[1];
+                const string_index = coff.symbol_table.strings_ni.location(&coff.mf).resolve(&coff.mf)[1];
                 string_gop.value_ptr.* = @enumFromInt(string_index);
 
-                try Node.known.string_table.resize(&coff.mf, gpa, string_index + name_slice.len + 1);
-                const slice = Node.known.string_table.slice(&coff.mf);
+                try coff.symbol_table.strings_ni.resize(&coff.mf, gpa, string_index + name_slice.len + 1);
+                const slice = coff.symbol_table.strings_ni.slice(&coff.mf);
                 @memcpy(slice[string_index..][0..name_slice.len], name_slice);
                 slice[string_index + name_slice.len] = 0;
             }
@@ -2322,11 +2380,7 @@ fn updateSymbolTableEntry(coff: *Coff, si: Symbol.Index) !SymbolTable.Index {
         const old_num_symbols = coff.targetLoad(&coff.headerPtr().number_of_symbols);
         const new_num_symbols = old_num_symbols + 1 + num_aux_symbols;
 
-        try Node.known.symbol_table.resize(&coff.mf, gpa, new_num_symbols * std.coff.Symbol.sizeOf());
-
-        const symbol_table_loc = Node.known.symbol_table.location(&coff.mf).resolve(&coff.mf);
-        const string_table_loc = Node.known.string_table.location(&coff.mf).resolve(&coff.mf);
-        coff.symbol_table.pending_shrink = string_table_loc[0] - (symbol_table_loc[0] + symbol_table_loc[1]) > 0;
+        try coff.symbol_table.ni.resize(&coff.mf, gpa, new_num_symbols * std.coff.Symbol.sizeOf());
 
         coff.targetStore(&coff.headerPtr().number_of_symbols, new_num_symbols);
         sym.sti = .wrap(old_num_symbols);
@@ -2373,8 +2427,6 @@ fn updateSymbolTableEntry(coff: *Coff, si: Symbol.Index) !SymbolTable.Index {
     });
 
     log.debug("updateSymbolTableEntry({d}) = {d}", .{ si, sym.sti });
-
-    return sym.sti;
 }
 
 fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags) !Symbol.Index {
@@ -2384,6 +2436,7 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
     try coff.nodes.ensureUnusedCapacity(gpa, 1);
     try coff.section_table.ensureUnusedCapacity(gpa, 1);
     try coff.symbols.ensureUnusedCapacity(gpa, 1);
+    if (!isImage(coff)) try coff.symbol_table.pending.ensureUnusedCapacity(gpa, 1);
 
     const coff_header = coff.headerPtr();
     const section_index = coff.targetLoad(&coff_header.number_of_sections);
@@ -2457,7 +2510,7 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
             ),
         }
     } else {
-        assert(try coff.updateSymbolTableEntry(si) != .none);
+        try coff.pendingSymbolTableEntry(si);
     }
 
     return si;
@@ -2472,7 +2525,9 @@ const ObjectSectionAttributes = packed struct {
     nocache: bool = false,
     discard: bool = false,
     remove: bool = false,
+    tls: bool = false,
 };
+
 fn pseudoSectionMapIndex(
     coff: *Coff,
     name: String,
@@ -2485,6 +2540,8 @@ fn pseudoSectionMapIndex(
     if (!pseudo_section_gop.found_existing) {
         const parent: Symbol.Index = if (attributes.execute)
             .text
+        else if (attributes.tls and coff.tls_si != .null)
+            coff.tls_si
         else if (attributes.write)
             .data
         else
@@ -2556,35 +2613,6 @@ fn objectSectionMapIndex(
     return osmi;
 }
 
-fn ensureUnusedRelocCapacity(coff: *Coff, loc_si: Symbol.Index, len: usize) !void {
-    const gpa = coff.base.comp.gpa;
-
-    try coff.relocs.ensureUnusedCapacity(gpa, len);
-    if (isImage(coff)) return;
-
-    switch (loc_si.get(coff).section_number) {
-        .UNDEFINED, .ABSOLUTE, .DEBUG => {},
-        else => |sn| {
-            const section = sn.section(coff);
-            const header = sn.header(coff);
-            const new_size = (len + coff.targetLoad(&header.number_of_relocations)) * std.coff.Relocation.sizeOf();
-            if (section.relocation_table_ni == .none) {
-                // The entry's length in the file is shorter than its @sizeOf
-                try coff.nodes.ensureUnusedCapacity(gpa, 1);
-                section.relocation_table_ni = try coff.mf.addLastChildNode(gpa, Node.known.zcu_member, .{
-                    .size = new_size,
-                    .alignment = .@"2",
-                    .moved = true,
-                    .resized = true,
-                });
-                coff.nodes.appendAssumeCapacity(.{ .relocation_table = sn });
-            } else {
-                try section.relocation_table_ni.resize(&coff.mf, gpa, new_size);
-            }
-        },
-    }
-}
-
 pub fn addReloc(
     coff: *Coff,
     loc_si: Symbol.Index,
@@ -2612,10 +2640,10 @@ pub fn addReloc(
             // have a node. In that case, flushGlobal will create the symbol table entry.
             const sti: SymbolTable.Index = if (target.sti != .none)
                 target.sti
-            else if (target.ni != .none)
-                try updateSymbolTableEntry(coff, target_si)
-            else
-                .none;
+            else if (target.ni != .none) sti: {
+                try coff.pendingSymbolTableEntry(target_si);
+                break :sti .none;
+            } else .none;
 
             const section = loc_sn.section(coff);
             const header = loc_sn.header(coff);
@@ -2714,6 +2742,7 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
             .none => {
                 const sec_si = try coff.navSection(zcu, nav.resolved.?);
                 try coff.nodes.ensureUnusedCapacity(gpa, 1);
+                if (!isImage(coff)) try coff.symbol_table.pending.ensureUnusedCapacity(gpa, 1);
                 const ni = try coff.mf.addLastChildNode(gpa, sec_si.node(coff), .{
                     .alignment = zcu.navAlignment(nav_index).toStdMem(),
                     .moved = true,
@@ -2728,8 +2757,8 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         const sym = si.get(coff);
         assert(sym.loc_relocs == .none);
         sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
-        if (sym.target_relocs != .none)
-            _ = try coff.updateSymbolTableEntry(si);
+        if (!isImage(coff) and sym.target_relocs != .none)
+            try coff.pendingSymbolTableEntry(si);
 
         break :ni sym.ni;
     };
@@ -2836,6 +2865,7 @@ fn updateFuncInner(
             .none => {
                 const sec_si = try coff.navSection(zcu, nav.resolved.?);
                 try coff.nodes.ensureUnusedCapacity(gpa, 1);
+                if (!isImage(coff)) try coff.symbol_table.pending.ensureUnusedCapacity(gpa, 1);
                 const mod = zcu.navFileScope(func.owner_nav).mod.?;
                 const target = &mod.resolved_target.result;
                 const ni = try coff.mf.addLastChildNode(gpa, sec_si.node(coff), .{
@@ -2861,8 +2891,8 @@ fn updateFuncInner(
         const sym = si.get(coff);
         assert(sym.loc_relocs == .none);
         sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
-        if (sym.target_relocs != .none)
-            _ = try coff.updateSymbolTableEntry(si);
+        if (!isImage(coff) and sym.target_relocs != .none)
+            try coff.pendingSymbolTableEntry(si);
         break :ni sym.ni;
     };
 
@@ -3015,8 +3045,9 @@ pub fn flush(
         else => |e| return comp.link_diags.fail("flush write failed: {t}", .{e}),
     };
 
-    coff.dumpStderr(tid) catch |err|
-        return comp.link_diags.fail("dumping link snapshot failed: {t}", .{err});
+    if (coff.dump_snapshot)
+        coff.dumpStderr(tid) catch |err|
+            return comp.link_diags.fail("dumping link snapshot failed: {t}", .{err});
 }
 
 pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
@@ -3083,6 +3114,29 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             };
             break :task;
         };
+        while (coff.symbol_table.pending.pop()) |pending_si| {
+            const sym = pending_si.key.get(coff);
+            const sub_prog_node = coff.idleProgNode(
+                tid,
+                coff.symbol_prog_node,
+                if (sym.ni != .none)
+                    coff.getNode(sym.ni)
+                else
+                    .{ .global = pending_si.key.get(coff).gmi },
+            );
+            defer sub_prog_node.end();
+            coff.flushSymbolTableEntry(
+                pending_si.key,
+                .{ .zcu = comp.zcu.?, .tid = tid },
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => |e| return comp.link_diags.fail(
+                    "linker failed to flush symbol table entry: {t}",
+                    .{e},
+                ),
+            };
+            break :task;
+        }
         while (coff.mf.updates.pop()) |ni| {
             const clean_moved = ni.cleanMoved(&coff.mf);
             const clean_resized = ni.cleanResized(&coff.mf);
@@ -3096,22 +3150,39 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             } else coff.mf.update_prog_node.completeOne();
         }
         while (coff.pending_members.pop()) |pending_mi| {
-            // TODO: Prog node
+            const sub_prog_node = coff.idleProgNode(
+                tid,
+                coff.symbol_prog_node,
+                coff.getNode(pending_mi.key.get(coff).content_ni),
+            );
+            defer sub_prog_node.end();
             try coff.flushMember(pending_mi.key);
             break :task;
         }
+        // TODO: This and the next task ideally only run once, as it's wasteful otherwise
         if (coff.export_table.pending_sort) {
-            // TODO: Prog node
-            coff.export_table.pending_sort = false;
+            defer coff.export_table.pending_sort = false;
+            const sub_prog_node = coff.idleProgNode(
+                tid,
+                coff.synth_prog_node,
+                coff.getNode(coff.export_table.ni),
+            );
+            defer sub_prog_node.end();
+
             coff.flushExportsSort();
             break :task;
         }
-        // TODO: This and the above task ideally run only once, as it's wasteful otherwise
         if (coff.symbol_table.pending_shrink) {
-            coff.symbol_table.pending_shrink = false;
-            // TODO: Prog node
+            defer coff.symbol_table.pending_shrink = false;
+            const sub_prog_node = coff.idleProgNode(
+                tid,
+                coff.symbol_prog_node,
+                coff.getNode(coff.symbol_table.ni),
+            );
+            defer sub_prog_node.end();
+
             const number_of_symbols = coff.targetLoad(&coff.headerPtr().number_of_symbols);
-            Node.known.symbol_table.shrink(
+            coff.symbol_table.ni.shrink(
                 &coff.mf,
                 comp.gpa,
                 number_of_symbols * std.coff.Symbol.sizeOf(),
@@ -3119,7 +3190,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 else => |e| return comp.link_diags.fail(
-                    "linker failed to shrink symbol table: {t}",
+                    "linker failed to compact symbol table: {t}",
                     .{e},
                 ),
             };
@@ -3129,6 +3200,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     }
     if (coff.pending_uavs.count() > 0) return true;
     if (coff.globals.count() > coff.global_pending_index) return true;
+    if (coff.symbol_table.pending.count() > 0) return true;
     for (&coff.lazy.values) |lazy| if (lazy.map.count() > lazy.pending_index) return true;
     if (coff.mf.updates.items.len > 0) return true;
     if (coff.pending_members.count() > 0) return true;
@@ -3159,6 +3231,7 @@ fn idleProgNode(
                 .tid = tid,
             }),
         }) catch &name,
+        .archive_member => |mi| &mi.get(coff).headerPtr(coff).name,
     }, 0);
 }
 
@@ -3182,6 +3255,7 @@ fn flushUav(
                     .{ .read = true },
                 )).symbol(coff);
                 try coff.nodes.ensureUnusedCapacity(gpa, 1);
+                if (!isImage(coff)) try coff.symbol_table.pending.ensureUnusedCapacity(gpa, 1);
                 const sym = si.get(coff);
                 const ni = try coff.mf.addLastChildNode(gpa, sec_si.node(coff), .{
                     .alignment = uav_align.toStdMem(),
@@ -3200,8 +3274,8 @@ fn flushUav(
         const sym = si.get(coff);
         assert(sym.loc_relocs == .none);
         sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
-        if (sym.target_relocs != .none)
-            _ = try coff.updateSymbolTableEntry(si);
+        if (!isImage(coff) and sym.target_relocs != .none)
+            try coff.pendingSymbolTableEntry(si);
 
         break :ni sym.ni;
     };
@@ -3232,7 +3306,8 @@ fn flushGlobal(coff: *Coff, pt: Zcu.PerThread, gmi: Node.GlobalMapIndex) !void {
 
     if (!coff.isImage()) {
         const si = gmi.symbol(coff);
-        assert(try coff.updateSymbolTableEntry(si) != .none);
+        try coff.pendingSymbolTableEntry(si);
+
         if (si.get(coff).ni != .none)
             try coff.ensureMemberSymbol(
                 gn.name,
@@ -3429,6 +3504,9 @@ fn flushLazy(coff: *Coff, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
         }
         assert(sym.loc_relocs == .none);
         sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        if (!isImage(coff) and sym.target_relocs != .none)
+            try coff.pendingSymbolTableEntry(si);
+
         break :ni sym.ni;
     };
 
@@ -3464,14 +3542,19 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .data_directories,
         .section_table,
         .placeholder,
-        .symbol_table_entry, // TODO: Need to impl this for symbol table updates to work?
-        .string_table,
-        => if (!coff.isArchive()) unreachable,
+        => if (coff.isImage()) unreachable,
         .symbol_table => {
             coff.targetStore(
                 &coff.headerPtr().pointer_to_symbol_table,
                 @intCast(ni.location(&coff.mf).resolve(&coff.mf)[0]),
             );
+        },
+        .string_table => {
+            if (!coff.symbol_table.pending_shrink) {
+                const symbol_table_loc, const symbol_table_size = coff.symbol_table.ni.location(&coff.mf).resolve(&coff.mf);
+                const string_table_offset, _ = coff.symbol_table.strings_ni.location(&coff.mf).resolve(&coff.mf);
+                coff.symbol_table.pending_shrink = string_table_offset - (symbol_table_loc + symbol_table_size) > 0;
+            }
         },
         .relocation_table => |sn| {
             coff.targetStore(
@@ -3621,7 +3704,7 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
 }
 
 fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
-    _, const size = ni.location(&coff.mf).resolve(&coff.mf);
+    const offset, const size = ni.location(&coff.mf).resolve(&coff.mf);
     log.debug("flushResized({s}, 0x{x})", .{ @tagName(coff.getNode(ni)), size });
 
     switch (coff.getNode(ni)) {
@@ -3657,7 +3740,7 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .archive_member => |mi| {
             const content_ni = mi.get(coff).content_ni;
             const next_ni = content_ni.next(&coff.mf);
-            const offset, _ = content_ni.location(&coff.mf).resolve(&coff.mf);
+            const content_offset, _ = content_ni.location(&coff.mf).resolve(&coff.mf);
             const next_offset = switch (next_ni) {
                 .none => offset: {
                     assert(content_ni.parent(&coff.mf) == Node.known.file);
@@ -3672,15 +3755,22 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
             };
 
             // Not inserting IMAGE_ARCHIVE_PAD `\n` byte here, because we are expanding to full size
-            Member.storeHeaderDecimalStr(&mi.get(coff).headerPtr(coff).size, next_offset - offset);
+            Member.storeHeaderDecimalStr(&mi.get(coff).headerPtr(coff).size, next_offset - content_offset);
         },
         .coff_header,
         .optional_header,
         .data_directories,
         => unreachable,
         .section_table => {},
-        .symbol_table => assert(!coff.isImage()),
-        .symbol_table_entry => unreachable,
+        .symbol_table => {
+            assert(!coff.isImage());
+            if (!coff.symbol_table.pending_shrink) {
+                const string_table_offset, _ = coff.symbol_table.strings_ni.location(&coff.mf).resolve(&coff.mf);
+                coff.symbol_table.pending_shrink =
+                    size > coff.targetLoad(&coff.headerPtr().number_of_symbols) * std.coff.Symbol.sizeOf() or
+                    string_table_offset - (offset + size) > 0;
+            }
+        },
         .string_table => {
             assert(!coff.isImage());
             coff.targetStore(coff.symbolTableStringLenPtr(), @intCast(size));
@@ -3904,17 +3994,18 @@ fn updateExportsInner(
         export_sym.rva = exported_sym.rva;
         export_sym.size = exported_sym.size;
         export_sym.section_number = exported_sym.section_number;
-        export_si.applyTargetRelocs(coff);
-        if (@"export".opts.name.eqlSlice("wWinMainCRTStartup", ip)) {
-            coff.optionalHeaderStandardPtr().address_of_entry_point = exported_sym.rva;
-        } else if (@"export".opts.name.eqlSlice("_tls_used", ip)) {
-            const tls_directory = coff.dataDirectoryPtr(.TLS);
-            tls_directory.* = .{ .virtual_address = exported_sym.rva, .size = exported_sym.size };
-            if (coff.targetEndian() != native_endian)
-                std.mem.byteSwapAllFields(std.coff.ImageDataDirectory, tls_directory);
-        }
+        defer export_si.applyTargetRelocs(coff);
 
-        if (coff.export_table.ni == .none) continue;
+        if (isImage(coff)) {
+            if (@"export".opts.name.eqlSlice("wWinMainCRTStartup", ip)) {
+                coff.optionalHeaderStandardPtr().address_of_entry_point = exported_sym.rva;
+            } else if (@"export".opts.name.eqlSlice("_tls_used", ip)) {
+                const tls_directory = coff.dataDirectoryPtr(.TLS);
+                tls_directory.* = .{ .virtual_address = exported_sym.rva, .size = exported_sym.size };
+                if (coff.targetEndian() != native_endian)
+                    std.mem.byteSwapAllFields(std.coff.ImageDataDirectory, tls_directory);
+            }
+        } else continue;
 
         const entries_ctx = ExportTable.Adapter{ .coff = coff };
         const gop = try coff.export_table.entries.getOrPutAdapted(
@@ -4002,7 +4093,6 @@ fn updateExportsInner(
             gop.value_ptr.si = export_si;
             const reloc = gop.value_ptr.*.export_address_table_ri.get(coff);
             reloc.target = export_si;
-            export_si.applyTargetRelocs(coff); // TODO: Potentially doing this twice, defer first one?
         }
     }
 }
