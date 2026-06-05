@@ -6404,13 +6404,7 @@ fn flushSpecialSymbol(coff: *Coff, pending: SpecialSymbol) !SpecialSymbol {
                     .{ "wWinMainCRTStartup", "wWinMainCRTStartup" },
                 }
             else
-                &.{.{
-                    null,
-                    if (comp.config.link_libc and target.abi.isGnu())
-                        "DllMainCRTStartup"
-                    else
-                        "_DllMainCRTStartup",
-                }};
+                &.{.{ null, if (target.abi.isGnu()) "DllMainCRTStartup" else "_DllMainCRTStartup" }};
 
             const entry_si = for (entries) |entry| {
                 if (entry[0]) |required_name|
@@ -7081,6 +7075,7 @@ fn updateExportsInner(
             Type.fromInterned(ip.typeOf(uav)).abiAlignment(zcu),
         ))),
     };
+    while (try coff.idle(pt.tid)) {}
 
     const machine = coff.targetLoad(&coff.headerPtr().machine);
     const exported_ni = exported_si.node(coff);

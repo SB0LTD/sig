@@ -1568,7 +1568,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
                         }) catch return diags.setAllocFailure(),
                     );
                     if (std.mem.endsWith(u8, lib.name, "lib")) {
-                        base.openLoadArchive(path, null) catch |err| switch (err) {
+                        base.openLoadArchive(path, false) catch |err| switch (err) {
                             error.LinkFailure => return, // error reported via diags
                             else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
                         };

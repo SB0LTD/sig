@@ -5402,7 +5402,12 @@ fn buildMingwImportLib(comp: *Compilation, lib_name: []const u8, is_prelink: boo
     };
 
     if (is_prelink)
-        comp.queuePrelinkTasks(&.{.{ .load_archive = crt_file_path }}) catch |err| comp.lockAndSetMiscFailure(
+        comp.queuePrelinkTasks(&.{.{
+            .load_archive = .{
+                .path = crt_file_path,
+                .must_link = false,
+            },
+        }}) catch |err| comp.lockAndSetMiscFailure(
             .windows_import_lib,
             "unable to queue prelink task for mingw import lib {f}: {t}",
             .{ crt_file_path, err },
