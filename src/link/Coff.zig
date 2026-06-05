@@ -874,14 +874,15 @@ pub const Symbol = struct {
     ni: MappedFile.Node.Index,
     rva: u32,
     value: std.meta.BareUnion(Symbol.Value),
+    extra: std.meta.BareUnion(Symbol.Extra),
     flags: packed struct(u16) {
         value_tag: ValueTag,
+        extra_tag: ExtraTag,
         type: Symbol.Type,
         dll_storage_class: DllStorageClass,
         // Only defined for .alias_si and .alias_name
         weak_external_strat: WeakExternalStrat,
-        has_alias: bool,
-        _: u7 = 0,
+        _: u6 = 0,
     },
     /// Relocations contained within this symbol
     loc_relocs: Reloc.Index,
@@ -889,16 +890,6 @@ pub const Symbol = struct {
     target_relocs: Reloc.Index,
     section_number: SectionNumber,
     gmi: Node.GlobalMapIndex,
-    extra: union {
-        /// Only valid when outputting objects
-        sti: SymbolTable.Index,
-        /// Only valid when .ni == .input_section and .value_tag == .node_offset
-        /// TODO: This is only used for name lookups, could just be String?
-        isli: Node.InputSection.LocalIndex,
-        /// Only valid if flags.has_alias is set.
-        /// The next symbol in the list of aliases of this symbol.
-        next_alias_si: Symbol.Index,
-    },
 
     pub const DllStorageClass = enum(u2) {
         default,
@@ -916,23 +907,41 @@ pub const Symbol = struct {
         node_offset,
         weak_alias_si,
         weak_alias_name,
-        size,
+        sti,
     };
 
     pub const Value = union(ValueTag) {
         /// The offset of the symbol within its node. Used with symbols that
         /// don't create their own nodes: .input_section, .import_address_table
+        /// Images only.
         node_offset: u32,
         /// This is a weak alias that can replace this symbol
-        /// Globals only.
+        /// Globals only, images only.
         weak_alias_si: Symbol.Index,
         /// For weak externals that have an alias that is also an undef
         /// external, this is the name of the alias global that should
         /// be generated if this symbol is not resolved.
-        /// Globals only.
+        /// Globals only, images only.
         weak_alias_name: String,
-        /// The symbol size, or 0 if unknown
+        /// Index of this symbol in the symbol table
+        /// Only used when outputting objects
+        sti: SymbolTable.Index,
+    };
+
+    const ExtraTag = enum(u2) {
+        size,
+        isli,
+        next_alias_si,
+    };
+
+    pub const Extra = union(ExtraTag) {
+        // The size of the symbol
         size: u32,
+        /// Only valid when .ni == .input_section and .value_tag == .node_offset
+        /// TODO: This is only used for name lookups, could just be String?
+        isli: Node.InputSection.LocalIndex,
+        /// The next symbol in the list of aliases of this symbol.
+        next_alias_si: Symbol.Index,
     };
 
     pub fn setValue(sym: *Symbol, value: Symbol.Value) void {
@@ -942,6 +951,17 @@ pub const Symbol = struct {
                 @FieldType(Symbol, "value"),
                 @tagName(t),
                 @field(value, @tagName(t)),
+            ),
+        };
+    }
+
+    pub fn setExtra(sym: *Symbol, extra: Symbol.Extra) void {
+        sym.flags.extra_tag = std.meta.activeTag(extra);
+        sym.extra = switch (sym.flags.extra_tag) {
+            inline else => |t| @unionInit(
+                @FieldType(Symbol, "extra"),
+                @tagName(t),
+                @field(extra, @tagName(t)),
             ),
         };
     }
@@ -961,7 +981,7 @@ pub const Symbol = struct {
     }
 
     pub fn size(sym: *const Symbol) u32 {
-        return if (sym.flags.value_tag == .size) sym.value.size else 0;
+        return if (sym.flags.extra_tag == .size) sym.extra.size else 0;
     }
 
     pub const SectionNumber = enum(i16) {
@@ -1038,7 +1058,7 @@ pub const Symbol = struct {
             si.applyTargetRelocs(coff, .none);
 
             var alias_sym = sym;
-            while (alias_sym.flags.has_alias) {
+            while (alias_sym.flags.extra_tag == .next_alias_si) {
                 const alias_si = alias_sym.extra.next_alias_si;
                 alias_sym = alias_si.get(coff);
                 assert(alias_sym.ni == sym.ni);
@@ -1049,7 +1069,7 @@ pub const Symbol = struct {
 
         pub fn flushSymbolTableIndex(si: Symbol.Index, coff: *Coff) void {
             const sym = si.get(coff);
-            const index = sym.extra.sti.unwrap() orelse return;
+            const index = sym.value.sti.unwrap() orelse return;
             var ri = sym.target_relocs;
             while (ri != .none) {
                 const reloc = ri.get(coff);
@@ -1989,6 +2009,7 @@ fn initHeaders(
             .resized = true,
         });
         coff.nodes.appendAssumeCapacity(.string_table);
+        coff.targetStore(coff.symbolTableStringLenPtr(), @sizeOf(u32));
     }
 
     try coff.symbols.ensureTotalCapacity(gpa, Symbol.Index.known_count);
@@ -2193,8 +2214,7 @@ pub fn initBuiltins(coff: *Coff) !void {
             list_sym.ni = start_sym.ni;
             list_sym.section_number = start_sym.section_number;
 
-            start_sym.extra = .{ .next_alias_si = list_si };
-            start_sym.flags.has_alias = true;
+            start_sym.setExtra(.{ .next_alias_si = list_si });
         }
     }
 }
@@ -2483,11 +2503,14 @@ pub fn symbolTableEntryPtr(coff: *Coff, sti: SymbolTable.Index) ?*align(2) std.c
         return null;
 }
 
-pub fn symbolTableSectionAuxEntryPtr(coff: *Coff, si: Symbol.Index) *align(2) std.coff.SectionDefinition {
-    const sti = si.get(coff).extra.sti;
-    const entry = symbolTableEntryPtr(coff, sti).?;
-    assert(entry.storage_class == .STATIC and entry.number_of_aux_symbols == 1);
-    return @ptrCast(@alignCast(symbolTableEntryStoragePtr(coff, sti.unwrap().? + 1)));
+pub fn symbolTableSectionAuxEntryPtr(coff: *Coff, si: Symbol.Index) ?*align(2) std.coff.SectionDefinition {
+    const sti = si.get(coff).value.sti;
+    if (symbolTableEntryPtr(coff, sti)) |entry| {
+        assert(entry.storage_class == .STATIC and entry.number_of_aux_symbols == 1);
+        return @ptrCast(@alignCast(symbolTableEntryStoragePtr(coff, sti.unwrap().? + 1)));
+    } else {
+        return null;
+    }
 }
 
 pub fn symbolTableStringLenPtr(coff: *Coff) *align(1) u32 {
@@ -2524,19 +2547,19 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
     defer coff.symbols.addOneAssumeCapacity().* = .{
         .ni = .none,
         .rva = 0,
-        .value = .{ .size = 0 },
+        .value = .{ .sti = .none },
+        .extra = .{ .size = 0 },
         .flags = .{
-            .value_tag = .size,
+            .value_tag = .sti,
+            .extra_tag = .size,
             .type = .unknown,
             .dll_storage_class = .default,
             .weak_external_strat = undefined,
-            .has_alias = false,
         },
         .loc_relocs = .none,
         .target_relocs = .none,
         .section_number = .UNDEFINED,
         .gmi = .none,
-        .extra = .{ .sti = .none },
     };
     return @enumFromInt(coff.symbols.items.len);
 }
@@ -2975,7 +2998,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
     const sym = si.get(coff);
     assert(sym.ni != .none or sym.gmi != .none);
 
-    const entry = coff.symbolTableEntryPtr(sym.extra.sti) orelse entry: {
+    const entry = coff.symbolTableEntryPtr(sym.value.sti) orelse entry: {
         var buf: [15]u8 = undefined;
         const symbol_name, const num_aux_symbols: u8, const complex_type: std.coff.ComplexType =
             if (sym.gmi != .none) blk: {
@@ -3040,10 +3063,11 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
         try coff.symbol_table.ni.resize(&coff.mf, gpa, new_num_symbols * std.coff.Symbol.sizeOf());
 
         coff.targetStore(&coff.headerPtr().number_of_symbols, new_num_symbols);
-        sym.extra = .{ .sti = .wrap(old_num_symbols) };
+
+        sym.value.sti = .wrap(old_num_symbols);
         si.flushSymbolTableIndex(coff);
 
-        const entry = coff.symbolTableEntryPtr(sym.extra.sti).?;
+        const entry = coff.symbolTableEntryPtr(sym.value.sti).?;
         symbol_name.store(coff, &entry.name);
 
         entry.section_number = @enumFromInt(@intFromEnum(sym.section_number));
@@ -3056,8 +3080,31 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
         if (coff.targetEndian() != native_endian)
             std.mem.byteSwapAllFieldsAligned(std.coff.Symbol, .@"2", entry);
 
-        for (1..num_aux_symbols + 1) |aux_index|
-            @memset(coff.symbolTableEntryStoragePtr(@intCast(old_num_symbols + aux_index)), 0);
+        if (num_aux_symbols > 0) aux_init: {
+            if (sym.gmi == .none) switch (coff.getNode(sym.ni)) {
+                .image_section => |sec_si| {
+                    assert(si == sec_si);
+                    const header = sym.section_number.header(coff);
+                    const aux_ptr = coff.symbolTableSectionAuxEntryPtr(si).?;
+                    aux_ptr.* = .{
+                        .length = @intCast(sym.ni.location(&coff.mf).resolve(&coff.mf)[1]),
+                        .number_of_relocations = header.number_of_relocations,
+                        .number_of_linenumbers = header.number_of_linenumbers,
+                        .checksum = 0,
+                        .number = 0,
+                        .selection = .NONE,
+                        .unused = @splat(0),
+                    };
+                    if (coff.targetEndian() != native_endian)
+                        std.mem.byteSwapAllFields(std.coff.SectionDefinition, .@"2", aux_ptr);
+
+                    break :aux_init;
+                },
+                else => {},
+            };
+
+            unreachable;
+        }
 
         break :entry entry;
     };
@@ -3073,7 +3120,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
         },
     });
 
-    log.debug("flushSymbolTableEntry({d}) = {d}", .{ si, sym.extra.sti });
+    log.debug("flushSymbolTableEntry({d}) = {d}", .{ si, sym.value.sti });
 }
 
 fn flushInputMember(coff: *Coff, iami: InputArchive.Member.Index) !void {
@@ -3478,8 +3525,8 @@ pub fn addReloc(
         else => |loc_sn| sri: {
             // The target may not have a node yet, or it could be an extern that will never
             // have a node. In that case, flushGlobal will create the symbol table entry.
-            const sti: SymbolTable.Index = if (target.extra.sti != .none)
-                target.extra.sti
+            const sti: SymbolTable.Index = if (target.value.sti != .none)
+                target.value.sti
             else if (target.ni != .none) sti: {
                 try coff.pendingSymbolTableEntry(target_si);
                 break :sti .none;
@@ -3503,14 +3550,9 @@ pub fn addReloc(
                 try section.relocation_table_ni.resize(&coff.mf, gpa, new_size);
             }
 
-            coff.targetStore(
-                &header.number_of_relocations,
-                new_num_relocations,
-            );
-            coff.targetStore(
-                &coff.symbolTableSectionAuxEntryPtr(loc_sn.symbol(coff)).number_of_relocations,
-                new_num_relocations,
-            );
+            coff.targetStore(&header.number_of_relocations, new_num_relocations);
+            if (coff.symbolTableSectionAuxEntryPtr(loc_sn.symbol(coff))) |aux_ptr|
+                coff.targetStore(&aux_ptr.number_of_relocations, new_num_relocations);
 
             // TODO: These need to allocate from a free list (once deleting relocs is supported) (or can we just remove swap?)
             const sri: Section.RelocationIndex = .wrap(old_num_relocations);
@@ -3643,7 +3685,7 @@ fn loadObject(
 
     log.debug("loadObject({f}{f})", .{ path.fmtEscapeString(), fmtMemberNameString(member_name) });
 
-    const header = try r.peekStruct(std.coff.Header, .little());
+    const header = try r.peekStruct(std.coff.Header, .little);
     if (header.machine != target.toCoffMachine())
         return diags.failParse(path, "machine mismatch: expected {t}, found {t}", .{
             target.toCoffMachine(),
@@ -3678,7 +3720,7 @@ fn loadObject(
     const string_table_len = try r.peekInt(u32, target_endian);
     if (string_table_len < @sizeOf(u32) or
         symbol_table_end + string_table_len > fl.size)
-        return diags.failParse(path, "bad string table", .{});
+        return diags.failParse(path, "bad string table length: 0x{x}", .{string_table_len});
 
     const ioi: InputObject.Index = @enumFromInt(coff.input_objects.items.len);
     try coff.input_objects.ensureUnusedCapacity(gpa, 1);
@@ -4519,17 +4561,18 @@ fn loadObject(
             const sym = symbol.si.get(coff);
             assert(sym.ni == .none);
             sym.ni = section.si.get(coff).ni;
-            sym.setValue(switch (symbol.value) {
-                .section => |v| .{ .size = v },
-                .static => |v| .{ .node_offset = v },
+            switch (symbol.value) {
+                .section => |v| sym.setExtra(.{ .size = v }),
+                .static => |v| sym.setValue(.{ .node_offset = v }),
                 .external => |v| switch (symbol.section_number) {
                     .UNDEFINED, .ABSOLUTE, .DEBUG => unreachable,
-                    else => .{ .node_offset = v },
+                    else => sym.setValue(.{ .node_offset = v }),
                 },
                 .weak_external,
                 .weak_external_aux,
                 => unreachable,
-            });
+            }
+
             sym.section_number = section.si.get(coff).section_number;
         }
     }
@@ -4572,7 +4615,7 @@ fn loadObject(
                         symbol.si = global_gop.value_ptr.*;
                         if (!global_gop.found_existing or symbol.si.get(coff).ni == .none) {
                             const sym = symbol.si.get(coff);
-                            sym.setValue(.{ .size = @max(sym.size(), size) });
+                            sym.setExtra(.{ .size = @max(sym.size(), size) });
                         }
                     },
                     else => unreachable,
@@ -5156,12 +5199,12 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
             error.WriteFailed => return nw.err.?,
             else => |e| return e,
         };
-        si.get(coff).value.size = @intCast(nw.interface.end);
+        si.get(coff).extra.size = @intCast(nw.interface.end);
         si.applyLocationRelocs(coff);
     }
 
     if (nav.resolved.?.@"linksection".unwrap()) |_| {
-        try ni.resize(&coff.mf, gpa, si.get(coff).value.size);
+        try ni.resize(&coff.mf, gpa, si.get(coff).extra.size);
         var parent_ni = ni;
         while (true) {
             parent_ni = parent_ni.parent(&coff.mf);
@@ -5289,7 +5332,7 @@ fn updateFuncInner(
         error.WriteFailed => return nw.err.?,
         else => |e| return e,
     };
-    si.get(coff).value.size = @intCast(nw.interface.end);
+    si.get(coff).extra.size = @intCast(nw.interface.end);
     si.applyLocationRelocs(coff);
 }
 
@@ -5533,6 +5576,7 @@ pub fn flush(
 ) !void {
     _ = arena;
     _ = prog_node;
+    const comp = coff.base.comp;
 
     // TODO: When https://github.com/ziglang/zig/issues/23617 is in,
     //       this should be set after updateExports instead
@@ -5541,10 +5585,29 @@ pub fn flush(
     while (try coff.resolve(tid)) {}
     while (try coff.idle(tid)) {}
 
+    // This has to occur after all other flushMoved / flushResized have resolved,
+    // but it will also generate one more set of resizes and moves.
+    if (coff.symbol_table.pending_shrink) {
+        coff.symbol_table.pending_shrink = false;
+
+        const number_of_symbols = coff.targetLoad(&coff.headerPtr().number_of_symbols);
+        coff.symbol_table.ni.shrink(
+            &coff.mf,
+            comp.gpa,
+            number_of_symbols * std.coff.Symbol.sizeOf(),
+            true,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => |e| return comp.link_diags.fail(
+                "linker failed to compact symbol table: {t}",
+                .{e},
+            ),
+        };
+    }
+    while (try coff.idle(tid)) {}
+
     if (coff.isImage())
         try coff.reportUndefs(tid);
-
-    const comp = coff.base.comp;
 
     // Implib generation should instead be done via building a MappedFile progressively
     if (comp.emit_implib) |implib_file|
@@ -5717,31 +5780,6 @@ fn resolve(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             };
             break :task;
         }
-        if (coff.symbol_table.pending_shrink) {
-            defer coff.symbol_table.pending_shrink = false;
-            const sub_prog_node = coff.idleProgNode(
-                tid,
-                coff.symbol_prog_node,
-                coff.getNode(coff.symbol_table.ni),
-            );
-            defer sub_prog_node.end();
-
-            const number_of_symbols = coff.targetLoad(&coff.headerPtr().number_of_symbols);
-            coff.symbol_table.ni.shrink(
-                &coff.mf,
-                comp.gpa,
-                number_of_symbols * std.coff.Symbol.sizeOf(),
-                true,
-            ) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                else => |e| return comp.link_diags.fail(
-                    "linker failed to compact symbol table: {t}",
-                    .{e},
-                ),
-            };
-
-            break :task;
-        }
     }
 
     if (coff.section_merge_pending_index < coff.section_merges.count()) return true;
@@ -5753,7 +5791,6 @@ fn resolve(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     if (coff.exports_complete and coff.pending_special_symbol != .none) return true;
     for (&coff.lazy.values) |lazy| if (lazy.map.count() > lazy.pending_index) return true;
     if (coff.symbol_table.pending.count() > 0) return true;
-    if (coff.symbol_table.pending_shrink) return true;
     return false;
 }
 
@@ -5922,7 +5959,7 @@ fn flushUav(
         error.WriteFailed => return nw.err.?,
         else => |e| return e,
     };
-    si.get(coff).value.size = @intCast(nw.interface.end);
+    si.get(coff).extra.size = @intCast(nw.interface.end);
     si.applyLocationRelocs(coff);
 }
 
@@ -6358,7 +6395,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
                     });
                     @memcpy(ni.slice(&coff.mf)[0..init.len], &init);
                     sym.ni = ni;
-                    sym.setValue(.{ .size = init.len });
+                    sym.extra.size = init.len;
                     try coff.addReloc(
                         si,
                         init.len - 4,
@@ -6539,7 +6576,7 @@ fn flushLazy(coff: *Coff, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
         error.WriteFailed => return nw.err.?,
         else => |e| return e,
     };
-    si.get(coff).value.size = @intCast(nw.interface.end);
+    si.get(coff).extra.size = @intCast(nw.interface.end);
     si.applyLocationRelocs(coff);
 }
 
@@ -6556,13 +6593,15 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .section_table,
         .placeholder,
         => assert(!coff.isImage()),
-        .symbol_table => {
-            coff.targetStore(
-                &coff.headerPtr().pointer_to_symbol_table,
-                @intCast(ni.location(&coff.mf).resolve(&coff.mf)[0]),
-            );
-        },
-        .string_table => {
+        .symbol_table,
+        .string_table,
+        => |_, tag| {
+            if (tag == .symbol_table)
+                coff.targetStore(
+                    &coff.headerPtr().pointer_to_symbol_table,
+                    @intCast(ni.location(&coff.mf).resolve(&coff.mf)[0]),
+                );
+
             if (!coff.symbol_table.pending_shrink) {
                 const symbol_table_loc, const symbol_table_size = coff.symbol_table.ni.location(&coff.mf).resolve(&coff.mf);
                 const string_table_offset, _ = coff.symbol_table.strings_ni.location(&coff.mf).resolve(&coff.mf);
@@ -6822,10 +6861,8 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
             }
 
             if (!coff.isImage()) {
-                coff.targetStore(
-                    &coff.symbolTableSectionAuxEntryPtr(si).length,
-                    @intCast(size),
-                );
+                if (coff.symbolTableSectionAuxEntryPtr(si)) |aux_ptr|
+                    coff.targetStore(&aux_ptr.length, @intCast(size));
             }
         },
         .input_section => {},
@@ -6853,7 +6890,7 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
                 );
             }
 
-            smi.symbol(coff).get(coff).value.size = @intCast(size);
+            smi.symbol(coff).get(coff).extra.size = @intCast(size);
         },
         .import_thunk,
         .nav,
@@ -7091,14 +7128,16 @@ fn updateExportsInner(
         const export_sym = export_si.get(coff);
         export_sym.ni = exported_ni;
         export_sym.rva = exported_sym.rva;
-        export_sym.setValue(.{ .size = exported_sym.value.size });
         export_sym.section_number = exported_sym.section_number;
         defer export_si.applyTargetRelocs(coff, .none);
 
         const prev_alias_sym = prev_alias_si.get(coff);
-        assert(!prev_alias_sym.flags.has_alias);
-        prev_alias_sym.extra = .{ .next_alias_si = export_si };
-        prev_alias_sym.flags.has_alias = true;
+        switch (prev_alias_sym.flags.extra_tag) {
+            .size => export_sym.setExtra(.{ .size = prev_alias_sym.extra.size }),
+            else => unreachable,
+        }
+
+        prev_alias_sym.setExtra(.{ .next_alias_si = export_si });
         prev_alias_si = export_si;
 
         if (!coff.isImage()) continue;
@@ -7237,7 +7276,7 @@ fn printSection(coff: *Coff, w: *Io.Writer, name: String, si: Symbol.Index) !voi
     try w.print("{d:0>6}@{d:0>2} {x:08} n{d:0>8} | {s}\n", .{
         si,
         sym.section_number,
-        if (sym.flags.value_tag == .size) sym.value.size else 0,
+        if (sym.flags.extra_tag == .size) sym.extra.size else 0,
         sym.ni,
         name.toSlice(coff),
     });
@@ -7251,11 +7290,11 @@ fn printSymbol(
 ) !void {
     const sym = si.get(coff);
     const node = coff.getNode(sym.ni);
-    try w.print("{d:0>6}@{d:0>2} {x:08} {s} {s} n{d:0>8}+{x:08}:{t: <26} | {x:08} ", .{
+    try w.print("{d:0>6}@{d:0>2} {x:08} {s} {s} {s} n{d:0>8}+{x:08}:{t: <26} | {x:08} ", .{
         si,
         sym.section_number,
-        if (sym.flags.value_tag == .size)
-            @as(u64, sym.value.size)
+        if (sym.flags.extra_tag == .size)
+            @as(u64, sym.extra.size)
         else if (sym.ni != .none)
             sym.ni.location(&coff.mf).resolve(&coff.mf)[1]
         else
@@ -7264,7 +7303,12 @@ fn printSymbol(
             .weak_alias_name => "an",
             .weak_alias_si => "as",
             .node_offset => "no",
+            .sti => "st",
+        },
+        switch (sym.flags.extra_tag) {
             .size => "sz",
+            .isli => "li",
+            .next_alias_si => "na",
         },
         switch (sym.flags.type) {
             .unknown => "u",
