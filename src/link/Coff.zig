@@ -6223,13 +6223,12 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         return true;
     };
 
-    const lib_name = import.lib_name.toSlice(coff);
-
     try coff.nodes.ensureUnusedCapacity(gpa, 4);
     try coff.symbols.ensureUnusedCapacity(gpa, 2);
 
     const target_endian = coff.targetEndian();
     const addr_info = coff.targetAddrInfo();
+    const lib_name = import.lib_name.toSlice(coff);
     const gop = try coff.import_table.entries.getOrPutAdapted(
         gpa,
         lib_name,
@@ -6380,7 +6379,6 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             sym.section_number = iat_sym.section_number;
             sym.ni = iat_sym.ni;
             sym.setValue(.{ .node_offset = iat_offset });
-            si.flushMoved(coff);
             (try gop.value_ptr.import_address_table_symbols.addOne(gpa)).* = si;
         },
         .thunk => {
@@ -6424,11 +6422,10 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
                 },
             }
             coff.nodes.appendAssumeCapacity(.{ .import_thunk = gmi });
-            sym.rva = coff.computeNodeRva(sym.ni);
-            si.applyLocationRelocs(coff);
         },
     }
 
+    si.flushMoved(coff);
     return true;
 }
 
