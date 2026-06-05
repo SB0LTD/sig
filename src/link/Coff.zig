@@ -44,7 +44,7 @@ pending_default_libs: std.ArrayList(struct {
 }),
 alternate_names: std.AutoArrayHashMapUnmanaged(String, String),
 input_objects: std.ArrayList(InputObject),
-input_symbols: std.ArrayList(Symbol.Index),
+input_symbols: std.ArrayList(struct { si: Symbol.Index, name: String }),
 input_sections: std.ArrayList(Node.InputSection),
 input_section_pending_index: u32,
 inputs_complete: bool,
@@ -300,6 +300,7 @@ pub const Node = union(enum) {
     const InputSection = struct {
         ioi: InputObject.Index,
         si: Symbol.Index,
+        comdat_si: Symbol.Index,
         file_location: MappedFile.Node.FileLocation,
         first_li: Node.InputSection.LocalIndex,
         crc: u32,
@@ -918,9 +919,13 @@ pub const Symbol = struct {
     /// Relocations targeting this symbol
     target_relocs: Reloc.Index,
     section_number: SectionNumber,
-    /// Only used when outputting objects
-    sti: SymbolTable.Index,
     gmi: Node.GlobalMapIndex,
+    extra: union {
+        /// Only valid when outputting objects
+        sti: SymbolTable.Index,
+        /// Only valid when .ni == .input_section and .value_tag == .node_offset
+        isli: Node.InputSection.LocalIndex,
+    },
 
     pub const DllStorageClass = enum(u2) {
         default,
@@ -1062,7 +1067,7 @@ pub const Symbol = struct {
 
         pub fn flushSymbolTableIndex(si: Symbol.Index, coff: *Coff) void {
             const sym = si.get(coff);
-            const index = sym.sti.unwrap() orelse return;
+            const index = sym.extra.sti.unwrap() orelse return;
             var ri = sym.target_relocs;
             while (ri != .none) {
                 const reloc = ri.get(coff);
@@ -2496,7 +2501,7 @@ pub fn symbolTableEntryPtr(coff: *Coff, sti: SymbolTable.Index) ?*align(2) std.c
 }
 
 pub fn symbolTableSectionAuxEntryPtr(coff: *Coff, si: Symbol.Index) *align(2) std.coff.SectionDefinition {
-    const sti = si.get(coff).sti;
+    const sti = si.get(coff).extra.sti;
     const entry = symbolTableEntryPtr(coff, sti).?;
     assert(entry.storage_class == .STATIC and entry.number_of_aux_symbols == 1);
     return @ptrCast(@alignCast(symbolTableEntryStoragePtr(coff, sti.unwrap().? + 1)));
@@ -2546,8 +2551,8 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
         .loc_relocs = .none,
         .target_relocs = .none,
         .section_number = .UNDEFINED,
-        .sti = .none,
         .gmi = .none,
+        .extra = .{ .sti = .none },
     };
     return @enumFromInt(coff.symbols.items.len);
 }
@@ -2973,7 +2978,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
     const sym = si.get(coff);
     assert(sym.ni != .none or sym.gmi != .none);
 
-    const entry = coff.symbolTableEntryPtr(sym.sti) orelse entry: {
+    const entry = coff.symbolTableEntryPtr(sym.extra.sti) orelse entry: {
         var buf: [15]u8 = undefined;
         const symbol_name, const num_aux_symbols: u8, const complex_type: std.coff.ComplexType =
             if (sym.gmi != .none) blk: {
@@ -3038,10 +3043,10 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
         try coff.symbol_table.ni.resize(&coff.mf, gpa, new_num_symbols * std.coff.Symbol.sizeOf());
 
         coff.targetStore(&coff.headerPtr().number_of_symbols, new_num_symbols);
-        sym.sti = .wrap(old_num_symbols);
+        sym.extra = .{ .sti = .wrap(old_num_symbols) };
         si.flushSymbolTableIndex(coff);
 
-        const entry = coff.symbolTableEntryPtr(sym.sti).?;
+        const entry = coff.symbolTableEntryPtr(sym.extra.sti).?;
         symbol_name.store(coff, &entry.name);
 
         entry.section_number = @enumFromInt(@intFromEnum(sym.section_number));
@@ -3071,7 +3076,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
         },
     });
 
-    log.debug("flushSymbolTableEntry({d}) = {d}", .{ si, sym.sti });
+    log.debug("flushSymbolTableEntry({d}) = {d}", .{ si, sym.extra.sti });
 }
 
 fn flushInputMember(coff: *Coff, iami: InputArchive.Member.Index) !void {
@@ -3467,8 +3472,8 @@ pub fn addReloc(
         else => |loc_sn| sri: {
             // The target may not have a node yet, or it could be an extern that will never
             // have a node. In that case, flushGlobal will create the symbol table entry.
-            const sti: SymbolTable.Index = if (target.sti != .none)
-                target.sti
+            const sti: SymbolTable.Index = if (target.extra.sti != .none)
+                target.extra.sti
             else if (target.ni != .none) sti: {
                 try coff.pendingSymbolTableEntry(target_si);
                 break :sti .none;
@@ -4381,6 +4386,10 @@ fn loadObject(
             },
             .first_li = @enumFromInt(coff.input_symbols.items.len),
             .crc = section.comdat_crc,
+            .comdat_si = if (section.comdat_psi.unwrap()) |psi|
+                pending_symbols.values()[psi].si
+            else
+                .null,
         };
 
         log.debug(
@@ -4489,6 +4498,9 @@ fn loadObject(
                 .weak_external_aux,
                 => unreachable,
             }
+
+            if (section.comdat_psi.unwrap() == @as(u32, @intCast(i)))
+                coff.getNode(section.si.get(coff).ni).input_section.inputSection(coff).comdat_si = symbol.si;
         }
 
         if (symbol.weak_external_psi.unwrap()) |weak_external_i| {
@@ -4610,7 +4622,11 @@ fn loadObject(
 
         if (include_section) {
             assert(coff.getNode(symbol.si.get(coff).ni) == .input_section);
-            coff.input_symbols.addOneAssumeCapacity().* = symbol.si;
+            symbol.si.get(coff).extra = .{ .isli = @enumFromInt(coff.input_symbols.items.len) };
+            coff.input_symbols.addOneAssumeCapacity().* = .{
+                .si = symbol.si,
+                .name = symbol.name,
+            };
         }
     }
 }
@@ -5450,11 +5466,30 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
                     .input_section => |isi| {
                         const other_ioi = isi.input(coff);
                         if (loc_sym.gmi == .none) {
-                            // TODO: We could report non-global names here if we intern them in loadObject
-                            err.addNote("referenced by input '{f}{f}'", .{
-                                other_ioi.path(coff).fmtEscapeString(),
-                                fmtMemberNameString(other_ioi.memberName(coff)),
-                            });
+                            const section = isi.inputSection(coff);
+                            const section_name = coff.getNode(loc_sym.ni.parent(&coff.mf))
+                                .object_section.name(coff).toSlice(coff);
+
+                            if (section.comdat_si != .null) {
+                                const comdat_sym = section.comdat_si.get(coff);
+                                const comdat_name = if (comdat_sym.gmi != .none)
+                                    comdat_sym.gmi.globalName(coff).name.toSlice(coff)
+                                else
+                                    coff.input_symbols.items[@intFromEnum(comdat_sym.extra.isli)].name.toSlice(coff);
+
+                                err.addNote("referenced by input COMDAT section '{s}={s}' '{f}{f}'", .{
+                                    section_name,
+                                    comdat_name,
+                                    other_ioi.path(coff).fmtEscapeString(),
+                                    fmtMemberNameString(other_ioi.memberName(coff)),
+                                });
+                            } else {
+                                err.addNote("referenced by input section '{s}' '{f}{f}'", .{
+                                    section_name,
+                                    other_ioi.path(coff).fmtEscapeString(),
+                                    fmtMemberNameString(other_ioi.memberName(coff)),
+                                });
+                            }
                         } else {
                             err.addNote("referenced by input symbol '{s}' from '{f}{f}'", .{
                                 loc_sym.gmi.globalName(coff).name.toSlice(coff),
@@ -6558,9 +6593,9 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         },
         .input_section => |isi| {
             isi.symbol(coff).flushMoved(coff);
-            for (coff.input_symbols.items[@intFromEnum(isi.firstSymbol(coff))..]) |si| {
-                if (si.get(coff).ni != ni) break;
-                si.flushMoved(coff);
+            for (coff.input_symbols.items[@intFromEnum(isi.firstSymbol(coff))..]) |input_symbol| {
+                if (input_symbol.si.get(coff).ni != ni) break;
+                input_symbol.si.flushMoved(coff);
             }
         },
         .import_directory_table => coff.targetStore(
@@ -7165,7 +7200,7 @@ pub fn dump(coff: *Coff, w: *Io.Writer, tid: Zcu.PerThread.Id) !link.File.DumpRe
             try coff.printSection(w, name, sec.si);
         try w.writeAll("Symbol table:\n");
         for (1..coff.symbols.items.len) |si|
-            try coff.printSymbol(w, @enumFromInt(si));
+            try coff.printSymbol(w, tid, @enumFromInt(si));
 
         return .enabled;
     }
@@ -7183,10 +7218,15 @@ fn printSection(coff: *Coff, w: *Io.Writer, name: String, si: Symbol.Index) !voi
     });
 }
 
-fn printSymbol(coff: *Coff, w: *Io.Writer, si: Symbol.Index) !void {
+fn printSymbol(
+    coff: *Coff,
+    w: *Io.Writer,
+    tid: Zcu.PerThread.Id,
+    si: Symbol.Index,
+) !void {
     const sym = si.get(coff);
     const node = coff.getNode(sym.ni);
-    try w.print("{d:0>6}@{d:0>2} {x:08} {s} n{d:0>8}+{x:08}:{t: <26} | {x:08} | {f}\n", .{
+    try w.print("{d:0>6}@{d:0>2} {x:08} {s} {s} n{d:0>8}+{x:08}:{t: <26} | {x:08} ", .{
         si,
         sym.section_number,
         if (sym.flags.value_tag == .size)
@@ -7195,6 +7235,12 @@ fn printSymbol(coff: *Coff, w: *Io.Writer, si: Symbol.Index) !void {
             sym.ni.location(&coff.mf).resolve(&coff.mf)[1]
         else
             0,
+        switch (sym.flags.value_tag) {
+            .alias_name => "an",
+            .alias_si => "as",
+            .node_offset => "no",
+            .size => "sz",
+        },
         switch (sym.flags.type) {
             .unknown => "u",
             .code => "c",
@@ -7204,8 +7250,15 @@ fn printSymbol(coff: *Coff, w: *Io.Writer, si: Symbol.Index) !void {
         if (sym.flags.value_tag == .node_offset) sym.value.node_offset else 0,
         node,
         sym.rva,
-        fmtGlobalName(coff, sym.gmi),
     });
+
+    if (sym.gmi != .none) {
+        try w.print("G {f}\n", .{fmtGlobalName(coff, sym.gmi)});
+    } else {
+        try w.writeAll("| ");
+        try coff.printNodeName(w, tid, node);
+        try w.writeByte('\n');
+    }
 }
 
 const FmtGlobalName = struct { coff: *Coff, gmi: Node.GlobalMapIndex };
@@ -7222,16 +7275,12 @@ fn globalNameEscape(data: FmtGlobalName, w: *std.Io.Writer) std.Io.Writer.Error!
         try w.print("({s})", .{lib_name.toSlice(data.coff)});
 }
 
-pub fn printNode(
+fn printNodeName(
     coff: *Coff,
+    w: *std.Io.Writer,
     tid: Zcu.PerThread.Id,
-    w: *Io.Writer,
-    ni: MappedFile.Node.Index,
-    indent: usize,
+    node: Node,
 ) !void {
-    const node = coff.getNode(ni);
-    try w.splatByteAll(' ', indent);
-    try w.writeAll(@tagName(node));
     switch (node) {
         else => {},
         .image_section => |si| try w.print("({s})", .{
@@ -7239,11 +7288,23 @@ pub fn printNode(
         }),
         .input_section => |isi| {
             const ioi = isi.input(coff);
-            try w.print("({f}{f}, {s})", .{
+            const is = isi.inputSection(coff);
+            // TODO: Use only filename from these paths, they are long
+            try w.print("({f}{f}, {s}", .{
                 ioi.path(coff).fmtEscapeString(),
                 fmtMemberNameString(ioi.memberName(coff)),
-                coff.getNode(isi.symbol(coff).node(coff).parent(&coff.mf)).object_section.name(coff).toSlice(coff),
+                coff.getNode(is.si.node(coff).parent(&coff.mf)).object_section.name(coff).toSlice(coff),
             });
+            if (is.comdat_si != .null) {
+                const comdat_sym = is.comdat_si.get(coff);
+                const comdat_name = if (comdat_sym.gmi != .none)
+                    comdat_sym.gmi.globalName(coff).name.toSlice(coff)
+                else
+                    coff.input_symbols.items[@intFromEnum(comdat_sym.extra.isli)].name.toSlice(coff);
+
+                try w.print("={s}", .{comdat_name});
+            }
+            try w.writeAll(")");
         },
         .import_lookup_table,
         .import_address_table,
@@ -7284,6 +7345,19 @@ pub fn printNode(
             }),
         }),
     }
+}
+
+pub fn printNode(
+    coff: *Coff,
+    tid: Zcu.PerThread.Id,
+    w: *Io.Writer,
+    ni: MappedFile.Node.Index,
+    indent: usize,
+) !void {
+    const node = coff.getNode(ni);
+    try w.splatByteAll(' ', indent);
+    try w.writeAll(@tagName(node));
+    try coff.printNodeName(w, tid, node);
     {
         const mf_node = &coff.mf.nodes.items[@intFromEnum(ni)];
         const off, const size = mf_node.location().resolve(&coff.mf);
