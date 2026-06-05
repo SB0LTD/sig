@@ -2404,19 +2404,19 @@ pub fn firstLinkerMemberOffsetsSlice(coff: *Coff) []u32 {
     return @ptrCast(@alignCast(Node.known.first_linker_member.slice(&coff.mf)[@sizeOf(u32)..][0 .. len * @sizeOf(u32)]));
 }
 
-pub fn secondLinkerMemberNumMembersPtr(coff: *Coff) *u32 {
+pub fn secondLinkerMemberNumMembersPtr(coff: *Coff) *align(2) u32 {
     assert(coff.isArchive());
     return @ptrCast(@alignCast(Node.known.second_linker_member.slice(&coff.mf)));
 }
 
-pub fn secondLinkerMemberOffsetsSlice(coff: *Coff) []u32 {
+pub fn secondLinkerMemberOffsetsSlice(coff: *Coff) []align(2) u32 {
     const num_members = coff.targetLoad(coff.secondLinkerMemberNumMembersPtr());
     return @ptrCast(@alignCast(
         Node.known.second_linker_member.slice(&coff.mf)[@sizeOf(u32)..][0 .. num_members * @sizeOf(u32)],
     ));
 }
 
-pub fn secondLinkerMemberNumSymbolsPtr(coff: *Coff) *u32 {
+pub fn secondLinkerMemberNumSymbolsPtr(coff: *Coff) *align(2) u32 {
     const num_members = coff.targetLoad(coff.secondLinkerMemberNumMembersPtr());
     return @ptrCast(@alignCast(
         Node.known.second_linker_member.slice(&coff.mf)[(1 + num_members) * @sizeOf(u32) ..],
@@ -2970,9 +2970,7 @@ fn ensureMemberSymbol(coff: *Coff, mi: Member.Index, name: String) !void {
         try coff.lib_string_table.append(gpa, name);
 
         const slice = Node.known.second_linker_member.slice(&coff.mf);
-        const num_symbols_ptr: *u32 = @ptrCast(@alignCast(slice[@sizeOf(u32) + num_members * @sizeOf(u32) ..]));
-        coff.targetStore(num_symbols_ptr, @intFromEnum(mfli) + 1);
-
+        coff.targetStore(coff.secondLinkerMemberNumSymbolsPtr(), @intFromEnum(mfli) + 1);
         if (!needs_sort) {
             @memmove(slice[new_header_size..][0..coff.lib_string_len], slice[old_header_size..][0..coff.lib_string_len]);
             @memcpy(slice[new_header_size + coff.lib_string_len ..][0..name_slice.len], name_slice[0..name_slice.len]);
@@ -4670,7 +4668,7 @@ fn loadObject(
 
         if (include_section) {
             assert(coff.getNode(symbol.si.get(coff).ni) == .input_section);
-            symbol.si.get(coff).extra = .{ .isli = @enumFromInt(coff.input_symbols.items.len) };
+            symbol.si.get(coff).setExtra(.{ .isli = @enumFromInt(coff.input_symbols.items.len) });
             coff.input_symbols.addOneAssumeCapacity().* = .{
                 .si = symbol.si,
                 .name = symbol.name,

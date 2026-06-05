@@ -44,9 +44,10 @@ pub fn addCases(ctx: *LinkContext) void {
             .name_target = false,
             .zig_source_bytes =
             \\fn weakFoo() callconv(.c) usize {
-            \\    return 0xaabbccdd;
+            \\    return 0xaabbccddaabbccdd;
             \\}
-            \\export var strong_foo: usize = 0x11223344;
+            \\export var array_foo: [2]u16 = .{ 0xffff, 0xabcd };
+            \\export var strong_foo: usize = 0x1122334411223344;
             \\comptime {
             \\    @export(&weakFoo, .{ .name = "weakFoo", .linkage = .weak });
             \\    @export(&strong_foo, .{ .name = "strong_foo_alias", .linkage = .strong });
@@ -75,11 +76,13 @@ pub fn addCases(ctx: *LinkContext) void {
             .zig_source_bytes =
             \\extern fn fooBar() c_uint;
             \\extern fn weakFoo() usize;
+            \\extern var array_foo: [2]u16;
             \\extern var strong_foo: usize;
             \\extern var strong_foo_alias: usize;
             \\pub fn main() !u8 {
-            \\    return @intFromBool(0xcd003368 != fooBar() +
+            \\    return @intFromBool(0xcd003365cd00df35 != fooBar() +
             \\        weakFoo() +
+            \\        array_foo[1] +
             \\        strong_foo +
             \\        strong_foo_alias);
             \\}
