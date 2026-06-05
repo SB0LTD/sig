@@ -737,7 +737,7 @@ pub const Symbol = struct {
     value: union {
         /// For generated symbols, this is their size
         size: u32,
-        /// For globals from input sections, this is the offset within the input section
+        /// For symbols from input sections, this is the offset within the input section
         input_offset: u32,
     },
     /// Relocations contained within this symbol
@@ -1322,11 +1322,15 @@ pub fn deinit(coff: *Coff) void {
     const gpa = coff.base.comp.gpa;
     coff.mf.deinit(gpa);
     coff.nodes.deinit(gpa);
+    coff.pending_members.deinit(gpa);
+    coff.lib_string_table.deinit(gpa);
     coff.long_names_table.entries.deinit(gpa);
     coff.import_table.entries.deinit(gpa);
     coff.export_table.entries.deinit(gpa);
     coff.symbol_table.strings.deinit(gpa);
     coff.symbol_table.pending.deinit(gpa);
+    coff.inputs.deinit(gpa);
+    coff.input_sections.deinit(gpa);
     coff.strings.deinit(gpa);
     coff.string_bytes.deinit(gpa);
     coff.section_table.deinit(gpa);
@@ -2145,6 +2149,13 @@ fn initSymbolAssumeCapacity(coff: *Coff) !Symbol.Index {
     return si;
 }
 
+fn initInputSectionSymbol(coff: *Coff, sym: *Symbol, section_si: Symbol.Index, value: u32) void {
+    const section_sym = section_si.get(coff);
+    sym.ni = section_sym.ni;
+    sym.value = .{ .input_offset = value };
+    sym.section_number = section_sym.section_number;
+}
+
 fn getOrPutString(coff: *Coff, string: []const u8) !String {
     try coff.ensureUnusedStringCapacity(string.len);
     return coff.getOrPutStringAssumeCapacity(string);
@@ -2240,7 +2251,12 @@ fn getOrPutGlobalSymbol(
 }
 
 pub fn globalSymbol(coff: *Coff, opts: GlobalOptions) !Symbol.Index {
-    return (try coff.getOrPutGlobalSymbol(opts)).value_ptr.*;
+    const gop = try coff.getOrPutGlobalSymbol(opts);
+    if (gop.found_existing) {
+        // TODO: Need to know if this is an export or extern, add to opts
+    }
+
+    return gop.value_ptr.*;
 }
 
 pub fn pendingSymbolTableEntry(coff: *Coff, si: Symbol.Index) !void {
@@ -2657,6 +2673,10 @@ fn flushInputSection(coff: *Coff, isi: Node.InputSectionIndex) !void {
     if (try nw.interface.sendFileAll(&fr, .limited(@intCast(file_loc.size))) != file_loc.size)
         return error.EndOfStream;
     si.applyLocationRelocs(coff);
+
+    // TODO: Problem is that if the sym is first seen as undef, it's si is in the range of the section
+    //       that wants that symbol. but when the section that contains it is moved, the iteration doesn't see
+    //       that symbol.
 }
 
 fn addSection(coff: *Coff, name: String, flags: std.coff.SectionHeader.Flags) !Symbol.Index {
@@ -3267,7 +3287,7 @@ fn loadObject(
             if (section.header.flags.LNK_REMOVE or
                 section.header.flags.MEM_DISCARDABLE)
             {
-                // TODO: Merge .debug$* sections and output to PDB
+                // TODO: Convert .debug$* sections into PDB
                 continue;
             }
 
@@ -3340,8 +3360,6 @@ fn loadObject(
                 // This will be necessary if we do the equivalent of /Gy for compiler-rt
                 return diags.failParse(path, "TODO handle COMDAT sections in input objects", .{});
 
-            log.debug("loadInputSection({s})", .{section.name.toSlice(coff)});
-
             const parent_osmi = try coff.objectSectionMapIndex(
                 section.name,
                 coff.mf.flags.block_size,
@@ -3372,6 +3390,7 @@ fn loadObject(
                 },
             };
 
+            log.debug("loadInputSection({s}) = {d}@{d}", .{ section.name.toSlice(coff), section.si, sym.section_number });
             coff.synth_prog_node.increaseEstimatedTotalItems(1);
         }
 
@@ -3428,89 +3447,141 @@ fn loadObject(
         const name = std.mem.sliceTo(if (std.mem.eql(u8, symbol.name[0..4], "\x00\x00\x00\x00")) name: {
             const index = std.mem.readInt(u32, symbol.name[4..], target_endian);
             if (index >= string_table.len)
-                return diags.failParse(path, "bad string offset for symbol {d}", .{symbol_ix});
+                return diags.failParse(path, "bad string offset for symbol 0x{x}", .{symbol_ix});
             break :name string_table[index..];
         } else &symbol.name, 0);
 
-        const si = symbols.addOneAssumeCapacity();
-        si.* = .null;
+        const si_slice = symbols.addManyAsSliceAssumeCapacity(1 + symbol.number_of_aux_symbols);
+        @memset(si_slice, .null);
 
-        switch (symbol.section_number) {
-            .UNDEFINED, .ABSOLUTE, .DEBUG => continue,
-            else => switch (symbol.storage_class) {
-                .STATIC => if (symbol.value == 0 and symbol.type == std.coff.SymType{
-                    .complex_type = .NULL,
-                    .base_type = .NULL,
-                }) {
-                    if (symbol.number_of_aux_symbols != 1)
-                        return diags.failParse(path, "invalid number of aux symbols for section {d}: {d}", .{
-                            symbol_ix,
-                            symbol.number_of_aux_symbols,
-                        });
-
-                    var section_def: std.coff.SectionDefinition = undefined;
-                    @memcpy(std.mem.asBytes(&section_def)[0..symbol_size], try r.peek(symbol_size));
-                    if (target_endian != native_endian)
-                        std.mem.byteSwapAllFields(std.coff.SectionDefinition, &section_def);
-
-                    // TODO: Extract the COMDAT section info
-
-                    if (section_def.number > sections.len)
-                        return diags.failParse(
-                            path,
-                            "section symbol for '{s}' contained an out of bounds section number: {d}",
-                            .{ name, section_def.number },
-                        );
-
-                    // It's valid for this to not match the symbol's section number (ie. .drectve sets this)
-                    if (section_def.number == 0)
-                        continue;
-
-                    const section = &sections[section_def.number - 1];
-                    if (section_def.number_of_relocations != section.header.number_of_relocations)
-                        return diags.failParse(
-                            path,
-                            "section symbol for '{s}' relocation count did not match section header: {d} vs {d}",
-                            .{ name, section_def.number_of_relocations, section.header.number_of_relocations },
-                        );
-
-                    if (section_def.number_of_linenumbers != section.header.number_of_linenumbers)
-                        return diags.failParse(
-                            path,
-                            "section symbol for '{s}' line number count did not match section header: {d} vs {d}",
-                            .{ name, section_def.number_of_linenumbers, section.header.number_of_linenumbers },
-                        );
-
-                    si.* = section.si;
-                    continue;
-                },
-                .EXTERNAL => {},
-                else => continue,
-            },
-        }
+        defer log.debug("loadInputSymbol({s}, 0x{x}) = {d}@{d}", .{
+            name,
+            symbol.value,
+            si_slice[0],
+            if (si_slice[0] == .null) .UNDEFINED else si_slice[0].get(coff).section_number,
+        });
 
         if (is_archive) {
-            try coff.ensureMemberSymbol(mi, coff.getOrPutStringAssumeCapacity(name));
+            if (symbol.storage_class == .EXTERNAL)
+                try coff.ensureMemberSymbol(mi, coff.getOrPutStringAssumeCapacity(name));
+
             continue;
         }
 
-        // Section numbers are 1-based here
-        if (@intFromEnum(symbol.section_number) <= 0 or @intFromEnum(symbol.section_number) > sections.len)
-            return diags.failParse(path, "bad section number {d} for '{s}'", .{ symbol.section_number, name });
+        switch (symbol.storage_class) {
+            .STATIC, .LABEL => |storage_class| switch (symbol.section_number) {
+                .UNDEFINED, .DEBUG, .ABSOLUTE => {
+                    // TODO: Do we need to do anything with @feat.00?
+                    //       https://llvm.org/doxygen/namespacellvm_1_1COFF.html#aeffa16735e18df727a173beaf748c392
+                },
+                else => |sn| {
+                    // Section symbol
+                    if (storage_class == .STATIC and
+                        symbol.value == 0 and
+                        symbol.type == std.coff.SymType{
+                            .complex_type = .NULL,
+                            .base_type = .NULL,
+                        } and
+                        symbol.number_of_aux_symbols > 0)
+                    {
+                        if (symbol.number_of_aux_symbols > 1)
+                            return diags.failParse(path, "invalid number of aux symbols for section 0x{x}: {d}", .{
+                                symbol_ix,
+                                symbol.number_of_aux_symbols,
+                            });
 
-        const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = name });
-        // TODO: Support weak symbols
-        if (global_gop.found_existing)
-            return diags.failParse(path, "multiple definitions of '{s}'", .{name});
-        si.* = global_gop.value_ptr.*;
+                        var section_def: std.coff.SectionDefinition = undefined;
+                        @memcpy(std.mem.asBytes(&section_def)[0..symbol_size], try r.peek(symbol_size));
+                        if (target_endian != native_endian)
+                            std.mem.byteSwapAllFields(std.coff.SectionDefinition, &section_def);
 
-        const section = sections[@intCast(@intFromEnum(symbol.section_number) - 1)];
-        const section_sym = section.si.get(coff);
+                        // TODO: Extract the COMDAT section info
 
-        const sym = si.get(coff);
-        sym.ni = section_sym.ni;
-        sym.value = .{ .input_offset = symbol.value };
-        sym.section_number = section_sym.section_number;
+                        if (section_def.number > sections.len)
+                            return diags.failParse(
+                                path,
+                                "section symbol for '{s}' contained an out of bounds section number: 0x{x}",
+                                .{ name, section_def.number },
+                            );
+
+                        // It's valid for this to not match the symbol's section number (ie. .drectve sets this)
+                        if (section_def.number == 0)
+                            continue;
+
+                        const section = &sections[section_def.number - 1];
+                        if (section_def.number_of_relocations != section.header.number_of_relocations)
+                            return diags.failParse(
+                                path,
+                                "section symbol for '{s}' relocation count did not match section header: {d} vs {d}",
+                                .{ name, section_def.number_of_relocations, section.header.number_of_relocations },
+                            );
+
+                        if (section_def.number_of_linenumbers != section.header.number_of_linenumbers)
+                            return diags.failParse(
+                                path,
+                                "section symbol for '{s}' line number count did not match section header: {d} vs {d}",
+                                .{ name, section_def.number_of_linenumbers, section.header.number_of_linenumbers },
+                            );
+
+                        @memset(si_slice, section.si);
+                    } else {
+                        try coff.symbols.ensureUnusedCapacity(gpa, 1);
+                        si_slice[0] = coff.addSymbolAssumeCapacity();
+                        const sym = si_slice[0].get(coff);
+                        coff.initInputSectionSymbol(sym, sections[@intCast(@intFromEnum(sn) - 1)].si, symbol.value);
+                    }
+                },
+            },
+            .EXTERNAL => switch (symbol.section_number) {
+                .ABSOLUTE => return diags.failParse(
+                    path,
+                    "TODO unhandled external absolute symbol: '{s}'",
+                    .{name},
+                ),
+                .DEBUG => return diags.failParse(
+                    path,
+                    "unexpected external symbol in DEBUG section: '{s}'",
+                    .{name},
+                ),
+                else => |sn| {
+                    const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = name });
+                    si_slice[0] = global_gop.value_ptr.*;
+
+                    const sym = si_slice[0].get(coff);
+                    if (sn != .UNDEFINED) {
+                        if (global_gop.found_existing and sym.ni != .none) {
+                            // TODO: Need corresponding logic later if we try to make a global already defined by an input
+
+                            var err = try diags.addErrorWithNotes(2);
+                            try err.addMsg("multiple definitions of '{s}'", .{name});
+                            switch (coff.getNode(sym.ni)) {
+                                .input_section => |isi| {
+                                    const other_ii = isi.input(coff);
+                                    err.addNote("first seen in input '{f}{f}'", .{
+                                        other_ii.path(coff).fmtEscapeString(),
+                                        fmtArchiveNameString(other_ii.archiveName(coff)),
+                                    });
+                                },
+                                .nav, .uav => err.addNote("first seen in module '{s}'", .{
+                                    comp.zcu.?.root_mod.fully_qualified_name,
+                                }),
+                                else => unreachable,
+                            }
+                            err.addNote("defined again in input '{f}'", .{path});
+                            return error.LinkFailure;
+                        }
+
+                        // TODO: Here if we *were* undefined we want to associate this symbol now with this section for
+                        //       the flushMoved iteration
+
+                        coff.initInputSectionSymbol(sym, sections[@intCast(@intFromEnum(sn) - 1)].si, symbol.value);
+                    } else if (!global_gop.found_existing) {
+                        sym.value = .{ .size = symbol.value };
+                    }
+                },
+            },
+            else => {},
+        }
     }
 
     if (coff.symbols.items.len > first_si) {
@@ -3539,16 +3610,17 @@ fn loadObject(
             if (reloc.symbol_table_index >= symbols.items.len)
                 return diags.failParse(
                     path,
-                    "relocation {d} in section '{s}' targets invalid symbol index {d}",
+                    "relocation 0x{x} in section '{s}' targets invalid symbol index 0x{x}",
                     .{ reloc_i, section.name.toSlice(coff), reloc.symbol_table_index },
                 );
 
+            assert(symbols.items[reloc.symbol_table_index] != .null);
             try coff.addReloc(
                 section.si,
                 reloc.virtual_address - section.header.virtual_address,
                 symbols.items[reloc.symbol_table_index],
                 .pending,
-                @bitCast(reloc.type), // TODO: Checks on this cast?
+                @bitCast(reloc.type),
             );
         }
     }
@@ -3602,6 +3674,8 @@ fn loadDll(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
 pub fn prelink(coff: *Coff, prog_node: std.Progress.Node) link.Error!void {
     _ = coff;
     _ = prog_node;
+
+    log.debug("prelink()", .{});
 }
 
 pub fn updateNav(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
@@ -3888,6 +3962,126 @@ fn flushImplib(
     try file_writer.interface.flush();
 }
 
+fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    const max_notes = 4;
+
+    var undef_indices: std.ArrayListUnmanaged(u32) = .empty;
+    for (coff.relocs.items, 0..) |reloc, reloc_i| {
+        const target_sym = reloc.target.get(coff);
+        switch (target_sym.ni) {
+            .none => {
+                assert(target_sym.gmi != .none);
+                (try undef_indices.addOne(gpa)).* = @intCast(reloc_i);
+            },
+            else => continue,
+        }
+    }
+
+    if (undef_indices.items.len == 0) return;
+
+    const undefLessThan = struct {
+        fn lessThan(ctx: *const Coff, lhs: u32, rhs: u32) bool {
+            const reloc_l = &ctx.relocs.items[lhs];
+            const reloc_r = &ctx.relocs.items[rhs];
+            if (reloc_l.target == reloc_r.target)
+                return @intFromEnum(reloc_l.loc) < @intFromEnum(reloc_r.loc)
+            else
+                return @intFromEnum(reloc_l.target) < @intFromEnum(reloc_r.target);
+        }
+    }.lessThan;
+
+    std.mem.sortUnstable(u32, undef_indices.items, coff, undefLessThan);
+
+    var start_i: usize = 0;
+    var num_unique_references: usize = 1;
+    for (undef_indices.items[0..], 0..) |reloc_i, i| {
+        const target = coff.relocs.items[undef_indices.items[start_i]].target;
+        if (target != coff.relocs.items[reloc_i].target or i == undef_indices.items.len - 1) {
+            defer {
+                start_i = i;
+                num_unique_references = 1;
+            }
+
+            const num_references = i - start_i;
+            const num_notes =
+                @min(max_notes, num_unique_references) +
+                @intFromBool(num_unique_references > max_notes);
+
+            var err = try comp.link_diags.addErrorWithNotes(num_notes);
+            const target_sym = target.get(coff);
+            try err.addMsg("undefined symbol: {s}", .{target_sym.gmi.globalName(coff).name.toSlice(coff)});
+
+            var prev_loc_si: Symbol.Index = .null;
+            for (undef_indices.items[start_i..][0..num_references]) |reference_i| {
+                if (err.note_slot == num_notes) break;
+
+                const loc_si = coff.relocs.items[reference_i].loc;
+                if (loc_si == prev_loc_si) continue;
+                defer prev_loc_si = loc_si;
+
+                const loc_sym = loc_si.get(coff);
+                switch (coff.getNode(loc_sym.ni)) {
+                    .input_section => |isi| {
+                        const other_ii = isi.input(coff);
+                        if (loc_sym.gmi == .none) {
+                            // TODO: We could report the name here if we interned it in loadObject
+                            err.addNote("referenced internally by input '{f}{f}'", .{
+                                other_ii.path(coff).fmtEscapeString(),
+                                fmtArchiveNameString(other_ii.archiveName(coff)),
+                            });
+                        } else {
+                            err.addNote("referenced by input symbol '{s}' from '{f}{f}'", .{
+                                loc_sym.gmi.globalName(coff).name.toSlice(coff),
+                                other_ii.path(coff).fmtEscapeString(),
+                                fmtArchiveNameString(other_ii.archiveName(coff)),
+                            });
+                        }
+                    },
+                    .global => |gmi| err.addNote("referenced by '{s}' in module '{s}'", .{
+                        gmi.globalName(coff).name.toSlice(coff),
+                        comp.zcu.?.root_mod.fully_qualified_name,
+                    }),
+                    inline .nav,
+                    .uav,
+                    .lazy_code,
+                    .lazy_const_data,
+                    => |val, tag| {
+                        err.addNote("referenced by '{f}'", .{
+                            format: switch (tag) {
+                                .nav => {
+                                    const ip = &comp.zcu.?.intern_pool;
+                                    break :format ip.getNav(val.navIndex(coff)).fqn.fmt(ip);
+                                },
+                                .uav => Value.fromInterned(val.uavValue(coff)).fmtValue(.{
+                                    .zcu = coff.base.comp.zcu.?,
+                                    .tid = tid,
+                                }),
+                                inline .lazy_code, .lazy_const_data => Type.fromInterned(val.lazySymbol(coff).ty).fmt(.{
+                                    .zcu = coff.base.comp.zcu.?,
+                                    .tid = tid,
+                                }),
+                                else => unreachable,
+                            },
+                        });
+                    },
+                    else => unreachable,
+                }
+            }
+
+            if (num_unique_references > max_notes)
+                err.addNote("referenced {d} more times", .{num_references - max_notes});
+        } else if (i != start_i and
+            coff.relocs.items[undef_indices.items[i - 1]].loc != coff.relocs.items[undef_indices.items[i]].loc)
+        {
+            num_unique_references += 1;
+        }
+    }
+
+    return error.LinkFailure;
+}
+
 pub fn flush(
     coff: *Coff,
     arena: std.mem.Allocator,
@@ -3897,6 +4091,7 @@ pub fn flush(
     _ = arena;
     _ = prog_node;
     while (try coff.idle(tid)) {}
+    try coff.reportUndefs(tid);
 
     const comp = coff.base.comp;
 
@@ -4132,7 +4327,7 @@ fn idleProgNode(
             break :name std.fmt.bufPrint(&name, "{f}{f} {s}", .{
                 ii.path(coff).fmtEscapeString(),
                 fmtArchiveNameString(ii.archiveName(coff)),
-                isi.symbol(coff).get(coff).section_number.name(coff).toSlice(coff),
+                coff.getNode(isi.symbol(coff).node(coff).parent(&coff.mf)).object_section.name(coff).toSlice(coff),
             }) catch &name;
         },
         .global => |gmi| gmi.globalName(coff).name.toSlice(coff),
@@ -4386,6 +4581,10 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !void {
         coff.nodes.appendAssumeCapacity(.{ .global = gmi });
         sym.rva = coff.computeNodeRva(sym.ni);
         si.applyLocationRelocs(coff);
+    } else {
+
+        // TODO: If no .ni, report symbol not found - or should it be right when it's added as a global if we don't know about it?
+
     }
 }
 
@@ -4505,6 +4704,10 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
             const ii = isi.input(coff);
             var si = ii.firstSymbol(coff);
             const last_si = ii.lastSymbol(coff);
+
+            // TODO: This iteration doesn't visit symbols that were added first
+            //       in the range of another section (as undef).
+
             while (@intFromEnum(si) <= @intFromEnum(last_si)) : (si = si.next()) {
                 if (si.get(coff).ni != ni) continue;
                 si.flushMoved(coff);
@@ -5065,7 +5268,7 @@ pub fn printNode(
             try w.print("({f}{f}, {s})", .{
                 ii.path(coff).fmtEscapeString(),
                 fmtArchiveNameString(ii.archiveName(coff)),
-                isi.symbol(coff).get(coff).section_number.name(coff).toSlice(coff),
+                coff.getNode(isi.symbol(coff).node(coff).parent(&coff.mf)).object_section.name(coff).toSlice(coff),
             });
         },
         .import_lookup_table,
