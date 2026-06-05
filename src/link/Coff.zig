@@ -789,6 +789,7 @@ fn create(
         minor_subsystem_version,
         magic,
         section_align,
+        std.fs.path.basename(path.sub_path),
     );
     return coff;
 }
@@ -823,6 +824,7 @@ fn initHeaders(
     minor_subsystem_version: u16,
     magic: std.coff.OptionalHeader.Magic,
     section_align: std.mem.Alignment,
+    file_name: []const u8,
 ) !void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
@@ -1063,27 +1065,27 @@ fn initHeaders(
     );
     coff.nodes.appendAssumeCapacity(.import_directory_table);
 
-    {
-        // TODO: Could create this lazily when processing the first export instead?
+    if (is_image) {
         const edata_section_ni = (try coff.pseudoSectionMapIndex(
             .@".edata",
             .of(std.coff.ExportDirectoryTable),
             .{ .read = true },
         )).symbol(coff).node(coff);
 
-        const name = "TODO_NAME.dll";
-        const name_index = @sizeOf(std.coff.ExportDirectoryTable);
         coff.export_table.ni = try coff.mf.addLastChildNode(
             gpa,
             edata_section_ni,
             .{
-                .size = @sizeOf(std.coff.ExportDirectoryTable) + name.len + 1,
+                .size = @sizeOf(std.coff.ExportDirectoryTable) + file_name.len + 1,
                 .alignment = .of(std.coff.ExportDirectoryTable),
                 .fixed = true,
                 .moved = true,
             },
         );
-        @memcpy(coff.export_table.ni.slice(&coff.mf)[name_index..][0 .. name.len + 1], name[0 .. name.len + 1]);
+
+        const name_index = @sizeOf(std.coff.ExportDirectoryTable);
+        @memcpy(coff.export_table.ni.slice(&coff.mf)[name_index..][0..file_name.len], file_name[0..file_name.len]);
+        @memset(coff.export_table.ni.slice(&coff.mf)[name_index + file_name.len ..], 0);
 
         const export_address_table_ni = try coff.mf.addLastChildNode(gpa, edata_section_ni, .{
             .alignment = .of(u32),
@@ -2599,6 +2601,8 @@ fn updateExportsInner(
             if (coff.targetEndian() != native_endian)
                 std.mem.byteSwapAllFields(std.coff.ImageDataDirectory, tls_directory);
         }
+
+        if (coff.export_table.ni == .none) continue;
 
         const entries_ctx = ExportTable.Adapter{ .coff = coff };
         const gop = try coff.export_table.entries.getOrPutAdapted(
