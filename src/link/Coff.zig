@@ -6410,7 +6410,13 @@ fn flushSpecialSymbol(coff: *Coff, pending: SpecialSymbol) !SpecialSymbol {
                     .{ "wWinMainCRTStartup", "wWinMainCRTStartup" },
                 }
             else
-                &.{.{ null, if (target.abi.isGnu()) "DllMainCRTStartup" else "_DllMainCRTStartup" }};
+                &.{.{
+                    null,
+                    if (comp.config.link_libc and target.abi.isGnu())
+                        "DllMainCRTStartup"
+                    else
+                        "_DllMainCRTStartup",
+                }};
 
             const entry_si = for (entries) |entry| {
                 if (entry[0]) |required_name|
