@@ -38,7 +38,7 @@ strings: std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 ),
 string_bytes: std.ArrayList(u8),
-section_table: std.ArrayList(Section),
+section_table: std.AutoArrayHashMapUnmanaged(String, Section),
 tls_si: Symbol.Index,
 pseudo_section_table: std.array_hash_map.Auto(String, Symbol.Index),
 object_section_table: std.array_hash_map.Auto(String, Symbol.Index),
@@ -395,14 +395,40 @@ pub const Member = struct {
                 name_slice[name.len] = 0;
 
                 gop.value_ptr.* = .{
-                    .index = old_size,
+                    .offset = old_size,
                     .len = name.len,
                 };
             }
 
-            field[0] = '/';
-            storeHeaderDecimalStr(field[1..], gop.value_ptr.index);
+            break :offset gop.value_ptr.offset;
+        } else null;
+
+        const header = member.headerPtr(coff);
+        if (opt_name_offset) |name_offset| {
+            header.name[0] = '/';
+            storeHeaderDecimalStr(header.name[1..], name_offset);
+        } else {
+            @memcpy(header.name[0..name.len], name);
+            header.name[name.len] = '/';
+            const padding = max_name_len - name.len - 1;
+            @memset(header.name[max_name_len - padding ..], ' ');
         }
+
+        storeHeaderDecimalStr(&header.date, timestamp);
+
+        // Matching the Microsoft behaviour of emitting blanks for these fields
+        header.user_id = @splat(' ');
+        header.group_id = @splat(' ');
+
+        // file_mode is actually octal, but we only ever write 0 to it
+        storeHeaderDecimalStr(&header.file_mode, 0);
+        if (!member.content_ni.hasResized(&coff.mf))
+            storeHeaderDecimalStr(
+                &header.size,
+                member.content_ni.location(&coff.mf).resolve(&coff.mf)[1],
+            );
+
+        @memcpy(&header.end_of_header, "`\n");
     }
 
     pub fn storeHeaderDecimalStr(field_ptr: anytype, value: u64) void {
@@ -422,7 +448,7 @@ pub const LongNamesTable = struct {
     entries: std.AutoArrayHashMapUnmanaged(void, Entry),
 
     pub const Entry = struct {
-        index: u64,
+        offset: u64,
         len: u64,
     };
 
@@ -433,7 +459,7 @@ pub const LongNamesTable = struct {
             assert(adapter.coff.isArchive()); // TODO: move to helper that uses this
             const longnames_slice = Node.known.longnames_member.slice(&adapter.coff.mf);
             const rhs = adapter.coff.long_names_table.entries.values()[rhs_index];
-            return std.mem.eql(u8, longnames_slice[rhs.index..][0..rhs.len], lhs_key);
+            return std.mem.eql(u8, longnames_slice[rhs.offset..][0..rhs.len], lhs_key);
         }
 
         pub fn hash(_: Adapter, key: []const u8) u32 {
@@ -463,6 +489,19 @@ pub const SymbolTable = struct {
     pub const SymbolName = union(enum) {
         short: []const u8,
         long: StringIndex,
+
+        pub fn store(name: SymbolName, coff: *const Coff, field: *[8]u8) void {
+            switch (name) {
+                .short => |s| {
+                    @memcpy(field[0..s.len], s);
+                    @memset(field[s.len..], 0);
+                },
+                .long => |l| {
+                    @memset(field[0..4], 0);
+                    std.mem.writePackedInt(u32, field[4..], 0, @intFromEnum(l), coff.targetEndian());
+                },
+            }
+        }
     };
 
     // Symbol.Index does not map 1:1 with SymbolTable.Index:
@@ -666,7 +705,7 @@ pub const Symbol = struct {
         }
 
         pub fn section(sn: SectionNumber, coff: *const Coff) *Section {
-            return &coff.section_table.items[sn.toIndex()];
+            return &coff.section_table.values()[sn.toIndex()];
         }
 
         pub fn header(sn: SectionNumber, coff: *Coff) *std.coff.SectionHeader {
@@ -691,6 +730,13 @@ pub const Symbol = struct {
             const ni = si.get(coff).ni;
             assert(ni != .none);
             return ni;
+        }
+
+        pub fn knownString(si: Symbol.Index) String.Optional {
+            return switch (si) {
+                .null, _ => .none,
+                inline else => |tag| @field(String.Optional, "." ++ @tagName(tag)),
+            };
         }
 
         pub fn flushMoved(si: Symbol.Index, coff: *Coff) void {
@@ -1522,16 +1568,16 @@ fn initHeaders(
         .sti = .none,
         .gmi = .none,
     };
-    assert(try coff.addSection(".data", .{
+    assert(try coff.addSection(.@".data", .{
         .CNT_INITIALIZED_DATA = true,
         .MEM_READ = true,
         .MEM_WRITE = true,
     }) == .data);
-    assert(try coff.addSection(".rdata", .{
+    assert(try coff.addSection(.@".rdata", .{
         .CNT_INITIALIZED_DATA = true,
         .MEM_READ = true,
     }) == .rdata);
-    assert(try coff.addSection(".text", .{
+    assert(try coff.addSection(.@".text", .{
         .CNT_CODE = true,
         .MEM_EXECUTE = true,
         .MEM_READ = true,
@@ -1625,7 +1671,7 @@ fn initHeaders(
 
     if (comp.config.any_non_single_threaded) {
         if (!is_image)
-            coff.tls_si = try coff.addSection(".tls$", .{
+            coff.tls_si = try coff.addSection(.@".tls$", .{
                 .CNT_INITIALIZED_DATA = true,
                 .MEM_READ = true,
                 .MEM_WRITE = true,
@@ -1637,7 +1683,7 @@ fn initHeaders(
         _ = try coff.objectSectionMapIndex(
             .@".tls$",
             coff.mf.flags.block_size,
-            .{ .read = true, .write = !is_image, .tls = true },
+            .{ .read = true, .write = !is_image },
         );
     }
 }
@@ -1877,7 +1923,7 @@ pub fn dataDirectoryPtr(
 
 pub fn sectionTableSlice(coff: *Coff) []std.coff.SectionHeader {
     return @ptrCast(@alignCast(
-        Node.known.section_table.slice(&coff.mf)[0 .. coff.section_table.items.len * @sizeOf(std.coff.SectionHeader)],
+        Node.known.section_table.slice(&coff.mf)[0 .. coff.section_table.count() * @sizeOf(std.coff.SectionHeader)],
     ));
 }
 
@@ -1958,6 +2004,30 @@ fn getOrPutOptionalString(coff: *Coff, string: ?[]const u8) !String.Optional {
     return (try coff.getOrPutString(string orelse return .none)).toOptional();
 }
 
+/// If the name does not fit in the symbol header, adds it to the symbol table string table.
+/// If the caller knows this name already has a String associated with it, they can avoid
+/// a redundant call to `getOrPutString` by specifying `opt_string`.
+/// The lifetime of the return value matches that of `name`.
+fn getOrPutSymbolName(coff: *Coff, name: []const u8, opt_string: ?String) !SymbolTable.SymbolName {
+    assert(!coff.isImage());
+    const gpa = coff.base.comp.gpa;
+    return if (name.len > 8) name: {
+        const string = opt_string orelse try coff.getOrPutString(name);
+        const string_gop = try coff.symbol_table.strings.getOrPut(gpa, string);
+        if (!string_gop.found_existing) {
+            const string_index = coff.symbol_table.strings_ni.location(&coff.mf).resolve(&coff.mf)[1];
+            string_gop.value_ptr.* = @enumFromInt(string_index);
+
+            try coff.symbol_table.strings_ni.resize(&coff.mf, gpa, string_index + name.len + 1);
+            const slice = coff.symbol_table.strings_ni.slice(&coff.mf);
+            @memcpy(slice[string_index..][0..name.len], name);
+            slice[string_index + name.len] = 0;
+        }
+
+        break :name .{ .long = string_gop.value_ptr.* };
+    } else .{ .short = name };
+}
+
 /// `len` does not include null terminators
 fn ensureUnusedStringCapacity(coff: *Coff, len: usize) !void {
     const gpa = coff.base.comp.gpa;
@@ -2035,7 +2105,7 @@ fn navSection(
     const ip = &zcu.intern_pool;
     const default: String, const attributes: ObjectSectionAttributes =
         if (nav_resolved.@"threadlocal" and coff.base.comp.config.any_non_single_threaded) .{
-            .@".tls$", .{ .read = true, .write = true, .tls = true },
+            .@".tls$", .{ .read = true, .write = !coff.isImage() },
         } else if (ip.isFunctionType(nav_resolved.type)) .{
             .@".text", .{ .read = true, .execute = true },
         } else if (nav_resolved.@"const") .{
@@ -2311,12 +2381,11 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
 
     const entry = coff.symbolTableEntryPtr(sym.sti) orelse entry: {
         var buf: [15]u8 = undefined;
-        const name_slice, const opt_name_string, const num_aux_symbols: u8, const complex_type: std.coff.ComplexType =
+        const symbol_name, const num_aux_symbols: u8, const complex_type: std.coff.ComplexType =
             if (sym.gmi != .none) blk: {
                 const gn = sym.gmi.globalName(coff);
                 break :blk .{
-                    gn.name.toSlice(coff),
-                    gn.name,
+                    try coff.getOrPutSymbolName(gn.name.toSlice(coff), gn.name),
                     0,
                     if (Symbol.Index.text.get(coff).section_number == sym.section_number)
                         .FUNCTION
@@ -2325,8 +2394,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
                 };
             } else blk: switch (coff.getNode(sym.ni)) {
                 .image_section => .{
-                    &sym.section_number.header(coff).name,
-                    null,
+                    try coff.getOrPutSymbolName(&sym.section_number.header(coff).name, null),
                     1,
                     .NULL,
                 },
@@ -2335,8 +2403,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
                     const ip = &zcu.intern_pool;
                     const nav = ip.getNav(nmi.navIndex(coff));
                     break :blk .{
-                        nav.fqn.toSlice(ip),
-                        null,
+                        try coff.getOrPutSymbolName(nav.fqn.toSlice(ip), null),
                         0,
                         if (ip.isFunctionType(nav.resolved.?.type)) .FUNCTION else .NULL,
                     };
@@ -2344,7 +2411,11 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
                 .uav => |umi| {
                     var w = Io.Writer.fixed(&buf);
                     w.print("__anon_{x}", .{umi.uavValue(coff)}) catch unreachable;
-                    break :blk .{ w.buffered(), null, 0, .NULL };
+                    break :blk .{
+                        try coff.getOrPutSymbolName(w.buffered(), null),
+                        0,
+                        .NULL,
+                    };
                 },
                 inline .lazy_code, .lazy_const_data => |mi, tag| {
                     const lazy_sym = mi.lazySymbol(coff);
@@ -2355,29 +2426,17 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
                     defer gpa.free(name);
 
                     const string = try coff.getOrPutString(name);
-                    break :blk .{ string.toSlice(coff), string, 0, if (tag == .lazy_code) .FUNCTION else .NULL };
+                    break :blk .{
+                        try coff.getOrPutSymbolName(string.toSlice(coff), string),
+                        0,
+                        if (tag == .lazy_code) .FUNCTION else .NULL,
+                    };
                 },
                 else => {
                     log.err("TODO implement symbol table init for {s} ({d})", .{ @tagName(coff.getNode(sym.ni)), si });
                     unreachable;
                 },
             };
-
-        const symbol_name: SymbolTable.SymbolName = if (name_slice.len > 8) name: {
-            const string = opt_name_string orelse try coff.getOrPutString(name_slice);
-            const string_gop = try coff.symbol_table.strings.getOrPut(gpa, string);
-            if (!string_gop.found_existing) {
-                const string_index = coff.symbol_table.strings_ni.location(&coff.mf).resolve(&coff.mf)[1];
-                string_gop.value_ptr.* = @enumFromInt(string_index);
-
-                try coff.symbol_table.strings_ni.resize(&coff.mf, gpa, string_index + name_slice.len + 1);
-                const slice = coff.symbol_table.strings_ni.slice(&coff.mf);
-                @memcpy(slice[string_index..][0..name_slice.len], name_slice);
-                slice[string_index + name_slice.len] = 0;
-            }
-
-            break :name .{ .long = string_gop.value_ptr.* };
-        } else .{ .short = name_slice };
 
         const old_num_symbols = coff.targetLoad(&coff.headerPtr().number_of_symbols);
         const new_num_symbols = old_num_symbols + 1 + num_aux_symbols;
@@ -2389,17 +2448,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
         si.flushSymbolTableIndex(coff);
 
         const entry = coff.symbolTableEntryPtr(sym.sti).?;
-        switch (symbol_name) {
-            .short => |s| {
-                @memcpy(entry.name[0..s.len], s);
-                @memset(entry.name[s.len..], 0);
-            },
-            .long => |l| {
-                @memset(entry.name[0..4], 0);
-                const offset_ptr: *align(2) u32 = @ptrCast(entry.name[4..]);
-                coff.targetStore(offset_ptr, @intFromEnum(l));
-            },
-        }
+        symbol_name.store(coff, &entry.name);
 
         entry.section_number = @enumFromInt(@intFromEnum(sym.section_number));
         entry.type = .{
@@ -2431,7 +2480,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
     log.debug("updateSymbolTableEntry({d}) = {d}", .{ si, sym.sti });
 }
 
-fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags) !Symbol.Index {
+fn addSection(coff: *Coff, name: String, flags: std.coff.SectionHeader.Flags) !Symbol.Index {
     assert(coff.base.comp.zcu != null);
 
     const gpa = coff.base.comp.gpa;
@@ -2457,7 +2506,7 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
     });
 
     const si = coff.addSymbolAssumeCapacity();
-    coff.section_table.appendAssumeCapacity(.{
+    coff.section_table.putAssumeCapacity(name, .{
         .si = si,
         .relocation_table_ni = .none,
     });
@@ -2468,7 +2517,7 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
         const virtual_size = coff.optionalHeaderField(.section_alignment);
         const rva: u32 = switch (section_index) {
             0 => @intCast(Node.known.header.location(&coff.mf).resolve(&coff.mf)[1]),
-            else => coff.section_table.items[section_index - 1].si.get(coff).rva +
+            else => coff.section_table.values()[section_index - 1].si.get(coff).rva +
                 coff.targetLoad(&section_table[section_index - 1].virtual_size),
         };
 
@@ -2494,12 +2543,13 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
         .number_of_linenumbers = 0,
         .flags = flags,
     };
-    @memcpy(section.name[0..name.len], name);
-    @memset(section.name[name.len..], 0);
     if (coff.targetEndian() != native_endian)
         std.mem.byteSwapAllFields(std.coff.SectionHeader, section);
 
+    const name_slice = name.toSlice(coff);
     if (coff.isImage()) {
+        @memcpy(section.name[0..name_slice.len], name_slice);
+        @memset(section.name[name_slice.len..], 0);
         switch (coff.optionalHeaderPtr()) {
             inline else => |optional_header| coff.targetStore(
                 &optional_header.size_of_image,
@@ -2507,6 +2557,7 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
             ),
         }
     } else {
+        (try coff.getOrPutSymbolName(name_slice, name)).store(coff, &section.name);
         try coff.pendingSymbolTableEntry(si);
     }
 
@@ -2522,7 +2573,34 @@ const ObjectSectionAttributes = packed struct {
     nocache: bool = false,
     discard: bool = false,
     remove: bool = false,
-    tls: bool = false,
+
+    // TODO: Include init / not init flags?
+
+    pub fn fromFlags(flags: std.coff.SectionHeader.Flags) ObjectSectionAttributes {
+        return .{
+            .read = flags.MEM_READ,
+            .write = flags.MEM_WRITE,
+            .execute = flags.MEM_EXECUTE,
+            .shared = flags.MEM_SHARED,
+            .nopage = flags.MEM_NOT_PAGED,
+            .nocache = flags.MEM_NOT_CACHED,
+            .discard = flags.MEM_DISCARDABLE,
+            .remove = flags.LNK_REMOVE,
+        };
+    }
+
+    pub fn asFlags(attr: ObjectSectionAttributes) std.coff.SectionHeader.Flags {
+        return .{
+            .MEM_READ = attr.read,
+            .MEM_WRITE = attr.write,
+            .MEM_EXECUTE = attr.execute,
+            .MEM_SHARED = attr.shared,
+            .MEM_NOT_PAGED = attr.nopage,
+            .MEM_NOT_CACHED = attr.nocache,
+            .MEM_DISCARDABLE = attr.discard,
+            .LNK_REMOVE = attr.remove,
+        };
+    }
 };
 
 fn pseudoSectionMapIndex(
@@ -2535,14 +2613,25 @@ fn pseudoSectionMapIndex(
     const pseudo_section_gop = try coff.pseudo_section_table.getOrPut(gpa, name);
     const psmi: Node.PseudoSectionMapIndex = @enumFromInt(pseudo_section_gop.index);
     if (!pseudo_section_gop.found_existing) {
-        const parent: Symbol.Index = if (attributes.execute)
+        const default_parent: Symbol.Index = if (attributes.execute)
             .text
-        else if (attributes.tls and coff.tls_si != .null)
-            coff.tls_si
         else if (attributes.write)
             .data
         else
             .rdata;
+
+        const parent = if (coff.isImage() or std.mem.eql(
+            u8,
+            name.toSlice(coff),
+            default_parent.knownString().toSlice(coff).?,
+        ))
+            default_parent
+        else if (coff.section_table.get(name)) |section| parent: {
+            const header = section.si.get(coff).section_number.header(coff);
+            try coff.verifyParentSectionAttributes(name, name, .fromFlags(header.flags), attributes);
+            break :parent section.si;
+        } else try coff.addSection(name, attributes.asFlags());
+
         try coff.nodes.ensureUnusedCapacity(gpa, 1);
         try coff.symbols.ensureUnusedCapacity(gpa, 1);
         const ni = try coff.mf.addLastChildNode(gpa, parent.node(coff), .{ .alignment = alignment });
@@ -2570,9 +2659,18 @@ fn objectSectionMapIndex(
     if (!object_section_gop.found_existing) {
         try coff.ensureUnusedStringCapacity(name.toSlice(coff).len);
         const name_slice = name.toSlice(coff);
-        const parent = (try coff.pseudoSectionMapIndex(coff.getOrPutStringAssumeCapacity(
-            name_slice[0 .. std.mem.indexOfScalar(u8, name_slice, '$') orelse name_slice.len],
-        ), alignment, attributes)).symbol(coff);
+        const prefix_index = std.mem.indexOfScalar(u8, name_slice, '$') orelse name_slice.len;
+        const parent_name = coff.getOrPutStringAssumeCapacity(if (coff.isImage())
+            name_slice[0..prefix_index]
+        else
+            name_slice[0..@min(prefix_index + 1, name_slice.len)]);
+        const parent = (try coff.pseudoSectionMapIndex(parent_name, alignment, attributes)).symbol(coff);
+        try coff.verifyParentSectionAttributes(
+            parent_name,
+            name,
+            .fromFlags(parent.get(coff).section_number.header(coff).flags),
+            attributes,
+        );
         try coff.nodes.ensureUnusedCapacity(gpa, 1);
         try coff.symbols.ensureUnusedCapacity(gpa, 1);
         const parent_ni = parent.node(coff);
@@ -2608,6 +2706,33 @@ fn objectSectionMapIndex(
         coff.nodes.appendAssumeCapacity(.{ .object_section = osmi });
     }
     return osmi;
+}
+
+fn verifyParentSectionAttributes(
+    coff: *Coff,
+    parent_name: String,
+    child_name: String,
+    parent_attrs: ObjectSectionAttributes,
+    child_attrs: ObjectSectionAttributes,
+) !void {
+    if (parent_attrs == child_attrs) return;
+
+    const fields = std.meta.fields(ObjectSectionAttributes);
+    var err = try coff.base.comp.link_diags.addErrorWithNotes(fields.len);
+    try err.addMsg("object '{s}' was placed in parent section '{s}' with mismatched flags", .{
+        child_name.toSlice(coff),
+        parent_name.toSlice(coff),
+    });
+
+    inline for (fields) |field| {
+        err.addNote("{s}: parent = {d} child = {d}", .{
+            field.name,
+            @intFromBool(@field(child_attrs, field.name)),
+            @intFromBool(@field(parent_attrs, field.name)),
+        });
+    }
+
+    return error.LinkFailure;
 }
 
 pub fn addReloc(
@@ -2762,6 +2887,7 @@ fn loadObject(
     const target = &comp.root_mod.resolved_target.result;
     const target_endian = coff.targetEndian();
     const is_archive = coff.isArchive();
+    assert(!coff.isObj());
 
     log.debug("loadObject({f}{f})", .{ path.fmtEscapeString(), fmtArchiveNameString(archive_name) });
     const header = try r.peekStruct(std.coff.Header, coff.targetEndian());
@@ -2773,7 +2899,7 @@ fn loadObject(
     if (header.number_of_sections == 0) return;
     if (@sizeOf(std.coff.Header) + header.number_of_sections * @sizeOf(std.coff.SectionHeader) > fl.size)
         return diags.failParse(path, "invalid section table", .{});
-    const unexpected_flags: []const std.meta.FieldEnum(std.coff.Header.Flags) = &.{
+    const unexpected_header_flags: []const std.meta.FieldEnum(std.coff.Header.Flags) = &.{
         .RELOCS_STRIPPED,
         .EXECUTABLE_IMAGE,
         .AGGRESSIVE_WS_TRIM,
@@ -2782,7 +2908,7 @@ fn loadObject(
         .DLL,
         .BYTES_REVERSED_HI,
     };
-    inline for (unexpected_flags) |flag|
+    inline for (unexpected_header_flags) |flag|
         if (@field(header.flags, @tagName(flag)))
             return diags.failParse(path, "unexpected flag set: {t}", .{flag});
 
@@ -2810,17 +2936,88 @@ fn loadObject(
     defer gpa.free(string_table);
 
     try coff.ensureManyUnusedStringCapacity(
-        header.number_of_symbols,
+        header.number_of_sections + header.number_of_symbols,
         string_table_len - @sizeOf(u32),
     );
+
+    const InputSection = struct {
+        header: std.coff.SectionHeader,
+        psmi: Node.PseudoSectionMapIndex,
+    };
+
+    try fr.seekTo(fl.offset + @sizeOf(std.coff.Header));
+    const sections: []const InputSection = if (coff.isImage()) sections: {
+        const sections = try gpa.alloc(InputSection, header.number_of_sections);
+        errdefer gpa.free(sections);
+
+        for (sections, 0..) |*section, section_i| {
+            section.header = try r.takeStruct(std.coff.SectionHeader, target_endian);
+            if (section.header.flags.LNK_INFO) {
+                if (std.mem.eql(u8, &section.header.name, ".drectve"))
+                    return diags.failParse(path, "TODO handle arguments in .drectve section", .{});
+
+                continue;
+            }
+
+            if (section.header.flags.LNK_REMOVE or
+                section.header.flags.MEM_DISCARDABLE)
+            {
+                // TODO: Merge .debug$* sections and output to PDB
+                continue;
+            }
+
+            if (section.header.flags.LNK_COMDAT)
+                // This will be necessary if we do the equivalent of /Gy for compiler-rt
+                return diags.failParse(path, "TODO handle COMDAT sections in input objects", .{});
+
+            const section_name_slice = if (section.header.name[0] == '/') name: {
+                const offset_str = std.mem.sliceTo(section.header.name[1..], 0);
+                const name_offset = std.fmt.parseUnsigned(u24, offset_str, 10) catch
+                    return diags.failParse(path, "ill-formed section name in section {d}: '{s}'", .{
+                        section_i,
+                        section.header.name[0 .. offset_str.len + 1],
+                    });
+
+                if (name_offset > string_table.len)
+                    return diags.failParse(path, "out-of-bounds section name offset in section {d}: {d}", .{ section_i, name_offset });
+
+                break :name std.mem.sliceTo(string_table[name_offset..], 0);
+            } else std.mem.sliceTo(&section.header.name, 0);
+
+            const section_name = coff.getOrPutStringAssumeCapacity(section_name_slice);
+            const osmi = try coff.objectSectionMapIndex(
+                section_name,
+                if (section.header.flags.ALIGN.toByteUnits()) |align_bytes|
+                    .fromByteUnits(align_bytes)
+                else
+                    .@"1",
+                .fromFlags(section.header.flags),
+            );
+
+            _ = osmi;
+
+            // TODO: Decide to merge this section
+            // TODO: Map flags (might need to figure out a better tls flag?)
+
+            //coff.objectSectionMapIndex(name: String, alignment: Alignment, attributes: ObjectSectionAttributes)
+
+            // TODO: Load relocations, update for new offset? Or can just work with the object section parent?
+
+        }
+
+        break :sections sections;
+    } else &.{};
+    defer gpa.free(sections);
 
     const mi = if (is_archive) mi: {
         try coff.nodes.ensureUnusedCapacity(gpa, 2);
         try coff.members.ensureUnusedCapacity(gpa, 1);
+        const path_str = try path.toString(gpa);
+        defer gpa.free(path_str);
 
         const mi = try coff.addMemberAssumeCapacity(.coff, fl.size);
         const member = mi.get(coff);
-        try member.initHeader(coff, path.sub_path, header.time_date_stamp);
+        try member.initHeader(coff, path_str, header.time_date_stamp);
 
         {
             var nw: MappedFile.Node.Writer = undefined;
@@ -2861,6 +3058,10 @@ fn loadObject(
             break :name string_table[index..];
         } else &symbol.name, 0);
 
+        // Section numbers are 1-based here
+        if (!is_archive and @intFromEnum(symbol.section_number) > sections.len)
+            return diags.failParse(path, "bad section number {d} for '{s}'", .{ symbol.section_number, name });
+
         if (is_archive) {
             try coff.ensureMemberSymbol(mi, coff.getOrPutStringAssumeCapacity(name));
             continue;
@@ -2869,6 +3070,9 @@ fn loadObject(
         const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = name });
         if (global_gop.found_existing)
             return diags.failParse(path, "multiple definitions of '{s}'", .{name});
+
+        // TODO: Get the sym and set the ni to point to wherever it was copied in the pseudo section
+        // TODO: May need to cache offsets and determine symbol sizes later (once we can sort by section offset)
     }
 }
 
@@ -2879,6 +3083,12 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
     const r = &fr.interface;
 
     log.debug("loadArchive({f})", .{path.fmtEscapeString()});
+
+    // TODO: Skip over 1st linker member
+    // TODO: Build index of symbols -> members from 2nd linker member
+    // TODO: We don't actually have to load an object unless we need a symbol from it (when linking images)
+    // TODO: Lazily call loadObject whenever a symbol is need from one of the members.
+    //       Could do that in flushGlobal if we haven't gotten an .ni for the symbol yet (and no lib_name)?
 
     _ = gpa;
     _ = diags;
@@ -3918,7 +4128,7 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
                     ),
                 }
 
-                if (size > coff.section_table.items[0].si.get(coff).rva) try coff.virtualSlide(
+                if (size > coff.section_table.values()[0].si.get(coff).rva) try coff.virtualSlide(
                     0,
                     std.mem.alignForward(
                         u32,
@@ -4120,7 +4330,7 @@ fn flushExportsSort(coff: *Coff) void {
 fn virtualSlide(coff: *Coff, start_section_index: usize, start_rva: u32) !void {
     var rva = start_rva;
     for (
-        coff.section_table.items[start_section_index..],
+        coff.section_table.values()[start_section_index..],
         coff.sectionTableSlice()[start_section_index..],
     ) |*section, *header| {
         const section_sym = section.si.get(coff);
