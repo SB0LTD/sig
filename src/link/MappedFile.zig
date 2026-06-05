@@ -375,6 +375,25 @@ pub const Node = extern struct {
             }
         }
 
+        /// Shrink a node to `size`, exactly.
+        /// If the new size can't contain all the children, returns error.ShrinkImpossible.
+        /// If `shift_next` is set, then the following node is shifted backwards into
+        /// the free space as much as alignment allows.
+        pub fn shrink(
+            ni: Node.Index,
+            mf: *MappedFile,
+            gpa: std.mem.Allocator,
+            size: u64,
+            shift_next: bool,
+        ) !void {
+            try mf.shrinkNode(gpa, ni, size, shift_next);
+            var writers_it = mf.writers.first;
+            while (writers_it) |writer_node| : (writers_it = writer_node.next) {
+                const w: *Node.Writer = @fieldParentPtr("writer_node", writer_node);
+                w.interface.buffer = w.ni.slice(mf);
+            }
+        }
+
         pub fn writer(ni: Node.Index, mf: *MappedFile, gpa: std.mem.Allocator, w: *Writer) void {
             w.* = .{
                 .gpa = gpa,
@@ -582,7 +601,9 @@ fn addNode(mf: *MappedFile, gpa: std.mem.Allocator, opts: struct {
             free_node.flags.resized = false;
         }
         _, const parent_size = opts.parent.location(mf).resolve(mf);
-        if (offset > parent_size) try opts.parent.resize(mf, gpa, offset);
+        const required_parent_size = offset + opts.add_node.size;
+        if (required_parent_size > parent_size)
+            try opts.parent.resize(mf, gpa, required_parent_size);
         try free_ni.resize(mf, gpa, opts.add_node.size);
     }
     if (opts.add_node.moved) free_ni.movedAssumeCapacity(mf);
@@ -670,11 +691,55 @@ pub fn addNodeAfter(
     });
 }
 
+fn shrinkNode(
+    mf: *MappedFile,
+    gpa: std.mem.Allocator,
+    ni: Node.Index,
+    size: u64,
+    shrink_next: bool,
+) !void {
+    const node = ni.get(mf);
+    const old_offset, _ = node.location().resolve(mf);
+
+    // This would require unmapping first
+    if (ni == Node.Index.root) return error.Unimplemented;
+
+    if (node.last != .none) {
+        const last = node.last.get(mf);
+        const last_offset, const last_size = last.location().resolve(mf);
+        if (last_offset + last_size > size) return error.ShrinkImpossible;
+    }
+
+    try mf.large.ensureUnusedCapacity(gpa, 4);
+    try mf.updates.ensureUnusedCapacity(gpa, 2);
+
+    ni.setLocationAssumeCapacity(mf, old_offset, size);
+    if (!shrink_next or node.next == .none) return;
+
+    const next = node.next.get(mf);
+    const old_next_offset, const next_size = next.location().resolve(mf);
+    const padding = old_next_offset - (old_offset + size);
+    const new_next_offset = next.flags.alignment.forward(@intCast(old_next_offset - padding));
+
+    if (next.flags.has_content and new_next_offset < old_next_offset) {
+        const old_file_offset = node.next.fileLocation(mf, false).offset;
+        const new_file_offset = (old_file_offset - old_next_offset) + new_next_offset;
+        @memmove(
+            mf.memory_map.memory[new_file_offset..][0..next_size],
+            mf.memory_map.memory[old_file_offset..][0..next_size],
+        );
+    }
+
+    node.next.setLocationAssumeCapacity(mf, new_next_offset, next_size);
+}
+
 fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested_size: u64) (Allocator.Error || Io.Cancelable || IoError)!void {
     const io = mf.io;
     const node = ni.get(mf);
     const old_offset, const old_size = node.location().resolve(mf);
     const new_size = node.flags.alignment.forward(@intCast(requested_size));
+    if (new_size <= old_size) return;
+
     // Resize the entire file
     if (ni == Node.Index.root) {
         try mf.ensureCapacityForSetLocation(gpa);
