@@ -161,6 +161,7 @@ textrel_count: u32,
 const_prog_node: std.Progress.Node,
 synth_prog_node: std.Progress.Node,
 input_prog_node: std.Progress.Node,
+dump_snapshot: bool,
 
 const Error = link.Error || error{MappedFileIo};
 
@@ -2624,6 +2625,7 @@ fn create(
         .synth_prog_node = .none,
         .input_prog_node = .none,
         .textrel_count = 0,
+        .dump_snapshot = options.enable_link_snapshots,
     };
     errdefer elf.deinit();
 
@@ -6711,8 +6713,12 @@ pub fn deleteExport(elf: *Elf, exported: Zcu.Exported, name: InternPool.NullTerm
     _ = name;
 }
 
-pub fn dump(elf: *Elf, w: *Io.Writer, tid: Zcu.PerThread.Id) !void {
-    return elf.printNode(tid, w, .root, 0);
+pub fn dump(elf: *Elf, w: *Io.Writer, tid: Zcu.PerThread.Id) !link.File.DumpResult {
+    if (elf.dump_snapshot) {
+        try elf.printNode(tid, w, .root, 0);
+        return .enabled;
+    }
+    return .disabled;
 }
 
 pub fn printNode(
