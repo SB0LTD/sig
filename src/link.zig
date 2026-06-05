@@ -1473,7 +1473,8 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
 
             const target = &comp.root_mod.resolved_target.result;
             const flags = target_util.libcFullLinkFlags(target);
-            const crt_dir = comp.libc_installation.?.crt_dir.?;
+            const libc_installation = comp.libc_installation.?;
+            const crt_dir = libc_installation.crt_dir.?;
             const sep = std.fs.path.sep_str;
             for (flags) |flag| {
                 assert(mem.startsWith(u8, flag, "-l"));
@@ -1523,6 +1524,63 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
                             else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
                         };
                     },
+                }
+            }
+
+            if (target.os.tag == .windows) {
+                const inputs: []const struct {
+                    dir: enum { crt, msvc_lib, kernel32_lib },
+                    name: []const u8,
+                } = if (target.abi.isGnu()) switch (comp.config.link_mode) {
+                    .dynamic => &.{
+                        .{ .dir = .crt, .name = "dllcrt2.obj" },
+                        .{ .dir = .crt, .name = "libmingw32.lib" },
+                    },
+                    .static => &.{
+                        .{ .dir = .crt, .name = "crt2.obj" },
+                        .{ .dir = .crt, .name = "libmingw32.lib" },
+                    },
+                } else switch (comp.config.link_mode) {
+                    .dynamic => &.{
+                        .{ .dir = .msvc_lib, .name = "msvcrt.lib" },
+                        .{ .dir = .msvc_lib, .name = "vcruntime.lib" },
+                        .{ .dir = .msvc_lib, .name = "legacy_stdio_definitions.lib" },
+                        .{ .dir = .crt, .name = "ucrt.lib" },
+                        .{ .dir = .kernel32_lib, .name = "kernel32.lib" },
+                        .{ .dir = .kernel32_lib, .name = "ntdll.lib" },
+                    },
+                    .static => &.{
+                        .{ .dir = .msvc_lib, .name = "libcmt.lib" },
+                        .{ .dir = .msvc_lib, .name = "libvcruntime.lib" },
+                        .{ .dir = .msvc_lib, .name = "legacy_stdio_definitions.lib" },
+                        .{ .dir = .crt, .name = "libucrt.lib" },
+                        .{ .dir = .kernel32_lib, .name = "kernel32.lib" },
+                        .{ .dir = .kernel32_lib, .name = "ntdll.lib" },
+                    },
+                };
+
+                for (inputs) |lib| {
+                    const path = Path.initCwd(
+                        std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}", .{
+                            switch (lib.dir) {
+                                .crt => crt_dir,
+                                .msvc_lib => libc_installation.msvc_lib_dir.?,
+                                .kernel32_lib => libc_installation.kernel32_lib_dir.?,
+                            },
+                            lib.name,
+                        }) catch return diags.setAllocFailure(),
+                    );
+                    if (std.mem.endsWith(u8, lib.name, "lib")) {
+                        base.openLoadArchive(path, null) catch |err| switch (err) {
+                            error.LinkFailure => return, // error reported via diags
+                            else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
+                        };
+                    } else {
+                        base.openLoadObject(path) catch |err| switch (err) {
+                            error.LinkFailure => return, // error reported via diags
+                            else => |e| diags.addParseError(path, "failed to parse object: {s}", .{@errorName(e)}),
+                        };
+                    }
                 }
             }
         },

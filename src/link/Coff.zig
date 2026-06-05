@@ -84,6 +84,8 @@ pub const default_size_of_heap_commit: u32 = 0x1000;
 pub const archive_signature = "!<arch>\n";
 pub const archive_end_of_header = "`\n";
 
+pub const imp_prefix = "__imp_";
+
 /// This is the start of a Portable Executable (PE) file.
 /// It starts with a MS-DOS header followed by a MS-DOS stub program.
 /// This data does not change so we include it as follows in all binaries.
@@ -203,7 +205,7 @@ pub const Node = union(enum) {
     pseudo_section: PseudoSectionMapIndex,
     object_section: ObjectSectionMapIndex,
     input_section: InputSection.Index,
-    global: GlobalMapIndex,
+    import_thunk: GlobalMapIndex, // TODO: Rename to import_thunk
     nav: NavMapIndex,
     uav: UavMapIndex,
     lazy_code: LazyMapRef.Index(.code),
@@ -253,10 +255,6 @@ pub const Node = union(enum) {
 
         pub fn globalName(gmi: GlobalMapIndex, coff: *const Coff) GlobalName {
             return coff.globals.keys()[gmi.unwrap().?];
-        }
-
-        pub fn globalNameMutable(gmi: GlobalMapIndex, coff: *Coff) *GlobalName {
-            return &coff.globals.keys()[gmi.unwrap().?];
         }
 
         pub fn symbol(gmi: GlobalMapIndex, coff: *const Coff) Symbol.Index {
@@ -707,6 +705,12 @@ pub const ExportTable = struct {
 pub const ImportTable = struct {
     ni: MappedFile.Node.Index,
     entries: std.array_hash_map.Auto(void, Entry),
+    iat_symbol_indices: std.AutoArrayHashMapUnmanaged(struct {
+        iti: ImportTable.Index,
+        name: String.Optional,
+        // If name == .none this is the ordinal, otherwise the hint
+        ordinal_hint: u16,
+    }, u32),
 
     pub const Entry = struct {
         import_lookup_table_ni: MappedFile.Node.Index,
@@ -815,17 +819,20 @@ pub const Section = struct {
 
 pub const GlobalName = struct { name: String, lib_name: String.Optional };
 
+pub const DllStorageClass = enum(u2) {
+    default,
+    dllimport,
+    dllexport,
+};
+
 pub const Symbol = struct {
     ni: MappedFile.Node.Index,
     rva: u32,
-    value: union(enum) {
-        /// For .ni == .input_section, this is the offset of this symbol within the input section
-        input_offset: u32,
-        /// For .ni == none and .gmi != .none, this is a weak alias
-        /// that should replace this symbol, or .null if none exists
-        alias_si: Symbol.Index,
-        /// Otherwise, this is the symbol size if known
-        size: u32,
+    value: std.meta.BareUnion(Symbol.Value),
+    flags: packed struct(u16) {
+        value_tag: ValueTag,
+        dll_storage_class: DllStorageClass,
+        _: u12 = 0,
     },
     /// Relocations contained within this symbol
     loc_relocs: Reloc.Index,
@@ -835,6 +842,55 @@ pub const Symbol = struct {
     /// Only used when outputting objects
     sti: SymbolTable.Index,
     gmi: Node.GlobalMapIndex,
+
+    const ValueTag = enum(u2) {
+        node_offset,
+        alias_si,
+        size,
+    };
+
+    pub const Value = union(ValueTag) {
+        /// The offset of the symbol within it's node
+        node_offset: u32,
+        /// For undefined globals, this is a weak alias
+        /// that can replace this symbol, or .null if none exists
+        alias_si: Symbol.Index,
+        /// The symbol size, or 0 if unknown
+        size: u32,
+    };
+
+    pub fn setValue(sym: *Symbol, value: Symbol.Value) void {
+        sym.flags.value_tag = std.meta.activeTag(value);
+        sym.value = switch (sym.flags.value_tag) {
+            inline else => |t| @unionInit(
+                @FieldType(Symbol, "value"),
+                @tagName(t),
+                @field(value, @tagName(t)),
+            ),
+        };
+    }
+
+    pub fn nodeOffset(sym: *const Symbol, coff: *Coff) u32 {
+        return switch (sym.flags.value_tag) {
+            .node_offset => offset: {
+                assert(switch (coff.getNode(sym.ni)) {
+                    // Separate nodes are not created for these entries per-symbol
+                    .input_section, .import_address_table => true,
+                    else => false,
+                });
+                break :offset sym.value.node_offset;
+            },
+            else => 0,
+        };
+    }
+
+    pub fn weakAlias(sym: *const Symbol) Symbol.Index {
+        return if (sym.flags.value_tag == .alias_si) sym.value.alias_si else .null;
+    }
+
+    pub fn size(sym: *const Symbol) u32 {
+        return if (sym.flags.value_tag == .size) sym.value.size else 0;
+    }
 
     pub const SectionNumber = enum(i16) {
         UNDEFINED = 0,
@@ -847,10 +903,7 @@ pub const Symbol = struct {
         }
 
         fn hasIndex(sn: SectionNumber) bool {
-            return switch (sn) {
-                .UNDEFINED, .ABSOLUTE, .DEBUG => false,
-                else => true,
-            };
+            return @intFromEnum(sn) > 0;
         }
 
         pub fn symbol(sn: SectionNumber, coff: *const Coff) Symbol.Index {
@@ -902,11 +955,7 @@ pub const Symbol = struct {
 
         pub fn flushMoved(si: Symbol.Index, coff: *Coff) void {
             const sym = si.get(coff);
-            sym.rva = coff.computeNodeRva(sym.ni);
-            if (sym.gmi != .none and coff.getNode(sym.ni) == .input_section) {
-                // Symbols in input sections share a ni with their section
-                sym.rva += sym.value.input_offset;
-            }
+            sym.rva = coff.computeNodeRva(sym.ni) + sym.nodeOffset(coff);
             si.applyLocationRelocs(coff);
             si.applyTargetRelocs(coff);
         }
@@ -967,7 +1016,7 @@ pub const Symbol = struct {
     };
 
     comptime {
-        if (!std.debug.runtime_safety) std.debug.assert(@sizeOf(Symbol) == 36);
+        if (!std.debug.runtime_safety) std.debug.assert(@sizeOf(Symbol) == 32);
     }
 };
 
@@ -1379,6 +1428,7 @@ fn create(
         .import_table = .{
             .ni = .none,
             .entries = .empty,
+            .iat_symbol_indices = .empty,
         },
         .export_table = .{
             .ni = .none,
@@ -1460,6 +1510,7 @@ pub fn deinit(coff: *Coff) void {
     coff.lib_string_table.deinit(gpa);
     coff.long_names_table.entries.deinit(gpa);
     coff.import_table.entries.deinit(gpa);
+    coff.import_table.iat_symbol_indices.deinit(gpa);
     coff.export_table.entries.deinit(gpa);
     coff.symbol_table.strings.deinit(gpa);
     coff.symbol_table.pending.deinit(gpa);
@@ -1840,16 +1891,7 @@ fn initHeaders(
     }
 
     try coff.symbols.ensureTotalCapacity(gpa, Symbol.Index.known_count);
-    coff.symbols.addOneAssumeCapacity().* = .{
-        .ni = .none,
-        .rva = 0,
-        .value = .{ .size = 0 },
-        .loc_relocs = .none,
-        .target_relocs = .none,
-        .section_number = .UNDEFINED,
-        .sti = .none,
-        .gmi = .none,
-    };
+    assert(coff.addSymbolAssumeCapacity() == .null);
     assert(try coff.addSection(.@".data", .{
         .CNT_INITIALIZED_DATA = true,
         .MEM_READ = true,
@@ -2057,7 +2099,7 @@ fn computeNodeRva(coff: *Coff, ni: MappedFile.Node.Index) u32 {
             ),
             inline .pseudo_section,
             .object_section,
-            .global,
+            .import_thunk,
             .nav,
             .uav,
             .lazy_code,
@@ -2070,10 +2112,7 @@ fn computeNodeRva(coff: *Coff, ni: MappedFile.Node.Index) u32 {
     return @intCast(parent_rva + offset);
 }
 fn computeSymbolSectionOffset(coff: *Coff, sym: *const Symbol) u32 {
-    var section_offset: u32 = if (sym.gmi != .none and coff.getNode(sym.ni) == .input_section)
-        sym.value.input_offset
-    else
-        0;
+    var section_offset: u32 = sym.nodeOffset(coff);
     var parent_ni = sym.ni;
     while (true) {
         const offset, _ = parent_ni.location(&coff.mf).resolve(&coff.mf);
@@ -2273,6 +2312,10 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
         .ni = .none,
         .rva = 0,
         .value = .{ .size = 0 },
+        .flags = .{
+            .value_tag = .size,
+            .dll_storage_class = .default,
+        },
         .loc_relocs = .none,
         .target_relocs = .none,
         .section_number = .UNDEFINED,
@@ -2357,8 +2400,9 @@ fn getOrPutStringAssumeCapacity(coff: *Coff, string: []const u8) String {
 }
 
 const GlobalOptions = struct {
-    name: []const u8, // TODO: Union with String
+    name: []const u8,
     lib_name: ?[]const u8 = null,
+    dll_storage_class: DllStorageClass = .default,
 };
 
 fn getOrPutGlobalSymbol(
@@ -2373,7 +2417,10 @@ fn getOrPutGlobalSymbol(
     });
     if (!sym_gop.found_existing) {
         const si = coff.addSymbolAssumeCapacity();
-        si.get(coff).gmi = .wrap(@intCast(sym_gop.index));
+        const sym = si.get(coff);
+        sym.setValue(.{ .alias_si = .null });
+        sym.gmi = .wrap(@intCast(sym_gop.index));
+        sym.flags.dll_storage_class = opts.dll_storage_class;
         sym_gop.value_ptr.* = si;
         coff.synth_prog_node.increaseEstimatedTotalItems(1);
 
@@ -2446,6 +2493,7 @@ pub fn navSymbol(coff: *Coff, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Symbo
     if (nav.getExtern(ip)) |@"extern"| return coff.globalSymbol(.{
         .name = @"extern".name.toSlice(ip),
         .lib_name = @"extern".lib_name.toSlice(ip),
+        .dll_storage_class = if (@"extern".is_dll_import) .dllimport else .default,
     });
     const nmi = try coff.navMapIndex(zcu, nav_index);
     return nmi.symbol(coff);
@@ -2774,7 +2822,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
     };
 
     coff.targetStore(&entry.value, switch (sym.section_number) {
-        .UNDEFINED => sym.value.size,
+        .UNDEFINED => sym.size(),
         .ABSOLUTE,
         .DEBUG,
         => unreachable,
@@ -2784,7 +2832,7 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
         },
     });
 
-    log.debug("updateSymbolTableEntry({d}) = {d}", .{ si, sym.sti });
+    log.debug("flushSymbolTableEntry({d}) = {d}", .{ si, sym.sti });
 }
 
 fn flushInputMember(coff: *Coff, iami: InputArchive.Member.Index) !void {
@@ -3838,7 +3886,10 @@ fn loadObject(
                             .name = symbol.name.toSlice(coff),
                             .lib_name = null,
                         });
-                        if (!global_gop.found_existing) {
+
+                        // TODO: What if the same symbol defined twice in this obj?
+                        // TODO: Would need to mark this global as pending, or notice it later when .ni != none
+                        if (!global_gop.found_existing or global_gop.value_ptr.get(coff).ni == .none) {
                             symbol.si = global_gop.value_ptr.*;
                             break :comdat .include;
                         }
@@ -4003,9 +4054,7 @@ fn loadObject(
                     if (!global_gop.found_existing or symbol.si.get(coff).ni == .none) {
                         const sym = symbol.si.get(coff);
                         if (tag == .external) {
-                            // TOOD: Is it valid to encounter multiple external definitions with different sizes?
-                            assert(sym.value == .size);
-                            sym.value = .{ .size = @max(sym.value.size, value) };
+                            sym.setValue(.{ .size = @max(sym.size(), value) });
                         } else {
                             const alias = pending_symbols.getPtr(value) orelse
                                 return diags.failParse(
@@ -4022,7 +4071,7 @@ fn loadObject(
                             if (alias.si == .null) {
                                 alias.weak_external_psi = .wrap(@intCast(psi));
                             } else {
-                                sym.value = .{ .alias_si = alias.si };
+                                sym.setValue(.{ .alias_si = alias.si });
                             }
                         }
                     }
@@ -4063,20 +4112,21 @@ fn loadObject(
 
         if (section.si != symbol.si) {
             const sym = symbol.si.get(coff);
+            assert(sym.ni == .none);
             sym.ni = section.si.get(coff).ni;
-            sym.value = switch (symbol.value) {
+            sym.setValue(switch (symbol.value) {
                 .section => |v| .{ .size = v },
-                .static => |v| .{ .input_offset = v },
+                .static => |v| .{ .node_offset = v },
                 .external => |v| switch (symbol.section_number) {
                     .UNDEFINED, .ABSOLUTE, .DEBUG => unreachable,
-                    else => .{ .input_offset = v },
+                    else => .{ .node_offset = v },
                 },
                 .weak_external => unreachable,
-            };
+            });
             sym.section_number = symbol.section_number;
         }
 
-        defer log.debug("addInputSymbol({s}, 0x{x}, {t}=0x{x}) = {d}@{d}", .{
+        log.debug("addInputSymbol({s}, 0x{x}, {t}=0x{x}) = {d}@{d}", .{
             symbol.name.toSlice(coff),
             index,
             symbol.value,
@@ -4141,20 +4191,21 @@ fn loadObject(
     pending_symbols.sortUnstable(SortContext{ .v = pending_symbols.values() });
 
     try coff.input_symbols.ensureUnusedCapacity(gpa, num_included_symbols + num_included_sections);
-    var prev_sn: Symbol.SectionNumber = .UNDEFINED;
-    var include_section = true;
+    var prev_sn: Symbol.SectionNumber = .DEBUG;
+    var include_section = false;
     for (pending_symbols.values()) |symbol| {
         // The symbol may have not been included, or it's an undefined external
         if (symbol.si == .null or symbol.si.get(coff).ni == .none) continue;
 
         if (prev_sn != symbol.section_number) {
             prev_sn = symbol.section_number;
-
-            const section = &sections[symbol.section_number.toIndex()];
-            include_section = section.comdat_result == .include;
-            if (include_section) {
-                const isi = coff.getNode(section.si.get(coff).ni).input_section;
-                isi.inputSection(coff).first_li = @enumFromInt(coff.input_symbols.items.len);
+            if (symbol.section_number.hasIndex()) {
+                const section = &sections[symbol.section_number.toIndex()];
+                include_section = section.comdat_result == .include;
+                if (include_section) {
+                    const isi = coff.getNode(section.si.get(coff).ni).input_section;
+                    isi.inputSection(coff).first_li = @enumFromInt(coff.input_symbols.items.len);
+                }
             }
         }
 
@@ -4329,7 +4380,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
     var pos = fr.logicalPos();
     const size = try fr.getSize();
     while (pos < size) : (pos = fr.logicalPos()) {
-        if ((pos & 1) != 0) r.toss(1);
+        if ((pos & 1) != 0) try r.discardAll(1);
         const header = try r.takeStruct(std.coff.ArchiveMemberHeader, target_endian);
         const res = try parseArchiveMemberHeader(diags, path, &header, opt_longnames);
 
@@ -4354,7 +4405,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
 
                 const num_members = try r.takeInt(u32, target_endian);
                 pos = fr.logicalPos();
-                if (pos + num_members * 4 > member_end)
+                if (pos + num_members * @sizeOf(u32) > member_end)
                     return diags.failParse(path, "invalid member count 0x{x} in second linker member", .{num_members});
 
                 try members.ensureTotalCapacity(gpa, num_members);
@@ -4366,7 +4417,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
 
                 const num_symbols = try r.takeInt(u32, target_endian);
                 pos = fr.logicalPos();
-                if (pos + num_symbols * 2 > member_end)
+                if (pos + num_symbols * @sizeOf(u16) > member_end)
                     return diags.failParse(path, "invalid symbol count 0x{x} in second linker member", .{num_symbols});
 
                 try symbol_member_indices.ensureTotalCapacity(gpa, num_symbols);
@@ -4532,7 +4583,9 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
             };
         } else {
             member.content.object.size = res.size;
-            if (machine != expected_machine) {
+            // TODO: If .UNKNOWN assert later that it contains no non-undef symbols?
+            // Microsoft's CRT contains members that set .UNKNOWN but do have symbols
+            if (machine != expected_machine and machine != .UNKNOWN) {
                 return diags.failParse(path, "machine mismatch in member header '{s}': expected {t}, found {t}", .{
                     res.name,
                     expected_machine,
@@ -4935,9 +4988,10 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
                             });
                         }
                     },
-                    .global => |gmi| err.addNote("referenced by '{s}' in module '{s}'", .{
+                    .import_thunk => |gmi| err.addNote("referenced by import thunk for '{s}'", .{
                         gmi.globalName(coff).name.toSlice(coff),
-                        comp.zcu.?.root_mod.fully_qualified_name,
+                        // TODO: This won't always have a ZCU
+                        //comp.zcu.?.root_mod.fully_qualified_name,
                     }),
                     inline .nav,
                     .uav,
@@ -5099,7 +5153,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
                 if (sym.ni != .none)
                     coff.getNode(sym.ni)
                 else
-                    .{ .global = pending_si.key.get(coff).gmi },
+                    .{ .import_thunk = pending_si.key.get(coff).gmi },
             );
             defer sub_prog_node.end();
             coff.flushSymbolTableEntry(
@@ -5229,7 +5283,7 @@ fn idleProgNode(
                 coff.getNode(isi.symbol(coff).node(coff).parent(&coff.mf)).object_section.name(coff).toSlice(coff),
             }) catch &name;
         },
-        .global => |gmi| gmi.globalName(coff).name.toSlice(coff),
+        .import_thunk => |gmi| gmi.globalName(coff).name.toSlice(coff),
         .nav => |nmi| {
             const ip = &coff.base.comp.zcu.?.intern_pool;
             break :name ip.getNav(nmi.navIndex(coff)).fqn.toSlice(ip);
@@ -5306,10 +5360,45 @@ fn flushUav(
     si.applyLocationRelocs(coff);
 }
 
+fn aliasGlobal(coff: *Coff, gmi: Node.GlobalMapIndex, alias_si: Symbol.Index) !void {
+    const gn = gmi.globalName(coff);
+    const si = gmi.symbol(coff);
+    const sym = si.get(coff);
+    assert(sym.section_number == .UNDEFINED);
+    assert(sym.loc_relocs == .none);
+
+    const alias_sym = alias_si.get(coff);
+    var ri = sym.target_relocs;
+    while (ri != .none) {
+        const reloc = ri.get(coff);
+        assert(reloc.target == si);
+        reloc.target = alias_si;
+        if (reloc.next == .none) {
+            reloc.next = alias_sym.target_relocs;
+            if (alias_sym.target_relocs != .none)
+                alias_sym.target_relocs.get(coff).prev = ri;
+        }
+        ri = reloc.next;
+    }
+
+    sym.target_relocs = .none;
+    sym.gmi = alias_sym.gmi;
+    coff.globals.values()[gmi.unwrap().?] = alias_si;
+    alias_si.applyTargetRelocs(coff);
+
+    log.debug("aliasGlobal({s}, {?s}) {d}->{d} ({?s})", .{
+        gn.name.toSlice(coff),
+        gn.lib_name.toSlice(coff),
+        si,
+        alias_si,
+        if (alias_sym.gmi != .none) alias_sym.gmi.globalName(coff).name.toSlice(coff) else null,
+    });
+}
+
 fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
-    const gn = gmi.globalNameMutable(coff);
+    const gn = gmi.globalName(coff);
     const si = gmi.symbol(coff);
     const sym = si.get(coff);
 
@@ -5329,112 +5418,102 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         return true;
     }
 
+    {
+        // Resolve unresolved .WEAK_EXTERNAL symbols to their aliases
+        const alias_si = sym.weakAlias();
+        if (alias_si != .null) {
+            try coff.aliasGlobal(gmi, alias_si);
+            return true;
+        }
+    }
+
     const Import = struct {
         lib_name: String,
-        ref: union(enum) {
-            name: struct {
-                str: []const u8,
-                hint: ?u16,
-            },
-            ordinal: u16,
+        name: String.Optional,
+        ordinal_hint: u16,
+        kind: enum {
+            iat_ptr,
+            thunk,
         },
     };
 
-    const opt_import: ?Import = if (gn.lib_name == .none and sym.ni == .none) import: {
-        switch (sym.value) {
-            .alias_si => |alias_si| {
-                assert(sym.section_number == .UNDEFINED);
-                assert(sym.loc_relocs == .none);
+    const opt_import: ?Import = if (sym.ni == .none) import: {
+        const global_name = gn.name.toSlice(coff);
+        const imp_match = std.mem.startsWith(u8, global_name, imp_prefix);
 
-                const alias_sym = alias_si.get(coff);
-                var ri = sym.target_relocs;
-                while (ri != .none) {
-                    const reloc = ri.get(coff);
-                    assert(reloc.target == si);
-                    reloc.target = alias_si;
-                    if (reloc.next == .none) {
-                        reloc.next = alias_sym.target_relocs;
-                        if (alias_sym.target_relocs != .none)
-                            alias_sym.target_relocs.get(coff).prev = ri;
-                    }
-                    ri = reloc.next;
-                }
+        // Globals may have the __imp_ prefix already if they are undef externals from another input.
+        const search_name, const is_imp = if (imp_match or sym.flags.dll_storage_class != .dllimport)
+            .{ gn.name, imp_match }
+        else name: {
+            try coff.ensureUnusedStringCapacity(imp_prefix.len + global_name.len);
+            const name = try std.fmt.allocPrint(gpa, imp_prefix ++ "{s}", .{global_name});
+            defer gpa.free(name);
+            break :name .{ coff.getOrPutStringAssumeCapacity(name), true };
+        };
 
-                sym.target_relocs = .none;
-                coff.globals.values()[gmi.unwrap().?] = alias_si;
-                alias_si.applyTargetRelocs(coff);
-
-                log.debug(
-                    "flushGlobal({s}, null) alias {d}->{d}",
-                    .{ gmi.globalName(coff).name.toSlice(coff), si, alias_si },
-                );
-                return true;
-            },
-            .size => {},
-            .input_offset => unreachable,
-        }
-
-        if (coff.input_archive_symbol_indices.get(gmi.globalName(coff).name)) |index| {
-            var iter: InputArchive.Member.Symbol.Index = index.first;
+        if (coff.input_archive_symbol_indices.get(search_name)) |indices_list| {
+            var iter: InputArchive.Member.Symbol.Index = indices_list.first;
             while (true) {
                 const archive_sym = &coff.input_archive_symbols.items[@intFromEnum(iter)];
                 const member = &coff.input_archive_members.items[@intFromEnum(archive_sym.iami)];
-                if (!member.flags.is_loaded) {
-                    switch (member.content) {
-                        .import => |import| switch (import.type) {
-                            .CODE,
-                            .DATA,
-                            => {
-                                defer member.flags.is_loaded = true;
-                                // gn.lib_name = import.lib_name.toOptional();
-                                // try coff.globals.setKey(gpa, gmi.unwrap().?, gn.*);
+                member: switch (member.content) {
+                    .object => if (!member.flags.is_loaded) {
+                        if (gn.lib_name.unwrap()) |lib_name|
+                            if (!std.mem.eql(u8, lib_name.toSlice(coff), member.iai.path(coff).stem()))
+                                break :member;
 
-                                // Switch this global to an import
-                                switch (import.name_type) {
-                                    .NAME,
-                                    .NAME_NOPREFIX,
-                                    .NAME_UNDECORATE,
-                                    => |tag| {
-                                        var name: []const u8 = import.symbol_name.toSlice(coff);
-                                        if (!(std.mem.eql(u8, name, gn.name.toSlice(coff))))
-                                            return comp.link_diags.fail("import '{s}' has mismatched symbol name: '{s}'", .{
-                                                import.symbol_name.toSlice(coff),
-                                                gn.name.toSlice(coff),
-                                            });
+                        // Try loading the input member and then retry.
+                        // This could still be a member containing imports
+                        // that use the older non-IMPORT_HEADER method.
+                        coff.pending_input = archive_sym.iami;
+                        return false;
+                    },
+                    .import => |import| {
+                        if (gn.lib_name.unwrap()) |lib_name|
+                            if (import.lib_name != lib_name)
+                                break :member;
 
-                                        name = if (tag == .NAME) name else name: {
-                                            name = std.mem.trimStart(u8, name, "?@_");
-                                            if (tag == .NAME_UNDECORATE)
-                                                name = std.mem.sliceTo(name, '@');
-                                            break :name name;
-                                        };
+                        const name: String.Optional = name: switch (import.name_type) {
+                            .NAME,
+                            .NAME_NOPREFIX,
+                            .NAME_UNDECORATE,
+                            => |tag| {
+                                const symbol_name: []const u8 = import.symbol_name.toSlice(coff);
+                                const end_match = std.mem.endsWith(u8, global_name, symbol_name);
+                                const len_delta = global_name.len -% symbol_name.len;
+                                if (!end_match or
+                                    (!imp_match and len_delta != 0) or
+                                    (imp_match and len_delta != imp_prefix.len))
+                                    return comp.link_diags.fail(
+                                        "global '{s}' has mismatched symbol name in import header: '{s}'",
+                                        .{
+                                            gn.name.toSlice(coff),
+                                            import.symbol_name.toSlice(coff),
+                                        },
+                                    );
 
-                                        break :import .{
-                                            .lib_name = import.lib_name,
-                                            .ref = .{
-                                                .name = .{
-                                                    .str = name,
-                                                    .hint = import.import_ordinal_hint,
-                                                },
-                                            },
-                                        };
-                                    },
-                                    .ORDINAL => break :import .{
-                                        .lib_name = import.lib_name,
-                                        .ref = .{ .ordinal = import.import_ordinal_hint },
-                                    },
-                                    else => |t| return comp.link_diags.fail("TODO handle name_type {t}", .{t}),
-                                }
+                                const name = if (tag == .NAME) import.symbol_name else undecorated: {
+                                    var imp_name = std.mem.trimStart(u8, symbol_name, "?@_");
+                                    if (tag == .NAME_UNDECORATE)
+                                        imp_name = std.mem.sliceTo(imp_name, '@');
+
+                                    try coff.ensureUnusedStringCapacity(imp_name.len);
+                                    break :undecorated coff.getOrPutStringAssumeCapacity(imp_name);
+                                };
+
+                                break :name name.toOptional();
                             },
-                            .CONST => return comp.link_diags.fail("TODO handle import type CONST", .{}),
-                            else => |t| return comp.link_diags.fail("invalid import type: {d}", .{t}),
-                        },
-                        .object => {
-                            // Try loading the input member and then retry
-                            coff.pending_input = archive_sym.iami;
-                            return false;
-                        },
-                    }
+                            .ORDINAL => break :name .none,
+                            else => |t| return comp.link_diags.fail("TODO handle name_type {t}", .{t}),
+                        };
+
+                        break :import .{
+                            .lib_name = import.lib_name,
+                            .name = name,
+                            .ordinal_hint = import.import_ordinal_hint,
+                            .kind = if (import.type == .CODE and !is_imp) .thunk else .iat_ptr,
+                        };
+                    },
                 }
 
                 if (archive_sym.next == iter) break;
@@ -5442,28 +5521,20 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             }
         }
 
-        break :import null;
-    } else if (gn.lib_name.unwrap()) |lib_name| .{
-        .lib_name = lib_name,
-        .ref = .{
-            .name = .{
-                .str = gn.name.toSlice(coff),
-                .hint = null,
-            },
-        },
+        // Allow importing symbols with no implib entry, if a lib_name was specified.
+        // This is necessary for certain ntdll symbols, such as LdrRegisterDllNotification,
+        // which are not in the implib.
+        break :import if (gn.lib_name.unwrap()) |lib_name| .{
+            .lib_name = lib_name,
+            .name = gn.name.toOptional(),
+            .ordinal_hint = 0,
+            .kind = .iat_ptr,
+        } else null;
     } else null;
 
     if (opt_import) |import| {
         assert(sym.ni == .none);
         const lib_name = import.lib_name.toSlice(coff);
-        const name = switch (import.ref) {
-            .name => |n| n.str,
-            .ordinal => return comp.link_diags.fail("TODO handle imports via ordinal", .{}),
-        };
-
-        log.debug("flushGlobalImport({s}, {s})", .{ name, lib_name });
-
-        // TODO: Handle hint
 
         try coff.nodes.ensureUnusedCapacity(gpa, 4);
         try coff.symbols.ensureUnusedCapacity(gpa, 1);
@@ -5547,76 +5618,138 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             if (target_endian != native_endian)
                 std.mem.byteSwapAllFields([2]std.coff.ImportDirectoryEntry, import_directory_entries);
         }
-        const import_symbol_index = gop.value_ptr.len;
-        gop.value_ptr.len = import_symbol_index + 1;
-        const new_symbol_table_size = addr_size * (import_symbol_index + 2);
-        const import_hint_name_index = gop.value_ptr.hint_name_len;
-        gop.value_ptr.hint_name_len = @intCast(
-            import_hint_name_align.forward(import_hint_name_index + 2 + name.len + 1),
+
+        log.debug(
+            "flushGlobalImport({s}, {?s}, {d}, {s})",
+            .{ gn.name.toSlice(coff), import.name.toSlice(coff), import.ordinal_hint, lib_name },
         );
-        try gop.value_ptr.import_lookup_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
-        const import_address_table_ni = gop.value_ptr.import_address_table_si.node(coff);
-        try import_address_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
-        try gop.value_ptr.import_hint_name_table_ni.resize(&coff.mf, gpa, gop.value_ptr.hint_name_len);
-        const import_lookup_slice = gop.value_ptr.import_lookup_table_ni.slice(&coff.mf);
-        const import_address_slice = import_address_table_ni.slice(&coff.mf);
-        const import_hint_name_slice = gop.value_ptr.import_hint_name_table_ni.slice(&coff.mf);
-        @memset(import_hint_name_slice[import_hint_name_index..][0..2], 0);
-        @memcpy(import_hint_name_slice[import_hint_name_index + 2 ..][0..name.len], name);
-        @memset(import_hint_name_slice[import_hint_name_index + 2 + name.len ..], 0);
-        const import_hint_name_rva =
-            coff.computeNodeRva(gop.value_ptr.import_hint_name_table_ni) + import_hint_name_index;
-        switch (magic) {
-            _ => unreachable,
-            inline .PE32, .@"PE32+" => |ct_magic| {
-                const Addr = switch (ct_magic) {
-                    _ => comptime unreachable,
-                    .PE32 => u32,
-                    .@"PE32+" => u64,
-                };
-                const import_lookup_table: []Addr = @ptrCast(@alignCast(import_lookup_slice));
-                const import_address_table: []Addr = @ptrCast(@alignCast(import_address_slice));
-                const import_hint_name_rvas: [2]Addr = .{
-                    std.mem.nativeTo(Addr, @intCast(import_hint_name_rva), target_endian),
-                    std.mem.nativeTo(Addr, 0, target_endian),
-                };
-                import_lookup_table[import_symbol_index..][0..2].* = import_hint_name_rvas;
-                import_address_table[import_symbol_index..][0..2].* = import_hint_name_rvas;
-            },
-        }
-        sym.section_number = Symbol.Index.text.get(coff).section_number;
-        assert(sym.loc_relocs == .none);
-        sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
-        switch (coff.targetLoad(&coff.headerPtr().machine)) {
-            else => |tag| @panic(@tagName(tag)),
-            .AMD64 => {
-                const init = [_]u8{ 0xff, 0x25, 0x00, 0x00, 0x00, 0x00 };
-                const target = &comp.root_mod.resolved_target.result;
-                const ni = try coff.mf.addLastChildNode(gpa, Symbol.Index.text.node(coff), .{
-                    .alignment = switch (comp.root_mod.optimize_mode) {
-                        .Debug,
-                        .ReleaseSafe,
-                        .ReleaseFast,
-                        => target_util.defaultFunctionAlignment(target),
-                        .ReleaseSmall => target_util.minFunctionAlignment(target),
-                    }.toStdMem(),
-                    .size = init.len,
-                });
-                @memcpy(ni.slice(&coff.mf)[0..init.len], &init);
-                sym.ni = ni;
-                sym.value.size = init.len;
-                try coff.addReloc(
-                    si,
-                    init.len - 4,
-                    gop.value_ptr.import_address_table_si,
-                    .{ .known = @intCast(addr_size * import_symbol_index) },
-                    .{ .AMD64 = .REL32 },
+
+        const iat_symbol_gop = try coff.import_table.iat_symbol_indices.getOrPut(gpa, .{
+            .iti = @enumFromInt(gop.index),
+            .name = import.name,
+            .ordinal_hint = import.ordinal_hint,
+        });
+        if (!iat_symbol_gop.found_existing) {
+            const import_symbol_index = gop.value_ptr.len;
+            iat_symbol_gop.value_ptr.* = import_symbol_index;
+
+            gop.value_ptr.len = import_symbol_index + 1;
+            const new_symbol_table_size = addr_size * (import_symbol_index + 2);
+
+            const opt_name = import.name.toSlice(coff);
+            const opt_import_hint_name_index = if (opt_name) |name| blk: {
+                const import_hint_name_index = gop.value_ptr.hint_name_len;
+                gop.value_ptr.hint_name_len = @intCast(
+                    import_hint_name_align.forward(import_hint_name_index + 2 + name.len + 1),
                 );
+                break :blk import_hint_name_index;
+            } else null;
+
+            try gop.value_ptr.import_lookup_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
+            const import_address_table_ni = gop.value_ptr.import_address_table_si.node(coff);
+            try import_address_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
+            try gop.value_ptr.import_hint_name_table_ni.resize(&coff.mf, gpa, gop.value_ptr.hint_name_len);
+
+            const import_hint_name_rva = if (opt_import_hint_name_index) |import_hint_name_index| blk: {
+                const import_hint_name_slice = gop.value_ptr.import_hint_name_table_ni.slice(&coff.mf);
+                const ordinal_hint: *u16 = @ptrCast(@alignCast(import_hint_name_slice[import_hint_name_index..][0..2]));
+                ordinal_hint.* = std.mem.nativeTo(u16, import.ordinal_hint, target_endian);
+                @memcpy(import_hint_name_slice[import_hint_name_index + 2 ..][0..opt_name.?.len], opt_name.?);
+                @memset(import_hint_name_slice[import_hint_name_index + 2 + opt_name.?.len ..], 0);
+                break :blk coff.computeNodeRva(gop.value_ptr.import_hint_name_table_ni) + import_hint_name_index;
+            } else 0;
+
+            const import_lookup_slice = gop.value_ptr.import_lookup_table_ni.slice(&coff.mf);
+            const import_address_slice = import_address_table_ni.slice(&coff.mf);
+            switch (magic) {
+                _ => unreachable,
+                inline .PE32, .@"PE32+" => |ct_magic| {
+                    const Payload = packed union(u31) {
+                        ordinal: packed struct(u31) {
+                            ordinal: u16,
+                            _: u15 = 0,
+                        },
+                        hint_name_rva: u31,
+                    };
+
+                    const Entry = switch (ct_magic) {
+                        _ => comptime unreachable,
+                        .PE32 => packed struct(u32) {
+                            payload: Payload,
+                            is_ordinal: bool,
+                        },
+                        .@"PE32+" => packed struct(u64) {
+                            payload: Payload,
+                            _: u32 = 0,
+                            is_ordinal: bool,
+                        },
+                    };
+                    const import_lookup_table: []Entry = @ptrCast(@alignCast(import_lookup_slice));
+                    const import_address_table: []Entry = @ptrCast(@alignCast(import_address_slice));
+                    const import_hint_name_rvas: [2]Entry = .{
+                        .{
+                            .payload = if (import.name == .none)
+                                .{ .ordinal = .{ .ordinal = import.ordinal_hint } }
+                            else
+                                .{ .hint_name_rva = @intCast(import_hint_name_rva) },
+                            .is_ordinal = import.name == .none,
+                        },
+                        @bitCast(@as(@typeInfo(Entry).@"struct".backing_integer.?, 0)),
+                    };
+                    if (native_endian != target_endian)
+                        for (import_hint_name_rvas) |*v| std.mem.byteSwapAllFields(Entry, v);
+
+                    import_lookup_table[import_symbol_index..][0..2].* = import_hint_name_rvas;
+                    import_address_table[import_symbol_index..][0..2].* = import_hint_name_rvas;
+                },
+            }
+        }
+
+        assert(sym.loc_relocs == .none);
+        const iat_offset: u32 = @intCast(addr_size * iat_symbol_gop.value_ptr.*);
+        switch (import.kind) {
+            .iat_ptr => {
+                const iat_sym = gop.value_ptr.import_address_table_si.get(coff);
+                sym.section_number = iat_sym.section_number;
+                sym.ni = iat_sym.ni;
+                sym.setValue(.{ .node_offset = iat_offset });
+                si.flushMoved(coff);
+            },
+            .thunk => {
+                sym.section_number = Symbol.Index.text.get(coff).section_number;
+                sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+                switch (coff.targetLoad(&coff.headerPtr().machine)) {
+                    else => |tag| @panic(@tagName(tag)),
+                    .AMD64 => {
+                        const init = [_]u8{ 0xff, 0x25, 0x00, 0x00, 0x00, 0x00 };
+                        const target = &comp.root_mod.resolved_target.result;
+                        const ni = try coff.mf.addLastChildNode(gpa, Symbol.Index.text.node(coff), .{
+                            .alignment = switch (comp.root_mod.optimize_mode) {
+                                .Debug,
+                                .ReleaseSafe,
+                                .ReleaseFast,
+                                => target_util.defaultFunctionAlignment(target),
+                                .ReleaseSmall => target_util.minFunctionAlignment(target),
+                            }.toStdMem(),
+                            .size = init.len,
+                        });
+                        @memcpy(ni.slice(&coff.mf)[0..init.len], &init);
+                        sym.ni = ni;
+                        sym.setValue(.{ .size = init.len });
+                        try coff.addReloc(
+                            si,
+                            init.len - 4,
+                            gop.value_ptr.import_address_table_si,
+                            .{ .known = iat_offset },
+                            .{ .AMD64 = .REL32 },
+                        );
+                    },
+                }
+                coff.nodes.appendAssumeCapacity(.{ .import_thunk = gmi });
+                sym.rva = coff.computeNodeRva(sym.ni);
+                si.applyLocationRelocs(coff);
             },
         }
-        coff.nodes.appendAssumeCapacity(.{ .global = gmi });
-        sym.rva = coff.computeNodeRva(sym.ni);
-        si.applyLocationRelocs(coff);
     }
 
     return true;
@@ -5845,7 +5978,7 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         },
         inline .pseudo_section,
         .object_section,
-        .global,
+        .import_thunk,
         .nav,
         .uav,
         .lazy_code,
@@ -5980,7 +6113,7 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
 
             smi.symbol(coff).get(coff).value.size = @intCast(size);
         },
-        .global,
+        .import_thunk,
         .nav,
         .uav,
         .lazy_code,
@@ -6148,7 +6281,7 @@ fn updateExportsInner(
         const export_sym = export_si.get(coff);
         export_sym.ni = exported_ni;
         export_sym.rva = exported_sym.rva;
-        export_sym.value.size = exported_sym.value.size;
+        export_sym.setValue(.{ .size = exported_sym.value.size });
         export_sym.section_number = exported_sym.section_number;
         defer export_si.applyTargetRelocs(coff);
 
@@ -6308,7 +6441,7 @@ pub fn printNode(
         inline .pseudo_section, .object_section => |smi| try w.print("({s})", .{
             smi.name(coff).toSlice(coff),
         }),
-        .global => |gmi| {
+        .import_thunk => |gmi| {
             const gn = gmi.globalName(coff);
             try w.writeByte('(');
             if (gn.lib_name.toSlice(coff)) |lib_name| try w.print("{s}.dll, ", .{lib_name});
