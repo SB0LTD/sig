@@ -2663,11 +2663,28 @@ fn getOrPutGlobalSymbol(
     coff: *Coff,
     opts: GlobalOptions,
 ) !std.AutoArrayHashMapUnmanaged(GlobalName, Symbol.Index).GetOrPutResult {
-    const gpa = coff.base.comp.gpa;
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
     try coff.symbols.ensureUnusedCapacity(gpa, 1);
+
+    const lib_name = if (opts.lib_name) |lib_name| lib_name: {
+        const is_libc = std.zig.target.isLibCLibName(&comp.root_mod.resolved_target.result, lib_name);
+        if (is_libc) {
+            // This is guaranteed by Sema.handleExternLibName
+            if (!comp.config.link_libc) unreachable;
+
+            // TODO: The user has requested this symbol come from libc, but this logic allows
+            //       it to come from anywhere. We need to know what inputs are libc inputs,
+            //       and set a flag to only search them for this symbol.
+            break :lib_name null;
+        }
+
+        break :lib_name lib_name;
+    } else null;
+
     const sym_gop = try coff.globals.getOrPut(gpa, .{
         .name = try coff.getOrPutString(opts.name),
-        .lib_name = try coff.getOrPutOptionalString(opts.lib_name),
+        .lib_name = try coff.getOrPutOptionalString(lib_name),
     });
     if (!sym_gop.found_existing) {
         const si = coff.addSymbolAssumeCapacity();
@@ -5576,6 +5593,7 @@ pub fn flush(
     //       this should be set after updateExports instead
     coff.exports_complete = true;
 
+    while (try coff.resolve(tid)) {}
     while (try coff.idle(tid)) {}
 
     if (coff.isImage())
@@ -5598,7 +5616,10 @@ pub fn flush(
             return comp.link_diags.fail("dumping link snapshot failed: {t}", .{err});
 }
 
-pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
+/// Runs a single "resolution" task.
+/// These are tasks that need to modify the node structure in some way.
+/// They must run in a defined order with respect to linker tasks.
+fn resolve(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     const comp = coff.base.comp;
     task: {
         while (coff.section_merge_pending_index < coff.section_merges.count()) {
@@ -5658,7 +5679,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             };
             break :task;
         }
-        if (coff.inputs_complete and coff.global_pending_index < coff.globals.count()) {
+        if (coff.exports_complete and coff.global_pending_index < coff.globals.count()) {
             const gmi: Node.GlobalMapIndex = .wrap(coff.global_pending_index);
             const sub_prog_node = coff.synth_prog_node.start(
                 gmi.globalName(coff).name.toSlice(coff),
@@ -5751,6 +5772,53 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             };
             break :task;
         }
+        if (coff.symbol_table.pending_shrink) {
+            defer coff.symbol_table.pending_shrink = false;
+            const sub_prog_node = coff.idleProgNode(
+                tid,
+                coff.symbol_prog_node,
+                coff.getNode(coff.symbol_table.ni),
+            );
+            defer sub_prog_node.end();
+
+            const number_of_symbols = coff.targetLoad(&coff.headerPtr().number_of_symbols);
+            coff.symbol_table.ni.shrink(
+                &coff.mf,
+                comp.gpa,
+                number_of_symbols * std.coff.Symbol.sizeOf(),
+                true,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => |e| return comp.link_diags.fail(
+                    "linker failed to compact symbol table: {t}",
+                    .{e},
+                ),
+            };
+
+            break :task;
+        }
+    }
+
+    if (coff.section_merge_pending_index < coff.section_merges.count()) return true;
+    if (coff.pending_uavs.count() > 0) return true;
+    if (coff.pending_input != null) return true;
+    if (coff.exports_complete and coff.globals.count() > coff.global_pending_index) return true;
+    assert(!coff.exports_complete or coff.inputs_complete);
+    if (coff.exports_complete and coff.late_globals.items.len > coff.late_globals_pending_index) return true;
+    if (coff.exports_complete and coff.pending_special_symbol != .none) return true;
+    for (&coff.lazy.values) |lazy| if (lazy.map.count() > lazy.pending_index) return true;
+    if (coff.symbol_table.pending.count() > 0) return true;
+    if (coff.symbol_table.pending_shrink) return true;
+    return false;
+}
+
+pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
+    // Idle tasks should not modify create / modify nodes, otherwise the output is not reproducible.
+    coff.mf.nodes_lock.lock();
+    defer coff.mf.nodes_lock.unlock();
+
+    const comp = coff.base.comp;
+    task: {
         // TODO: Idle task for flushing obj into lib
         if (coff.input_section_pending_index < coff.input_sections.items.len) {
             const isi: Node.InputSection.Index = @enumFromInt(coff.input_section_pending_index);
@@ -5809,46 +5877,11 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             coff.flushExportsSort();
             break :task;
         }
-        if (coff.symbol_table.pending_shrink) {
-            defer coff.symbol_table.pending_shrink = false;
-            const sub_prog_node = coff.idleProgNode(
-                tid,
-                coff.symbol_prog_node,
-                coff.getNode(coff.symbol_table.ni),
-            );
-            defer sub_prog_node.end();
-
-            const number_of_symbols = coff.targetLoad(&coff.headerPtr().number_of_symbols);
-            coff.symbol_table.ni.shrink(
-                &coff.mf,
-                comp.gpa,
-                number_of_symbols * std.coff.Symbol.sizeOf(),
-                true,
-            ) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                else => |e| return comp.link_diags.fail(
-                    "linker failed to compact symbol table: {t}",
-                    .{e},
-                ),
-            };
-
-            break :task;
-        }
     }
-    if (coff.section_merge_pending_index < coff.section_merges.count()) return true;
-    if (coff.pending_uavs.count() > 0) return true;
-    if (coff.pending_input != null) return true;
-    if (coff.inputs_complete and coff.globals.count() > coff.global_pending_index) return true;
-    assert(!coff.exports_complete or coff.inputs_complete);
-    if (coff.exports_complete and coff.late_globals.items.len > coff.late_globals_pending_index) return true;
-    if (coff.exports_complete and coff.pending_special_symbol != .none) return true;
-    for (&coff.lazy.values) |lazy| if (lazy.map.count() > lazy.pending_index) return true;
-    if (coff.symbol_table.pending.count() > 0) return true;
     if (coff.input_sections.items.len > coff.input_section_pending_index) return true;
     if (coff.mf.updates.items.len > 0) return true;
     if (coff.pending_members.count() > 0) return true;
     if (coff.export_table.pending_sort) return true;
-    if (coff.symbol_table.pending_shrink) return true;
     return false;
 }
 
@@ -6924,7 +6957,6 @@ fn flushMember(coff: *Coff, mi: Member.Index) !void {
             });
 
             var offset: u64 = 0;
-
             var string_table = coff.secondLinkerMemberStringsSlice();
             for (coff.lib_string_table.items) |string| {
                 const str = string.toSlice(coff);
@@ -7096,6 +7128,7 @@ fn updateExportsInner(
             Type.fromInterned(ip.typeOf(uav)).abiAlignment(zcu),
         ))),
     };
+    while (try coff.resolve(pt.tid)) {}
     while (try coff.idle(pt.tid)) {}
 
     const machine = coff.targetLoad(&coff.headerPtr().machine);

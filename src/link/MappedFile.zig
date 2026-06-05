@@ -26,6 +26,9 @@ updates: std.ArrayList(Node.Index),
 update_prog_node: std.Progress.Node,
 writers: std.SinglyLinkedList,
 io_err: ?IoError,
+/// If locked, modifying the node layout is not allowed.
+/// Modifying node content is always allowed.
+nodes_lock: std.debug.SafetyLock = .{},
 
 pub const growth_factor = 4;
 
@@ -556,6 +559,7 @@ fn addNode(mf: *MappedFile, gpa: std.mem.Allocator, opts: struct {
     add_node: AddNodeOptions,
 }) Error!Node.Index {
     if (opts.add_node.moved or opts.add_node.resized) try mf.updates.ensureUnusedCapacity(gpa, 1);
+    mf.nodes_lock.assertUnlocked();
     const offset = opts.add_node.alignment.forward(@intCast(opts.offset));
     if (opts.parent != .none) {
         const new_end = offset + opts.add_node.size;
@@ -715,6 +719,7 @@ fn shrinkNode(
     size: u64,
     shift_next: bool,
 ) !void {
+    mf.nodes_lock.assertUnlocked();
     const node = ni.get(mf);
     const old_offset, _ = node.location().resolve(mf);
 
@@ -753,6 +758,7 @@ fn shrinkNode(
 }
 
 fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested_size: u64) (Allocator.Error || Io.Cancelable || IoError)!void {
+    mf.nodes_lock.assertUnlocked();
     const io = mf.io;
     const node = ni.get(mf);
     const old_offset, const old_size = node.location().resolve(mf);
@@ -1023,6 +1029,7 @@ fn realignNode(
     set_alignment: bool,
 ) (Allocator.Error || Io.Cancelable || IoError)!void {
     assert(ni != Node.Index.root); // currently unsupported
+    mf.nodes_lock.assertUnlocked();
 
     const node = ni.get(mf);
     const old_offset, const size = node.location().resolve(mf);
