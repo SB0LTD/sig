@@ -368,35 +368,11 @@ pub const Member = struct {
         return @ptrCast(@alignCast(member.header_ni.slice(&coff.mf)));
     }
 
-    pub fn initHeader(member: *Member, coff: *Coff, name: []const u8, timestamp: u32) !void {
-        const header = member.headerPtr(coff);
-        try storeHeaderName(coff, &header.name, name);
-        storeHeaderDecimalStr(&header.date, timestamp);
-
-        // Matching the Microsoft behaviour of emitting blanks for these fields
-        header.user_id = @splat(' ');
-        header.group_id = @splat(' ');
-
-        // file_mode is actually octal, but we only ever write 0 to it
-        storeHeaderDecimalStr(&header.file_mode, 0);
-        if (!member.content_ni.hasResized(&coff.mf))
-            storeHeaderDecimalStr(
-                &header.size,
-                member.content_ni.location(&coff.mf).resolve(&coff.mf)[1],
-            );
-
-        @memcpy(&header.end_of_header, "`\n");
-    }
-
     /// Sets `name` as the name field of this member's header, either directly (if it's short enough),
     /// or by creating an entry in the longnames member and storing a reference to that entry.
-    pub fn storeHeaderName(coff: *Coff, field: *[16]u8, name: []const u8) !void {
-        if (name.len < field.len) {
-            @memcpy(field[0..name.len], name);
-            field[name.len] = '/';
-            const padding = field.len - name.len - 1;
-            if (padding > 0) @memset(field[field.len - padding ..], ' ');
-        } else {
+    pub fn initHeader(member: *Member, coff: *Coff, name: []const u8, timestamp: u32) !void {
+        const max_name_len = @typeInfo(@FieldType(std.coff.ArchiveMemberHeader, "name")).array.len;
+        const opt_name_offset = if (name.len >= max_name_len) offset: {
             const gpa = coff.base.comp.gpa;
             const entries_ctx = LongNamesTable.Adapter{ .coff = coff };
             const gop = try coff.long_names_table.entries.getOrPutAdapted(
@@ -410,7 +386,7 @@ pub const Member = struct {
 
                 _, const old_size = Node.known.longnames_member.location(&coff.mf).resolve(&coff.mf);
                 const new_size = old_size + name.len + 1;
-                assert(new_size < comptime try std.math.powi(u64, 10, field.len - 1));
+                assert(new_size < comptime try std.math.powi(u64, 10, max_name_len - 1));
 
                 try Node.known.longnames_member.resize(&coff.mf, gpa, new_size);
                 const name_table_slice = Node.known.longnames_member.slice(&coff.mf);
