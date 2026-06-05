@@ -819,20 +819,15 @@ pub const Section = struct {
 
 pub const GlobalName = struct { name: String, lib_name: String.Optional };
 
-pub const DllStorageClass = enum(u2) {
-    default,
-    dllimport,
-    dllexport,
-};
-
 pub const Symbol = struct {
     ni: MappedFile.Node.Index,
     rva: u32,
     value: std.meta.BareUnion(Symbol.Value),
     flags: packed struct(u16) {
         value_tag: ValueTag,
+        type: Symbol.Type,
         dll_storage_class: DllStorageClass,
-        _: u12 = 0,
+        _: u10 = 0,
     },
     /// Relocations contained within this symbol
     loc_relocs: Reloc.Index,
@@ -842,6 +837,18 @@ pub const Symbol = struct {
     /// Only used when outputting objects
     sti: SymbolTable.Index,
     gmi: Node.GlobalMapIndex,
+
+    pub const DllStorageClass = enum(u2) {
+        default,
+        dllimport,
+        dllexport,
+    };
+
+    pub const Type = enum(u2) {
+        unknown,
+        code,
+        data,
+    };
 
     const ValueTag = enum(u2) {
         node_offset,
@@ -2314,6 +2321,7 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
         .value = .{ .size = 0 },
         .flags = .{
             .value_tag = .size,
+            .type = .unknown,
             .dll_storage_class = .default,
         },
         .loc_relocs = .none,
@@ -2401,8 +2409,9 @@ fn getOrPutStringAssumeCapacity(coff: *Coff, string: []const u8) String {
 
 const GlobalOptions = struct {
     name: []const u8,
+    type: Symbol.Type = .unknown,
     lib_name: ?[]const u8 = null,
-    dll_storage_class: DllStorageClass = .default,
+    dll_storage_class: Symbol.DllStorageClass = .default,
 };
 
 fn getOrPutGlobalSymbol(
@@ -2420,6 +2429,7 @@ fn getOrPutGlobalSymbol(
         const sym = si.get(coff);
         sym.setValue(.{ .alias_si = .null });
         sym.gmi = .wrap(@intCast(sym_gop.index));
+        sym.flags.type = opts.type;
         sym.flags.dll_storage_class = opts.dll_storage_class;
         sym_gop.value_ptr.* = si;
         coff.synth_prog_node.increaseEstimatedTotalItems(1);
@@ -2493,6 +2503,8 @@ pub fn navSymbol(coff: *Coff, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Symbo
     if (nav.getExtern(ip)) |@"extern"| return coff.globalSymbol(.{
         .name = @"extern".name.toSlice(ip),
         .lib_name = @"extern".lib_name.toSlice(ip),
+        // TODO: Threadlocal as well?
+        .type = if (ip.isFunctionType(nav.resolved.?.type)) .code else .data,
         .dll_storage_class = if (@"extern".is_dll_import) .dllimport else .default,
     });
     const nmi = try coff.navMapIndex(zcu, nav_index);
@@ -3881,7 +3893,7 @@ fn loadObject(
                         else
                             break :comdat .include;
                     },
-                    else => {
+                    .external => {
                         const global_gop = try coff.getOrPutGlobalSymbol(.{
                             .name = symbol.name.toSlice(coff),
                             .lib_name = null,
@@ -5451,6 +5463,8 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             break :name .{ coff.getOrPutStringAssumeCapacity(name), true };
         };
 
+        // TODO: Try to search for __imp_ even when !is_imp, we want to not use thunks if we can
+
         if (coff.input_archive_symbol_indices.get(search_name)) |indices_list| {
             var iter: InputArchive.Member.Symbol.Index = indices_list.first;
             while (true) {
@@ -5459,8 +5473,10 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
                 member: switch (member.content) {
                     .object => if (!member.flags.is_loaded) {
                         if (gn.lib_name.unwrap()) |lib_name|
-                            if (!std.mem.eql(u8, lib_name.toSlice(coff), member.iai.path(coff).stem()))
-                                break :member;
+                            if (!std.ascii.eqlIgnoreCase(
+                                lib_name.toSlice(coff),
+                                member.iai.path(coff).stem(),
+                            )) break :member;
 
                         // Try loading the input member and then retry.
                         // This could still be a member containing imports
@@ -5470,8 +5486,10 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
                     },
                     .import => |import| {
                         if (gn.lib_name.unwrap()) |lib_name|
-                            if (import.lib_name != lib_name)
-                                break :member;
+                            if (!std.ascii.eqlIgnoreCase(
+                                import.lib_name.toSlice(coff),
+                                lib_name.toSlice(coff),
+                            )) break :member;
 
                         const name: String.Optional = name: switch (import.name_type) {
                             .NAME,
@@ -5524,12 +5542,16 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         // Allow importing symbols with no implib entry, if a lib_name was specified.
         // This is necessary for certain ntdll symbols, such as LdrRegisterDllNotification,
         // which are not in the implib.
-        break :import if (gn.lib_name.unwrap()) |lib_name| .{
-            .lib_name = lib_name,
-            .name = gn.name.toOptional(),
-            .ordinal_hint = 0,
-            .kind = .iat_ptr,
-        } else null;
+        if (sym.flags.type != .unknown) {
+            if (gn.lib_name.unwrap()) |lib_name| break :import .{
+                .lib_name = lib_name,
+                .name = gn.name.toOptional(),
+                .ordinal_hint = 0,
+                .kind = if (sym.flags.type == .code) .thunk else .iat_ptr,
+            };
+        }
+
+        break :import null;
     } else null;
 
     if (opt_import) |import| {
