@@ -805,6 +805,7 @@ pub const String = enum(u32) {
     @".bss" = 75,
     @".fptable" = 80,
     @".tls" = 89,
+    @".thunks" = 94,
     _,
 
     pub const Optional = enum(u32) {
@@ -821,6 +822,7 @@ pub const String = enum(u32) {
         @".bss" = @intFromEnum(String.@".bss"),
         @".fptable" = @intFromEnum(String.@".fptable"),
         @".tls" = @intFromEnum(String.@".tls"),
+        @".thunks" = @intFromEnum(String.@".thunks"),
         none = std.math.maxInt(u32),
         _,
 
@@ -3396,6 +3398,15 @@ fn objectSectionMapIndex(
     if (alignment.compare(.gt, parent_alignment)) {
         log.debug("realignParent({s}, {d}) {d}->{d}", .{ name.toSlice(coff), parent_ni, parent_alignment, alignment });
         parent_ni.realign(&coff.mf, gpa, alignment, true) catch |err| switch (err) {
+            error.Unimplemented => unreachable,
+            else => |e| return e,
+        };
+    }
+
+    const old_alignment = sym.ni.alignment(&coff.mf);
+    if (alignment.compare(.gt, old_alignment)) {
+        log.debug("realignObject({s}) {d}->{d}", .{ name.toSlice(coff), old_alignment, alignment });
+        sym.ni.realign(&coff.mf, gpa, alignment, true) catch |err| switch (err) {
             error.Unimplemented => unreachable,
             else => |e| return e,
         };
@@ -6182,9 +6193,8 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     const lib_name = import.lib_name.toSlice(coff);
 
     try coff.nodes.ensureUnusedCapacity(gpa, 4);
-    try coff.symbols.ensureUnusedCapacity(gpa, 1);
+    try coff.symbols.ensureUnusedCapacity(gpa, 2);
 
-    const sym = si.get(coff);
     const target_endian = coff.targetEndian();
     const addr_info = coff.targetAddrInfo();
     const gop = try coff.import_table.entries.getOrPutAdapted(
@@ -6328,6 +6338,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         }
     }
 
+    const sym = si.get(coff);
     assert(sym.loc_relocs == .none);
     const iat_offset: u32 = @intCast(addr_info.size * iat_symbol_gop.value_ptr.*);
     switch (import.kind) {
@@ -6340,21 +6351,31 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             (try gop.value_ptr.import_address_table_symbols.addOne(gpa)).* = si;
         },
         .thunk => {
-            sym.section_number = Symbol.Index.text.get(coff).section_number;
             sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+
+            const target = &comp.root_mod.resolved_target.result;
+            const alignment = switch (comp.root_mod.optimize_mode) {
+                .Debug,
+                .ReleaseSafe,
+                .ReleaseFast,
+                => target_util.defaultFunctionAlignment(target),
+                .ReleaseSmall => target_util.minFunctionAlignment(target),
+            }.toStdMem();
+            const parent_si = (try coff.pseudoSectionMapIndex(
+                .@".thunks",
+                alignment,
+                .{ .execute = true, .read = true },
+            )).symbol(coff);
+
+            const parent_sym = parent_si.get(coff);
+            sym.section_number = parent_sym.section_number;
+
             switch (coff.targetLoad(&coff.headerPtr().machine)) {
                 else => |tag| @panic(@tagName(tag)),
                 .AMD64 => {
                     const init = [_]u8{ 0xff, 0x25, 0x00, 0x00, 0x00, 0x00 };
-                    const target = &comp.root_mod.resolved_target.result;
-                    const ni = try coff.mf.addLastChildNode(gpa, Symbol.Index.text.node(coff), .{
-                        .alignment = switch (comp.root_mod.optimize_mode) {
-                            .Debug,
-                            .ReleaseSafe,
-                            .ReleaseFast,
-                            => target_util.defaultFunctionAlignment(target),
-                            .ReleaseSmall => target_util.minFunctionAlignment(target),
-                        }.toStdMem(),
+                    const ni = try coff.mf.addLastChildNode(gpa, parent_sym.ni, .{
+                        .alignment = alignment,
                         .size = init.len,
                     });
                     @memcpy(ni.slice(&coff.mf)[0..init.len], &init);
