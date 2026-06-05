@@ -1337,3 +1337,173 @@ fn verifyNode(mf: *MappedFile, parent_ni: Node.Index) void {
         ni = node.next;
     }
 }
+
+const testing = std.testing;
+fn testVerifyContent(mf: *@This(), ni: Node.Index, value: u8, init_len: usize) !void {
+    // Not using std.mem.allEqual, so we can get useful output
+    const slice = ni.slice(mf);
+    var buf: [256]u8 = undefined;
+    @memset(buf[0..init_len], value);
+    @memset(buf[init_len..], 0);
+    try testing.expectEqualSlices(u8, buf[0..slice.len], slice);
+}
+
+test {
+    const gpa = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    var file = try tmp_dir.dir.createFile(testing.io, "test.mf", .{ .read = true });
+    defer file.close(testing.io);
+
+    var mf = try init(file, gpa, testing.io);
+    defer mf.deinit(gpa);
+
+    const a = try mf.addFirstChildNode(gpa, .root, .{ .fixed = true, .alignment = .@"4" });
+    const c = try mf.addLastChildNode(gpa, .root, .{ .fixed = true, .alignment = .@"4" });
+    const b = try mf.addNodeAfter(gpa, a, .{ .fixed = true, .alignment = .@"4" });
+    const d = try mf.addNodeAfter(gpa, b, .{ .alignment = .@"4" });
+
+    const a_init_size = 8;
+    const b_init_size = 16;
+    const c_init_size = 24;
+    const d_init_size = 28;
+
+    // Resize without content
+    {
+        // Verify size is aligned forward
+        try d.resize(&mf, gpa, d_init_size - 1);
+        try a.resize(&mf, gpa, a_init_size - 2);
+        try c.resize(&mf, gpa, c_init_size);
+        try b.resize(&mf, gpa, b_init_size);
+        mf.verify();
+
+        const a_loc, const a_size = a.location(&mf).resolve(&mf);
+        const b_loc, const b_size = b.location(&mf).resolve(&mf);
+        const c_loc, const c_size = c.location(&mf).resolve(&mf);
+        _, const d_size = d.location(&mf).resolve(&mf);
+        try testing.expect(a_size >= a_init_size);
+        try testing.expect(b_size >= b_init_size);
+        try testing.expect(c_size >= c_init_size);
+        try testing.expect(d_size >= d_init_size);
+        try testing.expect(b_loc >= a_loc + a_size);
+        try testing.expect(c_loc >= b_loc + b_size);
+    }
+
+    const a_exp_size = 24;
+    const b_exp_size = 28;
+    const c_exp_size = 48;
+    const d_exp_size = 32;
+
+    // Resize with content
+    {
+        @memset(a.slice(&mf)[0..a_init_size], 0xaa);
+        @memset(b.slice(&mf)[0..b_init_size], 0xbb);
+        @memset(c.slice(&mf)[0..c_init_size], 0xcc);
+        @memset(d.slice(&mf)[0..d_init_size], 0xdd);
+
+        try a.resize(&mf, gpa, a_exp_size);
+        try b.resize(&mf, gpa, b_exp_size);
+        try c.resize(&mf, gpa, c_exp_size);
+        try d.resize(&mf, gpa, d_exp_size);
+        mf.verify();
+
+        const a_loc, const a_size = a.location(&mf).resolve(&mf);
+        const b_loc, const b_size = b.location(&mf).resolve(&mf);
+        const c_loc, const c_size = c.location(&mf).resolve(&mf);
+        _, const d_size = d.location(&mf).resolve(&mf);
+        try testing.expect(a_size >= a_exp_size);
+        try testing.expect(b_size >= b_exp_size);
+        try testing.expect(c_size >= c_exp_size);
+        try testing.expect(d_size >= d_exp_size);
+        try testing.expect(b_loc >= a_loc + a_size);
+        try testing.expect(c_loc >= b_loc + b_size);
+
+        try testVerifyContent(&mf, a, 0xaa, a_init_size);
+        try testVerifyContent(&mf, b, 0xbb, b_init_size);
+        try testVerifyContent(&mf, c, 0xcc, c_init_size);
+        try testVerifyContent(&mf, d, 0xdd, d_init_size);
+    }
+
+    // Re-align nodes
+    {
+        try b.realign(&mf, gpa, .@"8", true);
+        try a.realign(&mf, gpa, .@"16", true);
+        mf.verify();
+
+        try testVerifyContent(&mf, a, 0xaa, a_init_size);
+        try testVerifyContent(&mf, b, 0xbb, b_init_size);
+        try testVerifyContent(&mf, c, 0xcc, c_init_size);
+        try testVerifyContent(&mf, d, 0xdd, d_init_size);
+    }
+
+    const child_init: []const struct { std.mem.Alignment, usize } = &.{
+        .{ .@"8", 16 },
+        .{ .@"1", 1 },
+        .{ .@"1", 19 },
+        .{ .@"1", 3 },
+        .{ .@"4", 30 },
+        .{ .@"2", 5 },
+        .{ .@"16", 60 },
+        .{ .@"2", 2 },
+        .{ .@"16", 32 },
+    };
+
+    var children: [child_init.len]Node.Index = undefined;
+
+    // Differently-aligned fixed sibling nodes
+    {
+        for (children[0 .. children.len - 1], child_init[0 .. children.len - 1], 0..) |*ni, opts, i| {
+            ni.* = try mf.addLastChildNode(gpa, b, .{
+                .alignment = opts.@"0",
+                .size = opts.@"1",
+                .fixed = true,
+            });
+
+            @memset(ni.slice(&mf)[0..opts.@"1"], @intCast(i + 1));
+        }
+        // Shift differenntly-aligned nodes
+        children[children.len - 1] = try mf.addNodeAfter(gpa, children[3], .{
+            .alignment = child_init[children.len - 1].@"0",
+            .size = child_init[children.len - 1].@"1",
+            .fixed = true,
+        });
+        @memset(children[children.len - 1].slice(&mf), @intCast(children.len));
+
+        mf.verify();
+        for (children, child_init, 0..) |ni, opts, i| {
+            try testVerifyContent(&mf, ni, @intCast(i + 1), opts.@"1");
+        }
+    }
+
+    // Shifting child nodes forward due via resize of parent.prev
+    {
+        try testing.expect(a.location(&mf).resolve(&mf)[1] < 64);
+        try a.resize(&mf, gpa, 64);
+
+        try testVerifyContent(&mf, a, 0xaa, a_init_size);
+        try testVerifyContent(&mf, c, 0xcc, c_init_size);
+        try testVerifyContent(&mf, d, 0xdd, d_init_size);
+        for (children, child_init, 0..) |ni, opts, i| {
+            try testVerifyContent(&mf, ni, @intCast(i + 1), opts.@"1");
+        }
+    }
+
+    // Shrink and shift start of trailing node into free space
+    {
+        try mf.shrinkNode(gpa, a, 16, true);
+        mf.verify();
+
+        const a_loc, const a_size = a.location(&mf).resolve(&mf);
+        const b_loc, _ = b.location(&mf).resolve(&mf);
+        try testing.expectEqual(b_loc, a_loc + a_size);
+
+        try testVerifyContent(&mf, a, 0xaa, a_init_size);
+        try testVerifyContent(&mf, c, 0xcc, c_init_size);
+        try testVerifyContent(&mf, d, 0xdd, d_init_size);
+        for (children, child_init, 0..) |ni, opts, i| {
+            try testVerifyContent(&mf, ni, @intCast(i + 1), opts.@"1");
+        }
+    }
+}
