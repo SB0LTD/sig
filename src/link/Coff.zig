@@ -76,6 +76,9 @@ pub const default_size_of_stack_commit: u32 = 0x1000;
 pub const default_size_of_heap_reserve: u32 = 0x100000;
 pub const default_size_of_heap_commit: u32 = 0x1000;
 
+pub const archive_signature = "!<arch>\n";
+pub const archive_end_of_header = "`\n";
+
 /// This is the start of a Portable Executable (PE) file.
 /// It starts with a MS-DOS header followed by a MS-DOS stub program.
 /// This data does not change so we include it as follows in all binaries.
@@ -494,10 +497,21 @@ pub const Member = struct {
                 member.content_ni.location(&coff.mf).resolve(&coff.mf)[1],
             );
 
-        @memcpy(&header.end_of_header, "`\n");
+        @memcpy(&header.end_of_header, archive_end_of_header);
     }
 
     pub fn storeHeaderDecimalStr(field_ptr: anytype, value: u64) void {
+        const array_info = @typeInfo(@typeInfo(@TypeOf(field_ptr)).pointer.child).array;
+        assert(array_info.child == u8);
+        assert(value < comptime try std.math.powi(u64, 10, array_info.len));
+        _ = std.fmt.printInt(field_ptr, value, 10, .lower, .{
+            .width = array_info.len,
+            .alignment = .left,
+            .fill = ' ',
+        });
+    }
+
+    pub fn loadHeaderDecimalStr(field_ptr: anytype, value: u64) void {
         const array_info = @typeInfo(@typeInfo(@TypeOf(field_ptr)).pointer.child).array;
         assert(array_info.child == u8);
         assert(value < comptime try std.math.powi(u64, 10, array_info.len));
@@ -1450,7 +1464,6 @@ fn initHeaders(
     coff.nodes.appendAssumeCapacity(.header);
 
     const pe_signature = "PE\x00\x00";
-    const archive_signature = "!<arch>\n";
 
     const signature_ni = Node.known.signature;
     assert(signature_ni == try coff.mf.addLastChildNode(gpa, if (is_image or !is_archive) header_ni else Node.known.file, .{
@@ -2686,10 +2699,6 @@ fn flushInputSection(coff: *Coff, isi: Node.InputSectionIndex) !void {
     if (try nw.interface.sendFileAll(&fr, .limited(@intCast(file_loc.size))) != file_loc.size)
         return error.EndOfStream;
     si.applyLocationRelocs(coff);
-
-    // TODO: Problem is that if the sym is first seen as undef, it's si is in the range of the section
-    //       that wants that symbol. but when the section that contains it is moved, the iteration doesn't see
-    //       that symbol.
 }
 
 fn addSection(coff: *Coff, name: String, flags: std.coff.SectionHeader.Flags) !Symbol.Index {
@@ -3445,12 +3454,6 @@ fn loadObject(
     var symbols: std.ArrayList(Symbol.Index) = .empty;
     try symbols.ensureUnusedCapacity(gpa, header.number_of_symbols);
 
-    var undefs: std.ArrayList(struct {
-        symbol_i: u32,
-        name: String,
-        size: u32,
-    }) = .empty;
-
     const first_si = coff.symbols.items.len;
     var symbol_i: u32 = 0;
     while (symbol_i < header.number_of_symbols) {
@@ -3554,11 +3557,12 @@ fn loadObject(
             },
             .EXTERNAL => switch (symbol.section_number) {
                 .UNDEFINED => {
-                    (try undefs.addOne(gpa)).* = .{
-                        .symbol_i = symbol_i,
-                        .name = try coff.getOrPutString(name),
-                        .size = symbol.value,
-                    };
+                    const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = name });
+                    si_slice[0] = global_gop.value_ptr.*;
+                    if (!global_gop.found_existing) {
+                        const sym = si_slice[0].get(coff);
+                        sym.value = .{ .size = symbol.value };
+                    }
                 },
                 .ABSOLUTE => return diags.failParse(
                     path,
@@ -3614,18 +3618,6 @@ fn loadObject(
         input.last_si = @enumFromInt(coff.symbols.items.len - 1);
     }
 
-    // These are added after all the defined symbols are created so they are not part of the
-    // input's symbol range, which should only contain symbols that are actually located in this input.
-    for (undefs.items) |undef| {
-        // TODO: Avoid redundant hashing by having name be a union on String / []const u8
-        const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = undef.name.toSlice(coff) });
-        symbols.items[undef.symbol_i] = global_gop.value_ptr.*;
-        if (!global_gop.found_existing) {
-            const sym = symbols.items[undef.symbol_i].get(coff);
-            sym.value = .{ .size = undef.size };
-        }
-    }
-
     const relocation_size = std.coff.Relocation.sizeOf();
     for (sections) |section| {
         if (section.si == .null) continue;
@@ -3663,23 +3655,135 @@ fn loadObject(
     }
 }
 
+fn parseArchiveHeader(
+    header: *const std.coff.ArchiveMemberHeader,
+    opt_longnames: ?[]const u8,
+) !struct {
+    name: []const u8,
+    size: u34,
+} {
+    const trim = std.mem.trimEnd(u8, &header.name, &.{' '});
+
+    if (trim.len == 0) return error.BadName;
+    const name = if (trim[0] == '/') name: {
+        if (trim.len == 1 or
+            trim.len == 2 and trim[1] == '/')
+            break :name trim;
+
+        const offset = std.fmt.parseUnsigned(u50, trim[1..], 10) catch
+            return error.BadName;
+
+        if (opt_longnames) |longnames| {
+            if (offset >= longnames.len) return error.BadName;
+            break :name std.mem.sliceTo(longnames[offset..], 0);
+        } else return error.NoLongNames;
+    } else if (trim[trim.len - 1] == '/')
+        trim[0 .. trim.len - 1]
+    else
+        return error.BadName;
+
+    const size = std.fmt.parseUnsigned(u34, std.mem.trimEnd(u8, &header.size, &.{' '}), 10) catch
+        return error.BadSize;
+
+    if (!std.mem.eql(u8, &header.end_of_header, archive_end_of_header))
+        return error.BadEndOfHeader;
+
+    return .{
+        .name = name,
+        .size = size,
+    };
+}
+
 fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
     const r = &fr.interface;
+    const target_endian = coff.targetEndian();
 
     log.debug("loadArchive({f})", .{path.fmtEscapeString()});
 
-    // TODO: Skip over 1st linker member
-    // TODO: Build index of symbols -> members from 2nd linker member
-    // TODO: We don't actually have to load an object unless we need a symbol from it (when linking images)
-    // TODO: Lazily call loadObject whenever a symbol is need from one of the members.
-    //       Could do that in flushGlobal if we haven't gotten an .ni for the symbol yet (and no lib_name)?
+    const signature = try r.take(archive_signature.len);
+    if (!std.mem.eql(u8, signature, archive_signature))
+        return diags.failParse(path, "bad signature", .{});
 
-    _ = gpa;
-    _ = diags;
-    _ = r;
+    var opt_expected_kind: ?Member.Kind = .first_linker;
+    var opt_longnames: ?[]const u8 = null;
+    defer if (opt_longnames) |l| gpa.free(l);
+
+    var pos = fr.logicalPos();
+    const size = try fr.getSize();
+    while (pos < size) : (pos = fr.logicalPos()) {
+        const header = try r.takeStruct(std.coff.ArchiveMemberHeader, target_endian);
+        const res = parseArchiveHeader(&header, opt_longnames) catch |err| switch (err) {
+            error.BadName => return diags.failParse(path, "malformed member header name: '{s}'", .{&header.name}),
+            error.BadSize => return diags.failParse(path, "malformed member header size: '{s}'", .{&header.size}),
+            error.BadEndOfHeader => return diags.failParse(path, "bad member header end of header", .{}),
+            error.NoLongNames => return diags.failParse(path, "long name used without longnames member", .{}),
+        };
+
+        if (pos + res.size > size)
+            return diags.failParse(path, "out-of-bounds length 0x{x} in member '{s}'", .{ res.size, res.name });
+
+        log.debug("loadArchiveMember({s})", .{res.name});
+
+        if (opt_expected_kind) |expected_kind| expected: switch (expected_kind) {
+            .first_linker => {
+                if (!std.mem.eql(u8, res.name, "/"))
+                    return diags.failParse(path, "expected first linker member, found '{s}'", .{res.name});
+
+                try fr.seekTo(fr.logicalPos() + res.size);
+                opt_expected_kind = .second_linker;
+                continue;
+            },
+            .second_linker => {
+                if (!std.mem.eql(u8, res.name, "/"))
+                    return diags.failParse(path, "expected second linker member, found '{s}'", .{res.name});
+
+                // TODO: Parse this!
+                // TODO: Build index of symbols -> members from 2nd linker member
+                // TODO: We don't actually have to load an object unless we need a symbol from it (when linking images)
+                // TODO: Lazily call loadObject whenever a symbol is need from one of the members.
+                //       Could do that in flushGlobal if we haven't gotten an .ni for the symbol yet (and no lib_name)?
+                try r.discardAll(res.size);
+
+                opt_expected_kind = .longnames;
+                continue;
+            },
+            .longnames => {
+                defer opt_expected_kind = null;
+
+                // This member is optional
+                if (!std.mem.eql(u8, res.name, "//")) break :expected;
+                opt_longnames = try r.readAlloc(gpa, res.size);
+                continue;
+            },
+            else => unreachable,
+        };
+
+        const member_sig = try r.peek(4);
+        const machine = std.mem.readInt(u16, member_sig[0..2], target_endian);
+        const sig = std.mem.readInt(u16, member_sig[2..4], target_endian);
+        if (machine == @intFromEnum(std.coff.IMAGE.FILE.MACHINE.UNKNOWN) and sig == 0xffff) {
+            const import_header = try r.peekStruct(std.coff.ImportHeader, target_endian);
+
+            // TODO: Validate import table header fields
+            _ = import_header;
+        } else {
+            const coff_header = try r.peekStruct(std.coff.Header, target_endian);
+
+            // TODO: Validate COFF header fields
+            _ = coff_header;
+        }
+
+        try fr.seekTo(fr.logicalPos() + res.size);
+    }
+
+    if (opt_expected_kind) |expected_kind| switch (expected_kind) {
+        .first_linker => return diags.failParse(path, "missing first linker member", .{}),
+        .second_linker => return diags.failParse(path, "missing second linker member", .{}),
+        else => {},
+    };
 }
 
 fn loadRes(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
