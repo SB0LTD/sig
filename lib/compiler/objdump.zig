@@ -21,6 +21,7 @@ const Options = struct {
     section_headers: bool,
     strings: bool,
     symbols: bool,
+    tls: bool,
 
     // Coff-specific
     linker_member: ?std.coff.ArchiveMemberHeader.Kind,
@@ -43,6 +44,7 @@ pub fn main(init: std.process.Init) !void {
     var opt_section_headers: ?bool = null;
     var opt_strings: ?bool = null;
     var opt_symbols: ?bool = null;
+    var opt_tls: ?bool = null;
     var section_filters: std.ArrayList([]const u8) = .empty;
     var member_filters: std.ArrayList([]const u8) = .empty;
     while (i < args.len) : (i += 1) {
@@ -83,6 +85,8 @@ pub fn main(init: std.process.Init) !void {
                 opt_strings = true;
             } else if (mem.eql(u8, arg, "--symbols")) {
                 opt_symbols = true;
+            } else if (mem.eql(u8, arg, "--tls")) {
+                opt_tls = true;
             } else {
                 fatal("unrecognized argument: {s}", .{arg});
             }
@@ -98,14 +102,15 @@ pub fn main(init: std.process.Init) !void {
         .exports = opt_exports orelse false,
         .file_headers = opt_file_headers orelse false,
         .imports = opt_imports orelse false,
+        .linker_member = opt_linker_member,
+        .member_filters = member_filters.items,
+        .member_headers = opt_member_headers orelse false,
         .section_filters = section_filters.items,
         .section_headers = opt_section_headers orelse false,
         .relocs = opt_relocs orelse false,
         .strings = opt_strings orelse false,
         .symbols = opt_symbols orelse false,
-        .member_filters = member_filters.items,
-        .member_headers = opt_member_headers orelse false,
-        .linker_member = opt_linker_member,
+        .tls = opt_tls orelse false,
     };
 
     var file = std.Io.Dir.cwd().openFile(io, opts.input_path, .{}) catch |err|
@@ -202,6 +207,21 @@ const wasm = struct {
 };
 
 const coff = struct {
+    const DIRECTORY_ENTRY = std.coff.IMAGE.DIRECTORY_ENTRY;
+
+    const Section = struct {
+        header: std.coff.SectionHeader,
+        name: []const u8,
+
+        fn rvaFileOffset(section: *const Section, rva: u32) !u32 {
+            if (rva < section.header.virtual_address or
+                rva >= section.header.virtual_address + section.header.size_of_raw_data)
+                return error.OutOfBounds;
+
+            return section.header.pointer_to_raw_data + (rva - section.header.virtual_address);
+        }
+    };
+
     const ArchiveHeader = struct {
         name: []const u8,
         date: u40,
@@ -307,8 +327,6 @@ const coff = struct {
                 .second_linker => {
                     if (!std.mem.eql(u8, header.name, "/"))
                         return failParse(opts, "expected second linker member, found '{s}'", .{header.name});
-
-                    // TODO: Figure out what endianness is actually used, there are no headers to say yet?
 
                     const num_members = try r.takeInt(u32, .little);
                     pos = fr.logicalPos();
@@ -511,16 +529,22 @@ const coff = struct {
             else => {},
         }
 
-        if (header.size_of_optional_header > 0) opt_header: {
-            if (!opts.file_headers) {
+        var known_dirs: [DIRECTORY_ENTRY.len]std.coff.ImageDataDirectory = undefined;
+        const needs_data_dirs =
+            opts.exports or
+            opts.imports or
+            opts.tls;
+
+        const data_dirs = if (header.size_of_optional_header > 0) data_dirs: {
+            if (!opts.file_headers and !needs_data_dirs) {
                 try fr.seekBy(header.size_of_optional_header);
-                break :opt_header;
+                break :data_dirs &.{};
             }
 
-            try w.writeAll("COFF Optional Header:\n");
+            if (opts.file_headers) try w.writeAll("COFF Optional Header:\n");
             const magic: std.coff.OptionalHeader.Magic = @enumFromInt(try r.peekInt(u16, .little));
             const num_directory_entries = switch (magic) {
-                inline .PE32, .@"PE32+" => |v| data_dirs: {
+                inline .PE32, .@"PE32+" => |v| num_data_dirs: {
                     const OptionalHeader = if (v == .PE32)
                         std.coff.OptionalHeader.PE32
                     else
@@ -529,63 +553,71 @@ const coff = struct {
                     const optional_header = r.takeStruct(OptionalHeader, .little) catch |err|
                         return failParse(opts, "unable to read optional header: {t}", .{err});
 
-                    try dumpHeader(w, OptionalHeader, &optional_header, struct {
-                        pub fn base_of_code(h: *const std.coff.OptionalHeader, cw: *Io.Writer) !void {
-                            const base = @as(*const OptionalHeader, @ptrCast(@alignCast(h))).image_base;
-                            try dumpRvaField(cw, @src().fn_name, h.base_of_code, base);
-                        }
+                    if (opts.file_headers) {
+                        try dumpHeader(w, OptionalHeader, &optional_header, struct {
+                            pub fn base_of_code(h: *const std.coff.OptionalHeader, cw: *Io.Writer) !void {
+                                const base = @as(*const OptionalHeader, @ptrCast(@alignCast(h))).image_base;
+                                try dumpRvaField(cw, @src().fn_name, h.base_of_code, base);
+                            }
 
-                        pub fn address_of_entry_point(h: *const std.coff.OptionalHeader, cw: *Io.Writer) !void {
-                            const base = @as(*const OptionalHeader, @ptrCast(@alignCast(h))).image_base;
-                            try dumpRvaField(cw, @src().fn_name, h.base_of_code, base);
-                        }
+                            pub fn address_of_entry_point(h: *const std.coff.OptionalHeader, cw: *Io.Writer) !void {
+                                const base = @as(*const OptionalHeader, @ptrCast(@alignCast(h))).image_base;
+                                try dumpRvaField(cw, @src().fn_name, h.base_of_code, base);
+                            }
 
-                        pub fn major_linker_version(h: *const std.coff.OptionalHeader, cw: *Io.Writer) !void {
-                            try dumpVersionField(cw, "linker_version", h.major_linker_version, h.minor_linker_version);
-                        }
-                        pub fn minor_linker_version(_: *const std.coff.OptionalHeader, _: *Io.Writer) !void {}
+                            pub fn major_linker_version(h: *const std.coff.OptionalHeader, cw: *Io.Writer) !void {
+                                try dumpVersionField(cw, "linker_version", h.major_linker_version, h.minor_linker_version);
+                            }
+                            pub fn minor_linker_version(_: *const std.coff.OptionalHeader, _: *Io.Writer) !void {}
 
-                        pub fn major_operating_system_version(h: *const OptionalHeader, cw: *Io.Writer) !void {
-                            try dumpVersionField(
-                                cw,
-                                "operating_system_version",
-                                h.major_operating_system_version,
-                                h.minor_operating_system_version,
-                            );
-                        }
-                        pub fn minor_operating_system_version(_: *const OptionalHeader, _: *Io.Writer) !void {}
+                            pub fn major_operating_system_version(h: *const OptionalHeader, cw: *Io.Writer) !void {
+                                try dumpVersionField(
+                                    cw,
+                                    "operating_system_version",
+                                    h.major_operating_system_version,
+                                    h.minor_operating_system_version,
+                                );
+                            }
+                            pub fn minor_operating_system_version(_: *const OptionalHeader, _: *Io.Writer) !void {}
 
-                        pub fn major_image_version(h: *const OptionalHeader, cw: *Io.Writer) !void {
-                            try dumpVersionField(cw, "image_version", h.major_image_version, h.minor_image_version);
-                        }
-                        pub fn minor_image_version(_: *const OptionalHeader, _: *Io.Writer) !void {}
+                            pub fn major_image_version(h: *const OptionalHeader, cw: *Io.Writer) !void {
+                                try dumpVersionField(cw, "image_version", h.major_image_version, h.minor_image_version);
+                            }
+                            pub fn minor_image_version(_: *const OptionalHeader, _: *Io.Writer) !void {}
 
-                        pub fn major_subsystem_version(h: *const OptionalHeader, cw: *Io.Writer) !void {
-                            try dumpVersionField(cw, "subsystem_version", h.major_subsystem_version, h.minor_subsystem_version);
-                        }
-                        pub fn minor_subsystem_version(_: *const OptionalHeader, _: *Io.Writer) !void {}
-                    });
-                    try w.writeByte('\n');
+                            pub fn major_subsystem_version(h: *const OptionalHeader, cw: *Io.Writer) !void {
+                                try dumpVersionField(cw, "subsystem_version", h.major_subsystem_version, h.minor_subsystem_version);
+                            }
+                            pub fn minor_subsystem_version(_: *const OptionalHeader, _: *Io.Writer) !void {}
+                        });
+                        try w.writeByte('\n');
+                    }
 
-                    break :data_dirs optional_header.number_of_rva_and_sizes;
+                    break :num_data_dirs optional_header.number_of_rva_and_sizes;
                 },
                 else => return failParse(opts, "invalid optional header magic number: {x}", .{magic}),
             };
 
-            try w.writeAll("Data Directories:\n");
+            if (opts.file_headers) try w.writeAll("Data Directories:\n");
             for (0..num_directory_entries) |dir_i| {
                 const dir = r.takeStruct(std.coff.ImageDataDirectory, .little) catch |err|
                     return failParse(opts, "unable to read data directory {x}: {t}", .{ dir_i, err });
 
-                try w.print(
-                    "{x: >16} {x: >8} {t}\n",
-                    .{ dir.virtual_address, dir.size, @as(std.coff.IMAGE.DIRECTORY_ENTRY, @enumFromInt(dir_i)) },
-                );
+                if (dir_i < known_dirs.len)
+                    known_dirs[dir_i] = dir;
+
+                if (opts.file_headers)
+                    try w.print(
+                        "{x: >16} {x: >8} {t}\n",
+                        .{ dir.virtual_address, dir.size, @as(DIRECTORY_ENTRY, @enumFromInt(dir_i)) },
+                    );
             }
-            try w.writeByte('\n');
+            if (opts.file_headers) try w.writeByte('\n');
+
+            break :data_dirs known_dirs[0..@min(known_dirs.len, num_directory_entries)];
         } else if (is_image) {
             return failParse(opts, "image did not contain an optional header", .{});
-        }
+        } else &.{};
 
         // Section names in images don't use the string table, as they must fit inline in the header
         const load_string_table = (opts.strings or !is_image) and header.pointer_to_symbol_table > 0;
@@ -620,16 +652,15 @@ const coff = struct {
             try w.writeByte('\n');
         }
 
-        var sections: std.ArrayList(struct {
-            header: std.coff.SectionHeader,
-            name: []const u8,
-        }) = .empty;
+        var sections: std.ArrayList(Section) = .empty;
         defer sections.deinit(gpa);
+        var sections_with_data: u16 = 0;
 
         const load_sections =
             opts.section_headers or
             opts.symbols or
-            opts.relocs;
+            opts.relocs or
+            needs_data_dirs;
 
         if (load_sections) {
             if (opts.section_headers)
@@ -656,11 +687,12 @@ const coff = struct {
                     }),
                 };
 
+                sections_with_data += @intFromBool(section.header.size_of_raw_data > 0);
                 if (opts.section_headers) {
                     if (!filterMatches(opts.section_filters, section.name)) continue;
                     const raw_name = std.mem.sliceTo(&section.header.name, 0);
                     try w.print(
-                        "{x: >3} {s: <8} {x: >8} {x: >9} {x: >9} {x: >8} {x: >8} {x: >8} {x: >8} {x: >8} {x:0>8} | ",
+                        "{x: >3} {s: <8} {x: >8} {x: >9} {x: >9} {x: >8} {x: >8} {x: >8} {x: >8} {x: >8} {x:0>8} |",
                         .{
                             section_i + 1,
                             raw_name,
@@ -676,7 +708,7 @@ const coff = struct {
                         },
                     );
 
-                    try dumpFlags(w, "{s} ", std.coff.SectionHeader.Flags, &section.header.flags, 1);
+                    try dumpFlags(w, "{s}", std.coff.SectionHeader.Flags, &section.header.flags, 1);
                     if (section.name.len > 8)
                         try w.print("| {s}", .{section.name});
 
@@ -790,10 +822,7 @@ const coff = struct {
                             (std.mem.eql(u8, name, ".bf") or std.mem.eql(u8, name, ".ef")))
                         {
                             try w.writeAll("TODO bf / ef aux symbol");
-                        } else if (symbol.storage_class == .EXTERNAL and
-                            symbol.section_number == .UNDEFINED and
-                            symbol.value == 0)
-                        {
+                        } else if (symbol.storage_class == .WEAK_EXTERNAL and symbol.section_number == .UNDEFINED) {
                             if (symbol.value != 0)
                                 return failParse(
                                     opts,
@@ -815,6 +844,10 @@ const coff = struct {
 
                             // TODO
 
+                            try w.print("  Weak External [falls back to {x:0>8} via {t}]", .{
+                                weak_external.tag_index,
+                                weak_external.flag,
+                            });
                         } else if (symbol.storage_class == .FILE) {
                             if (!std.mem.eql(u8, name, ".file")) {
                                 try w.print(" !! unexpected symbol name '{s}' for file symbol 0x{x}", .{ name, symbol_i });
@@ -824,6 +857,7 @@ const coff = struct {
                             var file: std.coff.FileDefinition = undefined;
                             @memcpy(std.mem.asBytes(&file)[0..symbol_size], aux_symbols[0..symbol_size]);
 
+                            // TODO
                             _ = file.getFileName();
                         } else if (symbol.storage_class == .STATIC and
                             symbol.type == std.coff.SymType{
@@ -934,16 +968,205 @@ const coff = struct {
                             .{ reloc_i, section_i + 1, reloc.symbol_table_index },
                         );
 
-                    try w.print("{x: >8}   ", .{reloc.symbol_table_index});
-
                     const sym = &symbols.items[reloc.symbol_table_index];
-                    try sectionNumberString(sym.section_number, w);
-
-                    try w.print(" | {s}\n", .{sym.name});
+                    try w.print("{x: >8}   {f} | {s}\n", .{
+                        reloc.symbol_table_index,
+                        fmtSectionNumber(sym.section_number),
+                        sym.name,
+                    });
                 }
                 try w.writeByte('\n');
             }
         }
+
+        // Sections indices with raw data, sorted by RVA
+        const rva_index = if (needs_data_dirs) rva_index: {
+            const rva_index = try gpa.alloc(u16, sections_with_data);
+            var indices_i: u16 = 0;
+            for (sections.items, 0..) |*section, i| {
+                if (section.header.size_of_raw_data == 0) continue;
+                rva_index[indices_i] = @intCast(i);
+                indices_i += 1;
+            }
+
+            const Context = struct {
+                indices: []u16,
+                sections: []const Section,
+
+                pub fn lessThan(ctx: @This(), lhs: usize, rhs: usize) bool {
+                    return ctx.sections[ctx.indices[lhs]].header.virtual_address <
+                        ctx.sections[ctx.indices[rhs]].header.virtual_address;
+                }
+
+                pub fn swap(ctx: @This(), lhs: usize, rhs: usize) void {
+                    std.mem.swap(u16, &ctx.indices[lhs], &ctx.indices[rhs]);
+                }
+            };
+
+            std.sort.pdqContext(0, rva_index.len, Context{
+                .indices = rva_index,
+                .sections = sections.items,
+            });
+
+            break :rva_index rva_index;
+        } else &.{};
+        defer gpa.free(rva_index);
+
+        if (opts.exports) {
+            if (try seekToDataDirectory(opts, fr, w, rva_index, sections.items, data_dirs, .EXPORT)) |section_index| {
+                const export_dir = r.takeStruct(std.coff.ExportDirectoryTable, .little) catch |err|
+                    return failParse(opts, "unable to read export directory: {t}", .{err});
+
+                try w.print("Export directory:\n", .{});
+                try dumpHeader(w, std.coff.ExportDirectoryTable, &export_dir, struct {
+                    pub fn major_version(h: *const std.coff.ExportDirectoryTable, cw: *Io.Writer) !void {
+                        try dumpVersionField(cw, "version", h.major_version, h.minor_version);
+                    }
+                    pub fn minor_version(_: *const std.coff.ExportDirectoryTable, _: *Io.Writer) !void {}
+                });
+
+                const section = sections.items[section_index];
+                const name_loc = section.rvaFileOffset(export_dir.name_rva) catch
+                    return failParse(
+                        opts,
+                        "export name rva 0x{x} was not within the export section",
+                        .{export_dir.name_rva},
+                    );
+
+                const eat_loc = section.rvaFileOffset(export_dir.export_address_table_rva) catch
+                    return failParse(
+                        opts,
+                        "export address table rva 0x{x} was not within the export section",
+                        .{export_dir.export_address_table_rva},
+                    );
+
+                const name_pointer_loc = section.rvaFileOffset(export_dir.name_pointer_table_rva) catch
+                    return failParse(
+                        opts,
+                        "export name pointer table rva 0x{x} was not within the export section",
+                        .{export_dir.name_pointer_table_rva},
+                    );
+
+                const ord_loc = section.rvaFileOffset(export_dir.ordinal_table_rva) catch
+                    return failParse(
+                        opts,
+                        "export ordinal table rva 0x{x} was not within the export section",
+                        .{export_dir.ordinal_table_rva},
+                    );
+
+                // All the variable length fields should be contained within this directory.
+                // Read it entirely to avoid needing to seek per-name when iterating.
+                const dir = data_dirs[@intFromEnum(DIRECTORY_ENTRY.EXPORT)];
+                const dir_end_rva = dir.virtual_address + dir.size;
+                const dir_loc = fr.logicalPos();
+                const dir_slice = try r.readAlloc(gpa, dir.size);
+                defer gpa.free(dir_slice);
+
+                const dll_name = std.mem.sliceTo(dir_slice[name_loc - dir_loc ..], 0);
+                try w.print(
+                    \\
+                    \\Exports from {s}:
+                    \\ Ord Hint      RVA   Name
+                    \\
+                , .{dll_name});
+
+                const name_pointers = dir_slice[name_pointer_loc - dir_loc ..][0 .. export_dir.number_of_names * @sizeOf(u32)];
+                const ords = dir_slice[ord_loc - dir_loc ..][0 .. export_dir.number_of_names * @sizeOf(u16)];
+                const addrs = dir_slice[eat_loc - dir_loc ..][0 .. export_dir.number_of_entries * @sizeOf(u32)];
+                const name_rva_to_offset = dir.virtual_address + @sizeOf(std.coff.ExportDirectoryTable);
+                for (0..export_dir.number_of_names) |name_i| {
+                    const name_rva = std.mem.readInt(u32, name_pointers[name_i * @sizeOf(u32) ..][0..@sizeOf(u32)], .little);
+                    const ord = std.mem.readInt(u16, ords[name_i * @sizeOf(u16) ..][0..@sizeOf(u16)], .little);
+                    const addr = std.mem.readInt(u32, addrs[@as(u32, ord) * @sizeOf(u32) ..][0..@sizeOf(u32)], .little);
+
+                    try w.print("{x: >4} {x: >4} ", .{ export_dir.ordinal_base + ord, name_i });
+                    const is_forwarder = addr >= dir.virtual_address and addr < dir_end_rva;
+                    if (is_forwarder) {
+                        try w.writeAll("forwards");
+                    } else {
+                        try w.print("{x: >8}", .{addr});
+                    }
+
+                    const name = std.mem.sliceTo(dir_slice[name_rva - name_rva_to_offset ..], 0);
+                    try w.print(" | {s}", .{name});
+                    if (is_forwarder)
+                        try w.print(" -> {s}", .{std.mem.sliceTo(dir_slice[addr - name_rva_to_offset ..], 0)});
+                    try w.writeByte('\n');
+                }
+            }
+        }
+
+        if (opts.imports) {
+            if (try seekToDataDirectory(opts, fr, w, rva_index, sections.items, data_dirs, .IMPORT)) |_| {
+                // TODO
+            }
+        }
+
+        if (opts.tls) {
+            if (try seekToDataDirectory(opts, fr, w, rva_index, sections.items, data_dirs, .TLS)) |_| {
+                // TODO
+            }
+        }
+    }
+
+    fn seekToDataDirectory(
+        opts: *const Options,
+        fr: *Io.File.Reader,
+        w: *Io.Writer,
+        rva_index: []const u16,
+        sections: []const Section,
+        data_dirs: []const std.coff.ImageDataDirectory,
+        entry: DIRECTORY_ENTRY,
+    ) !?u16 {
+        if (@intFromEnum(entry) < data_dirs.len) {
+            const rva = data_dirs[@intFromEnum(entry)].virtual_address;
+            const section_index = sectionContainingRva(rva_index, sections, rva) orelse
+                return failParse(
+                    opts,
+                    "{t} directory rva 0x{x} was not found in any section",
+                    .{ entry, rva },
+                );
+
+            const file_offset = sections[section_index].rvaFileOffset(rva) catch unreachable;
+            fr.seekTo(file_offset) catch |err|
+                return failParse(
+                    opts,
+                    "unable to seek to {t} directory at offset 0x{x}: {t}",
+                    .{ entry, file_offset, err },
+                );
+
+            return section_index;
+        }
+
+        try w.print("{t} directory was not present in optional header\n", .{entry});
+        return null;
+    }
+
+    fn sectionContainingRva(
+        /// Indices into `sections` sorted by rva
+        indices: []const u16,
+        sections: []const Section,
+        rva: u32,
+    ) ?u16 {
+        const Context = struct {
+            rva: u32,
+            sections: []const Section,
+
+            fn order(ctx: @This(), section_index: u16) std.math.Order {
+                const h = &ctx.sections[section_index].header;
+                const start = h.virtual_address;
+                if (ctx.rva < start) return .lt;
+                const end = h.virtual_address + h.size_of_raw_data;
+                if (ctx.rva >= end) return .gt;
+                return .eq;
+            }
+        };
+
+        const index = std.sort.binarySearch(u16, indices, Context{
+            .rva = rva,
+            .sections = sections,
+        }, Context.order) orelse return null;
+        return @intCast(index);
     }
 
     fn headerName(raw: *const [8]u8, string_table: []const u8) ![]const u8 {
@@ -954,21 +1177,6 @@ const coff = struct {
 
             break :name std.mem.sliceTo(string_table[name_offset..], 0);
         } else std.mem.sliceTo(raw, 0);
-    }
-
-    fn fmtSymbolType(sym_type: std.coff.SymType) std.fmt.Alt(std.coff.SymType, symbolTypeString) {
-        return .{ .data = sym_type };
-    }
-
-    fn symbolTypeString(sym_type: std.coff.SymType, w: *std.Io.Writer) std.Io.Writer.Error!void {
-        try w.print("{t: >5}", .{sym_type.base_type});
-        if (try switch (sym_type.complex_type) {
-            .NULL => "  ",
-            .POINTER => "* ",
-            .FUNCTION => "()",
-            .ARRAY => "[]",
-            else => null,
-        }) |suffix| try .printAll(suffix) else w.print("{x}", .{sym_type.complex_type});
     }
 
     fn fmtSectionNumber(section_number: std.coff.SectionNumber) std.fmt.Alt(std.coff.SectionNumber, sectionNumberString) {
@@ -1003,8 +1211,6 @@ const coff = struct {
 
     fn dumpArchiveHeader(w: *Io.Writer, header: *const ArchiveHeader, pos: u32) !void {
         try w.print("Archive member at offset 0x{x}: '{s}'\n", .{ pos, header.name });
-
-        // TODO: Date formatter
         try dumpHeader(w, ArchiveHeader, header, struct {
             pub fn name(_: *const ArchiveHeader, _: *Io.Writer) !void {}
             pub fn file_mode(h: *const ArchiveHeader, cw: *Io.Writer) !void {
@@ -1065,10 +1271,11 @@ const usage =
     \\  --exports                               Display exported symbols
     \\  --linker-member[=1|2|longnames]         (Coff) Display contents of the specified linker member (default 2)
     \\  --member-headers                        Display archive member headers
-    \\  --only-member=[name]                    Only consider archive members that contain [name]. Can be specified multiple times.
-    \\  --only-section=[name]                   Only consider sections that contain [name]. Can be specified multiple times.
+    \\  --only-member=[name]                    Only consider archive members names that contain [name]. Can be specified multiple times.
+    \\  --only-section=[name]                   Only consider section names that contain [name]. Can be specified multiple times.
+    \\  --relocs                                Display relocations
     \\  --section-headers                       Display section headers
     \\  --strings                               Display string tables
     \\  --symbols                               Display symbol tables
-    \\  --relocs                                Display relocations
+    \\  --tls                                   Display TLS information
 ;
