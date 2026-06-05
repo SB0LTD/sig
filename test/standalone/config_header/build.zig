@@ -16,18 +16,17 @@ pub fn build(b: *std.Build) void {
             .SOME_ENUM = @as(enum { foo, bar }, .foo),
             .SOME_ENUM_LITERAL = .@"test",
             .SOME_STRING = "test",
-
             .PREFIX_SPACE = null,
             .PREFIX_TAB = null,
             .POSTFIX_SPACE = null,
             .POSTFIX_TAB = null,
-
             .SOME_UNDERSCORED = true,
         },
     );
     const check_config_header = b.addCheckFile(config_header.getOutputFile(), .{
         .expected_exact = @embedFile("autoconf_undef/config.h"),
     });
+    test_step.dependOn(&check_config_header.step);
 
     const config_header_autoconf_at = b.addConfigHeader(
         .{ .style = .{ .autoconf_at = b.path("autoconf_at/autoconf_at.h.in") } },
@@ -39,7 +38,6 @@ pub fn build(b: *std.Build) void {
             .integer = 42,
             .string = "text",
             .string_at = "@string@",
-
             .underscored_var = "value",
             .at_sign = "@",
         },
@@ -47,8 +45,6 @@ pub fn build(b: *std.Build) void {
     const check_config_header_autoconf_at = b.addCheckFile(config_header_autoconf_at.getOutputFile(), .{
         .expected_exact = @embedFile("autoconf_at/autoconf_at.h"),
     });
-
-    test_step.dependOn(&check_config_header.step);
     test_step.dependOn(&check_config_header_autoconf_at.step);
 
     const config_header_blank = b.addConfigHeader(
@@ -109,7 +105,6 @@ fn addCmakeChecks(b: *std.Build, test_step: *std.Build.Step) void {
             .ONEVAL = 1,
             .TENVAL = 10,
             .STRINGVAL = "test",
-
             .BOOLNOVAL = {},
             .BOOLTRUEVAL = true,
             .BOOLFALSEVAL = false,

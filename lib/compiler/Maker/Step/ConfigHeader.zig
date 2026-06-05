@@ -392,17 +392,13 @@ fn renderBlank(
     };
 
     try w.print(
-        \\#ifndef {[0]f}
-        \\#define {[0]f}
-        \\
-    , .{include_guard_fmt});
+        "#ifndef {[0]f}{[1]s}#define {[0]f}{[1]s}",
+        .{ include_guard_fmt, os_newline },
+    );
 
     for (value_map.keys(), value_pairs) |name, pair| try renderValueC(conf, w, os_newline, name, pair.index);
 
-    try w.print(
-        \\#endif /* {f} */
-        \\
-    , .{include_guard_fmt});
+    try w.print("#endif /* {f} */{s}", .{ include_guard_fmt, os_newline });
 }
 
 const IncludeGuardFmt = struct {
