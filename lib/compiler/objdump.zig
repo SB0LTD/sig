@@ -16,15 +16,32 @@ const Options = struct {
     input_path: []const u8,
     member_filters: []const []const u8 = &.{},
     member_headers: bool,
+    omit_elements: std.enums.EnumArray(Element, bool),
+    redact: std.enums.EnumArray(FieldKind, bool),
     relocs: bool,
     section_filters: []const []const u8 = &.{},
     section_headers: bool,
+    symbol_filters: []const []const u8 = &.{},
     strings: bool,
     symbols: bool,
     tls: bool,
 
     // Coff-specific
     linker_member: ?std.coff.ArchiveMemberHeader.Kind,
+};
+
+const FieldKind = enum {
+    va,
+    rva,
+    ord,
+    size,
+};
+
+const Element = enum {
+    @"file-type",
+    @"table-header",
+    @"header-names",
+    newlines,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -40,12 +57,15 @@ pub fn main(init: std.process.Init) !void {
     var opt_input_path: ?[]const u8 = null;
     var opt_linker_member: ?std.coff.ArchiveMemberHeader.Kind = null;
     var opt_member_headers: ?bool = null;
+    var omit_elements: @FieldType(Options, "omit_elements") = .initFill(false);
+    var redact: @FieldType(Options, "redact") = .initFill(false);
     var opt_relocs: ?bool = null;
     var opt_section_headers: ?bool = null;
     var opt_strings: ?bool = null;
     var opt_symbols: ?bool = null;
     var opt_tls: ?bool = null;
     var section_filters: std.ArrayList([]const u8) = .empty;
+    var symbol_filters: std.ArrayList([]const u8) = .empty;
     var member_filters: std.ArrayList([]const u8) = .empty;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
@@ -73,14 +93,37 @@ pub fn main(init: std.process.Init) !void {
                     opt_linker_member = .second_linker;
             } else if (mem.eql(u8, arg, "--member-headers")) {
                 opt_member_headers = true;
-            } else if (mem.startsWith(u8, arg, "--only-section=")) {
-                (try section_filters.addOne(arena)).* = try arena.dupe(u8, arg["--only-section=".len..]);
+            } else if (mem.startsWith(u8, arg, "--omit-element=")) {
+                const kind = arg["--omit-element=".len..];
+                if (std.meta.stringToEnum(Element, kind)) |format_kind| {
+                    omit_elements.set(format_kind, true);
+                } else if (std.mem.eql(u8, kind, "all")) {
+                    omit_elements = .initFill(true);
+                } else {
+                    fatal("unrecognized element: {s}", .{kind});
+                }
             } else if (mem.startsWith(u8, arg, "--only-member=")) {
                 (try member_filters.addOne(arena)).* = try arena.dupe(u8, arg["--only-member=".len..]);
+            } else if (mem.startsWith(u8, arg, "--only-section=")) {
+                (try section_filters.addOne(arena)).* = try arena.dupe(u8, arg["--only-section=".len..]);
+            } else if (mem.startsWith(u8, arg, "--only-symbol=")) {
+                (try symbol_filters.addOne(arena)).* = try arena.dupe(u8, arg["--only-symbol=".len..]);
+            } else if (mem.startsWith(u8, arg, "--redact=")) {
+                const kind = arg["--redact=".len..];
+                if (std.meta.stringToEnum(FieldKind, kind)) |field_kind| {
+                    redact.set(field_kind, true);
+                } else if (std.mem.eql(u8, kind, "all")) {
+                    redact = .initFill(true);
+                } else {
+                    fatal("unrecognized redaction kind: {s}", .{kind});
+                }
             } else if (mem.eql(u8, arg, "--relocs")) {
                 opt_relocs = true;
             } else if (mem.eql(u8, arg, "--section-headers")) {
                 opt_section_headers = true;
+            } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--snapshot")) {
+                omit_elements = .initFill(true);
+                redact = .initFill(true);
             } else if (mem.eql(u8, arg, "--strings")) {
                 opt_strings = true;
             } else if (mem.eql(u8, arg, "--symbols")) {
@@ -105,10 +148,13 @@ pub fn main(init: std.process.Init) !void {
         .linker_member = opt_linker_member,
         .member_filters = member_filters.items,
         .member_headers = opt_member_headers orelse false,
+        .omit_elements = omit_elements,
+        .redact = redact,
+        .relocs = opt_relocs orelse false,
         .section_filters = section_filters.items,
         .section_headers = opt_section_headers orelse false,
-        .relocs = opt_relocs orelse false,
         .strings = opt_strings orelse false,
+        .symbol_filters = symbol_filters.items,
         .symbols = opt_symbols orelse false,
         .tls = opt_tls orelse false,
     };
@@ -120,7 +166,15 @@ pub fn main(init: std.process.Init) !void {
     var buffer: [4096]u8 = undefined;
     var file_reader = file.reader(io, &buffer);
     var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
-    dump(init.gpa, &opts, &file_reader, &stdout_writer.interface) catch |err| switch (err) {
+
+    const ctx: DumpContext = .{
+        .gpa = init.gpa,
+        .opts = &opts,
+        .fr = &file_reader,
+        .w = &stdout_writer.interface,
+    };
+
+    dump(&ctx) catch |err| switch (err) {
         error.ReadFailed => return file_reader.err.?,
         error.WriteFailed => return stdout_writer.err.?,
         error.UnknownFile => fatal("unrecognized file: {s}", .{opts.input_path}),
@@ -130,60 +184,82 @@ pub fn main(init: std.process.Init) !void {
     try stdout_writer.flush();
 }
 
-fn dump(gpa: std.mem.Allocator, opts: *const Options, fr: *Io.File.Reader, w: *Io.Writer) !void {
-    const r = &fr.interface;
+fn dump(d: *const DumpContext) !void {
+    const r = &d.fr.interface;
     try r.fill(4);
     elf: {
         if (!mem.eql(u8, r.buffered()[0..4], std.elf.MAGIC)) break :elf;
-        return elf.dump(r, w);
+        return elf.dump(r, d.w);
     }
     macho: {
         if (mem.readInt(u32, r.buffered()[0..4], .little) != std.macho.MH_MAGIC_64) break :macho;
-        return macho.dump(r, w);
+        return macho.dump(r, d.w);
     }
     wasm: {
         comptime assert(std.wasm.magic.len == 4);
         if (!mem.eql(u8, r.buffered()[0..4], &std.wasm.magic)) break :wasm;
-        return wasm.dump(r, w);
+        return wasm.dump(r, d.w);
     }
     coff: {
-        const ext = std.fs.path.extension(opts.input_path);
-        const basename = std.fs.path.basename(opts.input_path);
+        const ext = std.fs.path.extension(d.opts.input_path);
+        const basename = std.fs.path.basename(d.opts.input_path);
         if (std.mem.eql(u8, ext, ".exe") or std.mem.eql(u8, ext, ".dll")) {
             if (!mem.eql(u8, r.buffered()[0..2], "MZ")) break :coff;
             try r.discardAll(std.coff.pe_pointer_offset);
             const sig_offset = try r.takeInt(u32, .little);
-            try fr.seekTo(sig_offset);
+            try d.fr.seekTo(sig_offset);
             const sig = try r.take(4);
 
             if (!std.mem.eql(u8, sig, std.coff.pe_signature)) {
-                try w.print("invalid PE signature: {x}", .{sig});
+                try d.w.print("invalid PE signature: {x}", .{sig});
                 return error.ParseFailure;
             }
 
-            try w.print("{s}: PE/COFF image\n\n", .{basename});
-            return coff.dumpObject(gpa, opts, true, basename, fr, w);
+            if (d.element(.@"file-type"))
+                try d.w.print("{s}: PE/COFF image\n\n", .{basename});
+
+            return coff.dumpObject(d, true, basename);
         } else if (std.mem.eql(u8, ext, ".lib")) {
             r.fill(std.coff.archive_signature.len) catch break :coff;
             if (!mem.eql(u8, r.buffered()[0..std.coff.archive_signature.len], std.coff.archive_signature)) break :coff;
-            try w.print("{s}: COFF archive\n\n", .{basename});
-            return coff.dumpArchive(gpa, opts, fr, w);
+            if (d.element(.@"file-type"))
+                try d.w.print("{s}: COFF archive\n\n", .{basename});
+
+            return coff.dumpArchive(d);
         } else if (std.mem.eql(u8, ext, ".obj")) {
-            try w.print("{s}: COFF object\n\n", .{basename});
-            return coff.dumpObject(gpa, opts, false, basename, fr, w);
+            if (d.element(.@"file-type"))
+                try d.w.print("{s}: COFF object\n\n", .{basename});
+
+            return coff.dumpObject(d, false, basename);
         }
     }
     return error.UnknownFile;
 }
 
-fn failParse(
+const DumpContext = struct {
+    gpa: std.mem.Allocator,
     opts: *const Options,
-    comptime fmt: []const u8,
-    args: anytype,
-) noreturn {
-    std.log.err("error parsing '{s}'", .{std.fs.path.basename(opts.input_path)});
-    fatal(fmt, args);
-}
+    fr: *Io.File.Reader,
+    w: *Io.Writer,
+
+    fn element(self: *const DumpContext, e: Element) bool {
+        return !self.opts.omit_elements.get(e);
+    }
+
+    fn redacted(self: *const DumpContext, opt_kind: ?FieldKind) bool {
+        const kind = opt_kind orelse return false;
+        return self.opts.redact.get(kind);
+    }
+
+    fn failParse(
+        ctx: *const DumpContext,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) noreturn {
+        std.log.err("error parsing '{s}'", .{std.fs.path.basename(ctx.opts.input_path)});
+        fatal(fmt, args);
+    }
+};
 
 const elf = struct {
     fn dump(r: *Io.Reader, w: *Io.Writer) !void {
@@ -230,29 +306,33 @@ const coff = struct {
         file_mode: u24,
         size: u34,
 
-        pub fn fromRaw(opts: *const Options, raw_header: *const std.coff.ArchiveMemberHeader, opt_longnames: ?[]const u8) @This() {
+        pub fn fromRaw(d: *const DumpContext, raw_header: *const std.coff.ArchiveMemberHeader, opt_longnames: ?[]const u8) @This() {
             const name = raw_header.parseName(opt_longnames) catch |err| switch (err) {
-                error.BadName => failParse(opts, "malformed member name: '{s}'", .{&raw_header.name}),
-                error.NoLongNames => failParse(opts, "member uses a long name, but there was no longnames member", .{}),
+                error.BadName => d.failParse("malformed member name: '{s}'", .{&raw_header.name}),
+                error.NoLongNames => d.failParse("member uses a long name, but there was no longnames member", .{}),
             };
 
             return .{
                 .name = name,
                 .date = raw_header.parseDate() catch |err|
-                    failParse(opts, "unable to parse date '{s}' in member '{s}': {t}", .{ raw_header.date, name, err }),
+                    d.failParse("unable to parse date '{s}' in member '{s}': {t}", .{ raw_header.date, name, err }),
                 .user_id = raw_header.parseUserId() catch |err|
-                    failParse(opts, "unable to parse user_id '{s}' in member '{s}': {t}", .{ raw_header.user_id, name, err }),
+                    d.failParse("unable to parse user_id '{s}' in member '{s}': {t}", .{ raw_header.user_id, name, err }),
                 .group_id = raw_header.parseGroupId() catch |err|
-                    failParse(opts, "unable to parse group_id '{s}' in member '{s}': {t}", .{ raw_header.group_id, name, err }),
+                    d.failParse("unable to parse group_id '{s}' in member '{s}': {t}", .{ raw_header.group_id, name, err }),
                 .file_mode = raw_header.parseFileMode() catch |err|
-                    failParse(opts, "unable to parse file_mode '{s}' in member '{s}': {t}", .{ raw_header.file_mode, name, err }),
+                    d.failParse("unable to parse file_mode '{s}' in member '{s}': {t}", .{ raw_header.file_mode, name, err }),
                 .size = raw_header.parseSize() catch |err|
-                    failParse(opts, "unable to parse size '{s}' in member '{s}': {t}", .{ raw_header.size, name, err }),
+                    d.failParse("unable to parse size '{s}' in member '{s}': {t}", .{ raw_header.size, name, err }),
             };
         }
     };
 
-    fn dumpArchive(gpa: std.mem.Allocator, opts: *const Options, fr: *Io.File.Reader, w: *Io.Writer) !void {
+    fn dumpArchive(d: *const DumpContext) !void {
+        const gpa = d.gpa;
+        const fr = d.fr;
+        const w = d.w;
+
         const r = &fr.interface;
         r.toss(std.coff.archive_signature.len);
 
@@ -272,26 +352,26 @@ const coff = struct {
         while (pos < size) : (pos = fr.logicalPos()) {
             if ((pos & 1) != 0) try r.discardAll(1);
             const raw_header = try r.takeStruct(std.coff.ArchiveMemberHeader, .little);
-            const header: ArchiveHeader = .fromRaw(opts, &raw_header, opt_longnames);
+            const header: ArchiveHeader = .fromRaw(d, &raw_header, opt_longnames);
 
             if (!std.mem.eql(u8, &raw_header.end_of_header, std.coff.archive_end_of_header))
-                return failParse(opts, "malformed end-of-header field in member '{s}': {x}", .{ header.name, raw_header.end_of_header });
+                return d.failParse("malformed end-of-header field in member '{s}': {x}", .{ header.name, raw_header.end_of_header });
 
             const dump_header =
-                (opts.member_headers and filterMatches(opts.member_filters, header.name)) or
-                (opts.linker_member == opt_expected_kind);
+                (d.opts.member_headers and filterMatches(d.opts.member_filters, header.name)) or
+                (d.opts.linker_member == opt_expected_kind);
 
             if (dump_header)
-                try dumpArchiveHeader(w, &header, @intCast(pos));
+                try dumpArchiveHeader(d, &header, @intCast(pos));
 
             const member_end = fr.logicalPos() + header.size;
             if (member_end > size)
-                return failParse(opts, "out-of-bounds length 0x{x} in member '{s}'", .{ header.size, header.name });
+                return d.failParse("out-of-bounds length 0x{x} in member '{s}'", .{ header.size, header.name });
 
             if (opt_expected_kind) |expected_kind| switch (expected_kind) {
                 .first_linker => {
                     if (!std.mem.eql(u8, header.name, "/"))
-                        return failParse(opts, "expected first linker member, found '{s}'", .{header.name});
+                        return d.failParse("expected first linker member, found '{s}'", .{header.name});
 
                     const num_symbols = try r.takeInt(u32, .big);
                     if (dump_header)
@@ -301,7 +381,7 @@ const coff = struct {
                             \\
                         , .{ expected_kind, num_symbols });
 
-                    if (opts.linker_member == .first_linker) {
+                    if (d.opts.linker_member == .first_linker) {
                         try w.writeAll(
                             \\
                             \\Archive symbols:
@@ -314,11 +394,15 @@ const coff = struct {
 
                         for (0..num_symbols) |symbol_i| {
                             const symbol = r.takeDelimiter(0) catch |err|
-                                return failParse(opts, "unable to read first linker member string table: {t}", .{err});
-                            try w.print("{x: >8} {s}\n", .{ std.mem.readInt(u32, offsets[symbol_i * 4 ..][0..4], .big), symbol.? });
+                                return d.failParse("unable to read first linker member string table: {t}", .{err});
+                            const offset = std.mem.readInt(u32, offsets[symbol_i * 4 ..][0..4], .big);
+                            try w.print("{f} {s}\n", .{
+                                fmtIntField(d, offset, .{ .kind = .va }),
+                                symbol.?,
+                            });
                         }
                     }
-                    if (dump_header) try w.writeByte('\n');
+                    if (dump_header and d.element(.newlines)) try w.writeByte('\n');
 
                     try fr.seekTo(member_end);
                     opt_expected_kind = .second_linker;
@@ -326,12 +410,12 @@ const coff = struct {
                 },
                 .second_linker => {
                     if (!std.mem.eql(u8, header.name, "/"))
-                        return failParse(opts, "expected second linker member, found '{s}'", .{header.name});
+                        return d.failParse("expected second linker member, found '{s}'", .{header.name});
 
                     const num_members = try r.takeInt(u32, .little);
                     pos = fr.logicalPos();
                     if (pos + num_members * @sizeOf(u32) > member_end)
-                        return failParse(opts, "invalid member count 0x{x} in second linker member", .{num_members});
+                        return d.failParse("invalid member count 0x{x} in second linker member", .{num_members});
 
                     try members.ensureTotalCapacity(gpa, num_members);
                     for (0..num_members) |_|
@@ -342,7 +426,7 @@ const coff = struct {
                     const num_symbols = try r.takeInt(u32, .little);
                     pos = fr.logicalPos();
                     if (pos + num_symbols * @sizeOf(u16) > member_end)
-                        return failParse(opts, "invalid symbol count 0x{x} in second linker member", .{num_symbols});
+                        return d.failParse("invalid symbol count 0x{x} in second linker member", .{num_symbols});
 
                     if (dump_header)
                         try w.print(
@@ -356,13 +440,14 @@ const coff = struct {
                     for (0..num_symbols) |_|
                         symbol_member_indices.addOneAssumeCapacity().* = (try r.takeInt(u16, .little)) - 1;
 
-                    if (opts.linker_member == .second_linker) {
-                        try w.writeAll(
-                            \\
-                            \\Archive Symbols:
-                            \\& Member Symbol
-                            \\
-                        );
+                    if (d.opts.linker_member == .second_linker) {
+                        if (d.element(.@"table-header"))
+                            try w.writeAll(
+                                \\
+                                \\Archive Symbols:
+                                \\& Member Symbol
+                                \\
+                            );
 
                         pos = fr.logicalPos();
                         var symbol_i: u32 = 0;
@@ -373,23 +458,26 @@ const coff = struct {
                             const symbol_name = if (r.takeDelimiter(0) catch |err| switch (err) {
                                 error.StreamTooLong => null,
                                 else => |e| return e,
-                            }) |n| n else return failParse(opts, "unterminated string found in second linker member", .{});
+                            }) |n| n else return d.failParse("unterminated string found in second linker member", .{});
 
-                            try w.print("{x: >8} {s}\n", .{
-                                members.items[symbol_member_indices.items[symbol_i]].offset,
+                            try w.print("{f} {s}\n", .{
+                                fmtIntField(
+                                    d,
+                                    members.items[symbol_member_indices.items[symbol_i]].offset,
+                                    .{ .kind = .va },
+                                ),
                                 symbol_name,
                             });
                         }
 
                         if (symbol_i != num_symbols)
-                            return failParse(
-                                opts,
+                            return d.failParse(
                                 " expected {d} entries in second linker member string table, but found {d}",
                                 .{ num_symbols, symbol_i },
                             );
                     }
 
-                    try w.writeByte('\n');
+                    if (d.element(.newlines)) try w.writeByte('\n');
                     try fr.seekTo(member_end);
                     opt_expected_kind = .longnames;
                     continue;
@@ -401,12 +489,13 @@ const coff = struct {
                         if (dump_header)
                             try w.print("{t: >16} type\n", .{expected_kind});
 
-                        if (opts.linker_member == .longnames) {
-                            try w.print(
-                                \\
-                                \\Longnames (0x{x} bytes):
-                                \\
-                            , .{opt_longnames.?.len});
+                        if (d.opts.linker_member == .longnames) {
+                            if (d.element(.@"table-header"))
+                                try w.print(
+                                    \\
+                                    \\Longnames (0x{x} bytes):
+                                    \\
+                                , .{opt_longnames.?.len});
 
                             var lr = Io.Reader.fixed(opt_longnames.?);
                             while (try lr.takeDelimiter(0)) |str| {
@@ -415,7 +504,7 @@ const coff = struct {
                             }
                         }
 
-                        try w.writeByte('\n');
+                        if (d.element(.newlines)) try w.writeByte('\n');
                     }
 
                     opt_expected_kind = null;
@@ -426,18 +515,18 @@ const coff = struct {
         }
 
         if (opt_expected_kind) |expected_kind| switch (expected_kind) {
-            .first_linker => failParse(opts, "missing first linker member", .{}),
-            .second_linker => failParse(opts, "missing second linker member", .{}),
+            .first_linker => d.failParse("missing first linker member", .{}),
+            .second_linker => d.failParse("missing second linker member", .{}),
             else => {},
         };
 
         for (members.items, 0..) |member, member_i| {
             fr.seekTo(member.offset) catch |err|
-                failParse(opts, "unable to read member {d} at offset 0x{x}: {t}", .{ member_i, member.offset, err });
+                d.failParse("unable to read member {d} at offset 0x{x}: {t}", .{ member_i, member.offset, err });
 
             const raw_header = try r.takeStruct(std.coff.ArchiveMemberHeader, .little);
-            const header: ArchiveHeader = .fromRaw(opts, &raw_header, opt_longnames);
-            if (!filterMatches(opts.member_filters, header.name)) continue;
+            const header: ArchiveHeader = .fromRaw(d, &raw_header, opt_longnames);
+            if (!filterMatches(d.opts.member_filters, header.name)) continue;
 
             const member_sig = try r.peek(4);
             const machine: std.coff.IMAGE.FILE.MACHINE =
@@ -445,17 +534,17 @@ const coff = struct {
             const sig = std.mem.readInt(u16, member_sig[2..4], .little);
 
             const is_imp_lib = machine == std.coff.IMAGE.FILE.MACHINE.UNKNOWN and sig == 0xffff;
-            if (opts.member_headers or (opts.exports and is_imp_lib)) {
-                try dumpArchiveHeader(w, &header, member.offset);
+            if (d.opts.member_headers or (d.opts.exports and is_imp_lib)) {
+                try dumpArchiveHeader(d, &header, member.offset);
                 if (is_imp_lib) {
                     try w.writeAll("\nImport header:\n");
 
                     const imp_header = try r.takeStruct(std.coff.ImportHeader, .little);
-                    try dumpHeader(w, std.coff.ImportHeader, &imp_header, struct {
-                        pub fn sig1(_: *const std.coff.ImportHeader, _: *Io.Writer) !void {}
-                        pub fn sig2(_: *const std.coff.ImportHeader, _: *Io.Writer) !void {}
-                        pub fn types(h: *const std.coff.ImportHeader, cw: *Io.Writer) !void {
-                            try cw.print(
+                    try dumpHeader(d, std.coff.ImportHeader, &imp_header, struct {
+                        pub fn sig1(_: *const DumpContext, _: *const std.coff.ImportHeader) !void {}
+                        pub fn sig2(_: *const DumpContext, _: *const std.coff.ImportHeader) !void {}
+                        pub fn types(id: *const DumpContext, h: *const std.coff.ImportHeader) !void {
+                            try id.w.print(
                                 \\{t: >16} import_type 
                                 \\{t: >16} name_type 
                                 \\
@@ -490,51 +579,53 @@ const coff = struct {
                 } else {
                     try w.writeAll("     COFF object type\n");
                 }
-                try w.writeByte('\n');
+                if (d.element(.newlines)) try w.writeByte('\n');
             }
 
             if (is_imp_lib) continue;
-            if (opts.section_headers or
-                opts.file_headers or
-                opts.relocs or
-                opts.strings or
-                opts.symbols)
+            if (d.opts.section_headers or
+                d.opts.file_headers or
+                d.opts.relocs or
+                d.opts.strings or
+                d.opts.symbols)
             {
-                try w.print("{s}({s}): COFF object\n\n", .{ std.fs.path.basename(opts.input_path), header.name });
-                try dumpObject(gpa, opts, false, header.name, fr, w);
+                if (d.element(.@"file-type"))
+                    try w.print("{s}({s}): COFF object\n\n", .{ std.fs.path.basename(d.opts.input_path), header.name });
+                try dumpObject(d, false, header.name);
             }
         }
     }
 
     fn dumpObject(
-        gpa: std.mem.Allocator,
-        opts: *const Options,
+        d: *const DumpContext,
         is_image: bool,
         obj_name: []const u8,
-        fr: *Io.File.Reader,
-        w: *Io.Writer,
     ) !void {
+        const gpa = d.gpa;
+        const fr = d.fr;
+        const w = d.w;
+
         const file_location = fr.logicalPos();
         const r = &fr.interface;
         const header = r.takeStruct(std.coff.Header, .little) catch |err|
-            return failParse(opts, "unable to read COFF header: {t}", .{err});
+            return d.failParse("unable to read COFF header: {t}", .{err});
 
-        if (opts.file_headers) {
-            try w.writeAll("COFF Header:\n");
-            try dumpHeader(w, std.coff.Header, &header, struct {});
-            try w.writeByte('\n');
+        if (d.opts.file_headers) {
+            if (d.element(.@"header-names")) try w.writeAll("COFF Header:\n");
+            try dumpHeader(d, std.coff.Header, &header, struct {});
+            if (d.element(.newlines)) try w.writeByte('\n');
         }
 
         switch (header.machine) {
-            _ => return failParse(opts, "unknown machine type: {x}", .{header.machine}),
+            _ => return d.failParse("unknown machine type: {x}", .{header.machine}),
             else => {},
         }
 
         var known_dirs: [DIRECTORY_ENTRY.len]std.coff.ImageDataDirectory = undefined;
         const needs_data_dirs =
-            opts.exports or
-            opts.imports or
-            opts.tls;
+            d.opts.exports or
+            d.opts.imports or
+            d.opts.tls;
 
         const ImageInfo = struct {
             data_dirs: []const std.coff.ImageDataDirectory,
@@ -543,12 +634,14 @@ const coff = struct {
         };
 
         const image_info: ?ImageInfo = if (header.size_of_optional_header > 0) image_info: {
-            if (!opts.file_headers and !needs_data_dirs) {
+            if (!d.opts.file_headers and !needs_data_dirs) {
                 try fr.seekBy(header.size_of_optional_header);
                 break :image_info null;
             }
 
-            if (opts.file_headers) try w.writeAll("COFF Optional Header:\n");
+            if (d.opts.file_headers and d.element(.@"header-names"))
+                try w.writeAll("COFF Optional Header:\n");
+
             const magic: std.coff.OptionalHeader.Magic = @enumFromInt(try r.peekInt(u16, .little));
             const num_directory_entries, const image_base = switch (magic) {
                 inline .PE32, .@"PE32+" => |v| num_data_dirs: {
@@ -558,46 +651,46 @@ const coff = struct {
                         std.coff.OptionalHeader.@"PE32+";
 
                     const optional_header = r.takeStruct(OptionalHeader, .little) catch |err|
-                        return failParse(opts, "unable to read optional header: {t}", .{err});
+                        return d.failParse("unable to read optional header: {t}", .{err});
 
-                    if (opts.file_headers) {
-                        try dumpHeader(w, OptionalHeader, &optional_header, struct {
-                            pub fn base_of_code(h: *const std.coff.OptionalHeader, cw: *Io.Writer) !void {
+                    if (d.opts.file_headers) {
+                        try dumpHeader(d, OptionalHeader, &optional_header, struct {
+                            pub fn base_of_code(id: *const DumpContext, h: *const std.coff.OptionalHeader) !void {
                                 const base = @as(*const OptionalHeader, @ptrCast(@alignCast(h))).image_base;
-                                try dumpRvaField(cw, @src().fn_name, h.base_of_code, base);
+                                try dumpRvaField(id, @src().fn_name, h.base_of_code, base);
                             }
 
-                            pub fn address_of_entry_point(h: *const std.coff.OptionalHeader, cw: *Io.Writer) !void {
+                            pub fn address_of_entry_point(id: *const DumpContext, h: *const std.coff.OptionalHeader) !void {
                                 const base = @as(*const OptionalHeader, @ptrCast(@alignCast(h))).image_base;
-                                try dumpRvaField(cw, @src().fn_name, h.base_of_code, base);
+                                try dumpRvaField(id, @src().fn_name, h.base_of_code, base);
                             }
 
-                            pub fn major_linker_version(h: *const std.coff.OptionalHeader, cw: *Io.Writer) !void {
-                                try dumpVersionField(cw, "linker_version", h.major_linker_version, h.minor_linker_version);
+                            pub fn major_linker_version(id: *const DumpContext, h: *const std.coff.OptionalHeader) !void {
+                                try dumpVersionField(id.w, "linker_version", h.major_linker_version, h.minor_linker_version);
                             }
-                            pub fn minor_linker_version(_: *const std.coff.OptionalHeader, _: *Io.Writer) !void {}
+                            pub fn minor_linker_version(_: *const DumpContext, _: *const std.coff.OptionalHeader) !void {}
 
-                            pub fn major_operating_system_version(h: *const OptionalHeader, cw: *Io.Writer) !void {
+                            pub fn major_operating_system_version(id: *const DumpContext, h: *const OptionalHeader) !void {
                                 try dumpVersionField(
-                                    cw,
+                                    id.w,
                                     "operating_system_version",
                                     h.major_operating_system_version,
                                     h.minor_operating_system_version,
                                 );
                             }
-                            pub fn minor_operating_system_version(_: *const OptionalHeader, _: *Io.Writer) !void {}
+                            pub fn minor_operating_system_version(_: *const DumpContext, _: *const OptionalHeader) !void {}
 
-                            pub fn major_image_version(h: *const OptionalHeader, cw: *Io.Writer) !void {
-                                try dumpVersionField(cw, "image_version", h.major_image_version, h.minor_image_version);
+                            pub fn major_image_version(id: *const DumpContext, h: *const OptionalHeader) !void {
+                                try dumpVersionField(id.w, "image_version", h.major_image_version, h.minor_image_version);
                             }
-                            pub fn minor_image_version(_: *const OptionalHeader, _: *Io.Writer) !void {}
+                            pub fn minor_image_version(_: *const DumpContext, _: *const OptionalHeader) !void {}
 
-                            pub fn major_subsystem_version(h: *const OptionalHeader, cw: *Io.Writer) !void {
-                                try dumpVersionField(cw, "subsystem_version", h.major_subsystem_version, h.minor_subsystem_version);
+                            pub fn major_subsystem_version(id: *const DumpContext, h: *const OptionalHeader) !void {
+                                try dumpVersionField(id.w, "subsystem_version", h.major_subsystem_version, h.minor_subsystem_version);
                             }
-                            pub fn minor_subsystem_version(_: *const OptionalHeader, _: *Io.Writer) !void {}
+                            pub fn minor_subsystem_version(_: *const DumpContext, _: *const OptionalHeader) !void {}
                         });
-                        try w.writeByte('\n');
+                        if (d.element(.newlines)) try w.writeByte('\n');
                     }
 
                     break :num_data_dirs .{
@@ -605,24 +698,26 @@ const coff = struct {
                         optional_header.image_base,
                     };
                 },
-                else => return failParse(opts, "invalid optional header magic number: {x}", .{magic}),
+                else => return d.failParse("invalid optional header magic number: {x}", .{magic}),
             };
 
-            if (opts.file_headers) try w.writeAll("Data Directories:\n");
+            if (d.opts.file_headers and d.element(.@"header-names"))
+                try w.writeAll("Data Directories:\n");
+
             for (0..num_directory_entries) |dir_i| {
                 const dir = r.takeStruct(std.coff.ImageDataDirectory, .little) catch |err|
-                    return failParse(opts, "unable to read data directory {x}: {t}", .{ dir_i, err });
+                    return d.failParse("unable to read data directory {x}: {t}", .{ dir_i, err });
 
                 if (dir_i < known_dirs.len)
                     known_dirs[dir_i] = dir;
 
-                if (opts.file_headers)
+                if (d.opts.file_headers)
                     try w.print(
                         "{x: >16} {x: >8} {t}\n",
                         .{ dir.virtual_address, dir.size, @as(DIRECTORY_ENTRY, @enumFromInt(dir_i)) },
                     );
             }
-            if (opts.file_headers) try w.writeByte('\n');
+            if (d.opts.file_headers and d.element(.newlines)) try w.writeByte('\n');
 
             break :image_info .{
                 .data_dirs = known_dirs[0..@min(known_dirs.len, num_directory_entries)],
@@ -630,32 +725,33 @@ const coff = struct {
                 .image_base = image_base,
             };
         } else if (is_image) {
-            return failParse(opts, "image did not contain an optional header", .{});
+            return d.failParse("image did not contain an optional header", .{});
         } else null;
 
         // Section names in images don't use the string table, as they must fit inline in the header
-        const load_string_table = (opts.strings or !is_image) and header.pointer_to_symbol_table > 0;
+        const load_string_table = (d.opts.strings or !is_image) and header.pointer_to_symbol_table > 0;
         const string_table = if (load_string_table) string_table: {
             const pos = fr.logicalPos();
             fr.seekTo(file_location + header.pointer_to_symbol_table + header.number_of_symbols * std.coff.Symbol.sizeOf()) catch |err|
-                return failParse(opts, "unable to seek to string table: {t}", .{err});
+                return d.failParse("unable to seek to string table: {t}", .{err});
 
             const string_table_len = r.peekInt(u32, .little) catch |err|
-                return failParse(opts, "unable to read string table length: {t}", .{err});
+                return d.failParse("unable to read string table length: {t}", .{err});
 
             const table = r.readAlloc(gpa, string_table_len) catch |err|
-                return failParse(opts, "unable to read string table: {t}", .{err});
+                return d.failParse("unable to read string table: {t}", .{err});
 
             try fr.seekTo(pos);
             break :string_table table;
         } else &.{};
         defer gpa.free(string_table);
 
-        if (opts.strings) {
-            try w.print(
-                \\String Table (0x{x} bytes):
-                \\
-            , .{string_table.len});
+        if (d.opts.strings) {
+            if (d.element(.@"table-header"))
+                try w.print(
+                    \\String Table (0x{x} bytes):
+                    \\
+                , .{string_table.len});
 
             var sr = Io.Reader.fixed(string_table[4..]);
             while (try sr.takeDelimiter(0)) |str| {
@@ -663,7 +759,7 @@ const coff = struct {
                 try w.writeByte('\n');
             }
 
-            try w.writeByte('\n');
+            if (d.element(.newlines)) try w.writeByte('\n');
         }
 
         var sections: std.ArrayList(Section) = .empty;
@@ -671,13 +767,13 @@ const coff = struct {
         var sections_with_data: u16 = 0;
 
         const load_sections =
-            opts.section_headers or
-            opts.symbols or
-            opts.relocs or
+            d.opts.section_headers or
+            d.opts.symbols or
+            d.opts.relocs or
             needs_data_dirs;
 
         if (load_sections) {
-            if (opts.section_headers)
+            if (d.opts.section_headers and d.element(.@"table-header"))
                 try w.print(
                     \\Sections in '{s}':
                     \\Num Name          RVA Virt Size Data Size   & Data & Relocs  & Lines # Relocs  # Lines    Flags
@@ -687,37 +783,37 @@ const coff = struct {
             try sections.resize(gpa, header.number_of_sections);
             for (sections.items, 0..) |*section, section_i| {
                 section.header = r.takeStruct(std.coff.SectionHeader, .little) catch |err|
-                    return failParse(opts, "unable to read section header {x}: {t}", .{ section_i, err });
+                    return d.failParse("unable to read section header {x}: {t}", .{ section_i, err });
                 section.name = headerName(&section.header.name, string_table) catch |err| switch (err) {
                     error.Overflow,
                     error.InvalidCharacter,
-                    => return failParse(opts, "unable to parse section name offset '{s}': {t}", .{
+                    => return d.failParse("unable to parse section name offset '{s}': {t}", .{
                         section.name,
                         err,
                     }),
-                    error.OutOfBounds => return failParse(opts, "section name offset '{s}' was out of bounds (>= {x})", .{
+                    error.OutOfBounds => return d.failParse("section name offset '{s}' was out of bounds (>= {x})", .{
                         section.name,
                         string_table.len,
                     }),
                 };
 
                 sections_with_data += @intFromBool(section.header.size_of_raw_data > 0);
-                if (opts.section_headers) {
-                    if (!filterMatches(opts.section_filters, section.name)) continue;
+                if (d.opts.section_headers) {
+                    if (!filterMatches(d.opts.section_filters, section.name)) continue;
                     const raw_name = std.mem.sliceTo(&section.header.name, 0);
                     try w.print(
-                        "{x: >3} {s: <8} {x: >8} {x: >9} {x: >9} {x: >8} {x: >8} {x: >8} {x: >8} {x: >8} {x:0>8} |",
+                        "{x: >3} {s: <8} {f} {f} {f} {f} {f} {f} {f} {f} {x:0>8} |",
                         .{
                             section_i + 1,
                             raw_name,
-                            section.header.virtual_address,
-                            section.header.virtual_size,
-                            section.header.size_of_raw_data,
-                            section.header.pointer_to_raw_data,
-                            section.header.pointer_to_relocations,
-                            section.header.pointer_to_linenumbers,
-                            section.header.number_of_relocations,
-                            section.header.number_of_linenumbers,
+                            fmtIntField(d, section.header.virtual_address, .{ .kind = .va }),
+                            fmtIntField(d, section.header.virtual_size, .{ .kind = .size, .width = 9 }),
+                            fmtIntField(d, section.header.size_of_raw_data, .{ .kind = .size, .width = 9 }),
+                            fmtIntField(d, section.header.pointer_to_raw_data, .{ .kind = .va }),
+                            fmtIntField(d, section.header.pointer_to_relocations, .{ .kind = .va }),
+                            fmtIntField(d, section.header.pointer_to_linenumbers, .{ .kind = .va }),
+                            fmtIntField(d, section.header.number_of_relocations, .{ .kind = .va }),
+                            fmtIntField(d, section.header.number_of_linenumbers, .{ .kind = .va }),
                             @as(u32, @bitCast(section.header.flags)),
                         },
                     );
@@ -730,7 +826,7 @@ const coff = struct {
                 }
             }
 
-            if (opts.section_headers) try w.writeByte('\n');
+            if (d.opts.section_headers and d.element(.newlines)) try w.writeByte('\n');
         }
 
         var symbols: std.ArrayList(struct {
@@ -738,15 +834,15 @@ const coff = struct {
             section_number: std.coff.SectionNumber,
         }) = .empty;
         defer symbols.deinit(gpa);
-        if (opts.relocs)
+        if (d.opts.relocs)
             try symbols.ensureUnusedCapacity(gpa, header.number_of_symbols);
 
-        if (opts.symbols or opts.relocs) {
+        if (d.opts.symbols or d.opts.relocs) {
             if (header.pointer_to_symbol_table > 0) {
                 fr.seekTo(file_location + header.pointer_to_symbol_table) catch |err|
-                    return failParse(opts, "unable to seek to symbol table: {t}", .{err});
+                    return d.failParse("unable to seek to symbol table: {t}", .{err});
 
-                if (opts.symbols)
+                if (d.opts.symbols and d.element(.@"table-header"))
                     try w.print(
                         \\Symbols in '{s}':
                         \\ Ord    Value  Sect Type           Storage   Name
@@ -758,7 +854,7 @@ const coff = struct {
                 while (symbol_i < header.number_of_symbols) {
                     var symbol: std.coff.Symbol = undefined;
                     const symbol_bytes = r.take(symbol_size) catch |err|
-                        return failParse(opts, "unable to read symbol {x}: {t}", .{ symbol_i, err });
+                        return d.failParse("unable to read symbol {x}: {t}", .{ symbol_i, err });
 
                     @memcpy(std.mem.asBytes(&symbol)[0..symbol_size], symbol_bytes);
                     if (native_endian != .little)
@@ -773,7 +869,7 @@ const coff = struct {
                     const name = std.mem.sliceTo(if (std.mem.eql(u8, symbol.name[0..4], "\x00\x00\x00\x00")) name: {
                         const index = std.mem.readInt(u32, symbol.name[4..], .little);
                         if (index >= string_table.len)
-                            return failParse(opts, "invalid name offset for symbol {x} ({x} >= {x})", .{
+                            return d.failParse("invalid name offset for symbol {x} ({x} >= {x})", .{
                                 symbol_i,
                                 index,
                                 string_table.len,
@@ -781,16 +877,19 @@ const coff = struct {
                         break :name string_table[index..];
                     } else &symbol.name, 0);
 
-                    if (opts.relocs)
+                    if (d.opts.relocs)
                         symbols.appendNTimesAssumeCapacity(.{
                             .name = name,
                             .section_number = symbol.section_number,
                         }, 1 + symbol.number_of_aux_symbols);
 
-                    if (!opts.symbols)
+                    if (!d.opts.symbols or !filterMatches(d.opts.symbol_filters, name))
                         continue;
 
-                    try w.print("{x: >4} {x:0>8} ", .{ symbol_i, symbol.value });
+                    try w.print("{f} {x:0>8} ", .{
+                        fmtIntField(d, @as(u16, @intCast(symbol_i)), .{ .kind = .ord }),
+                        symbol.value,
+                    });
                     try switch (symbol.section_number) {
                         .UNDEFINED => w.writeAll("UNDEF"),
                         .ABSOLUTE => w.writeAll("  ABS"),
@@ -814,8 +913,7 @@ const coff = struct {
                         else => null,
                     }) |suffix| try w.writeAll(suffix) else try w.print("{x}", .{symbol.type.complex_type});
 
-                    try w.print("{t: >16} | {s}", .{ symbol.storage_class, name });
-                    try w.writeByte('\n');
+                    try w.print("{t: >16} | {s}\n", .{ symbol.storage_class, name });
 
                     for (0..symbol.number_of_aux_symbols) |aux_i| {
                         _ = aux_i;
@@ -838,8 +936,7 @@ const coff = struct {
                             try w.writeAll("TODO bf / ef aux symbol");
                         } else if (symbol.storage_class == .WEAK_EXTERNAL and symbol.section_number == .UNDEFINED) {
                             if (symbol.value != 0)
-                                return failParse(
-                                    opts,
+                                return d.failParse(
                                     "invalid value 0x{x} for weak external symbol 0x{x}",
                                     .{ symbol.value, symbol_i },
                                 );
@@ -850,13 +947,10 @@ const coff = struct {
                                 std.mem.byteSwapAllFields(std.coff.SectionDefinition, &weak_external);
 
                             if (weak_external.tag_index >= header.number_of_symbols)
-                                return failParse(
-                                    opts,
+                                return d.failParse(
                                     "invalid tag_index 0x{x} for weak external symbol 0x{x}",
                                     .{ weak_external.tag_index, symbol_i },
                                 );
-
-                            // TODO
 
                             try w.print("  Weak External [falls back to {x:0>8} via {t}]", .{
                                 weak_external.tag_index,
@@ -914,8 +1008,8 @@ const coff = struct {
                                 continue;
                             }
 
-                            try w.print("      [size {x:0>8} chksum {x:0>8} relocs {x:0>4} lines {x:0>4}]", .{
-                                section_def.length,
+                            try w.print("      [size {f} chksum {x:0>8} relocs {x:0>4} lines {x:0>4}]", .{
+                                fmtIntField(d, section_def.length, .{ .kind = .size, .zero_fill = true }),
                                 section_def.checksum,
                                 section_def.number_of_relocations,
                                 section_def.number_of_linenumbers,
@@ -930,19 +1024,19 @@ const coff = struct {
                                     try w.writeAll(")");
                                 },
                             }
-                        } else {}
+                        }
 
                         try w.writeByte('\n');
                     }
                 }
 
-                if (opts.symbols) try w.writeByte('\n');
-            } else if (opts.symbols) {
+                if (d.opts.symbols and d.element(.newlines)) try w.writeByte('\n');
+            } else if (d.opts.symbols) {
                 try w.writeAll("No symbol table found\n");
             }
         }
 
-        if (opts.relocs) {
+        if (d.opts.relocs) {
             const relocation_size = std.coff.Relocation.sizeOf();
 
             for (sections.items, 0..) |section, section_i| {
@@ -955,7 +1049,7 @@ const coff = struct {
                 , .{ section_i + 1, section.name, obj_name });
 
                 fr.seekTo(file_location + section.header.pointer_to_relocations) catch |err|
-                    return failParse(opts, "unable to seek to section {x} relocation table: {t}", .{ section_i + 1, err });
+                    return d.failParse("unable to seek to section {x} relocation table: {t}", .{ section_i + 1, err });
 
                 for (0..section.header.number_of_relocations) |reloc_i| {
                     var reloc: std.coff.Relocation = undefined;
@@ -963,7 +1057,13 @@ const coff = struct {
                     if (native_endian != .little)
                         std.mem.byteSwapAllFields(std.coff.Relocation, &reloc);
 
-                    try w.print("{x:0>8} ", .{reloc.virtual_address});
+                    const sym = &symbols.items[reloc.symbol_table_index];
+                    if (!filterMatches(d.opts.symbol_filters, sym.name))
+                        continue;
+
+                    try w.print("{f} ", .{
+                        fmtIntField(d, reloc.virtual_address, .{ .kind = .va, .zero_fill = true }),
+                    });
                     switch (header.machine) {
                         _ => unreachable,
                         inline else => |m| switch (m.RelocationType()) {
@@ -976,20 +1076,18 @@ const coff = struct {
                     }
 
                     if (reloc.symbol_table_index >= symbols.items.len)
-                        return failParse(
-                            opts,
+                        return d.failParse(
                             "reloc {x} in section {x} has out-of-bounds symbol index {x}",
                             .{ reloc_i, section_i + 1, reloc.symbol_table_index },
                         );
 
-                    const sym = &symbols.items[reloc.symbol_table_index];
-                    try w.print("{x: >8}   {f} | {s}\n", .{
-                        reloc.symbol_table_index,
+                    try w.print("{f}   {f} | {s}\n", .{
+                        fmtIntField(d, reloc.symbol_table_index, .{ .kind = .ord }),
                         fmtSectionNumber(sym.section_number),
                         sym.name,
                     });
                 }
-                try w.writeByte('\n');
+                if (d.element(.newlines)) try w.writeByte('\n');
             }
         }
 
@@ -1026,44 +1124,40 @@ const coff = struct {
         } else &.{};
         defer gpa.free(rva_index);
 
-        if (opts.exports) {
-            if (try seekToDataDirectory(opts, fr, w, rva_index, sections.items, image_info.?.data_dirs, .EXPORT)) |section_index| {
+        if (d.opts.exports) {
+            if (try seekToDataDirectory(d, rva_index, sections.items, image_info.?.data_dirs, .EXPORT)) |section_index| {
                 const export_dir = r.takeStruct(std.coff.ExportDirectoryTable, .little) catch |err|
-                    return failParse(opts, "unable to read export directory: {t}", .{err});
+                    return d.failParse("unable to read export directory: {t}", .{err});
 
                 try w.print("Export directory:\n", .{});
-                try dumpHeader(w, std.coff.ExportDirectoryTable, &export_dir, struct {
-                    pub fn major_version(h: *const std.coff.ExportDirectoryTable, cw: *Io.Writer) !void {
-                        try dumpVersionField(cw, "version", h.major_version, h.minor_version);
+                try dumpHeader(d, std.coff.ExportDirectoryTable, &export_dir, struct {
+                    pub fn major_version(id: *const DumpContext, h: *const std.coff.ExportDirectoryTable) !void {
+                        try dumpVersionField(id.w, "version", h.major_version, h.minor_version);
                     }
-                    pub fn minor_version(_: *const std.coff.ExportDirectoryTable, _: *Io.Writer) !void {}
+                    pub fn minor_version(_: *const DumpContext, _: *const std.coff.ExportDirectoryTable) !void {}
                 });
 
                 const section = sections.items[section_index];
                 const name_loc = section.rvaFileOffset(export_dir.name_rva) catch
-                    return failParse(
-                        opts,
+                    return d.failParse(
                         "export name rva 0x{x} was not within the export section",
                         .{export_dir.name_rva},
                     );
 
                 const eat_loc = section.rvaFileOffset(export_dir.export_address_table_rva) catch
-                    return failParse(
-                        opts,
+                    return d.failParse(
                         "export address table rva 0x{x} was not within the export section",
                         .{export_dir.export_address_table_rva},
                     );
 
                 const name_pointer_loc = section.rvaFileOffset(export_dir.name_pointer_table_rva) catch
-                    return failParse(
-                        opts,
+                    return d.failParse(
                         "export name pointer table rva 0x{x} was not within the export section",
                         .{export_dir.name_pointer_table_rva},
                     );
 
                 const ord_loc = section.rvaFileOffset(export_dir.ordinal_table_rva) catch
-                    return failParse(
-                        opts,
+                    return d.failParse(
                         "export ordinal table rva 0x{x} was not within the export section",
                         .{export_dir.ordinal_table_rva},
                     );
@@ -1077,12 +1171,13 @@ const coff = struct {
                 defer gpa.free(dir_slice);
 
                 const dll_name = std.mem.sliceTo(dir_slice[name_loc - dir_loc ..], 0);
-                try w.print(
-                    \\
-                    \\Exports from {s}:
-                    \\ Ord Hint      RVA   Name
-                    \\
-                , .{dll_name});
+                if (d.element(.@"table-header"))
+                    try w.print(
+                        \\
+                        \\Exports from {s}:
+                        \\ Ord Hint      RVA   Name
+                        \\
+                    , .{dll_name});
 
                 const name_pointers = dir_slice[name_pointer_loc - dir_loc ..][0 .. export_dir.number_of_names * @sizeOf(u32)];
                 const ords = dir_slice[ord_loc - dir_loc ..][0 .. export_dir.number_of_names * @sizeOf(u16)];
@@ -1090,18 +1185,24 @@ const coff = struct {
                 const name_rva_to_offset = dir.virtual_address + @sizeOf(std.coff.ExportDirectoryTable);
                 for (0..export_dir.number_of_names) |name_i| {
                     const name_rva = std.mem.readInt(u32, name_pointers[name_i * @sizeOf(u32) ..][0..@sizeOf(u32)], .little);
+                    const name = std.mem.sliceTo(dir_slice[name_rva - name_rva_to_offset ..], 0);
+                    if (!filterMatches(d.opts.symbol_filters, name))
+                        continue;
+
                     const ord = std.mem.readInt(u16, ords[name_i * @sizeOf(u16) ..][0..@sizeOf(u16)], .little);
                     const addr = std.mem.readInt(u32, addrs[@as(u32, ord) * @sizeOf(u32) ..][0..@sizeOf(u32)], .little);
 
-                    try w.print("{x: >4} {x: >4} ", .{ export_dir.ordinal_base + ord, name_i });
+                    try w.print("{f} {f} ", .{
+                        fmtIntField(d, @as(u16, @intCast(export_dir.ordinal_base + ord)), .{ .kind = .ord }),
+                        fmtIntField(d, @as(u16, @intCast(name_i)), .{ .kind = .ord }),
+                    });
                     const is_forwarder = addr >= dir.virtual_address and addr < dir_end_rva;
                     if (is_forwarder) {
                         try w.writeAll("forwards");
                     } else {
-                        try w.print("{x: >8}", .{addr});
+                        try w.print("{f}", .{fmtIntField(d, addr, .{ .kind = .rva })});
                     }
 
-                    const name = std.mem.sliceTo(dir_slice[name_rva - name_rva_to_offset ..], 0);
                     try w.print(" | {s}", .{name});
                     if (is_forwarder)
                         try w.print(" -> {s}", .{std.mem.sliceTo(dir_slice[addr - name_rva_to_offset ..], 0)});
@@ -1110,11 +1211,9 @@ const coff = struct {
             }
         }
 
-        if (opts.imports) {
+        if (d.opts.imports) {
             if (try seekToDataDirectory(
-                opts,
-                fr,
-                w,
+                d,
                 rva_index,
                 sections.items,
                 image_info.?.data_dirs,
@@ -1125,8 +1224,7 @@ const coff = struct {
                 defer directory_entries.deinit(gpa);
                 while (true) {
                     const entry = r.takeStruct(Entry, .little) catch |err|
-                        return failParse(
-                            opts,
+                        return d.failParse(
                             "unable to read import directory entry {x}: {t}",
                             .{ directory_entries.items.len, err },
                         );
@@ -1141,8 +1239,7 @@ const coff = struct {
                         sections.items,
                         entry.name_rva,
                     ) orelse
-                        return failParse(
-                            opts,
+                        return d.failParse(
                             "import directory entry name rva 0x{x} was not found in any section",
                             .{entry.name_rva},
                         );
@@ -1151,8 +1248,7 @@ const coff = struct {
                         entry.name_rva,
                     ) catch unreachable;
                     fr.seekTo(name_loc) catch |err|
-                        return failParse(
-                            opts,
+                        return d.failParse(
                             "unable to seek to import directory entry name at 0x{x}: {t}",
                             .{ name_loc, err },
                         );
@@ -1160,7 +1256,7 @@ const coff = struct {
                     const dll_name = (try r.takeDelimiter(0)).?;
 
                     try w.print("Import table entry for {s}:\n", .{dll_name});
-                    try dumpHeader(w, Entry, &entry, struct {});
+                    try dumpHeader(d, Entry, &entry, struct {});
 
                     try w.print(
                         \\
@@ -1173,8 +1269,7 @@ const coff = struct {
                         sections.items,
                         entry.import_lookup_table_rva,
                     ) orelse
-                        return failParse(
-                            opts,
+                        return d.failParse(
                             "import directory entry ilt rva 0x{x} was not found in any section",
                             .{entry.import_lookup_table_rva},
                         );
@@ -1183,8 +1278,7 @@ const coff = struct {
                         entry.import_lookup_table_rva,
                     ) catch unreachable;
                     fr.seekTo(ilt_loc) catch |err|
-                        return failParse(
-                            opts,
+                        return d.failParse(
                             "unable to seek to import directory ilt at 0x{x}: {t}",
                             .{ ilt_loc, err },
                         );
@@ -1199,8 +1293,7 @@ const coff = struct {
                             defer ilt_entries.deinit(gpa);
                             while (true) {
                                 const table_entry = r.takeStruct(TableEntry, .little) catch |err|
-                                    return failParse(
-                                        opts,
+                                    return d.failParse(
                                         "unable to read ilt entry {s}:{x}: {t}",
                                         .{ dll_name, ilt_entries.items.len, err },
                                     );
@@ -1217,8 +1310,7 @@ const coff = struct {
                                         sections.items,
                                         ilt_entry.payload.hint_name_rva,
                                     ) orelse
-                                        return failParse(
-                                            opts,
+                                        return d.failParse(
                                             "import directory ilt entry 0x{x}'s hint rva 0x{x} was not found in any section",
                                             .{ ilt_entry_i, ilt_entry.payload.hint_name_rva },
                                         );
@@ -1227,22 +1319,19 @@ const coff = struct {
                                         ilt_entry.payload.hint_name_rva,
                                     ) catch unreachable;
                                     fr.seekTo(hint_loc) catch |err|
-                                        return failParse(
-                                            opts,
+                                        return d.failParse(
                                             "unable to seek to ilt entry 0x{x}'s hint at 0x{x}: {t}",
                                             .{ ilt_entry_i, hint_loc, err },
                                         );
 
                                     const hint = r.takeInt(u16, .little) catch |err|
-                                        return failParse(
-                                            opts,
+                                        return d.failParse(
                                             "unable to read import directory ilt entry 0x{x}'s hint: {t}",
                                             .{ ilt_entry_i, err },
                                         );
 
                                     const name = r.takeDelimiter(0) catch |err|
-                                        return failParse(
-                                            opts,
+                                        return d.failParse(
                                             "unable to read import directory ilt entry 0x{x}'s name: {t}",
                                             .{ ilt_entry_i, err },
                                         );
@@ -1250,18 +1339,16 @@ const coff = struct {
                                     try w.print("     {x: >4} | {s}\n", .{ hint, name.? });
                                 }
                             }
-                            try w.writeByte('\n');
+                            if (d.element(.newlines)) try w.writeByte('\n');
                         },
                     }
                 }
             }
         }
 
-        if (opts.tls) {
+        if (d.opts.tls) {
             if (try seekToDataDirectory(
-                opts,
-                fr,
-                w,
+                d,
                 rva_index,
                 sections.items,
                 image_info.?.data_dirs,
@@ -1272,10 +1359,10 @@ const coff = struct {
                     inline else => |m| {
                         const TlsDirectoryEntry = std.coff.TlsDirectoryEntry(m);
                         const tls_entry = r.takeStruct(TlsDirectoryEntry, .little) catch |err|
-                            return failParse(opts, "unable to read tls directory: {t}", .{err});
+                            return d.failParse("unable to read tls directory: {t}", .{err});
 
                         try w.writeAll("TLS Directory:\n");
-                        try dumpHeader(w, TlsDirectoryEntry, &tls_entry, struct {});
+                        try dumpHeader(d, TlsDirectoryEntry, &tls_entry, struct {});
 
                         try w.writeAll("               | ");
                         if (tls_entry.characteristics.alignment == .NONE) {
@@ -1301,8 +1388,7 @@ const coff = struct {
                             sections.items,
                             callbacks_rva,
                         ) orelse
-                            return failParse(
-                                opts,
+                            return d.failParse(
                                 "tls callbacks rva 0x{x} was not found in any section",
                                 .{callbacks_rva},
                             );
@@ -1311,24 +1397,22 @@ const coff = struct {
                             .rvaFileOffset(callbacks_rva) catch unreachable;
 
                         fr.seekTo(callbacks_loc) catch |err|
-                            return failParse(
-                                opts,
+                            return d.failParse(
                                 "unable to seek to tls callbacks array at offset 0x{x}: {t}",
                                 .{ callbacks_loc, err },
                             );
 
                         while (true) {
                             const callback_va = r.takeInt(@FieldType(TlsDirectoryEntry, "callbacks_va"), .little) catch |err|
-                                return failParse(
-                                    opts,
+                                return d.failParse(
                                     "unable to read tls callbacks array: {t}",
                                     .{err},
                                 );
 
-                            try w.print("{x: >16} \n", .{callback_va});
+                            try w.print("{f}\n", .{fmtIntField(d, callback_va, .{ .kind = .va })});
                             if (callback_va == 0) break;
                         }
-                        try w.writeByte('\n');
+                        if (d.element(.newlines)) try w.writeByte('\n');
                     },
                 }
             }
@@ -1336,9 +1420,7 @@ const coff = struct {
     }
 
     fn seekToDataDirectory(
-        opts: *const Options,
-        fr: *Io.File.Reader,
-        w: *Io.Writer,
+        d: *const DumpContext,
         rva_index: []const u16,
         sections: []const Section,
         data_dirs: []const std.coff.ImageDataDirectory,
@@ -1349,16 +1431,14 @@ const coff = struct {
             if (rva == 0) break :blk;
 
             const section_index = sectionContainingRva(rva_index, sections, rva) orelse
-                return failParse(
-                    opts,
+                return d.failParse(
                     "{t} directory rva 0x{x} was not found in any section",
                     .{ entry, rva },
                 );
 
             const file_offset = sections[section_index].rvaFileOffset(rva) catch unreachable;
-            fr.seekTo(file_offset) catch |err|
-                return failParse(
-                    opts,
+            d.fr.seekTo(file_offset) catch |err|
+                return d.failParse(
                     "unable to seek to {t} directory at offset 0x{x}: {t}",
                     .{ entry, file_offset, err },
                 );
@@ -1366,7 +1446,7 @@ const coff = struct {
             return section_index;
         }
 
-        try w.print("{t} directory was not present in optional header\n", .{entry});
+        try d.w.print("{t} directory was not present in optional header\n", .{entry});
         return null;
     }
 
@@ -1382,19 +1462,18 @@ const coff = struct {
 
             fn order(ctx: @This(), section_index: u16) std.math.Order {
                 const h = &ctx.sections[section_index].header;
-                const start = h.virtual_address;
-                if (ctx.rva < start) return .lt;
+                if (ctx.rva < h.virtual_address) return .lt;
                 const end = h.virtual_address + h.size_of_raw_data;
                 if (ctx.rva >= end) return .gt;
                 return .eq;
             }
         };
 
-        const index = std.sort.binarySearch(u16, indices, Context{
+        const indices_index = std.sort.binarySearch(u16, indices, Context{
             .rva = rva,
             .sections = sections,
         }, Context.order) orelse return null;
-        return @intCast(index);
+        return @intCast(indices[indices_index]);
     }
 
     fn headerName(raw: *const [8]u8, string_table: []const u8) ![]const u8 {
@@ -1427,6 +1506,40 @@ const coff = struct {
         };
     }
 
+    const FormatIntField = struct {
+        val: ?u64,
+        width: usize,
+        zero_fill: bool,
+    };
+
+    fn fmtIntField(
+        d: *const DumpContext,
+        val: anytype,
+        params: struct {
+            kind: ?FieldKind = null,
+            width: ?usize = null,
+            zero_fill: bool = false,
+        },
+    ) std.fmt.Alt(FormatIntField, intFieldString) {
+        return .{
+            .data = .{
+                .val = if (d.redacted(params.kind)) null else val,
+                .width = params.width orelse @typeInfo(@TypeOf(val)).int.bits / 4,
+                .zero_fill = params.zero_fill,
+            },
+        };
+    }
+
+    fn intFieldString(field: FormatIntField, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        if (field.val) |val| {
+            try w.printInt(val, 16, .lower, .{
+                .width = field.width,
+                .alignment = .right,
+                .fill = if (field.zero_fill) '0' else ' ',
+            });
+        } else try w.splatByteAll('x', field.width);
+    }
+
     fn dumpFlags(w: *Io.Writer, comptime fmt: []const u8, comptime T: type, flags: *const T, cols: u32) !void {
         const s = @typeInfo(T).@"struct";
         inline for (s.fields) |flag_field| {
@@ -1437,33 +1550,53 @@ const coff = struct {
         }
     }
 
-    fn dumpArchiveHeader(w: *Io.Writer, header: *const ArchiveHeader, pos: u32) !void {
-        try w.print("Archive member at offset 0x{x}: '{s}'\n", .{ pos, header.name });
-        try dumpHeader(w, ArchiveHeader, header, struct {
-            pub fn name(_: *const ArchiveHeader, _: *Io.Writer) !void {}
-            pub fn file_mode(h: *const ArchiveHeader, cw: *Io.Writer) !void {
-                try cw.print("{o: >16} file_mode\n", .{h.file_mode});
+    fn dumpArchiveHeader(d: *const DumpContext, header: *const ArchiveHeader, pos: u32) !void {
+        try d.w.print("Archive member at offset 0x{x}: '{s}'\n", .{ pos, header.name });
+        try dumpHeader(d, ArchiveHeader, header, struct {
+            pub fn name(_: *const DumpContext, _: *const ArchiveHeader) !void {}
+            pub fn file_mode(id: *const DumpContext, h: *const ArchiveHeader) !void {
+                try id.w.print("{o: >16} file_mode\n", .{h.file_mode});
             }
         });
     }
 
-    fn dumpHeader(w: *Io.Writer, comptime T: type, header: *const T, Custom: type) !void {
+    fn fieldKind(name: []const u8) ?FieldKind {
+        if (std.mem.endsWith(u8, name, "_rva"))
+            return .rva;
+        if (std.mem.endsWith(u8, name, "_va") or
+            std.mem.endsWith(u8, name, "_address") or
+            std.mem.startsWith(u8, name, "pointer_"))
+            return .va;
+        if (std.mem.startsWith(u8, name, "number_"))
+            return .size;
+        return null;
+    }
+
+    fn dumpHeader(
+        d: *const DumpContext,
+        comptime T: type,
+        header: *const T,
+        Custom: type,
+    ) !void {
         inline for (@typeInfo(T).@"struct".fields) |field| {
             const val = &@field(header, field.name);
             if (@hasDecl(Custom, field.name)) {
-                try @field(Custom, field.name)(header, w);
+                try @field(Custom, field.name)(d, header);
             } else {
                 switch (@typeInfo(field.type)) {
-                    .int => try w.print("{x: >16} {s}\n", .{ val.*, field.name }),
-                    .@"enum" => try w.print("{x: >16} {s} ({t})\n", .{ val.*, field.name, val.* }),
+                    .int => try d.w.print("{f} {s}\n", .{ fmtIntField(d, val.*, .{
+                        .kind = comptime fieldKind(field.name),
+                        .width = 16,
+                    }), field.name }),
+                    .@"enum" => try d.w.print("{x: >16} {s} ({t})\n", .{ val.*, field.name, val.* }),
                     .@"struct" => |s| {
                         switch (s.layout) {
                             .auto,
                             .@"extern",
-                            => try dumpHeader(w, field.type, val, Custom),
+                            => try dumpHeader(d, field.type, val, Custom),
                             .@"packed" => {
-                                try w.print("{x: >16} {s}\n", .{ @as(s.backing_integer.?, @bitCast(val.*)), field.name });
-                                try dumpFlags(w, "| {s}\n", field.type, val, 15);
+                                try d.w.print("{x: >16} {s}\n", .{ @as(s.backing_integer.?, @bitCast(val.*)), field.name });
+                                try dumpFlags(d.w, "| {s}\n", field.type, val, 15);
                             },
                         }
                     },
@@ -1477,8 +1610,12 @@ const coff = struct {
         try w.print("{d: >13}.{x:0<2} {s}\n", .{ major, minor, name });
     }
 
-    fn dumpRvaField(w: *Io.Writer, name: []const u8, rva: u64, base: u64) !void {
-        try w.print("{x: >16} {s} ({x})\n", .{ rva, name, base + rva });
+    fn dumpRvaField(d: *const DumpContext, name: []const u8, rva: u64, base: u64) !void {
+        try d.w.print("{f} {s} ({f})\n", .{
+            fmtIntField(d, rva, .{ .kind = .rva }),
+            name,
+            fmtIntField(d, base + rva, .{ .kind = .va }),
+        });
     }
 };
 
@@ -1492,18 +1629,32 @@ const usage =
     \\Usage: zig objdump [options] file
     \\
     \\Options:
-    \\  -h, --help                              Print this help and exit
-    \\  --all-headers                           Alias for --file-headers --member-headers --section-headers --relocs --symbols
-    \\  --file-headers                          Display file-format specific headers
-    \\  --imports                               Display imported symbols
-    \\  --exports                               Display exported symbols
-    \\  --linker-member[=1|2|longnames]         (Coff) Display contents of the specified linker member (default 2)
-    \\  --member-headers                        Display archive member headers
-    \\  --only-member=[name]                    Only consider archive members names that contain [name]. Can be specified multiple times.
-    \\  --only-section=[name]                   Only consider section names that contain [name]. Can be specified multiple times.
-    \\  --relocs                                Display relocations
-    \\  --section-headers                       Display section headers
-    \\  --strings                               Display string tables
-    \\  --symbols                               Display symbol tables
-    \\  --tls                                   Display TLS information
+    \\  -h, --help                         Print this help and exit
+    \\  --all-headers                      Alias for --file-headers --member-headers --section-headers --relocs --symbols
+    \\  --file-headers                     Display file-format specific headers
+    \\  --imports                          Display imported symbols
+    \\  --exports                          Display exported symbols
+    \\  --linker-member[=1|2|longnames]    (Coff) Display contents of the specified archive linker member (default 2)
+    \\  --member-headers                   Display archive member headers
+    \\  --redact=[kind]                    Redact the specified field kind. Intended for snapshot testing.
+    \\      rva                            Relative virtual addresses
+    \\      va                             Virtual addresses and file offsets
+    \\      ord                            Symbol ordinals / hints
+    \\      size                           Sizes and lengths
+    \\      all                            All of the above
+    \\  --omit-element=[kind]              Omit specific parts of the output. Intended for snapshot testing.
+    \\      file-type                      File type summary
+    \\      table-headers                  Table headers with column names
+    \\      header-names                   Name that precedes a header block     
+    \\      newlines                       Newlines between output sections
+    \\      all                            All of the above
+    \\  --only-member=[name]               Only consider archive members names that contain [name]. Can be specified multiple times.
+    \\  --only-section=[name]              Only consider section names that contain [name]. Can be specified multiple times.
+    \\  --only-symbol=[name]               Only consider symbol names that contain [name]. Can be specified multiple times.
+    \\  --relocs                           Display relocations
+    \\  -s, --snapshot                     Alias for --redact=all --omit-format=all
+    \\  --section-headers                  Display section headers
+    \\  --strings                          Display string tables
+    \\  --symbols                          Display symbol tables
+    \\  --tls                              Display TLS information
 ;

@@ -5,21 +5,29 @@ target: std.Build.ResolvedTarget,
 use_llvm: bool,
 use_lld: bool,
 link_libc: bool,
-suffix: []const u8,
 test_filters: []const []const u8,
+update_step: ?*Step.UpdateSourceFiles,
+updated_snapshots: std.StringArrayHashMapUnmanaged(void),
 max_rss: usize,
 
-pub fn addTestStep(self: *const Link, prefix: []const u8) ?[]const u8 {
+pub fn includeTest(self: *const Link, prefix: []const u8) ?[]const u8 {
     if (for (self.test_filters) |filter| {
         if (std.mem.containsAtLeast(u8, prefix, 1, filter)) break false;
     } else self.test_filters.len > 0) return null;
-
-    return std.fmt.allocPrint(self.b.allocator, "test-{s}", .{prefix}) catch @panic("OOM");
+    return prefix;
 }
 
-pub fn addStaticLibrary(self: *const Link, overlay: OverlayOptions) *Step.Compile {
+pub fn sourcePath(self: *const Link, sub_path: []const u8) std.Build.LazyPath {
+    return self.b.path(self.b.pathJoin(&.{ "test/link", sub_path }));
+}
+
+pub fn addLibrary(
+    self: *const Link,
+    linkage: std.builtin.LinkMode,
+    overlay: OverlayOptions,
+) *Step.Compile {
     return self.b.addLibrary(.{
-        .linkage = .static,
+        .linkage = linkage,
         .name = overlay.name,
         .root_module = self.createModule(overlay),
         .use_llvm = self.use_llvm,
@@ -27,7 +35,6 @@ pub fn addStaticLibrary(self: *const Link, overlay: OverlayOptions) *Step.Compil
     });
 }
 
-// TODO: Use std.meta.FieldEnum on TargetQuery?
 const SnapshotScope = packed struct {
     arch: bool = false,
     os: bool = false,
@@ -38,33 +45,44 @@ const SnapshotScope = packed struct {
     link_libc: bool = false,
 };
 
+/// Verify the results of a `zig objdump` call against a snapshot, which
+/// contains the expected output. Snapshots alias between all build
+/// configurations by default, but by specifying fields in `scope`,
+/// unique snapshot names are generated for each value of that field.
 pub fn verifyObjdump(
-    self: *const Link,
-    name: []const u8,
+    self: *Link,
+    prefix: []const u8,
     compile: *Step.Compile,
     args: []const []const u8,
     scope: SnapshotScope,
 ) void {
-    const snapshot_name = self.snapshotName(name, compile.name, scope) catch @panic("OOM");
+    const snapshot_name = self.snapshotName(prefix, compile.name, scope) catch @panic("OOM");
+    const snapshot_sub_path = self.b.pathJoin(&.{ "test/link/snapshots/", snapshot_name });
+
+    // Many tests may read the same snapshot, so only use the first one to update.
+    // If there are differences in output, they will show up on the next test run.
+    if (self.update_step != null) {
+        const gop = self.updated_snapshots.getOrPut(self.b.allocator, snapshot_sub_path) catch @panic("OOM");
+        if (gop.found_existing) return;
+    }
+
     const run_step = Step.Run.create(self.b, self.b.fmt("objdump {s}", .{snapshot_name}));
     run_step.addArgs(&.{ self.b.graph.zig_exe, "objdump" });
     run_step.addArtifactArg(compile);
     run_step.addArgs(args);
     run_step.addCheck(.{ .expect_term = .{ .exited = 0 } });
 
-    const actual_path = run_step.captureStdOut(.{ .trim_whitespace = .none });
-    const expected_path = self.b.path(self.b.pathJoin(&.{ "test/link/snapshots/", snapshot_name }));
+    if (self.update_step) |update_step| {
+        // Workaround for the build system not realizing objdump itself has changed
+        run_step.has_side_effects = true;
 
-    const check_step = self.b.addCheckFile(actual_path, .{
-        .expected_file = .{
-            .file = expected_path,
-            .if_missing = .fail,
-            // TODO: Option to do UpdateSourceFiles if not matching / missing?
-            // TODO: Option to output to <name>-<self.suffix>.actual.dmp file?
-        },
-    });
+        const snapshot_update_path = run_step.captureStdOut(.{});
+        update_step.addCopyFileToSource(snapshot_update_path, snapshot_sub_path);
+    } else {
+        run_step.addCheck(.{ .snapshot = .{ .file = self.b.path(snapshot_sub_path) } });
+    }
 
-    self.step.dependOn(&check_step.step);
+    self.step.dependOn(&run_step.step);
 }
 
 fn snapshotName(
@@ -81,9 +99,9 @@ fn snapshotName(
     if (scope.os) try w.print("-{t}", .{self.target.result.os.tag});
     if (scope.abi) try w.print("-{t}", .{self.target.result.abi});
     if (scope.optimize) try w.print("-{t}", .{self.optimize});
-    if (scope.use_llvm and self.use_llvm) try w.writeAll("-llvm");
-    if (scope.use_lld and self.use_lld) try w.writeAll("-lld");
-    if (scope.link_libc and self.link_libc) try w.writeAll("-libc");
+    if (scope.use_llvm) try w.writeAll(if (self.use_llvm) "-llvm" else "-no-llvm");
+    if (scope.use_lld) try w.writeAll(if (self.use_lld) "-lld" else "-no-lld");
+    if (scope.link_libc) try w.writeAll(if (self.link_libc) "-libc" else "-no-libc");
     try w.writeAll(".dmp");
 
     return try snapshot_name.toOwnedSlice();
@@ -95,7 +113,7 @@ fn createModule(self: *const Link, overlay: OverlayOptions) *Build.Module {
     const mod = self.b.createModule(.{
         .target = self.target,
         .optimize = self.optimize,
-        .root_source_file = rsf: {
+        .root_source_file = overlay.zig_source_file orelse rsf: {
             const bytes = overlay.zig_source_bytes orelse break :rsf null;
             const name = self.b.fmt("{s}.zig", .{overlay.name});
             break :rsf write_files.add(name, bytes);
@@ -148,6 +166,7 @@ const OverlayOptions = struct {
     objcpp_source_bytes: ?[]const u8 = null,
     objcpp_source_flags: []const []const u8 = &.{},
     zig_source_bytes: ?[]const u8 = null,
+    zig_source_file: ?std.Build.LazyPath = null,
     pic: ?bool = null,
     strip: ?bool = null,
 };

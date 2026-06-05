@@ -3148,6 +3148,11 @@ const LinkTestOptions = struct {
 
 pub fn addLinkTests(b: *std.Build, options: LinkTestOptions) *Step {
     const step = b.step("test-link", "Run the linker tests");
+    const update_snapshots = b.option(
+        bool,
+        "link-snapshot-update",
+        "Update linker test snapshots in-place instead of testing against them",
+    ) orelse false;
 
     for (link_targets) |link_target| {
         if (options.skip_non_native and !link_target.target.isNative()) continue;
@@ -3168,24 +3173,34 @@ pub fn addLinkTests(b: *std.Build, options: LinkTestOptions) *Step {
             if (options.skip_llvm and would_use_llvm) continue;
             if (link_target.link_libc and target.abi == .msvc and b.graph.host.result.os.tag != .windows) continue;
 
-            link.addCases(.{
+            const opt_update_step = if (update_snapshots) update: {
+                const update_step = Step.UpdateSourceFiles.create(b);
+                step.dependOn(&update_step.step);
+                break :update update_step;
+            } else null;
+
+            var context: LinkContext = .{
                 .b = b,
                 .step = step,
                 .optimize = optimize_mode,
                 .target = resolved_target,
-                .suffix = std.fmt.allocPrint(b.allocator, "{s}-{t}{s}{s}{s}", .{
-                    target.zigTriple(b.allocator) catch @panic("OOM"),
-                    optimize_mode,
-                    if (link_target.use_llvm) "-llvm" else "",
-                    if (link_target.use_lld) "-lld" else "",
-                    if (link_target.link_libc) "-libc" else "",
-                }) catch @panic("OOM"),
+                // .suffix = std.fmt.allocPrint(b.allocator, "{s}-{t}{s}{s}{s}", .{
+                //     target.zigTriple(b.allocator) catch @panic("OOM"),
+                //     optimize_mode,
+                //     if (link_target.use_llvm) "-llvm" else "",
+                //     if (link_target.use_lld) "-lld" else "",
+                //     if (link_target.link_libc) "-libc" else "",
+                // }) catch @panic("OOM"),
                 .use_llvm = link_target.use_llvm,
                 .use_lld = link_target.use_lld,
                 .link_libc = link_target.link_libc,
                 .test_filters = options.test_filters,
+                .update_step = opt_update_step,
+                .updated_snapshots = .empty,
                 .max_rss = options.max_rss,
-            });
+            };
+
+            link.addCases(&context);
         }
     }
     return step;

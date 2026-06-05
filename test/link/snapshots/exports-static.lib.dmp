@@ -1,0 +1,3 @@
+xxxx 00000000     4 NULL()        EXTERNAL | foo_fn
+xxxx 00000000     2 NULL          EXTERNAL | foo_var
+xxxx 00000008     3 NULL          EXTERNAL | foo_const

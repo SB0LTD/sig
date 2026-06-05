@@ -1,17 +1,30 @@
-pub fn addCases(cases: @import("tests.zig").LinkContext) void {
-    if (cases.addTestStep("static-lib-exports")) |name| {
-        const lib = cases.addStaticLibrary(.{
+pub fn addCases(ctx: *@import("tests.zig").LinkContext) void {
+    if (ctx.includeTest("exports-static")) |prefix| {
+        const lib = ctx.addLibrary(.static, .{
             .name = "lib",
-            .zig_source_bytes =
-            \\export fn foo() void {}
-            \\var bar: u32 = 1234;
-            \\comptime { @export(&bar, .{ .name = "bar", .linkage = .strong }); }
-            \\const baz: u64 = 5678;
-            \\comptime { @export(&baz, .{ .name = "baz", .linkage = .strong }); }
-            ,
+            .zig_source_file = ctx.sourcePath("exports.zig"),
         });
-        cases.verifyObjdump(name, lib, &.{"--symbols"}, .{ .os = true });
+        ctx.verifyObjdump(prefix, lib, &.{
+            "-s",
+            "--symbols",
+            "--only-symbol=foo",
+        }, .{});
     }
+
+    if (ctx.includeTest("exports-dynamic")) |prefix| {
+        const lib = ctx.addLibrary(.dynamic, .{
+            .name = "lib",
+            .zig_source_file = ctx.sourcePath("exports.zig"),
+        });
+        ctx.verifyObjdump(prefix, lib, &.{
+            "-s",
+            "--exports",
+            "--only-symbol=foo",
+        }, .{});
+    }
+
+
+
 }
 
 const std = @import("std");

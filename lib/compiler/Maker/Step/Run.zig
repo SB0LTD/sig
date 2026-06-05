@@ -2118,6 +2118,47 @@ fn runCommand(
                     });
                 }
             }
+            const snapshots: []const ?struct {
+                path: Cache.Path,
+                result: enum { stderr, stdout },
+            } = &.{
+                if (conf_run.expect_stderr_snapshot.value) |path| .{
+                    .path = try maker.resolveLazyPathIndex(arena, path, run_index),
+                    .result = .stderr,
+                } else null,
+                if (conf_run.expect_stdout_snapshot.value) |path| .{
+                    .path = try maker.resolveLazyPathIndex(arena, path, run_index),
+                    .result = .stdout,
+                } else null,
+            };
+            for (snapshots) |opt_snapshot| {
+                const snapshot = opt_snapshot orelse continue;
+
+                const file = snapshot.path.root_dir.handle.openFile(io, snapshot.path.sub_path, .{}) catch |err|
+                    return step.fail(maker, "unable to open snapshot file {f}: {t}", .{ snapshot.path, err });
+                defer file.close(io);
+
+                var file_reader = file.reader(io, &.{});
+                const snapshot_contents = file_reader.interface.allocRemaining(gpa, .unlimited) catch |err|
+                    return step.fail(maker, "unable to read snapshot file {f}: {t}", .{ snapshot.path, err });
+                defer gpa.free(snapshot_contents);
+
+                const result = switch (snapshot.result) {
+                    .stdout => generic_result.stdout.?,
+                    .stderr => generic_result.stderr.?,
+                };
+                if (!mem.eql(u8, snapshot_contents, result)) {
+                    return step.fail(maker,
+                        \\
+                        \\========= snapshot file: =========
+                        \\{f}
+                        \\========= contained: =============
+                        \\{s}
+                        \\========= {t} output was: ========
+                        \\{s}
+                    , .{ snapshot.path, snapshot_contents, snapshot.result, result });
+                }
+            }
         },
         else => {
             // On failure, report captured stderr like normal standard error output.
@@ -2301,11 +2342,15 @@ fn setColorEnvironmentVariables(
 }
 
 fn checksContainStdout(conf_run: *const Configuration.Step.Run) bool {
-    return conf_run.expect_stdout_exact.value != null or conf_run.expect_stdout_match.slice.len != 0;
+    return conf_run.expect_stdout_exact.value != null or
+        conf_run.expect_stdout_match.slice.len != 0 or
+        conf_run.expect_stdout_snapshot.value != null;
 }
 
 fn checksContainStderr(conf_run: *const Configuration.Step.Run) bool {
-    return conf_run.expect_stderr_exact.value != null or conf_run.expect_stderr_match.slice.len != 0;
+    return conf_run.expect_stderr_exact.value != null or
+        conf_run.expect_stderr_match.slice.len != 0 or
+        conf_run.expect_stderr_snapshot.value != null;
 }
 
 /// If `path` is absolute, return it unchanged. If `make_absolute` is true, make it absolute.
