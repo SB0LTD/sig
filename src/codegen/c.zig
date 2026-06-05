@@ -1977,9 +1977,9 @@ pub const DeclGen = struct {
         }
         switch (CType.classifyInt(ty, zcu)) {
             .void => unreachable, // opv
-            .small => try w.print("{c}{d}", .{
+            .small => |s| try w.print("{c}{d}", .{
                 signAbbrev(ty.intInfo(zcu).signedness),
-                ty.abiSize(zcu) * 8,
+                s.bits(zcu.getTarget()),
             }),
             .big => try w.writeAll("big"),
         }
