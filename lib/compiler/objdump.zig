@@ -76,12 +76,14 @@ pub fn main(init: std.process.Init) !void {
                 return Io.File.stdout().writeStreamingAll(io, usage);
             } else if (mem.eql(u8, arg, "--all-headers")) {
                 opt_file_headers = true;
+                opt_linker_member = .second_linker;
                 opt_member_headers = true;
                 opt_section_headers = true;
                 opt_symbols = true;
                 opt_relocs = true;
             } else if (mem.eql(u8, arg, "--exports")) {
                 opt_exports = true;
+                opt_linker_member = .second_linker;
             } else if (mem.eql(u8, arg, "--file-headers")) {
                 opt_file_headers = true;
             } else if (mem.eql(u8, arg, "--imports")) {
@@ -551,12 +553,21 @@ const coff = struct {
             const sig = std.mem.readInt(u16, member_sig[2..4], .little);
 
             const is_imp_lib = machine == std.coff.IMAGE.FILE.MACHINE.UNKNOWN and sig == 0xffff;
-            if (d.opts.member_headers or (d.opts.exports and is_imp_lib)) {
+            if (d.opts.member_headers)
                 try dumpArchiveHeader(d, &header, member.offset);
-                if (is_imp_lib) {
-                    try w.writeAll("\nImport header:\n");
 
+            if (d.opts.member_headers or (d.opts.exports and is_imp_lib)) {
+                if (is_imp_lib) {
                     const imp_header = try r.takeStruct(std.coff.ImportHeader, .little);
+                    const sym_name = (try r.takeDelimiter(0)).?;
+                    const imp_dll = (try r.takeDelimiter(0)).?;
+
+                    if (!filterMatches(d.opts.symbol_filters, sym_name))
+                        continue;
+
+                    if (d.element(.@"header-name"))
+                        try w.writeAll("\nImport header:\n");
+
                     try dumpHeader(d, std.coff.ImportHeader, &imp_header, struct {
                         pub fn sig1(_: *const DumpContext, _: *const std.coff.ImportHeader) !void {}
                         pub fn sig2(_: *const DumpContext, _: *const std.coff.ImportHeader) !void {}
@@ -569,8 +580,6 @@ const coff = struct {
                         }
                     });
 
-                    const sym_name = (try r.takeDelimiter(0)).?;
-                    const imp_dll = (try r.takeDelimiter(0)).?;
                     const imp_name = imp_name: switch (imp_header.types.name_type) {
                         .NAME_NOPREFIX,
                         .NAME_UNDECORATE,
@@ -847,7 +856,7 @@ const coff = struct {
 
                     try dumpFlags(w, "{s}", std.coff.SectionHeader.Flags, &section.header.flags, 1);
                     if (section.name.len > 8)
-                        try w.print("| {s}", .{section.name});
+                        try w.print("\n  | {s}", .{section.name});
 
                     try w.writeByte('\n');
                 }
@@ -861,6 +870,10 @@ const coff = struct {
             section_number: std.coff.SectionNumber,
         }) = .empty;
         defer symbols.deinit(gpa);
+
+        var name_arena: std.heap.ArenaAllocator = .init(gpa);
+        defer name_arena.deinit();
+
         if (d.opts.relocs)
             try symbols.ensureUnusedCapacity(gpa, header.number_of_symbols);
 
@@ -893,7 +906,7 @@ const coff = struct {
                         &.{};
                     defer symbol_i += symbol.number_of_aux_symbols + 1;
 
-                    const name = std.mem.sliceTo(if (std.mem.eql(u8, symbol.name[0..4], "\x00\x00\x00\x00")) name: {
+                    const name = if (std.mem.eql(u8, symbol.name[0..4], "\x00\x00\x00\x00")) name: {
                         const index = std.mem.readInt(u32, symbol.name[4..], .little);
                         if (index >= string_table.len)
                             return d.failParse("invalid name offset for symbol {x} ({x} >= {x})", .{
@@ -901,8 +914,8 @@ const coff = struct {
                                 index,
                                 string_table.len,
                             });
-                        break :name string_table[index..];
-                    } else &symbol.name, 0);
+                        break :name std.mem.sliceTo(string_table[index..], 0);
+                    } else try name_arena.allocator().dupe(u8, std.mem.sliceTo(&symbol.name, 0));
 
                     if (d.opts.relocs)
                         symbols.appendNTimesAssumeCapacity(.{
@@ -1152,8 +1165,17 @@ const coff = struct {
         } else &.{};
         defer gpa.free(rva_index);
 
-        if (d.opts.exports) {
-            if (try seekToDataDirectory(d, rva_index, sections.items, image_info.?.data_dirs, .EXPORT)) |section_index| {
+        if (d.opts.exports) exports: {
+            if (try seekToDataDirectory(
+                d,
+                rva_index,
+                sections.items,
+                (image_info orelse {
+                    try w.writeAll("COFF objects do not contain an export data directory");
+                    break :exports;
+                }).data_dirs,
+                .EXPORT,
+            )) |section_index| {
                 const export_dir = r.takeStruct(std.coff.ExportDirectoryTable, .little) catch |err|
                     return d.failParse("unable to read export directory: {t}", .{err});
 
@@ -1239,12 +1261,15 @@ const coff = struct {
             }
         }
 
-        if (d.opts.imports) {
+        if (d.opts.imports) imports: {
             if (try seekToDataDirectory(
                 d,
                 rva_index,
                 sections.items,
-                image_info.?.data_dirs,
+                (image_info orelse {
+                    try w.writeAll("COFF objects do not contain an import data directory");
+                    break :imports;
+                }).data_dirs,
                 .IMPORT,
             )) |_| {
                 const Entry = std.coff.ImportDirectoryEntry;
@@ -1374,12 +1399,15 @@ const coff = struct {
             }
         }
 
-        if (d.opts.tls) {
+        if (d.opts.tls) tls: {
             if (try seekToDataDirectory(
                 d,
                 rva_index,
                 sections.items,
-                image_info.?.data_dirs,
+                (image_info orelse {
+                    try w.writeAll("COFF objects do not contain a TLS data directory");
+                    break :tls;
+                }).data_dirs,
                 .TLS,
             )) |_| {
                 switch (image_info.?.magic) {
@@ -1579,7 +1607,8 @@ const coff = struct {
     }
 
     fn dumpArchiveHeader(d: *const DumpContext, header: *const ArchiveHeader, pos: u32) !void {
-        try d.w.print("Archive member at offset 0x{x}: '{s}'\n", .{ pos, header.name });
+        if (d.element(.@"header-name"))
+            try d.w.print("Archive member at offset 0x{x}: '{s}'\n", .{ pos, header.name });
         try dumpHeader(d, ArchiveHeader, header, struct {
             pub fn name(_: *const DumpContext, _: *const ArchiveHeader) !void {}
             pub fn file_mode(id: *const DumpContext, h: *const ArchiveHeader) !void {
@@ -1595,7 +1624,8 @@ const coff = struct {
             std.mem.endsWith(u8, name, "_address") or
             std.mem.startsWith(u8, name, "pointer_"))
             return .va;
-        if (std.mem.startsWith(u8, name, "number_"))
+        if (std.mem.startsWith(u8, name, "number_") or
+            std.mem.startsWith(u8, name, "size"))
             return .size;
         return null;
     }
@@ -1658,8 +1688,8 @@ const usage =
     \\
     \\Options:
     \\  -h, --help                         Print this help and exit
-    \\  --all-headers                      Alias for --file-headers --member-headers --section-headers --relocs --symbols
-    \\  --exports                          Display exported symbols
+    \\  --all-headers                      Alias for --file-headers --linker-member=2 --member-headers --section-headers --relocs --symbols
+    \\  --exports                          Display exported symbols. In the case of COFF import libraries, display import headers.
     \\  --file-headers                     Display file-format specific headers
     \\  --imports                          Display imported symbols
     \\  --linker-member[=1|2|longnames]    (Coff) Display contents of the specified archive linker member (default 2)
