@@ -912,7 +912,7 @@ pub const Symbol = struct {
         dll_storage_class: DllStorageClass,
         // Only defined for .alias_si and .alias_name
         weak_external_strat: WeakExternalStrat,
-        has_exports: bool,
+        has_aliases: bool,
         _: u7 = 0,
     },
     /// Relocations contained within this symbol
@@ -927,9 +927,9 @@ pub const Symbol = struct {
         /// Only valid when .ni == .input_section and .value_tag == .node_offset
         /// TODO: This is only used for name lookups, could just be String?
         isli: Node.InputSection.LocalIndex,
-        /// Only valid if flags.has_exports is set. The first in a contiguous
-        /// list of symbols that are exports of this symbol.
-        first_export_si: Symbol.Index,
+        /// Only valid if flags.has_aliases is set. The first in a contiguous
+        /// list of symbols that are aliases of this symbol.
+        first_alias_si: Symbol.Index,
     },
 
     pub const DllStorageClass = enum(u2) {
@@ -946,8 +946,8 @@ pub const Symbol = struct {
 
     const ValueTag = enum(u2) {
         node_offset,
-        alias_si,
-        alias_name,
+        weak_alias_si,
+        weak_alias_name,
         size,
     };
 
@@ -957,12 +957,12 @@ pub const Symbol = struct {
         node_offset: u32,
         /// This is a weak alias that can replace this symbol
         /// Globals only.
-        alias_si: Symbol.Index,
+        weak_alias_si: Symbol.Index,
         /// For weak externals that have an alias that is also an undef
         /// external, this is the name of the alias global that should
         /// be generated if this symbol is not resolved.
         /// Globals only.
-        alias_name: String,
+        weak_alias_name: String,
         /// The symbol size, or 0 if unknown
         size: u32,
     };
@@ -1069,8 +1069,8 @@ pub const Symbol = struct {
             si.applyLocationRelocs(coff);
             si.applyTargetRelocs(coff, .none);
 
-            if (sym.flags.has_exports) {
-                for (coff.symbols.items[@intFromEnum(sym.extra.first_export_si)..]) |*export_sym| {
+            if (sym.flags.has_aliases) {
+                for (coff.symbols.items[@intFromEnum(sym.extra.first_alias_si)..]) |*export_sym| {
                     if (export_sym.ni != sym.ni) break;
                     export_sym.rva = sym.rva;
                     const export_si: Symbol.Index = @enumFromInt(export_sym - coff.symbols.items.ptr);
@@ -2203,6 +2203,9 @@ pub fn initBuiltins(coff: *Coff) !void {
             );
 
             const start_sym = start_osmi.symbol(coff).get(coff);
+            start_sym.extra = .{ .first_alias_si = @enumFromInt(coff.symbols.items.len) };
+            start_sym.flags.has_aliases = true;
+
             try start_sym.ni.resize(&coff.mf, gpa, addr_info.size);
             const start_slice = start_sym.ni.slice(&coff.mf);
             switch (addr_info.magic) {
@@ -2561,7 +2564,7 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
             .type = .unknown,
             .dll_storage_class = .default,
             .weak_external_strat = undefined,
-            .has_exports = false,
+            .has_aliases = false,
         },
         .loc_relocs = .none,
         .target_relocs = .none,
@@ -4443,10 +4446,10 @@ fn loadObject(
                 .external => {
                     if (symbol.weak_external_psi.unwrap()) |weak_external_i| {
                         // If the alias itself is an undef external, we need to wait until flushing the weak
-                        // external global before creating a global for the alias, as another input
-                        // could still provide the weak external.
+                        // external global before creating a global for the alias, as another input could
+                        // still provide the weak external.
                         const weak_sym = pending_symbols.values()[weak_external_i].si.get(coff);
-                        weak_sym.setValue(.{ .alias_name = symbol.name });
+                        weak_sym.setValue(.{ .weak_alias_name = symbol.name });
                         weak_sym.flags.weak_external_strat = pending_symbols.values()[weak_external_i + 1].value.weak_external_aux;
                     }
 
@@ -4476,9 +4479,9 @@ fn loadObject(
                             alias.weak_external_psi = .wrap(@intCast(i));
                         } else {
                             sym.setValue(if (alias.si.unwrap()) |alias_si| .{
-                                .alias_si = alias_si,
+                                .weak_alias_si = alias_si,
                             } else .{
-                                .alias_name = alias.name,
+                                .weak_alias_name = alias.name,
                             });
                             sym.flags.weak_external_strat = pending_symbols.values()[i + 1].value.weak_external_aux;
                         }
@@ -4521,7 +4524,7 @@ fn loadObject(
         if (symbol.weak_external_psi.unwrap()) |weak_external_i| {
             assert(symbol.si != .null);
             const weak_sym = pending_symbols.values()[weak_external_i].si.get(coff);
-            weak_sym.setValue(.{ .alias_si = symbol.si });
+            weak_sym.setValue(.{ .weak_alias_si = symbol.si });
             weak_sym.flags.weak_external_strat = pending_symbols.values()[weak_external_i + 1].value.weak_external_aux;
         }
 
@@ -5985,17 +5988,16 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     const gpa = comp.gpa;
     const gn = gmi.globalName(coff);
     const si = gmi.symbol(coff);
-    const sym = si.get(coff);
     const is_late = gmi.unwrap().? < coff.global_pending_index;
 
     log.debug(
         "flushGlobal({s}, {?s}, {}) = n{d} {d}@{d}",
-        .{ gn.name.toSlice(coff), gn.lib_name.toSlice(coff), is_late, sym.ni, si, sym.section_number },
+        .{ gn.name.toSlice(coff), gn.lib_name.toSlice(coff), is_late, si.get(coff).ni, si, si.get(coff).section_number },
     );
 
     if (!coff.isImage()) {
         try coff.pendingSymbolTableEntry(si);
-        if (coff.isArchive() and sym.ni != .none)
+        if (coff.isArchive() and si.get(coff).ni != .none)
             try coff.ensureMemberSymbol(
                 coff.getNode(Node.known.zcu_member).archive_member,
                 gn.name,
@@ -6003,6 +6005,9 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
 
         return true;
     }
+
+    if (si.get(coff).ni != .none)
+        return true;
 
     const Import = struct {
         lib_name: String,
@@ -6014,7 +6019,8 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         },
     };
 
-    const opt_import: ?Import = if (sym.ni == .none) import: {
+    const import: Import = import: {
+        const sym = si.get(coff);
         const global_name = gn.name.toSlice(coff);
         const imp_match = std.mem.startsWith(u8, global_name, imp_prefix);
 
@@ -6030,7 +6036,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
 
         const opt_alt_search_name = coff.alternate_names.get(search_name);
         const search_libs = if (is_late) switch (sym.flags.value_tag) {
-            .alias_si, .alias_name => switch (sym.flags.weak_external_strat) {
+            .weak_alias_si, .weak_alias_name => switch (sym.flags.weak_external_strat) {
                 .no_library => false,
                 .library,
                 .alias,
@@ -6044,7 +6050,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             else => true,
         } else search_libs: {
             if (switch (sym.flags.value_tag) {
-                .alias_si, .alias_name => true,
+                .weak_alias_si, .weak_alias_name => true,
                 else => opt_alt_search_name != null,
             }) {
                 // We need to wait until all exports are known before resolving these
@@ -6137,16 +6143,18 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         }
 
         switch (sym.flags.value_tag) {
-            .alias_si => {
+            .weak_alias_si => {
                 assert(is_late);
-                try coff.aliasGlobal(gmi, sym.value.alias_si);
+                try coff.aliasGlobal(gmi, sym.value.weak_alias_si);
                 return true;
             },
-            .alias_name => {
+            .weak_alias_name => {
                 assert(is_late);
                 // Convert an unresolved weak external that itself refers to an undef external
                 // into a (possibly new) global, so it can be resolved separately.
-                const alias_gop = try coff.getOrPutGlobalSymbol(.{ .name = sym.value.alias_name.toSlice(coff) });
+                const alias_gop = try coff.getOrPutGlobalSymbol(.{
+                    .name = sym.value.weak_alias_name.toSlice(coff),
+                });
                 try coff.aliasGlobal(gmi, alias_gop.value_ptr.*);
                 return true;
             },
@@ -6174,205 +6182,203 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             };
         }
 
-        break :import null;
-    } else null;
+        return true;
+    };
 
-    if (opt_import) |import| {
-        assert(sym.ni == .none);
-        const lib_name = import.lib_name.toSlice(coff);
+    const lib_name = import.lib_name.toSlice(coff);
 
-        try coff.nodes.ensureUnusedCapacity(gpa, 4);
-        try coff.symbols.ensureUnusedCapacity(gpa, 1);
+    try coff.nodes.ensureUnusedCapacity(gpa, 4);
+    try coff.symbols.ensureUnusedCapacity(gpa, 1);
 
-        const target_endian = coff.targetEndian();
-        const addr_info = coff.targetAddrInfo();
-        const gop = try coff.import_table.entries.getOrPutAdapted(
+    const sym = si.get(coff);
+    const target_endian = coff.targetEndian();
+    const addr_info = coff.targetAddrInfo();
+    const gop = try coff.import_table.entries.getOrPutAdapted(
+        gpa,
+        lib_name,
+        ImportTable.Adapter{ .coff = coff },
+    );
+    const import_hint_name_align: std.mem.Alignment = .@"2";
+    if (!gop.found_existing) {
+        errdefer _ = coff.import_table.entries.pop();
+        try coff.import_table.ni.resize(
+            &coff.mf,
             gpa,
-            lib_name,
-            ImportTable.Adapter{ .coff = coff },
+            @sizeOf(std.coff.ImportDirectoryEntry) * (gop.index + 2),
         );
-        const import_hint_name_align: std.mem.Alignment = .@"2";
-        if (!gop.found_existing) {
-            errdefer _ = coff.import_table.entries.pop();
-            try coff.import_table.ni.resize(
-                &coff.mf,
-                gpa,
-                @sizeOf(std.coff.ImportDirectoryEntry) * (gop.index + 2),
-            );
-            const import_hint_name_table_len =
-                import_hint_name_align.forward(lib_name.len + ".dll".len + 1);
-            const idata_section_ni = coff.import_table.ni.parent(&coff.mf);
-            const import_lookup_table_ni = try coff.mf.addLastChildNode(gpa, idata_section_ni, .{
-                .size = addr_info.size * 2,
-                .alignment = addr_info.alignment,
-                .moved = true,
-            });
-            const import_address_table_ni = try coff.mf.addLastChildNode(gpa, idata_section_ni, .{
-                .size = addr_info.size * 2,
-                .alignment = addr_info.alignment,
-                .moved = true,
-            });
-            const import_address_table_si = coff.addSymbolAssumeCapacity();
-            {
-                const import_address_table_sym = import_address_table_si.get(coff);
-                import_address_table_sym.ni = import_address_table_ni;
-                assert(import_address_table_sym.loc_relocs == .none);
-                import_address_table_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
-                import_address_table_sym.section_number =
-                    coff.getNode(idata_section_ni).object_section.symbol(coff).get(coff).section_number;
-            }
-            const import_hint_name_table_ni = try coff.mf.addLastChildNode(gpa, idata_section_ni, .{
-                .size = import_hint_name_table_len,
-                .alignment = import_hint_name_align,
-                .moved = true,
-            });
-            gop.value_ptr.* = .{
-                .import_lookup_table_ni = import_lookup_table_ni,
-                .import_address_table_si = import_address_table_si,
-                .import_hint_name_table_ni = import_hint_name_table_ni,
-                .import_address_table_symbols = .empty,
-                .len = 0,
-                .hint_name_len = @intCast(import_hint_name_table_len),
-            };
-            const import_hint_name_slice = import_hint_name_table_ni.slice(&coff.mf);
-            @memcpy(import_hint_name_slice[0..lib_name.len], lib_name);
-            @memcpy(import_hint_name_slice[lib_name.len..][0..".dll".len], ".dll");
-            @memset(import_hint_name_slice[lib_name.len + ".dll".len ..], 0);
-            coff.nodes.appendAssumeCapacity(.{ .import_lookup_table = @enumFromInt(gop.index) });
-            coff.nodes.appendAssumeCapacity(.{ .import_address_table = @enumFromInt(gop.index) });
-            coff.nodes.appendAssumeCapacity(.{ .import_hint_name_table = @enumFromInt(gop.index) });
-
-            const import_directory_entries = coff.importDirectoryTableSlice()[gop.index..][0..2];
-            import_directory_entries.* = .{ .{
-                .import_lookup_table_rva = coff.computeNodeRva(import_lookup_table_ni),
-                .time_date_stamp = 0,
-                .forwarder_chain = 0,
-                .name_rva = coff.computeNodeRva(import_hint_name_table_ni),
-                .import_address_table_rva = coff.computeNodeRva(import_address_table_ni),
-            }, .{
-                .import_lookup_table_rva = 0,
-                .time_date_stamp = 0,
-                .forwarder_chain = 0,
-                .name_rva = 0,
-                .import_address_table_rva = 0,
-            } };
-            if (target_endian != native_endian)
-                std.mem.byteSwapAllFields([2]std.coff.ImportDirectoryEntry, import_directory_entries);
-        }
-
-        log.debug(
-            "flushGlobalImport({s}, {?s}, {d}, {s})",
-            .{ gn.name.toSlice(coff), import.name.toSlice(coff), import.ordinal_hint, lib_name },
-        );
-
-        const iat_symbol_gop = try coff.import_table.iat_symbol_indices.getOrPut(gpa, .{
-            .iti = @enumFromInt(gop.index),
-            .name = import.name,
-            .ordinal_hint = import.ordinal_hint,
+        const import_hint_name_table_len =
+            import_hint_name_align.forward(lib_name.len + ".dll".len + 1);
+        const idata_section_ni = coff.import_table.ni.parent(&coff.mf);
+        const import_lookup_table_ni = try coff.mf.addLastChildNode(gpa, idata_section_ni, .{
+            .size = addr_info.size * 2,
+            .alignment = addr_info.alignment,
+            .moved = true,
         });
-        if (!iat_symbol_gop.found_existing) {
-            const import_symbol_index = gop.value_ptr.len;
-            iat_symbol_gop.value_ptr.* = import_symbol_index;
+        const import_address_table_ni = try coff.mf.addLastChildNode(gpa, idata_section_ni, .{
+            .size = addr_info.size * 2,
+            .alignment = addr_info.alignment,
+            .moved = true,
+        });
+        const import_address_table_si = coff.addSymbolAssumeCapacity();
+        {
+            const import_address_table_sym = import_address_table_si.get(coff);
+            import_address_table_sym.ni = import_address_table_ni;
+            assert(import_address_table_sym.loc_relocs == .none);
+            import_address_table_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+            import_address_table_sym.section_number =
+                coff.getNode(idata_section_ni).object_section.symbol(coff).get(coff).section_number;
+        }
+        const import_hint_name_table_ni = try coff.mf.addLastChildNode(gpa, idata_section_ni, .{
+            .size = import_hint_name_table_len,
+            .alignment = import_hint_name_align,
+            .moved = true,
+        });
+        gop.value_ptr.* = .{
+            .import_lookup_table_ni = import_lookup_table_ni,
+            .import_address_table_si = import_address_table_si,
+            .import_hint_name_table_ni = import_hint_name_table_ni,
+            .import_address_table_symbols = .empty,
+            .len = 0,
+            .hint_name_len = @intCast(import_hint_name_table_len),
+        };
+        const import_hint_name_slice = import_hint_name_table_ni.slice(&coff.mf);
+        @memcpy(import_hint_name_slice[0..lib_name.len], lib_name);
+        @memcpy(import_hint_name_slice[lib_name.len..][0..".dll".len], ".dll");
+        @memset(import_hint_name_slice[lib_name.len + ".dll".len ..], 0);
+        coff.nodes.appendAssumeCapacity(.{ .import_lookup_table = @enumFromInt(gop.index) });
+        coff.nodes.appendAssumeCapacity(.{ .import_address_table = @enumFromInt(gop.index) });
+        coff.nodes.appendAssumeCapacity(.{ .import_hint_name_table = @enumFromInt(gop.index) });
 
-            gop.value_ptr.len = import_symbol_index + 1;
-            const new_symbol_table_size = addr_info.size * (import_symbol_index + 2);
+        const import_directory_entries = coff.importDirectoryTableSlice()[gop.index..][0..2];
+        import_directory_entries.* = .{ .{
+            .import_lookup_table_rva = coff.computeNodeRva(import_lookup_table_ni),
+            .time_date_stamp = 0,
+            .forwarder_chain = 0,
+            .name_rva = coff.computeNodeRva(import_hint_name_table_ni),
+            .import_address_table_rva = coff.computeNodeRva(import_address_table_ni),
+        }, .{
+            .import_lookup_table_rva = 0,
+            .time_date_stamp = 0,
+            .forwarder_chain = 0,
+            .name_rva = 0,
+            .import_address_table_rva = 0,
+        } };
+        if (target_endian != native_endian)
+            std.mem.byteSwapAllFields([2]std.coff.ImportDirectoryEntry, import_directory_entries);
+    }
 
-            try gop.value_ptr.import_lookup_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
-            const import_address_table_ni = gop.value_ptr.import_address_table_si.node(coff);
-            try import_address_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
+    log.debug(
+        "flushGlobalImport({s}, {?s}, {d}, {s})",
+        .{ gn.name.toSlice(coff), import.name.toSlice(coff), import.ordinal_hint, lib_name },
+    );
 
-            const opt_name = import.name.toSlice(coff);
-            const opt_import_hint_name_index = if (opt_name) |name| blk: {
-                const import_hint_name_index = gop.value_ptr.hint_name_len;
-                gop.value_ptr.hint_name_len = @intCast(
-                    import_hint_name_align.forward(import_hint_name_index + 2 + name.len + 1),
-                );
-                try gop.value_ptr.import_hint_name_table_ni.resize(&coff.mf, gpa, gop.value_ptr.hint_name_len);
-                break :blk import_hint_name_index;
-            } else null;
+    const iat_symbol_gop = try coff.import_table.iat_symbol_indices.getOrPut(gpa, .{
+        .iti = @enumFromInt(gop.index),
+        .name = import.name,
+        .ordinal_hint = import.ordinal_hint,
+    });
+    if (!iat_symbol_gop.found_existing) {
+        const import_symbol_index = gop.value_ptr.len;
+        iat_symbol_gop.value_ptr.* = import_symbol_index;
 
-            const import_hint_name_rva = if (opt_import_hint_name_index) |import_hint_name_index| blk: {
-                const import_hint_name_slice = gop.value_ptr.import_hint_name_table_ni.slice(&coff.mf);
-                const ordinal_hint: *u16 = @ptrCast(@alignCast(import_hint_name_slice[import_hint_name_index..][0..2]));
-                ordinal_hint.* = std.mem.nativeTo(u16, import.ordinal_hint, target_endian);
-                @memcpy(import_hint_name_slice[import_hint_name_index + 2 ..][0..opt_name.?.len], opt_name.?);
-                @memset(import_hint_name_slice[import_hint_name_index + 2 + opt_name.?.len ..], 0);
-                break :blk coff.computeNodeRva(gop.value_ptr.import_hint_name_table_ni) + import_hint_name_index;
-            } else 0;
+        gop.value_ptr.len = import_symbol_index + 1;
+        const new_symbol_table_size = addr_info.size * (import_symbol_index + 2);
 
-            const import_lookup_slice = gop.value_ptr.import_lookup_table_ni.slice(&coff.mf);
-            const import_address_slice = import_address_table_ni.slice(&coff.mf);
-            switch (addr_info.magic) {
-                _ => unreachable,
-                inline .PE32, .@"PE32+" => |ct_magic| {
-                    const Entry = ImportTable.TableEntry(ct_magic);
-                    const import_lookup_table: []Entry = @ptrCast(@alignCast(import_lookup_slice));
-                    const import_address_table: []Entry = @ptrCast(@alignCast(import_address_slice));
-                    const import_hint_name_rvas: [2]Entry = .{
-                        .{
-                            .payload = if (import.name == .none)
-                                .{ .ordinal = .{ .ordinal = import.ordinal_hint } }
-                            else
-                                .{ .hint_name_rva = @intCast(import_hint_name_rva) },
-                            .is_ordinal = import.name == .none,
-                        },
-                        @bitCast(@as(@typeInfo(Entry).@"struct".backing_integer.?, 0)),
-                    };
-                    if (native_endian != target_endian)
-                        for (import_hint_name_rvas) |*v| std.mem.byteSwapAllFields(Entry, v);
+        try gop.value_ptr.import_lookup_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
+        const import_address_table_ni = gop.value_ptr.import_address_table_si.node(coff);
+        try import_address_table_ni.resize(&coff.mf, gpa, new_symbol_table_size);
 
-                    import_lookup_table[import_symbol_index..][0..2].* = import_hint_name_rvas;
-                    import_address_table[import_symbol_index..][0..2].* = import_hint_name_rvas;
+        const opt_name = import.name.toSlice(coff);
+        const opt_import_hint_name_index = if (opt_name) |name| blk: {
+            const import_hint_name_index = gop.value_ptr.hint_name_len;
+            gop.value_ptr.hint_name_len = @intCast(
+                import_hint_name_align.forward(import_hint_name_index + 2 + name.len + 1),
+            );
+            try gop.value_ptr.import_hint_name_table_ni.resize(&coff.mf, gpa, gop.value_ptr.hint_name_len);
+            break :blk import_hint_name_index;
+        } else null;
+
+        const import_hint_name_rva = if (opt_import_hint_name_index) |import_hint_name_index| blk: {
+            const import_hint_name_slice = gop.value_ptr.import_hint_name_table_ni.slice(&coff.mf);
+            const ordinal_hint: *u16 = @ptrCast(@alignCast(import_hint_name_slice[import_hint_name_index..][0..2]));
+            ordinal_hint.* = std.mem.nativeTo(u16, import.ordinal_hint, target_endian);
+            @memcpy(import_hint_name_slice[import_hint_name_index + 2 ..][0..opt_name.?.len], opt_name.?);
+            @memset(import_hint_name_slice[import_hint_name_index + 2 + opt_name.?.len ..], 0);
+            break :blk coff.computeNodeRva(gop.value_ptr.import_hint_name_table_ni) + import_hint_name_index;
+        } else 0;
+
+        const import_lookup_slice = gop.value_ptr.import_lookup_table_ni.slice(&coff.mf);
+        const import_address_slice = import_address_table_ni.slice(&coff.mf);
+        switch (addr_info.magic) {
+            _ => unreachable,
+            inline .PE32, .@"PE32+" => |ct_magic| {
+                const Entry = ImportTable.TableEntry(ct_magic);
+                const import_lookup_table: []Entry = @ptrCast(@alignCast(import_lookup_slice));
+                const import_address_table: []Entry = @ptrCast(@alignCast(import_address_slice));
+                const import_hint_name_rvas: [2]Entry = .{
+                    .{
+                        .payload = if (import.name == .none)
+                            .{ .ordinal = .{ .ordinal = import.ordinal_hint } }
+                        else
+                            .{ .hint_name_rva = @intCast(import_hint_name_rva) },
+                        .is_ordinal = import.name == .none,
+                    },
+                    @bitCast(@as(@typeInfo(Entry).@"struct".backing_integer.?, 0)),
+                };
+                if (native_endian != target_endian)
+                    for (import_hint_name_rvas) |*v| std.mem.byteSwapAllFields(Entry, v);
+
+                import_lookup_table[import_symbol_index..][0..2].* = import_hint_name_rvas;
+                import_address_table[import_symbol_index..][0..2].* = import_hint_name_rvas;
+            },
+        }
+    }
+
+    assert(sym.loc_relocs == .none);
+    const iat_offset: u32 = @intCast(addr_info.size * iat_symbol_gop.value_ptr.*);
+    switch (import.kind) {
+        .iat_ptr => {
+            const iat_sym = gop.value_ptr.import_address_table_si.get(coff);
+            sym.section_number = iat_sym.section_number;
+            sym.ni = iat_sym.ni;
+            sym.setValue(.{ .node_offset = iat_offset });
+            si.flushMoved(coff);
+            (try gop.value_ptr.import_address_table_symbols.addOne(gpa)).* = si;
+        },
+        .thunk => {
+            sym.section_number = Symbol.Index.text.get(coff).section_number;
+            sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+            switch (coff.targetLoad(&coff.headerPtr().machine)) {
+                else => |tag| @panic(@tagName(tag)),
+                .AMD64 => {
+                    const init = [_]u8{ 0xff, 0x25, 0x00, 0x00, 0x00, 0x00 };
+                    const target = &comp.root_mod.resolved_target.result;
+                    const ni = try coff.mf.addLastChildNode(gpa, Symbol.Index.text.node(coff), .{
+                        .alignment = switch (comp.root_mod.optimize_mode) {
+                            .Debug,
+                            .ReleaseSafe,
+                            .ReleaseFast,
+                            => target_util.defaultFunctionAlignment(target),
+                            .ReleaseSmall => target_util.minFunctionAlignment(target),
+                        }.toStdMem(),
+                        .size = init.len,
+                    });
+                    @memcpy(ni.slice(&coff.mf)[0..init.len], &init);
+                    sym.ni = ni;
+                    sym.setValue(.{ .size = init.len });
+                    try coff.addReloc(
+                        si,
+                        init.len - 4,
+                        gop.value_ptr.import_address_table_si,
+                        .{ .known = iat_offset },
+                        .{ .AMD64 = .REL32 },
+                    );
                 },
             }
-        }
-
-        assert(sym.loc_relocs == .none);
-        const iat_offset: u32 = @intCast(addr_info.size * iat_symbol_gop.value_ptr.*);
-        switch (import.kind) {
-            .iat_ptr => {
-                const iat_sym = gop.value_ptr.import_address_table_si.get(coff);
-                sym.section_number = iat_sym.section_number;
-                sym.ni = iat_sym.ni;
-                sym.setValue(.{ .node_offset = iat_offset });
-                si.flushMoved(coff);
-                (try gop.value_ptr.import_address_table_symbols.addOne(gpa)).* = si;
-            },
-            .thunk => {
-                sym.section_number = Symbol.Index.text.get(coff).section_number;
-                sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
-                switch (coff.targetLoad(&coff.headerPtr().machine)) {
-                    else => |tag| @panic(@tagName(tag)),
-                    .AMD64 => {
-                        const init = [_]u8{ 0xff, 0x25, 0x00, 0x00, 0x00, 0x00 };
-                        const target = &comp.root_mod.resolved_target.result;
-                        const ni = try coff.mf.addLastChildNode(gpa, Symbol.Index.text.node(coff), .{
-                            .alignment = switch (comp.root_mod.optimize_mode) {
-                                .Debug,
-                                .ReleaseSafe,
-                                .ReleaseFast,
-                                => target_util.defaultFunctionAlignment(target),
-                                .ReleaseSmall => target_util.minFunctionAlignment(target),
-                            }.toStdMem(),
-                            .size = init.len,
-                        });
-                        @memcpy(ni.slice(&coff.mf)[0..init.len], &init);
-                        sym.ni = ni;
-                        sym.setValue(.{ .size = init.len });
-                        try coff.addReloc(
-                            si,
-                            init.len - 4,
-                            gop.value_ptr.import_address_table_si,
-                            .{ .known = iat_offset },
-                            .{ .AMD64 = .REL32 },
-                        );
-                    },
-                }
-                coff.nodes.appendAssumeCapacity(.{ .import_thunk = gmi });
-                sym.rva = coff.computeNodeRva(sym.ni);
-                si.applyLocationRelocs(coff);
-            },
-        }
+            coff.nodes.appendAssumeCapacity(.{ .import_thunk = gmi });
+            sym.rva = coff.computeNodeRva(sym.ni);
+            si.applyLocationRelocs(coff);
+        },
     }
 
     return true;
@@ -6380,10 +6386,12 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
 
 fn flushSpecialSymbol(coff: *Coff, pending: SpecialSymbol) !SpecialSymbol {
     const comp = coff.base.comp;
-    const gpa = comp.gpa;
-    const machine = coff.targetLoad(&coff.headerPtr().machine);
 
     if (!coff.isImage()) return .none;
+    const gpa = comp.gpa;
+    const machine = coff.targetLoad(&coff.headerPtr().machine);
+    const target = &comp.root_mod.resolved_target.result;
+
     return next: switch (pending) {
         .entry => {
             // TODO: Use explicitly specified entry if set, add err if not found
@@ -6402,7 +6410,7 @@ fn flushSpecialSymbol(coff: *Coff, pending: SpecialSymbol) !SpecialSymbol {
                     .{ "wWinMainCRTStartup", "wWinMainCRTStartup" },
                 }
             else
-                &.{.{ null, "_DllMainCRTStartup" }};
+                &.{.{ null, if (target.abi.isGnu()) "DllMainCRTStartup" else "_DllMainCRTStartup" }};
 
             const entry_si = for (entries) |entry| {
                 if (entry[0]) |required_name|
@@ -7073,13 +7081,13 @@ fn updateExportsInner(
             Type.fromInterned(ip.typeOf(uav)).abiAlignment(zcu),
         ))),
     };
-    while (try coff.idle(pt.tid)) {}
+    while (try coff.idle(pt.tid)) {} // TODO: Is this necessary now that we handle exports moving via has_aliases?
 
     const machine = coff.targetLoad(&coff.headerPtr().machine);
     const exported_ni = exported_si.node(coff);
     const exported_sym = exported_si.get(coff);
-    exported_sym.extra = .{ .first_export_si = @enumFromInt(coff.symbols.items.len) };
-    exported_sym.flags.has_exports = true;
+    exported_sym.extra = .{ .first_alias_si = @enumFromInt(coff.symbols.items.len) };
+    exported_sym.flags.has_aliases = true;
 
     for (export_indices) |export_index| {
         const @"export" = export_index.ptr(zcu);
@@ -7256,8 +7264,8 @@ fn printSymbol(
         else
             0,
         switch (sym.flags.value_tag) {
-            .alias_name => "an",
-            .alias_si => "as",
+            .weak_alias_name => "an",
+            .weak_alias_si => "as",
             .node_offset => "no",
             .size => "sz",
         },
