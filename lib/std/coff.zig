@@ -373,6 +373,36 @@ pub const DebugType = enum(u32) {
     _,
 };
 
+pub fn TlsDirectoryEntry(comptime magic: std.coff.OptionalHeader.Magic) type {
+    return switch (magic) {
+        _ => comptime unreachable,
+        .PE32 => extern struct {
+            raw_data_start_va: u32,
+            raw_data_end_va: u32,
+            tls_index_va: u32,
+            callbacks_va: u32,
+            size_of_zero_fill: u32,
+            characteristics: packed struct(u32) {
+                _reserved_0: u19,
+                alignment: SectionHeader.Flags.Align,
+                _reserved_1: u9,
+            },
+        },
+        .@"PE32+" => extern struct {
+            raw_data_start_va: u64,
+            raw_data_end_va: u64,
+            tls_index_va: u64,
+            callbacks_va: u64,
+            size_of_zero_fill: u32,
+            characteristics: packed struct(u32) {
+                _reserved_0: u19,
+                alignment: SectionHeader.Flags.Align,
+                _reserved_1: u9,
+            },
+        },
+    };
+}
+
 pub const ImportDirectoryEntry = extern struct {
     /// The RVA of the import lookup table.
     /// This table contains a name or ordinal for each import.

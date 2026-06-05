@@ -535,15 +535,21 @@ const coff = struct {
             opts.imports or
             opts.tls;
 
-        const data_dirs, const magic = if (header.size_of_optional_header > 0) optional_header: {
+        const ImageInfo = struct {
+            data_dirs: []const std.coff.ImageDataDirectory,
+            magic: std.coff.OptionalHeader.Magic,
+            image_base: u64,
+        };
+
+        const image_info: ?ImageInfo = if (header.size_of_optional_header > 0) image_info: {
             if (!opts.file_headers and !needs_data_dirs) {
                 try fr.seekBy(header.size_of_optional_header);
-                break :optional_header .{ &.{}, null };
+                break :image_info null;
             }
 
             if (opts.file_headers) try w.writeAll("COFF Optional Header:\n");
             const magic: std.coff.OptionalHeader.Magic = @enumFromInt(try r.peekInt(u16, .little));
-            const num_directory_entries = switch (magic) {
+            const num_directory_entries, const image_base = switch (magic) {
                 inline .PE32, .@"PE32+" => |v| num_data_dirs: {
                     const OptionalHeader = if (v == .PE32)
                         std.coff.OptionalHeader.PE32
@@ -593,7 +599,10 @@ const coff = struct {
                         try w.writeByte('\n');
                     }
 
-                    break :num_data_dirs optional_header.number_of_rva_and_sizes;
+                    break :num_data_dirs .{
+                        optional_header.number_of_rva_and_sizes,
+                        optional_header.image_base,
+                    };
                 },
                 else => return failParse(opts, "invalid optional header magic number: {x}", .{magic}),
             };
@@ -614,10 +623,14 @@ const coff = struct {
             }
             if (opts.file_headers) try w.writeByte('\n');
 
-            break :optional_header .{ known_dirs[0..@min(known_dirs.len, num_directory_entries)], magic };
+            break :image_info .{
+                .data_dirs = known_dirs[0..@min(known_dirs.len, num_directory_entries)],
+                .magic = magic,
+                .image_base = image_base,
+            };
         } else if (is_image) {
             return failParse(opts, "image did not contain an optional header", .{});
-        } else .{ &.{}, null };
+        } else null;
 
         // Section names in images don't use the string table, as they must fit inline in the header
         const load_string_table = (opts.strings or !is_image) and header.pointer_to_symbol_table > 0;
@@ -1013,7 +1026,7 @@ const coff = struct {
         defer gpa.free(rva_index);
 
         if (opts.exports) {
-            if (try seekToDataDirectory(opts, fr, w, rva_index, sections.items, data_dirs, .EXPORT)) |section_index| {
+            if (try seekToDataDirectory(opts, fr, w, rva_index, sections.items, image_info.?.data_dirs, .EXPORT)) |section_index| {
                 const export_dir = r.takeStruct(std.coff.ExportDirectoryTable, .little) catch |err|
                     return failParse(opts, "unable to read export directory: {t}", .{err});
 
@@ -1056,7 +1069,7 @@ const coff = struct {
 
                 // All the variable length fields should be contained within this directory.
                 // Read it entirely to avoid needing to seek per-name when iterating.
-                const dir = data_dirs[@intFromEnum(DIRECTORY_ENTRY.EXPORT)];
+                const dir = image_info.?.data_dirs[@intFromEnum(DIRECTORY_ENTRY.EXPORT)];
                 const dir_end_rva = dir.virtual_address + dir.size;
                 const dir_loc = fr.logicalPos();
                 const dir_slice = try r.readAlloc(gpa, dir.size);
@@ -1097,7 +1110,15 @@ const coff = struct {
         }
 
         if (opts.imports) {
-            if (try seekToDataDirectory(opts, fr, w, rva_index, sections.items, data_dirs, .IMPORT)) |_| {
+            if (try seekToDataDirectory(
+                opts,
+                fr,
+                w,
+                rva_index,
+                sections.items,
+                image_info.?.data_dirs,
+                .IMPORT,
+            )) |_| {
                 const Entry = std.coff.ImportDirectoryEntry;
                 var directory_entries: std.ArrayList(Entry) = .empty;
                 defer directory_entries.deinit(gpa);
@@ -1114,14 +1135,20 @@ const coff = struct {
                 }
 
                 for (directory_entries.items) |entry| {
-                    const name_section = sectionContainingRva(rva_index, sections.items, entry.name_rva) orelse
+                    const name_section = sectionContainingRva(
+                        rva_index,
+                        sections.items,
+                        entry.name_rva,
+                    ) orelse
                         return failParse(
                             opts,
                             "import directory entry name rva 0x{x} was not found in any section",
                             .{entry.name_rva},
                         );
 
-                    const name_loc = sections.items[name_section].rvaFileOffset(entry.name_rva) catch unreachable;
+                    const name_loc = sections.items[name_section].rvaFileOffset(
+                        entry.name_rva,
+                    ) catch unreachable;
                     fr.seekTo(name_loc) catch |err|
                         return failParse(
                             opts,
@@ -1161,7 +1188,7 @@ const coff = struct {
                             .{ ilt_loc, err },
                         );
 
-                    switch (magic.?) {
+                    switch (image_info.?.magic) {
                         _ => try w.writeAll("(unknown magic)"),
                         inline else => |m| {
                             const TableEntry = std.coff.ImportLookupTableEntry(m);
@@ -1230,8 +1257,79 @@ const coff = struct {
         }
 
         if (opts.tls) {
-            if (try seekToDataDirectory(opts, fr, w, rva_index, sections.items, data_dirs, .TLS)) |_| {
-                // TODO
+            if (try seekToDataDirectory(
+                opts,
+                fr,
+                w,
+                rva_index,
+                sections.items,
+                image_info.?.data_dirs,
+                .TLS,
+            )) |_| {
+                switch (image_info.?.magic) {
+                    _ => try w.writeAll("(unknown magic)"),
+                    inline else => |m| {
+                        const TlsDirectoryEntry = std.coff.TlsDirectoryEntry(m);
+                        const tls_entry = r.takeStruct(TlsDirectoryEntry, .little) catch |err|
+                            return failParse(opts, "unable to read tls directory: {t}", .{err});
+
+                        try w.writeAll("TLS Directory:\n");
+                        try dumpHeader(w, TlsDirectoryEntry, &tls_entry, struct {});
+
+                        try w.writeAll("               | ");
+                        if (tls_entry.characteristics.alignment == .NONE) {
+                            try w.writeAll("Alignment not specified");
+                        } else {
+                            try w.print(
+                                "Alignment: {d}",
+                                .{tls_entry.characteristics.alignment.toByteUnits().?},
+                            );
+                        }
+
+                        try w.writeAll(
+                            \\
+                            \\
+                            \\TLS Callbacks:
+                            \\         Address
+                            \\
+                        );
+
+                        const callbacks_rva: u32 = @intCast(tls_entry.callbacks_va - image_info.?.image_base);
+                        const section_index = sectionContainingRva(
+                            rva_index,
+                            sections.items,
+                            callbacks_rva,
+                        ) orelse
+                            return failParse(
+                                opts,
+                                "tls callbacks rva 0x{x} was not found in any section",
+                                .{callbacks_rva},
+                            );
+
+                        const callbacks_loc = sections.items[section_index]
+                            .rvaFileOffset(callbacks_rva) catch unreachable;
+
+                        fr.seekTo(callbacks_loc) catch |err|
+                            return failParse(
+                                opts,
+                                "unable to seek to tls callbacks array at offset 0x{x}: {t}",
+                                .{ callbacks_loc, err },
+                            );
+
+                        while (true) {
+                            const callback_va = r.takeInt(@FieldType(TlsDirectoryEntry, "callbacks_va"), .little) catch |err|
+                                return failParse(
+                                    opts,
+                                    "unable to read tls callbacks array: {t}",
+                                    .{err},
+                                );
+
+                            try w.print("{x: >16} \n", .{callback_va});
+                            if (callback_va == 0) break;
+                        }
+                        try w.writeByte('\n');
+                    },
+                }
             }
         }
     }
@@ -1245,8 +1343,10 @@ const coff = struct {
         data_dirs: []const std.coff.ImageDataDirectory,
         entry: DIRECTORY_ENTRY,
     ) !?u16 {
-        if (@intFromEnum(entry) < data_dirs.len) {
+        if (@intFromEnum(entry) < data_dirs.len) blk: {
             const rva = data_dirs[@intFromEnum(entry)].virtual_address;
+            if (rva == 0) break :blk;
+
             const section_index = sectionContainingRva(rva_index, sections, rva) orelse
                 return failParse(
                     opts,
