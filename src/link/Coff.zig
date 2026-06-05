@@ -94,6 +94,13 @@ pub const imp_prefix = "__imp_";
 
 const header_name_max_len = @typeInfo(@FieldType(std.coff.SectionHeader, "name")).array.len;
 
+const Error = link.Error || error{MappedFileIo};
+const LoadInputError = Error ||
+    Io.File.SeekError ||
+    Io.File.Reader.SizeError ||
+    Io.Reader.Error ||
+    MappedFile.Error;
+
 /// This is the start of a Portable Executable (PE) file.
 /// It starts with a MS-DOS header followed by a MS-DOS stub program.
 /// This data does not change so we include it as follows in all binaries.
@@ -484,7 +491,7 @@ pub const Member = struct {
         longnames,
         _,
 
-        const known_count = @typeInfo(Index).@"enum".fields.len;
+        const known_count = @typeInfo(Index).@"enum".field_names.len;
 
         pub fn get(member_index: Member.Index, coff: *Coff) *Member {
             return &coff.members.items[@intFromEnum(member_index)];
@@ -2855,7 +2862,7 @@ pub fn getNavVAddr(
     pt: Zcu.PerThread,
     nav: InternPool.Nav.Index,
     reloc_info: link.File.RelocInfo,
-) !u64 {
+) link.Error!u64 {
     return coff.getVAddr(reloc_info, try coff.navSymbol(pt.zcu, nav));
 }
 
@@ -2863,11 +2870,11 @@ pub fn getUavVAddr(
     coff: *Coff,
     uav: InternPool.Index,
     reloc_info: link.File.RelocInfo,
-) !u64 {
+) link.Error!u64 {
     return coff.getVAddr(reloc_info, try coff.uavSymbol(uav));
 }
 
-pub fn getVAddr(coff: *Coff, reloc_info: link.File.RelocInfo, target_si: Symbol.Index) !u64 {
+pub fn getVAddr(coff: *Coff, reloc_info: link.File.RelocInfo, target_si: Symbol.Index) link.Error!u64 {
     try coff.addReloc(
         @enumFromInt(@intFromEnum(reloc_info.parent.atom_index)),
         reloc_info.offset,
@@ -3524,19 +3531,13 @@ fn objectSectionMapIndex(
     const parent_alignment = parent_ni.alignment(&coff.mf);
     if (alignment.compare(.gt, parent_alignment)) {
         log.debug("realignParent({s}, {d}) {d}->{d}", .{ name.toSlice(coff), parent_ni, parent_alignment, alignment });
-        parent_ni.realign(&coff.mf, gpa, alignment, true) catch |err| switch (err) {
-            error.Unimplemented => unreachable,
-            else => |e| return e,
-        };
+        try parent_ni.realign(&coff.mf, gpa, alignment, true);
     }
 
     const old_alignment = sym.ni.alignment(&coff.mf);
     if (alignment.compare(.gt, old_alignment)) {
         log.debug("realignObject({s}) {d}->{d}", .{ name.toSlice(coff), old_alignment, alignment });
-        sym.ni.realign(&coff.mf, gpa, alignment, true) catch |err| switch (err) {
-            error.Unimplemented => unreachable,
-            else => |e| return e,
-        };
+        try sym.ni.realign(&coff.mf, gpa, alignment, true);
     }
 
     try coff.verifyParentSectionAttributes(
@@ -3561,7 +3562,6 @@ fn verifyParentSectionAttributes(
 ) !void {
     if (parent_attrs == child_attrs) return;
 
-    const fields = std.meta.fields(ObjectSectionAttributes);
     const BackingT = @typeInfo(ObjectSectionAttributes).@"struct".backing_integer.?;
     const num_notes = @popCount(@as(BackingT, @bitCast(parent_attrs)) ^ @as(BackingT, @bitCast(child_attrs)));
     var err = try coff.base.comp.link_diags.addErrorWithNotes(num_notes);
@@ -3571,30 +3571,67 @@ fn verifyParentSectionAttributes(
         parent_name.toSlice(coff),
     });
 
-    inline for (fields) |field| {
-        if (@field(child_attrs, field.name) != @field(parent_attrs, field.name)) {
+    inline for (comptime std.meta.fieldNames(ObjectSectionAttributes)) |field| {
+        if (@field(child_attrs, field) != @field(parent_attrs, field)) {
             err.addNote("flags.{s} was {d} in {s}, but {d} in {s}", .{
-                field.name,
-                @intFromBool(@field(child_attrs, field.name)),
+                field,
+                @intFromBool(@field(child_attrs, field)),
                 child_name.toSlice(coff),
-                @intFromBool(@field(parent_attrs, field.name)),
+                @intFromBool(@field(parent_attrs, field)),
                 parent_name.toSlice(coff),
             });
         }
     }
 
-    return error.LinkFailure;
+    return error.AlreadyReported;
 }
+
+const RelocAddend = union(enum) {
+    known: i64,
+    /// Relocs tables in input objects don't include the addend.
+    /// The value needs to be recovered from the reloc location.
+    pending: void,
+};
 
 pub fn addReloc(
     coff: *Coff,
     loc_si: Symbol.Index,
     offset: u64,
     target_si: Symbol.Index,
-    addend: union(enum) {
-        known: i64,
-        pending: void,
-    },
+    addend: RelocAddend,
+    @"type": Reloc.Type,
+) link.Error!void {
+    const diags = &coff.base.comp.link_diags;
+    try coff.ensureUnusedRelocCapacity(loc_si, 1);
+    coff.addRelocAssumeCapacity(loc_si, offset, target_si, addend, @"type") catch |err| switch (err) {
+        error.MappedFileIo => return diags.fail(
+            "failed to write output file: {t}",
+            .{coff.mf.io_err.?},
+        ),
+        else => |e| return e,
+    };
+}
+
+fn ensureUnusedRelocCapacity(coff: *Coff, loc_si: Symbol.Index, len: usize) !void {
+    const gpa = coff.base.comp.gpa;
+    try coff.relocs.ensureUnusedCapacity(gpa, len);
+    if (isImage(coff)) return;
+    switch (loc_si.get(coff).section_number) {
+        .UNDEFINED, .ABSOLUTE, .DEBUG => {},
+        else => |loc_sn| {
+            const section = loc_sn.section(coff);
+            if (section.relocation_table_ni == .none)
+                try coff.nodes.ensureUnusedCapacity(gpa, 1);
+        },
+    }
+}
+
+fn addRelocAssumeCapacity(
+    coff: *Coff,
+    loc_si: Symbol.Index,
+    offset: u64,
+    target_si: Symbol.Index,
+    addend: RelocAddend,
     @"type": Reloc.Type,
 ) !void {
     const gpa = coff.base.comp.gpa;
@@ -3611,8 +3648,6 @@ pub fn addReloc(
         if (addend == .pending) "p" else "k",
         ri,
     });
-
-    try coff.relocs.ensureUnusedCapacity(gpa, 1);
 
     const sri: Section.RelocationIndex = if (isImage(coff))
         .none
@@ -3638,13 +3673,16 @@ pub fn addReloc(
             const new_num_relocations = old_num_relocations + 1;
             const new_size = new_num_relocations * std.coff.Relocation.sizeOf();
             if (section.relocation_table_ni == .none) {
-                try coff.nodes.ensureUnusedCapacity(gpa, 1);
-                section.relocation_table_ni = try coff.mf.addLastChildNode(gpa, coff.sectionParent(), .{
-                    .size = new_size,
-                    .alignment = .@"2",
-                    .moved = true,
-                    .resized = true,
-                });
+                section.relocation_table_ni = try coff.mf.addLastChildNode(
+                    gpa,
+                    coff.sectionParent(),
+                    .{
+                        .size = new_size,
+                        .alignment = .@"2",
+                        .moved = true,
+                        .resized = true,
+                    },
+                );
                 coff.nodes.appendAssumeCapacity(.{ .relocation_table = loc_sn });
             } else {
                 try section.relocation_table_ni.resize(&coff.mf, gpa, new_size);
@@ -3687,8 +3725,60 @@ pub fn addReloc(
     target.target_relocs = ri;
 }
 
-pub fn loadInput(coff: *Coff, input: link.Input) (Io.File.Reader.SizeError ||
-    Io.File.Reader.Error || MappedFile.Error || error{ WriteFailed, EndOfStream, BadMagic, LinkFailure })!void {
+// pub fn loadInput(coff: *Coff, input: link.Input) link.Error!void {
+//     const diags = &coff.base.comp.link_diags;
+//     return coff.loadInputInner(input) catch |err| switch (err) {
+//         else => |e| return e,
+//         error.MappedFileIo => return diags.fail(
+//             "failed to write output file: {t}",
+//             .{coff.mf.io_err.?},
+//         ),
+//     };
+// }
+
+fn failLoadInput(
+    coff: *Coff,
+    err: LoadInputError,
+    fr: *Io.File.Reader,
+    path: std.Build.Cache.Path,
+) link.Error {
+    const diags = &coff.base.comp.link_diags;
+    switch (err) {
+        else => |e| return e,
+        error.MappedFileIo => return diags.fail(
+            "failed to write output file: {t}",
+            .{coff.mf.io_err.?},
+        ),
+        error.EndOfStream => return diags.failParse(
+            path,
+            "unexpected eof",
+            .{},
+        ),
+        error.AccessDenied,
+        error.Unexpected,
+        error.Unseekable,
+        => |e| return diags.fail(
+            "failed to read \"{f}\": {t}",
+            .{ path.fmtEscapeString(), e },
+        ),
+        error.PermissionDenied,
+        error.SystemResources,
+        error.Streaming,
+        => |e| return diags.fail(
+            "failed to stat \"{f}\": {t}",
+            .{ path.fmtEscapeString(), e },
+        ),
+        error.ReadFailed => switch (fr.err.?) {
+            error.Canceled => |e| return e,
+            else => |e| return diags.fail(
+                "failed to read \"{f}\": {t}",
+                .{ path.fmtEscapeString(), e },
+            ),
+        },
+    }
+}
+
+pub fn loadInput(coff: *Coff, input: link.Input) link.Error!void {
     const comp = coff.base.comp;
     const io = comp.io;
 
@@ -3703,32 +3793,24 @@ pub fn loadInput(coff: *Coff, input: link.Input) (Io.File.Reader.SizeError ||
             var fr = object.file.reader(io, &buf);
             coff.loadObject(object.path, null, &fr, .{
                 .offset = fr.logicalPos(),
-                .size = try fr.getSize(),
-            }) catch |err| switch (err) {
-                error.ReadFailed => return fr.err.?,
-                else => |e| return e,
-            };
+                .size = fr.getSize() catch |err|
+                    return coff.failLoadInput(err, &fr, object.path),
+            }) catch |err| return coff.failLoadInput(err, &fr, object.path);
         },
         .archive => |archive| {
             var fr = archive.file.reader(io, &buf);
-            coff.loadArchive(archive.path, &fr) catch |err| switch (err) {
-                error.ReadFailed => return fr.err.?,
-                else => |e| return e,
-            };
+            coff.loadArchive(archive.path, &fr) catch |err|
+                return coff.failLoadInput(err, &fr, archive.path);
         },
         .res => |res| {
             var fr = res.file.reader(io, &buf);
-            coff.loadRes(res.path, &fr) catch |err| switch (err) {
-                error.ReadFailed => return fr.err.?,
-                else => |e| return e,
-            };
+            coff.loadRes(res.path, &fr) catch |err|
+                return coff.failLoadInput(err, &fr, res.path);
         },
         .dso => |dso| {
             var fr = dso.file.reader(io, &buf);
-            coff.loadDll(dso.path, &fr) catch |err| switch (err) {
-                error.ReadFailed => return fr.err.?,
-                else => |e| return e,
-            };
+            coff.loadDll(dso.path, &fr) catch |err|
+                return coff.failLoadInput(err, &fr, dso.path);
         },
         .dso_exact => unreachable,
     }
@@ -3771,7 +3853,7 @@ fn loadObject(
     member_name: ?[]const u8,
     fr: *Io.File.Reader,
     fl: MappedFile.Node.FileLocation,
-) !void {
+) LoadInputError!void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
@@ -3955,14 +4037,18 @@ fn loadObject(
         try member.initHeader(coff, path_str, header.time_date_stamp);
 
         {
-            // TODO: This should be deferred to an idle task
+            // TODO: This should be deferred to an idle task (but resize it here!)
             var nw: MappedFile.Node.Writer = undefined;
             member.content_ni.writer(&coff.mf, gpa, &nw);
             defer nw.deinit();
 
             try fr.seekTo(fl.offset);
-            if (try nw.interface.sendFileAll(fr, .limited64(fl.size)) != fl.size)
-                return error.EndOfStream;
+            const written = nw.interface.sendFileAll(fr, .limited64(fl.size)) catch |err| switch (err) {
+                error.WriteFailed => return nw.err.?,
+                else => |e| return e,
+            };
+
+            if (written != fl.size) return error.EndOfStream;
         }
 
         break :mi mi;
@@ -4816,7 +4902,7 @@ fn failMultipleDefinitions(
         size: struct { a: u64, b: u64 },
         crc: struct { a: u32, b: u32 },
     },
-) error{ LinkFailure, OutOfMemory } {
+) error{ AlreadyReported, OutOfMemory } {
     const num_notes: usize = 2 + @as(usize, @intFromBool(comdat_reason != .none));
     var err = try coff.base.comp.link_diags.addErrorWithNotes(num_notes);
     try err.addMsg("multiple definitions of '{s}'", .{name.toSlice(coff)});
@@ -4849,7 +4935,7 @@ fn failMultipleDefinitions(
         ),
     }
 
-    return error.LinkFailure;
+    return error.AlreadyReported;
 }
 
 const ArchiveMemberHeader = struct {
@@ -4889,7 +4975,7 @@ fn parseArchiveMemberHeaderInner(
     };
 }
 
-fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
+fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) LoadInputError!void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
@@ -5164,7 +5250,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
     }
 }
 
-fn loadRes(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
+fn loadRes(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) LoadInputError!void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
@@ -5177,7 +5263,7 @@ fn loadRes(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
     _ = r;
 }
 
-fn loadDll(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
+fn loadDll(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) LoadInputError!void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
@@ -5241,7 +5327,6 @@ pub fn prelink(coff: *Coff, prog_node: std.Progress.Node) link.Error!void {
                 errdefer archive.file.close(comp.io);
 
                 coff.loadInput(.{ .archive = archive }) catch |err| switch (err) {
-                    error.LinkFailure => return,
                     else => |e| return comp.link_diags.failParse(
                         lib.ioi.path(coff),
                         "error loading /DEFAULTLIB library '{s}': {t}",
@@ -5265,10 +5350,14 @@ pub fn prelink(coff: *Coff, prog_node: std.Progress.Node) link.Error!void {
         coff.exports_complete = true;
 }
 
-pub fn updateNav(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
+pub fn updateNav(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) link.Error!void {
     coff.updateNavInner(pt, nav_index) catch |err| switch (err) {
+        error.MappedFileIo => return coff.base.cgFail(
+            nav_index,
+            "linker failed to update variable: {t}",
+            .{coff.mf.io_err.?},
+        ),
         else => |e| return e,
-        error.MappedFileIo => return coff.base.cgFail(nav_index, "linker failed to update variable: {t}", .{coff.mf.io_err.?}),
     };
 }
 fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
@@ -5351,7 +5440,7 @@ pub fn lowerUav(
     pt: Zcu.PerThread,
     uav_val: InternPool.Index,
     uav_align: InternPool.Alignment,
-) !link.File.SymbolId {
+) link.Error!link.File.SymbolId {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
@@ -5380,7 +5469,7 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
-) !void {
+) link.Error!void {
     coff.updateFuncInner(pt, func_index, mir) catch |err| switch (err) {
         else => |e| return e,
         error.MappedFileIo => return coff.base.cgFail(
@@ -5692,7 +5781,7 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
         }
     }
 
-    return error.LinkFailure;
+    return error.AlreadyReported;
 }
 
 pub fn flush(
@@ -5700,7 +5789,7 @@ pub fn flush(
     arena: std.mem.Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
-) !void {
+) link.Error!void {
     _ = arena;
     _ = prog_node;
     const comp = coff.base.comp;
@@ -5723,13 +5812,10 @@ pub fn flush(
             comp.gpa,
             number_of_symbols * std.coff.Symbol.sizeOf(),
             true,
-        ) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => |e| return comp.link_diags.fail(
-                "linker failed to compact symbol table: {t}",
-                .{e},
-            ),
-        };
+        ) catch |err| return comp.link_diags.fail(
+            "linker failed to compact symbol table: {t}",
+            .{err},
+        );
     }
     while (try coff.idle(tid)) {}
 
@@ -7220,10 +7306,14 @@ pub fn updateExports(
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
-) !void {
+) link.Error!void {
+    const diags = &coff.base.comp.link_diags;
     return coff.updateExportsInner(pt, exported, export_indices) catch |err| switch (err) {
-        error.OutOfMemory => error.OutOfMemory,
-        else => |e| coff.base.comp.link_diags.fail("updateExports failed {t}", .{e}) catch error.AnalysisFail,
+        error.MappedFileIo => return diags.fail(
+            "failed to write output file: {t}",
+            .{coff.mf.io_err.?},
+        ),
+        else => |e| return e,
     };
 }
 fn updateExportsInner(

@@ -385,13 +385,14 @@ pub const Node = extern struct {
         /// If the new size can't contain all the children, returns error.ShrinkImpossible.
         /// If `shift_next` is set, then the following node is shifted backwards into
         /// the free space as much as alignment allows.
+        /// Asserts that `size` is >= the end of the last child node.
         pub fn shrink(
             ni: Node.Index,
             mf: *MappedFile,
             gpa: std.mem.Allocator,
             size: u64,
             shift_next: bool,
-        ) !void {
+        ) Error!void {
             try mf.shrinkNode(gpa, ni, size, shift_next);
             var writers_it = mf.writers.first;
             while (writers_it) |writer_node| : (writers_it = writer_node.next) {
@@ -572,10 +573,7 @@ fn addNode(mf: *MappedFile, gpa: std.mem.Allocator, opts: struct {
             else => |next_ni| {
                 const next_offset, _ = next_ni.location(mf).resolve(mf);
                 if (new_end > next_offset)
-                    mf.realignNode(gpa, next_ni, opts.add_node.alignment, false, false) catch |err| switch (err) {
-                        error.Unimplemented => unreachable,
-                        else => |e| return e,
-                    };
+                    try next_ni.realign(mf, gpa, opts.add_node.alignment, false);
             },
         }
     }
@@ -724,13 +722,13 @@ fn shrinkNode(
     const old_offset, _ = node.location().resolve(mf);
 
     // This would require unmapping first
-    if (ni == Node.Index.root) return error.Unimplemented;
+    assert(ni != Node.Index.root);
     defer if (std.debug.runtime_safety) mf.verify();
 
     if (node.last != .none) {
         const last = node.last.get(mf);
         const last_offset, const last_size = last.location().resolve(mf);
-        if (last_offset + last_size > size) return error.ShrinkImpossible;
+        assert(last_offset + last_size > size);
     }
 
     try mf.large.ensureUnusedCapacity(gpa, 4);
@@ -757,7 +755,12 @@ fn shrinkNode(
     node.next.setLocationAssumeCapacity(mf, new_next_offset, next_size);
 }
 
-fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested_size: u64) (Allocator.Error || Io.Cancelable || IoError)!void {
+fn resizeNode(
+    mf: *MappedFile,
+    gpa: std.mem.Allocator,
+    ni: Node.Index,
+    requested_size: u64,
+) (Allocator.Error || Io.Cancelable || IoError)!void {
     mf.nodes_lock.assertUnlocked();
     const io = mf.io;
     const node = ni.get(mf);
@@ -1271,7 +1274,11 @@ fn ensureTotalCapacityPreciseInner(mf: *MappedFile, new_capacity: usize) (Alloca
             else => |e| return e,
         }
 
-        try mf.memory_map.write(io);
+        mf.memory_map.write(io) catch |err| switch (err) {
+            error.WouldBlock => return error.Unexpected, // file was not opened as non-blocking
+            error.NotOpenForWriting => return error.Unexpected, // we definitely opened the file for writing
+            else => |e| return e,
+        };
         unmap(mf);
     }
 

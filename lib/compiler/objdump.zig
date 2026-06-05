@@ -1653,10 +1653,10 @@ const coff = struct {
 
     fn dumpFlags(w: *Io.Writer, comptime fmt: []const u8, comptime T: type, flags: *const T, cols: u32) !void {
         const s = @typeInfo(T).@"struct";
-        inline for (s.fields) |flag_field| {
-            if (flag_field.type == bool and @field(flags, flag_field.name)) {
+        inline for (s.field_names, s.field_types) |field_name, field_type| {
+            if (field_type == bool and @field(flags, field_name)) {
                 try w.splatByteAll(' ', cols);
-                try w.print(fmt, .{flag_field.name});
+                try w.print(fmt, .{field_name});
             }
         }
     }
@@ -1693,25 +1693,26 @@ const coff = struct {
         header: *const T,
         Custom: type,
     ) !void {
-        inline for (@typeInfo(T).@"struct".fields) |field| {
-            const val = &@field(header, field.name);
-            if (@hasDecl(Custom, field.name)) {
-                try @field(Custom, field.name)(d, header);
+        const s = @typeInfo(T).@"struct";
+        inline for (s.field_names, s.field_types) |field_name, field_type| {
+            const val = &@field(header, field_name);
+            if (@hasDecl(Custom, field_name)) {
+                try @field(Custom, field_name)(d, header);
             } else {
-                switch (@typeInfo(field.type)) {
+                switch (@typeInfo(field_type)) {
                     .int => try d.w.print("{f} {s}\n", .{ fmtIntField(d, val.*, .{
-                        .kind = comptime fieldKind(field.name),
+                        .kind = comptime fieldKind(field_name),
                         .width = .{ .explicit = 16 },
-                    }), field.name }),
-                    .@"enum" => try d.w.print("{x: >16} {s} ({t})\n", .{ val.*, field.name, val.* }),
-                    .@"struct" => |s| {
-                        switch (s.layout) {
+                    }), field_name }),
+                    .@"enum" => try d.w.print("{x: >16} {s} ({t})\n", .{ val.*, field_name, val.* }),
+                    .@"struct" => |s_field| {
+                        switch (s_field.layout) {
                             .auto,
                             .@"extern",
-                            => try dumpHeader(d, field.type, val, Custom),
+                            => try dumpHeader(d, field_type, val, Custom),
                             .@"packed" => {
-                                try d.w.print("{x: >16} {s}\n", .{ @as(s.backing_integer.?, @bitCast(val.*)), field.name });
-                                try dumpFlags(d.w, "| {s}\n", field.type, val, 15);
+                                try d.w.print("{x: >16} {s}\n", .{ @as(s_field.backing_integer.?, @bitCast(val.*)), field_name });
+                                try dumpFlags(d.w, "| {s}\n", field_type, val, 15);
                             },
                         }
                     },

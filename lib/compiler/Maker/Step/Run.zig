@@ -2144,10 +2144,16 @@ fn runCommand(
                 defer gpa.free(snapshot_contents);
 
                 const result = switch (snapshot.result) {
-                    .stdout => generic_result.stdout.?,
                     .stderr => generic_result.stderr.?,
+                    .stdout => generic_result.stdout.?,
                 };
-                if (!mem.eql(u8, snapshot_contents, result)) {
+                if (std.mem.findDiff(u8, snapshot_contents, result)) |diff_index| {
+                    var diff_line_number: usize = 1;
+
+                    for (snapshot_contents[0..diff_index]) |value| {
+                        if (value == '\n') diff_line_number += 1;
+                    }
+
                     return step.fail(maker,
                         \\
                         \\========= snapshot file: =========
@@ -2156,7 +2162,21 @@ fn runCommand(
                         \\{s}
                         \\========= {t} output was: ========
                         \\{s}
-                    , .{ snapshot.path, snapshot_contents, snapshot.result, result });
+                        \\==================================
+                        \\first difference on line {d}:
+                        \\expected:
+                        \\{f}
+                        \\found:
+                        \\{f}
+                    , .{
+                        snapshot.path,
+                        snapshot_contents,
+                        snapshot.result,
+                        result,
+                        diff_line_number,
+                        fmtSnapshotIndicatorLine(snapshot_contents, diff_index),
+                        fmtSnapshotIndicatorLine(result, diff_index),
+                    });
                 }
             }
         },
@@ -2170,6 +2190,38 @@ fn runCommand(
             try step.handleChildProcessTerm(maker, generic_result.term);
         },
     }
+}
+
+const FmtIndicatorLine = struct {
+    buf: []const u8,
+    index: usize,
+};
+
+fn fmtSnapshotIndicatorLine(buf: []const u8, index: usize) std.fmt.Alt(
+    FmtIndicatorLine,
+    snapshotIndicatorLine,
+) {
+    return .{ .data = .{ .buf = buf, .index = index } };
+}
+
+fn snapshotIndicatorLine(line: FmtIndicatorLine, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    const line_begin_index = if (std.mem.lastIndexOfScalar(u8, line.buf[0..line.index], '\n')) |line_begin|
+        line_begin + 1
+    else
+        0;
+    const line_end_index = if (std.mem.findScalar(u8, line.buf[line.index..], '\n')) |line_end|
+        (line.index + line_end)
+    else
+        line.buf.len;
+
+    try w.writeAll(line.buf[line_begin_index..line_end_index]);
+    try w.writeByte('\n');
+    try w.splatByteAll(' ', line_end_index - line_begin_index);
+    try w.writeByte('\n');
+    if (line.index >= line.buf.len)
+        try w.writeAll("^ (end of file)")
+    else
+        try w.print("^ ('\\x{x:0>2}')\n", .{line.buf[line.index]});
 }
 
 const EvalGenericResult = struct {

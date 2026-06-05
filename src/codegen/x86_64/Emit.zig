@@ -155,6 +155,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             @enumFromInt(try elf_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null))
                         else if (emit.bin_file.cast(.elf2)) |elf| try elf.externSymbol(.{
                             .name = extern_func.toSlice(&emit.lower.mir).?,
+                            .lib_name = null,
                             .type = .FUNC,
                         }) else if (emit.bin_file.cast(.macho)) |macho_file|
                             @enumFromInt(try macho_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null))
@@ -254,7 +255,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             else => unreachable,
                         }
                     } else if (emit.bin_file.cast(.coff2)) |_| {
-                        if (reloc.target.is_dll_import) switch (lowered_inst.encoding.mnemonic) {
+                        if (target.is_dll_import) switch (lowered_inst.encoding.mnemonic) {
                             .lea => try emit.encodeInst(try .new(.none, .mov, &.{
                                 lowered_inst.ops[0],
                                 .{ .mem = .initRip(.ptr, 0) },

@@ -151,7 +151,7 @@ pub const Case = struct {
             const snapshot_update_path = run_step.captureStdOut(.{});
             update_step.addCopyFileToSource(snapshot_update_path, snapshot_sub_path);
         } else {
-            run_step.addCheck(.{ .snapshot = .{ .file = ctx.b.path(snapshot_sub_path) } });
+            run_step.addCheck(.{ .expect_stdout_snapshot = ctx.b.path(snapshot_sub_path) });
         }
 
         ctx.step.dependOn(&run_step.step);

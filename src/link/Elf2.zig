@@ -3787,7 +3787,7 @@ fn mapInputSection(elf: *Elf, opts: struct {
         const new_alignment: std.mem.Alignment = .fromByteUnits(
             std.math.ceilPowerOfTwoAssert(usize, @intCast(opts.addralign)),
         );
-        try existing_shndx.get(elf).ni.realign(&elf.mf, gpa, new_alignment);
+        try existing_shndx.get(elf).ni.realign(&elf.mf, gpa, new_alignment, true);
     }
     // ...and update the shdr as needed.
     switch (elf.shdrPtr(existing_shndx)) {
@@ -3950,7 +3950,7 @@ fn uavMapIndex(
     } else {
         const node = uav_gop.value_ptr.lsi.index().ptr(elf).node;
         if (resolved_align.toStdMem().order(node.alignment(&elf.mf)).compare(.gt)) {
-            try node.realign(&elf.mf, gpa, resolved_align.toStdMem());
+            try node.realign(&elf.mf, gpa, resolved_align.toStdMem(), true);
         }
     }
     return umi;
@@ -4679,7 +4679,7 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) (LoadPars
                             // We have a copy relocation for this global, but the amount of space we
                             // reserved for it could be too small or underaligned!
                             try copied_global.node.resize(&elf.mf, gpa, gop.value_ptr.size);
-                            try copied_global.node.realign(&elf.mf, gpa, gop.value_ptr.alignment);
+                            try copied_global.node.realign(&elf.mf, gpa, gop.value_ptr.alignment, true);
                             const global_ptr = elf.globalByName(name).?;
                             switch (elf.symPtr(global_ptr.symtab_index)) {
                                 inline else => |sym_ptr| elf.targetStore(&sym_ptr.size, @intCast(gop.value_ptr.size)),
@@ -6762,7 +6762,7 @@ pub fn printNode(
                 elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf).slice(elf),
             });
         },
-        .copied_global => |name| try w.print("(copy:{s})", .{name}),
+        .copied_global => |name| try w.print("(copy:{s})", .{name.slice(elf)}),
         .nav => |nmi| {
             const zcu = elf.base.comp.zcu.?;
             const ip = &zcu.intern_pool;
