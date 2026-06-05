@@ -395,56 +395,28 @@ pub const ImportDirectoryEntry = extern struct {
     import_address_table_rva: u32,
 };
 
-pub const ImportLookupEntry32 = struct {
-    pub const ByName = packed struct(u32) {
-        name_table_rva: u31,
-        flag: u1 = 0,
+pub fn ImportLookupTableEntry(comptime magic: std.coff.OptionalHeader.Magic) type {
+    const Payload = packed union(u31) {
+        ordinal: packed struct(u31) {
+            ordinal: u16,
+            _: u15 = 0,
+        },
+        hint_name_rva: u31,
     };
 
-    pub const ByOrdinal = packed struct(u32) {
-        ordinal_number: u16,
-        unused: u15 = 0,
-        flag: u1 = 1,
+    return switch (magic) {
+        _ => comptime unreachable,
+        .PE32 => packed struct(u32) {
+            payload: Payload,
+            is_ordinal: bool,
+        },
+        .@"PE32+" => packed struct(u64) {
+            payload: Payload,
+            _: u32 = 0,
+            is_ordinal: bool,
+        },
     };
-
-    const mask = 0x80000000;
-
-    pub fn getImportByName(raw: u32) ?ByName {
-        if (mask & raw != 0) return null;
-        return @as(ByName, @bitCast(raw));
-    }
-
-    pub fn getImportByOrdinal(raw: u32) ?ByOrdinal {
-        if (mask & raw == 0) return null;
-        return @as(ByOrdinal, @bitCast(raw));
-    }
-};
-
-pub const ImportLookupEntry64 = struct {
-    pub const ByName = packed struct(u64) {
-        name_table_rva: u31,
-        unused: u32 = 0,
-        flag: u1 = 0,
-    };
-
-    pub const ByOrdinal = packed struct(u64) {
-        ordinal_number: u16,
-        unused: u47 = 0,
-        flag: u1 = 1,
-    };
-
-    const mask = 0x8000000000000000;
-
-    pub fn getImportByName(raw: u64) ?ByName {
-        if (mask & raw != 0) return null;
-        return @as(ByName, @bitCast(raw));
-    }
-
-    pub fn getImportByOrdinal(raw: u64) ?ByOrdinal {
-        if (mask & raw == 0) return null;
-        return @as(ByOrdinal, @bitCast(raw));
-    }
-};
+}
 
 /// Every name ends with a NULL byte. IF the NULL byte does not fall on
 /// 2byte boundary, the entry structure is padded to ensure 2byte alignment.

@@ -730,29 +730,6 @@ pub const ImportTable = struct {
         hint_name_len: u32,
     };
 
-    pub fn TableEntry(comptime magic: std.coff.OptionalHeader.Magic) type {
-        const Payload = packed union(u31) {
-            ordinal: packed struct(u31) {
-                ordinal: u16,
-                _: u15 = 0,
-            },
-            hint_name_rva: u31,
-        };
-
-        return switch (magic) {
-            _ => comptime unreachable,
-            .PE32 => packed struct(u32) {
-                payload: Payload,
-                is_ordinal: bool,
-            },
-            .@"PE32+" => packed struct(u64) {
-                payload: Payload,
-                _: u32 = 0,
-                is_ordinal: bool,
-            },
-        };
-    }
-
     const Adapter = struct {
         coff: *Coff,
 
@@ -6316,7 +6293,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         switch (addr_info.magic) {
             _ => unreachable,
             inline .PE32, .@"PE32+" => |ct_magic| {
-                const Entry = ImportTable.TableEntry(ct_magic);
+                const Entry = std.coff.ImportLookupTableEntry(ct_magic);
                 const import_lookup_table: []Entry = @ptrCast(@alignCast(import_lookup_slice));
                 const import_address_table: []Entry = @ptrCast(@alignCast(import_address_slice));
                 const import_hint_name_rvas: [2]Entry = .{
@@ -6675,7 +6652,7 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
                 switch (magic) {
                     _ => unreachable,
                     inline .PE32, .@"PE32+" => |ct_magic| {
-                        const Entry = ImportTable.TableEntry(ct_magic);
+                        const Entry = std.coff.ImportLookupTableEntry(ct_magic);
                         const import_lookup_table: []Entry = @ptrCast(@alignCast(import_lookup_slice));
                         const import_address_table: []Entry = @ptrCast(@alignCast(import_address_slice));
 

@@ -535,10 +535,10 @@ const coff = struct {
             opts.imports or
             opts.tls;
 
-        const data_dirs = if (header.size_of_optional_header > 0) data_dirs: {
+        const data_dirs, const magic = if (header.size_of_optional_header > 0) optional_header: {
             if (!opts.file_headers and !needs_data_dirs) {
                 try fr.seekBy(header.size_of_optional_header);
-                break :data_dirs &.{};
+                break :optional_header .{ &.{}, null };
             }
 
             if (opts.file_headers) try w.writeAll("COFF Optional Header:\n");
@@ -614,10 +614,10 @@ const coff = struct {
             }
             if (opts.file_headers) try w.writeByte('\n');
 
-            break :data_dirs known_dirs[0..@min(known_dirs.len, num_directory_entries)];
+            break :optional_header .{ known_dirs[0..@min(known_dirs.len, num_directory_entries)], magic };
         } else if (is_image) {
             return failParse(opts, "image did not contain an optional header", .{});
-        } else &.{};
+        } else .{ &.{}, null };
 
         // Section names in images don't use the string table, as they must fit inline in the header
         const load_string_table = (opts.strings or !is_image) and header.pointer_to_symbol_table > 0;
@@ -1098,7 +1098,134 @@ const coff = struct {
 
         if (opts.imports) {
             if (try seekToDataDirectory(opts, fr, w, rva_index, sections.items, data_dirs, .IMPORT)) |_| {
-                // TODO
+                const Entry = std.coff.ImportDirectoryEntry;
+                var directory_entries: std.ArrayList(Entry) = .empty;
+                defer directory_entries.deinit(gpa);
+                while (true) {
+                    const entry = r.takeStruct(Entry, .little) catch |err|
+                        return failParse(
+                            opts,
+                            "unable to read import directory entry {x}: {t}",
+                            .{ directory_entries.items.len, err },
+                        );
+
+                    if (std.mem.allEqual(u8, std.mem.asBytes(&entry), 0)) break;
+                    (try directory_entries.addOne(gpa)).* = entry;
+                }
+
+                for (directory_entries.items) |entry| {
+                    const name_section = sectionContainingRva(rva_index, sections.items, entry.name_rva) orelse
+                        return failParse(
+                            opts,
+                            "import directory entry name rva 0x{x} was not found in any section",
+                            .{entry.name_rva},
+                        );
+
+                    const name_loc = sections.items[name_section].rvaFileOffset(entry.name_rva) catch unreachable;
+                    fr.seekTo(name_loc) catch |err|
+                        return failParse(
+                            opts,
+                            "unable to seek to import directory entry name at 0x{x}: {t}",
+                            .{ name_loc, err },
+                        );
+
+                    const dll_name = (try r.takeDelimiter(0)).?;
+
+                    try w.print("Import table entry for {s}:\n", .{dll_name});
+                    try dumpHeader(w, Entry, &entry, struct {});
+
+                    try w.print(
+                        \\
+                        \\ Ord Hint   Name
+                        \\
+                    , .{});
+
+                    const ilt_section = sectionContainingRva(
+                        rva_index,
+                        sections.items,
+                        entry.import_lookup_table_rva,
+                    ) orelse
+                        return failParse(
+                            opts,
+                            "import directory entry ilt rva 0x{x} was not found in any section",
+                            .{entry.import_lookup_table_rva},
+                        );
+
+                    const ilt_loc = sections.items[ilt_section].rvaFileOffset(
+                        entry.import_lookup_table_rva,
+                    ) catch unreachable;
+                    fr.seekTo(ilt_loc) catch |err|
+                        return failParse(
+                            opts,
+                            "unable to seek to import directory ilt at 0x{x}: {t}",
+                            .{ ilt_loc, err },
+                        );
+
+                    switch (magic.?) {
+                        _ => try w.writeAll("(unknown magic)"),
+                        inline else => |m| {
+                            const TableEntry = std.coff.ImportLookupTableEntry(m);
+                            const null_entry: TableEntry = @bitCast(@as(@typeInfo(TableEntry).@"struct".backing_integer.?, 0));
+
+                            var ilt_entries: std.ArrayList(TableEntry) = .empty;
+                            defer ilt_entries.deinit(gpa);
+                            while (true) {
+                                const table_entry = r.takeStruct(TableEntry, .little) catch |err|
+                                    return failParse(
+                                        opts,
+                                        "unable to read ilt entry {s}:{x}: {t}",
+                                        .{ dll_name, ilt_entries.items.len, err },
+                                    );
+                                if (table_entry == null_entry) break;
+                                (try ilt_entries.addOne(gpa)).* = table_entry;
+                            }
+
+                            for (ilt_entries.items, 0..) |ilt_entry, ilt_entry_i| {
+                                if (ilt_entry.is_ordinal) {
+                                    try w.print("{x: >4}", .{ilt_entry.payload.ordinal.ordinal});
+                                } else {
+                                    const hint_section = sectionContainingRva(
+                                        rva_index,
+                                        sections.items,
+                                        ilt_entry.payload.hint_name_rva,
+                                    ) orelse
+                                        return failParse(
+                                            opts,
+                                            "import directory ilt entry 0x{x}'s hint rva 0x{x} was not found in any section",
+                                            .{ ilt_entry_i, ilt_entry.payload.hint_name_rva },
+                                        );
+
+                                    const hint_loc = sections.items[hint_section].rvaFileOffset(
+                                        ilt_entry.payload.hint_name_rva,
+                                    ) catch unreachable;
+                                    fr.seekTo(hint_loc) catch |err|
+                                        return failParse(
+                                            opts,
+                                            "unable to seek to ilt entry 0x{x}'s hint at 0x{x}: {t}",
+                                            .{ ilt_entry_i, hint_loc, err },
+                                        );
+
+                                    const hint = r.takeInt(u16, .little) catch |err|
+                                        return failParse(
+                                            opts,
+                                            "unable to read import directory ilt entry 0x{x}'s hint: {t}",
+                                            .{ ilt_entry_i, err },
+                                        );
+
+                                    const name = r.takeDelimiter(0) catch |err|
+                                        return failParse(
+                                            opts,
+                                            "unable to read import directory ilt entry 0x{x}'s name: {t}",
+                                            .{ ilt_entry_i, err },
+                                        );
+
+                                    try w.print("     {x: >4} | {s}\n", .{ hint, name.? });
+                                }
+                            }
+                            try w.writeByte('\n');
+                        },
+                    }
+                }
             }
         }
 
