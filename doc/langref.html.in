@@ -8322,17 +8322,17 @@ keyword <- KEYWORD_addrspace / KEYWORD_align / KEYWORD_allowzero / KEYWORD_and
         <li>Communicate intent precisely.</li>
         <li>Edge cases matter.</li>
         <li>Favor reading code over writing code.</li>
-        <li>Only one obvious way to do things.</li>
+        <li>There is an idiomatic way to do it.</li>
         <li>Runtime crashes are better than bugs.</li>
         <li>Compile errors are better than runtime crashes.</li>
         <li>Incremental improvements.</li>
         <li>Avoid local maximums.</li>
         <li>Reduce the amount one must remember.</li>
-        <li>Focus on code rather than style.</li>
-        <li>Resource allocation may fail; resource deallocation must succeed.</li>
-        <li>Memory is a resource.</li>
-        <li>Together we serve the users.</li>
+        <li>Focus on logic, not style.</li>
+        <li>Resource allocation may fail.</li>
+        <li>Resource deallocation must succeed.</li>
       </ul>
+      <p>Together, we serve the users!</p>
       {#header_close#}
       {#header_close#}
       </main></div>
