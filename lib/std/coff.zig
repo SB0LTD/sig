@@ -2,6 +2,11 @@ const std = @import("std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 
+pub const archive_signature = "!<arch>\n";
+
+pub const pe_signature = "PE\x00\x00";
+pub const pe_pointer_offset = 0x3C;
+
 pub const Header = extern struct {
     /// The number that identifies the type of target machine.
     machine: IMAGE.FILE.MACHINE,
@@ -1019,13 +1024,10 @@ pub const Coff = struct {
 
     // The lifetime of `data` must be longer than the lifetime of the returned Coff
     pub fn init(data: []const u8, is_loaded: bool) error{ EndOfStream, MissingPEHeader }!Coff {
-        const pe_pointer_offset = 0x3C;
-        const pe_magic = "PE\x00\x00";
-
         if (data.len < pe_pointer_offset + 4) return error.EndOfStream;
         const header_offset = mem.readInt(u32, data[pe_pointer_offset..][0..4], .little);
         if (data.len < header_offset + 4) return error.EndOfStream;
-        const is_image = mem.eql(u8, data[header_offset..][0..4], pe_magic);
+        const is_image = mem.eql(u8, data[header_offset..][0..4], pe_signature);
 
         const coff: Coff = .{
             .data = data,

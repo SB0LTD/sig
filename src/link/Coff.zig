@@ -90,7 +90,6 @@ pub const default_size_of_stack_commit: u32 = 0x1000;
 pub const default_size_of_heap_reserve: u32 = 0x100000;
 pub const default_size_of_heap_commit: u32 = 0x1000;
 
-pub const archive_signature = "!<arch>\n";
 pub const archive_end_of_header = "`\n";
 
 pub const imp_prefix = "__imp_";
@@ -1763,14 +1762,12 @@ fn initHeaders(
     }));
     coff.nodes.appendAssumeCapacity(.header);
 
-    const pe_signature = "PE\x00\x00";
-
     const signature_ni = Node.known.signature;
     assert(signature_ni == try coff.mf.addLastChildNode(gpa, if (is_image or !is_archive) header_ni else Node.known.file, .{
         .size = if (is_image)
-            msdos_stub.len + pe_signature.len
+            msdos_stub.len + std.coff.pe_signature.len
         else if (is_archive)
-            archive_signature.len
+            std.coff.archive_signature.len
         else
             0,
         .alignment = .@"4",
@@ -1781,9 +1778,9 @@ fn initHeaders(
     const signature_slice = signature_ni.slice(&coff.mf);
     if (is_image) {
         @memcpy(signature_slice[0..msdos_stub.len], &msdos_stub);
-        @memcpy(signature_slice[signature_slice.len - pe_signature.len ..], pe_signature);
+        @memcpy(signature_slice[signature_slice.len - std.coff.pe_signature.len ..], std.coff.pe_signature);
     } else if (is_archive) {
-        @memcpy(signature_slice, archive_signature);
+        @memcpy(signature_slice, std.coff.archive_signature);
     }
 
     const opt_coff_parent_ni = if (is_archive) parent: {
@@ -3679,7 +3676,7 @@ fn loadObject(
 
     log.debug("loadObject({f}{f})", .{ path.fmtEscapeString(), fmtMemberNameString(member_name) });
 
-    const header = try r.peekStruct(std.coff.Header, coff.targetEndian());
+    const header = try r.peekStruct(std.coff.Header, .little());
     if (header.machine != target.toCoffMachine())
         return diags.failParse(path, "machine mismatch: expected {t}, found {t}", .{
             target.toCoffMachine(),
@@ -4786,8 +4783,8 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
 
     log.debug("loadArchive({f})", .{path.fmtEscapeString()});
 
-    const signature = try r.take(archive_signature.len);
-    if (!std.mem.eql(u8, signature, archive_signature))
+    const signature = try r.take(std.coff.archive_signature.len);
+    if (!std.mem.eql(u8, signature, std.coff.archive_signature))
         return diags.failParse(path, "bad signature", .{});
 
     var opt_expected_kind: ?Member.Kind = .first_linker;
@@ -6375,6 +6372,8 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     const iat_offset: u32 = @intCast(addr_info.size * iat_symbol_gop.value_ptr.*);
     switch (import.kind) {
         .iat_ptr => {
+            // TODO: Currently the codegen is wrong for loading the address of these globals,
+            //       we generate lea [<iat_ptr>] when it should be mov [<iat_ptr>]
             const iat_sym = gop.value_ptr.import_address_table_si.get(coff);
             sym.section_number = iat_sym.section_number;
             sym.ni = iat_sym.ni;
