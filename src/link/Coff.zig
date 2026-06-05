@@ -38,13 +38,10 @@ input_archive_symbol_indices: std.AutoArrayHashMapUnmanaged(String, struct {
     first: InputArchive.Member.Symbol.Index,
     last: InputArchive.Member.Symbol.Index,
 }),
+pending_input: ?InputArchive.Member.Index,
 inputs: std.ArrayList(Input),
 input_resolved: std.ArrayList(Symbol.Index),
-input_sections: std.ArrayList(struct {
-    ii: Node.InputIndex,
-    si: Symbol.Index,
-    file_location: MappedFile.Node.FileLocation,
-}),
+input_sections: std.ArrayList(Node.InputSection),
 input_section_pending_index: u32,
 strings: std.HashMapUnmanaged(
     u32,
@@ -203,7 +200,7 @@ pub const Node = union(enum) {
 
     pseudo_section: PseudoSectionMapIndex,
     object_section: ObjectSectionMapIndex,
-    input_section: InputSectionIndex,
+    input_section: InputSection.Index,
     global: GlobalMapIndex,
     nav: NavMapIndex,
     uav: UavMapIndex,
@@ -292,16 +289,16 @@ pub const Node = union(enum) {
             return coff.inputs.items[@intFromEnum(ii)].path;
         }
 
-        pub fn archiveName(ii: InputIndex, coff: *const Coff) ?[]const u8 {
-            return coff.inputs.items[@intFromEnum(ii)].archive_name;
+        pub fn memberName(ii: InputIndex, coff: *const Coff) ?[]const u8 {
+            return coff.inputs.items[@intFromEnum(ii)].member_name;
         }
 
         pub fn firstSymbol(ii: InputIndex, coff: *const Coff) Symbol.Index {
             return coff.inputs.items[@intFromEnum(ii)].first_si;
         }
 
-        pub fn lastSymbol(ii: InputIndex, coff: *const Coff) Symbol.Index {
-            return coff.inputs.items[@intFromEnum(ii)].last_si;
+        pub fn endSymbol(ii: InputIndex, coff: *const Coff) Symbol.Index {
+            return coff.inputs.items[@intFromEnum(ii)].end_si;
         }
 
         pub fn firstResolvedGlobal(ii: InputIndex, coff: *const Coff) Input.ResolvedIndex {
@@ -309,24 +306,39 @@ pub const Node = union(enum) {
         }
     };
 
-    pub const InputSectionIndex = enum(u32) {
-        _,
+    const InputSection = struct {
+        ii: Node.InputIndex,
+        si: Symbol.Index,
+        file_location: MappedFile.Node.FileLocation,
+        first_iri: Node.InputSection.ResolvedIndex,
 
-        pub fn input(isi: InputSectionIndex, coff: *const Coff) InputIndex {
-            return coff.input_sections.items[@intFromEnum(isi)].ii;
-        }
+        pub const Index = enum(u32) {
+            _,
 
-        pub fn fileLocation(isi: InputSectionIndex, coff: *const Coff) MappedFile.Node.FileLocation {
-            return coff.input_sections.items[@intFromEnum(isi)].file_location;
-        }
+            pub fn inputSection(isi: Index, coff: *const Coff) *InputSection {
+                return &coff.input_sections.items[@intFromEnum(isi)];
+            }
 
-        pub fn symbol(isi: InputSectionIndex, coff: *const Coff) Symbol.Index {
-            return coff.input_sections.items[@intFromEnum(isi)].si;
-        }
+            pub fn input(isi: Index, coff: *const Coff) InputIndex {
+                return coff.input_sections.items[@intFromEnum(isi)].ii;
+            }
 
-        pub fn lastSymbol(isi: InputSectionIndex, coff: *const Coff) Symbol.Index {
-            return coff.input_sections.items[@intFromEnum(isi)].last_si;
-        }
+            pub fn fileLocation(isi: Index, coff: *const Coff) MappedFile.Node.FileLocation {
+                return coff.input_sections.items[@intFromEnum(isi)].file_location;
+            }
+
+            pub fn symbol(isi: Index, coff: *const Coff) Symbol.Index {
+                return coff.input_sections.items[@intFromEnum(isi)].si;
+            }
+
+            pub fn firstResolvedSymbol(isi: Index, coff: *const Coff) ResolvedIndex {
+                return coff.input_sections.items[@intFromEnum(isi)].first_iri;
+            }
+        };
+
+        const ResolvedIndex = enum(u32) {
+            _,
+        };
     };
 
     pub const LazyMapRef = struct {
@@ -398,6 +410,10 @@ pub const InputArchive = struct {
 
     const Index = enum(u32) {
         _,
+
+        pub fn path(iai: InputArchive.Index, coff: *Coff) std.Build.Cache.Path {
+            return coff.input_archives.items[@intFromEnum(iai)].path;
+        }
     };
 
     pub const Member = struct {
@@ -405,10 +421,17 @@ pub const InputArchive = struct {
         name: String,
         // This range includes the member header
         file_location: MappedFile.Node.FileLocation,
-        is_import: bool,
-        // TODO: Field indicating we loaded it already (ii)
+        flags: packed struct {
+            is_import: bool,
+            is_loaded: bool,
+        },
+
         const Index = enum(u32) {
             _,
+
+            pub fn member(iami: InputArchive.Member.Index, coff: *Coff) *InputArchive.Member {
+                return &coff.input_archive_members.items[@intFromEnum(iami)];
+            }
         };
 
         pub const Symbol = struct {
@@ -425,14 +448,9 @@ pub const InputArchive = struct {
 
 pub const Input = struct {
     path: std.Build.Cache.Path,
-    archive_name: ?[]const u8,
+    member_name: ?[]const u8,
     first_si: Symbol.Index,
-    last_si: Symbol.Index,
-    first_iri: ResolvedIndex,
-
-    const ResolvedIndex = enum(u32) {
-        _,
-    };
+    end_si: Symbol.Index,
 };
 
 pub const Member = struct {
@@ -1336,6 +1354,7 @@ fn create(
         .input_archive_members = .empty,
         .input_archive_symbols = .empty,
         .input_archive_symbol_indices = .empty,
+        .pending_input = null,
         .inputs = .empty,
         .input_resolved = .empty,
         .input_sections = .empty,
@@ -2315,6 +2334,8 @@ fn getOrPutGlobalSymbol(
         si.get(coff).gmi = .wrap(@intCast(sym_gop.index));
         sym_gop.value_ptr.* = si;
         coff.synth_prog_node.increaseEstimatedTotalItems(1);
+
+        log.debug("globalSymbol({s}, {?s}) = {d}", .{ opts.name, opts.lib_name, si });
     }
 
     return sym_gop;
@@ -2724,7 +2745,28 @@ fn flushSymbolTableEntry(coff: *Coff, si: Symbol.Index, pt: Zcu.PerThread) !void
     log.debug("updateSymbolTableEntry({d}) = {d}", .{ si, sym.sti });
 }
 
-fn flushInputSection(coff: *Coff, isi: Node.InputSectionIndex) !void {
+fn flushInputMember(coff: *Coff, iami: InputArchive.Member.Index) !void {
+    const member = iami.member(coff);
+    if (member.file_location.size == 0) return;
+    assert(!member.flags.is_loaded);
+    defer member.flags.is_loaded = true;
+    const comp = coff.base.comp;
+    const io = comp.io;
+    const path = member.iai.path(coff);
+    const file = try path.root_dir.handle.openFile(io, path.sub_path, .{});
+    defer file.close(io);
+    var buffer: [4096]u8 = undefined;
+    var fr = file.reader(io, &buffer);
+    const offset = member.file_location.offset + @sizeOf(std.coff.ArchiveMemberHeader);
+    try fr.seekTo(offset);
+    log.debug("flushInputMember({f}({s}))", .{ path, member.name.toSlice(coff) });
+    try coff.loadObject(path, member.name.toSlice(coff), &fr, .{
+        .offset = offset,
+        .size = member.file_location.size,
+    });
+}
+
+fn flushInputSection(coff: *Coff, isi: Node.InputSection.Index) !void {
     const file_loc = isi.fileLocation(coff);
     if (file_loc.size == 0) return;
     const comp = coff.base.comp;
@@ -2740,6 +2782,11 @@ fn flushInputSection(coff: *Coff, isi: Node.InputSectionIndex) !void {
     const si = isi.symbol(coff);
     si.node(coff).writer(&coff.mf, gpa, &nw);
     defer nw.deinit();
+    log.debug("flushInputSection({f}{f}, {s})", .{
+        path,
+        fmtMemberNameString(ii.memberName(coff)),
+        isi.symbol(coff).get(coff).section_number.name(coff).toSlice(coff),
+    });
     if (try nw.interface.sendFileAll(&fr, .limited(@intCast(file_loc.size))) != file_loc.size)
         return error.EndOfStream;
     si.applyLocationRelocs(coff);
@@ -3180,12 +3227,12 @@ pub fn loadInput(coff: *Coff, input: link.Input) (Io.File.Reader.SizeError ||
     }
 }
 
-fn fmtArchiveNameString(archiveName: ?[]const u8) std.fmt.Alt(?[]const u8, archiveNameStringEscape) {
-    return .{ .data = archiveName };
+fn fmtMemberNameString(memberName: ?[]const u8) std.fmt.Alt(?[]const u8, memberNameStringEscape) {
+    return .{ .data = memberName };
 }
 
-fn archiveNameStringEscape(archiveName: ?[]const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
-    try w.print("({f})", .{std.zig.fmtString(archiveName orelse return)});
+fn memberNameStringEscape(memberName: ?[]const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    try w.print("({f})", .{std.zig.fmtString(memberName orelse return)});
 }
 
 fn inputSectionHeaderNameSlice(
@@ -3214,7 +3261,7 @@ fn inputSectionHeaderNameSlice(
 fn loadObject(
     coff: *Coff,
     path: std.Build.Cache.Path,
-    archive_name: ?[]const u8,
+    member_name: ?[]const u8,
     fr: *Io.File.Reader,
     fl: MappedFile.Node.FileLocation,
 ) !void {
@@ -3227,7 +3274,7 @@ fn loadObject(
     const is_archive = coff.isArchive();
     assert(!coff.isObj());
 
-    log.debug("loadObject({f}{f})", .{ path.fmtEscapeString(), fmtArchiveNameString(archive_name) });
+    log.debug("loadObject({f}{f})", .{ path.fmtEscapeString(), fmtMemberNameString(member_name) });
 
     const header = try r.peekStruct(std.coff.Header, coff.targetEndian());
     if (header.machine != target.toCoffMachine())
@@ -3271,10 +3318,9 @@ fn loadObject(
     const input = coff.inputs.addOneAssumeCapacity();
     input.* = .{
         .path = path,
-        .archive_name = if (archive_name) |m| try gpa.dupe(u8, m) else null,
-        .first_si = .null,
-        .last_si = .null,
-        .first_iri = @enumFromInt(coff.input_resolved.items.len),
+        .member_name = if (member_name) |m| try gpa.dupe(u8, m) else null,
+        .first_si = @enumFromInt(coff.symbols.items.len),
+        .end_si = @enumFromInt(coff.symbols.items.len),
     };
 
     const string_table = string_table: {
@@ -3455,6 +3501,7 @@ fn loadObject(
                     .offset = fl.offset + section.header.pointer_to_raw_data,
                     .size = section.header.size_of_raw_data,
                 },
+                .first_iri = @enumFromInt(coff.input_resolved.items.len),
             };
 
             log.debug("loadInputSection({s}) = {d}@{d}", .{ section.name.toSlice(coff), section.si, sym.section_number });
@@ -3497,8 +3544,11 @@ fn loadObject(
 
     var symbols: std.ArrayList(Symbol.Index) = .empty;
     try symbols.ensureUnusedCapacity(gpa, header.number_of_symbols);
+    var num_resolved: u32 = 0;
 
-    const first_si = coff.symbols.items.len;
+    input.first_si = @enumFromInt(coff.symbols.items.len);
+    defer input.end_si = @enumFromInt(coff.symbols.items.len);
+
     var symbol_i: u32 = 0;
     while (symbol_i < header.number_of_symbols) {
         var symbol: std.coff.Symbol = undefined;
@@ -3619,6 +3669,7 @@ fn loadObject(
                     .{name},
                 ),
                 else => |sn| {
+                    // TODO: Should this use archive name as lib_name as well?
                     const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = name });
                     si_slice[0] = global_gop.value_ptr.*;
                     const sym = si_slice[0].get(coff);
@@ -3631,7 +3682,7 @@ fn loadObject(
                                 const other_ii = isi.input(coff);
                                 err.addNote("first seen in input '{f}{f}'", .{
                                     other_ii.path(coff).fmtEscapeString(),
-                                    fmtArchiveNameString(other_ii.archiveName(coff)),
+                                    fmtMemberNameString(other_ii.memberName(coff)),
                                 });
                             },
                             .nav, .uav => err.addNote("first seen in module '{s}'", .{
@@ -3643,23 +3694,14 @@ fn loadObject(
                         return error.LinkFailure;
                     }
 
-                    if (global_gop.found_existing) {
-                        // `input_resolved` allows visting this symbol in this input section's flushMoved,
-                        // as the previously undefined global created earlier will not be in our
-                        // contiguous first / last range.
-                        (try coff.input_resolved.addOne(gpa)).* = si_slice[0];
-                    }
+                    if (global_gop.found_existing)
+                        num_resolved += 1;
 
                     coff.initInputSectionSymbol(sym, sections[@intCast(@intFromEnum(sn) - 1)].si, symbol.value);
                 },
             },
             else => {},
         }
-    }
-
-    if (coff.symbols.items.len > first_si) {
-        input.first_si = @enumFromInt(first_si);
-        input.last_si = @enumFromInt(coff.symbols.items.len - 1);
     }
 
     const relocation_size = std.coff.Relocation.sizeOf();
@@ -3696,6 +3738,38 @@ fn loadObject(
                 @bitCast(reloc.type),
             );
         }
+    }
+
+    const symbolLessThan = struct {
+        fn lessThan(ctx: *Coff, lhs: Symbol.Index, rhs: Symbol.Index) bool {
+            const lhs_sn = @intFromEnum(if (lhs == .null) .UNDEFINED else lhs.get(ctx).section_number);
+            const rhs_sn = @intFromEnum(if (rhs == .null) .UNDEFINED else rhs.get(ctx).section_number);
+            if (lhs_sn == rhs_sn) return @intFromEnum(lhs) < @intFromEnum(rhs);
+            return lhs_sn < rhs_sn;
+        }
+    }.lessThan;
+
+    std.mem.sortUnstable(Symbol.Index, symbols.items, coff, symbolLessThan);
+
+    // Any symbols that we resolved (used to be undefined but are now defined) in this pass need to be
+    // added to contigous ranges in `input_resolved` so they can be visited in `flushMoved`, as they
+    // are not part of the contiguous ii.first_si / ii.last_si range.
+    //
+    // TODO: Should we just use this array for all symbols in this input? More memory but less get().ni misses in flushMoved
+    try coff.input_resolved.ensureUnusedCapacity(gpa, num_resolved);
+    var prev_isi: ?Node.InputSection.Index = null;
+    for (symbols.items) |si| {
+        if (si == .null or @intFromEnum(si) >= @intFromEnum(input.end_si)) continue;
+        const ni = si.get(coff).ni;
+        if (ni == .none) continue;
+
+        const isi = coff.getNode(ni).input_section;
+        if (prev_isi != isi) {
+            isi.inputSection(coff).first_iri = @enumFromInt(coff.input_resolved.items.len);
+            prev_isi = isi;
+        }
+
+        coff.input_resolved.addOneAssumeCapacity().* = si;
     }
 }
 
@@ -3813,6 +3887,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
     var pos = fr.logicalPos();
     const size = try fr.getSize();
     while (pos < size) : (pos = fr.logicalPos()) {
+        if ((pos & 1) != 0) r.toss(1);
         const header = try r.takeStruct(std.coff.ArchiveMemberHeader, target_endian);
         const res = try parseArchiveMemberHeader(diags, path, &header, opt_longnames);
 
@@ -3891,7 +3966,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
                         coff.input_archive_members.addOneAssumeCapacity().* = .{
                             .iai = iai,
                             .name = undefined,
-                            .is_import = undefined,
+                            .flags = undefined,
                             .file_location = .{
                                 .offset = member_offset,
                                 .size = undefined,
@@ -3952,7 +4027,10 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
         const member_sig = try r.peek(4);
         const machine = std.mem.readInt(u16, member_sig[0..2], target_endian);
         const sig = std.mem.readInt(u16, member_sig[2..4], target_endian);
-        member.is_import = machine == @intFromEnum(std.coff.IMAGE.FILE.MACHINE.UNKNOWN) and sig == 0xffff;
+        member.flags = .{
+            .is_import = machine == @intFromEnum(std.coff.IMAGE.FILE.MACHINE.UNKNOWN) and sig == 0xffff,
+            .is_loaded = false,
+        };
         member.file_location.size = res.size;
 
         log.debug("verifyArchiveMember({s}) = 0x{x}+{x}", .{
@@ -3961,7 +4039,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
             member.file_location.size,
         });
 
-        if (member.is_import) {
+        if (member.flags.is_import) {
             const import_header = try r.peekStruct(std.coff.ImportHeader, target_endian);
             // TODO: Validate import table header fields
             // TODO: Use this result in flushGlobal
@@ -4356,13 +4434,13 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
                             // TODO: We could report the name here if we interned it in loadObject
                             err.addNote("referenced internally by input '{f}{f}'", .{
                                 other_ii.path(coff).fmtEscapeString(),
-                                fmtArchiveNameString(other_ii.archiveName(coff)),
+                                fmtMemberNameString(other_ii.memberName(coff)),
                             });
                         } else {
                             err.addNote("referenced by input symbol '{s}' from '{f}{f}'", .{
                                 loc_sym.gmi.globalName(coff).name.toSlice(coff),
                                 other_ii.path(coff).fmtEscapeString(),
-                                fmtArchiveNameString(other_ii.archiveName(coff)),
+                                fmtMemberNameString(other_ii.memberName(coff)),
                             });
                         }
                     },
@@ -4478,21 +4556,32 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             };
             break :task;
         }
+        if (coff.pending_input) |pending_iami| {
+            // TODO: Prog node?
+            coff.flushInputMember(pending_iami) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => |e| return comp.link_diags.fail(
+                    "linker failed to archive member: {t}",
+                    .{e},
+                ),
+            };
+            coff.pending_input = null;
+            break :task;
+        }
         if (coff.global_pending_index < coff.globals.count()) {
             const gmi: Node.GlobalMapIndex = .wrap(coff.global_pending_index);
-            coff.global_pending_index += 1;
             const sub_prog_node = coff.synth_prog_node.start(
                 gmi.globalName(coff).name.toSlice(coff),
                 0,
             );
             defer sub_prog_node.end();
-            coff.flushGlobal(gmi) catch |err| switch (err) {
+            if (coff.flushGlobal(gmi) catch |err| switch (err) {
                 else => |e| return e,
                 error.MappedFileIo => return comp.link_diags.fail(
                     "linker failed to lower constant: {t}",
                     .{coff.mf.io_err.?},
                 ),
-            };
+            }) coff.global_pending_index += 1;
             break :task;
         }
         var lazy_it = coff.lazy.iterator();
@@ -4547,7 +4636,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
         }
         // TODO: Idle task for flushing obj into lib?
         if (coff.input_section_pending_index < coff.input_sections.items.len) {
-            const isi: Node.InputSectionIndex = @enumFromInt(coff.input_section_pending_index);
+            const isi: Node.InputSection.Index = @enumFromInt(coff.input_section_pending_index);
             coff.input_section_pending_index += 1;
             const sub_prog_node = coff.idleProgNode(tid, coff.input_prog_node, coff.getNode(isi.symbol(coff).node(coff)));
             defer sub_prog_node.end();
@@ -4559,7 +4648,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
                         .{
                             isi.symbol(coff).get(coff).section_number.name(coff).toSlice(coff),
                             ii.path(coff).fmtEscapeString(),
-                            fmtArchiveNameString(ii.archiveName(coff)),
+                            fmtMemberNameString(ii.memberName(coff)),
                             e,
                         },
                     );
@@ -4629,9 +4718,10 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
         }
     }
     if (coff.pending_uavs.count() > 0) return true;
+    if (coff.pending_input != null) return true;
     if (coff.globals.count() > coff.global_pending_index) return true;
-    if (coff.symbol_table.pending.count() > 0) return true;
     for (&coff.lazy.values) |lazy| if (lazy.map.count() > lazy.pending_index) return true;
+    if (coff.symbol_table.pending.count() > 0) return true;
     if (coff.input_sections.items.len > coff.input_section_pending_index) return true;
     if (coff.mf.updates.items.len > 0) return true;
     if (coff.pending_members.count() > 0) return true;
@@ -4655,7 +4745,7 @@ fn idleProgNode(
             const ii = isi.input(coff);
             break :name std.fmt.bufPrint(&name, "{f}{f} {s}", .{
                 ii.path(coff).fmtEscapeString(),
-                fmtArchiveNameString(ii.archiveName(coff)),
+                fmtMemberNameString(ii.memberName(coff)),
                 coff.getNode(isi.symbol(coff).node(coff).parent(&coff.mf)).object_section.name(coff).toSlice(coff),
             }) catch &name;
         },
@@ -4736,7 +4826,7 @@ fn flushUav(
     si.applyLocationRelocs(coff);
 }
 
-fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !void {
+fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     const gn = gmi.globalName(coff);
@@ -4751,7 +4841,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !void {
                 gn.name,
             );
 
-        return;
+        return true;
     }
 
     if (gn.lib_name.toSlice(coff)) |lib_name| {
@@ -4911,15 +5001,26 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !void {
         sym.rva = coff.computeNodeRva(sym.ni);
         si.applyLocationRelocs(coff);
     } else {
+        if (coff.input_archive_symbol_indices.get(gn.name)) |index| {
+            var iter: InputArchive.Member.Symbol.Index = index.first;
+            while (true) {
+                const archive_sym = &coff.input_archive_symbols.items[@intFromEnum(iter)];
 
-        // TODO: Check if not defined, and if in an input member
-        // TODO: If so, queue a loadObject for that member
-        // TODO: Return a value indicating to retry this flushGlobal
-        // TODO: The loadObject idle task should be before the flushGlobal idle task
-        //
+                // TODO: This implies that loading an input failing is not fatal
+                if (!coff.input_archive_members.items[@intFromEnum(archive_sym.iami)].flags.is_loaded) {
+                    coff.pending_input = archive_sym.iami;
+                    return false;
+                }
+
+                if (archive_sym.next == iter) break;
+                iter = archive_sym.next;
+            }
+        }
+
         // TODO: Check if we can get flushGlobal before prelink, that would cause a problem
-
     }
+
+    return true;
 }
 
 fn flushLazy(coff: *Coff, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
@@ -5040,14 +5141,14 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
 
             {
                 var si = ii.firstSymbol(coff);
-                const last_si = ii.lastSymbol(coff);
-                while (@intFromEnum(si) <= @intFromEnum(last_si)) : (si = si.next()) {
+                const end_si = ii.endSymbol(coff);
+                while (@intFromEnum(si) < @intFromEnum(end_si)) : (si = si.next()) {
                     if (si.get(coff).ni != ni) continue;
                     si.flushMoved(coff);
                 }
             }
 
-            for (coff.input_resolved.items[@intFromEnum(ii.firstResolvedGlobal(coff))..]) |si| {
+            for (coff.input_resolved.items[@intFromEnum(isi.firstResolvedSymbol(coff))..]) |si| {
                 if (si.get(coff).ni != ni) break;
                 si.flushMoved(coff);
             }
@@ -5606,7 +5707,7 @@ pub fn printNode(
             const ii = isi.input(coff);
             try w.print("({f}{f}, {s})", .{
                 ii.path(coff).fmtEscapeString(),
-                fmtArchiveNameString(ii.archiveName(coff)),
+                fmtMemberNameString(ii.memberName(coff)),
                 coff.getNode(isi.symbol(coff).node(coff).parent(&coff.mf)).object_section.name(coff).toSlice(coff),
             });
         },
