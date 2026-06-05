@@ -25,6 +25,7 @@ const Package = @import("Package.zig");
 const dev = @import("dev.zig");
 const target_util = @import("target.zig");
 const codegen = @import("codegen.zig");
+const crash_report = @import("crash_report.zig");
 
 pub const aarch64 = @import("link/aarch64.zig");
 pub const LdScript = @import("link/LdScript.zig");
@@ -790,6 +791,7 @@ pub const File = struct {
         assert(base.comp.zcu.?.llvm_object == null);
         const nav = pt.zcu.intern_pool.getNav(nav_index);
         assert(nav.resolved.?.value != .none);
+
         switch (base.tag) {
             .lld => unreachable,
             .plan9 => unreachable,
@@ -924,6 +926,9 @@ pub const File = struct {
     /// Commit pending changes and write headers. Takes into account final output mode.
     /// `arena` has the lifetime of the call to `Compilation.update`.
     pub fn flush(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) Error!void {
+        crash_report.LinkerOp.start(base, tid);
+        defer crash_report.LinkerOp.stop(base, tid);
+
         const comp = base.comp;
         const io = comp.io;
         if (comp.clang_preprocessor_mode == .yes or comp.clang_preprocessor_mode == .pch) {
@@ -975,6 +980,10 @@ pub const File = struct {
         export_indices: []const Zcu.Export.Index,
     ) Error!void {
         assert(base.comp.zcu.?.llvm_object == null);
+
+        crash_report.LinkerOp.start(base, pt.tid);
+        defer crash_report.LinkerOp.stop(base, pt.tid);
+
         switch (base.tag) {
             .lld => unreachable,
             .plan9 => unreachable,
@@ -1006,6 +1015,7 @@ pub const File = struct {
     /// Never called when LLVM is codegenning the ZCU.
     pub fn getNavVAddr(base: *File, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, reloc_info: RelocInfo) Error!u64 {
         assert(base.comp.zcu.?.llvm_object == null);
+
         switch (base.tag) {
             .lld => unreachable,
             .c => unreachable,
@@ -1027,6 +1037,7 @@ pub const File = struct {
         decl_align: InternPool.Alignment,
     ) Error!SymbolId {
         assert(base.comp.zcu.?.llvm_object == null);
+
         switch (base.tag) {
             .lld => unreachable,
             .c => unreachable,
@@ -1043,6 +1054,7 @@ pub const File = struct {
     /// Never called when LLVM is codegenning the ZCU.
     pub fn getUavVAddr(base: *File, decl_val: InternPool.Index, reloc_info: RelocInfo) Error!u64 {
         assert(base.comp.zcu.?.llvm_object == null);
+
         switch (base.tag) {
             .lld => unreachable,
             .c => unreachable,
@@ -1063,6 +1075,7 @@ pub const File = struct {
         name: InternPool.NullTerminatedString,
     ) void {
         assert(base.comp.zcu.?.llvm_object == null);
+
         switch (base.tag) {
             .lld => unreachable,
             .plan9 => unreachable,
@@ -1073,6 +1086,24 @@ pub const File = struct {
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).deleteExport(exported, name);
+            },
+        }
+    }
+
+    pub fn dump(base: *File, w: *Io.Writer, tid: Zcu.PerThread.Id) !void {
+        if (!build_options.enable_link_snapshots) unreachable;
+        switch (base.tag) {
+            .elf,
+            .macho,
+            .c,
+            .wasm,
+            .spirv,
+            .plan9,
+            .lld,
+            => {},
+            inline else => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).dump(w, tid);
             },
         }
     }
@@ -1178,8 +1209,9 @@ pub const File = struct {
     pub fn loadInput(base: *File, input: Input) anyerror!void {
         if (base.tag == .lld) return;
         assert(!base.post_prelink);
+
         switch (base.tag) {
-            inline .elf, .elf2, .wasm, .spirv => |tag| {
+            inline .coff2, .elf, .elf2, .wasm, .spirv => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).loadInput(input);
             },

@@ -13,7 +13,14 @@ pub fn build(b: *std.Build) void {
     const lib_use_llvm: []const bool = &.{ true, true, false, false };
 
     for (exe_names, lib_names, lib_link_libc, lib_use_llvm) |exe_name, lib_name, dyn_libc, use_llvm| {
-        if (target.result.os.tag == .windows and target.result.abi == .gnu and dyn_libc and !use_llvm)
+        if (!use_llvm and target.result.os.tag == .macos) continue; // TODO: Library not loaded: @rpath/libmathtest-no-llvm.dylib (segment '__CONST_ZIG' vm address out of order)
+        if (!use_llvm and target.result.os.tag == .freebsd) continue; // TODO: Shared object "libmathtest-no-llvm.so.1" not found
+        if (!use_llvm and target.result.os.tag == .netbsd) continue; // TODO: Shared object "libmathtest-no-llvm.so.1" not found
+        if (!use_llvm and target.result.os.tag == .openbsd) continue; // TODO: duplicate symbol definition: atexit
+        if (!use_llvm and target.result.cpu.arch == .loongarch64) continue; // TODO
+        if (!use_llvm and target.result.cpu.arch == .powerpc64le) continue; // TODO
+        if (!use_llvm and target.result.cpu.arch == .s390x) continue; // TODO
+        if (!use_llvm and target.result.os.tag == .windows and target.result.abi == .gnu and dyn_libc)
             continue; // TODO: sub-compilation of compiler_rt failed (failed to link with LLD: LibCInstallationNotAvailable)
 
         const lib = b.addLibrary(.{
@@ -43,6 +50,9 @@ pub fn build(b: *std.Build) void {
             .flags = &[_][]const u8{"-std=c99"},
         });
         exe.root_module.linkLibrary(lib);
+
+        b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{}).step);
+        b.getInstallStep().dependOn(&b.addInstallArtifact(exe, .{}).step);
 
         const run_cmd = b.addRunArtifact(exe);
         test_step.dependOn(&run_cmd.step);

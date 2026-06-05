@@ -188,6 +188,10 @@ pub const Node = extern struct {
             return ni.get(mf).parent;
         }
 
+        pub fn next(ni: Node.Index, mf: *const MappedFile) Node.Index {
+            return ni.get(mf).next;
+        }
+
         pub fn ChildIterator(comptime direction: enum { prev, next }) type {
             return struct {
                 mf: *const MappedFile,
@@ -834,6 +838,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
                     shift = first_floating.flags.alignment.forward(@intCast(
                         @max(shift, first_floating_size),
                     ));
+
                     // Not enough space, try the next node
                     last_fixed_ni = first_floating_ni;
                     first_floating_ni = first_floating.next;
@@ -1135,6 +1140,8 @@ fn ensureTotalCapacityPreciseInner(mf: *MappedFile, new_capacity: usize) (Alloca
             error.OperationUnsupported => {},
             else => |e| return e,
         }
+
+        try mf.memory_map.write(io);
         unmap(mf);
     }
 

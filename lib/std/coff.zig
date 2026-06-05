@@ -1963,3 +1963,30 @@ pub const IMAGE = struct {
         };
     };
 };
+
+pub const ArchiveMemberHeader = extern struct {
+    /// Left-justified '/' terminated member name
+    name: [16]u8,
+    /// Left-justified ASCII decimal: seconds since January 1st, 1970
+    date: [12]u8,
+    /// Left-justified ASCII decimal: user id
+    user_id: [6]u8,
+    /// Left-justified ASCII decimal: group id
+    group_id: [6]u8,
+    /// Left-justified ASCII octal: file mode
+    file_mode: [8]u8,
+    /// Left-justified ASCII decimal: size of the member following this header,
+    /// not including the size of this header.
+    size: [10]u8,
+    /// The literal string '`\n'
+    end_of_header: [2]u8,
+};
+
+pub const FirstLinkerMemberHeader = extern struct {
+    /// Big-endian symbol count
+    number_of_symbols: u32,
+};
+
+pub const SecondLinkerMemberHeader = extern struct {
+    number_of_members: u32,
+};

@@ -6711,16 +6711,8 @@ pub fn deleteExport(elf: *Elf, exported: Zcu.Exported, name: InternPool.NullTerm
     _ = name;
 }
 
-pub fn dump(elf: *Elf, tid: Zcu.PerThread.Id) Io.Cancelable!void {
-    const comp = elf.base.comp;
-    const io = comp.io;
-    var buffer: [512]u8 = undefined;
-    const stderr = try io.lockStderr(&buffer, null);
-    defer io.lockStderr();
-    const w = &stderr.file_writer.interface;
-    elf.printNode(tid, w, .root, 0) catch |err| switch (err) {
-        error.WriteFailed => return stderr.err.?,
-    };
+pub fn dump(elf: *Elf, w: *Io.Writer, tid: Zcu.PerThread.Id) !void {
+    return elf.printNode(tid, w, .root, 0);
 }
 
 pub fn printNode(
@@ -6770,7 +6762,7 @@ pub fn printNode(
             const ip = &zcu.intern_pool;
             const nav = ip.getNav(nmi.navIndex(elf));
             try w.print("({f}, {f})", .{
-                Type.fromInterned(nav.typeOf(ip)).fmt(.{ .zcu = zcu, .tid = tid }),
+                Type.fromInterned(ip.typeOf(nav.resolved.?.value)).fmt(.{ .zcu = zcu, .tid = tid }),
                 nav.fqn.fmt(ip),
             });
         },
