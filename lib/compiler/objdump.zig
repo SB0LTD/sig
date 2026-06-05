@@ -477,6 +477,7 @@ const coff = struct {
 
             if (opts.section_headers or
                 opts.file_headers or
+                opts.relocs or
                 opts.strings or
                 opts.symbols)
             {
@@ -633,7 +634,7 @@ const coff = struct {
         if (load_sections) {
             if (opts.section_headers)
                 try w.print(
-                    \\Sections ({s}):
+                    \\Sections in {s}:
                     \\Num Name          RVA Virt Size Data Size   & Data & Relocs  & Lines # Relocs  # Lines    Flags
                     \\
                 , .{obj_name});
@@ -691,16 +692,17 @@ const coff = struct {
         if (opts.relocs)
             try symbol_names.ensureUnusedCapacity(gpa, header.number_of_symbols);
 
-        if (opts.symbols) {
+        if (opts.symbols or opts.relocs) {
             if (header.pointer_to_symbol_table > 0) {
                 fr.seekTo(file_location + header.pointer_to_symbol_table) catch |err|
                     return failParse(opts, "unable to seek to symbol table: {t}", .{err});
 
-                try w.print(
-                    \\Symbols ({s}):
-                    \\ Ord    Value  Sect Type           Storage   Name
-                    \\
-                , .{obj_name});
+                if (opts.symbols)
+                    try w.print(
+                        \\Symbols in {s}:
+                        \\ Ord    Value  Sect Type           Storage   Name
+                        \\
+                    , .{obj_name});
 
                 const symbol_size = std.coff.Symbol.sizeOf();
                 var symbol_i: u32 = 0;
@@ -732,6 +734,9 @@ const coff = struct {
 
                     if (opts.relocs)
                         symbol_names.appendNTimesAssumeCapacity(name, 1 + symbol.number_of_aux_symbols);
+
+                    if (!opts.symbols)
+                        continue;
 
                     try w.print("{x: >4} {x:0>8} ", .{ symbol_i, symbol.value });
                     try switch (symbol.section_number) {
@@ -877,8 +882,8 @@ const coff = struct {
                     }
                 }
 
-                try w.writeByte('\n');
-            } else {
+                if (opts.symbols) try w.writeByte('\n');
+            } else if (opts.symbols) {
                 try w.writeAll("No symbol table found\n");
             }
         }
