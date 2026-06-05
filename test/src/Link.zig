@@ -30,8 +30,17 @@ pub fn addLibrary(
         .linkage = linkage,
         .name = overlay.name,
         .root_module = self.createModule(overlay),
-        .use_llvm = self.use_llvm,
-        .use_lld = self.use_lld,
+        .use_llvm = overlay.use_llvm orelse self.use_llvm,
+        .use_lld = overlay.use_lld orelse self.use_lld,
+    });
+}
+
+pub fn addObject(self: *const Link, overlay: OverlayOptions) *Step.Compile {
+    return self.b.addObject(.{
+        .name = overlay.name,
+        .root_module = self.createModule(overlay),
+        .use_llvm = overlay.use_llvm orelse self.use_llvm,
+        .use_lld = overlay.use_lld orelse self.use_lld,
     });
 }
 
@@ -169,6 +178,8 @@ const OverlayOptions = struct {
     zig_source_file: ?std.Build.LazyPath = null,
     pic: ?bool = null,
     strip: ?bool = null,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
 };
 
 const std = @import("std");
