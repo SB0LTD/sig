@@ -12,11 +12,15 @@ var stdout_buffer: [4000]u8 = undefined;
 const Options = struct {
     input_path: []const u8,
     file_headers: bool,
+    member_filters: []const []const u8 = &.{},
+    member_headers: bool,
     section_filters: []const []const u8 = &.{},
-    section_table: bool,
+    section_headers: bool,
     strings: bool,
     symbols: bool,
-    compact: bool,
+
+    // Coff-specific
+    linker_member: ?std.coff.ArchiveMemberHeader.Kind,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -28,12 +32,14 @@ pub fn main(init: std.process.Init) !void {
 
     var opt_input_path: ?[]const u8 = null;
     var opt_file_headers: ?bool = null;
-    var opt_section_table: ?bool = null;
+    var opt_linker_member: ?std.coff.ArchiveMemberHeader.Kind = null;
+    var opt_member_headers: ?bool = null;
+    var opt_section_headers: ?bool = null;
     var opt_strings: ?bool = null;
     var opt_symbols: ?bool = null;
     var opt_relocs: ?bool = null;
-    var opt_compact: ?bool = null;
     var section_filters: std.ArrayList([]const u8) = .empty;
+    var member_filters: std.ArrayList([]const u8) = .empty;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (mem.startsWith(u8, arg, "-")) {
@@ -41,19 +47,27 @@ pub fn main(init: std.process.Init) !void {
                 return Io.File.stdout().writeStreamingAll(io, usage);
             } else if (mem.eql(u8, arg, "--all-headers")) {
                 opt_file_headers = true;
-                opt_section_table = true;
+                opt_member_headers = true;
+                opt_section_headers = true;
                 opt_symbols = true;
                 opt_relocs = true;
-            } else if (mem.eql(u8, arg, "--compact")) {
-                opt_compact = true;
             } else if (mem.eql(u8, arg, "--file-headers")) {
                 opt_file_headers = true;
+            } else if (mem.startsWith(u8, arg, "--linker-member")) {
+                if (mem.eql(u8, arg["--linker-member".len..], "=1"))
+                    opt_linker_member = .first_linker
+                else
+                    opt_linker_member = .second_linker;
+            } else if (mem.eql(u8, arg, "--member-headers")) {
+                opt_member_headers = true;
             } else if (mem.startsWith(u8, arg, "--only-section=")) {
                 (try section_filters.addOne(arena)).* = try arena.dupe(u8, arg["--only-section=".len..]);
+            } else if (mem.startsWith(u8, arg, "--only-member=")) {
+                (try member_filters.addOne(arena)).* = try arena.dupe(u8, arg["--only-member=".len..]);
             } else if (mem.eql(u8, arg, "--relocs")) {
                 opt_relocs = true;
             } else if (mem.eql(u8, arg, "--section-headers")) {
-                opt_section_table = true;
+                opt_section_headers = true;
             } else if (mem.eql(u8, arg, "--strings")) {
                 opt_strings = true;
             } else if (mem.eql(u8, arg, "--symbols")) {
@@ -70,12 +84,14 @@ pub fn main(init: std.process.Init) !void {
 
     const opts: Options = .{
         .input_path = opt_input_path orelse fatal("missing input file path positional argument", .{}),
-        .compact = opt_compact orelse false,
         .file_headers = opt_file_headers orelse false,
         .section_filters = section_filters.items,
-        .section_table = opt_section_table orelse false,
+        .section_headers = opt_section_headers orelse false,
         .strings = opt_strings orelse false,
         .symbols = opt_symbols orelse false,
+        .member_filters = member_filters.items,
+        .member_headers = opt_member_headers orelse false,
+        .linker_member = opt_linker_member,
     };
 
     var file = std.Io.Dir.cwd().openFile(io, opts.input_path, .{}) catch |err|
@@ -85,7 +101,7 @@ pub fn main(init: std.process.Init) !void {
     var buffer: [4096]u8 = undefined;
     var file_reader = file.reader(io, &buffer);
     var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
-    dump(arena, &opts, &file_reader, &stdout_writer.interface) catch |err| switch (err) {
+    dump(init.gpa, &opts, &file_reader, &stdout_writer.interface) catch |err| switch (err) {
         error.ReadFailed => return file_reader.err.?,
         error.WriteFailed => return stdout_writer.err.?,
         error.UnknownFile => fatal("unrecognized file: {s}", .{opts.input_path}),
@@ -95,7 +111,7 @@ pub fn main(init: std.process.Init) !void {
     try stdout_writer.flush();
 }
 
-fn dump(arena: std.mem.Allocator, opts: *const Options, fr: *Io.File.Reader, w: *Io.Writer) !void {
+fn dump(gpa: std.mem.Allocator, opts: *const Options, fr: *Io.File.Reader, w: *Io.Writer) !void {
     const r = &fr.interface;
     try r.fill(4);
     elf: {
@@ -125,16 +141,16 @@ fn dump(arena: std.mem.Allocator, opts: *const Options, fr: *Io.File.Reader, w: 
                 return error.ParseFailure;
             }
 
-            if (!opts.compact) try w.print("{s}: PE/COFF image\n\n", .{std.fs.path.basename(opts.input_path)});
-            return coff.dumpObject(arena, opts, true, fr, w);
+            try w.print("{s}: PE/COFF image\n\n", .{std.fs.path.basename(opts.input_path)});
+            return coff.dumpObject(gpa, opts, true, fr, w);
         } else if (std.mem.eql(u8, ext, ".lib")) {
             r.fill(std.coff.archive_signature.len) catch break :coff;
             if (!mem.eql(u8, r.buffered()[0..std.coff.archive_signature.len], std.coff.archive_signature)) break :coff;
-            if (!opts.compact) try w.print("{s}: COFF archive\n\n", .{std.fs.path.basename(opts.input_path)});
-            return coff.dumpArchive(opts, fr, w);
+            try w.print("{s}: COFF archive\n\n", .{std.fs.path.basename(opts.input_path)});
+            return coff.dumpArchive(gpa, opts, fr, w);
         } else if (std.mem.eql(u8, ext, ".obj")) {
-            if (!opts.compact) try w.print("{s}: COFF object\n\n", .{std.fs.path.basename(opts.input_path)});
-            return coff.dumpObject(arena, opts, false, fr, w);
+            try w.print("{s}: COFF object\n\n", .{std.fs.path.basename(opts.input_path)});
+            return coff.dumpObject(gpa, opts, false, fr, w);
         }
     }
     return error.UnknownFile;
@@ -171,31 +187,249 @@ const wasm = struct {
 };
 
 const coff = struct {
-    fn dumpArchive(opt: *const Options, fr: *Io.File.Reader, w: *Io.Writer) !void {
-        _ = opt;
-        _ = fr;
-        try w.writeAll("TODO dump coff archive\n");
+    const ArchiveHeader = struct {
+        name: []const u8,
+        date: u40,
+        user_id: u20,
+        group_id: u20,
+        file_mode: u24,
+        size: u34,
+
+        pub fn fromRaw(opts: *const Options, raw_header: *const std.coff.ArchiveMemberHeader, opt_longnames: ?[]const u8) @This() {
+            const name = raw_header.parseName(opt_longnames) catch |err| switch (err) {
+                error.BadName => failParse(opts, "malformed member name: '{s}'", .{&raw_header.name}),
+                error.NoLongNames => failParse(opts, "member uses a long name, but there was no longnames member", .{}),
+            };
+
+            return .{
+                .name = name,
+                .date = raw_header.parseDate() catch |err|
+                    failParse(opts, "unable to parse date '{s}' in member '{s}': {t}", .{ raw_header.date, name, err }),
+                .user_id = raw_header.parseUserId() catch |err|
+                    failParse(opts, "unable to parse user_id '{s}' in member '{s}': {t}", .{ raw_header.user_id, name, err }),
+                .group_id = raw_header.parseGroupId() catch |err|
+                    failParse(opts, "unable to parse group_id '{s}' in member '{s}': {t}", .{ raw_header.group_id, name, err }),
+                .file_mode = raw_header.parseFileMode() catch |err|
+                    failParse(opts, "unable to parse file_mode '{s}' in member '{s}': {t}", .{ raw_header.file_mode, name, err }),
+                .size = raw_header.parseSize() catch |err|
+                    failParse(opts, "unable to parse size '{s}' in member '{s}': {t}", .{ raw_header.size, name, err }),
+            };
+        }
+    };
+
+    fn dumpArchive(gpa: std.mem.Allocator, opts: *const Options, fr: *Io.File.Reader, w: *Io.Writer) !void {
+        const r = &fr.interface;
+        r.toss(std.coff.archive_signature.len);
+
+        var members: std.ArrayList(struct {
+            offset: u32,
+        }) = .empty;
+        defer members.deinit(gpa);
+        var symbol_member_indices: std.ArrayList(u32) = .empty;
+        defer symbol_member_indices.deinit(gpa);
+
+        var opt_expected_kind: ?std.coff.ArchiveMemberHeader.Kind = .first_linker;
+        var opt_longnames: ?[]const u8 = null;
+        defer if (opt_longnames) |l| gpa.free(l);
+
+        var pos = fr.logicalPos();
+        const size = try fr.getSize();
+        while (pos < size) : (pos = fr.logicalPos()) {
+            if ((pos & 1) != 0) try r.discardAll(1);
+            const raw_header = try r.takeStruct(std.coff.ArchiveMemberHeader, .little);
+            const header: ArchiveHeader = .fromRaw(opts, &raw_header, opt_longnames);
+
+            if (!std.mem.eql(u8, &raw_header.end_of_header, std.coff.archive_end_of_header))
+                return failParse(opts, "malformed end-of-header field in member '{s}': {x}", .{ header.name, raw_header.end_of_header });
+
+            const dump_header = opts.member_headers and filterMatches(opts.member_filters, header.name);
+            if (dump_header)
+                try dumpArchiveHeader(w, &header, @intCast(pos));
+
+            const member_end = fr.logicalPos() + header.size;
+            if (member_end > size)
+                return failParse(opts, "out-of-bounds length 0x{x} in member '{s}'", .{ header.size, header.name });
+
+            if (opt_expected_kind) |expected_kind| switch (expected_kind) {
+                .first_linker => {
+                    if (!std.mem.eql(u8, header.name, "/"))
+                        return failParse(opts, "expected first linker member, found '{s}'", .{header.name});
+
+                    const num_symbols = try r.takeInt(u32, .big);
+                    if (dump_header)
+                        try w.print(
+                            \\{t: >16} type
+                            \\               | {d} symbols
+                            \\
+                        , .{ expected_kind, num_symbols });
+
+                    if (opts.linker_member == .first_linker) {
+                        try w.print(
+                            \\Archives symbols ({d}):
+                            \\& Member Symbol
+                            \\
+                        , .{num_symbols});
+
+                        const offsets = try r.readAlloc(gpa, num_symbols * 4);
+                        defer gpa.free(offsets);
+
+                        for (0..num_symbols) |symbol_i| {
+                            const symbol = r.takeDelimiter(0) catch |err|
+                                return failParse(opts, "unable to read first linker member string table: {t}", .{err});
+                            try w.print("{x: >8} {s}\n", .{ std.mem.readInt(u32, offsets[symbol_i * 4 ..][0..4], .big), symbol.? });
+                        }
+                    }
+                    if (dump_header) try w.writeByte('\n');
+
+                    try fr.seekTo(member_end);
+                    opt_expected_kind = .second_linker;
+                    continue;
+                },
+                .second_linker => {
+                    if (!std.mem.eql(u8, header.name, "/"))
+                        return failParse(opts, "expected second linker member, found '{s}'", .{header.name});
+
+                    // TODO: Figure out what endianness is actually used, there are no headers to say yet?
+
+                    const num_members = try r.takeInt(u32, .little);
+                    pos = fr.logicalPos();
+                    if (pos + num_members * @sizeOf(u32) > member_end)
+                        return failParse(opts, "invalid member count 0x{x} in second linker member", .{num_members});
+
+                    try members.ensureTotalCapacity(gpa, num_members);
+                    for (0..num_members) |_|
+                        members.addOneAssumeCapacity().* = .{
+                            .offset = try r.takeInt(u32, .little),
+                        };
+
+                    const num_symbols = try r.takeInt(u32, .little);
+                    pos = fr.logicalPos();
+                    if (pos + num_symbols * @sizeOf(u16) > member_end)
+                        return failParse(opts, "invalid symbol count 0x{x} in second linker member", .{num_symbols});
+
+                    if (dump_header)
+                        try w.print(
+                            \\{t: >16} type
+                            \\               | {d} symbols
+                            \\               | {d} members
+                            \\
+                        , .{ expected_kind, num_symbols, num_members });
+
+                    try symbol_member_indices.ensureTotalCapacity(gpa, num_symbols);
+                    for (0..num_symbols) |_|
+                        symbol_member_indices.addOneAssumeCapacity().* = (try r.takeInt(u16, .little)) - 1;
+
+                    if (opts.linker_member == .second_linker) {
+                        try w.print(
+                            \\Archive symbols ({d} members, {d} symbols):
+                            \\& Member Symbol
+                            \\
+                        , .{ num_members, num_symbols });
+
+                        pos = fr.logicalPos();
+                        var symbol_i: u32 = 0;
+                        while (pos < member_end and symbol_i < num_symbols) : ({
+                            pos = fr.logicalPos();
+                            symbol_i += 1;
+                        }) {
+                            const symbol_name = if (r.takeDelimiter(0) catch |err| switch (err) {
+                                error.StreamTooLong => null,
+                                else => |e| return e,
+                            }) |n| n else return failParse(opts, "unterminated string found in second linker member", .{});
+
+                            try w.print("{x: >8} {s}\n", .{
+                                members.items[symbol_member_indices.items[symbol_i]].offset,
+                                symbol_name,
+                            });
+                        }
+
+                        if (symbol_i != num_symbols)
+                            return failParse(
+                                opts,
+                                " expected {d} entries in second linker member string table, but found {d}",
+                                .{ num_symbols, symbol_i },
+                            );
+                    }
+
+                    try w.writeByte('\n');
+                    try fr.seekTo(member_end);
+                    opt_expected_kind = .longnames;
+                    continue;
+                },
+                .longnames => {
+                    // This member is optional
+                    if (std.mem.eql(u8, header.name, "//")) {
+                        opt_longnames = try r.readAlloc(gpa, header.size);
+                        if (dump_header)
+                            try w.print("{t: >16} type\n", .{expected_kind});
+                    }
+
+                    opt_expected_kind = null;
+                    break;
+                },
+                else => unreachable,
+            };
+        }
+
+        if (opt_expected_kind) |expected_kind| switch (expected_kind) {
+            .first_linker => failParse(opts, "missing first linker member", .{}),
+            .second_linker => failParse(opts, "missing second linker member", .{}),
+            else => {},
+        };
+
+        for (members.items, 0..) |member, member_i| {
+            fr.seekTo(member.offset) catch |err|
+                failParse(opts, "unable to read member {d} at offset 0x{x}: {t}", .{ member_i, member.offset, err });
+
+            const raw_header = try r.takeStruct(std.coff.ArchiveMemberHeader, .little);
+            const header: ArchiveHeader = .fromRaw(opts, &raw_header, opt_longnames);
+            if (!filterMatches(opts.member_filters, header.name)) continue;
+
+            const member_sig = try r.peek(4);
+            const machine: std.coff.IMAGE.FILE.MACHINE =
+                @enumFromInt(std.mem.readInt(u16, member_sig[0..2], .little));
+            const sig = std.mem.readInt(u16, member_sig[2..4], .little);
+
+            const is_import = machine == std.coff.IMAGE.FILE.MACHINE.UNKNOWN and sig == 0xffff;
+
+            if (opts.member_headers) {
+                try dumpArchiveHeader(w, &header, member.offset);
+                if (is_import) {
+                    try w.writeAll("   Import header type\n");
+                    // TODO: Dump import header
+                } else {
+                    try w.writeAll("     COFF object type\n");
+                }
+                try w.writeByte('\n');
+            }
+
+            if (opts.section_headers or
+                opts.file_headers or
+                opts.strings or
+                opts.symbols)
+            {
+                try w.print("{s}({s}): COFF object\n\n", .{ std.fs.path.basename(opts.input_path), header.name });
+                try dumpObject(gpa, opts, false, fr, w);
+            }
+        }
     }
 
-    fn headerName(raw: *[8]u8, string_table: []const u8) ![]const u8 {
-        return if (raw[0] == '/') name: {
-            const name_offset = try std.fmt.parseUnsigned(u24, raw[1..], 10);
-            if (name_offset >= string_table.len)
-                return error.OutOfBounds;
-
-            break :name std.mem.sliceTo(string_table[name_offset..], 0);
-        } else std.mem.sliceTo(raw, 0);
-    }
-
-    fn dumpObject(arena: std.mem.Allocator, opts: *const Options, is_image: bool, fr: *Io.File.Reader, w: *Io.Writer) !void {
+    fn dumpObject(
+        gpa: std.mem.Allocator,
+        opts: *const Options,
+        is_image: bool,
+        fr: *Io.File.Reader,
+        w: *Io.Writer,
+    ) !void {
+        const file_location = fr.logicalPos();
         const r = &fr.interface;
         const header = r.takeStruct(std.coff.Header, .little) catch |err|
             return failParse(opts, "unable to read COFF header: {t}", .{err});
 
         if (opts.file_headers) {
-            if (!opts.compact) try w.writeAll("COFF Header:\n");
+            try w.writeAll("COFF Header:\n");
             try dumpHeader(w, std.coff.Header, &header, struct {});
-            if (!opts.compact) try w.writeByte('\n');
+            try w.writeByte('\n');
         }
 
         if (header.size_of_optional_header > 0) opt_header: {
@@ -204,7 +438,7 @@ const coff = struct {
                 break :opt_header;
             }
 
-            if (!opts.compact) try w.writeAll("COFF Optional Header:\n");
+            try w.writeAll("COFF Optional Header:\n");
             const magic: std.coff.OptionalHeader.Magic = @enumFromInt(try r.peekInt(u16, .little));
             const num_directory_entries = switch (magic) {
                 inline .PE32, .@"PE32+" => |v| data_dirs: {
@@ -252,14 +486,14 @@ const coff = struct {
                         }
                         pub fn minor_subsystem_version(_: *const OptionalHeader, _: *Io.Writer) !void {}
                     });
-                    if (!opts.compact) try w.writeByte('\n');
+                    try w.writeByte('\n');
 
                     break :data_dirs optional_header.number_of_rva_and_sizes;
                 },
                 else => return failParse(opts, "invalid optional header magic number: {x}", .{magic}),
             };
 
-            if (!opts.compact) try w.writeAll("Data Directories:\n");
+            try w.writeAll("Data Directories:\n");
             for (0..num_directory_entries) |dir_i| {
                 const dir = r.takeStruct(std.coff.ImageDataDirectory, .little) catch |err|
                     return failParse(opts, "unable to read data directory {x}: {t}", .{ dir_i, err });
@@ -269,45 +503,62 @@ const coff = struct {
                     .{ dir.virtual_address, dir.size, @as(std.coff.IMAGE.DIRECTORY_ENTRY, @enumFromInt(dir_i)) },
                 );
             }
-            if (!opts.compact) try w.writeByte('\n');
+            try w.writeByte('\n');
         } else if (is_image) {
             return failParse(opts, "image did not contain an optional header", .{});
         }
 
         // Section names in images don't use the string table, as they must fit inline in the header
         const load_string_table = (opts.strings or !is_image) and header.pointer_to_symbol_table > 0;
-
         const string_table = if (load_string_table) string_table: {
             const pos = fr.logicalPos();
-            fr.seekTo(header.pointer_to_symbol_table + header.number_of_symbols * std.coff.Symbol.sizeOf()) catch |err|
+            fr.seekTo(file_location + header.pointer_to_symbol_table + header.number_of_symbols * std.coff.Symbol.sizeOf()) catch |err|
                 return failParse(opts, "unable to seek to string table: {t}", .{err});
 
             const string_table_len = r.peekInt(u32, .little) catch |err|
                 return failParse(opts, "unable to read string table length: {t}", .{err});
 
-            const table = r.readAlloc(arena, string_table_len) catch |err|
+            const table = r.readAlloc(gpa, string_table_len) catch |err|
                 return failParse(opts, "unable to read string table: {t}", .{err});
 
             try fr.seekTo(pos);
             break :string_table table;
         } else &.{};
+        defer gpa.free(string_table);
+
+        if (opts.strings) {
+            try w.print(
+                \\String Table (0x{x} bytes):
+                \\
+            , .{string_table.len});
+
+            var sr = Io.Reader.fixed(string_table[4..]);
+            while (try sr.takeDelimiter(0)) |str| {
+                try w.writeAll(str);
+                try w.writeByte('\n');
+            }
+
+            try w.writeByte('\n');
+        }
 
         var sections: std.ArrayList(std.coff.SectionHeader) = .empty;
-        const load_sections = opts.section_table or opts.symbols;
+        defer sections.deinit(gpa);
+
+        const load_sections = opts.section_headers or opts.symbols;
         if (load_sections) {
-            if (!opts.compact and opts.section_table)
+            if (opts.section_headers)
                 try w.writeAll(
                     \\Section Table:
-                    \\Num Name          RVA Virtual Size Data Size File Offset Relocs Offset Lines Offset # Relocs  # Lines    Flags
+                    \\Num Name          RVA Virt Size Data Size   & Data & Relocs  & Lines # Relocs  # Lines    Flags
                     \\
                 );
 
-            try sections.resize(arena, header.number_of_sections);
+            try sections.resize(gpa, header.number_of_sections);
             for (sections.items, 0..) |*section, section_i| {
                 section.* = r.takeStruct(std.coff.SectionHeader, .little) catch |err|
                     return failParse(opts, "unable to read section header {x}: {t}", .{ section_i, err });
 
-                if (opts.section_table) {
+                if (opts.section_headers) {
                     const name = headerName(&section.name, string_table) catch |err| switch (err) {
                         error.Overflow,
                         error.InvalidCharacter,
@@ -321,16 +572,13 @@ const coff = struct {
                         }),
                     };
 
-                    const matched = for (opts.section_filters) |filter| {
-                        if (std.mem.containsAtLeast(u8, name, 1, filter)) break true;
-                    } else opts.section_filters.len == 0;
-                    if (!matched) continue;
-
+                    if (!filterMatches(opts.section_filters, name)) continue;
+                    const raw_name = std.mem.sliceTo(&section.name, 0);
                     try w.print(
-                        "{x: >3} {s: <8} {x: >8} {x: >12} {x: >9} {x: >10} {x: >13} {x: >12} {x: >8} {x: >8} {x:0>8} ",
+                        "{x: >3} {s: <8} {x: >8} {x: >9} {x: >9} {x: >8} {x: >8} {x: >8} {x: >8} {x: >8} {x:0>8} | ",
                         .{
                             section_i + 1,
-                            std.mem.sliceTo(&section.name, 0),
+                            raw_name,
                             section.virtual_address,
                             section.virtual_size,
                             section.size_of_raw_data,
@@ -343,28 +591,27 @@ const coff = struct {
                         },
                     );
 
-                    if (name.len > 8)
-                        try w.print("  | {s}", .{name});
-
                     try dumpFlags(w, "{s} ", std.coff.SectionHeader.Flags, &section.flags, 0);
+                    if (name.len > 8)
+                        try w.print("| {s}", .{name});
+
                     try w.writeByte('\n');
                 }
             }
 
-            if (!opts.compact and opts.section_table) try w.writeByte('\n');
+            if (opts.section_headers) try w.writeByte('\n');
         }
 
         if (opts.symbols) {
             if (header.pointer_to_symbol_table > 0) {
-                fr.seekTo(header.pointer_to_symbol_table) catch |err|
+                fr.seekTo(file_location + header.pointer_to_symbol_table) catch |err|
                     return failParse(opts, "unable to seek to symbol table: {t}", .{err});
 
-                if (!opts.compact and opts.symbols)
-                    try w.writeAll(
-                        \\Symbol Table:
-                        \\ Ord    Value  Sect Type           Storage   Name
-                        \\
-                    );
+                try w.writeAll(
+                    \\Symbol Table:
+                    \\ Ord    Value  Sect Type           Storage   Name
+                    \\
+                );
 
                 const symbol_size = std.coff.Symbol.sizeOf();
                 var symbol_i: u32 = 0;
@@ -390,7 +637,7 @@ const coff = struct {
                         break :name string_table[index..];
                     } else &symbol.name, 0);
 
-                    try w.print("{x:0>4} {x:0>8} ", .{ symbol_i, symbol.value });
+                    try w.print("{x: >4} {x:0>8} ", .{ symbol_i, symbol.value });
                     try switch (symbol.section_number) {
                         .UNDEFINED => w.writeAll("UNDEF"),
                         .ABSOLUTE => w.writeAll("  ABS"),
@@ -419,7 +666,7 @@ const coff = struct {
 
                     for (0..symbol.number_of_aux_symbols) |aux_i| {
                         _ = aux_i;
-                        try w.writeAll(" AUX");
+                        try w.writeAll("   |");
 
                         if (symbol.storage_class == .EXTERNAL and
                             symbol.type == std.coff.SymType{
@@ -512,7 +759,7 @@ const coff = struct {
                                 continue;
                             }
 
-                            try w.print("      [size: {x:0>8} chksum: {x:0>8} relocs: {x:0>4} lines: {x:0>4}]", .{
+                            try w.print("      [size {x:0>8} chksum {x:0>8} relocs {x:0>4} lines {x:0>4}]", .{
                                 section_def.length,
                                 section_def.checksum,
                                 section_def.number_of_relocations,
@@ -533,10 +780,22 @@ const coff = struct {
                         try w.writeByte('\n');
                     }
                 }
+
+                try w.writeByte('\n');
             } else {
-                if (!opts.compact) try w.writeAll("No symbol table found\n");
+                try w.writeAll("No symbol table found\n");
             }
         }
+    }
+
+    fn headerName(raw: *const [8]u8, string_table: []const u8) ![]const u8 {
+        return if (raw[0] == '/') name: {
+            const name_offset = try std.fmt.parseUnsigned(u24, std.mem.sliceTo(raw[1..], 0), 10);
+            if (name_offset >= string_table.len)
+                return error.OutOfBounds;
+
+            break :name std.mem.sliceTo(string_table[name_offset..], 0);
+        } else std.mem.sliceTo(raw, 0);
     }
 
     fn fmtSymbolType(sym_type: std.coff.SymType) std.fmt.Alt(std.coff.SymType, symbolTypeString) {
@@ -584,6 +843,18 @@ const coff = struct {
         }
     }
 
+    fn dumpArchiveHeader(w: *Io.Writer, header: *const ArchiveHeader, pos: u32) !void {
+        try w.print("Archive member at offset 0x{x}: '{s}'\n", .{ pos, header.name });
+
+        // TODO: Date formatter
+        try dumpHeader(w, ArchiveHeader, header, struct {
+            pub fn name(_: *const ArchiveHeader, _: *Io.Writer) !void {}
+            pub fn file_mode(h: *const ArchiveHeader, cw: *Io.Writer) !void {
+                try cw.print("{o: >16} file_mode\n", .{h.file_mode});
+            }
+        });
+    }
+
     fn dumpHeader(w: *Io.Writer, comptime T: type, header: *const T, Custom: type) !void {
         inline for (@typeInfo(T).@"struct".fields) |field| {
             const val = &@field(header, field.name);
@@ -619,14 +890,21 @@ const coff = struct {
     }
 };
 
+fn filterMatches(filters: []const []const u8, val: []const u8) bool {
+    return for (filters) |filter| {
+        if (std.mem.containsAtLeast(u8, val, 1, filter)) break true;
+    } else filters.len == 0;
+}
+
 const usage =
     \\Usage: zig objdump [options] file
     \\
     \\Options:
     \\  -h, --help                              Print this help and exit
-    \\  --all-headers                           Alias for --file-headers --section-headers --relocs --symbols
-    \\  --compact                               Minimal output mode that excludes extra newlines and headings. Intended for snapshot testing.
+    \\  --all-headers                           Alias for --file-headers --member-headers --section-headers --relocs --symbols
     \\  --file-headers                          Display file-format specific headers
+    \\  --linker-member[=1|2]                   (Coff) Display contents of the specified linker member (default 2)
+    \\  --member-headers                        Display archive member headers
     \\  --only-member=[name]                    Only consider archive members that contain [name]. Can be specified multiple times.
     \\  --only-section=[name]                   Only consider sections that contain [name]. Can be specified multiple times.
     \\  --section-headers                       Display section headers

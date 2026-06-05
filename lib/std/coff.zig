@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 
 pub const archive_signature = "!<arch>\n";
+pub const archive_end_of_header = "`\n";
 
 pub const pe_signature = "PE\x00\x00";
 pub const pe_pointer_offset = 0x3C;
@@ -1990,6 +1991,73 @@ pub const ArchiveMemberHeader = extern struct {
     size: [10]u8,
     /// The literal string '`\n'
     end_of_header: [2]u8,
+
+    /// Extracts the name of the member by either reading it directly from
+    /// the header, or by finding it inside the longnames member, if provided.
+    pub fn parseName(
+        self: *const ArchiveMemberHeader,
+        opt_longnames: ?[]const u8,
+    ) ![]const u8 {
+        const trim = std.mem.trimEnd(u8, &self.name, &.{' '});
+
+        if (trim.len == 0) return error.BadName;
+        return if (trim[0] == '/') name: {
+            if (trim.len == 1 or
+                trim.len == 2 and trim[1] == '/')
+                break :name trim;
+
+            const offset = std.fmt.parseUnsigned(u50, trim[1..], 10) catch
+                return error.BadName;
+
+            if (opt_longnames) |longnames| {
+                if (offset >= longnames.len) return error.BadName;
+                break :name std.mem.sliceTo(longnames[offset..], 0);
+            } else return error.NoLongNames;
+        } else if (trim[trim.len - 1] == '/')
+            trim[0 .. trim.len - 1]
+        else
+            return error.BadName;
+    }
+
+    fn parseField(field: []const u8, T: type, base: u8) !T {
+        if (std.mem.allEqual(u8, field, ' ')) return 0;
+        if (field[0] == '-')
+            return @bitCast(try std.fmt.parseInt(
+                @Int(.signed, @typeInfo(T).int.bits),
+                std.mem.trimEnd(u8, field, &.{' '}),
+                base,
+            ));
+
+        return std.fmt.parseUnsigned(T, std.mem.trimEnd(u8, field, &.{' '}), base);
+    }
+
+    pub fn parseDate(self: *const ArchiveMemberHeader) !u40 {
+        return parseField(&self.date, u40, 10);
+    }
+
+    pub fn parseUserId(self: *const ArchiveMemberHeader) !u20 {
+        return parseField(&self.user_id, u20, 10);
+    }
+
+    pub fn parseGroupId(self: *const ArchiveMemberHeader) !u20 {
+        return parseField(&self.group_id, u20, 10);
+    }
+
+    pub fn parseFileMode(self: *const ArchiveMemberHeader) !u20 {
+        return parseField(&self.group_id, u20, 8);
+    }
+
+    pub fn parseSize(self: *const ArchiveMemberHeader) !u34 {
+        return parseField(&self.size, u34, 10);
+    }
+
+    pub const Kind = enum {
+        first_linker,
+        second_linker,
+        longnames,
+        coff,
+        import,
+    };
 };
 
 pub const LineNumber = extern struct {

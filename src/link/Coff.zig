@@ -90,8 +90,6 @@ pub const default_size_of_stack_commit: u32 = 0x1000;
 pub const default_size_of_heap_reserve: u32 = 0x100000;
 pub const default_size_of_heap_commit: u32 = 0x1000;
 
-pub const archive_end_of_header = "`\n";
-
 pub const imp_prefix = "__imp_";
 
 const header_name_max_len = @typeInfo(@FieldType(std.coff.SectionHeader, "name")).array.len;
@@ -472,21 +470,13 @@ pub const InputObject = struct {
 };
 
 pub const Member = struct {
-    kind: Kind,
+    kind: std.coff.ArchiveMemberHeader.Kind,
     header_ni: MappedFile.Node.Index,
     content_ni: MappedFile.Node.Index,
     first_linker_indices: std.AutoArrayHashMapUnmanaged(struct {
         mi: Member.Index,
         name: String,
     }, FirstLinkerIndex),
-
-    pub const Kind = enum {
-        first_linker,
-        second_linker,
-        longnames,
-        coff,
-        import,
-    };
 
     pub const Index = enum(u16) {
         first,
@@ -569,7 +559,7 @@ pub const Member = struct {
                 member.content_ni.location(&coff.mf).resolve(&coff.mf)[1],
             );
 
-        @memcpy(&header.end_of_header, archive_end_of_header);
+        @memcpy(&header.end_of_header, std.coff.archive_end_of_header);
     }
 
     pub fn storeHeaderDecimalStr(field_ptr: anytype, value: u64) void {
@@ -2832,7 +2822,7 @@ pub fn getVAddr(coff: *Coff, reloc_info: link.File.RelocInfo, target_si: Symbol.
 }
 
 /// Caller guarantees there is capacity for one member and two nodes
-fn addMemberAssumeCapacity(coff: *Coff, kind: Member.Kind, size: usize) !Member.Index {
+fn addMemberAssumeCapacity(coff: *Coff, kind: std.coff.ArchiveMemberHeader.Kind, size: usize) !Member.Index {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
 
@@ -4731,41 +4721,22 @@ fn parseArchiveMemberHeader(
     opt_longnames: ?[]const u8,
 ) !ArchiveMemberHeader {
     return parseArchiveMemberHeaderInner(header, opt_longnames) catch |err| switch (err) {
-        error.BadName => return diags.failParse(path, "malformed member header name: '{s}'", .{&header.name}),
-        error.BadSize => return diags.failParse(path, "malformed member header size: '{s}'", .{&header.size}),
-        error.BadEndOfHeader => return diags.failParse(path, "bad member header end of header", .{}),
+        error.BadName => return diags.failParse(path, "malformed member name: '{s}'", .{&header.name}),
+        error.BadSize => return diags.failParse(path, "malformed member size: '{s}'", .{&header.size}),
+        error.BadEndOfHeader => return diags.failParse(path, "end of header was invalid", .{}),
         error.NoLongNames => return diags.failParse(path, "long name used without longnames member", .{}),
     };
 }
 
+// TODO: Move to std.coff?
 fn parseArchiveMemberHeaderInner(
     header: *const std.coff.ArchiveMemberHeader,
     opt_longnames: ?[]const u8,
 ) !ArchiveMemberHeader {
-    const trim = std.mem.trimEnd(u8, &header.name, &.{' '});
+    const name = try header.parseName(opt_longnames);
+    const size = header.parseSize() catch return error.BadSize;
 
-    if (trim.len == 0) return error.BadName;
-    const name = if (trim[0] == '/') name: {
-        if (trim.len == 1 or
-            trim.len == 2 and trim[1] == '/')
-            break :name trim;
-
-        const offset = std.fmt.parseUnsigned(u50, trim[1..], 10) catch
-            return error.BadName;
-
-        if (opt_longnames) |longnames| {
-            if (offset >= longnames.len) return error.BadName;
-            break :name std.mem.sliceTo(longnames[offset..], 0);
-        } else return error.NoLongNames;
-    } else if (trim[trim.len - 1] == '/')
-        trim[0 .. trim.len - 1]
-    else
-        return error.BadName;
-
-    const size = std.fmt.parseUnsigned(u34, std.mem.trimEnd(u8, &header.size, &.{' '}), 10) catch
-        return error.BadSize;
-
-    if (!std.mem.eql(u8, &header.end_of_header, archive_end_of_header))
+    if (!std.mem.eql(u8, &header.end_of_header, std.coff.archive_end_of_header))
         return error.BadEndOfHeader;
 
     return .{
@@ -4787,7 +4758,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
     if (!std.mem.eql(u8, signature, std.coff.archive_signature))
         return diags.failParse(path, "bad signature", .{});
 
-    var opt_expected_kind: ?Member.Kind = .first_linker;
+    var opt_expected_kind: ?std.coff.ArchiveMemberHeader.Kind = .first_linker;
     var opt_longnames: ?[]const u8 = null;
     defer if (opt_longnames) |l| gpa.free(l);
 
