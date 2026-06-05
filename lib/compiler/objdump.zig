@@ -413,8 +413,9 @@ const coff = struct {
                                 try w.writeAll(str);
                                 try w.writeByte('\n');
                             }
-                            try w.writeByte('\n');
                         }
+
+                        try w.writeByte('\n');
                     }
 
                     opt_expected_kind = null;
@@ -444,7 +445,6 @@ const coff = struct {
             const sig = std.mem.readInt(u16, member_sig[2..4], .little);
 
             const is_imp_lib = machine == std.coff.IMAGE.FILE.MACHINE.UNKNOWN and sig == 0xffff;
-
             if (opts.member_headers or (opts.exports and is_imp_lib)) {
                 try dumpArchiveHeader(w, &header, member.offset);
                 if (is_imp_lib) {
@@ -493,6 +493,7 @@ const coff = struct {
                 try w.writeByte('\n');
             }
 
+            if (is_imp_lib) continue;
             if (opts.section_headers or
                 opts.file_headers or
                 opts.relocs or
@@ -678,7 +679,7 @@ const coff = struct {
         if (load_sections) {
             if (opts.section_headers)
                 try w.print(
-                    \\Sections in {s}:
+                    \\Sections in '{s}':
                     \\Num Name          RVA Virt Size Data Size   & Data & Relocs  & Lines # Relocs  # Lines    Flags
                     \\
                 , .{obj_name});
@@ -747,7 +748,7 @@ const coff = struct {
 
                 if (opts.symbols)
                     try w.print(
-                        \\Symbols in {s}:
+                        \\Symbols in '{s}':
                         \\ Ord    Value  Sect Type           Storage   Name
                         \\
                     , .{obj_name});
