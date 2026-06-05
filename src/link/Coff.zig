@@ -31,12 +31,8 @@ long_names_table: LongNamesTable,
 import_table: ImportTable,
 export_table: ExportTable,
 symbol_table: SymbolTable,
-inputs: std.ArrayList(struct {
-    path: std.Build.Cache.Path,
-    archive_name: ?[]const u8,
-    first_si: Symbol.Index,
-    last_si: Symbol.Index,
-}),
+inputs: std.ArrayList(Input),
+input_resolved: std.ArrayList(Symbol.Index),
 input_sections: std.ArrayList(struct {
     ii: Node.InputIndex,
     si: Symbol.Index,
@@ -298,6 +294,10 @@ pub const Node = union(enum) {
         pub fn lastSymbol(ii: InputIndex, coff: *const Coff) Symbol.Index {
             return coff.inputs.items[@intFromEnum(ii)].last_si;
         }
+
+        pub fn firstResolvedGlobal(ii: InputIndex, coff: *const Coff) Input.ResolvedIndex {
+            return coff.inputs.items[@intFromEnum(ii)].first_iri;
+        }
     };
 
     pub const InputSectionIndex = enum(u32) {
@@ -382,6 +382,18 @@ pub const Node = union(enum) {
     comptime {
         if (!std.debug.runtime_safety) std.debug.assert(@sizeOf(Node) == 8);
     }
+};
+
+pub const Input = struct {
+    path: std.Build.Cache.Path,
+    archive_name: ?[]const u8,
+    first_si: Symbol.Index,
+    last_si: Symbol.Index,
+    first_iri: ResolvedIndex,
+
+    const ResolvedIndex = enum(u32) {
+        _,
+    };
 };
 
 pub const Member = struct {
@@ -1270,6 +1282,7 @@ fn create(
             .pending_shrink = false,
         },
         .inputs = .empty,
+        .input_resolved = .empty,
         .input_sections = .empty,
         .input_section_pending_index = 0,
         .strings = .empty,
@@ -1330,6 +1343,7 @@ pub fn deinit(coff: *Coff) void {
     coff.symbol_table.strings.deinit(gpa);
     coff.symbol_table.pending.deinit(gpa);
     coff.inputs.deinit(gpa);
+    coff.input_resolved.deinit(gpa);
     coff.input_sections.deinit(gpa);
     coff.strings.deinit(gpa);
     coff.string_bytes.deinit(gpa);
@@ -2253,7 +2267,7 @@ fn getOrPutGlobalSymbol(
 pub fn globalSymbol(coff: *Coff, opts: GlobalOptions) !Symbol.Index {
     const gop = try coff.getOrPutGlobalSymbol(opts);
     if (gop.found_existing) {
-        // TODO: Need to know if this is an export or extern, add to opts
+        // TODO: Need to know if this is an export or extern, in order to decide if this is duplicate, add to opts
     }
 
     return gop.value_ptr.*;
@@ -3208,6 +3222,7 @@ fn loadObject(
         .archive_name = if (archive_name) |m| try gpa.dupe(u8, m) else null,
         .first_si = .null,
         .last_si = .null,
+        .first_iri = @enumFromInt(coff.input_resolved.items.len),
     };
 
     const string_table = string_table: {
@@ -3431,9 +3446,15 @@ fn loadObject(
     var symbols: std.ArrayList(Symbol.Index) = .empty;
     try symbols.ensureUnusedCapacity(gpa, header.number_of_symbols);
 
+    var undefs: std.ArrayList(struct {
+        symbol_i: u32,
+        name: String,
+        size: u32,
+    }) = .empty;
+
     const first_si = coff.symbols.items.len;
-    var symbol_ix: u32 = 0;
-    while (symbol_ix < header.number_of_symbols) {
+    var symbol_i: u32 = 0;
+    while (symbol_i < header.number_of_symbols) {
         var symbol: std.coff.Symbol = undefined;
         @memcpy(std.mem.asBytes(&symbol)[0..symbol_size], try r.take(symbol_size));
         if (target_endian != native_endian)
@@ -3441,13 +3462,13 @@ fn loadObject(
 
         defer {
             r.toss(symbol.number_of_aux_symbols * symbol_size);
-            symbol_ix += symbol.number_of_aux_symbols + 1;
+            symbol_i += symbol.number_of_aux_symbols + 1;
         }
 
         const name = std.mem.sliceTo(if (std.mem.eql(u8, symbol.name[0..4], "\x00\x00\x00\x00")) name: {
             const index = std.mem.readInt(u32, symbol.name[4..], target_endian);
             if (index >= string_table.len)
-                return diags.failParse(path, "bad string offset for symbol 0x{x}", .{symbol_ix});
+                return diags.failParse(path, "bad string offset for symbol 0x{x}", .{symbol_i});
             break :name string_table[index..];
         } else &symbol.name, 0);
 
@@ -3486,7 +3507,7 @@ fn loadObject(
                     {
                         if (symbol.number_of_aux_symbols > 1)
                             return diags.failParse(path, "invalid number of aux symbols for section 0x{x}: {d}", .{
-                                symbol_ix,
+                                symbol_i,
                                 symbol.number_of_aux_symbols,
                             });
 
@@ -3533,6 +3554,13 @@ fn loadObject(
                 },
             },
             .EXTERNAL => switch (symbol.section_number) {
+                .UNDEFINED => {
+                    (try undefs.addOne(gpa)).* = .{
+                        .symbol_i = symbol_i,
+                        .name = try coff.getOrPutString(name),
+                        .size = symbol.value,
+                    };
+                },
                 .ABSOLUTE => return diags.failParse(
                     path,
                     "TODO unhandled external absolute symbol: '{s}'",
@@ -3546,38 +3574,36 @@ fn loadObject(
                 else => |sn| {
                     const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = name });
                     si_slice[0] = global_gop.value_ptr.*;
-
                     const sym = si_slice[0].get(coff);
-                    if (sn != .UNDEFINED) {
-                        if (global_gop.found_existing and sym.ni != .none) {
-                            // TODO: Need corresponding logic later if we try to make a global already defined by an input
-
-                            var err = try diags.addErrorWithNotes(2);
-                            try err.addMsg("multiple definitions of '{s}'", .{name});
-                            switch (coff.getNode(sym.ni)) {
-                                .input_section => |isi| {
-                                    const other_ii = isi.input(coff);
-                                    err.addNote("first seen in input '{f}{f}'", .{
-                                        other_ii.path(coff).fmtEscapeString(),
-                                        fmtArchiveNameString(other_ii.archiveName(coff)),
-                                    });
-                                },
-                                .nav, .uav => err.addNote("first seen in module '{s}'", .{
-                                    comp.zcu.?.root_mod.fully_qualified_name,
-                                }),
-                                else => unreachable,
-                            }
-                            err.addNote("defined again in input '{f}'", .{path});
-                            return error.LinkFailure;
+                    if (global_gop.found_existing and sym.ni != .none) {
+                        // TODO: Need corresponding logic later if we try to make a global already defined by an input
+                        var err = try diags.addErrorWithNotes(2);
+                        try err.addMsg("multiple definitions of '{s}'", .{name});
+                        switch (coff.getNode(sym.ni)) {
+                            .input_section => |isi| {
+                                const other_ii = isi.input(coff);
+                                err.addNote("first seen in input '{f}{f}'", .{
+                                    other_ii.path(coff).fmtEscapeString(),
+                                    fmtArchiveNameString(other_ii.archiveName(coff)),
+                                });
+                            },
+                            .nav, .uav => err.addNote("first seen in module '{s}'", .{
+                                comp.zcu.?.root_mod.fully_qualified_name,
+                            }),
+                            else => unreachable,
                         }
-
-                        // TODO: Here if we *were* undefined we want to associate this symbol now with this section for
-                        //       the flushMoved iteration
-
-                        coff.initInputSectionSymbol(sym, sections[@intCast(@intFromEnum(sn) - 1)].si, symbol.value);
-                    } else if (!global_gop.found_existing) {
-                        sym.value = .{ .size = symbol.value };
+                        err.addNote("defined again in input '{f}'", .{path});
+                        return error.LinkFailure;
                     }
+
+                    if (global_gop.found_existing) {
+                        // `input_resolved` allows visting this symbol in this input section's flushMoved,
+                        // as the previously undefined global created earlier will not be in our
+                        // contiguous first / last range.
+                        (try coff.input_resolved.addOne(gpa)).* = si_slice[0];
+                    }
+
+                    coff.initInputSectionSymbol(sym, sections[@intCast(@intFromEnum(sn) - 1)].si, symbol.value);
                 },
             },
             else => {},
@@ -3587,6 +3613,18 @@ fn loadObject(
     if (coff.symbols.items.len > first_si) {
         input.first_si = @enumFromInt(first_si);
         input.last_si = @enumFromInt(coff.symbols.items.len - 1);
+    }
+
+    // These are added after all the defined symbols are created so they are not part of the
+    // input's symbol range, which should only contain symbols that are actually located in this input.
+    for (undefs.items) |undef| {
+        // TODO: Avoid redundant hashing by having name be a union on String / []const u8
+        const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = undef.name.toSlice(coff) });
+        symbols.items[undef.symbol_i] = global_gop.value_ptr.*;
+        if (!global_gop.found_existing) {
+            const sym = symbols.items[undef.symbol_i].get(coff);
+            sym.value = .{ .size = undef.size };
+        }
     }
 
     const relocation_size = std.coff.Relocation.sizeOf();
@@ -4581,10 +4619,6 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !void {
         coff.nodes.appendAssumeCapacity(.{ .global = gmi });
         sym.rva = coff.computeNodeRva(sym.ni);
         si.applyLocationRelocs(coff);
-    } else {
-
-        // TODO: If no .ni, report symbol not found - or should it be right when it's added as a global if we don't know about it?
-
     }
 }
 
@@ -4702,14 +4736,19 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         },
         .input_section => |isi| {
             const ii = isi.input(coff);
-            var si = ii.firstSymbol(coff);
-            const last_si = ii.lastSymbol(coff);
+            isi.symbol(coff).flushMoved(coff);
 
-            // TODO: This iteration doesn't visit symbols that were added first
-            //       in the range of another section (as undef).
+            {
+                var si = ii.firstSymbol(coff);
+                const last_si = ii.lastSymbol(coff);
+                while (@intFromEnum(si) <= @intFromEnum(last_si)) : (si = si.next()) {
+                    if (si.get(coff).ni != ni) continue;
+                    si.flushMoved(coff);
+                }
+            }
 
-            while (@intFromEnum(si) <= @intFromEnum(last_si)) : (si = si.next()) {
-                if (si.get(coff).ni != ni) continue;
+            for (coff.input_resolved.items[@intFromEnum(ii.firstResolvedGlobal(coff))..]) |si| {
+                if (si.get(coff).ni != ni) break;
                 si.flushMoved(coff);
             }
         },
