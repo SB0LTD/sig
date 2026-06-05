@@ -149,7 +149,6 @@ pub const Node = union(enum) {
     header,
     /// Images and archives only.
     signature,
-
     /// Archives only.
     archive_member_header: Member.Index,
     archive_member: Member.Index,
@@ -159,6 +158,7 @@ pub const Node = union(enum) {
     optional_header,
     /// Image only
     data_directories,
+
     section_table,
     // Archives and objects only
     symbol_table,
@@ -1201,6 +1201,15 @@ fn isArchive(coff: *const Coff) bool {
     };
 }
 
+fn isObj(coff: *const Coff) bool {
+    return coff.base.comp.config.output_mode == .Obj;
+}
+
+fn zcuSectionParent(coff: *Coff) MappedFile.Node.Index {
+    assert(coff.base.comp.zcu != null);
+    return if (coff.isArchive()) Node.known.zcu_member else Node.known.file;
+}
+
 fn initHeaders(
     coff: *Coff,
     machine: std.coff.IMAGE.FILE.MACHINE,
@@ -1261,7 +1270,7 @@ fn initHeaders(
     const archive_signature = "!<arch>\n";
 
     const signature_ni = Node.known.signature;
-    assert(signature_ni == try coff.mf.addLastChildNode(gpa, if (is_image) header_ni else Node.known.file, .{
+    assert(signature_ni == try coff.mf.addLastChildNode(gpa, if (is_image or !is_archive) header_ni else Node.known.file, .{
         .size = if (is_image)
             msdos_stub.len + pe_signature.len
         else if (is_archive)
@@ -2448,12 +2457,7 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
         @sizeOf(std.coff.SectionHeader) * section_table_len,
     );
 
-    const parent_ni = if (coff.isArchive())
-        Node.known.zcu_member
-    else
-        Node.known.file;
-
-    const ni = try coff.mf.addLastChildNode(gpa, parent_ni, .{
+    const ni = try coff.mf.addLastChildNode(gpa, coff.zcuSectionParent(), .{
         .alignment = coff.mf.flags.block_size,
         .moved = true,
         .bubbles_moved = false,
@@ -2652,7 +2656,7 @@ pub fn addReloc(
             const new_size = new_num_relocations * std.coff.Relocation.sizeOf();
             if (section.relocation_table_ni == .none) {
                 try coff.nodes.ensureUnusedCapacity(gpa, 1);
-                section.relocation_table_ni = try coff.mf.addLastChildNode(gpa, Node.known.zcu_member, .{
+                section.relocation_table_ni = try coff.mf.addLastChildNode(gpa, coff.zcuSectionParent(), .{
                     .size = new_size,
                     .alignment = .@"2",
                     .moved = true,
@@ -3308,7 +3312,7 @@ fn flushGlobal(coff: *Coff, pt: Zcu.PerThread, gmi: Node.GlobalMapIndex) !void {
         const si = gmi.symbol(coff);
         try coff.pendingSymbolTableEntry(si);
 
-        if (si.get(coff).ni != .none)
+        if (coff.isArchive() and si.get(coff).ni != .none)
             try coff.ensureMemberSymbol(
                 gn.name,
                 coff.getNode(Node.known.zcu_member).archive_member,
@@ -3542,7 +3546,7 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .data_directories,
         .section_table,
         .placeholder,
-        => if (coff.isImage()) unreachable,
+        => assert(!coff.isImage()),
         .symbol_table => {
             coff.targetStore(
                 &coff.headerPtr().pointer_to_symbol_table,
