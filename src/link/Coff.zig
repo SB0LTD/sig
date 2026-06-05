@@ -31,6 +31,13 @@ long_names_table: LongNamesTable,
 import_table: ImportTable,
 export_table: ExportTable,
 symbol_table: SymbolTable,
+input_archives: std.ArrayList(InputArchive),
+input_archive_members: std.ArrayList(InputArchive.Member),
+input_archive_symbols: std.ArrayList(InputArchive.Member.Symbol),
+input_archive_symbol_indices: std.AutoArrayHashMapUnmanaged(String, struct {
+    first: InputArchive.Member.Symbol.Index,
+    last: InputArchive.Member.Symbol.Index,
+}),
 inputs: std.ArrayList(Input),
 input_resolved: std.ArrayList(Symbol.Index),
 input_sections: std.ArrayList(struct {
@@ -47,7 +54,6 @@ strings: std.HashMapUnmanaged(
 ),
 string_bytes: std.ArrayList(u8),
 section_table: std.AutoArrayHashMapUnmanaged(String, Section),
-tls_si: Symbol.Index,
 pseudo_section_table: std.array_hash_map.Auto(String, Symbol.Index),
 object_section_table: std.array_hash_map.Auto(String, Symbol.Index),
 symbols: std.ArrayList(Symbol),
@@ -385,6 +391,36 @@ pub const Node = union(enum) {
     comptime {
         if (!std.debug.runtime_safety) std.debug.assert(@sizeOf(Node) == 8);
     }
+};
+
+pub const InputArchive = struct {
+    path: std.Build.Cache.Path,
+
+    const Index = enum(u32) {
+        _,
+    };
+
+    pub const Member = struct {
+        iai: InputArchive.Index,
+        name: String,
+        // This range includes the member header
+        file_location: MappedFile.Node.FileLocation,
+        is_import: bool,
+        // TODO: Field indicating we loaded it already (ii)
+        const Index = enum(u32) {
+            _,
+        };
+
+        pub const Symbol = struct {
+            iami: InputArchive.Member.Index,
+            // Set to its own index to indicate its the last in the list
+            next: InputArchive.Member.Symbol.Index,
+
+            const Index = enum(u32) {
+                _,
+            };
+        };
+    };
 };
 
 pub const Input = struct {
@@ -771,6 +807,7 @@ pub const Symbol = struct {
     /// Relocations targeting this symbol
     target_relocs: Reloc.Index,
     section_number: SectionNumber,
+    /// Only used when outputting objects
     sti: SymbolTable.Index,
     gmi: Node.GlobalMapIndex,
     unused0: u16 = 0,
@@ -1295,6 +1332,10 @@ fn create(
             .pending = .empty,
             .pending_shrink = false,
         },
+        .input_archives = .empty,
+        .input_archive_members = .empty,
+        .input_archive_symbols = .empty,
+        .input_archive_symbol_indices = .empty,
         .inputs = .empty,
         .input_resolved = .empty,
         .input_sections = .empty,
@@ -1302,7 +1343,6 @@ fn create(
         .strings = .empty,
         .string_bytes = .empty,
         .section_table = .empty,
-        .tls_si = .null,
         .pseudo_section_table = .empty,
         .object_section_table = .empty,
         .symbols = .empty,
@@ -1356,6 +1396,10 @@ pub fn deinit(coff: *Coff) void {
     coff.export_table.entries.deinit(gpa);
     coff.symbol_table.strings.deinit(gpa);
     coff.symbol_table.pending.deinit(gpa);
+    coff.input_archives.deinit(gpa);
+    coff.input_archive_members.deinit(gpa);
+    coff.input_archive_symbols.deinit(gpa);
+    coff.input_archive_symbol_indices.deinit(gpa);
     coff.inputs.deinit(gpa);
     coff.input_resolved.deinit(gpa);
     coff.input_sections.deinit(gpa);
@@ -1841,7 +1885,7 @@ fn initHeaders(
 
     if (comp.config.any_non_single_threaded) {
         if (!is_image)
-            coff.tls_si = try coff.addSection(.@".tls$", .{
+            _ = try coff.addSection(.@".tls$", .{
                 .CNT_INITIALIZED_DATA = true,
                 .MEM_READ = true,
                 .MEM_WRITE = true,
@@ -3655,13 +3699,29 @@ fn loadObject(
     }
 }
 
-fn parseArchiveHeader(
-    header: *const std.coff.ArchiveMemberHeader,
-    opt_longnames: ?[]const u8,
-) !struct {
+const ArchiveMemberHeader = struct {
     name: []const u8,
     size: u34,
-} {
+};
+
+fn parseArchiveMemberHeader(
+    diags: *link.Diags,
+    path: std.Build.Cache.Path,
+    header: *const std.coff.ArchiveMemberHeader,
+    opt_longnames: ?[]const u8,
+) !ArchiveMemberHeader {
+    return parseArchiveMemberHeaderInner(header, opt_longnames) catch |err| switch (err) {
+        error.BadName => return diags.failParse(path, "malformed member header name: '{s}'", .{&header.name}),
+        error.BadSize => return diags.failParse(path, "malformed member header size: '{s}'", .{&header.size}),
+        error.BadEndOfHeader => return diags.failParse(path, "bad member header end of header", .{}),
+        error.NoLongNames => return diags.failParse(path, "long name used without longnames member", .{}),
+    };
+}
+
+fn parseArchiveMemberHeaderInner(
+    header: *const std.coff.ArchiveMemberHeader,
+    opt_longnames: ?[]const u8,
+) !ArchiveMemberHeader {
     const trim = std.mem.trimEnd(u8, &header.name, &.{' '});
 
     if (trim.len == 0) return error.BadName;
@@ -3711,23 +3771,58 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
     var opt_longnames: ?[]const u8 = null;
     defer if (opt_longnames) |l| gpa.free(l);
 
+    var members: std.ArrayList(struct {
+        offset: u32,
+        iami: ?InputArchive.Member.Index,
+    }) = .empty;
+    var symbol_member_indices: std.ArrayList(u32) = .empty;
+
+    const iai: InputArchive.Index = @enumFromInt(coff.input_archives.items.len);
+    (try coff.input_archives.addOne(gpa)).* = .{
+        .path = path,
+    };
+
+    const first_iami = coff.input_archive_members.items.len;
+    const first_iamsi = coff.input_archive_symbols.items.len;
+    const first_symbol_indices_index = coff.input_archive_symbol_indices.count();
+
+    errdefer {
+        for (coff.input_archive_symbol_indices.values()) |*v| {
+            if (@intFromEnum(v.last) < first_iamsi) continue;
+            if (@intFromEnum(v.first) >= first_iamsi) continue;
+
+            var iter = v.first;
+            v.last = while (iter != v.last) {
+                const sym = &coff.input_archive_symbols.items[@intFromEnum(iter)];
+                if (@intFromEnum(sym.next) >= first_iamsi) {
+                    sym.next = iter;
+                    break iter;
+                }
+
+                iter = sym.next;
+            } else unreachable;
+        }
+
+        // New entries in this map will only have pointed to iamsi we also just added
+        coff.input_archive_symbol_indices.shrinkRetainingCapacity(first_symbol_indices_index);
+        coff.input_archive_symbols.shrinkRetainingCapacity(first_iamsi);
+        coff.input_archive_members.shrinkRetainingCapacity(first_iami);
+        _ = coff.input_archives.pop();
+    }
+
     var pos = fr.logicalPos();
     const size = try fr.getSize();
     while (pos < size) : (pos = fr.logicalPos()) {
         const header = try r.takeStruct(std.coff.ArchiveMemberHeader, target_endian);
-        const res = parseArchiveHeader(&header, opt_longnames) catch |err| switch (err) {
-            error.BadName => return diags.failParse(path, "malformed member header name: '{s}'", .{&header.name}),
-            error.BadSize => return diags.failParse(path, "malformed member header size: '{s}'", .{&header.size}),
-            error.BadEndOfHeader => return diags.failParse(path, "bad member header end of header", .{}),
-            error.NoLongNames => return diags.failParse(path, "long name used without longnames member", .{}),
-        };
+        const res = try parseArchiveMemberHeader(diags, path, &header, opt_longnames);
 
-        if (pos + res.size > size)
+        const member_end = fr.logicalPos() + res.size;
+        if (member_end > size)
             return diags.failParse(path, "out-of-bounds length 0x{x} in member '{s}'", .{ res.size, res.name });
 
         log.debug("loadArchiveMember({s})", .{res.name});
 
-        if (opt_expected_kind) |expected_kind| expected: switch (expected_kind) {
+        if (opt_expected_kind) |expected_kind| switch (expected_kind) {
             .first_linker => {
                 if (!std.mem.eql(u8, res.name, "/"))
                     return diags.failParse(path, "expected first linker member, found '{s}'", .{res.name});
@@ -3740,43 +3835,102 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
                 if (!std.mem.eql(u8, res.name, "/"))
                     return diags.failParse(path, "expected second linker member, found '{s}'", .{res.name});
 
-                // TODO: Parse this!
-                // TODO: Build index of symbols -> members from 2nd linker member
-                // TODO: We don't actually have to load an object unless we need a symbol from it (when linking images)
-                // TODO: Lazily call loadObject whenever a symbol is need from one of the members.
-                //       Could do that in flushGlobal if we haven't gotten an .ni for the symbol yet (and no lib_name)?
-                try r.discardAll(res.size);
+                const num_members = try r.takeInt(u32, target_endian);
+                pos = fr.logicalPos();
+                if (pos + num_members * 4 > member_end)
+                    return diags.failParse(path, "invalid member count 0x{x} in second linker member", .{num_members});
 
+                try members.ensureTotalCapacity(gpa, num_members);
+                for (0..num_members) |_|
+                    members.addOneAssumeCapacity().* = .{
+                        .offset = try r.takeInt(u32, target_endian),
+                        .iami = null,
+                    };
+
+                const num_symbols = try r.takeInt(u32, target_endian);
+                pos = fr.logicalPos();
+                if (pos + num_symbols * 2 > member_end)
+                    return diags.failParse(path, "invalid symbol count 0x{x} in second linker member", .{num_symbols});
+
+                try symbol_member_indices.ensureTotalCapacity(gpa, num_symbols);
+                for (0..num_symbols) |_|
+                    symbol_member_indices.addOneAssumeCapacity().* = (try r.takeInt(u16, target_endian)) - 1;
+
+                pos = fr.logicalPos();
+                try coff.ensureManyUnusedStringCapacity(num_symbols, member_end - pos);
+                try coff.input_archive_members.ensureUnusedCapacity(gpa, num_members);
+                try coff.input_archive_symbols.ensureUnusedCapacity(gpa, num_symbols);
+                try coff.input_archive_symbol_indices.ensureUnusedCapacity(gpa, num_symbols);
+
+                var symbol_i: u32 = 0;
+                while (pos < member_end and symbol_i < num_symbols) : ({
+                    pos = fr.logicalPos();
+                    symbol_i += 1;
+                }) {
+                    const name = if (r.takeDelimiter(0) catch |err| switch (err) {
+                        error.StreamTooLong => null,
+                        else => |e| return e,
+                    }) |n| n else return diags.failParse(path, "unterminated string found in second linker member", .{});
+
+                    const string = coff.getOrPutStringAssumeCapacity(name);
+                    const iamsi: InputArchive.Member.Symbol.Index = @enumFromInt(coff.input_archive_symbols.items.len);
+                    const symbol_gop = coff.input_archive_symbol_indices.getOrPutAssumeCapacity(string);
+                    if (!symbol_gop.found_existing) {
+                        symbol_gop.value_ptr.* = .{
+                            .first = iamsi,
+                            .last = iamsi,
+                        };
+                    } else {
+                        coff.input_archive_symbols.items[@intFromEnum(symbol_gop.value_ptr.last)].next = iamsi;
+                        symbol_gop.value_ptr.last = iamsi;
+                    }
+
+                    const iami = members.items[symbol_member_indices.items[symbol_i]].iami orelse iami: {
+                        const iami: InputArchive.Member.Index = @enumFromInt(coff.input_archive_members.items.len);
+                        const member_offset = members.items[symbol_member_indices.items[symbol_i]].offset;
+                        coff.input_archive_members.addOneAssumeCapacity().* = .{
+                            .iai = iai,
+                            .name = undefined,
+                            .is_import = undefined,
+                            .file_location = .{
+                                .offset = member_offset,
+                                .size = undefined,
+                            },
+                        };
+
+                        members.items[symbol_member_indices.items[symbol_i]].iami = iami;
+                        break :iami iami;
+                    };
+
+                    log.debug("loadArchiveMemberSymbol({s}) = ({d}, {d}, {d})", .{ name, iai, iami, iamsi });
+
+                    coff.input_archive_symbols.addOneAssumeCapacity().* = .{
+                        .iami = iami,
+                        .next = iamsi,
+                    };
+                }
+
+                if (symbol_i != num_symbols)
+                    return diags.failParse(
+                        path,
+                        " expected {d} entries in second linker member string table, but found {d}",
+                        .{ num_symbols, symbol_i },
+                    );
+
+                try fr.seekTo(member_end);
                 opt_expected_kind = .longnames;
                 continue;
             },
             .longnames => {
-                defer opt_expected_kind = null;
-
                 // This member is optional
-                if (!std.mem.eql(u8, res.name, "//")) break :expected;
-                opt_longnames = try r.readAlloc(gpa, res.size);
-                continue;
+                if (std.mem.eql(u8, res.name, "//"))
+                    opt_longnames = try r.readAlloc(gpa, res.size);
+
+                opt_expected_kind = null;
+                break;
             },
             else => unreachable,
         };
-
-        const member_sig = try r.peek(4);
-        const machine = std.mem.readInt(u16, member_sig[0..2], target_endian);
-        const sig = std.mem.readInt(u16, member_sig[2..4], target_endian);
-        if (machine == @intFromEnum(std.coff.IMAGE.FILE.MACHINE.UNKNOWN) and sig == 0xffff) {
-            const import_header = try r.peekStruct(std.coff.ImportHeader, target_endian);
-
-            // TODO: Validate import table header fields
-            _ = import_header;
-        } else {
-            const coff_header = try r.peekStruct(std.coff.Header, target_endian);
-
-            // TODO: Validate COFF header fields
-            _ = coff_header;
-        }
-
-        try fr.seekTo(fr.logicalPos() + res.size);
     }
 
     if (opt_expected_kind) |expected_kind| switch (expected_kind) {
@@ -3784,6 +3938,39 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !vo
         .second_linker => return diags.failParse(path, "missing second linker member", .{}),
         else => {},
     };
+
+    // Validate / read names and sizes of all the referenced members
+    for (coff.input_archive_members.items[first_iami..]) |*member| {
+        try fr.seekTo(member.file_location.offset);
+
+        const header = try r.takeStruct(std.coff.ArchiveMemberHeader, target_endian);
+        const res = try parseArchiveMemberHeader(diags, path, &header, opt_longnames);
+
+        try coff.ensureUnusedStringCapacity(res.name.len);
+        member.name = coff.getOrPutStringAssumeCapacity(res.name);
+
+        const member_sig = try r.peek(4);
+        const machine = std.mem.readInt(u16, member_sig[0..2], target_endian);
+        const sig = std.mem.readInt(u16, member_sig[2..4], target_endian);
+        member.is_import = machine == @intFromEnum(std.coff.IMAGE.FILE.MACHINE.UNKNOWN) and sig == 0xffff;
+        member.file_location.size = res.size;
+
+        log.debug("verifyArchiveMember({s}) = 0x{x}+{x}", .{
+            res.name,
+            member.file_location.offset,
+            member.file_location.size,
+        });
+
+        if (member.is_import) {
+            const import_header = try r.peekStruct(std.coff.ImportHeader, target_endian);
+            // TODO: Validate import table header fields
+            // TODO: Use this result in flushGlobal
+            return diags.failParse(path, "TODO implement parsing import headers: {t} {t}", .{
+                import_header.types.type,
+                import_header.types.name_type,
+            });
+        }
+    }
 }
 
 fn loadRes(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
@@ -4723,6 +4910,15 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !void {
         coff.nodes.appendAssumeCapacity(.{ .global = gmi });
         sym.rva = coff.computeNodeRva(sym.ni);
         si.applyLocationRelocs(coff);
+    } else {
+
+        // TODO: Check if not defined, and if in an input member
+        // TODO: If so, queue a loadObject for that member
+        // TODO: Return a value indicating to retry this flushGlobal
+        // TODO: The loadObject idle task should be before the flushGlobal idle task
+        //
+        // TODO: Check if we can get flushGlobal before prelink, that would cause a problem
+
     }
 }
 
