@@ -796,16 +796,21 @@ pub const String = enum(u32) {
     @".ctors$ZZZ" = 46,
     @".dtors" = 57,
     @".dtors$ZZZ" = 64,
+    @".bss" = 75,
     _,
 
     pub const Optional = enum(u32) {
         @".data" = @intFromEnum(String.@".data"),
+        @".idata" = @intFromEnum(String.@".idata"),
         @".rdata" = @intFromEnum(String.@".rdata"),
         @".text" = @intFromEnum(String.@".text"),
         @".tls$" = @intFromEnum(String.@".tls$"),
         @".edata" = @intFromEnum(String.@".edata"),
+        @".ctors" = @intFromEnum(String.@".ctors"),
+        @".ctors$ZZZ" = @intFromEnum(String.@".ctors$ZZZ"),
         @".dtors" = @intFromEnum(String.@".dtors"),
         @".dtors$ZZZ" = @intFromEnum(String.@".dtors$ZZZ"),
+        @".bss" = @intFromEnum(String.@".bss"),
         none = std.math.maxInt(u32),
         _,
 
@@ -1000,6 +1005,7 @@ pub const Symbol = struct {
 
     pub const Index = enum(u32) {
         null,
+        bss,
         data,
         rdata,
         text,
@@ -1707,7 +1713,7 @@ fn initHeaders(
     var expected_nodes_len: usize = Node.known_count;
     if (coff.hasCoffHeader()) {
         // Sections
-        expected_nodes_len += 3;
+        expected_nodes_len += 4;
 
         if (is_image)
             // Pseudo-sections and import / export table
@@ -2000,6 +2006,14 @@ fn initHeaders(
 
     try coff.symbols.ensureTotalCapacity(gpa, Symbol.Index.known_count);
     assert(coff.addSymbolAssumeCapacity() == .null);
+    // TODO: How do we tell MappedFile not to allocate physical space for these?
+    // TODO: Could have a node flag 'virtual' that can never have slice* called on it or fileLocation
+
+    assert(try coff.addSection(.@".bss", .{
+        .CNT_UNINITIALIZED_DATA = true,
+        .MEM_READ = true,
+        .MEM_WRITE = true,
+    }) == .bss);
     assert(try coff.addSection(.@".data", .{
         .CNT_INITIALIZED_DATA = true,
         .MEM_READ = true,
@@ -2021,7 +2035,7 @@ fn initHeaders(
             (try coff.objectSectionMapIndex(
                 .@".idata",
                 coff.mf.flags.block_size,
-                .{ .read = true },
+                .{ .read = true, .initialized = true },
             )).symbol(coff).node(coff),
             .{ .alignment = .@"4", .moved = true },
         );
@@ -2030,7 +2044,7 @@ fn initHeaders(
         coff.export_table.ni = (try coff.pseudoSectionMapIndex(
             .@".edata",
             .of(std.coff.ExportDirectoryTable),
-            .{ .read = true },
+            .{ .read = true, .initialized = true },
         )).symbol(coff).node(coff);
 
         coff.export_table.export_directory_table_ni = try coff.mf.addLastChildNode(
@@ -2115,7 +2129,7 @@ fn initHeaders(
         _ = try coff.objectSectionMapIndex(
             .@".tls$",
             coff.mf.flags.block_size,
-            .{ .read = true, .write = !is_image },
+            .{ .read = true, .write = !is_image, .initialized = true },
         );
     }
 }
@@ -2145,12 +2159,12 @@ pub fn initBuiltins(coff: *Coff) !void {
             const start_osmi = try coff.objectSectionMapIndex(
                 list.start,
                 addr_info.alignment,
-                .{ .read = true },
+                .{ .read = true, .initialized = true },
             );
             const end_osmi = try coff.objectSectionMapIndex(
                 list.end,
                 addr_info.alignment,
-                .{ .read = true },
+                .{ .read = true, .initialized = true },
             );
 
             const start_sym = start_osmi.symbol(coff).get(coff);
@@ -2657,13 +2671,13 @@ fn navSection(
     const ip = &zcu.intern_pool;
     const default: String, const attributes: ObjectSectionAttributes =
         if (nav_resolved.@"threadlocal" and coff.base.comp.config.any_non_single_threaded) .{
-            .@".tls$", .{ .read = true, .write = true },
+            .@".tls$", .{ .read = true, .write = true, .initialized = true },
         } else if (ip.isFunctionType(nav_resolved.type)) .{
             .@".text", .{ .read = true, .execute = true },
         } else if (nav_resolved.@"const") .{
-            .@".rdata", .{ .read = true },
+            .@".rdata", .{ .read = true, .initialized = true },
         } else .{
-            .@".data", .{ .read = true, .write = true },
+            .@".data", .{ .read = true, .write = true, .initialized = true },
         };
 
     return (try coff.objectSectionMapIndex(
@@ -3180,6 +3194,8 @@ const ObjectSectionAttributes = packed struct {
     nocache: bool = false,
     discard: bool = false,
     remove: bool = false,
+    initialized: bool = false,
+    uninitialized: bool = false,
 
     // TODO: Include init / not init flags?
 
@@ -3193,6 +3209,8 @@ const ObjectSectionAttributes = packed struct {
             .nocache = flags.MEM_NOT_CACHED,
             .discard = flags.MEM_DISCARDABLE,
             .remove = flags.LNK_REMOVE,
+            .initialized = flags.CNT_INITIALIZED_DATA,
+            .uninitialized = flags.CNT_UNINITIALIZED_DATA,
         };
     }
 
@@ -3206,6 +3224,8 @@ const ObjectSectionAttributes = packed struct {
             .MEM_NOT_CACHED = attr.nocache,
             .MEM_DISCARDABLE = attr.discard,
             .LNK_REMOVE = attr.remove,
+            .CNT_INITIALIZED_DATA = attr.uninitialized,
+            .CNT_UNINITIALIZED_DATA = attr.uninitialized,
         };
     }
 };
@@ -3220,7 +3240,9 @@ fn pseudoSectionMapIndex(
     const pseudo_section_gop = try coff.pseudo_section_table.getOrPut(gpa, name);
     const psmi: Node.PseudoSectionMapIndex = @enumFromInt(pseudo_section_gop.index);
     const sn = if (!pseudo_section_gop.found_existing) sn: {
-        const default_parent: Symbol.Index = if (attributes.execute)
+        const default_parent: Symbol.Index = if (attributes.uninitialized)
+            .bss
+        else if (attributes.execute)
             .text
         else if (attributes.write)
             .data
@@ -3401,6 +3423,8 @@ pub fn addReloc(
 ) !void {
     const gpa = coff.base.comp.gpa;
     const target = target_si.get(coff);
+    // TODO: Could duplicate the uninit flag on Symbol.flags?
+    assert(!coff.targetLoad(loc_si.get(coff).section_number.header(coff).flags).CNT_UNINITIALIZED_DATA);
 
     const ri: Reloc.Index = @enumFromInt(coff.relocs.items.len);
     log.debug("addReloc({d}@{d}+0x{x} -> {d}@{d}+0x{x}{s}) = {d}", .{
@@ -4194,6 +4218,7 @@ fn loadObject(
                         const existing_crc = switch (coff.getNode(sym.ni)) {
                             .input_section => |isi| isi.inputSection(coff).crc,
                             // TODO: Should this result be cached somewhere?
+                            // TODO: Is this slice triggering has_content = true un-necessarily? Check section for init data flag.
                             else => std.hash.crc.Crc32Jamcrc.hash(sym.ni.slice(&coff.mf)),
                         };
 
@@ -5750,7 +5775,7 @@ fn flushUav(
                 const sec_si = (try coff.objectSectionMapIndex(
                     .@".rdata",
                     coff.mf.flags.block_size,
-                    .{ .read = true },
+                    .{ .read = true, .initialized = true },
                 )).symbol(coff);
                 try coff.nodes.ensureUnusedCapacity(gpa, 1);
                 if (!isImage(coff)) try coff.symbol_table.pending.ensureUnusedCapacity(gpa, 1);
@@ -6335,15 +6360,19 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .archive_member,
         => {},
         .image_section => |si| {
-            const file_offset = if (isArchive(coff))
-                si.get(coff).ni.location(&coff.mf).resolve(&coff.mf)[0]
-            else
-                ni.fileLocation(&coff.mf, false).offset;
+            const sym = si.get(coff);
+            const flags = coff.targetLoad(&sym.section_number.header(coff).flags);
+            if (!flags.CNT_UNINITIALIZED_DATA) {
+                const file_offset = if (isArchive(coff))
+                    sym.ni.location(&coff.mf).resolve(&coff.mf)[0]
+                else
+                    ni.fileLocation(&coff.mf, false).offset;
 
-            return coff.targetStore(
-                &si.get(coff).section_number.header(coff).pointer_to_raw_data,
-                @intCast(file_offset),
-            );
+                return coff.targetStore(
+                    &sym.section_number.header(coff).pointer_to_raw_data,
+                    @intCast(file_offset),
+                );
+            }
         },
         .input_section => |isi| {
             isi.symbol(coff).flushMoved(coff);
