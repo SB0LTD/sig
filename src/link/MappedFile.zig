@@ -1362,7 +1362,7 @@ test {
 
     const a = try mf.addFirstChildNode(gpa, .root, .{ .fixed = true, .alignment = .@"4" });
     const c = try mf.addLastChildNode(gpa, .root, .{ .fixed = true, .alignment = .@"4" });
-    const b = try mf.addNodeAfter(gpa, a, .{ .fixed = true, .alignment = .@"4" });
+    const b = try mf.addNodeAfter(gpa, a, .{ .fixed = true, .alignment = .@"16" });
     const d = try mf.addNodeAfter(gpa, b, .{ .alignment = .@"4" });
 
     const a_init_size = 8;
@@ -1426,26 +1426,14 @@ test {
         try testVerifyContent(&mf, d, 0xdd, d_init_size);
     }
 
-    // Re-align nodes
-    {
-        try b.realign(&mf, gpa, .@"8", true);
-        try a.realign(&mf, gpa, .@"16", true);
-        mf.verify();
-
-        try testVerifyContent(&mf, a, 0xaa, a_init_size);
-        try testVerifyContent(&mf, b, 0xbb, b_init_size);
-        try testVerifyContent(&mf, c, 0xcc, c_init_size);
-        try testVerifyContent(&mf, d, 0xdd, d_init_size);
-    }
-
     const child_init: []const struct { std.mem.Alignment, usize } = &.{
-        .{ .@"8", 16 },
+        .{ .@"16", 16 },
         .{ .@"1", 1 },
         .{ .@"1", 19 },
         .{ .@"1", 3 },
-        .{ .@"4", 30 },
+        .{ .@"8", 30 },
         .{ .@"2", 5 },
-        .{ .@"16", 60 },
+        .{ .@"1", 60 },
         .{ .@"2", 2 },
         .{ .@"16", 32 },
     };
@@ -1463,7 +1451,7 @@ test {
 
             @memset(ni.slice(&mf)[0..opts.@"1"], @intCast(i + 1));
         }
-        // Shift differenntly-aligned nodes
+        // Shift differently-aligned nodes by inserting a node
         children[children.len - 1] = try mf.addNodeAfter(gpa, children[3], .{
             .alignment = child_init[children.len - 1].@"0",
             .size = child_init[children.len - 1].@"1",
@@ -1488,6 +1476,29 @@ test {
         for (children, child_init, 0..) |ni, opts, i| {
             try testVerifyContent(&mf, ni, @intCast(i + 1), opts.@"1");
         }
+    }
+
+    // Re-align last node into trailing free space within parent
+    {
+        try b.resize(&mf, gpa, b.location(&mf).resolve(&mf)[1] + 64);
+
+        const last = children[children.len - 2];
+        try last.realign(&mf, gpa, .@"4", true);
+        mf.verify();
+
+        for (children, child_init, 0..) |ni, opts, i|
+            try testVerifyContent(&mf, ni, @intCast(i + 1), opts.@"1");
+        try testVerifyContent(&mf, c, 0xcc, c_init_size);
+    }
+
+    // Re-align, shifting sibling nodes
+    {
+        try children[1].realign(&mf, gpa, .@"8", true);
+        mf.verify();
+
+        for (children, child_init, 0..) |ni, opts, i|
+            try testVerifyContent(&mf, ni, @intCast(i + 1), opts.@"1");
+        try testVerifyContent(&mf, c, 0xcc, c_init_size);
     }
 
     // Shrink and shift start of trailing node into free space
