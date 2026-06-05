@@ -1707,7 +1707,6 @@ fn initHeaders(
         coff.nodes.appendAssumeCapacity(.symbol_table);
 
         coff.symbol_table.strings_ni = try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
-            .alignment = .@"2",
             .size = @sizeOf(u32),
             .fixed = true,
             .resized = true,
@@ -2114,7 +2113,7 @@ pub fn symbolTableSectionAuxEntryPtr(coff: *Coff, si: Symbol.Index) *align(2) st
     return @ptrCast(@alignCast(symbolTableEntryStoragePtr(coff, sti.unwrap().? + 1)));
 }
 
-pub fn symbolTableStringLenPtr(coff: *Coff) *align(2) u32 {
+pub fn symbolTableStringLenPtr(coff: *Coff) *align(1) u32 {
     return @ptrCast(@alignCast(coff.symbol_table.strings_ni.slice(&coff.mf)[0..@sizeOf(u32)]));
 }
 
@@ -3483,7 +3482,7 @@ fn loadObject(
         });
 
         if (is_archive) {
-            if (symbol.storage_class == .EXTERNAL)
+            if (symbol.storage_class == .EXTERNAL and symbol.section_number != .UNDEFINED)
                 try coff.ensureMemberSymbol(mi, coff.getOrPutStringAssumeCapacity(name));
 
             continue;
@@ -4042,7 +4041,6 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
                 num_unique_references = 1;
             }
 
-            const num_references = i - start_i;
             const num_notes =
                 @min(max_notes, num_unique_references) +
                 @intFromBool(num_unique_references > max_notes);
@@ -4052,7 +4050,7 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
             try err.addMsg("undefined symbol: {s}", .{target_sym.gmi.globalName(coff).name.toSlice(coff)});
 
             var prev_loc_si: Symbol.Index = .null;
-            for (undef_indices.items[start_i..][0..num_references]) |reference_i| {
+            for (undef_indices.items[start_i..][0..@max(1, i - start_i)]) |reference_i| {
                 if (err.note_slot == num_notes) break;
 
                 const loc_si = coff.relocs.items[reference_i].loc;
@@ -4109,7 +4107,7 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
             }
 
             if (num_unique_references > max_notes)
-                err.addNote("referenced {d} more times", .{num_references - max_notes});
+                err.addNote("referenced {d} more times", .{num_unique_references - max_notes});
         } else if (i != start_i and
             coff.relocs.items[undef_indices.items[i - 1]].loc != coff.relocs.items[undef_indices.items[i]].loc)
         {
@@ -4129,7 +4127,9 @@ pub fn flush(
     _ = arena;
     _ = prog_node;
     while (try coff.idle(tid)) {}
-    try coff.reportUndefs(tid);
+
+    if (coff.isImage())
+        try coff.reportUndefs(tid);
 
     const comp = coff.base.comp;
 
