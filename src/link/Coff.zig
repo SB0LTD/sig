@@ -30,6 +30,7 @@ lib_string_len: u64,
 long_names_table: LongNamesTable,
 import_table: ImportTable,
 export_table: ExportTable,
+symbol_table: SymbolTable,
 strings: std.HashMapUnmanaged(
     u32,
     void,
@@ -37,10 +38,10 @@ strings: std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 ),
 string_bytes: std.ArrayList(u8),
-image_section_table: std.ArrayList(Symbol.Index),
+section_table: std.ArrayList(Symbol.Index),
 pseudo_section_table: std.array_hash_map.Auto(String, Symbol.Index),
 object_section_table: std.array_hash_map.Auto(String, Symbol.Index),
-symbol_table: std.ArrayList(Symbol),
+symbols: std.ArrayList(Symbol),
 globals: std.array_hash_map.Auto(GlobalName, Symbol.Index),
 global_pending_index: u32,
 navs: std.array_hash_map.Auto(InternPool.Nav.Index, Symbol.Index),
@@ -144,6 +145,7 @@ pub const Node = union(enum) {
     header,
     /// Images and archives only.
     signature,
+
     /// Archives only.
     archive_member_header: Member.Index,
     archive_member: Member.Index,
@@ -154,15 +156,21 @@ pub const Node = union(enum) {
     /// Image only
     data_directories,
     section_table,
-    image_section: Symbol.Index,
+    // Archives and objects only
+    symbol_table,
+    symbol_table_entry,
+    // Archives and objects only
+    string_table,
 
-    /// Only images contain imports
+    image_section: Symbol.Index, // TODO: image_section -> section
+
+    /// Images only
     import_directory_table,
     import_lookup_table: ImportTable.Index,
     import_address_table: ImportTable.Index,
     import_hint_name_table: ImportTable.Index,
 
-    /// Only images contain exports
+    /// Images only
     export_directory_table,
     export_address_table,
     export_name_pointer_table,
@@ -291,6 +299,8 @@ pub const Node = union(enum) {
             optional_header,
             data_directories,
             section_table,
+            symbol_table,
+            string_table,
         };
         var mut_known: std.enums.EnumFieldStruct(Known, MappedFile.Node.Index, null) = undefined;
         const info = @typeInfo(Known).@"enum";
@@ -433,6 +443,47 @@ pub const LongNamesTable = struct {
             assert(std.mem.indexOfScalar(u8, key, 0) == null);
             return std.array_hash_map.hashString(key);
         }
+    };
+};
+
+pub const SymbolTable = struct {
+    string_offsets: std.AutoArrayHashMapUnmanaged(String, StringIndex),
+    entries: std.AutoArrayHashMapUnmanaged(Symbol.Index, Entry),
+
+    // Adding nodes to the symbol table has the result of accumulating padding
+    // between the last symbol and the string table, due to the growth factor
+    // in MappedFile. The spec requires the string table begin immediately
+    // after the last symbol, so we compact the symbol table node if needed.
+    pending_shrink: bool,
+
+    pub const Entry = struct {
+        entry_si: Symbol.Index,
+        index: Index,
+    };
+
+    pub const Add = union(enum) {
+        section,
+        global: struct {
+            import: bool,
+        },
+    };
+
+    pub const SymbolName = union(enum) {
+        short: []const u8,
+        long: StringIndex,
+    };
+
+    // Symbol.Index does not map 1:1 with SymbolTable.Index due to auxiliary entries
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn get(sti: SymbolTable.Index, coff: *Coff) *Entry {
+            return &coff.symbol_table.entries.values()[@intFromEnum(sti)];
+        }
+    };
+
+    pub const StringIndex = enum(u32) {
+        _,
     };
 };
 
@@ -582,7 +633,7 @@ pub const Symbol = struct {
         }
 
         pub fn symbol(sn: SectionNumber, coff: *const Coff) Symbol.Index {
-            return coff.image_section_table.items[sn.toIndex()];
+            return coff.section_table.items[sn.toIndex()];
         }
 
         pub fn header(sn: SectionNumber, coff: *Coff) *std.coff.SectionHeader {
@@ -600,7 +651,7 @@ pub const Symbol = struct {
         const known_count = @typeInfo(Index).@"enum".field_names.len;
 
         pub fn get(si: Symbol.Index, coff: *Coff) *Symbol {
-            return &coff.symbol_table.items[@intFromEnum(si)];
+            return &coff.symbols.items[@intFromEnum(si)];
         }
 
         pub fn node(si: Symbol.Index, coff: *Coff) MappedFile.Node.Index {
@@ -920,12 +971,17 @@ fn create(
             .name_table_ni = .none,
             .entries = .empty,
         },
+        .symbol_table = .{
+            .string_offsets = .empty,
+            .entries = .empty,
+            .pending_shrink = false,
+        },
         .strings = .empty,
         .string_bytes = .empty,
-        .image_section_table = .empty,
+        .section_table = .empty,
         .pseudo_section_table = .empty,
         .object_section_table = .empty,
-        .symbol_table = .empty,
+        .symbols = .empty,
         .globals = .empty,
         .global_pending_index = 0,
         .navs = .empty,
@@ -965,15 +1021,16 @@ pub fn deinit(coff: *Coff) void {
     const gpa = coff.base.comp.gpa;
     coff.mf.deinit(gpa);
     coff.nodes.deinit(gpa);
+    // TODO: Update this
     coff.long_names_table.entries.deinit(gpa);
     coff.import_table.entries.deinit(gpa);
     coff.export_table.entries.deinit(gpa);
     coff.strings.deinit(gpa);
     coff.string_bytes.deinit(gpa);
-    coff.image_section_table.deinit(gpa);
+    coff.section_table.deinit(gpa);
     coff.pseudo_section_table.deinit(gpa);
     coff.object_section_table.deinit(gpa);
-    coff.symbol_table.deinit(gpa);
+    coff.symbols.deinit(gpa);
     coff.globals.deinit(gpa);
     coff.navs.deinit(gpa);
     coff.uavs.deinit(gpa);
@@ -1035,8 +1092,13 @@ fn initHeaders(
 
     var expected_nodes_len: usize = Node.known_count;
     if (comp.zcu != null) {
+        // Section nodes
         expected_nodes_len += 3;
+        // Symbol table nodes
+        if (is_archive) expected_nodes_len += 6;
+        // Pseudo-sections and import / export table nodes
         if (is_image) expected_nodes_len += 9;
+        // TLS section nodes
         expected_nodes_len += @as(usize, @intFromBool(comp.config.any_non_single_threaded)) * 2;
     }
     defer assert(coff.nodes.len == expected_nodes_len);
@@ -1294,10 +1356,26 @@ fn initHeaders(
     }));
     coff.nodes.appendAssumeCapacity(.section_table);
 
+    const symbol_table_ni = Node.known.symbol_table;
+    assert(symbol_table_ni == try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
+        .alignment = .@"4",
+        .fixed = true,
+        .moved = true,
+    }));
+    coff.nodes.appendAssumeCapacity(.symbol_table);
+
+    const string_table_ni = Node.known.string_table;
+    assert(string_table_ni == try coff.mf.addLastChildNode(gpa, zcu_coff_parent_ni, .{
+        .size = @sizeOf(u32),
+        .fixed = true,
+        .resized = true,
+    }));
+    coff.nodes.appendAssumeCapacity(.string_table);
+
     assert(coff.nodes.len == Node.known_count);
 
-    try coff.symbol_table.ensureTotalCapacity(gpa, Symbol.Index.known_count);
-    coff.symbol_table.addOneAssumeCapacity().* = .{
+    try coff.symbols.ensureTotalCapacity(gpa, Symbol.Index.known_count);
+    coff.symbols.addOneAssumeCapacity().* = .{
         .ni = .none,
         .rva = 0,
         .size = 0,
@@ -1360,7 +1438,7 @@ fn initHeaders(
         });
         coff.nodes.appendAssumeCapacity(.export_address_table);
 
-        try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+        try coff.symbols.ensureUnusedCapacity(gpa, 1);
         coff.export_table.export_address_table_si = coff.addSymbolAssumeCapacity();
 
         const export_address_table_sym = coff.export_table.export_address_table_si.get(coff);
@@ -1451,6 +1529,10 @@ fn computeNodeRva(coff: *Coff, ni: MappedFile.Node.Index) u32 {
             .section_table,
             .export_name_table,
             .placeholder,
+
+            .symbol_table,
+            .symbol_table_entry,
+            .string_table,
             => unreachable,
             .image_section => |si| si,
             .import_directory_table => break :parent_rva coff.targetLoad(
@@ -1632,7 +1714,28 @@ pub fn dataDirectoryPtr(
 }
 
 pub fn sectionTableSlice(coff: *Coff) []std.coff.SectionHeader {
-    return @ptrCast(@alignCast(Node.known.section_table.slice(&coff.mf)));
+    return @ptrCast(@alignCast(
+        Node.known.section_table.slice(&coff.mf)[0 .. coff.section_table.items.len * @sizeOf(std.coff.SectionHeader)],
+    ));
+}
+
+pub fn symbolTableEntryPtr(coff: *Coff, sti: SymbolTable.Index) *align(2) std.coff.Symbol {
+    return @ptrCast(@alignCast(
+        &Node.known.symbol_table.slice(&coff.mf)[@intFromEnum(sti) * std.coff.Symbol.sizeOf()],
+    ));
+}
+
+pub fn symbolAuxSectionDefinitionPtr(coff: *Coff, si: Symbol.Index) *align(2) std.coff.SectionDefinition {
+    const sti = coff.symbol_table.entries.get(si).?.index;
+
+    const symbol = coff.symbolTableEntryPtr(sti);
+    assert(symbol.storage_class == .STATIC and symbol.number_of_aux_symbols == 1);
+
+    return @ptrCast(symbolTableEntryPtr(coff, @enumFromInt(@intFromEnum(sti) + 1)));
+}
+
+pub fn symbolTableStringLenPtr(coff: *Coff) *align(2) u32 {
+    return @ptrCast(@alignCast(Node.known.string_table.slice(&coff.mf)[0..@sizeOf(u32)]));
 }
 
 pub fn importDirectoryTableSlice(coff: *Coff) []std.coff.ImportDirectoryEntry {
@@ -1662,7 +1765,7 @@ pub fn exportOrdinalTableSlice(coff: *Coff) []std.coff.ExportOrdinalTableEntry {
 }
 
 fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
-    defer coff.symbol_table.addOneAssumeCapacity().* = .{
+    defer coff.symbols.addOneAssumeCapacity().* = .{
         .ni = .none,
         .rva = 0,
         .size = 0,
@@ -1670,7 +1773,7 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
         .target_relocs = .none,
         .section_number = .UNDEFINED,
     };
-    return @enumFromInt(coff.symbol_table.items.len);
+    return @enumFromInt(coff.symbols.items.len);
 }
 
 fn initSymbolAssumeCapacity(coff: *Coff) !Symbol.Index {
@@ -1715,7 +1818,7 @@ fn getOrPutGlobalSymbol(
     lib_name: ?[]const u8,
 ) !std.AutoArrayHashMapUnmanaged(GlobalName, Symbol.Index).GetOrPutResult {
     const gpa = coff.base.comp.gpa;
-    try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+    try coff.symbols.ensureUnusedCapacity(gpa, 1);
     const sym_gop = try coff.globals.getOrPut(gpa, .{
         .name = try coff.getOrPutString(name),
         .lib_name = try coff.getOrPutOptionalString(lib_name),
@@ -1724,6 +1827,7 @@ fn getOrPutGlobalSymbol(
         sym_gop.value_ptr.* = coff.addSymbolAssumeCapacity();
         coff.synth_prog_node.increaseEstimatedTotalItems(1);
     }
+
     return sym_gop;
 }
 
@@ -1758,7 +1862,7 @@ fn navSection(
 }
 fn navMapIndex(coff: *Coff, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Node.NavMapIndex {
     const gpa = zcu.gpa;
-    try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+    try coff.symbols.ensureUnusedCapacity(gpa, 1);
     const sym_gop = try coff.navs.getOrPut(gpa, nav_index);
     if (!sym_gop.found_existing) sym_gop.value_ptr.* = coff.addSymbolAssumeCapacity();
     return @enumFromInt(sym_gop.index);
@@ -1776,7 +1880,7 @@ pub fn navSymbol(coff: *Coff, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Symbo
 
 fn uavMapIndex(coff: *Coff, uav_val: InternPool.Index) !Node.UavMapIndex {
     const gpa = coff.base.comp.gpa;
-    try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+    try coff.symbols.ensureUnusedCapacity(gpa, 1);
     const sym_gop = try coff.uavs.getOrPut(gpa, uav_val);
     if (!sym_gop.found_existing) sym_gop.value_ptr.* = coff.addSymbolAssumeCapacity();
     return @enumFromInt(sym_gop.index);
@@ -1788,7 +1892,7 @@ pub fn uavSymbol(coff: *Coff, uav_val: InternPool.Index) !Symbol.Index {
 
 pub fn lazySymbol(coff: *Coff, lazy: link.File.LazySymbol) !Symbol.Index {
     const gpa = coff.base.comp.gpa;
-    try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+    try coff.symbols.ensureUnusedCapacity(gpa, 1);
     const sym_gop = try coff.lazy.getPtr(lazy.kind).map.getOrPut(gpa, lazy.ty);
     if (!sym_gop.found_existing) {
         sym_gop.value_ptr.* = try coff.initSymbolAssumeCapacity();
@@ -2004,13 +2108,185 @@ fn addMemberSymbol(
     coff.pending_members.putAssumeCapacity(mi, {});
 }
 
+fn addSymbolTableEntry(
+    coff: *Coff,
+    name: union(enum) {
+        bytes: []const u8,
+        string: String,
+    },
+    si: Symbol.Index,
+    add: SymbolTable.Add,
+) !void {
+    assert(!coff.isImage());
+    const gpa = coff.base.comp.gpa;
+
+    const string, const name_slice = switch (name) {
+        .bytes => |bytes| .{ try coff.getOrPutString(bytes), bytes },
+        .string => |s| .{ s, s.toSlice(coff) },
+    };
+
+    const symbol_name: SymbolTable.SymbolName = if (name_slice.len > 8) index: {
+        const string_gop = try coff.symbol_table.string_offsets.getOrPut(gpa, string);
+        if (!string_gop.found_existing) {
+            const string_index = Node.known.string_table.location(&coff.mf).resolve(&coff.mf)[1];
+            string_gop.value_ptr.* = @enumFromInt(string_index);
+
+            try Node.known.string_table.resize(&coff.mf, gpa, string_index + name_slice.len + 1);
+            const slice = Node.known.string_table.slice(&coff.mf);
+            @memcpy(slice[string_index..][0..name_slice.len], name_slice);
+            slice[string_index + name_slice.len] = 0;
+        }
+
+        break :index .{ .long = string_gop.value_ptr.* };
+    } else .{ .short = name_slice };
+
+    const symbol_index = coff.targetLoad(&coff.headerPtr().number_of_symbols);
+    const symbols_added: u8 = switch (add) {
+        .section => count: {
+            const sym = si.get(coff);
+
+            try coff.nodes.ensureUnusedCapacity(gpa, 2);
+            _ = try coff.addSymbolTableEntryAssumeCapacity(
+                symbol_name,
+                0,
+                sym.section_number,
+                .{
+                    .complex_type = .NULL,
+                    .base_type = .NULL,
+                },
+                .STATIC,
+                1,
+            );
+
+            // Aux entry ields are updated by flushMoved / flushResized
+
+            try coff.symbol_table.entries.put(gpa, si, .{
+                .entry_si = .null,
+                .index = @enumFromInt(symbol_index),
+            });
+
+            break :count 2;
+        },
+        .global => |global| count: {
+            const sym = si.get(coff);
+
+            try coff.nodes.ensureUnusedCapacity(gpa, 1);
+            try coff.symbols.ensureUnusedCapacity(gpa, 1);
+
+            const entry_ni = try coff.addSymbolTableEntryAssumeCapacity(
+                symbol_name,
+                if (global.import) 0 else coff.computeNodeSectionOffset(sym.ni),
+                if (global.import) .UNDEFINED else sym.section_number,
+                .{
+                    .base_type = .NULL,
+                    .complex_type = if (global.import or
+                        Symbol.Index.text.get(coff).section_number == sym.section_number)
+                        .FUNCTION
+                    else
+                        .NULL,
+                },
+                .EXTERNAL,
+                0,
+            );
+
+            const entry_si = coff.addSymbolAssumeCapacity();
+            {
+                const entry_sym = entry_si.get(coff);
+                entry_sym.ni = entry_ni;
+                assert(entry_sym.loc_relocs == .none);
+                entry_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+                entry_sym.section_number = .UNDEFINED;
+            }
+
+            try coff.addReloc(
+                entry_si,
+                @offsetOf(std.coff.Symbol, "value"),
+                si,
+                0,
+                .{ .AMD64 = .SECREL },
+            );
+
+            try coff.symbol_table.entries.put(gpa, si, .{
+                .entry_si = entry_si,
+                .index = @enumFromInt(symbol_index),
+            });
+
+            break :count 1;
+        },
+    };
+
+    const new_num_symbols = symbol_index + symbols_added;
+    coff.targetStore(&coff.headerPtr().number_of_symbols, new_num_symbols);
+    coff.symbol_table.pending_shrink =
+        Node.known.symbol_table.location(&coff.mf).resolve(&coff.mf)[1] >
+        new_num_symbols * std.coff.Symbol.sizeOf();
+}
+
+/// Caller guarantees there is capacity for 1 + number_of_aux_symbols nodes.
+/// Auxiliary nodes are zero-initialized.
+fn addSymbolTableEntryAssumeCapacity(
+    coff: *Coff,
+    name: SymbolTable.SymbolName,
+    value: u32,
+    section_number: Symbol.SectionNumber,
+    @"type": std.coff.SymType,
+    storage_class: std.coff.StorageClass,
+    number_of_aux_symbols: u8,
+) !MappedFile.Node.Index {
+    const gpa = coff.base.comp.gpa;
+
+    const entry_ni = try coff.mf.addLastChildNode(gpa, Node.known.symbol_table, .{
+        .alignment = .@"2",
+        .size = std.coff.Symbol.sizeOf(),
+        .fixed = true,
+    });
+    coff.nodes.appendAssumeCapacity(.symbol_table_entry);
+
+    const entry: *align(2) std.coff.Symbol = @ptrCast(@alignCast(entry_ni.slice(&coff.mf)));
+    entry.* = .{
+        .name = undefined,
+        .value = value,
+        .section_number = @enumFromInt(@intFromEnum(section_number)),
+        .type = @"type",
+        .storage_class = storage_class,
+        .number_of_aux_symbols = number_of_aux_symbols,
+    };
+
+    switch (name) {
+        .short => |s| {
+            @memcpy(entry.name[0..s.len], s);
+            @memset(entry.name[s.len..], 0);
+        },
+        .long => |l| {
+            @memset(entry.name[0..4], 0);
+            const offset_ptr: *align(2) u32 = @ptrCast(entry.name[4..]);
+            coff.targetStore(offset_ptr, @intFromEnum(l));
+        },
+    }
+
+    if (coff.targetEndian() != native_endian)
+        std.mem.byteSwapAllFields(std.coff.SectionHeader, entry.*);
+
+    for (0..number_of_aux_symbols) |_| {
+        const aux_ni = try coff.mf.addLastChildNode(gpa, Node.known.symbol_table, .{
+            .alignment = .@"2",
+            .size = std.coff.Symbol.sizeOf(),
+            .fixed = true,
+        });
+        coff.nodes.appendAssumeCapacity(.symbol_table_entry);
+        @memset(aux_ni.slice(&coff.mf), 0);
+    }
+
+    return entry_ni;
+}
+
 fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags) !Symbol.Index {
     assert(coff.base.comp.zcu != null);
 
     const gpa = coff.base.comp.gpa;
     try coff.nodes.ensureUnusedCapacity(gpa, 1);
-    try coff.image_section_table.ensureUnusedCapacity(gpa, 1);
-    try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+    try coff.section_table.ensureUnusedCapacity(gpa, 1);
+    try coff.symbols.ensureUnusedCapacity(gpa, 1);
 
     const coff_header = coff.headerPtr();
     const section_index = coff.targetLoad(&coff_header.number_of_sections);
@@ -2022,19 +2298,19 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
         @sizeOf(std.coff.SectionHeader) * section_table_len,
     );
 
-    const parent_ni, const alignment = if (coff.isArchive())
-        .{ Node.known.zcu_member, .@"1" }
+    const parent_ni = if (coff.isArchive())
+        Node.known.zcu_member
     else
-        .{ Node.known.file, coff.mf.flags.block_size };
+        Node.known.file;
 
     const ni = try coff.mf.addLastChildNode(gpa, parent_ni, .{
-        .alignment = alignment,
+        .alignment = coff.mf.flags.block_size,
         .moved = true,
         .bubbles_moved = false,
     });
 
     const si = coff.addSymbolAssumeCapacity();
-    coff.image_section_table.appendAssumeCapacity(si);
+    coff.section_table.appendAssumeCapacity(si);
     coff.nodes.appendAssumeCapacity(.{ .image_section = si });
     const section_table = coff.sectionTableSlice();
 
@@ -2042,7 +2318,7 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
         const virtual_size = coff.optionalHeaderField(.section_alignment);
         const rva: u32 = switch (section_index) {
             0 => @intCast(Node.known.header.location(&coff.mf).resolve(&coff.mf)[1]),
-            else => coff.image_section_table.items[section_index - 1].get(coff).rva +
+            else => coff.section_table.items[section_index - 1].get(coff).rva +
                 coff.targetLoad(&section_table[section_index - 1].virtual_size),
         };
 
@@ -2080,6 +2356,8 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
                 @intCast(rva + virtual_size),
             ),
         }
+    } else {
+        try coff.addSymbolTableEntry(.{ .bytes = name }, si, .section);
     }
 
     return si;
@@ -2112,7 +2390,7 @@ fn pseudoSectionMapIndex(
         else
             .rdata;
         try coff.nodes.ensureUnusedCapacity(gpa, 1);
-        try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+        try coff.symbols.ensureUnusedCapacity(gpa, 1);
         const ni = try coff.mf.addLastChildNode(gpa, parent.node(coff), .{ .alignment = alignment });
         const si = coff.addSymbolAssumeCapacity();
         pseudo_section_gop.value_ptr.* = si;
@@ -2142,7 +2420,7 @@ fn objectSectionMapIndex(
             name_slice[0 .. std.mem.indexOfScalar(u8, name_slice, '$') orelse name_slice.len],
         ), alignment, attributes)).symbol(coff);
         try coff.nodes.ensureUnusedCapacity(gpa, 1);
-        try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+        try coff.symbols.ensureUnusedCapacity(gpa, 1);
         const parent_ni = parent.node(coff);
         var prev_ni: MappedFile.Node.Index = .none;
         var next_it = parent_ni.children(&coff.mf);
@@ -2251,6 +2529,8 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
                 const sym = si.get(coff);
                 sym.ni = ni;
                 sym.section_number = sec_si.get(coff).section_number;
+
+                // TODO: Add symbol table entry
             },
             else => si.deleteLocationRelocs(coff),
         }
@@ -2506,11 +2786,6 @@ pub fn flush(
     _ = prog_node;
     while (try coff.idle(tid)) {}
 
-    // TODO: Second linker member symbol tables are built here
-    if (isArchive(coff)) {
-        //Member.Index.second.get(coff).content_ni;
-    }
-
     const comp = coff.base.comp;
 
     // Implib generation should instead be done via building a MappedFile progressively
@@ -2634,6 +2909,26 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             coff.flushExportsSort();
             break :task;
         }
+        // TODO: This and the above task ideally run only once, as it's wasteful otherwise
+        if (coff.symbol_table.pending_shrink) {
+            coff.symbol_table.pending_shrink = false;
+            // TODO: Prog node
+            const number_of_symbols = coff.targetLoad(&coff.headerPtr().number_of_symbols);
+            Node.known.symbol_table.shrink(
+                &coff.mf,
+                comp.gpa,
+                number_of_symbols * std.coff.Symbol.sizeOf(),
+                true,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => |e| return comp.link_diags.fail(
+                    "linker failed to shrink symbol table: {t}",
+                    .{e},
+                ),
+            };
+
+            break :task;
+        }
     }
     if (coff.pending_uavs.count() > 0) return true;
     if (coff.globals.count() > coff.global_pending_index) return true;
@@ -2641,6 +2936,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     if (coff.mf.updates.items.len > 0) return true;
     if (coff.pending_members.count() > 0) return true;
     if (coff.export_table.pending_sort) return true;
+    if (coff.symbol_table.pending_shrink) return true;
     return false;
 }
 
@@ -2733,14 +3029,28 @@ fn flushGlobal(coff: *Coff, pt: Zcu.PerThread, gmi: Node.GlobalMapIndex) !void {
     const gpa = zcu.gpa;
     const gn = gmi.globalName(coff);
 
-    // TODO: We still need to emit a reloc for the __imp_Name symbol?
+    if (!coff.isImage()) {
+        // TODO: What about data imports?
 
-    if (!coff.isImage()) return;
+        // const si = gmi.symbol(coff);
+        // const sym = si.get(coff);
+        // sym.section_number = Symbol.Index.text.get(coff).section_number;
+        // assert(sym.loc_relocs == .none);
+        // sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        //
+        // try coff.addSymbolTableEntry(
+        //     .{ .bytes = gn.name.toSlice(coff) },
+        //     si,
+        //     .{ .global = .{ .import = true } },
+        // );
+
+        return;
+    }
 
     if (gn.lib_name.toSlice(coff)) |lib_name| {
         const name = gn.name.toSlice(coff);
         try coff.nodes.ensureUnusedCapacity(gpa, 4);
-        try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+        try coff.symbols.ensureUnusedCapacity(gpa, 1);
 
         const target_endian = coff.targetEndian();
         const magic = coff.targetLoad(&coff.optionalHeaderStandardPtr().magic);
@@ -2749,7 +3059,6 @@ fn flushGlobal(coff: *Coff, pt: Zcu.PerThread, gmi: Node.GlobalMapIndex) !void {
             .PE32 => .{ 4, .@"4" },
             .@"PE32+" => .{ 8, .@"8" },
         };
-
         const gop = try coff.import_table.entries.getOrPutAdapted(
             gpa,
             lib_name,
@@ -2959,7 +3268,16 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .data_directories,
         .section_table,
         .placeholder,
+
+        .symbol_table_entry,
+        .string_table,
         => if (!coff.isArchive()) unreachable,
+        .symbol_table => {
+            coff.targetStore(
+                &coff.headerPtr().pointer_to_symbol_table,
+                @intCast(ni.location(&coff.mf).resolve(&coff.mf)[0]),
+            );
+        },
         .archive_member_header => |mi| {
             const member = mi.get(coff);
             switch (member.kind) {
@@ -3121,7 +3439,7 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
                     ),
                 }
 
-                if (size > coff.image_section_table.items[0].get(coff).rva) try coff.virtualSlide(
+                if (size > coff.section_table.items[0].get(coff).rva) try coff.virtualSlide(
                     0,
                     std.mem.alignForward(
                         u32,
@@ -3159,6 +3477,12 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .data_directories,
         => unreachable,
         .section_table => {},
+        .symbol_table => assert(!coff.isImage()),
+        .symbol_table_entry => unreachable,
+        .string_table => {
+            assert(!coff.isImage());
+            coff.targetStore(coff.symbolTableStringLenPtr(), @intCast(size));
+        },
         .image_section => |si| {
             const sym = si.get(coff);
             const section_index = sym.section_number.toIndex();
@@ -3172,6 +3496,13 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
                 );
                 coff.targetStore(&section.virtual_size, virtual_size);
                 try coff.virtualSlide(section_index + 1, sym.rva + virtual_size);
+            }
+
+            if (coff.isArchive()) {
+                coff.targetStore(
+                    &coff.symbolAuxSectionDefinitionPtr(si).length,
+                    @intCast(size),
+                );
             }
         },
         .import_directory_table => coff.targetStore(
@@ -3298,7 +3629,7 @@ fn flushExportsSort(coff: *Coff) void {
 fn virtualSlide(coff: *Coff, start_section_index: usize, start_rva: u32) !void {
     var rva = start_rva;
     for (
-        coff.image_section_table.items[start_section_index..],
+        coff.section_table.items[start_section_index..],
         coff.sectionTableSlice()[start_section_index..],
     ) |section_si, *section| {
         const section_sym = section_si.get(coff);
@@ -3343,7 +3674,7 @@ fn updateExportsInner(
             Value.fromInterned(uav).fmtValue(pt),
         }),
     }
-    try coff.symbol_table.ensureUnusedCapacity(gpa, export_indices.len);
+    try coff.symbols.ensureUnusedCapacity(gpa, export_indices.len);
     const exported_si: Symbol.Index = switch (exported) {
         .nav => |nav| try coff.navSymbol(zcu, nav),
         .uav => |uav| @enumFromInt(@intFromEnum(try coff.lowerUav(
@@ -3376,12 +3707,19 @@ fn updateExportsInner(
                 std.mem.byteSwapAllFields(std.coff.ImageDataDirectory, tls_directory);
         }
 
-        if (coff.isArchive())
+        if (coff.isArchive()) {
             try coff.addMemberSymbol(
                 symbol_gop.key_ptr.*.name,
                 coff.getNode(Node.known.zcu_member).archive_member,
                 export_si,
             );
+
+            try coff.addSymbolTableEntry(
+                .{ .bytes = name },
+                export_si,
+                .{ .global = .{ .import = false } },
+            );
+        }
 
         if (coff.export_table.ni == .none) continue;
 
@@ -3425,8 +3763,7 @@ fn updateExportsInner(
             coff.targetStore(&edt.number_of_names, @intCast(export_count));
             edt.number_of_entries = edt.number_of_names;
 
-            // TODO: If we had an estimate of the total number of exports this could be a lot more efficient
-
+            // TODO: These should all be resized ahead of time to fit all exports (after https://github.com/ziglang/zig/issues/23616)
             try coff.export_table.export_address_table_si.node(coff).resize(
                 &coff.mf,
                 gpa,

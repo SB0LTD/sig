@@ -658,7 +658,7 @@ pub const SectionHeader = extern struct {
     };
 };
 
-pub const Symbol = struct {
+pub const Symbol = extern struct {
     name: [8]u8,
     value: u32,
     section_number: SectionNumber,
@@ -683,18 +683,18 @@ pub const Symbol = struct {
     }
 };
 
-pub const SectionNumber = enum(u16) {
+pub const SectionNumber = enum(i16) {
     /// The symbol record is not yet assigned a section.
     /// A value of zero indicates that a reference to an external symbol is defined elsewhere.
     /// A value of non-zero is a common symbol with a size that is specified by the value.
     UNDEFINED = 0,
 
     /// The symbol has an absolute (non-relocatable) value and is not an address.
-    ABSOLUTE = 0xffff,
+    ABSOLUTE = -1,
 
     /// The symbol provides general type or debugging information but does not correspond to a section.
     /// Microsoft tools use this setting along with .file records (storage class FILE).
-    DEBUG = 0xfffe,
+    DEBUG = -2,
     _,
 };
 
@@ -866,7 +866,7 @@ pub const StorageClass = enum(u8) {
     _,
 };
 
-pub const FunctionDefinition = struct {
+pub const FunctionDefinition = extern struct {
     /// The symbol-table index of the corresponding .bf (begin function) symbol record.
     tag_index: u32,
 
@@ -885,7 +885,7 @@ pub const FunctionDefinition = struct {
     unused: [2]u8,
 };
 
-pub const SectionDefinition = struct {
+pub const SectionDefinition = extern struct {
     /// The size of section data; the same as SizeOfRawData in the section header.
     length: u32,
 
@@ -907,7 +907,7 @@ pub const SectionDefinition = struct {
     unused: [3]u8,
 };
 
-pub const FileDefinition = struct {
+pub const FileDefinition = extern struct {
     /// An ANSI string that gives the name of the source file.
     /// This is padded with nulls if it is less than the maximum length.
     file_name: [18]u8,
@@ -918,7 +918,7 @@ pub const FileDefinition = struct {
     }
 };
 
-pub const WeakExternalDefinition = struct {
+pub const WeakExternalDefinition = extern struct {
     /// The symbol-table index of sym2, the symbol to be linked if sym1 is not found.
     tag_index: u32,
 
@@ -977,7 +977,7 @@ pub const ComdatSelection = enum(u8) {
     _,
 };
 
-pub const DebugInfoDefinition = struct {
+pub const DebugInfoDefinition = extern struct {
     unused_1: [4]u8,
 
     /// The actual ordinal line number (1, 2, 3, and so on) within the source file, corresponding to the .bf or .ef record.
