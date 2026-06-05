@@ -93,6 +93,65 @@ pub fn addCases(ctx: *LinkContext) void {
         const run = case.addRunArtifact(exe);
         run.addCheck(.{ .expect_term = .{ .exited = 0 } });
     }
+
+    if (ctx.includeTest("abs-symbol")) |case| {
+        const abs = case.addObject(.{
+            .name = "abs",
+            .use_llvm = true, // TODO: .globl not supported on self-hosted
+            .use_lld = true,
+            .asm_source_bytes =
+            \\.globl foo
+            \\foo = 0xcafecafe
+            \\
+            ,
+        });
+
+        const abs_reloc = case.addObject(.{
+            .name = "abs_reloc",
+            .use_llvm = true, // TODO: .globl not supported on self-hosted
+            .use_lld = true,
+            .asm_source_bytes =
+            \\.data
+            \\.globl foo_copy
+            \\foo_copy:
+            \\.long foo
+            ,
+        });
+
+        case.verifyObjdump(abs_reloc, &.{
+            "-s",
+            "--relocs",
+        }, .{ .arch = true });
+
+        const exe_reloc_err = case.addExecutable(.{
+            .name = "test-reloc-err",
+            .zig_source_bytes =
+            \\extern const foo: usize;
+            \\pub fn main() !u8 {
+            \\    return @intFromBool(foo != 0xcafecafe);
+            \\}
+            ,
+        });
+        exe_reloc_err.root_module.addObject(abs);
+        case.expectLinkErrors(exe_reloc_err, .{
+            .contains = "error: absolute symbol 'foo' targeted by invalid relocation type: /?/",
+        });
+
+        const exe = case.addExecutable(.{
+            .name = "test",
+            .zig_source_bytes =
+            \\extern var foo_copy: u32;
+            \\pub fn main() !u8 {
+            \\    return @intFromBool(foo_copy != 0xcafecafe);
+            \\}
+            ,
+        });
+        exe.root_module.addObject(abs);
+        exe.root_module.addObject(abs_reloc);
+
+        const run = case.addRunArtifact(exe);
+        run.addCheck(.{ .expect_term = .{ .exited = 0 } });
+    }
 }
 
 const LinkContext = @import("tests.zig").LinkContext;

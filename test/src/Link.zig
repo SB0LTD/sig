@@ -90,6 +90,16 @@ pub const Case = struct {
         });
     }
 
+    pub fn expectLinkErrors(
+        self: *const Case,
+        comp: *Step.Compile,
+        expected_errors: Step.Compile.ExpectedCompileErrors,
+    ) void {
+        comp.expect_errors = expected_errors;
+        const bin_file = comp.getEmittedBin();
+        bin_file.addStepDependencies(self.ctx.step);
+    }
+
     const SnapshotScope = struct {
         /// If a test case has multiple verifyObjdump calls, `opt_sub_name` can
         /// be used to differentiate them.

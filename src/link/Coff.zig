@@ -1051,11 +1051,11 @@ pub const Symbol = struct {
             };
         }
 
-        pub fn flushMoved(si: Symbol.Index, coff: *Coff) void {
+        pub fn flushMoved(si: Symbol.Index, coff: *Coff) !void {
             const sym = si.get(coff);
             sym.rva = coff.computeNodeRva(sym.ni) + sym.nodeOffset(coff);
-            si.applyLocationRelocs(coff);
-            si.applyTargetRelocs(coff, .none);
+            try si.applyLocationRelocs(coff);
+            try si.applyTargetRelocs(coff, .none);
 
             var alias_sym = sym;
             while (alias_sym.flags.extra_tag == .next_alias_si) {
@@ -1063,7 +1063,7 @@ pub const Symbol = struct {
                 alias_sym = alias_si.get(coff);
                 assert(alias_sym.ni == sym.ni);
                 alias_sym.rva = sym.rva;
-                alias_si.applyTargetRelocs(coff, .none);
+                try alias_si.applyTargetRelocs(coff, .none);
             }
         }
 
@@ -1080,7 +1080,7 @@ pub const Symbol = struct {
             }
         }
 
-        pub fn applyLocationRelocs(si: Symbol.Index, coff: *Coff) void {
+        pub fn applyLocationRelocs(si: Symbol.Index, coff: *Coff) !void {
             const sym = si.get(coff);
             switch (sym.loc_relocs) {
                 .none => {},
@@ -1091,20 +1091,20 @@ pub const Symbol = struct {
                             &entry.virtual_address,
                             @intCast(coff.computeSymbolSectionOffset(sym) + reloc.offset),
                         );
-                        reloc.apply(coff);
+                        try reloc.apply(coff);
                     }
                 },
             }
         }
 
-        pub fn applyTargetRelocs(si: Symbol.Index, coff: *Coff, end: Reloc.Index) void {
+        pub fn applyTargetRelocs(si: Symbol.Index, coff: *Coff, end: Reloc.Index) !void {
             const sym = si.get(coff);
 
             var ri = sym.target_relocs;
             while (ri != end) {
                 const reloc = ri.get(coff);
                 assert(reloc.target == si);
-                reloc.apply(coff);
+                try reloc.apply(coff);
                 ri = reloc.next;
             }
         }
@@ -1166,7 +1166,7 @@ pub const Reloc = extern struct {
         }
     };
 
-    pub fn apply(reloc: *Reloc, coff: *Coff) void {
+    pub fn apply(reloc: *Reloc, coff: *Coff) !void {
         const loc_sym = reloc.loc.get(coff);
         switch (loc_sym.ni) {
             .none => return,
@@ -1300,118 +1300,163 @@ pub const Reloc = extern struct {
         }
 
         const target_sym = reloc.target.get(coff);
-        switch (target_sym.ni) {
-            .none => return,
-            else => |ni| if (ni.hasMoved(&coff.mf)) return,
-        }
+        const is_abs = switch (target_sym.ni) {
+            .none => if (target_sym.section_number == .ABSOLUTE) true else return,
+            else => |ni| if (ni.hasMoved(&coff.mf)) return else false,
+        };
 
         const target_rva = target_sym.rva +% @as(u64, @bitCast(reloc.addend));
-        switch (target_machine) {
-            else => |machine| @panic(@tagName(machine)),
-            .AMD64 => switch (reloc.type.AMD64) {
-                else => |kind| @panic(@tagName(kind)),
-                .ABSOLUTE => {},
-                .ADDR64 => std.mem.writeInt(
-                    u64,
-                    loc_slice[0..8],
-                    coff.optionalHeaderField(.image_base) + target_rva,
-                    target_endian,
-                ),
-                .ADDR32 => std.mem.writeInt(
-                    u32,
-                    loc_slice[0..4],
-                    @intCast(coff.optionalHeaderField(.image_base) + target_rva),
-                    target_endian,
-                ),
-                .ADDR32NB => std.mem.writeInt(
-                    u32,
-                    loc_slice[0..4],
-                    @intCast(target_rva),
-                    target_endian,
-                ),
-                .REL32 => std.mem.writeInt(
-                    i32,
-                    loc_slice[0..4],
-                    @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 4)))),
-                    target_endian,
-                ),
-                .REL32_1 => std.mem.writeInt(
-                    i32,
-                    loc_slice[0..4],
-                    @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 5)))),
-                    target_endian,
-                ),
-                .REL32_2 => std.mem.writeInt(
-                    i32,
-                    loc_slice[0..4],
-                    @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 6)))),
-                    target_endian,
-                ),
-                .REL32_3 => std.mem.writeInt(
-                    i32,
-                    loc_slice[0..4],
-                    @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 7)))),
-                    target_endian,
-                ),
-                .REL32_4 => std.mem.writeInt(
-                    i32,
-                    loc_slice[0..4],
-                    @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 8)))),
-                    target_endian,
-                ),
-                .REL32_5 => std.mem.writeInt(
-                    i32,
-                    loc_slice[0..4],
-                    @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 9)))),
-                    target_endian,
-                ),
-                .SECREL => std.mem.writeInt(
-                    u32,
-                    loc_slice[0..4],
-                    @intCast(coff.computeSymbolSectionOffset(target_sym) + reloc.addend),
-                    target_endian,
-                ),
-            },
-            .I386 => switch (reloc.type.I386) {
-                else => |kind| @panic(@tagName(kind)),
-                .ABSOLUTE => {},
-                .DIR16 => std.mem.writeInt(
-                    u16,
-                    loc_slice[0..2],
-                    @intCast(coff.optionalHeaderField(.image_base) + target_rva),
-                    target_endian,
-                ),
-                .REL16 => std.mem.writeInt(
-                    i16,
-                    loc_slice[0..2],
-                    @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 2)))),
-                    target_endian,
-                ),
-                .DIR32 => std.mem.writeInt(
-                    u32,
-                    loc_slice[0..4],
-                    @intCast(coff.optionalHeaderField(.image_base) + target_rva),
-                    target_endian,
-                ),
-                .DIR32NB => std.mem.writeInt(
-                    u32,
-                    loc_slice[0..4],
-                    @intCast(target_rva),
-                    target_endian,
-                ),
-                .REL32 => std.mem.writeInt(
-                    i32,
-                    loc_slice[0..4],
-                    @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 4)))),
-                    target_endian,
-                ),
-                .SECREL => std.mem.writeInt(
-                    u32,
-                    loc_slice[0..4],
-                    @intCast(coff.computeSymbolSectionOffset(target_sym) + reloc.addend),
-                    target_endian,
-                ),
-            },
+        if (is_abs) {
+            switch (target_machine) {
+                else => |machine| @panic(@tagName(machine)),
+                .AMD64 => switch (reloc.type.AMD64) {
+                    // TODO: Report these later, in reportUndefs -> reportRelocErrs ?
+                    else => |kind| return coff.base.comp.link_diags.fail(
+                        "absolute symbol '{s}' targeted by invalid relocation type: {t}",
+                        .{ target_sym.gmi.globalName(coff).name.toSlice(coff), kind },
+                    ),
+                    .ABSOLUTE => {},
+                    .ADDR64 => std.mem.writeInt(
+                        u64,
+                        loc_slice[0..8],
+                        target_rva,
+                        target_endian,
+                    ),
+                    .ADDR32 => std.mem.writeInt(
+                        u32,
+                        loc_slice[0..4],
+                        @intCast(target_rva),
+                        target_endian,
+                    ),
+                },
+                .I386 => switch (reloc.type.I386) {
+                    else => |kind| return coff.base.comp.link_diags.fail(
+                        "absolute symbol '{s}' targeted by invalid relocation type: {t}",
+                        .{ target_sym.gmi.globalName(coff).name.toSlice(coff), kind },
+                    ),
+                    .ABSOLUTE => {},
+                    .DIR16 => std.mem.writeInt(
+                        u16,
+                        loc_slice[0..2],
+                        @intCast(target_rva),
+                        target_endian,
+                    ),
+                    .DIR32 => std.mem.writeInt(
+                        u32,
+                        loc_slice[0..4],
+                        @intCast(target_rva),
+                        target_endian,
+                    ),
+                },
+            }
+        } else {
+            switch (target_machine) {
+                else => |machine| @panic(@tagName(machine)),
+                .AMD64 => switch (reloc.type.AMD64) {
+                    else => |kind| @panic(@tagName(kind)),
+                    .ABSOLUTE => {},
+                    .ADDR64 => std.mem.writeInt(
+                        u64,
+                        loc_slice[0..8],
+                        coff.optionalHeaderField(.image_base) + target_rva,
+                        target_endian,
+                    ),
+                    .ADDR32 => std.mem.writeInt(
+                        u32,
+                        loc_slice[0..4],
+                        @intCast(coff.optionalHeaderField(.image_base) + target_rva),
+                        target_endian,
+                    ),
+                    .ADDR32NB => std.mem.writeInt(
+                        u32,
+                        loc_slice[0..4],
+                        @intCast(target_rva),
+                        target_endian,
+                    ),
+                    .REL32 => std.mem.writeInt(
+                        i32,
+                        loc_slice[0..4],
+                        @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 4)))),
+                        target_endian,
+                    ),
+                    .REL32_1 => std.mem.writeInt(
+                        i32,
+                        loc_slice[0..4],
+                        @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 5)))),
+                        target_endian,
+                    ),
+                    .REL32_2 => std.mem.writeInt(
+                        i32,
+                        loc_slice[0..4],
+                        @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 6)))),
+                        target_endian,
+                    ),
+                    .REL32_3 => std.mem.writeInt(
+                        i32,
+                        loc_slice[0..4],
+                        @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 7)))),
+                        target_endian,
+                    ),
+                    .REL32_4 => std.mem.writeInt(
+                        i32,
+                        loc_slice[0..4],
+                        @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 8)))),
+                        target_endian,
+                    ),
+                    .REL32_5 => std.mem.writeInt(
+                        i32,
+                        loc_slice[0..4],
+                        @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 9)))),
+                        target_endian,
+                    ),
+                    .SECREL => std.mem.writeInt(
+                        u32,
+                        loc_slice[0..4],
+                        @intCast(coff.computeSymbolSectionOffset(target_sym) + reloc.addend),
+                        target_endian,
+                    ),
+                },
+                .I386 => switch (reloc.type.I386) {
+                    else => |kind| @panic(@tagName(kind)),
+                    .ABSOLUTE => {},
+                    .DIR16 => std.mem.writeInt(
+                        u16,
+                        loc_slice[0..2],
+                        @intCast(coff.optionalHeaderField(.image_base) + target_rva),
+                        target_endian,
+                    ),
+                    .REL16 => std.mem.writeInt(
+                        i16,
+                        loc_slice[0..2],
+                        @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 2)))),
+                        target_endian,
+                    ),
+                    .DIR32 => std.mem.writeInt(
+                        u32,
+                        loc_slice[0..4],
+                        @intCast(coff.optionalHeaderField(.image_base) + target_rva),
+                        target_endian,
+                    ),
+                    .DIR32NB => std.mem.writeInt(
+                        u32,
+                        loc_slice[0..4],
+                        @intCast(target_rva),
+                        target_endian,
+                    ),
+                    .REL32 => std.mem.writeInt(
+                        i32,
+                        loc_slice[0..4],
+                        @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 4)))),
+                        target_endian,
+                    ),
+                    .SECREL => std.mem.writeInt(
+                        u32,
+                        loc_slice[0..4],
+                        @intCast(coff.computeSymbolSectionOffset(target_sym) + reloc.addend),
+                        target_endian,
+                    ),
+                },
+            }
         }
     }
 
@@ -3170,7 +3215,7 @@ fn flushInputSection(coff: *Coff, isi: Node.InputSection.Index) !void {
     });
     if (try nw.interface.sendFileAll(&fr, .limited(@intCast(file_loc.size))) != file_loc.size)
         return error.EndOfStream;
-    si.applyLocationRelocs(coff);
+    try si.applyLocationRelocs(coff);
 }
 
 fn addSection(coff: *Coff, name: String, flags: std.coff.SectionHeader.Flags) !Symbol.Index {
@@ -3874,9 +3919,12 @@ fn loadObject(
         value: union(enum) {
             // Size of the section
             section: u32,
-            // Offset within the section
+            // If section is absolute, the symbol value.
+            // Otherwise, offset within the section.
             static: u32,
-            // If section is undefined, the symbol size. Otherwise offset within the section.
+            // If section is undefined, the symbol size.
+            // If section is absolute, the symbol value.
+            // Otherwise offset within the section.
             external: u32,
             // The index of the target symbol of this weak external
             weak_external: u32,
@@ -3945,7 +3993,10 @@ fn loadObject(
             .STATIC, .LABEL => |storage_class| switch (section_number) {
                 // TODO: Do we need to do anything with @feat.00?
                 //       https://llvm.org/doxygen/namespacellvm_1_1COFF.html#aeffa16735e18df727a173beaf748c392
-                .UNDEFINED, .DEBUG, .ABSOLUTE => &.{},
+                .UNDEFINED,
+                .DEBUG,
+                => &.{},
+                .ABSOLUTE => &.{.{ .static = symbol.value }},
                 else => |sn| {
                     const section = &sections[sn.toIndex()];
 
@@ -4049,12 +4100,9 @@ fn loadObject(
                 ),
             },
             .EXTERNAL => switch (section_number) {
-                .UNDEFINED => &.{.{ .external = symbol.value }},
-                .ABSOLUTE => return diags.failParse(
-                    path,
-                    "TODO unhandled external absolute symbol 0x{x}: '{s}'",
-                    .{ symbol_i, name },
-                ),
+                .UNDEFINED,
+                .ABSOLUTE,
+                => &.{.{ .external = symbol.value }},
                 .DEBUG => return diags.failParse(
                     path,
                     "unexpected external symbol 0x{x} in DEBUG section: '{s}'",
@@ -4517,7 +4565,28 @@ fn loadObject(
                     continue;
                 },
             },
-            .ABSOLUTE, .DEBUG => continue,
+            .ABSOLUTE => {
+                const value = sym: switch (symbol.value) {
+                    .static => |value| {
+                        symbol.si = coff.addSymbolAssumeCapacity();
+                        break :sym value;
+                    },
+                    .external => |value| {
+                        const global_gop = try coff.getOrPutGlobalSymbol(.{ .name = symbol.name.toSlice(coff) });
+                        symbol.si = global_gop.value_ptr.*;
+                        if (global_gop.found_existing)
+                            return coff.failMultipleDefinitions(path, member_name, symbol.name, index, global_gop.value_ptr.*, .none);
+                        break :sym value;
+                    },
+                    else => unreachable,
+                };
+
+                const sym = symbol.si.get(coff);
+                sym.rva = value;
+                sym.section_number = .ABSOLUTE;
+                continue;
+            },
+            .DEBUG => continue,
             else => |sn| &sections[sn.toIndex()],
         };
 
@@ -5198,7 +5267,7 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
             else => |e| return e,
         };
         si.get(coff).extra.size = @intCast(nw.interface.end);
-        si.applyLocationRelocs(coff);
+        try si.applyLocationRelocs(coff);
     }
 
     if (nav.resolved.?.@"linksection".unwrap()) |_| {
@@ -5331,7 +5400,7 @@ fn updateFuncInner(
         else => |e| return e,
     };
     si.get(coff).extra.size = @intCast(nw.interface.end);
-    si.applyLocationRelocs(coff);
+    try si.applyLocationRelocs(coff);
 }
 
 pub fn updateErrorData(coff: *Coff, pt: Zcu.PerThread) !void {
@@ -5433,6 +5502,7 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
         switch (target_sym.ni) {
             .none => {
                 assert(target_sym.gmi != .none);
+                if (target_sym.section_number == .ABSOLUTE) continue;
                 (try undef_indices.addOne(gpa)).* = @intCast(reloc_i);
             },
             else => continue,
@@ -5481,6 +5551,8 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
                 defer prev_loc_si = loc_si;
 
                 const loc_sym = loc_si.get(coff);
+
+                // TODO: Make this a helper for anything that needs to report "referenced by" notes
                 switch (coff.getNode(loc_sym.ni)) {
                     .data_directories => {
                         const dir_align = std.mem.Alignment.of(std.coff.ImageDataDirectory);
@@ -5958,7 +6030,7 @@ fn flushUav(
         else => |e| return e,
     };
     si.get(coff).extra.size = @intCast(nw.interface.end);
-    si.applyLocationRelocs(coff);
+    try si.applyLocationRelocs(coff);
 }
 
 fn aliasGlobal(coff: *Coff, gmi: Node.GlobalMapIndex, alias_si: Symbol.Index) !void {
@@ -5998,7 +6070,7 @@ fn aliasGlobal(coff: *Coff, gmi: Node.GlobalMapIndex, alias_si: Symbol.Index) !v
     sym.gmi = alias_sym.gmi;
     coff.globals.values()[gmi.unwrap().?] = alias_si;
     // Only apply the new relocs
-    alias_si.applyTargetRelocs(coff, prev_target_relocs);
+    try alias_si.applyTargetRelocs(coff, prev_target_relocs);
 }
 
 fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
@@ -6407,7 +6479,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         },
     }
 
-    si.flushMoved(coff);
+    try si.flushMoved(coff);
     return true;
 }
 
@@ -6575,7 +6647,7 @@ fn flushLazy(coff: *Coff, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
         else => |e| return e,
     };
     si.get(coff).extra.size = @intCast(nw.interface.end);
-    si.applyLocationRelocs(coff);
+    try si.applyLocationRelocs(coff);
 }
 
 fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
@@ -6644,10 +6716,10 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
             }
         },
         .input_section => |isi| {
-            isi.symbol(coff).flushMoved(coff);
+            try isi.symbol(coff).flushMoved(coff);
             for (coff.input_symbols.items[@intFromEnum(isi.firstSymbol(coff))..]) |input_symbol| {
                 if (input_symbol.si.get(coff).ni != ni) break;
-                input_symbol.si.flushMoved(coff);
+                try input_symbol.si.flushMoved(coff);
             }
         },
         .import_directory_table => coff.targetStore(
@@ -6661,14 +6733,14 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .import_address_table => |import_index| {
             const entry = import_index.get(coff);
             const import_address_table_si = entry.import_address_table_si;
-            import_address_table_si.flushMoved(coff);
+            try import_address_table_si.flushMoved(coff);
             coff.targetStore(
                 &coff.importDirectoryEntryPtr(import_index).import_address_table_rva,
                 import_address_table_si.get(coff).rva,
             );
 
             for (entry.import_address_table_symbols.items) |iat_ptr_si|
-                iat_ptr_si.flushMoved(coff);
+                try iat_ptr_si.flushMoved(coff);
         },
         .import_hint_name_table => |import_index| {
             const magic = coff.targetLoad(&coff.optionalHeaderStandardPtr().magic);
@@ -6721,12 +6793,12 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
             coff.targetStore(&coff.exportDirectoryTable().name_rva, rva + @sizeOf(std.coff.ExportDirectoryTable));
         },
         .export_address_table => {
-            coff.export_table.export_address_table_si.flushMoved(coff);
+            try coff.export_table.export_address_table_si.flushMoved(coff);
 
             // These relocs are applied directly here instead of via the above flushMoved call as
             // they are non-contiguous, and not tracked under export_address_table_si.
             for (coff.export_table.entries.values()) |entry|
-                entry.export_address_table_ri.get(coff).apply(coff);
+                try entry.export_address_table_ri.get(coff).apply(coff);
 
             coff.targetStore(
                 &coff.exportDirectoryTable().export_address_table_rva,
@@ -6762,7 +6834,7 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .uav,
         .lazy_code,
         .lazy_const_data,
-        => |mi| mi.symbol(coff).flushMoved(coff),
+        => |mi| try mi.symbol(coff).flushMoved(coff),
     }
     try ni.childrenMoved(coff.base.comp.gpa, &coff.mf);
 }
@@ -7131,7 +7203,7 @@ fn updateExportsInner(
         export_sym.ni = exported_ni;
         export_sym.rva = exported_sym.rva;
         export_sym.section_number = exported_sym.section_number;
-        defer export_si.applyTargetRelocs(coff, .none);
+        defer export_si.applyTargetRelocs(coff, .none) catch unreachable;
 
         const prev_alias_sym = prev_alias_si.get(coff);
         switch (prev_alias_sym.flags.extra_tag) {

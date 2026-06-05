@@ -1069,11 +1069,12 @@ const coff = struct {
             for (sections.items, 0..) |section, section_i| {
                 if (section.header.pointer_to_relocations == 0) continue;
 
-                try w.print(
-                    \\Relocs for section {x} '{s}' in {s}:
-                    \\  Offset Type                Symbol -> Sect   Name
-                    \\
-                , .{ section_i + 1, section.name, obj_name });
+                if (d.element(.@"table-header"))
+                    try w.print(
+                        \\Relocs for section {x} '{s}' in {s}:
+                        \\  Offset Type                Symbol -> Sect   Name
+                        \\
+                    , .{ section_i + 1, section.name, obj_name });
 
                 fr.seekTo(file_location + section.header.pointer_to_relocations) catch |err|
                     return d.failParse("unable to seek to section {x} relocation table: {t}", .{ section_i + 1, err });
