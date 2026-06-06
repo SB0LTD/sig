@@ -285,10 +285,10 @@ fn updateStats() error{OutOfMemory}!void {
     , .{
         hdr.n_runs,
         hdr.unique_runs,
-        @as(f64, @floatFromInt(hdr.unique_runs)) / @as(f64, @floatFromInt(hdr.n_runs)),
+        @as(f64, @floatFromInt(hdr.unique_runs)) / @as(f64, @floatFromInt(hdr.n_runs)) * 100,
         covered_src_locs,
         total_src_locs,
-        @as(f64, @floatFromInt(covered_src_locs)) / @as(f64, @floatFromInt(total_src_locs)),
+        @as(f64, @floatFromInt(covered_src_locs)) / @as(f64, @floatFromInt(total_src_locs)) * 100,
         avg_speed,
     });
     defer gpa.free(html);
