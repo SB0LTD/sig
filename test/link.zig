@@ -1,4 +1,7 @@
 pub fn addCases(ctx: *LinkContext) void {
+    if (ctx.target.result.isMinGW())
+        @import("link/mingw.zig").addCases(ctx);
+
     if (ctx.includeTest("static-lib")) |case| {
         const obj1 = case.addObject(.{
             .name = "obj1",

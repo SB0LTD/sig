@@ -65,8 +65,6 @@ section_merge_pending_index: u32,
 symbols: std.ArrayList(Symbol),
 globals: std.array_hash_map.Auto(GlobalName, Symbol.Index),
 global_pending_index: u32,
-late_globals: std.ArrayList(Node.GlobalMapIndex),
-late_globals_pending_index: u32,
 navs: std.array_hash_map.Auto(InternPool.Nav.Index, Symbol.Index),
 uavs: std.array_hash_map.Auto(InternPool.Index, Symbol.Index),
 lazy: std.EnumArray(link.File.LazySymbol.Kind, struct {
@@ -188,17 +186,16 @@ pub const Node = union(enum) {
     archive_member: Member.Index,
 
     coff_header,
+
     /// Image only
     optional_header,
-    /// Image only
     data_directories,
 
     section_table,
-    // Archives and objects only
+
+    /// Archives and objects only
     symbol_table,
-    // Archives and objects only
     string_table,
-    // Archives and objects only
     relocation_table: Symbol.SectionNumber,
     relocation_table_entry: Reloc.Index,
 
@@ -220,11 +217,12 @@ pub const Node = union(enum) {
     pseudo_section: PseudoSectionMapIndex,
     object_section: ObjectSectionMapIndex,
     input_section: InputSection.Index,
-    import_thunk: GlobalMapIndex, // TODO: Rename to import_thunk
+    import_thunk: GlobalMapIndex,
     nav: NavMapIndex,
     uav: UavMapIndex,
     lazy_code: LazyMapRef.Index(.code),
     lazy_const_data: LazyMapRef.Index(.const_data),
+    builtin: Symbol.Index,
 
     /// Takes the place of a known node index when that node is not present in the output
     placeholder,
@@ -945,7 +943,7 @@ pub const Symbol = struct {
         // The size of the symbol
         size: u32,
         /// Only valid when .ni == .input_section and .value_tag == .node_offset
-        /// TODO: This is only used for name lookups, could just be String?
+        /// TODO: This is only used for name lookups, could just be String, remove `input_symbols`?
         isli: Node.InputSection.LocalIndex,
         /// The next symbol in the list of aliases of this symbol.
         next_alias_si: Symbol.Index,
@@ -1322,7 +1320,8 @@ pub const Reloc = extern struct {
             switch (target_machine) {
                 else => |machine| @panic(@tagName(machine)),
                 .AMD64 => switch (reloc.type.AMD64) {
-                    // TODO: Report these later, in reportUndefs -> reportRelocErrs ?
+                    // TODO: Could wait to report these later, in reportUndefs -> reportRelocErrs,
+                    //       so that this function doesn't return an err
                     else => |kind| return coff.base.comp.link_diags.fail(
                         "absolute symbol '{s}' targeted by invalid relocation type: {t}",
                         .{ target_sym.gmi.globalName(coff).name.toSlice(coff), kind },
@@ -1475,8 +1474,10 @@ pub const Reloc = extern struct {
     pub fn delete(reloc: *Reloc, coff: *Coff) void {
         if (reloc.sri != .none) {
             // TODO: Need to remove this from the COFF relocation table (maybe removeswap?)
-            // TODO: If this was the last reloc causing something to be in the symbol table, we should remove the sti
-            //       That will require flushSymbolTableIndex on the swapped symbol if we exchange indices
+            // TODO: If this was the last reloc causing something to be in the symbol table, we should remove
+            //       the symbol table entry (and unset sti). That will require flushSymbolTableIndex on the
+            //       swapped symbol if we exchange indices
+            unreachable;
         }
 
         switch (reloc.prev) {
@@ -1623,8 +1624,6 @@ fn create(
         .symbols = .empty,
         .globals = .empty,
         .global_pending_index = 0,
-        .late_globals = .empty,
-        .late_globals_pending_index = 0,
         .navs = .empty,
         .uavs = .empty,
         .lazy = .initFill(.{
@@ -1698,7 +1697,6 @@ pub fn deinit(coff: *Coff) void {
     coff.object_section_table.deinit(gpa);
     coff.symbols.deinit(gpa);
     coff.globals.deinit(gpa);
-    coff.late_globals.deinit(gpa);
     coff.navs.deinit(gpa);
     coff.uavs.deinit(gpa);
     for (&coff.lazy.values) |*lazy| lazy.map.deinit(gpa);
@@ -2109,7 +2107,7 @@ fn initHeaders(
             });
         }
 
-        // TODO: Lazily initialize this instead?
+        // TODO: Lazily initialize this instead, avoid the extra logic for this in flushMoved / flushResized
         coff.import_table.ni = try coff.mf.addLastChildNode(
             gpa,
             (try coff.objectSectionMapIndex(
@@ -2225,18 +2223,27 @@ pub fn initBuiltins(coff: *Coff) !void {
         sym.ni = Node.known.header;
     }
 
+    defer coff.flushSectionMerges() catch unreachable;
     if (coff.isImage() and target.isMinGW() and comp.config.link_libc) {
-        try coff.symbols.ensureUnusedCapacity(gpa, 6);
+        try coff.symbols.ensureUnusedCapacity(gpa, 8);
         try coff.globals.ensureUnusedCapacity(gpa, 2);
-        try coff.nodes.ensureUnusedCapacity(gpa, 6);
+        try coff.nodes.ensureUnusedCapacity(gpa, 8);
+        try coff.section_merges.ensureUnusedCapacity(gpa, 2);
 
         const lists: []const struct { global: []const u8, start: String, end: String } = &.{
             .{ .global = "__CTOR_LIST__", .start = .@".ctors", .end = .@".ctors$ZZZ" },
             .{ .global = "__DTOR_LIST__", .start = .@".dtors", .end = .@".dtors$ZZZ" },
         };
 
+        // We need to explicitly merge these into .rdata as in objects they can be marked
+        // as MEM_WRITE, and would have mismatced section flags.
+        try coff.section_merges.put(gpa, .@".ctors", .@".rdata");
+        try coff.section_merges.put(gpa, .@".dtors", .@".rdata");
+
         for (lists) |list| {
             const addr_info = coff.targetAddrInfo();
+
+            // Any .(c|d)tor$(.*) input sections will merge in between these sections
             const start_osmi = try coff.objectSectionMapIndex(
                 list.start,
                 addr_info.alignment,
@@ -2248,32 +2255,46 @@ pub fn initBuiltins(coff: *Coff) !void {
                 .{ .read = true, .initialized = true },
             );
 
+            // Additional nodes are used here, instead of just adding the sentinel
+            // directly to the section data, since once input sections are added
+            // as children, they would overwrite that data.
             const start_sym = start_osmi.symbol(coff).get(coff);
-            try start_sym.ni.resize(&coff.mf, gpa, addr_info.size);
-            const start_slice = start_sym.ni.slice(&coff.mf);
+            const list_len_si = try coff.globalSymbol(.{ .name = list.global, .type = .data });
+            const list_len_sym = list_len_si.get(coff);
+            list_len_sym.setExtra(.{ .size = addr_info.size });
+            list_len_sym.ni = try coff.mf.addFirstChildNode(gpa, start_sym.ni, .{
+                .size = addr_info.size,
+                .fixed = true,
+            });
+            coff.nodes.appendAssumeCapacity(.{ .builtin = list_len_si });
+            list_len_sym.section_number = start_sym.section_number;
+
+            const start_slice = list_len_sym.ni.slice(&coff.mf);
             switch (addr_info.magic) {
                 _ => unreachable,
                 inline .PE32, .@"PE32+" => |t| {
                     const addr: *TargetAddr(t) = @ptrCast(@alignCast(start_slice));
                     // For __CTOR_LIST__ -1 indicates that the list is null terminated.
-                    // For __DTOR_LIST__, this value is ignored.
+                    // For __DTOR_LIST__, this value is ignored, the list is always null terminated
                     coff.targetStore(addr, std.math.maxInt(TargetAddr(t)));
                 },
             }
 
-            // Any .(c|d)tor$(.*) input sections will merge in between these sections
-            // TODO: is it guaranteed that there will be no padding between those nodes?
-
             const end_sym = end_osmi.symbol(coff).get(coff);
-            try end_sym.ni.resize(&coff.mf, gpa, addr_info.size);
-            @memset(end_sym.ni.slice(&coff.mf), 0);
+            const list_end_si = coff.addSymbolAssumeCapacity();
+            const list_end_sym = list_end_si.get(coff);
+            list_end_sym.setExtra(.{ .size = addr_info.size });
+            list_end_sym.ni = try coff.mf.addFirstChildNode(gpa, end_sym.ni, .{
+                .size = addr_info.size,
+                .fixed = true,
+            });
+            coff.nodes.appendAssumeCapacity(.{ .builtin = list_end_si });
+            list_end_sym.section_number = start_sym.section_number;
 
-            const list_si = try coff.globalSymbol(.{ .name = list.global, .type = .data });
-            const list_sym = list_si.get(coff);
-            list_sym.ni = start_sym.ni;
-            list_sym.section_number = start_sym.section_number;
+            @memset(list_end_sym.ni.slice(&coff.mf), 0);
 
-            start_sym.setExtra(.{ .next_alias_si = list_si });
+            try list_len_si.flushMoved(coff);
+            try list_end_si.flushMoved(coff);
         }
     }
 }
@@ -2284,7 +2305,6 @@ pub fn startProgress(coff: *Coff, prog_node: std.Progress.Node) void {
     coff.synth_prog_node = prog_node.start("Synthetics", count: {
         var count =
             coff.globals.count() - coff.global_pending_index +
-            coff.late_globals.items.len - coff.late_globals_pending_index +
             coff.section_merges.count() - coff.section_merge_pending_index;
 
         for (&coff.lazy.values) |*lazy| count += lazy.map.count() - lazy.pending_index;
@@ -2344,6 +2364,7 @@ fn computeNodeRva(coff: *Coff, ni: MappedFile.Node.Index) u32 {
             .relocation_table,
             .relocation_table_entry,
             .input_section,
+            .builtin,
             => unreachable,
             .image_section => |si| si,
             .import_directory_table => break :parent_rva coff.targetLoad(
@@ -2404,7 +2425,7 @@ pub inline fn targetEndian(_: *const Coff) std.lang.Endian {
 }
 
 fn targetAddrInfo(coff: *Coff) struct {
-    size: u64,
+    size: u8,
     alignment: std.mem.Alignment,
     magic: std.coff.OptionalHeader.Magic,
 } {
@@ -3450,9 +3471,9 @@ fn pseudoSectionMapIndex(
     } else pseudo_section_gop.value_ptr.get(coff).section_number;
 
     try coff.verifyParentSectionAttributes(
-        .pseudo,
-        parent_sn.name(coff),
+        parent_sn,
         name,
+        .pseudo,
         .fromFlags(parent_sn.header(coff).flags),
         attributes,
     );
@@ -3478,6 +3499,7 @@ fn objectSectionMapIndex(
 ) !Node.ObjectSectionMapIndex {
     const gpa = coff.base.comp.gpa;
     const name_slice = name.toSlice(coff);
+    // TODO: Should this be a section merge instead?
     const effective_attributes = if (coff.isImage() and std.mem.startsWith(u8, name_slice, ".tls")) attr: {
         // In images, the .tls section is a read-only template
         var attr = attributes;
@@ -3541,9 +3563,9 @@ fn objectSectionMapIndex(
     }
 
     try coff.verifyParentSectionAttributes(
-        .object,
-        sym.section_number.name(coff),
+        sym.section_number,
         name,
+        .object,
         .fromFlags(sym.section_number.header(coff).flags),
         effective_attributes,
     );
@@ -3554,21 +3576,34 @@ fn objectSectionMapIndex(
 // TODO: Include align in attrs and verify the current align is >= requested
 fn verifyParentSectionAttributes(
     coff: *Coff,
-    kind: enum { pseudo, object },
-    parent_name: String,
+    parent: Symbol.SectionNumber,
     child_name: String,
+    child_kind: enum { pseudo, object },
     parent_attrs: ObjectSectionAttributes,
     child_attrs: ObjectSectionAttributes,
 ) !void {
     if (parent_attrs == child_attrs) return;
 
+    const was_merged = switch (child_kind) {
+        .pseudo => coff.section_merges.contains(child_name),
+        .object => if (coff.getString(
+            coff.objectSectionParentName(child_name.toSlice(coff)),
+        ).unwrap()) |pseudo_name|
+            coff.section_merges.contains(pseudo_name)
+        else
+            false,
+    };
+
+    // The section was intentionally merged by the user or builtin rule
+    if (was_merged) return;
+
     const BackingT = @typeInfo(ObjectSectionAttributes).@"struct".backing_integer.?;
     const num_notes = @popCount(@as(BackingT, @bitCast(parent_attrs)) ^ @as(BackingT, @bitCast(child_attrs)));
     var err = try coff.base.comp.link_diags.addErrorWithNotes(num_notes);
     try err.addMsg("{t} section '{s}' was placed in parent section '{s}' with mismatched flags", .{
-        kind,
+        child_kind,
         child_name.toSlice(coff),
-        parent_name.toSlice(coff),
+        parent.name(coff).toSlice(coff),
     });
 
     inline for (comptime std.meta.fieldNames(ObjectSectionAttributes)) |field| {
@@ -3578,7 +3613,7 @@ fn verifyParentSectionAttributes(
                 @intFromBool(@field(child_attrs, field)),
                 child_name.toSlice(coff),
                 @intFromBool(@field(parent_attrs, field)),
-                parent_name.toSlice(coff),
+                parent.name(coff).toSlice(coff),
             });
         }
     }
@@ -4094,6 +4129,7 @@ fn loadObject(
 
     // Discover symbol names and COMDAT symbol mappings
     var symbol_i: u32 = 0;
+    var num_included_symbols: u32 = 0;
     while (symbol_i < header.number_of_symbols) {
         var symbol: std.coff.Symbol = undefined;
         @memcpy(std.mem.asBytes(&symbol)[0..symbol_size], try r.take(symbol_size));
@@ -4275,6 +4311,9 @@ fn loadObject(
         };
 
         for (values, 0..) |value, i| {
+            if (section_number == .ABSOLUTE)
+                num_included_symbols += 1;
+
             switch (value) {
                 .section => {},
                 .static,
@@ -4545,12 +4584,10 @@ fn loadObject(
         };
     }
 
-    while (coff.section_merge_pending_index < coff.section_merges.count()) : (coff.section_merge_pending_index += 1)
-        try coff.flushSectionMerge(coff.section_merge_pending_index);
+    try coff.flushSectionMerges();
 
     // Resolve pending associations, create parent sections
     var num_included_sections: u16 = 0;
-    var num_included_symbols: u32 = 0;
     var num_included_relocs: u32 = 0;
     for (sections) |*section| {
         comdat: switch (section.comdat_result) {
@@ -5916,22 +5953,6 @@ fn resolve(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             }) coff.global_pending_index += 1;
             break :task;
         }
-        if (coff.exports_complete and coff.late_globals_pending_index < coff.late_globals.items.len) {
-            const gmi: Node.GlobalMapIndex = coff.late_globals.items[coff.late_globals_pending_index];
-            const sub_prog_node = coff.synth_prog_node.start(
-                gmi.globalName(coff).name.toSlice(coff),
-                0,
-            );
-            defer sub_prog_node.end();
-            if (coff.flushGlobal(gmi) catch |err| switch (err) {
-                error.OutOfMemory => |e| return e,
-                else => |e| return comp.link_diags.fail(
-                    "linker failed to lower constant: {t}",
-                    .{e},
-                ),
-            }) coff.late_globals_pending_index += 1;
-            break :task;
-        }
         if (coff.exports_complete and coff.pending_special_symbol != .none) {
             coff.pending_special_symbol = coff.flushSpecialSymbol(coff.pending_special_symbol) catch |err|
                 switch (err) {
@@ -6002,7 +6023,6 @@ fn resolve(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     if (coff.pending_input != null) return true;
     if (coff.exports_complete and coff.globals.count() > coff.global_pending_index) return true;
     assert(!coff.exports_complete or coff.inputs_complete);
-    if (coff.exports_complete and coff.late_globals.items.len > coff.late_globals_pending_index) return true;
     if (coff.exports_complete and coff.pending_special_symbol != .none) return true;
     for (&coff.lazy.values) |lazy| if (lazy.map.count() > lazy.pending_index) return true;
     if (coff.symbol_table.pending_symbol_index < coff.symbol_table.symbols.count()) return true;
@@ -6223,11 +6243,10 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     const gpa = comp.gpa;
     const gn = gmi.globalName(coff);
     const si = gmi.symbol(coff);
-    const is_late = gmi.unwrap().? < coff.global_pending_index;
 
     log.debug(
-        "flushGlobal({s}, {?s}, {}) = n{d} {d}@{d}",
-        .{ gn.name.toSlice(coff), gn.lib_name.toSlice(coff), is_late, si.get(coff).ni, si, si.get(coff).section_number },
+        "flushGlobal({s}, {?s}) = n{d} {d}@{d}",
+        .{ gn.name.toSlice(coff), gn.lib_name.toSlice(coff), si.get(coff).ni, si, si.get(coff).section_number },
     );
 
     if (!coff.isImage()) {
@@ -6271,7 +6290,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         };
 
         const opt_alt_search_name = coff.alternate_names.get(search_name);
-        const search_libs = if (is_late) switch (sym.flags.value_tag) {
+        const search_libs = switch (sym.flags.value_tag) {
             .weak_alias_si, .weak_alias_name => switch (sym.flags.weak_external_strat) {
                 .none => unreachable,
                 .no_library => false,
@@ -6285,18 +6304,6 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
                 ),
             },
             else => true,
-        } else search_libs: {
-            if (switch (sym.flags.value_tag) {
-                .weak_alias_si, .weak_alias_name => true,
-                else => opt_alt_search_name != null,
-            }) {
-                // We need to wait until all exports are known before resolving these
-                coff.synth_prog_node.increaseEstimatedTotalItems(1);
-                (try coff.late_globals.addOne(gpa)).* = gmi;
-                return true;
-            }
-
-            break :search_libs true;
         };
 
         const opt_indices_lists: []const ?InputArchive.SearchList = if (search_libs) &.{
@@ -6381,12 +6388,10 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
 
         switch (sym.flags.value_tag) {
             .weak_alias_si => {
-                assert(is_late);
                 try coff.aliasGlobal(gmi, sym.value.weak_alias_si);
                 return true;
             },
             .weak_alias_name => {
-                assert(is_late);
                 // Convert an unresolved weak external that itself refers to an undef external
                 // into a (possibly new) global, so it can be resolved separately.
                 const alias_gop = try coff.getOrPutGlobalSymbol(.{
@@ -6400,7 +6405,6 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
 
         // If there was an object that had the alternate name, we've attempted to load it
         if (opt_alt_search_name) |alt_search_name| {
-            assert(is_late);
             if (coff.globals.get(.{ .name = alt_search_name, .lib_name = .none })) |alias_si| {
                 try coff.aliasGlobal(gmi, alias_si);
                 return true;
@@ -6986,6 +6990,7 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .lazy_code,
         .lazy_const_data,
         => |mi| try mi.symbol(coff).flushMoved(coff),
+        .builtin => |si| try si.flushMoved(coff),
     }
     try ni.childrenMoved(coff.base.comp.gpa, &coff.mf);
 }
@@ -7126,8 +7131,10 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .uav,
         .lazy_code,
         .lazy_const_data,
+        .builtin,
         => {},
-        .placeholder => unreachable,
+        .placeholder,
+        => unreachable,
     }
 }
 
@@ -7217,6 +7224,11 @@ fn flushExportsSort(coff: *Coff) void {
     });
 }
 
+fn flushSectionMerges(coff: *Coff) !void {
+    while (coff.section_merge_pending_index < coff.section_merges.count()) : (coff.section_merge_pending_index += 1)
+        try coff.flushSectionMerge(coff.section_merge_pending_index);
+}
+
 fn flushSectionMerge(coff: *Coff, index: u32) !void {
     assert(coff.isImage());
     const from = coff.section_merges.keys()[index];
@@ -7237,7 +7249,6 @@ fn flushSectionMerge(coff: *Coff, index: u32) !void {
             //       This is non-trivial as we can't leave holes in the section table.
             // TODO: Merge section flags
             _ = to_sym;
-
             return coff.base.comp.link_diags.fail("TODO implement section to section merge", .{});
         } else if (coff.pseudo_section_table.get(to)) |to_ps_si| {
             const to_sym = to_ps_si.get(coff);
@@ -7265,7 +7276,6 @@ fn flushSectionMerge(coff: *Coff, index: u32) !void {
             // TODO: Move from_psmi's node into to_sec
             // TODO: Update .section_number for all contained syms
             // TODO: Merge section flags
-
             return coff.base.comp.link_diags.fail("TODO implement pseudosection to section merge", .{});
         } else if (coff.pseudo_section_table.get(to)) |to_ps_si| {
             const to_sym = to_ps_si.get(coff);
@@ -7273,7 +7283,6 @@ fn flushSectionMerge(coff: *Coff, index: u32) !void {
                 return;
 
             // TODO: Same as above, but move from_psmi's node after to_psmi's node in its parent
-
             return coff.base.comp.link_diags.fail("TODO implement pseudosection to pseudosection merge", .{});
         }
 
@@ -7626,7 +7635,8 @@ fn printNodeName(
         inline .pseudo_section, .object_section => |smi| try w.print("({s})", .{
             smi.name(coff).toSlice(coff),
         }),
-        .import_thunk => |gmi| {
+        .import_thunk,
+        => |gmi| {
             const gn = gmi.globalName(coff);
             try w.writeByte('(');
             if (gn.lib_name.toSlice(coff)) |lib_name| try w.print("{s}.dll, ", .{lib_name});
@@ -7655,6 +7665,15 @@ fn printNodeName(
                 .tid = tid,
             }),
         }),
+        .builtin => |si| {
+            const sym = si.get(coff);
+            if (sym.gmi != .none) {
+                const gn = sym.gmi.globalName(coff);
+                try w.writeByte('(');
+                if (gn.lib_name.toSlice(coff)) |lib_name| try w.print("{s}.dll, ", .{lib_name});
+                try w.print("{s})", .{gn.name.toSlice(coff)});
+            }
+        },
     }
 }
 

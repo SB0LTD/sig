@@ -117,7 +117,6 @@ pub const Case = struct {
     /// contains the expected output. Snapshots alias between all build
     /// configurations by default, but by specifying fields in `scope`,
     /// unique snapshot names are generated for each value of that field.
-    ///
     pub fn verifyObjdump(
         self: *const Case,
         file: Build.LazyPath,

@@ -2063,6 +2063,7 @@ const c_abi_targets = blk: {
 
 const LinkTarget = struct {
     target: std.Target.Query = .{},
+    optimize_mode: std.builtin.OptimizeMode = .Debug,
     link_libc: bool = false,
     use_llvm: bool = false,
     use_lld: bool = false,
@@ -3207,9 +3208,10 @@ pub fn addLinkTests(b: *std.Build, options: LinkTestOptions) *Step {
         }
 
         for (options.optimize_modes) |optimize_mode| {
+            if (link_target.optimize_mode != optimize_mode) continue;
+            if (link_target.link_libc and target.abi == .msvc and b.graph.host.result.os.tag != .windows) continue;
             const would_use_llvm = wouldUseLlvm(link_target.use_llvm, link_target.target, optimize_mode);
             if (options.skip_llvm and would_use_llvm) continue;
-            if (link_target.link_libc and target.abi == .msvc and b.graph.host.result.os.tag != .windows) continue;
 
             const opt_update_step = if (update_snapshots) update: {
                 const update_step = Step.UpdateSourceFiles.create(b);
