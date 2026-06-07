@@ -176662,7 +176662,7 @@ fn lowerSwitchBr(
             };
             const condition_index_lock = cg.register_manager.lockReg(condition_index_reg);
             defer if (condition_index_lock) |lock| cg.register_manager.unlockReg(lock);
-            try cg.truncateRegister(condition_ty, condition_index_reg);
+            try cg.truncateRegister(unsigned_condition_ty, condition_index_reg);
             const ptr_size = @divExact(cg.target.ptrBitWidth(), 8);
             try cg.asmMemory(.{ ._mp, .j }, .{
                 .base = .table,

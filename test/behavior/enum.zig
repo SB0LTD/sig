@@ -1313,6 +1313,24 @@ test "switch on an extern enum with negative value" {
     }
 }
 
+test "switch on an enum with small signed tag type" {
+    const E = enum(i3) {
+        y = -2,
+        z = -1,
+        a = 0,
+        b = 1,
+        c = 2,
+    };
+
+    var runtime: E = .c;
+    _ = &runtime;
+    const result: u8 = switch (runtime) {
+        .y, .z, .a, .b => 0,
+        .c => 1,
+    };
+    try expect(result == 1);
+}
+
 test "Non-exhaustive enum with nonstandard int size behaves correctly" {
     const E = enum(u15) { _ };
     try expect(@sizeOf(E) == @sizeOf(u15));
