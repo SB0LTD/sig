@@ -10892,6 +10892,7 @@ fn fileWriteStreaming(
                     .PIPE => return error.BrokenPipe,
                     .CONNRESET => |err| return errnoBug(err), // Not a socket handle.
                     .BUSY => return error.DeviceBusy,
+                    .ACCES => return error.AccessDenied,
                     else => |err| return posix.unexpectedErrno(err),
                 }
             },
