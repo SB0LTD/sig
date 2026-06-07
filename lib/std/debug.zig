@@ -308,6 +308,9 @@ pub fn unlockStderr() void {
 /// Alternatively, use the higher-level `std.log` or `Io.lockStderr` to
 /// integrate with the application's chosen `Io` implementation.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
+    const io = std.Options.debug_io;
+    const prev = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(prev);
     var buffer: [64]u8 = undefined;
     const stderr = lockStderr(&buffer);
     defer unlockStderr();
@@ -326,6 +329,9 @@ pub inline fn getSelfDebugInfo() !*SelfInfo {
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
 /// Obtains the stderr mutex while dumping.
 pub fn dumpHex(bytes: []const u8) void {
+    const io = std.Options.debug_io;
+    const prev = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(prev);
     const stderr = lockStderr(&.{}).terminal();
     defer unlockStderr();
     dumpHexFallible(stderr, bytes) catch {};
@@ -789,6 +795,9 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, t: Io.Termin
 }
 /// A thin wrapper around `writeCurrentStackTrace` which writes to stderr and ignores write errors.
 pub fn dumpCurrentStackTrace(options: StackUnwindOptions) void {
+    const io = std.Options.debug_io;
+    const prev = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(prev);
     const stderr = lockStderr(&.{}).terminal();
     defer unlockStderr();
     writeCurrentStackTrace(.{
@@ -879,6 +888,9 @@ fn writeTrace(
 }
 /// A thin wrapper around `writeStackTrace` which writes to stderr and ignores write errors.
 pub fn dumpStackTrace(st: *const StackTrace) void {
+    const io = std.Options.debug_io;
+    const prev = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(prev);
     const stderr = lockStderr(&.{}).terminal();
     defer unlockStderr();
     writeStackTrace(st, stderr) catch |err| switch (err) {
@@ -888,6 +900,9 @@ pub fn dumpStackTrace(st: *const StackTrace) void {
 
 /// A thin wrapper around `writeErrorReturnTrace` which writes to stderr and ignores write errors.
 pub fn dumpErrorReturnTrace(et: *const std.builtin.StackTrace) void {
+    const io = std.Options.debug_io;
+    const prev = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(prev);
     const stderr = lockStderr(&.{}).terminal();
     defer unlockStderr();
     writeErrorReturnTrace(et, stderr) catch |err| switch (err) {
