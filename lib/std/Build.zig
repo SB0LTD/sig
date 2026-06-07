@@ -2707,5 +2707,4 @@ pub fn systemIntegrationOption(
 test {
     _ = Cache;
     _ = Step;
-    _ = &findProgram;
 }
