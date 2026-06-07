@@ -2567,6 +2567,16 @@ pub const LazyPath = union(enum) {
         return dupeInner(lazy_path, graph.arena);
     }
 
+    /// Copies the slice of paths and all internal strings.
+    ///
+    /// The `graph` parameter is only used for the global arena allocator.
+    pub fn dupeList(lazy_paths: []const LazyPath, graph: *const Graph) []const LazyPath {
+        const arena = graph.arena;
+        const result = graph.alloc(LazyPath, lazy_paths.len);
+        for (result, lazy_paths) |*d, s| d.* = dupeInner(s, arena);
+        return result;
+    }
+
     fn dupeInner(lazy_path: LazyPath, arena: Allocator) LazyPath {
         return switch (lazy_path) {
             .src_path => |sp| .{ .src_path = .{ .owner = sp.owner, .sub_path = sp.owner.dupePath(sp.sub_path) } },
