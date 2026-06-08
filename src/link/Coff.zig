@@ -199,7 +199,7 @@ pub const Node = union(enum) {
     relocation_table: Symbol.SectionNumber,
     relocation_table_entry: Reloc.Index,
 
-    image_section: Symbol.Index, // TODO: rename image_section -> section
+    image_section: Symbol.Index,
 
     /// Images only
     import_directory_table,
@@ -603,7 +603,7 @@ pub const LongNamesTable = struct {
         coff: *Coff,
 
         pub fn eql(adapter: Adapter, lhs_key: []const u8, _: void, rhs_index: usize) bool {
-            assert(adapter.coff.isArchive()); // TODO: move to helper that uses this
+            assert(adapter.coff.isArchive());
             const longnames_slice = Node.known.longnames_member.slice(&adapter.coff.mf);
             const rhs = adapter.coff.long_names_table.entries.values()[rhs_index];
             return std.mem.eql(u8, longnames_slice[rhs.offset..][0..rhs.len], lhs_key);
@@ -763,7 +763,6 @@ pub const ImportTable = struct {
 };
 
 pub const String = enum(u32) {
-    // TODO: Re-order
     @".data" = 0,
     @".idata" = 6,
     @".rdata" = 13,
@@ -943,7 +942,6 @@ pub const Symbol = struct {
         // The size of the symbol
         size: u32,
         /// Only valid when .ni == .input_section and .value_tag == .node_offset
-        /// TODO: This is only used for name lookups, could just be String, remove `input_symbols`?
         isli: Node.InputSection.LocalIndex,
         /// The next symbol in the list of aliases of this symbol.
         next_alias_si: Symbol.Index,
@@ -2919,7 +2917,6 @@ fn addMemberAssumeCapacity(coff: *Coff, kind: std.coff.ArchiveMemberHeader.Kind,
     const gpa = comp.gpa;
 
     // TODO: These two nodes could to be inside a movable node if kind == .coff|.import
-
     const header_ni = try coff.mf.addLastChildNode(gpa, Node.known.file, .{
         .size = @sizeOf(std.coff.ArchiveMemberHeader),
         .alignment = .@"2",
@@ -3573,7 +3570,6 @@ fn objectSectionMapIndex(
     return osmi;
 }
 
-// TODO: Include align in attrs and verify the current align is >= requested
 fn verifyParentSectionAttributes(
     coff: *Coff,
     parent: Symbol.SectionNumber,
@@ -3727,7 +3723,7 @@ fn addRelocAssumeCapacity(
             if (coff.symbolTableSectionAuxEntryPtr(loc_sn.symbol(coff).sti(coff))) |aux_ptr|
                 coff.targetStore(&aux_ptr.number_of_relocations, new_num_relocations);
 
-            // TODO: These need to allocate from a free list (once deleting relocs is supported) (or can we just remove swap?)
+            // TODO: These need to allocate from a free list, once deleting relocs is supported
             const sri: Section.RelocationIndex = .wrap(old_num_relocations);
             const entry = sri.entry(coff, loc_sn).?;
             if (sti.unwrap()) |index| coff.targetStore(&entry.symbol_table_index, index);
@@ -4509,7 +4505,7 @@ fn loadObject(
                         });
 
                         // TODO: What if the same symbol is incorrectly defined twice in this obj?
-                        // TODO: Would need to mark this global as pending, or notice it later when .ni != none
+                        //       Would need to mark this global as pending, or notice it later when .ni != none
                         if (!global_gop.found_existing or global_gop.value_ptr.get(coff).ni == .none) {
                             symbol.si = global_gop.value_ptr.*;
                             break :comdat .include;
@@ -4554,9 +4550,7 @@ fn loadObject(
                         const sym = si.get(coff);
                         const existing_crc = switch (coff.getNode(sym.ni)) {
                             .input_section => |isi| isi.inputSection(coff).crc,
-                            // TODO: Should this result be cached somewhere?
-                            // TODO: Is this slice triggering has_content = true un-necessarily? Check section for init data flag.
-                            else => std.hash.crc.Crc32Jamcrc.hash(sym.ni.slice(&coff.mf)),
+                            else => std.hash.crc.Crc32Jamcrc.hash(sym.ni.sliceConst(&coff.mf)),
                         };
 
                         if (existing_crc == section.comdat_crc) {
@@ -4611,7 +4605,7 @@ fn loadObject(
             .pending => unreachable,
         }
 
-        // TODO: Until we support sorting .pdata, we shouldn't merge these in, the result would be invalid
+        // Until we support sorting .pdata, we shouldn't merge these in, the result would be invalid
         const section_name = section.name.toSlice(coff);
         if (std.mem.startsWith(u8, section_name, ".pdata"))
             continue;
@@ -4995,7 +4989,6 @@ fn parseArchiveMemberHeader(
     };
 }
 
-// TODO: Move to std.coff?
 fn parseArchiveMemberHeaderInner(
     header: *const std.coff.ArchiveMemberHeader,
     opt_longnames: ?[]const u8,
@@ -5274,7 +5267,6 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) Loa
             };
         } else {
             member.content.object.size = res.size;
-            // TODO: If .UNKNOWN assert later that it contains no non-undef symbols?
             // Microsoft's CRT contains members that set .UNKNOWN but do have undef symbols
             if (machine != expected_machine and machine != .UNKNOWN) {
                 return diags.failParse(path, "machine mismatch in member header '{s}': expected {t}, found {t}", .{
@@ -5859,7 +5851,6 @@ pub fn flush(
     if (coff.isImage())
         try coff.reportUndefs(tid);
 
-    // Implib generation should instead be done via building a MappedFile progressively
     if (comp.emit_implib) |implib_file|
         coff.flushImplib(implib_file) catch |err|
             return comp.link_diags.fail("flushing implib '{s}' failed: {t}", .{ implib_file, err });
@@ -6080,9 +6071,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             try coff.flushMember(pending_mi.key);
             break :task;
         }
-        // TODO: All the sort / shrink tasks ideally run only once - otherwise it's wasteful
-        //       Defer until exports_complete?
-        if (coff.export_table.pending_sort) {
+        if (coff.exports_complete and coff.export_table.pending_sort) {
             defer coff.export_table.pending_sort = false;
             const sub_prog_node = coff.idleProgNode(
                 tid,
@@ -6098,7 +6087,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     if (coff.input_sections.items.len > coff.input_section_pending_index) return true;
     if (coff.mf.updates.items.len > 0) return true;
     if (coff.pending_members.count() > 0) return true;
-    if (coff.export_table.pending_sort) return true;
+    if (coff.exports_complete and coff.export_table.pending_sort) return true;
     return false;
 }
 
@@ -6578,8 +6567,6 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     const iat_offset: u32 = @intCast(addr_info.size * iat_symbol_gop.value_ptr.*);
     switch (import.kind) {
         .iat_ptr => {
-            // TODO: Currently the codegen is wrong for loading the address of these globals,
-            //       we generate lea [<iat_ptr>] when it should be mov [<iat_ptr>]
             const iat_sym = gop.value_ptr.import_address_table_si.get(coff);
             sym.section_number = iat_sym.section_number;
             sym.ni = iat_sym.ni;
@@ -7166,7 +7153,6 @@ fn flushMember(coff: *Coff, mi: Member.Index) !void {
             };
 
             // TODO: Does this sort need to also sort by linker input order (if names equal)?
-
             std.sort.pdqContext(0, coff.lib_string_table.items.len, Context{
                 .coff = coff,
                 .indices = coff.secondLinkerMemberIndicesSlice(),
@@ -7493,7 +7479,7 @@ pub fn deleteExport(coff: *Coff, exported: Zcu.Exported, name: InternPool.NullTe
     _ = exported;
     _ = name;
 
-    // TODO: Delete from first / second linker member table (remove swap?)
+    // TODO: Delete from first / second linker member table
     // TODO: Delete from symbol table inside section
 }
 
@@ -7609,7 +7595,6 @@ fn printNodeName(
         .input_section => |isi| {
             const ioi = isi.input(coff);
             const is = isi.inputSection(coff);
-            // TODO: Use only filename from these paths, they are long
             try w.print("({f}{f}, {s}", .{
                 ioi.path(coff).fmtEscapeString(),
                 fmtMemberNameString(ioi.memberName(coff)),
