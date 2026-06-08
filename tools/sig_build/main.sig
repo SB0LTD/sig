@@ -4702,6 +4702,16 @@ pub fn main(init: std.process.Init) !void {
                     // --maxrss: skip the value
                     _ = args_it.next() catch {};
                 }
+            } else if (std.mem.eql(u8, arg, "--search-prefix")) {
+                // Store as option for LLVM discovery steps.
+                if (args_it.next() catch null) |value| {
+                    config.options.put("search-prefix", value) catch {};
+                }
+            } else if (std.mem.eql(u8, arg, "--zig-lib-dir")) {
+                // User-level override for zig lib directory.
+                if (args_it.next() catch null) |value| {
+                    config.options.put("zig-lib-dir", value) catch {};
+                }
             } else {
                 fatal(io, "unknown option: '{s}'", .{arg});
             }
