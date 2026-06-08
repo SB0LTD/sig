@@ -3903,7 +3903,10 @@ pub const Build_Context = struct {
             try appendLlvmLinkerArgs(&cmd, build_ctx);
 
             // Link libc when LLVM is enabled (LLVM depends on libc).
-            if (build_ctx.llvm_config.discovered) {
+            // Check options directly since llvm_config.discovered may not be set yet.
+            const has_llvm = build_ctx.options.getValue("enable-llvm") != null or
+                build_ctx.options.getValue("static-llvm") != null;
+            if (has_llvm) {
                 try cmd.appendArg("-lc");
             }
 
