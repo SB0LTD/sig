@@ -216,7 +216,8 @@ jobs:
           cd artifacts
           cat *.sha256 > sha256sums.txt 2>/dev/null || true
           PRERELEASE=""
-          [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.prerelease }}" = "true" ] && PRERELEASE="--prerelease"
+          LATEST_FLAG="--latest"
+          [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.prerelease }}" = "true" ] && PRERELEASE="--prerelease" && LATEST_FLAG=""
           ARCHIVES=""
           for f in sig-*.tar.xz sig-*.zip; do [ -f "$f" ] && ARCHIVES="$ARCHIVES $f"; done
           gh release delete "sig-${VERSION}" --yes --cleanup-tag 2>/dev/null || true
@@ -224,5 +225,5 @@ jobs:
           gh release create "sig-${VERSION}" \
             --title "Sig ${VERSION}" \
             --notes "Sig ${VERSION} ╬ô├ç├╢ self-sustained release (sig builds sig)." \
-            --latest ${PRERELEASE} \
+            ${LATEST_FLAG} ${PRERELEASE} \
             $ARCHIVES sha256sums.txt
