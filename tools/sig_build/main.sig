@@ -577,7 +577,7 @@ pub const Target_Triple = struct {
 pub const Dependency_Graph = struct {
     /// Adjacency list: adj[i] contains the step handles that step i depends on.
     adj: [MAX_STEPS][MAX_DEPS_PER_STEP]Step_Handle = undefined,
-    adj_counts: [MAX_STEPS]usize = [_]usize{0} ** MAX_STEPS,
+    adj_counts: [MAX_STEPS]usize = @as([MAX_STEPS]usize, @splat(0)),
     node_count: usize = 0,
 
     /// Add a dependency edge: `dependent` depends on `dependency`.
@@ -602,7 +602,7 @@ pub const Dependency_Graph = struct {
     /// Returns error.DepthExceeded if a cycle is detected.
     pub fn topologicalSort(self: *const Dependency_Graph, out: *[MAX_STEPS]Step_Handle) SigError![]const Step_Handle {
         // in_degree[i] = number of dependencies step i has (= adj_counts[i]).
-        var in_degree: [MAX_STEPS]usize = [_]usize{0} ** MAX_STEPS;
+        var in_degree: [MAX_STEPS]usize = @as([MAX_STEPS]usize, @splat(0));
         for (0..self.node_count) |i| {
             in_degree[i] = self.adj_counts[i];
         }
@@ -693,7 +693,7 @@ pub const Dependency_Graph = struct {
     /// Returns the formatted cycle path string, or a fallback message.
     pub fn findCyclePath(self: *const Dependency_Graph, registry: *const Step_Registry, buf: *[PATH_BUF_SIZE]u8) []const u8 {
         // Recompute in-degrees and run Kahn's to find unvisited nodes.
-        var in_degree: [MAX_STEPS]usize = [_]usize{0} ** MAX_STEPS;
+        var in_degree: [MAX_STEPS]usize = @as([MAX_STEPS]usize, @splat(0));
         for (0..self.node_count) |i| {
             in_degree[i] = self.adj_counts[i];
         }
@@ -861,8 +861,8 @@ pub fn computeContentHash(io_ctx: std.Io, paths: []const []const u8) Content_Has
 
 /// A single cache entry mapping a step name to its content hash.
 pub const Cache_Entry = struct {
-    hash: Content_Hash = .{0} ** 16,
-    step_name: [NAME_BUF_SIZE]u8 = .{0} ** NAME_BUF_SIZE,
+    hash: Content_Hash = @as(Content_Hash, @splat(0)),
+    step_name: [NAME_BUF_SIZE]u8 = @as([NAME_BUF_SIZE]u8, @splat(0)),
     step_name_len: usize = 0,
     timestamp: i64 = 0,
     valid: bool = false,
@@ -871,7 +871,7 @@ pub const Cache_Entry = struct {
 /// Fixed-capacity cache map keyed by step name. Stores up to MAX_CACHE_ENTRIES
 /// entries with binary persistence support. No allocator.
 pub const Cache_Map = struct {
-    entries: [MAX_CACHE_ENTRIES]Cache_Entry = [_]Cache_Entry{.{}} ** MAX_CACHE_ENTRIES,
+    entries: [MAX_CACHE_ENTRIES]Cache_Entry = @as([MAX_CACHE_ENTRIES]Cache_Entry, @splat(.{})),
     count: usize = 0,
 
     /// Lookup a cache entry by step name. Returns the stored content hash
@@ -974,7 +974,7 @@ pub const Cache_Map = struct {
         // Write each valid entry as a 96-byte record.
         for (self.entries[0..MAX_CACHE_ENTRIES]) |*entry| {
             if (!entry.valid) continue;
-            var record: [RECORD_SIZE]u8 = .{0} ** RECORD_SIZE;
+            var record: [RECORD_SIZE]u8 = @as([RECORD_SIZE]u8, @splat(0));
             // Bytes 0-15: Content_Hash
             @memcpy(record[0..16], &entry.hash);
             // Bytes 16-79: step_name (64 bytes, zero-padded)
@@ -2111,19 +2111,19 @@ pub const Llvm_Config = struct {
 
     // Library lists (names or absolute paths)
     llvm_libs: [MAX_LLVM_LIBS][NAME_BUF_SIZE]u8 = undefined,
-    llvm_lib_lens: [MAX_LLVM_LIBS]usize = [_]usize{0} ** MAX_LLVM_LIBS,
+    llvm_lib_lens: [MAX_LLVM_LIBS]usize = @as([MAX_LLVM_LIBS]usize, @splat(0)),
     llvm_lib_count: usize = 0,
 
     clang_libs: [MAX_LLVM_LIBS][NAME_BUF_SIZE]u8 = undefined,
-    clang_lib_lens: [MAX_LLVM_LIBS]usize = [_]usize{0} ** MAX_LLVM_LIBS,
+    clang_lib_lens: [MAX_LLVM_LIBS]usize = @as([MAX_LLVM_LIBS]usize, @splat(0)),
     clang_lib_count: usize = 0,
 
     lld_libs: [MAX_LLVM_LIBS][NAME_BUF_SIZE]u8 = undefined,
-    lld_lib_lens: [MAX_LLVM_LIBS]usize = [_]usize{0} ** MAX_LLVM_LIBS,
+    lld_lib_lens: [MAX_LLVM_LIBS]usize = @as([MAX_LLVM_LIBS]usize, @splat(0)),
     lld_lib_count: usize = 0,
 
     system_libs: [MAX_SYSTEM_LIBS][NAME_BUF_SIZE]u8 = undefined,
-    system_lib_lens: [MAX_SYSTEM_LIBS]usize = [_]usize{0} ** MAX_SYSTEM_LIBS,
+    system_lib_lens: [MAX_SYSTEM_LIBS]usize = @as([MAX_SYSTEM_LIBS]usize, @splat(0)),
     system_lib_count: usize = 0,
 
     // Flags

@@ -5341,7 +5341,36 @@ fn compileSigBuildRunner(gpa: Allocator, arena: Allocator, io: Io, options: SigB
         .parent = root_mod,
     });
 
+    // Wire the sig module (lib/sig/sig.zig)
+    const sig_mod = try Package.Module.create(arena, .{
+        .paths = .{
+            .root = try .fromUnresolved(arena, options.dirs, &.{options.dirs.zig_lib.path orelse "lib"}),
+            .root_src_path = "sig/sig.zig",
+        },
+        .fully_qualified_name = "root.sig",
+        .cc_argv = &.{},
+        .inherited = .{},
+        .global = config,
+        .parent = root_mod,
+    });
+
     try root_mod.deps.put(arena, "@build", build_mod);
+    try root_mod.deps.put(arena, "sig", sig_mod);
+
+    // Wire sig_build module (self-reference: tools/sig_build/main.sig)
+    // The @build module (build.sig) imports sig_build, so it needs this dep too.
+    const sig_build_mod = try Package.Module.create(arena, .{
+        .paths = main_mod_paths,
+        .fully_qualified_name = "root.sig_build",
+        .cc_argv = &.{},
+        .inherited = .{},
+        .global = config,
+        .parent = root_mod,
+    });
+    try sig_build_mod.deps.put(arena, "sig", sig_mod);
+    try root_mod.deps.put(arena, "sig_build", sig_build_mod);
+    try build_mod.deps.put(arena, "sig_build", sig_build_mod);
+    try build_mod.deps.put(arena, "sig", sig_mod);
 
     var create_diag: Compilation.CreateDiagnostic = undefined;
     const comp = Compilation.create(gpa, arena, io, &create_diag, .{
