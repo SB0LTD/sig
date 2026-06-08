@@ -382,7 +382,7 @@ pub const Node = extern struct {
         }
 
         /// Shrink a node to `size`, exactly.
-        /// If the new size can't contain all the children, returns error.ShrinkImpossible.
+        /// Asserts that the new size can contain all the children.
         /// If `shift_next` is set, then the following node is shifted backwards into
         /// the free space as much as alignment allows.
         /// Asserts that `size` is >= the end of the last child node.

@@ -76,9 +76,6 @@ pub fn build(b: *std.Build) void {
         });
         exe.root_module.linkLibrary(lib);
 
-        b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{}).step);
-        b.getInstallStep().dependOn(&b.addInstallArtifact(exe, .{}).step);
-
         const run_cmd = b.addRunArtifact(exe);
         test_step.dependOn(&run_cmd.step);
     }
