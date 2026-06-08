@@ -31,7 +31,7 @@ permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v13' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v21' }}
 
 jobs:
   build:
