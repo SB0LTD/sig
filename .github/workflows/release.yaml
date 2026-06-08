@@ -93,10 +93,14 @@ jobs:
           gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "bootstrap-sig-x86_64-linux.tar.gz" --dir /tmp
           mkdir -p /tmp/bootstrap
           tar -xzf /tmp/bootstrap-sig-x86_64-linux.tar.gz -C /tmp/bootstrap
-          BIN=$(find /tmp/bootstrap -type f \( -name "sig" -o -name "zig" -o -name "zig2" \) | head -1)
+          BIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)
+          if [ -z "$BIN" ]; then
+            echo "ERROR: sig binary not found in bootstrap archive"
+            exit 1
+          fi
           chmod +x "$BIN"
           echo "$(dirname "$BIN")" >> "$GITHUB_PATH"
-          echo "BOOTSTRAP_BIN=${BIN}" >> "$GITHUB_ENV"
+          echo "SIG=${BIN}" >> "$GITHUB_ENV"
           ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"
           "${BIN}" version || true
 
@@ -117,7 +121,11 @@ jobs:
           # Experimental targets (all platforms have them in the LLVM package)
           EXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"
 
-          "${BOOTSTRAP_BIN}" build \
+          # Bootstrap uses build.zig (std.Build) since it predates the sig_build path.
+          # Once we ship a bootstrap with the new cmdBuild, switch to:
+          #   "${SIG}" build [flags...]  (which picks up build.sig natively)
+          "${SIG}" build \
+            --build-file build.zig \
             --prefix stage3-out \
             -Doptimize=ReleaseFast \
             -Dstrip \

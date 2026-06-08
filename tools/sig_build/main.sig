@@ -1854,6 +1854,9 @@ pub const Schedule_Summary = struct {
 /// 4. Wait for completions, update state, propagate failures
 /// 5. Repeat until all steps are done or failed/skipped
 ///
+/// When `keep_going` is false, the scheduler aborts on the first failure
+/// (marking remaining steps as skipped). When true, independent steps continue.
+///
 /// `registry` is mutated (step states updated). `graph` and `cache` are read.
 /// `pool` must already be initialized.
 pub fn runScheduler(
@@ -1863,6 +1866,7 @@ pub fn runScheduler(
     pool: *Thread_Pool,
     io: std.Io,
     verbose: bool,
+    keep_going: bool,
 ) Schedule_Summary {
     var summary: Schedule_Summary = .{};
     summary.total = registry.count;
@@ -1896,6 +1900,8 @@ pub fn runScheduler(
                 pool.waitAll();
                 // Process completions and loop again.
                 processCompletions(pool, registry, graph, &completed_bits, &failed_bits, &skipped_bits, &done_bits, &dispatched_bits, &summary, io, verbose);
+                // Abort early if not --keep-going and a failure occurred.
+                if (!keep_going and summary.failed > 0) break;
                 continue;
             }
             // Truly done — no ready steps and no active work.
@@ -1948,6 +1954,9 @@ pub fn runScheduler(
         // 4. Wait for at least one completion before looping.
         pool.waitAll();
         processCompletions(pool, registry, graph, &completed_bits, &failed_bits, &skipped_bits, &done_bits, &dispatched_bits, &summary, io, verbose);
+
+        // Abort early if not --keep-going and a failure occurred.
+        if (!keep_going and summary.failed > 0) break;
     }
 
     // Mark any remaining pending steps that were never reached as skipped.
@@ -2184,9 +2193,10 @@ fn tryCppCandidate(
 ///
 /// Search order:
 ///   1. If -Dcpp-compiler=<path> is set, use that directly (verify with --version).
-///   2. On Windows: check VSINSTALLDIR for cl.exe, then PATH for clang++, g++, cl.exe.
-///   3. On macOS: probe PATH for clang++, g++, c++, then /opt/homebrew/bin variants.
-///   4. On Linux: probe PATH for clang++, g++, c++.
+///   2. Check $CXX environment variable (verify with --version).
+///   3. On Windows: probe PATH for clang++, g++, cl.exe.
+///   4. On macOS: probe PATH for clang++, g++, c++, then /opt/homebrew/bin variants.
+///   5. On Linux: probe PATH for clang++, g++, c++.
 ///
 /// Stores the resolved compiler path and kind in ctx.build_ctx.llvm_config.
 /// Returns SigError on failure (no working compiler found).
@@ -2214,6 +2224,22 @@ pub fn discoverCppCompiler(ctx: *Step_Context) SigError!void {
             build_ctx.llvm_config.cpp_compiler_kind = kind;
             printMsg(io, "llvm: using -Dcpp-compiler override: {s}", .{override_path});
             return;
+        }
+    }
+
+    // ── Check $CXX environment variable (R11) ──────────────────────────
+    {
+        var cxx_buf: [PATH_BUF_SIZE]u8 = undefined;
+        if (sig_process.getenv("CXX", &cxx_buf) catch null) |cxx_path| {
+            if (cxx_path.len > 0) {
+                const kind = inferCompilerKind(cxx_path);
+                const version_arg: []const u8 = if (kind == .cl_exe) "/help" else "--version";
+
+                if (tryCppCandidate(cxx_path, version_arg, io)) {
+                    return storeCompiler(build_ctx, cxx_path, kind, io);
+                }
+                printMsg(io, "llvm: $CXX={s} failed version check, continuing probe", .{cxx_path});
+            }
         }
     }
 
@@ -2552,10 +2578,18 @@ fn storeLibList(
 
 /// Discover LLVM 22.x libraries on the host system.
 ///
-/// Strategy 1 (preferred): Probe PATH for llvm-config variants, validate 22.x,
-///   then query --includedir, --libdir, --libs, --system-libs.
-/// Strategy 2 (fallback): Use -Dllvm-prefix=<path> or platform-specific fallback
-///   prefixes to locate headers and libraries directly.
+/// Priority order (R11, R17):
+///   1. `--search-prefix` flag (stored as option "search-prefix")
+///   2. `-Dllvm-prefix=<path>` option
+///   3. `$LLVM_PREFIX` environment variable
+///   4. `llvm-config` probe on PATH (validates 22.x via --version)
+///   5. Platform-specific fallback prefixes (Linux /usr/lib/llvm-22, macOS Homebrew)
+///
+/// When a prefix is found (strategies 1-3, 5), verifies LLVM headers exist at
+/// `<prefix>/include/llvm/IR/IRBuilder.h` and sets include/lib dirs.
+///
+/// When llvm-config is found (strategy 4), queries --includedir, --libdir,
+/// --libs, --system-libs.
 ///
 /// Also discovers Clang and LLD libraries (shared or static).
 ///
@@ -2568,6 +2602,7 @@ pub fn discoverLlvm(ctx: *Step_Context) SigError!void {
     // Read options.
     const static_llvm = build_ctx.options.getValue("static-llvm") != null and
         std.mem.eql(u8, build_ctx.options.getValue("static-llvm").?, "true");
+    const search_prefix_opt = build_ctx.options.getValue("search-prefix");
     const llvm_prefix_opt = build_ctx.options.getValue("llvm-prefix");
 
     build_ctx.llvm_config.static_llvm = static_llvm;
@@ -2579,54 +2614,76 @@ pub fn discoverLlvm(ctx: *Step_Context) SigError!void {
     var tried_buf: [PATH_BUF_SIZE]u8 = undefined;
     var tried_len: usize = 0;
 
-    // ── Strategy 1: llvm-config probe ────────────────────────────────────
-    // Only try llvm-config if -Dllvm-prefix is NOT set (prefix takes priority).
-    if (llvm_prefix_opt == null) {
-        for (llvm_config_candidates) |candidate| {
-            appendTried(&tried_buf, &tried_len, candidate);
+    // ── Strategy 1: --search-prefix flag (highest priority) ──────────────
+    if (search_prefix_opt) |prefix| {
+        if (prefix.len > 0 and prefix.len <= PATH_BUF_SIZE) {
+            appendTried(&tried_buf, &tried_len, prefix);
+            if (discoverViaPrefix(build_ctx, prefix, io)) {
+                discoverClangLibs(build_ctx, io);
+                discoverLldLibs(build_ctx, io);
 
-            if (tryLlvmConfigCandidate(candidate, io)) {
-                // Found a valid llvm-config. Query it for paths and libraries.
-                printMsg(io, "llvm: found llvm-config: {s}", .{candidate});
-
-                if (discoverViaLlvmConfig(build_ctx, candidate, static_llvm, io)) {
-                    // Also discover Clang and LLD libraries.
-                    discoverClangLibs(build_ctx, io);
-                    discoverLldLibs(build_ctx, io);
-
-                    build_ctx.llvm_config.discovered = true;
-                    printMsg(io, "llvm: discovery complete (via llvm-config)", .{});
-                    return;
-                }
+                build_ctx.llvm_config.discovered = true;
+                printMsg(io, "llvm: discovery complete (via --search-prefix: {s})", .{prefix});
+                return;
             }
         }
     }
 
-    // ── Strategy 2: prefix-based fallback ────────────────────────────────
-    // Try -Dllvm-prefix first, then platform-specific fallback.
-    var prefix_buf: [PATH_BUF_SIZE]u8 = undefined;
-    var prefix_len: usize = 0;
-
+    // ── Strategy 2: -Dllvm-prefix option ─────────────────────────────────
     if (llvm_prefix_opt) |prefix| {
         if (prefix.len > 0 and prefix.len <= PATH_BUF_SIZE) {
-            @memcpy(prefix_buf[0..prefix.len], prefix);
-            prefix_len = prefix.len;
             appendTried(&tried_buf, &tried_len, prefix);
+            if (discoverViaPrefix(build_ctx, prefix, io)) {
+                discoverClangLibs(build_ctx, io);
+                discoverLldLibs(build_ctx, io);
+
+                build_ctx.llvm_config.discovered = true;
+                printMsg(io, "llvm: discovery complete (via -Dllvm-prefix: {s})", .{prefix});
+                return;
+            }
         }
     }
 
-    // Try the explicit prefix.
-    if (prefix_len > 0) {
-        if (discoverViaPrefix(build_ctx, prefix_buf[0..prefix_len], io)) {
-            discoverClangLibs(build_ctx, io);
-            discoverLldLibs(build_ctx, io);
+    // ── Strategy 3: $LLVM_PREFIX environment variable ────────────────────
+    {
+        var env_buf: [PATH_BUF_SIZE]u8 = undefined;
+        if (sig_process.getenv("LLVM_PREFIX", &env_buf) catch null) |env_prefix| {
+            if (env_prefix.len > 0) {
+                appendTried(&tried_buf, &tried_len, env_prefix);
+                if (discoverViaPrefix(build_ctx, env_prefix, io)) {
+                    discoverClangLibs(build_ctx, io);
+                    discoverLldLibs(build_ctx, io);
 
-            build_ctx.llvm_config.discovered = true;
-            printMsg(io, "llvm: discovery complete (via prefix: {s})", .{prefix_buf[0..prefix_len]});
-            return;
+                    build_ctx.llvm_config.discovered = true;
+                    printMsg(io, "llvm: discovery complete (via $LLVM_PREFIX: {s})", .{env_prefix});
+                    return;
+                }
+                printMsg(io, "llvm: $LLVM_PREFIX={s} does not contain valid LLVM 22.x, continuing", .{env_prefix});
+            }
         }
     }
 
+    // ── Strategy 4: llvm-config probe on PATH ────────────────────────────
+    for (llvm_config_candidates) |candidate| {
+        appendTried(&tried_buf, &tried_len, candidate);
+
+        if (tryLlvmConfigCandidate(candidate, io)) {
+            // Found a valid llvm-config. Query it for paths and libraries.
+            printMsg(io, "llvm: found llvm-config: {s}", .{candidate});
+
+            if (discoverViaLlvmConfig(build_ctx, candidate, static_llvm, io)) {
+                // Also discover Clang and LLD libraries.
+                discoverClangLibs(build_ctx, io);
+                discoverLldLibs(build_ctx, io);
+
+                build_ctx.llvm_config.discovered = true;
+                printMsg(io, "llvm: discovery complete (via llvm-config)", .{});
+                return;
+            }
+        }
+    }
+
+    // ── Strategy 5: platform-specific fallback prefixes ──────────────────
     // Linux: try /usr/lib/llvm-22 as fallback prefix.
     if (builtin.os.tag == .linux) {
         const linux_prefix = "/usr/lib/llvm-22";
@@ -2659,7 +2716,7 @@ pub fn discoverLlvm(ctx: *Step_Context) SigError!void {
 
     // ── Error reporting ──────────────────────────────────────────────────
     printMsg(io, "llvm: no valid LLVM 22.x installation found. Searched: {s}", .{tried_buf[0..tried_len]});
-    printMsg(io, "llvm: install LLVM 22.x or pass -Dllvm-prefix=<path>", .{});
+    printMsg(io, "llvm: install LLVM 22.x or pass --search-prefix <path> / -Dllvm-prefix=<path> / set $LLVM_PREFIX", .{});
     return error.BufferTooSmall;
 }
 
@@ -4248,6 +4305,8 @@ pub const Cli_Config = struct {
     benchmark: bool = false,
     /// --verbose mode.
     verbose: bool = false,
+    /// --keep-going: continue executing independent steps after a failure.
+    keep_going: bool = false,
     /// --self-test mode: rebuild the build runner and verify byte-identical output.
     self_test: bool = false,
     /// Path to the compiler binary for self-test rebuild (defaults to "sig").
@@ -4304,15 +4363,17 @@ pub fn printMsg(io: std.Io, comptime fmt: []const u8, args: anytype) void {
     stdout.writeStreamingAll(io, msg) catch {};
 }
 
-/// Print the schedule summary to stdout.
-pub fn printSummary(io: std.Io, summary: *const Schedule_Summary) void {
+/// Print the schedule summary to stdout, including wall-clock time.
+pub fn printSummary(io: std.Io, summary: *const Schedule_Summary, wall_time_ns: u64) void {
     var buf: [512]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, "\nBuild summary: {d} total, {d} succeeded, {d} cached, {d} failed, {d} skipped\n", .{
+    const wall_ms = wall_time_ns / 1_000_000;
+    const msg = std.fmt.bufPrint(&buf, "\nBuild summary: {d} total, {d} succeeded, {d} cached, {d} failed, {d} skipped in {d} ms\n", .{
         summary.total,
         summary.succeeded,
         summary.cached,
         summary.failed,
         summary.skipped,
+        wall_ms,
     }) catch return;
     const stdout = std.Io.File.stdout();
     stdout.writeStreamingAll(io, msg) catch {};
@@ -4611,11 +4672,13 @@ pub fn main(init: std.process.Init) !void {
                 }
             }
         } else if (arg.len >= 2 and arg[0] == '-' and arg[1] == '-') {
-            // Long options: --benchmark, --verbose, --self-test
+            // Long options: --benchmark, --verbose, --keep-going, --self-test
             if (std.mem.eql(u8, arg, "--benchmark")) {
                 config.benchmark = true;
             } else if (std.mem.eql(u8, arg, "--verbose")) {
                 config.verbose = true;
+            } else if (std.mem.eql(u8, arg, "--keep-going")) {
+                config.keep_going = true;
             } else if (std.mem.eql(u8, arg, "--self-test") or std.mem.startsWith(u8, arg, "--self-test=")) {
                 config.self_test = true;
                 // Optional: --self-test=<compiler-path> to specify the compiler binary.
@@ -4736,6 +4799,9 @@ pub fn main(init: std.process.Init) !void {
     }
     if (config.benchmark) {
         host_cmd.appendArg("--benchmark") catch {};
+    }
+    if (config.keep_going) {
+        host_cmd.appendArg("--keep-going") catch {};
     }
     if (config.self_test) {
         if (config.self_test_compiler_len > 0) {

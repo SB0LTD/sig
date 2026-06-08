@@ -105,6 +105,8 @@ pub fn main(init: std.process.Init) !void {
             config.verbose = true;
         } else if (std.mem.eql(u8, arg, "--benchmark")) {
             config.benchmark = true;
+        } else if (std.mem.eql(u8, arg, "--keep-going")) {
+            config.keep_going = true;
         } else if (std.mem.eql(u8, arg, "--self-test") or std.mem.startsWith(u8, arg, "--self-test=")) {
             config.self_test = true;
             if (sig_build.parseLongOptionValue(arg)) |value| {
@@ -331,7 +333,7 @@ pub fn main(init: std.process.Init) !void {
 
     // ── 9. Run scheduler ────────────────────────────────────────────────
     const sig_start_ns = std.Io.Clock.awake.now(io).nanoseconds;
-    const summary = sig_build.runScheduler(&ctx.steps, &graph, &cache, &pool, io, config.verbose);
+    const summary = sig_build.runScheduler(&ctx.steps, &graph, &cache, &pool, io, config.verbose, config.keep_going);
     const sig_end_ns = std.Io.Clock.awake.now(io).nanoseconds;
     const sig_elapsed_ns: u64 = @intCast(sig_end_ns - sig_start_ns);
 
@@ -342,7 +344,7 @@ pub fn main(init: std.process.Init) !void {
     };
 
     // ── 11. Print summary and exit ──────────────────────────────────────
-    sig_build.printSummary(io, &summary);
+    sig_build.printSummary(io, &summary, sig_elapsed_ns);
 
     if (config.benchmark) {
         sig_build.runBenchmark(io, sig_elapsed_ns, &summary);
