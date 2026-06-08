@@ -88,9 +88,13 @@ jobs:
                                 || SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}"
             fi
           fi
-          ZIG_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
-          ZIG_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
-          ZIG_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
+          ZIG_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' build.zig | head -1)
+          ZIG_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' build.zig | head -1)
+          ZIG_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' build.zig | head -1)
+          if [ -z "$ZIG_MAJOR" ] || [ -z "$ZIG_MINOR" ] || [ -z "$ZIG_PATCH" ]; then
+            echo "ERROR: failed to extract zig_version from build.zig"
+            exit 1
+          fi
           VERSION="${SIG_VER}-zig${ZIG_MAJOR}.${ZIG_MINOR}.${ZIG_PATCH}.$(git rev-parse --short=7 HEAD)"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
