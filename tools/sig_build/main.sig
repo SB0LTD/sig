@@ -3902,6 +3902,11 @@ pub const Build_Context = struct {
             // LLVM/Clang/LLD library flags, and platform-specific system libraries.
             try appendLlvmLinkerArgs(&cmd, build_ctx);
 
+            // Link libc when LLVM is enabled (LLVM depends on libc).
+            if (build_ctx.llvm_config.discovered) {
+                try cmd.appendArg("-lc");
+            }
+
             // Log the command for debugging.
             printMsg(io, "compileStepFn: compiling {s} with {d} args", .{ source_path, cmd.arg_count });
             for (0..cmd.arg_count) |ci| {
