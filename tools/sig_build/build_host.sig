@@ -122,6 +122,20 @@ pub fn main(init: std.process.Init) !void {
             } else {
                 sig_build.fatal(io, "--prefix requires a path argument", .{});
             }
+        } else if (std.mem.eql(u8, arg, "--search-prefix")) {
+            if (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |value| {
+                sig_build.parseOption(&config.options, "-Dsearch-prefix=") catch {};
+                // Store the actual value directly
+                config.options.put("search-prefix", value) catch {};
+            } else {
+                sig_build.fatal(io, "--search-prefix requires a path argument", .{});
+            }
+        } else if (std.mem.eql(u8, arg, "--zig-lib-dir")) {
+            if (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |value| {
+                config.options.put("zig-lib-dir", value) catch {};
+            } else {
+                sig_build.fatal(io, "--zig-lib-dir requires a path argument", .{});
+            }
         } else if (arg.len >= 2 and arg[0] == '-' and arg[1] == '-') {
             sig_build.fatal(io, "unknown option: '{s}'", .{arg});
         } else {
