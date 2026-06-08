@@ -266,15 +266,15 @@ pub fn getOption(comptime T: type, map: *const Option_Map, name: []const u8) ?T 
         },
         .int => std.fmt.parseInt(T, value, 10) catch return null,
         .pointer => |ptr| {
-            if (ptr.size == .slice and ptr.child == u8 and ptr.is_const) {
+            if (ptr.size == .slice and ptr.child == u8 and ptr.attrs.@"const") {
                 return value;
             }
             return null;
         },
         .@"enum" => {
-            inline for (@typeInfo(T).@"enum".fields) |field| {
-                if (std.mem.eql(u8, value, field.name)) {
-                    return @field(T, field.name);
+            inline for (@typeInfo(T).@"enum".field_names) |field_name| {
+                if (std.mem.eql(u8, value, field_name)) {
+                    return @field(T, field_name);
                 }
             }
             return null;
