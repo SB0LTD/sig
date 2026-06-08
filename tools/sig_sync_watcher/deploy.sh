@@ -10,7 +10,7 @@ set -euo pipefail
 #   ./tools/sig_sync_watcher/deploy.sh [PROJECT_ID] [REGION]
 #   (run from sig repo root)
 
-PROJECT_ID="${1:-sbzero}"
+PROJECT_ID="${1:-sig-sync}"
 REGION="${2:-us-central1}"
 SERVICE_NAME="sig-sync-watcher"
 SA_EMAIL="sig-sync-watcher@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -25,31 +25,44 @@ trap "rm -rf $TMPCTX" EXIT
 
 cp tools/sig_sync_watcher/main.sig "$TMPCTX/main.sig"
 
+# Resolve bootstrap tag from manifest
+BOOTSTRAP_TAG="bootstrap-sig-v19"
+if [ -f tools/sig_sync/manifest.json ]; then
+  MANIFEST_BOOT=$(python3 -c "
+import json
+with open('tools/sig_sync/manifest.json') as f:
+    m = json.load(f)
+print(m.get('bootstrap_tag', ''))" 2>/dev/null || true)
+  [ -n "$MANIFEST_BOOT" ] && BOOTSTRAP_TAG="$MANIFEST_BOOT"
+fi
+echo "    Bootstrap: $BOOTSTRAP_TAG"
+
 # Inline Dockerfile — downloads bootstrap sig and compiles the watcher
-cat > "$TMPCTX/Dockerfile" << 'DOCKERFILE'
+cat > "$TMPCTX/Dockerfile" << DOCKERFILE
 FROM ubuntu:24.04 AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates && \
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    curl ca-certificates && \\
     rm -rf /var/lib/apt/lists/*
 
-# Download bootstrap-sig-v10 (dev=.full, supports build-exe)
-RUN curl -sL "https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v12/bootstrap-sig-x86_64-linux.tar.gz" \
-    | tar -xz -C /opt && \
-    chmod +x /opt/bin/sig /opt/bin/zig && \
-    echo "sig bootstrap ready"
+# Download bootstrap sig (${BOOTSTRAP_TAG})
+RUN curl -sL "https://github.com/SB0LTD/sig/releases/download/${BOOTSTRAP_TAG}/bootstrap-sig-x86_64-linux.tar.gz" \\
+    | tar -xz -C /opt && \\
+    chmod +x /opt/bin/sig /opt/bin/zig && \\
+    echo "sig bootstrap ready (${BOOTSTRAP_TAG})"
 
 # Clone just the lib/ directory we need for compilation
-RUN curl -sL "https://github.com/SB0LTD/sig/archive/refs/heads/master.tar.gz" \
-    | tar -xz --strip-components=1 -C /opt/sig-src "sig-master/lib" && \
+RUN mkdir -p /opt/sig-src && \\
+    curl -sL "https://github.com/SB0LTD/sig/archive/refs/heads/master.tar.gz" \\
+    | tar -xz --strip-components=1 -C /opt/sig-src "sig-master/lib" && \\
     echo "std lib ready"
 
 WORKDIR /app
-COPY main.sig main.sig
+COPY main.sig main.zig
 
-RUN /opt/bin/sig build-exe main.sig \
-    --zig-lib-dir /opt/sig-src/lib \
-    -target x86_64-linux-musl -OReleaseSafe \
+RUN /opt/bin/sig build-exe main.zig \\
+    --zig-lib-dir /opt/sig-src/lib \\
+    -target x86_64-linux-musl -OReleaseSafe -lc \\
     --name sig-sync-watcher
 
 FROM alpine:3.21

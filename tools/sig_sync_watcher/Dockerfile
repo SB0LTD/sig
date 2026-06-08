@@ -1,4 +1,4 @@
-ARG BOOTSTRAP_TAG=bootstrap-sig-v12
+ARG BOOTSTRAP_TAG=bootstrap-sig-v19
 
 FROM ubuntu:24.04 AS builder
 
@@ -11,8 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Download bootstrap sig (version from build arg)
 RUN curl -sL "https://github.com/SB0LTD/sig/releases/download/${BOOTSTRAP_TAG}/bootstrap-sig-x86_64-linux.tar.gz" \
     | tar -xz -C /opt && \
-    mv /opt/bin /opt/sig && \
-    chmod +x /opt/sig/sig && \
+    chmod +x /opt/bin/sig /opt/bin/zig && \
     echo "sig binary ready (${BOOTSTRAP_TAG})"
 
 WORKDIR /app
@@ -21,10 +20,10 @@ WORKDIR /app
 COPY lib/ /app/lib/
 
 # Copy watcher source
-COPY tools/sig_sync_watcher/main.sig /app/main.sig
+COPY tools/sig_sync_watcher/main.sig /app/main.zig
 
 # Build a static musl binary
-RUN /opt/sig/sig build-exe main.sig \
+RUN /opt/bin/sig build-exe main.zig \
     --zig-lib-dir /app/lib \
     -target x86_64-linux-musl -OReleaseSafe -lc \
     --name sig-sync-watcher
