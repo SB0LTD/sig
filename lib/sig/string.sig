@@ -49,7 +49,7 @@ pub fn replace(buf: []u8, haystack: []const u8, needle: []const u8, replacement:
 pub fn SegmentedString(comptime chunk_count: usize, comptime chunk_size: usize) type {
     return struct {
         chunks: [chunk_count][chunk_size]u8 = undefined,
-        lengths: [chunk_count]usize = [_]usize{0} ** chunk_count,
+        lengths: [chunk_count]usize = @as([chunk_count]usize, @splat(0)),
         active_chunks: usize = 0,
 
         const Self = @This();

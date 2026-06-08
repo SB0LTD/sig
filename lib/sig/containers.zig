@@ -140,7 +140,7 @@ pub fn SlotMap(comptime T: type, comptime capacity: usize) type {
         pub const Key = struct { index: u32, generation: u32 };
 
         values: [capacity]T = undefined,
-        generations: [capacity]u32 = [_]u32{0} ** capacity,
+        generations: [capacity]u32 = @as([capacity]u32, @splat(0)),
         free_list: [capacity]u32 = init_free_list(),
         free_count: usize = capacity,
         len: usize = 0,
@@ -406,7 +406,7 @@ pub fn FixedLinkedList(comptime T: type, comptime capacity: usize) type {
 pub fn BoundedBitSet(comptime capacity: usize) type {
     const word_count = (capacity + 63) / 64;
     return struct {
-        words: [word_count]u64 = [_]u64{0} ** word_count,
+        words: [word_count]u64 = @as([word_count]u64, @splat(0)),
 
         const Self = @This();
 
@@ -491,7 +491,7 @@ pub fn BoundedStringMap(comptime key_cap: usize, comptime val_cap: usize, compti
             occupied: bool = false,
         };
 
-        entries: [count]Entry = [_]Entry{.{}} ** count,
+        entries: [count]Entry = @as([count]Entry, @splat(.{})),
         len: usize = 0,
 
         const Self = @This();

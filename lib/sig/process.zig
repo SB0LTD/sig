@@ -19,7 +19,7 @@ pub const MAX_ENV_VALUE_LEN = 4096;
 /// no heap allocation.
 pub const Command_Buffer = struct {
     args: [MAX_CMD_ARGS][MAX_ARG_LEN]u8 = undefined,
-    arg_lens: [MAX_CMD_ARGS]usize = [_]usize{0} ** MAX_CMD_ARGS,
+    arg_lens: [MAX_CMD_ARGS]usize = @as([MAX_CMD_ARGS]usize, @splat(0)),
     arg_count: usize = 0,
     cwd: [MAX_CWD_LEN]u8 = undefined,
     cwd_len: usize = 0,
@@ -54,9 +54,9 @@ pub const Command_Buffer = struct {
 /// Stores keys and values in stack-allocated fixed arrays — no heap allocation.
 pub const Env_Pairs = struct {
     keys: [MAX_ENV_PAIRS][MAX_ENV_KEY_LEN]u8 = undefined,
-    key_lens: [MAX_ENV_PAIRS]usize = [_]usize{0} ** MAX_ENV_PAIRS,
+    key_lens: [MAX_ENV_PAIRS]usize = @as([MAX_ENV_PAIRS]usize, @splat(0)),
     values: [MAX_ENV_PAIRS][MAX_ENV_VALUE_LEN]u8 = undefined,
-    value_lens: [MAX_ENV_PAIRS]usize = [_]usize{0} ** MAX_ENV_PAIRS,
+    value_lens: [MAX_ENV_PAIRS]usize = @as([MAX_ENV_PAIRS]usize, @splat(0)),
     count: usize = 0,
 
     /// Add a key-value pair. Returns `CapacityExceeded` if full,
