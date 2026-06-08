@@ -72,6 +72,57 @@ pub fn addCases(ctx: *LinkContext) void {
         run.addCheck(.{ .expect_term = .{ .exited = 0 } });
     }
 
+    if (ctx.includeTest("tls")) |case| {
+        const obj = case.addObject(.{
+            .name = "obj",
+            .zig_source_bytes =
+            \\threadlocal var threadlocal_var: u32 = 1234;
+            \\threadlocal var threadlocal_arr: [4]u16 = .{ 0x1111, 0x2222, 0x3333, 0x4444, };
+            \\export fn threadlocal_read(a: *u32, b: *u16) void {
+            \\    a.* = threadlocal_var;
+            \\    b.* = threadlocal_arr[3];
+            \\}
+            \\export fn threadlocal_write(a: u32, b: u16) void {
+            \\    threadlocal_var = a;
+            \\    threadlocal_arr[3] = b;
+            \\}
+            ,
+        });
+
+        case.verifyObjdump(obj.getEmittedBin(), &.{
+            "-s",
+            "--symbols",
+            "--only-symbol=threadlocal",
+            "--only-symbol=tls",
+        }, .{});
+
+        const exe = case.addExecutable(.{
+            .name = "test",
+            .zig_source_bytes =
+            \\extern fn threadlocal_read(a: *u32, b: *u16) void;
+            \\extern fn threadlocal_write(a: u32, b: u16) void;
+            \\threadlocal var threadlocal_foo: u64 = 0xcafecafecafecafe;
+            \\pub fn main() !u8 {
+            \\    var a: u32 = undefined;
+            \\    var b: u16 = undefined;
+            \\    threadlocal_read(&a, &b);
+            \\    if (a != 1234 or b != 0x4444) return 1;
+            \\    if (threadlocal_foo != 0xcafecafecafecafe) return 2;
+            \\    threadlocal_write(0xabcdabcd, 0x5555);
+            \\    threadlocal_foo = 1;
+            \\    threadlocal_read(&a, &b);
+            \\    if (a != 0xabcdabcd or b != 0x5555) return 3;
+            \\    if (threadlocal_foo != 1) return 4;
+            \\    return 0;
+            \\}
+            ,
+        });
+        exe.root_module.addObject(obj);
+
+        const run = case.addRunArtifact(exe);
+        run.addCheck(.{ .expect_term = .{ .exited = 0 } });
+    }
+
     if (ctx.includeTest("dynamic-lib-code")) |case| {
         const lib = case.addLibrary(.dynamic, .{
             .name = "lib",
