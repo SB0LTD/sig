@@ -1836,10 +1836,14 @@ fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
         if (b.graph.environ_map.get("PATHEXT")) |PATHEXT| {
             var it = mem.tokenizeScalar(u8, PATHEXT, fs.path.delimiter);
 
+            const extended_path_buf = arena.alloc(u8, full_path.len + 1 + std.process.WindowsExtension.max_len) catch @panic("OOM");
+            @memcpy(extended_path_buf[0..full_path.len], full_path);
+
             while (it.next()) |ext| {
                 if (!supportedWindowsProgramExtension(ext)) continue;
 
-                const extended_path = try mem.concat(arena, u8, &.{ full_path, ext });
+                @memcpy(extended_path_buf[full_path.len..][0..ext.len], ext);
+                const extended_path = extended_path_buf[0 .. full_path.len + ext.len];
 
                 if (Io.Dir.cwd().access(io, extended_path, .{ .execute = true })) |_| {
                     return extended_path;
@@ -2708,4 +2712,5 @@ test {
     _ = Cache;
     _ = Step;
     _ = Configuration;
+    _ = &findProgram;
 }
