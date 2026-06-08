@@ -10,6 +10,7 @@ const tests = @import("test/tests.zig");
 const DevEnv = @import("src/dev.zig").Env;
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
+const sig_version_string = "0.1.2";
 const stack_size = 46 * 1024 * 1024;
 
 const IoMode = enum { threaded, evented };
@@ -316,6 +317,7 @@ pub fn build(b: *std.Build) !void {
     };
     const version = try arena.dupeSentinel(u8, version_slice, 0);
     exe_options.addOption([:0]const u8, "version", version);
+    exe_options.addOption([:0]const u8, "sig_version", sig_version_string);
 
     if (enable_llvm) {
         const cmake_cfg = if (static_llvm) null else blk: {
@@ -695,6 +697,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "have_llvm", false);
     exe_options.addOption(bool, "debug_gpa", false);
     exe_options.addOption([:0]const u8, "version", version);
+    exe_options.addOption([:0]const u8, "sig_version", sig_version_string);
     exe_options.addOption(std.SemanticVersion, "semver", semver);
     exe_options.addOption(bool, "enable_debug_extensions", false);
     exe_options.addOption(bool, "enable_logging", false);
