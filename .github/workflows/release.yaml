@@ -1,10 +1,10 @@
-# [sig] Self-sustained release pipeline — sig builds sig
+# [sig] Self-sustained release pipeline ΓÇö sig builds sig
 #
 # All targets cross-compiled from Linux using the Linux bootstrap.
 # Each target uses its own LLVM package (cross-compiled for that target).
 # This matches upstream zig's approach: zig-bootstrap cross-compiles everything.
 #
-# Chain: build-llvm (one-time) → build-bootstrap (one-time) → release (every release)
+# Chain: build-llvm (one-time) ΓåÆ build-bootstrap (one-time) ΓåÆ release (every release)
 name: release
 
 on:
@@ -125,7 +125,7 @@ jobs:
             -Dno-lib \
             -Denable-llvm \
             -Dstatic-llvm \
-            -Dversion-string="${ZIG_VER_BASE}" \
+            -Dversion-string="${VERSION}" \
             --zig-lib-dir lib \
             --search-prefix "${LLVM_PREFIX}" \
             ${EXP_FLAGS}
@@ -203,6 +203,6 @@ jobs:
           sleep 2
           gh release create "sig-${VERSION}" \
             --title "Sig ${VERSION}" \
-            --notes "Sig ${VERSION} — self-sustained release (sig builds sig)." \
+            --notes "Sig ${VERSION} ΓÇö self-sustained release (sig builds sig)." \
             --latest ${PRERELEASE} \
             $ARCHIVES sha256sums.txt
