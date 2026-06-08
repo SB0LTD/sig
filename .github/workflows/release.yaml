@@ -66,23 +66,35 @@ jobs:
         id: version
         shell: bash
         run: |
+          # Determine version source file (build.sig preferred, build.zig fallback)
+          if [ -f "build.sig" ]; then
+            VER_FILE="build.sig"
+          else
+            VER_FILE="build.zig"
+          fi
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
             SIG_VER="${{ inputs.version }}"
           else
-            SIG_MAJOR=$(sed -n 's/^const sig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
-            SIG_MINOR=$(sed -n 's/^const sig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
-            SIG_PATCH=$(sed -n 's/^const sig_version.*patch = \([0-9]*\).*/\1/p' build.sig | head -1)
-            SIG_PRE=$(sed -n 's/^const sig_version.*pre = "\([^"]*\)".*/\1/p' build.sig | head -1)
-            [ -n "$SIG_PRE" ] && SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}-${SIG_PRE}" \
-                              || SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}"
+            SIG_MAJOR=$(sed -n 's/^const sig_version.*major = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
+            SIG_MINOR=$(sed -n 's/^const sig_version.*minor = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
+            SIG_PATCH=$(sed -n 's/^const sig_version.*patch = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
+            SIG_PRE=$(sed -n 's/^const sig_version.*pre = "\([^"]*\)".*/\1/p' "$VER_FILE" | head -1)
+            # Fallback: if struct format didn't match, try string format (build.zig)
+            if [ -z "$SIG_MAJOR" ]; then
+              SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' "$VER_FILE" | head -1)
+            else
+              [ -n "$SIG_PRE" ] && SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}-${SIG_PRE}" \
+                                || SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}"
+            fi
           fi
-          ZIG_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
-          ZIG_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
-          ZIG_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' build.sig | head -1)
+          ZIG_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
+          ZIG_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
+          ZIG_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
           VERSION="${SIG_VER}-zig${ZIG_MAJOR}.${ZIG_MINOR}.${ZIG_PATCH}.$(git rev-parse --short=7 HEAD)"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "Building sig ${VERSION} for ${{ matrix.target }}"
+          echo "Building sig ${VERSION} for ${{ matrix.target }} (version source: ${VER_FILE})"
 
       - name: Download bootstrap
         env:
