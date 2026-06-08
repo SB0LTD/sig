@@ -31,7 +31,7 @@ permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v21' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v22' }}
 
 jobs:
   build:
@@ -133,11 +133,8 @@ jobs:
           # Experimental targets (all platforms have them in the LLVM package)
           EXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"
 
-          # Bootstrap uses build.zig (std.Build) since it predates the sig_build path.
-          # Once we ship a bootstrap with the new cmdBuild, switch to:
-          #   "${SIG}" build [flags...]  (which picks up build.sig natively)
+          # sig build uses build.sig natively via sig_build (bootstrap v22+)
           "${SIG}" build \
-            --build-file build.zig \
             --prefix stage3-out \
             -Doptimize=ReleaseFast \
             -Dstrip \
