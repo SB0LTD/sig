@@ -133,8 +133,11 @@ jobs:
           # Experimental targets (all platforms have them in the LLVM package)
           EXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"
 
-          # sig build uses build.sig natively via sig_build (bootstrap v22+)
+          # sig build uses build.zig for this transitional release (bootstrap v22 has
+          # std lib API mismatches with current source). The OUTPUT binary will have
+          # the new cmdBuild and become bootstrap-sig-v23. Next release uses build.sig.
           "${SIG}" build \
+            --build-file build.zig \
             --prefix stage3-out \
             -Doptimize=ReleaseFast \
             -Dstrip \
