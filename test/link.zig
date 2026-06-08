@@ -94,7 +94,7 @@ pub fn addCases(ctx: *LinkContext) void {
             "--symbols",
             "--only-symbol=threadlocal",
             "--only-symbol=tls",
-        }, .{});
+        }, .{ .use_llvm = true });
 
         const exe = case.addExecutable(.{
             .name = "test",
