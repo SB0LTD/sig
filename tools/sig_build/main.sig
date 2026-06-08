@@ -3902,11 +3902,9 @@ pub const Build_Context = struct {
             // LLVM/Clang/LLD library flags, and platform-specific system libraries.
             try appendLlvmLinkerArgs(&cmd, build_ctx);
 
-            // Link libc when LLVM is enabled (LLVM depends on libc).
-            // Check options directly since llvm_config.discovered may not be set yet.
-            const has_llvm = build_ctx.options.getValue("enable-llvm") != null or
-                build_ctx.options.getValue("static-llvm") != null;
-            if (has_llvm) {
+            // Always link libc for cross-compilation targets.
+            // The compiler needs this to resolve C ABI extern declarations in std.
+            if (build_ctx.target.arch_len > 0) {
                 try cmd.appendArg("-lc");
             }
 
