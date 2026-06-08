@@ -439,7 +439,7 @@ fn mainArgs(
         },
         .version => {
             dev.check(.version_command);
-            try Io.File.stdout().writeStreamingAll(io, build_options.version ++ "\n");
+            try Io.File.stdout().writeStreamingAll(io, "sig " ++ build_options.sig_version ++ " (zig " ++ build_options.version ++ ")\n");
             return;
         },
         .env => {
