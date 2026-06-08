@@ -4549,6 +4549,7 @@ fn compileBuildSig(
     cmd.appendArg(global_cache_dir) catch fatal(io, "global cache dir too long for command buffer", .{});
     cmd.appendArg("--zig-lib-dir") catch fatal(io, "failed to add --zig-lib-dir arg", .{});
     cmd.appendArg(zig_lib_dir) catch fatal(io, "zig lib dir too long for command buffer", .{});
+    cmd.appendArg("-lc") catch fatal(io, "failed to add -lc arg", .{});
     cmd.appendArg(emit_flag) catch fatal(io, "emit flag too long for command buffer", .{});
 
     if (verbose) {
