@@ -1,10 +1,12 @@
 const Configuration = @This();
 
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const max_u32 = std.math.maxInt(u32);
+const native_endian = builtin.target.cpu.arch.endian();
 
 string_bytes: []u8,
 steps: []Step,
@@ -3433,18 +3435,46 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
     return result;
 }
 
+/// Loads bits using native endianness when `value` spans multiple bytes.
+/// On big endian architectures, `bit_offset` uses MSb 0 bit numbering.
+/// On little endian architectures, `bit_offset` uses LSb 0 bit numbering.
+/// See `storeBits`.
 pub fn loadBits(comptime Int: type, buffer: []const Int, bit_offset: usize, comptime Result: type) Result {
     const index = bit_offset / @bitSizeOf(Int);
     const small_bit_offset = bit_offset % @bitSizeOf(Int);
     const ResultInt = @Int(.unsigned, @bitSizeOf(Result));
-    const result: ResultInt = @truncate(buffer[index] >> @intCast(small_bit_offset));
-    const available_bits = @bitSizeOf(Int) - small_bit_offset;
-    if (available_bits >= @bitSizeOf(ResultInt)) return @bitCast(result);
-    const missing_bits = @bitSizeOf(ResultInt) - available_bits;
-    const upper: ResultInt = @truncate(buffer[index + 1] & ((@as(usize, 1) << @intCast(missing_bits)) - 1));
-    return @bitCast(result | (upper << @intCast(available_bits)));
+    switch (native_endian) {
+        .little => {
+            const result: ResultInt = @truncate(buffer[index] >> @intCast(small_bit_offset));
+            const available_bits = @bitSizeOf(Int) - small_bit_offset;
+            if (available_bits >= @bitSizeOf(ResultInt)) return @bitCast(result);
+            const missing_bits = @bitSizeOf(ResultInt) - available_bits;
+            const upper: ResultInt = @truncate(buffer[index + 1] & ((@as(usize, 1) << @intCast(missing_bits)) - 1));
+            return @bitCast(result | (upper << @intCast(available_bits)));
+        },
+        .big => {
+            const available_bits = @bitSizeOf(Int) - small_bit_offset;
+            if (available_bits >= @bitSizeOf(ResultInt)) {
+                const shift = available_bits - @bitSizeOf(ResultInt);
+                const result: ResultInt = @truncate(buffer[index] >> @intCast(shift));
+                return @bitCast(result);
+            }
+            const mask = (@as(Int, 1) << @intCast(available_bits)) - 1;
+            const result: ResultInt = @intCast(buffer[index] & mask);
+            const missing_bits = @bitSizeOf(ResultInt) - available_bits;
+            const lower: ResultInt = @truncate(buffer[index + 1] >> @intCast(@bitSizeOf(Int) - missing_bits));
+            return @bitCast((result << @intCast(missing_bits)) | lower);
+        },
+    }
 }
 
+/// Store bits using native endianness when `value` spans multiple bytes.
+/// On big endian architectures:
+/// - For a given value, the bits of an earlier byte are more significant than the bits of subsequent bytes.
+/// - `bit_offset` uses MSb 0 bit numbering.
+/// On little endian architectures:
+/// - For a given value, the bits of an earlier byte are less significant than the bits of subsequent bytes.
+/// - `bit_offset` uses LSb 0 bit numbering.
 pub fn storeBits(comptime Int: type, buffer: []Int, bit_offset: usize, value: anytype) void {
     const Value = @TypeOf(value);
     const ValueInt = @Int(.unsigned, @bitSizeOf(Value));
@@ -3453,27 +3483,70 @@ pub fn storeBits(comptime Int: type, buffer: []Int, bit_offset: usize, value: an
     const small_bit_offset = bit_offset % @bitSizeOf(Int);
     const available_bits = @bitSizeOf(Int) - small_bit_offset;
     if (available_bits >= @bitSizeOf(ValueInt)) {
-        buffer[index] &= ~(((@as(Int, 1) << @intCast(@bitSizeOf(Value))) - 1) << @intCast(small_bit_offset));
-        buffer[index] |= @as(Int, value_int) << @intCast(small_bit_offset);
+        const shift = switch (native_endian) {
+            .little => small_bit_offset,
+            .big => available_bits - @bitSizeOf(ValueInt),
+        };
+        buffer[index] &= ~(((@as(Int, 1) << @intCast(@bitSizeOf(Value))) - 1) << @intCast(shift));
+        buffer[index] |= @as(Int, value_int) << @intCast(shift);
     } else {
         const DoubleInt = @Int(.unsigned, @bitSizeOf(Int) * 2);
+        const shift = switch (native_endian) {
+            .little => small_bit_offset,
+            .big => @bitSizeOf(DoubleInt) - small_bit_offset - @bitSizeOf(ValueInt),
+        };
         const ptr: *align(@alignOf(Int)) DoubleInt = @ptrCast(buffer[index..][0..2]);
-        ptr.* &= ~(((@as(DoubleInt, 1) << @intCast(@bitSizeOf(Value))) - 1) << @intCast(small_bit_offset));
-        ptr.* |= @as(DoubleInt, value_int) << @intCast(small_bit_offset);
+        ptr.* &= ~(((@as(DoubleInt, 1) << @intCast(@bitSizeOf(Value))) - 1) << @intCast(shift));
+        ptr.* |= @as(DoubleInt, value_int) << @intCast(shift);
     }
 }
 
 test "loadBits and storeBits" {
-    var buffer: [2]u32 = .{
-        0b01111111000000001111111100000000,
-        0b11111111000000001111111100000100,
+    var buffer: [2]u32 = switch (native_endian) {
+        .little => .{
+            //──┐ 0b100011 (end)     ┌─┐ 0b100
+            0b01111111000000001111111100000000,
+            //            n <── bit offset 0 ┘
+            //                             ┌── 0b100011 (start)
+            0b11111111000000001111111100000100,
+        },
+        .big => .{
+            //      ┌─┐ 0b100              ┌── 0b100011 (start)
+            0b11111110000000001111111100000100,
+            //└ bit offset 0 ──> n
+            //──┐ 0b100011 (end)
+            0b01111111000000001111111100000000,
+        },
     };
+
     try std.testing.expectEqual(0b100, loadBits(u32, &buffer, 6, u3));
     try std.testing.expectEqual(0b100011, loadBits(u32, &buffer, 29, u6));
 
+    storeBits(u32, &buffer, 0, @as(u1, 0b0));
     storeBits(u32, &buffer, 6, @as(u3, 0b010));
-    storeBits(u32, &buffer, 29, @as(u6, 0b010010));
+    storeBits(u32, &buffer, 29, @as(u6, 0b010110));
+    storeBits(u32, &buffer, 40, @as(u17, 0b01110110011111110));
 
+    try std.testing.expectEqual(0b0, loadBits(u32, &buffer, 0, u1));
     try std.testing.expectEqual(0b010, loadBits(u32, &buffer, 6, u3));
-    try std.testing.expectEqual(0b010010, loadBits(u32, &buffer, 29, u6));
+    try std.testing.expectEqual(0b010110, loadBits(u32, &buffer, 29, u6));
+    try std.testing.expectEqual(0b01110110011111110, loadBits(u32, &buffer, 40, u17));
+
+    // Test roundtripping of size/offset combinations
+    inline for (1..32) |value_size| {
+        for (0..64) |bit_offset| {
+            if (value_size + bit_offset > @bitSizeOf(@TypeOf(buffer))) continue;
+
+            buffer = .{ 0, 0 };
+
+            const Value = @Int(.unsigned, value_size);
+            const value: Value = @intCast((@as(u32, 1) << @intCast(@bitSizeOf(Value))) - 1);
+            storeBits(u32, &buffer, bit_offset, value);
+            std.testing.expectEqual(value, loadBits(u32, &buffer, bit_offset, Value)) catch |err| {
+                std.debug.print("value size: {} bit offset: {}\n", .{ value_size, bit_offset });
+                std.debug.print("buffer: {b:0>32} {b:0>32}\n", .{ buffer[0], buffer[1] });
+                return err;
+            };
+        }
+    }
 }
