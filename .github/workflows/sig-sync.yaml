@@ -103,7 +103,7 @@ jobs:
 
           # Files we own — on conflict, keep ours
           SIG_OWNED=(
-            README.md CHANGELOG.md build.sig
+            README.md CHANGELOG.md build.zig
             stage1/config.zig.in
             .gitignore bootstrap.ps1 CMakeLists.txt
           )
@@ -340,19 +340,19 @@ jobs:
 
             # ── Post-integration: version sync, manifest, README, push
             if [ "$INTEGRATED" = "true" ]; then
-              # Sync zig version from CMakeLists.txt → build.sig
+              # Sync zig version from CMakeLists.txt → build.zig
               ZIG_MAJOR=$(sed -n 's/^set(ZIG_VERSION_MAJOR \([0-9]*\))/\1/p' CMakeLists.txt)
               ZIG_MINOR=$(sed -n 's/^set(ZIG_VERSION_MINOR \([0-9]*\))/\1/p' CMakeLists.txt)
               ZIG_PATCH=$(sed -n 's/^set(ZIG_VERSION_PATCH \([0-9]*\))/\1/p' CMakeLists.txt)
 
               if [ -n "$ZIG_MAJOR" ] && [ -n "$ZIG_MINOR" ] && [ -n "$ZIG_PATCH" ]; then
-                CUR_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' build.sig | head -1)
-                CUR_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' build.sig | head -1)
-                CUR_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' build.sig | head -1)
+                CUR_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' build.zig | head -1)
+                CUR_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' build.zig | head -1)
+                CUR_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' build.zig | head -1)
 
                 if [ "$ZIG_MAJOR" != "$CUR_MAJOR" ] || [ "$ZIG_MINOR" != "$CUR_MINOR" ] || [ "$ZIG_PATCH" != "$CUR_PATCH" ]; then
-                  sed -i "s/const zig_version: std.SemanticVersion = .{ .major = [0-9]*, .minor = [0-9]*, .patch = [0-9]* };/const zig_version: std.SemanticVersion = .{ .major = $ZIG_MAJOR, .minor = $ZIG_MINOR, .patch = $ZIG_PATCH };/" build.sig
-                  git add build.sig
+                  sed -i "s/const zig_version: std.SemanticVersion = .{ .major = [0-9]*, .minor = [0-9]*, .patch = [0-9]* };/const zig_version: std.SemanticVersion = .{ .major = $ZIG_MAJOR, .minor = $ZIG_MINOR, .patch = $ZIG_PATCH };/" build.zig
+                  git add build.zig
                   git diff --cached --quiet || git commit -m "sig-sync: bump zig_version to $ZIG_MAJOR.$ZIG_MINOR.$ZIG_PATCH"
                 fi
               fi
