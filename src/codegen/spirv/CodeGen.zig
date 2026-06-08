@@ -1442,6 +1442,8 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
                     .spirv_fragment,
                     .spirv_vertex,
                     .spirv_device,
+                    .spirv_task,
+                    .spirv_mesh,
                     => {},
                     else => unreachable,
                 }
@@ -2542,15 +2544,6 @@ fn generateTestEntryPoint(
                 cg.module.error_buffer = spv_err_decl_index;
             }
 
-            try cg.module.sections.execution_modes.emit(gpa, .OpExecutionMode, .{
-                .entry_point = kernel_id,
-                .mode = .{ .local_size = .{
-                    .x_size = 1,
-                    .y_size = 1,
-                    .z_size = 1,
-                } },
-            });
-
             const void_ty_id = try cg.resolveType(.void, .direct);
             const kernel_proto_ty_id = try cg.module.functionType(void_ty_id, &.{});
             try section.emit(gpa, .OpFunction, .{
@@ -2599,13 +2592,7 @@ fn generateTestEntryPoint(
     // point name is the same as a different OpName.
     const test_name = try std.fmt.allocPrint(cg.module.arena, "test {s}", .{name});
 
-    const execution_mode: spec.ExecutionModel = switch (target.os.tag) {
-        .vulkan, .opengl => .gl_compute,
-        .opencl, .amdhsa => .kernel,
-        else => unreachable,
-    };
-
-    try cg.module.declareEntryPoint(spv_decl_index, test_name, execution_mode, null);
+    try cg.module.declareEntryPoint(spv_decl_index, test_name, .{ .spirv_kernel = .{ .x = 1, .y = 1, .z = 1 } });
 }
 
 fn intFromBool(cg: *CodeGen, value: Temporary, result_ty: Type) !Temporary {

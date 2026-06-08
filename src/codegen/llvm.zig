@@ -4445,6 +4445,10 @@ pub fn toLlvmCallConv(cc: std.lang.CallingConvention, target: *const std.Target)
             std.lang.CallingConvention.CommonOptions,
             => .{ pl.incoming_stack_alignment, 0, 0 },
             std.lang.CallingConvention.X86RegparmOptions => .{ pl.incoming_stack_alignment, pl.register_params, 0 },
+            std.lang.CallingConvention.SpirvKernelOptions,
+            std.lang.CallingConvention.SpirvFragmentOptions,
+            std.lang.CallingConvention.SpirvMeshOptions,
+            => .{ null, 0, 0 },
             else => @compileError("TODO: toLlvmCallConv" ++ @tagName(pl)),
         },
     };
@@ -4588,6 +4592,8 @@ pub fn toLlvmCallConvTag(cc_tag: std.lang.CallingConvention.Tag, target: *const 
         .spirv_kernel,
         .spirv_fragment,
         .spirv_vertex,
+        .spirv_task,
+        .spirv_mesh,
         => null,
     };
 }

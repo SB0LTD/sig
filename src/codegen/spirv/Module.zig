@@ -132,15 +132,10 @@ pub const Decl = struct {
     end_dep: usize = 0,
 };
 
-/// This models a kernel entry point.
 pub const EntryPoint = struct {
-    /// The declaration that should be exported.
     decl_index: Decl.Index,
-    /// The name of the kernel to be exported.
     name: []const u8,
-    /// Calling Convention
-    exec_model: spec.ExecutionModel,
-    exec_mode: ?spec.ExecutionMode = null,
+    cc: std.builtin.CallingConvention,
 };
 
 const StructType = struct {
@@ -320,25 +315,89 @@ fn entryPoints(module: *Module) !Section {
         interface.items.len = 0;
         seen.setRangeValue(.{ .start = 0, .end = module.decls.items.len }, false);
 
+        const exec_model: spec.ExecutionModel = switch (target.os.tag) {
+            .vulkan, .opengl => switch (entry_point.cc) {
+                .spirv_vertex => .vertex,
+                .spirv_fragment => .fragment,
+                .spirv_kernel => .gl_compute,
+                .spirv_task => .task_ext,
+                .spirv_mesh => .mesh_ext,
+                // TODO: We should integrate with the Linkage capability and export this function
+                .spirv_device => continue,
+                else => unreachable,
+            },
+            .opencl => switch (entry_point.cc) {
+                .spirv_kernel => .kernel,
+                // TODO: We should integrate with the Linkage capability and export this function
+                .spirv_device => continue,
+                else => unreachable,
+            },
+            else => unreachable,
+        };
         try module.addEntryPointDeps(entry_point.decl_index, &seen, &interface);
         try entry_points.emit(module.gpa, .OpEntryPoint, .{
-            .execution_model = entry_point.exec_model,
+            .execution_model = exec_model,
             .entry_point = entry_point_id,
             .name = entry_point.name,
             .interface = interface.items,
         });
 
-        if (entry_point.exec_mode == null and entry_point.exec_model == .fragment) {
-            switch (target.os.tag) {
-                .vulkan, .opengl => |tag| {
+        switch (entry_point.cc) {
+            .spirv_kernel, .spirv_task => |kernel| {
+                try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
+                    .entry_point = entry_point_id,
+                    .mode = .{ .local_size = .{
+                        .x_size = kernel.x,
+                        .y_size = kernel.y,
+                        .z_size = kernel.z,
+                    } },
+                });
+            },
+            .spirv_fragment => |fragment| {
+                try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
+                    .entry_point = entry_point_id,
+                    .mode = if (target.os.tag == .vulkan) .origin_upper_left else .origin_lower_left,
+                });
+                if (fragment.pixel_centered_integer) {
                     try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
                         .entry_point = entry_point_id,
-                        .mode = if (tag == .vulkan) .origin_upper_left else .origin_lower_left,
+                        .mode = .pixel_center_integer,
                     });
-                },
-                .opencl => {},
-                else => unreachable,
-            }
+                }
+
+                const exec_mode: ?spec.ExecutionMode.Extended = switch (fragment.depth_assumption) {
+                    .none => null,
+                    .greater => .depth_greater,
+                    .less => .depth_less,
+                    .unchanged => .depth_unchanged,
+                };
+                if (exec_mode) |mode| {
+                    try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
+                        .entry_point = entry_point_id,
+                        .mode = mode,
+                    });
+                }
+            },
+            .spirv_mesh => |mesh| {
+                try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
+                    .entry_point = entry_point_id,
+                    .mode = .{ .output_vertices = .{ .vertex_count = mesh.max_vertices } },
+                });
+                try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
+                    .entry_point = entry_point_id,
+                    .mode = .{ .output_primitives_ext = .{ .primitive_count = mesh.max_primitives } },
+                });
+
+                try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
+                    .entry_point = entry_point_id,
+                    .mode = switch (mesh.stage_output) {
+                        .output_points => .output_points,
+                        .output_lines => .output_lines_ext,
+                        .output_triangles => .output_triangles_ext,
+                    },
+                });
+            },
+            else => {}, // TODO: should this be unreachable?
         }
     }
 
@@ -925,15 +984,12 @@ pub fn declareEntryPoint(
     module: *Module,
     decl_index: Decl.Index,
     name: []const u8,
-    exec_model: spec.ExecutionModel,
-    exec_mode: ?spec.ExecutionMode,
+    cc: std.builtin.CallingConvention,
 ) !void {
     const gop = try module.entry_points.getOrPut(module.gpa, module.declPtr(decl_index).result_id);
     gop.value_ptr.decl_index = decl_index;
     gop.value_ptr.name = name;
-    gop.value_ptr.exec_model = exec_model;
-    // Might've been set by assembler
-    if (!gop.found_existing) gop.value_ptr.exec_mode = exec_mode;
+    gop.value_ptr.cc = cc;
 }
 
 pub fn debugName(module: *Module, target: Id, name: []const u8) !void {

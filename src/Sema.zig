@@ -8599,6 +8599,7 @@ fn checkReturnTypeAndCallConv(
 ) CompileError!void {
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const target = zcu.getTarget();
     if (opt_varargs_src) |varargs_src| {
         try sema.checkCallConvSupportsVarArgs(block, varargs_src, @"callconv");
     }
@@ -8659,6 +8660,21 @@ fn checkReturnTypeAndCallConv(
         },
         .@"inline" => if (is_noinline) {
             return sema.fail(block, callconv_src, "'noinline' function cannot have calling convention 'inline'", .{});
+        },
+        .spirv_fragment => |fragment| {
+            if (fragment.pixel_centered_integer and target.os.tag != .opengl) {
+                return sema.fail(block, callconv_src, "'pixel_centered_integer' is not supported on this target", .{});
+            }
+        },
+        .spirv_kernel, .spirv_task => |kernel| {
+            if (kernel.x == 0 or kernel.y == 0 or kernel.z == 0) {
+                return sema.fail(block, callconv_src, "kernel workgroup dimensions must be at least 1", .{});
+            }
+        },
+        .spirv_mesh => |mesh| {
+            if (mesh.max_vertices == 0 or mesh.max_primitives == 0) {
+                return sema.fail(block, callconv_src, "mesh shader 'max_vertices' and 'max_primitives' must be at least 1", .{});
+            }
         },
         else => {},
     }
@@ -8770,6 +8786,8 @@ fn callConvIsCallable(cc: std.lang.CallingConvention.Tag) bool {
         .spirv_kernel,
         .spirv_fragment,
         .spirv_vertex,
+        .spirv_task,
+        .spirv_mesh,
         => false,
 
         else => true,
@@ -29127,7 +29145,7 @@ fn callconvCoerceAllowed(
     switch (src_cc) {
         inline else => |src_data, tag| {
             const dest_data = @field(dest_cc, @tagName(tag));
-            if (@TypeOf(src_data) != void) {
+            if (@TypeOf(src_data) != void and @hasField(@TypeOf(src_data), "incoming_stack_alignment")) {
                 const default_stack_align = target.stackAlignment();
                 const src_stack_align = src_data.incoming_stack_alignment orelse default_stack_align;
                 const dest_stack_align = dest_data.incoming_stack_alignment orelse default_stack_align;
@@ -29156,6 +29174,10 @@ fn callconvCoerceAllowed(
                 std.lang.CallingConvention.ShInterruptOptions => {
                     if (src_data.save != dest_data.save) return false;
                 },
+                std.lang.CallingConvention.SpirvKernelOptions,
+                std.lang.CallingConvention.SpirvFragmentOptions,
+                std.lang.CallingConvention.SpirvMeshOptions,
+                => {},
                 else => comptime unreachable,
             }
         },

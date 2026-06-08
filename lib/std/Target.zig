@@ -1984,6 +1984,8 @@ pub const Cpu = struct {
                 .spirv_kernel,
                 .spirv_fragment,
                 .spirv_vertex,
+                .spirv_task,
+                .spirv_mesh,
                 => &.{ .spirv32, .spirv64 },
 
                 .ez80_cet,
