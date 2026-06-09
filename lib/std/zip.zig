@@ -164,50 +164,6 @@ pub const EndRecord = extern struct {
     }
 };
 
-pub const Decompress = struct {
-    interface: Reader,
-    state: union {
-        inflate: flate.Decompress,
-        store: *Reader,
-    },
-
-    pub fn init(reader: *Reader, method: CompressionMethod, buffer: []u8) Reader {
-        return switch (method) {
-            .store => .{
-                .state = .{ .store = reader },
-                .interface = .{
-                    .context = undefined,
-                    .vtable = &.{ .stream = streamStore },
-                    .buffer = buffer,
-                    .end = 0,
-                    .seek = 0,
-                },
-            },
-            .deflate => .{
-                .state = .{ .inflate = .init(reader, .raw) },
-                .interface = .{
-                    .context = undefined,
-                    .vtable = &.{ .stream = streamDeflate },
-                    .buffer = buffer,
-                    .end = 0,
-                    .seek = 0,
-                },
-            },
-            else => unreachable,
-        };
-    }
-
-    fn streamStore(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
-        const d: *Decompress = @fieldParentPtr("interface", r);
-        return d.store.read(w, limit);
-    }
-
-    fn streamDeflate(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
-        const d: *Decompress = @fieldParentPtr("interface", r);
-        return flate.Decompress.read(&d.inflate, w, limit);
-    }
-};
-
 fn isBadFilename(filename: []const u8) bool {
     if (filename.len == 0 or filename[0] == '/')
         return true;

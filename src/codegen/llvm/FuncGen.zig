@@ -6944,6 +6944,7 @@ pub fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: *cons
         .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu, target, .ret) == .memory,
         .x86_sysv, .x86_win => isByRef(return_type, zcu),
         .x86_stdcall => !isScalar(zcu, return_type),
+        .x86_fastcall => firstParamSRetX86Fastcall(zcu, return_type),
         .wasm_mvp => wasm_c_abi.classifyType(return_type, zcu) == .indirect,
         .aarch64_aapcs,
         .aarch64_aapcs_darwin,
@@ -6961,6 +6962,20 @@ pub fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: *cons
         },
         else => false, // TODO: investigate other targets/callconvs
     };
+}
+
+fn firstParamSRetX86Fastcall(zcu: *Zcu, ty: Type) bool {
+    if (isScalar(zcu, ty)) {
+        return false;
+    }
+    const tag = ty.zigTypeTag(zcu);
+    if (tag == .@"struct" or tag == .@"union") {
+        const size = ty.abiSize(zcu);
+        if (size == 1 or size == 2 or size == 4 or size == 8) {
+            return false;
+        }
+    }
+    return true;
 }
 
 fn firstParamSRetSystemV(ty: Type, zcu: *Zcu, target: *const std.Target) bool {
@@ -6984,10 +6999,10 @@ pub fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Erro
     switch (fn_info.cc) {
         .@"inline" => unreachable,
         .auto => return if (returnTypeByRef(zcu, target, return_type)) .void else o.lowerType(return_type),
-
         .x86_64_sysv => return lowerSystemVFnRetTy(o, fn_info),
         .x86_64_win => return lowerWin64FnRetTy(o, fn_info),
         .x86_stdcall => return if (isScalar(zcu, return_type)) o.lowerType(return_type) else .void,
+        .x86_fastcall => return lowerX86FastcallFnRetTy(o, zcu, return_type),
         .x86_sysv, .x86_win => return if (isByRef(return_type, zcu)) .void else o.lowerType(return_type),
         .aarch64_aapcs, .aarch64_aapcs_darwin, .aarch64_aapcs_win => switch (aarch64_c_abi.classifyType(return_type, zcu)) {
             .memory => return .void,
@@ -7036,6 +7051,20 @@ pub fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Erro
         // TODO investigate other callconvs
         else => return o.lowerType(return_type),
     }
+}
+
+fn lowerX86FastcallFnRetTy(o: *Object, zcu: *Zcu, ty: Type) Allocator.Error!Builder.Type {
+    if (isScalar(zcu, ty)) {
+        return o.lowerType(ty);
+    }
+    const tag = ty.zigTypeTag(zcu);
+    if (tag == .@"struct" or tag == .@"union") {
+        const size = ty.abiSize(zcu);
+        if (size == 1 or size == 2 or size == 4 or size == 8) {
+            return o.builder.intType(@intCast(size * 8));
+        }
+    }
+    return .void;
 }
 
 fn lowerWin64FnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Builder.Type {

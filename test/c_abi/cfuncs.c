@@ -69,7 +69,7 @@ static void assert_or_panic(bool ok) {
 #  define ZIG_NO_COMPLEX
 #endif
 
-#ifdef __powerpc__
+#ifdef ZIG_PPC32
 #  define ZIG_NO_COMPLEX
 #endif
 
@@ -153,6 +153,10 @@ static void assert_or_panic(bool ok) {
 #define ZIG_NO_F128
 #endif
 
+#ifdef _MSC_VER
+#define ZIG_NO_F128
+#endif
+
 #ifndef ZIG_NO_I128
 struct i128 {
     __int128 value;
@@ -198,12 +202,14 @@ void zig_ptr(void *);
 
 void zig_bool(bool);
 
+#ifndef ZIG_NO_COMPLEX
 // Note: These two functions match the signature of __mulsc3 and __muldc3 in compiler-rt (and libgcc)
 float complex zig_cmultf_comp(float a_r, float a_i, float b_r, float b_i);
 double complex zig_cmultd_comp(double a_r, double a_i, double b_r, double b_i);
 
 float complex zig_cmultf(float complex a, float complex b);
 double complex zig_cmultd(double complex a, double complex b);
+#endif
 
 struct Struct_u8 {
     uint8_t a;
@@ -5312,6 +5318,7 @@ void c_five_floats(float a, float b, float c, float d, float e) {
     assert_or_panic(e == 5.0);
 }
 
+#ifndef ZIG_NO_COMPLEX
 float complex c_cmultf_comp(float a_r, float a_i, float b_r, float b_i) {
     assert_or_panic(a_r == 1.25f);
     assert_or_panic(a_i == 2.6f);
@@ -5347,6 +5354,7 @@ double complex c_cmultd(double complex a, double complex b) {
 
     return 1.5 + I * 13.5;
 }
+#endif
 
 struct Struct_i32_i32 c_mut_struct_i32_i32(struct Struct_i32_i32 s) {
     assert_or_panic(s.a == 1);
@@ -5792,7 +5800,7 @@ f16_struct c_f16_struct(f16_struct a) {
     return (f16_struct){34};
 }
 
-#if defined __x86_64__ || defined __i386__
+#if (defined __x86_64__ || defined __i386__) && !defined _MSC_VER
 typedef long double f80;
 f80 c_f80(f80 a) {
     assert_or_panic((double)a == 12.34);
@@ -5907,7 +5915,7 @@ double c_byval_tail_callsite_attr(struct byval_tail_callsite_attr_Rect in) {
     return in.size.width;
 }
 
-#ifdef __i386__
+#if defined(__i386__) && defined(_WIN32) && !defined(_WIN64) && defined(_MSC_VER)
 void __attribute__((fastcall)) zig_fastcall_check(int a, float b, void *c, double d, int e);
 void __attribute__((fastcall)) c_fastcall_check(int a, float b, void *c, double d, int e) {
     assert_or_panic(a == 1);
@@ -5915,7 +5923,98 @@ void __attribute__((fastcall)) c_fastcall_check(int a, float b, void *c, double 
     assert_or_panic((uintptr_t)c == 3);
     assert_or_panic(d == 4.0);
     assert_or_panic(e == 5);
-    zig_fastcall_check(a, b, c, d, e);
+}
+
+typedef struct {
+    int a;
+    int b;
+    int c;
+} FastcallSRet;
+FastcallSRet __attribute__((fastcall)) zig_fastcall_sret(void);
+FastcallSRet __attribute__((fastcall)) c_fastcall_sret(void) {
+    return (FastcallSRet){
+        .a = 1,
+        .b = 2,
+        .c = 3
+    };
+}
+
+typedef struct {
+    char a;
+    short b;
+} FastcallNoSRet;
+FastcallNoSRet __attribute__((fastcall)) zig_fastcall_no_sret(void);
+FastcallNoSRet __attribute__((fastcall)) c_fastcall_no_sret(void) {
+    return (FastcallNoSRet){
+        .a = 1,
+        .b = 2
+    };
+}
+
+typedef struct {
+    float a;
+    float b;
+} FastcallNoSRetF32F32;
+FastcallNoSRetF32F32 __attribute__((fastcall)) zig_fastcall_no_sret_f32_f32(void);
+FastcallNoSRetF32F32 __attribute__((fastcall)) c_fastcall_no_sret_f32_f32(void) {
+    return (FastcallNoSRetF32F32){
+        .a = 1,
+        .b = 2
+    };
+}
+
+typedef struct {
+    double a;
+} FastcallNoSRetF64;
+FastcallNoSRetF64 __attribute__((fastcall)) zig_fastcall_no_sret_f64(void);
+FastcallNoSRetF64 __attribute__((fastcall)) c_fastcall_no_sret_f64(void) {
+    return (FastcallNoSRetF64){
+        .a = 1
+    };
+}
+
+float __attribute__((fastcall)) zig_fastcall_ret_f32(void);
+float __attribute__((fastcall)) c_fastcall_ret_f32(void) {
+    return 1;
+}
+
+double __attribute__((fastcall)) zig_fastcall_ret_f64(void);
+double __attribute__((fastcall)) c_fastcall_ret_f64(void) {
+    return 1;
+}
+
+void run_c_fastcall_tests(void) {
+    {
+        zig_fastcall_check(1, 2, (void*)3, 4, 5);
+    }
+    {
+        const FastcallSRet s = zig_fastcall_sret();
+        assert_or_panic(s.a == 1);
+        assert_or_panic(s.b == 2);
+        assert_or_panic(s.c == 3);
+    }
+    {
+        const FastcallNoSRet s = zig_fastcall_no_sret();
+        assert_or_panic(s.a == 1);
+        assert_or_panic(s.b == 2);
+    }
+    {
+        const FastcallNoSRetF32F32 s = zig_fastcall_no_sret_f32_f32();
+        assert_or_panic(s.a == 1);
+        assert_or_panic(s.b == 2);
+    }
+    {
+        const FastcallNoSRetF64 s = zig_fastcall_no_sret_f64();
+        assert_or_panic(s.a == 1);
+    }
+    {
+        const float s = zig_fastcall_ret_f32();
+        assert_or_panic(s == 1);
+    }
+    {
+        const double s = zig_fastcall_ret_f64();
+        assert_or_panic(s == 1);
+    }
 }
 
 void __attribute__((vectorcall)) zig_vectorcall_check(int a, float b, double c, void *d, float e, double f, double g, float h, float i, int j);
