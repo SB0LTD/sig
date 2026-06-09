@@ -3070,135 +3070,84 @@ pub fn compileCppFile(ctx: *Step_Context) SigError!void {
     const output_segs = [_][]const u8{ zigcpp_dir, obj_name };
     const output_path = try sig_fs.joinPath(&output_path_buf, &output_segs);
 
-    // ── 5.9: Build command in stack-allocated Command_Buffer ────────────
+    // ── 5.9: Build command using zig/sig internal Clang ────────────────
+    // Use sig build-obj with -cflags to leverage zig's built-in Clang.
+    // This handles cross-compilation targets correctly (unlike standalone clang++).
     var cmd: Command_Buffer = .{};
 
-    const is_cl_exe = llvm_cfg.cpp_compiler_kind == .cl_exe;
+    const sig_compiler = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
+    try cmd.appendArg(sig_compiler);
+    try cmd.appendArg("build-obj");
 
-    try cmd.appendArg(compiler);
-
-    if (is_cl_exe) {
-        // ── 5.8: Windows cl.exe variant ─────────────────────────────────
-        try cmd.appendArg("/c");
-        try cmd.appendArg("/std:c++17");
-        try cmd.appendArg("/Zc:preprocessor");
-        try cmd.appendArg("/MT");
-
-        // ── 5.5: Include dirs from Llvm_Config (cl.exe /I syntax) ───────
-        if (llvm_cfg.llvm_include_dir_len > 0) {
-            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
-            const prefix = "/I";
-            const dir = llvm_cfg.llvm_include_dir[0..llvm_cfg.llvm_include_dir_len];
-            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
-            @memcpy(inc_buf[0..prefix.len], prefix);
-            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
-            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
-        }
-        if (llvm_cfg.clang_include_dir_len > 0) {
-            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
-            const prefix = "/I";
-            const dir = llvm_cfg.clang_include_dir[0..llvm_cfg.clang_include_dir_len];
-            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
-            @memcpy(inc_buf[0..prefix.len], prefix);
-            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
-            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
-        }
-        if (llvm_cfg.lld_include_dir_len > 0) {
-            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
-            const prefix = "/I";
-            const dir = llvm_cfg.lld_include_dir[0..llvm_cfg.lld_include_dir_len];
-            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
-            @memcpy(inc_buf[0..prefix.len], prefix);
-            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
-            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
-        }
-
-        // ── 5.3: Preprocessor defs (cl.exe /D syntax) ──────────────────
-        try cmd.appendArg("/D__STDC_CONSTANT_MACROS");
-        try cmd.appendArg("/D__STDC_FORMAT_MACROS");
-        try cmd.appendArg("/D__STDC_LIMIT_MACROS");
-
-        // ── 5.4: Static LLVM defs ──────────────────────────────────────
-        if (llvm_cfg.static_llvm) {
-            try cmd.appendArg("/DLLVM_BUILD_STATIC");
-            try cmd.appendArg("/DCLANG_BUILD_STATIC");
-        }
-
-        // ── 5.6: Output path (cl.exe /Fo syntax, backslash) ────────────
-        {
-            var fo_buf: [PATH_BUF_SIZE]u8 = undefined;
-            const fo_prefix = "/Fo";
-            if (fo_prefix.len + output_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
-            @memcpy(fo_buf[0..fo_prefix.len], fo_prefix);
-            @memcpy(fo_buf[fo_prefix.len..][0..output_path.len], output_path);
-            try cmd.appendArg(fo_buf[0 .. fo_prefix.len + output_path.len]);
-        }
-
-        // Source file (last argument).
-        try cmd.appendArg(source_path);
-    } else {
-        // ── 5.2: clang++/g++ command ────────────────────────────────────
-        try cmd.appendArg("-c");
-        try cmd.appendArg("-std=c++17");
-        try cmd.appendArg("-fno-exceptions");
-        try cmd.appendArg("-fno-rtti");
-        try cmd.appendArg("-fno-stack-protector");
-        try cmd.appendArg("-fvisibility-inlines-hidden");
-
-        // ── 5.3: Preprocessor defs ──────────────────────────────────────
-        try cmd.appendArg("-D__STDC_CONSTANT_MACROS");
-        try cmd.appendArg("-D__STDC_FORMAT_MACROS");
-        try cmd.appendArg("-D__STDC_LIMIT_MACROS");
-        try cmd.appendArg("-D_GNU_SOURCE");
-
-        // ── 5.4: Static LLVM defs ──────────────────────────────────────
-        if (llvm_cfg.static_llvm) {
-            try cmd.appendArg("-DLLVM_BUILD_STATIC");
-            try cmd.appendArg("-DCLANG_BUILD_STATIC");
-        }
-
-        // ── 5.7: Suppress warnings ─────────────────────────────────────
-        try cmd.appendArg("-Wno-type-limits");
-        try cmd.appendArg("-Wno-missing-braces");
-        try cmd.appendArg("-Wno-comment");
-
-        // ── 5.5: Include dirs from Llvm_Config (-I syntax) ─────────────
-        if (llvm_cfg.llvm_include_dir_len > 0) {
-            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
-            const prefix = "-I";
-            const dir = llvm_cfg.llvm_include_dir[0..llvm_cfg.llvm_include_dir_len];
-            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
-            @memcpy(inc_buf[0..prefix.len], prefix);
-            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
-            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
-        }
-        if (llvm_cfg.clang_include_dir_len > 0) {
-            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
-            const prefix = "-I";
-            const dir = llvm_cfg.clang_include_dir[0..llvm_cfg.clang_include_dir_len];
-            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
-            @memcpy(inc_buf[0..prefix.len], prefix);
-            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
-            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
-        }
-        if (llvm_cfg.lld_include_dir_len > 0) {
-            var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
-            const prefix = "-I";
-            const dir = llvm_cfg.lld_include_dir[0..llvm_cfg.lld_include_dir_len];
-            if (prefix.len + dir.len > PATH_BUF_SIZE) return error.BufferTooSmall;
-            @memcpy(inc_buf[0..prefix.len], prefix);
-            @memcpy(inc_buf[prefix.len..][0..dir.len], dir);
-            try cmd.appendArg(inc_buf[0 .. prefix.len + dir.len]);
-        }
-
-        // ── 5.6: Output path (-o syntax) ───────────────────────────────
-        try cmd.appendArg("-o");
-        try cmd.appendArg(output_path);
-
-        // Source file (last argument).
-        try cmd.appendArg(source_path);
+    // Target (inherit from build context for cross-compilation)
+    if (build_ctx.target.arch_len > 0) {
+        try cmd.appendArg("-target");
+        var triple_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const triple_str = try build_ctx.target.format(&triple_buf);
+        try cmd.appendArg(triple_str);
     }
 
+    // C++ flags
+    try cmd.appendArg("-cflags");
+    try cmd.appendArg("-std=c++17");
+    try cmd.appendArg("-D__STDC_CONSTANT_MACROS");
+    try cmd.appendArg("-D__STDC_FORMAT_MACROS");
+    try cmd.appendArg("-D__STDC_LIMIT_MACROS");
+    try cmd.appendArg("-D_GNU_SOURCE");
+    try cmd.appendArg("-fno-exceptions");
+    try cmd.appendArg("-fno-rtti");
+    try cmd.appendArg("-fno-stack-protector");
+    try cmd.appendArg("-fvisibility-inlines-hidden");
+    try cmd.appendArg("-Wno-type-limits");
+    try cmd.appendArg("-Wno-missing-braces");
+    try cmd.appendArg("-Wno-comment");
+    try cmd.appendArg("-DLLVM_BUILD_STATIC");
+    try cmd.appendArg("-DCLANG_BUILD_STATIC");
+    try cmd.appendArg("-DNDEBUG=1");
+    // Include dirs
+    if (llvm_cfg.llvm_include_dir_len > 0) {
+        var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const inc_prefix = "-I";
+        const dir = llvm_cfg.llvm_include_dir[0..llvm_cfg.llvm_include_dir_len];
+        @memcpy(inc_buf[0..inc_prefix.len], inc_prefix);
+        @memcpy(inc_buf[inc_prefix.len..][0..dir.len], dir);
+        try cmd.appendArg(inc_buf[0 .. inc_prefix.len + dir.len]);
+    }
+    if (llvm_cfg.clang_include_dir_len > 0) {
+        var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const inc_prefix = "-I";
+        const dir = llvm_cfg.clang_include_dir[0..llvm_cfg.clang_include_dir_len];
+        @memcpy(inc_buf[0..inc_prefix.len], inc_prefix);
+        @memcpy(inc_buf[inc_prefix.len..][0..dir.len], dir);
+        try cmd.appendArg(inc_buf[0 .. inc_prefix.len + dir.len]);
+    }
+    if (llvm_cfg.lld_include_dir_len > 0) {
+        var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const inc_prefix = "-I";
+        const dir = llvm_cfg.lld_include_dir[0..llvm_cfg.lld_include_dir_len];
+        @memcpy(inc_buf[0..inc_prefix.len], inc_prefix);
+        @memcpy(inc_buf[inc_prefix.len..][0..dir.len], dir);
+        try cmd.appendArg(inc_buf[0 .. inc_prefix.len + dir.len]);
+    }
+    // End cflags, source file
+    try cmd.appendArg("--");
+    try cmd.appendArg(source_path);
+    // Output path
+    {
+        var emit_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const emit_prefix = "-femit-bin=";
+        if (emit_prefix.len + output_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+        @memcpy(emit_buf[0..emit_prefix.len], emit_prefix);
+        @memcpy(emit_buf[emit_prefix.len..][0..output_path.len], output_path);
+        try cmd.appendArg(emit_buf[0 .. emit_prefix.len + output_path.len]);
+    }
+    // Cache and lib dir
+    try cmd.appendArg("--cache-dir");
+    try cmd.appendArg(cache_dir);
+    if (build_ctx.zig_lib_dir_len > 0) {
+        try cmd.appendArg("--zig-lib-dir");
+        try cmd.appendArg(build_ctx.zig_lib_dir[0..build_ctx.zig_lib_dir_len]);
+    }
     // ── 5.10: Execute and capture stderr on failure ─────────────────────
     printMsg(io, "llvm: compiling {s} -> {s}", .{ source_path, output_path });
 
