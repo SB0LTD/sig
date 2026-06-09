@@ -19,9 +19,7 @@ comptime {
     // decls there get run.
     _ = root;
 
-    if (builtin.zig_backend == .stage2_spirv) {
-        // Do nothing
-    } else if (builtin.output_mode == .Lib and builtin.link_mode == .dynamic) {
+    if (builtin.output_mode == .Lib and builtin.link_mode == .dynamic) {
         const dll_main_crt_startup = if (builtin.abi.isGnu()) "DllMainCRTStartup" else "_DllMainCRTStartup";
         if (native_os == .windows and !builtin.link_libc and !@hasDecl(root, dll_main_crt_startup)) {
             @export(&DllMainCRTStartup, .{ .name = dll_main_crt_startup });
@@ -72,7 +70,7 @@ comptime {
             // case it's not required to provide an entrypoint such as main.
             if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(&wasm_freestanding_start, .{ .name = start_sym_name });
         } else switch (native_os) {
-            .other, .freestanding, .@"3ds", .psp, .vita => {},
+            .other, .freestanding, .@"3ds", .psp, .vita, .vulkan, .opengl, .opencl => {},
             else => if (!@hasDecl(root, start_sym_name)) @export(&_start, .{ .name = start_sym_name }),
         }
     }
