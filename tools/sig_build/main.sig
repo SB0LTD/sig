@@ -3326,30 +3326,10 @@ pub fn appendLlvmLinkerArgs(cmd: *Command_Buffer, build_ctx: *const Build_Contex
     if (!llvm_cfg.discovered) return;
 
     const cache_dir = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
+    _ = cache_dir;
 
-    // ── 8.2: Pass zigcpp object files directly to linker ───────────────
-    // Skip the archive (cross-platform ar format issues) — pass .o files directly.
-    {
-        const is_win_target = build_ctx.target.os_len >= 7 and std.mem.eql(u8, build_ctx.target.os[0..7], "windows");
-        const obj_ext: []const u8 = if (is_win_target) ".obj" else ".o";
-        const cpp_stems = [_][]const u8{
-            "zig_llvm",
-            "zig_llvm-ar",
-            "zig_clang_driver",
-            "zig_clang_cc1_main",
-            "zig_clang_cc1as_main",
-        };
-        for (cpp_stems) |stem| {
-            var obj_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-            var obj_name_buf: [NAME_BUF_SIZE]u8 = undefined;
-            @memcpy(obj_name_buf[0..stem.len], stem);
-            @memcpy(obj_name_buf[stem.len..][0..obj_ext.len], obj_ext);
-            const obj_name = obj_name_buf[0 .. stem.len + obj_ext.len];
-            const segs = [_][]const u8{ cache_dir, "zigcpp", obj_name };
-            const obj_path = try sig_fs.joinPath(&obj_path_buf, &segs);
-            try cmd.appendArg(obj_path);
-        }
-    }
+    // C++ objects are compiled inline via -cflags in compileStepFn.
+    // No need to pass .o files here.
 
     // ── 8.3: Pass LLVM library search dir ───────────────────────────────
     // -L<llvm_lib_dir>
@@ -3746,6 +3726,59 @@ pub const Build_Context = struct {
 
             // Sub-command.
             try cmd.appendArg("build-exe");
+
+            // C++ sources MUST come before module declarations (-Mroot=).
+            // When LLVM is enabled, compile C++ sources inline using zig's internal Clang.
+            if (build_ctx.llvm_config.discovered) {
+                try cmd.appendArg("-cflags");
+                try cmd.appendArg("-std=c++17");
+                try cmd.appendArg("-D__STDC_CONSTANT_MACROS");
+                try cmd.appendArg("-D__STDC_FORMAT_MACROS");
+                try cmd.appendArg("-D__STDC_LIMIT_MACROS");
+                try cmd.appendArg("-D_GNU_SOURCE");
+                try cmd.appendArg("-fno-exceptions");
+                try cmd.appendArg("-fno-rtti");
+                try cmd.appendArg("-fno-stack-protector");
+                try cmd.appendArg("-fvisibility-inlines-hidden");
+                try cmd.appendArg("-Wno-type-limits");
+                try cmd.appendArg("-Wno-missing-braces");
+                try cmd.appendArg("-Wno-comment");
+                try cmd.appendArg("-DLLVM_BUILD_STATIC");
+                try cmd.appendArg("-DCLANG_BUILD_STATIC");
+                try cmd.appendArg("-DNDEBUG=1");
+                // Include dirs
+                if (build_ctx.llvm_config.llvm_include_dir_len > 0) {
+                    var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+                    const pfx = "-I";
+                    const dir = build_ctx.llvm_config.llvm_include_dir[0..build_ctx.llvm_config.llvm_include_dir_len];
+                    @memcpy(inc_buf[0..pfx.len], pfx);
+                    @memcpy(inc_buf[pfx.len..][0..dir.len], dir);
+                    try cmd.appendArg(inc_buf[0 .. pfx.len + dir.len]);
+                }
+                if (build_ctx.llvm_config.clang_include_dir_len > 0) {
+                    var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+                    const pfx = "-I";
+                    const dir = build_ctx.llvm_config.clang_include_dir[0..build_ctx.llvm_config.clang_include_dir_len];
+                    @memcpy(inc_buf[0..pfx.len], pfx);
+                    @memcpy(inc_buf[pfx.len..][0..dir.len], dir);
+                    try cmd.appendArg(inc_buf[0 .. pfx.len + dir.len]);
+                }
+                if (build_ctx.llvm_config.lld_include_dir_len > 0) {
+                    var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+                    const pfx = "-I";
+                    const dir = build_ctx.llvm_config.lld_include_dir[0..build_ctx.llvm_config.lld_include_dir_len];
+                    @memcpy(inc_buf[0..pfx.len], pfx);
+                    @memcpy(inc_buf[pfx.len..][0..dir.len], dir);
+                    try cmd.appendArg(inc_buf[0 .. pfx.len + dir.len]);
+                }
+                // End cflags, C++ source files
+                try cmd.appendArg("--");
+                try cmd.appendArg("src/zig_llvm.cpp");
+                try cmd.appendArg("src/zig_llvm-ar.cpp");
+                try cmd.appendArg("src/zig_clang_driver.cpp");
+                try cmd.appendArg("src/zig_clang_cc1_main.cpp");
+                try cmd.appendArg("src/zig_clang_cc1as_main.cpp");
+            }
 
             // Module dependencies: --dep flags before root module.
             try cmd.appendArg("--dep");
