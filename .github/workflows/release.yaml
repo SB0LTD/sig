@@ -31,7 +31,7 @@ permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v25' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v26' }}
 
 jobs:
   build:
@@ -106,9 +106,10 @@ jobs:
         run: |
           # Bootstrap needs libc++ (built with -stdlib=libc++)
           sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1
-          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "bootstrap-sig-x86_64-linux.tar.gz" --dir /tmp
+          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "bootstrap-sig-x86_64-linux.*" --dir /tmp
+          BOOTSTRAP_ARCHIVE=$(ls /tmp/bootstrap-sig-x86_64-linux.* | head -1)
           mkdir -p /tmp/bootstrap
-          tar -xzf /tmp/bootstrap-sig-x86_64-linux.tar.gz -C /tmp/bootstrap
+          tar -xf "$BOOTSTRAP_ARCHIVE" -C /tmp/bootstrap
           BIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)
           if [ -z "$BIN" ]; then
             echo "ERROR: sig binary not found in bootstrap archive"
@@ -137,9 +138,8 @@ jobs:
           # Experimental targets (all platforms have them in the LLVM package)
           EXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"
 
-          # Transitional: build.zig for v26 bootstrap (then native build.sig)
+          # sig build uses build.sig natively (bootstrap v26 has compiler module wiring)
           "${SIG}" build \
-            --build-file build.zig \
             --prefix stage3-out \
             -Doptimize=ReleaseFast \
             -Dstrip \
