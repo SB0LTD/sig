@@ -25772,17 +25772,21 @@ fn safetyPanic(sema: *Sema, block: *Block, src: LazySrcLoc, panic_id: Zcu.Simple
 fn emitBackwardBranch(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
     sema.branch_count += 1;
     if (sema.branch_count > sema.branch_quota) {
-        const msg = try sema.errMsg(
-            src,
-            "evaluation exceeded {d} backwards branches",
-            .{sema.branch_quota},
-        );
-        try sema.errNote(
-            src,
-            msg,
-            "use @setEvalBranchQuota() to raise the branch limit from {d}",
-            .{sema.branch_quota},
-        );
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                src,
+                "evaluation exceeded {d} backwards branches",
+                .{sema.branch_quota},
+            );
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(
+                src,
+                msg,
+                "use @setEvalBranchQuota() to raise the branch limit from {d}",
+                .{sema.branch_quota},
+            );
+            break :msg msg;
+        };
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 }
