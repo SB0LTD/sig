@@ -2879,140 +2879,196 @@ fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
 /// - optimize → Compilation.Config
 /// - zig_lib_dir, cache_dir, global_cache_dir → Compilation.Directories
 fn inProcessCompileBackend(ctx: *compile.Compilation_Context, io: std.Io) compile.Compilation_Result {
+    const compiler = @import("compiler");
+    const Compilation = compiler.Compilation;
+    const Package = compiler.Package;
+    const Cache = compiler.Cache;
+
     var result: compile.Compilation_Result = .{};
 
     const source_path = ctx.root_source_path[0..ctx.root_source_path_len];
     const output_name = ctx.output_name[0..ctx.output_name_len];
 
-    // Use the compiler path from context.
-    const compiler: []const u8 = if (ctx.compiler_path_len > 0)
-        ctx.compiler_path[0..ctx.compiler_path_len]
-    else
-        "sig";
+    // ── Allocator setup ──────────────────────────────────────────────────
+    const gpa = std.heap.page_allocator;
+    var arena_impl = std.heap.ArenaAllocator.init(gpa);
+    defer arena_impl.deinit();
+    const arena = arena_impl.allocator();
 
-    var cmd: Command_Buffer = .{};
-    cmd.appendArg(compiler) catch return inProcessFailResult(&result, "compiler path too long");
+    // ── Resolve target ───────────────────────────────────────────────────
+    const resolved_target: Package.Module.ResolvedTarget = rt: {
+        if (ctx.target.arch == .native and ctx.target.os == .native and ctx.target.abi == .native) {
+            break :rt .{
+                .result = std.zig.resolveTargetQueryOrFatal(io, .{}),
+                .is_native_os = true,
+                .is_native_abi = true,
+                .is_explicit_dynamic_linker = false,
+            };
+        }
+        var query: std.Target.Query = .{};
+        query.cpu_arch = switch (ctx.target.arch) {
+            .native => null,
+            .x86_64 => .x86_64,
+            .aarch64 => .aarch64,
+            .arm => .arm,
+        };
+        query.os_tag = switch (ctx.target.os) {
+            .native => null,
+            .linux => .linux,
+            .windows => .windows,
+            .macos => .macos,
+        };
+        query.abi = switch (ctx.target.abi) {
+            .native => null,
+            .musl => .musl,
+            .gnu => .gnu,
+            .none => .none,
+            .msvc => .msvc,
+        };
+        break :rt .{
+            .result = std.zig.resolveTargetQueryOrFatal(io, query),
+            .is_native_os = (ctx.target.os == .native),
+            .is_native_abi = (ctx.target.abi == .native),
+            .is_explicit_dynamic_linker = false,
+        };
+    };
 
-    // Choose subcommand based on output mode.
-    switch (ctx.output_mode) {
-        .Exe => cmd.appendArg("build-exe") catch return inProcessFailResult(&result, "arg overflow"),
-        .Obj => cmd.appendArg("build-obj") catch return inProcessFailResult(&result, "arg overflow"),
-        .Lib => cmd.appendArg("build-lib") catch return inProcessFailResult(&result, "arg overflow"),
-    }
+    // ── Resolve config ───────────────────────────────────────────────────
+    const optimize_mode: std.builtin.OptimizeMode = switch (ctx.optimize) {
+        .Debug => .Debug,
+        .ReleaseSafe => .ReleaseSafe,
+        .ReleaseFast => .ReleaseFast,
+        .ReleaseSmall => .ReleaseSmall,
+    };
 
-    // Module dependencies.
-    for (ctx.modules[0..ctx.module_count]) |mod_decl| {
-        const mod_name = mod_decl.name[0..mod_decl.name_len];
-        cmd.appendArg("--dep") catch return inProcessFailResult(&result, "arg overflow");
-        cmd.appendArg(mod_name) catch return inProcessFailResult(&result, "arg overflow");
-    }
+    const config = Compilation.Config.resolve(.{
+        .output_mode = switch (ctx.output_mode) {
+            .Exe => .Exe,
+            .Lib => .Lib,
+            .Obj => .Obj,
+        },
+        .root_optimize_mode = optimize_mode,
+        .root_strip = ctx.strip,
+        .resolved_target = resolved_target,
+        .have_zcu = true,
+        .emit_bin = true,
+        .link_libc = ctx.link_libc,
+        .link_libcpp = ctx.link_libcpp,
+        .is_test = false,
+    }) catch {
+        return inProcessFailResult(&result, "failed to resolve compilation config");
+    };
 
-    // Root source file.
-    cmd.appendArg(source_path) catch return inProcessFailResult(&result, "arg overflow");
+    // ── Retrieve environment map ─────────────────────────────────────────
+    const environ_map: *const std.process.Environ.Map = if (ctx.environ_map_ptr) |ptr|
+        @ptrCast(@alignCast(ptr))
+    else {
+        return inProcessFailResult(&result, "environ_map not set");
+    };
 
-    // Module definitions (-Mname=path).
+    // ── Set up directories ───────────────────────────────────────────────
+    const zig_lib_path = if (ctx.zig_lib_dir_len > 0) ctx.zig_lib_dir[0..ctx.zig_lib_dir_len] else "lib";
+    const cache_path = if (ctx.cache_dir_len > 0) ctx.cache_dir[0..ctx.cache_dir_len] else ".zig-cache";
+    const global_cache_path = if (ctx.global_cache_dir_len > 0) ctx.global_cache_dir[0..ctx.global_cache_dir_len] else cache_path;
+    const self_exe_path = if (ctx.compiler_path_len > 0) ctx.compiler_path[0..ctx.compiler_path_len] else "";
+
+    const cwd_path = compiler.introspect.getResolvedCwd(io, arena) catch {
+        return inProcessFailResult(&result, "failed to get cwd");
+    };
+
+    var dirs: Compilation.Directories = .init(
+        arena, io, zig_lib_path, global_cache_path,
+        .{ .override = cache_path }, .empty, self_exe_path, environ_map, cwd_path,
+    );
+    defer dirs.deinit(io);
+
+    // ── Create root module ───────────────────────────────────────────────
+    const root_src_dir = std.fs.path.dirname(source_path) orelse ".";
+    const root_src_basename = std.fs.path.basename(source_path);
+
+    const root_mod = Package.Module.create(arena, .{
+        .paths = .{
+            .root = Compilation.Path.fromUnresolved(arena, dirs, &.{root_src_dir}) catch {
+                return inProcessFailResult(&result, "failed to resolve root source dir");
+            },
+            .root_src_path = root_src_basename,
+        },
+        .fully_qualified_name = "root",
+        .cc_argv = &.{},
+        .inherited = .{
+            .resolved_target = resolved_target,
+            .optimize_mode = optimize_mode,
+            .strip = ctx.strip,
+            .single_threaded = ctx.single_threaded,
+        },
+        .global = config,
+        .parent = null,
+    }) catch {
+        return inProcessFailResult(&result, "failed to create root module");
+    };
+
+    // ── Wire named modules ───────────────────────────────────────────────
     for (ctx.modules[0..ctx.module_count]) |mod_decl| {
         const mod_name = mod_decl.name[0..mod_decl.name_len];
         const mod_path = mod_decl.source_path[0..mod_decl.source_path_len];
-        var mod_buf: [PATH_BUF_SIZE]u8 = undefined;
-        const prefix_len = 2 + mod_name.len + 1;
-        const total = prefix_len + mod_path.len;
-        if (total > PATH_BUF_SIZE) return inProcessFailResult(&result, "module arg too long");
-        mod_buf[0] = '-';
-        mod_buf[1] = 'M';
-        @memcpy(mod_buf[2..][0..mod_name.len], mod_name);
-        mod_buf[2 + mod_name.len] = '=';
-        @memcpy(mod_buf[prefix_len..][0..mod_path.len], mod_path);
-        cmd.appendArg(mod_buf[0..total]) catch return inProcessFailResult(&result, "arg overflow");
+        const mod_dir = std.fs.path.dirname(mod_path) orelse ".";
+        const mod_basename = std.fs.path.basename(mod_path);
+
+        const dep_mod = Package.Module.create(arena, .{
+            .paths = .{
+                .root = Compilation.Path.fromUnresolved(arena, dirs, &.{mod_dir}) catch continue,
+                .root_src_path = mod_basename,
+            },
+            .fully_qualified_name = std.fmt.allocPrint(arena, "root.{s}", .{mod_name}) catch continue,
+            .cc_argv = &.{},
+            .inherited = .{},
+            .global = config,
+            .parent = root_mod,
+        }) catch continue;
+
+        root_mod.deps.put(arena, mod_name, dep_mod) catch continue;
     }
 
-    // Output name.
-    if (output_name.len > 0) {
-        cmd.appendArg("--name") catch return inProcessFailResult(&result, "arg overflow");
-        cmd.appendArg(output_name) catch return inProcessFailResult(&result, "arg overflow");
-    }
-
-    // Optimization mode.
-    const opt_flag: []const u8 = switch (ctx.optimize) {
-        .Debug => "-ODebug",
-        .ReleaseSafe => "-OReleaseSafe",
-        .ReleaseFast => "-OReleaseFast",
-        .ReleaseSmall => "-OReleaseSmall",
+    // ── Create compilation ───────────────────────────────────────────────
+    var create_diag: Compilation.CreateDiagnostic = undefined;
+    const comp = Compilation.create(gpa, arena, io, &create_diag, .{
+        .dirs = dirs,
+        .root_name = if (output_name.len > 0) output_name else "a",
+        .config = config,
+        .root_mod = root_mod,
+        .main_mod = root_mod,
+        .emit_bin = .yes_cache,
+        .self_exe_path = if (self_exe_path.len > 0) self_exe_path else null,
+        .thread_limit = if (ctx.thread_limit > 0) ctx.thread_limit else 1,
+        .verbose_cc = ctx.verbose_cc,
+        .verbose_link = ctx.verbose_link,
+        .cache_mode = .whole,
+        .environ_map = environ_map,
+    }) catch {
+        return inProcessFailResult(&result, "Compilation.create failed");
     };
-    cmd.appendArg(opt_flag) catch return inProcessFailResult(&result, "arg overflow");
+    defer comp.destroy();
 
-    // Zig lib directory.
-    if (ctx.zig_lib_dir_len > 0) {
-        cmd.appendArg("--zig-lib-dir") catch return inProcessFailResult(&result, "arg overflow");
-        cmd.appendArg(ctx.zig_lib_dir[0..ctx.zig_lib_dir_len]) catch return inProcessFailResult(&result, "arg overflow");
-    }
-
-    // Cache directory.
-    if (ctx.cache_dir_len > 0) {
-        cmd.appendArg("--cache-dir") catch return inProcessFailResult(&result, "arg overflow");
-        cmd.appendArg(ctx.cache_dir[0..ctx.cache_dir_len]) catch return inProcessFailResult(&result, "arg overflow");
-    }
-
-    // Target triple.
-    if (ctx.target.arch != .native or ctx.target.os != .native) {
-        var target_buf: [128]u8 = undefined;
-        var tpos: usize = 0;
-        const arch_s: []const u8 = switch (ctx.target.arch) {
-            .native => "native",
-            .x86_64 => "x86_64",
-            .aarch64 => "aarch64",
-            .arm => "arm",
-        };
-        const os_s: []const u8 = switch (ctx.target.os) {
-            .native => "native",
-            .linux => "linux",
-            .windows => "windows",
-            .macos => "macos",
-        };
-        const abi_s: []const u8 = switch (ctx.target.abi) {
-            .native => "native",
-            .musl => "musl",
-            .gnu => "gnu",
-            .none => "none",
-            .msvc => "msvc",
-        };
-        @memcpy(target_buf[tpos..][0..arch_s.len], arch_s);
-        tpos += arch_s.len;
-        target_buf[tpos] = '-';
-        tpos += 1;
-        @memcpy(target_buf[tpos..][0..os_s.len], os_s);
-        tpos += os_s.len;
-        target_buf[tpos] = '-';
-        tpos += 1;
-        @memcpy(target_buf[tpos..][0..abi_s.len], abi_s);
-        tpos += abi_s.len;
-        cmd.appendArg("-target") catch return inProcessFailResult(&result, "arg overflow");
-        cmd.appendArg(target_buf[0..tpos]) catch return inProcessFailResult(&result, "arg overflow");
-    }
-
-    // Strip.
-    if (ctx.strip) {
-        cmd.appendArg("--strip") catch return inProcessFailResult(&result, "arg overflow");
-    }
-
-    // Link libc.
-    if (ctx.link_libc) {
-        cmd.appendArg("-lc") catch return inProcessFailResult(&result, "arg overflow");
-    }
-
-    // Execute.
-    var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
-    var stderr_len: usize = 0;
-    const exit_code = runCommand(&cmd, &stderr_buf, &stderr_len, io) catch {
-        return inProcessFailResult(&result, "failed to spawn compilation subprocess");
+    // ── Run compilation ──────────────────────────────────────────────────
+    comp.update(.none) catch {
+        return inProcessFailResult(&result, "compilation failed");
     };
 
-    if (exit_code != 0) {
-        // Capture stderr as diagnostic.
-        if (stderr_len > 0) {
-            return inProcessFailResult(&result, stderr_buf[0..stderr_len]);
+    // ── Extract output path ──────────────────────────────────────────────
+    if (comp.digest) |digest| {
+        if (comp.emit_bin) |emit_name| {
+            const hex = &Cache.binToHex(digest);
+            const local_path = dirs.local_cache.path orelse ".";
+            // Format: <local_cache>/o/<hex>/<emit_name>
+            var pos: usize = 0;
+            const parts = [_][]const u8{ local_path, "/o/", hex, "/", emit_name };
+            for (parts) |part| {
+                if (pos + part.len > compile.PATH_BUF_SIZE) break;
+                @memcpy(result.output_path[pos..][0..part.len], part);
+                pos += part.len;
+            }
+            result.output_path_len = pos;
         }
-        return inProcessFailResult(&result, "compilation exited with non-zero code");
     }
 
     result.success = true;
