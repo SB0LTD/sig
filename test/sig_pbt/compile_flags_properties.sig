@@ -6,7 +6,7 @@
 // per-file flags in order, all include directories as `-I<path>` entries, and all
 // definitions as `-D<name>=<value>` entries (or `-D<name>` if value is empty).
 //
-// **Validates: Requirements 4.2, 4.3, 4.4**
+// Validates: Requirements 4.2, 4.3, 4.4
 
 const std = @import("std");
 const harness = @import("harness");

@@ -82,7 +82,7 @@ fn utf8ToWtf16(input: []const u8, out: []u16) []const u16 {
 }
 
 // ── Property 1: Windows argv parsing round-trip ─────────────────────────
-// **Validates: Requirements 1.3, 1.5, 1.7**
+// Validates: Requirements 1.3, 1.5, 1.7
 
 test "Property 1: Windows argv parsing round-trip" {
     const S = struct {
@@ -139,7 +139,7 @@ test "Property 1: Windows argv parsing round-trip" {
 }
 
 // ── Property 2: Iterator termination ────────────────────────────────────
-// **Validates: Requirements 1.6, 1.8**
+// Validates: Requirements 1.6, 1.8
 
 test "Property 2: Iterator termination" {
     // Test with Posix_Argv_Iterator (works on all platforms)
@@ -211,7 +211,7 @@ test "Property 2: Iterator termination" {
 }
 
 // ── Property 3: BufferTooSmall on undersized argv decode buffer ─────────
-// **Validates: Requirements 1.4**
+// Validates: Requirements 1.4
 
 test "Property 3: BufferTooSmall on undersized argv decode buffer" {
     const S = struct {
@@ -278,7 +278,7 @@ test "Property 3: BufferTooSmall on undersized argv decode buffer" {
 
 // ── Property 4: Command_Buffer round-trip ───────────────────────────────
 // Feature: sig-process, Property 4: Command_Buffer round-trip
-// **Validates: Requirements 2.3**
+// Validates: Requirements 2.3
 
 test "Property 4: Command_Buffer round-trip" {
     const S = struct {
@@ -319,7 +319,7 @@ test "Property 4: Command_Buffer round-trip" {
 
 // ── Property 5: BufferTooSmall on Command_Buffer overflow ───────────────
 // Feature: sig-process, Property 5: BufferTooSmall on Command_Buffer overflow
-// **Validates: Requirements 2.4**
+// Validates: Requirements 2.4
 
 test "Property 5: BufferTooSmall on Command_Buffer overflow" {
     // Sub-property A: arg exceeding MAX_ARG_LEN → BufferTooSmall
@@ -364,7 +364,7 @@ test "Property 5: BufferTooSmall on Command_Buffer overflow" {
 
 // ── Property 6: Signal-to-exit-code mapping ─────────────────────────────
 // Feature: sig-process, Property 6: Signal-to-exit-code mapping
-// **Validates: Requirements 3.3**
+// Validates: Requirements 3.3
 
 test "Property 6: Signal-to-exit-code mapping" {
     const S = struct {
@@ -386,7 +386,7 @@ test "Property 6: Signal-to-exit-code mapping" {
 
 // ── Property 7: Env_Pairs capacity enforcement ──────────────────────────
 // Feature: sig-process, Property 7: Env_Pairs capacity enforcement
-// **Validates: Requirements 7.3**
+// Validates: Requirements 7.3
 
 test "Property 7: Env_Pairs capacity enforcement" {
     // Sub-property A: Fill to MAX_ENV_PAIRS, verify next put returns CapacityExceeded

@@ -2,7 +2,7 @@
 // Feature: sig-memory-model, Property 14: Diagnostic mode severity
 // Feature: sig-memory-model, Property 20: Non-canonical pattern detection
 //
-// **Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5, 9.1, 9.2, 9.3, 9.5, 13.3**
+// Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5, 9.1, 9.2, 9.3, 9.5, 13.3
 
 const std = @import("std");
 const harness = @import("harness");

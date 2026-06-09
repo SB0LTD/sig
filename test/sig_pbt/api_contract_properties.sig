@@ -5,7 +5,7 @@
 // requiring memory shall accept a []u8 buffer parameter or use a comptime-sized
 // container.
 //
-// **Validates: Requirements 12.1, 12.2**
+// Validates: Requirements 12.1, 12.2
 
 const std = @import("std");
 const harness = @import("harness");
@@ -165,7 +165,7 @@ test "Property 18: measureParse works without Allocator parameter" {
 // We test this by placing sentinel bytes before and after the working buffer
 // region and verifying they remain unchanged after each API call.
 //
-// **Validates: Requirements 12.4**
+// Validates: Requirements 12.4
 // ---------------------------------------------------------------------------
 
 /// Sentinel byte used to guard buffer boundaries.
@@ -310,7 +310,7 @@ test "Property 19: prettyPrint does not write outside buffer bounds" {
 // verifying they return the expected SigError variants without panicking or
 // allocating.
 //
-// **Validates: Requirements 7.5, 7.6**
+// Validates: Requirements 7.5, 7.6
 // ---------------------------------------------------------------------------
 
 test "Property 12: formatInto returns BufferTooSmall on undersized buffer (no allocation)" {

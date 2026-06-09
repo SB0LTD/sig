@@ -4,7 +4,7 @@
 // SHALL return a Compilation_Result with `success` set to true or false, and when
 // `success` is false, `diagnostic_count` SHALL be greater than zero.
 //
-// **Validates: Requirements 1.2**
+// Validates: Requirements 1.2
 
 const std = @import("std");
 const harness = @import("harness");

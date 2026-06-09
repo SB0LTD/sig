@@ -6,7 +6,7 @@
 // skipped. Non-conflicting commits shall have status integrated. Conflicting
 // commits shall have status conflict with a non-empty conflict_count.
 //
-// **Validates: Requirements 10.2, 10.3, 10.4**
+// Validates: Requirements 10.2, 10.3, 10.4
 
 const std = @import("std");
 const harness = @import("harness");

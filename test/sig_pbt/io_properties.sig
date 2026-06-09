@@ -4,7 +4,7 @@
 // readInto shall return a slice of length min(s, b) when s <= b, and
 // shall return error.BufferTooSmall when s > b.
 //
-// **Validates: Requirements 3.1, 3.3**
+// Validates: Requirements 3.1, 3.3
 
 const std = @import("std");
 const harness = @import("harness");
@@ -111,7 +111,7 @@ test "Property 3: readInto with exact-size buffer returns all bytes" {
 // For any data source and caller-specified max_bytes value with a buffer of
 // size >= max_bytes, readAtMost shall return a slice of length <= max_bytes.
 //
-// **Validates: Requirements 3.2**
+// Validates: Requirements 3.2
 // ---------------------------------------------------------------------------
 
 test "Property 4: readAtMost returns slice of length <= max_bytes" {
@@ -193,7 +193,7 @@ test "Property 4: readAtMost with max_bytes zero returns empty slice" {
 // the reader's internal buffer shall be exactly chunk_size bytes, and each call
 // to next shall return a slice of length <= chunk_size.
 //
-// **Validates: Requirements 3.4, 3.5**
+// Validates: Requirements 3.4, 3.5
 // ---------------------------------------------------------------------------
 
 test "Property 5: StreamReader buffer is exactly chunk_size and next returns <= chunk_size slices" {

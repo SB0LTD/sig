@@ -6,7 +6,7 @@
 // matching the input length, and not exceed MAX_LLVM_LIBS (static) or
 // MAX_SYSTEM_LIBS (system).
 //
-// **Validates: Requirements 5.2, 5.3**
+// Validates: Requirements 5.2, 5.3
 
 const std = @import("std");
 const harness = @import("harness");

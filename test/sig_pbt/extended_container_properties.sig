@@ -6,7 +6,7 @@
 // live elements and max_capacity() shall equal the comptime-declared capacity.
 // When full, the next insertion shall return error.CapacityExceeded.
 //
-// **Validates: Requirements 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7**
+// Validates: Requirements 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7
 
 const std = @import("std");
 const harness = @import("harness");
@@ -165,7 +165,7 @@ test "Property 27: BoundedBitSet set/unset tracks count correctly" {
         fn run(random: std.Random) anyerror!void {
             var bs = containers.BoundedBitSet(CAPACITY){};
             var expected_count: usize = 0;
-            var is_set = [_]bool{false} ** CAPACITY;
+            var is_set = [_]bool{false}@as([CAPACITY]u8, @splat(0));
 
             var i: usize = 0;
             while (i < 64) : (i += 1) {
@@ -251,7 +251,7 @@ test "Property 27: BoundedStringMap length tracks puts minus removes" {
             // Use a set of known keys to allow removal.
             var key_buf: [8]u8 = undefined;
             var inserted_keys: [CAPACITY][8]u8 = undefined;
-            var inserted_lens: [CAPACITY]usize = [_]usize{0} ** CAPACITY;
+            var inserted_lens: [CAPACITY]usize = @as([CAPACITY]usize, @splat(0));
             var inserted_count: usize = 0;
 
             var i: usize = 0;

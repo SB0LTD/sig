@@ -5,7 +5,7 @@
 // attempting to add one more entry than the buffer's defined maximum SHALL return
 // error.CapacityExceeded.
 //
-// **Validates: Requirements 2.3**
+// Validates: Requirements 2.3
 
 const std = @import("std");
 const harness = @import("harness");

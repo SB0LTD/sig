@@ -1,6 +1,6 @@
 // Feature: sig-file-extension, Property 1: Per-file mode resolution
 //
-// **Validates: Requirements 2.1, 2.2, 3.2, 3.3, 3.4, 3.5**
+// Validates: Requirements 2.1, 2.2, 3.2, 3.3, 3.4, 3.5
 
 const std = @import("std");
 const harness = @import("harness");
@@ -93,7 +93,7 @@ fn genAllocSource(random: std.Random, buf: []u8) []const u8 {
 // ---------------------------------------------------------------------------
 // Feature: sig-file-extension, Property 2: Sig file diagnostics are always errors
 //
-// **Validates: Requirements 2.3, 2.4, 2.5**
+// Validates: Requirements 2.3, 2.4, 2.5
 // ---------------------------------------------------------------------------
 
 test "Property 2: sig file diagnostics are always formatted as errors" {
@@ -152,7 +152,7 @@ test "Property 2: sig file diagnostics are always formatted as errors" {
 // ---------------------------------------------------------------------------
 // Feature: sig-file-extension, Property 3: Zig file diagnostics follow global mode
 //
-// **Validates: Requirements 2.6, 7.1, 7.2, 7.4**
+// Validates: Requirements 2.6, 7.1, 7.2, 7.4
 // ---------------------------------------------------------------------------
 
 test "Property 3: zig file diagnostics follow global mode" {
@@ -217,7 +217,7 @@ test "Property 3: zig file diagnostics follow global mode" {
 // ---------------------------------------------------------------------------
 // Feature: sig-file-extension, Property 4: Per-file mode independence in mixed analysis
 //
-// **Validates: Requirements 4.1, 4.2, 4.3**
+// Validates: Requirements 4.1, 4.2, 4.3
 // ---------------------------------------------------------------------------
 
 test "Property 4: per-file mode independence — .sig errors and .zig warnings with same global mode" {
@@ -300,7 +300,7 @@ test "Property 4: per-file mode independence — .sig errors and .zig warnings w
 // ---------------------------------------------------------------------------
 // Feature: sig-file-extension, Property 7: .sig.zon is parsed as ZON
 //
-// **Validates: Requirements 9.1, 9.2, 9.3**
+// Validates: Requirements 9.1, 9.2, 9.3
 // ---------------------------------------------------------------------------
 
 /// Mirrors the Zcu.File.modeFromPath logic from src/Zcu.zig.
@@ -359,7 +359,7 @@ test "Property 7: .sig.zon files are parsed as ZON, not as .sig source" {
 // ---------------------------------------------------------------------------
 // Feature: sig-file-extension, Property 5: Sig annotation presence and diagnostic completeness
 //
-// **Validates: Requirements 6.1, 6.2, 6.3, 6.4**
+// Validates: Requirements 6.1, 6.2, 6.3, 6.4
 // ---------------------------------------------------------------------------
 
 test "Property 5: sig annotation presence and diagnostic completeness" {

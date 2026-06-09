@@ -6,7 +6,7 @@
 // and ofmt equals the correct object format (ELF for linux, COFF for windows,
 // Mach-O for macos).
 //
-// **Validates: Requirements 3.1, 3.6**
+// Validates: Requirements 3.1, 3.6
 
 const std = @import("std");
 const builtin = @import("builtin");

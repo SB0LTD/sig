@@ -145,7 +145,7 @@ fn formatCapacityError(buf: []u8, registry_name: []const u8, current: u16, maxim
 // ── Property 1: File extension classification for .sig files ────────────
 // Feature: sig-build-integration, Property 1: File extension classification for .sig files
 //
-// **Validates: Requirements 1.2, 1.3, 1.4, 1.5**
+// Validates: Requirements 1.2, 1.3, 1.4, 1.5
 
 test "Property 1: classifyFileExt returns .sig for .sig files, not for .sig.zon" {
     const S = struct {
@@ -179,7 +179,7 @@ test "Property 1: classifyFileExt returns .sig for .sig files, not for .sig.zon"
 // ── Property 2: Build runner delegation decision ────────────────────────
 // Feature: sig-build-integration, Property 2: Build runner delegation decision
 //
-// **Validates: Requirements 2.1, 2.8, 10.1, 10.2, 10.3**
+// Validates: Requirements 2.1, 2.8, 10.1, 10.2, 10.3
 
 test "Property 2: delegation decision selects correct path for all flag combinations" {
     const S = struct {
@@ -218,7 +218,7 @@ test "Property 2: delegation decision selects correct path for all flag combinat
 // ── Property 3: Build runner argument vector construction ───────────────
 // Feature: sig-build-integration, Property 3: Build runner argument vector construction
 //
-// **Validates: Requirements 2.6, 8.3**
+// Validates: Requirements 2.6, 8.3
 
 test "Property 3: argv has fixed positions 0-5 and preserves user args at 6+" {
     const S = struct {
@@ -282,7 +282,7 @@ test "Property 3: argv has fixed positions 0-5 and preserves user args at 6+" {
 // ── Property 4: Lib installation exclusion filter ───────────────────────
 // Feature: sig-build-integration, Property 4: Lib installation exclusion filter
 //
-// **Validates: Requirements 5.2**
+// Validates: Requirements 5.2
 
 test "Property 4: exclusion filter matches expected set for random filenames" {
     const S = struct {
@@ -332,7 +332,7 @@ test "Property 4: exclusion filter matches expected set for random filenames" {
 // ── Property 5: Module wiring in build.sig compilation command ──────────
 // Feature: sig-build-integration, Property 5: Module wiring in build.sig compilation command
 //
-// **Validates: Requirements 6.1, 6.2, 6.3, 6.4**
+// Validates: Requirements 6.1, 6.2, 6.3, 6.4
 
 test "Property 5: -M flags contain correct module prefixes and paths" {
     const S = struct {
@@ -379,7 +379,7 @@ test "Property 5: -M flags contain correct module prefixes and paths" {
 // ── Property 6: Version constant grep extractability ────────────────────
 // Feature: sig-build-integration, Property 6: Version constant grep extractability
 //
-// **Validates: Requirements 8.6, 12.1, 12.2, 12.3, 12.4**
+// Validates: Requirements 8.6, 12.1, 12.2, 12.3, 12.4
 
 test "Property 6: version tuple survives format-then-extract round trip" {
     const S = struct {
@@ -416,7 +416,7 @@ test "Property 6: version tuple survives format-then-extract round trip" {
 // ── Property 7: Failed step error reporting ─────────────────────────────
 // Feature: sig-build-integration, Property 7: Failed step error reporting
 //
-// **Validates: Requirements 13.3**
+// Validates: Requirements 13.3
 
 test "Property 7: error message contains step name and exit code" {
     const S = struct {
@@ -455,7 +455,7 @@ test "Property 7: error message contains step name and exit code" {
 // ── Property 8: Capacity error reporting ────────────────────────────────
 // Feature: sig-build-integration, Property 8: Capacity error reporting
 //
-// **Validates: Requirements 13.5**
+// Validates: Requirements 13.5
 
 test "Property 8: capacity error message contains registry name and both numeric values" {
     const S = struct {

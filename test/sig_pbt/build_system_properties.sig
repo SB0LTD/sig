@@ -6,7 +6,7 @@
 // cannot be called from test code, so we test the underlying string
 // operations directly using std.fs.path, std.mem, and stack buffers.
 //
-// **Validates: Requirements 2.1, 2.2, 2.3, 3.1, 3.2, 3.4, 3.5, 4.1, 4.2, 4.4, 5.1, 5.2, 5.3, 6.2, 6.5, 10.1, 10.2**
+// Validates: Requirements 2.1, 2.2, 2.3, 3.1, 3.2, 3.4, 3.5, 4.1, 4.2, 4.4, 5.1, 5.2, 5.3, 6.2, 6.5, 10.1, 10.2
 
 const std = @import("std");
 const harness = @import("harness");
@@ -33,7 +33,7 @@ fn genValidName(rand: std.Random, name_buf: []u8) []u8 {
 
 // Feature: sig-build-system, Property 1: File discovery completeness
 test "Property 1: suffix matching correctly identifies matching files" {
-    // **Validates: Requirements 2.1, 2.3, 3.1, 3.2, 3.4, 3.5, 4.1, 4.2, 4.4**
+    // Validates: Requirements 2.1, 2.3, 3.1, 3.2, 3.4, 3.5, 4.1, 4.2, 4.4
     const S = struct {
         fn run(rand: std.Random) anyerror!void {
             // Generate a random base name
@@ -118,7 +118,7 @@ test "Property 1: suffix matching correctly identifies matching files" {
 
 // Feature: sig-build-system, Property 2: Module import name derivation
 test "Property 2: stripping extension produces correct import name" {
-    // **Validates: Requirements 2.2, 6.2**
+    // Validates: Requirements 2.2, 6.2
     const S = struct {
         fn run(rand: std.Random) anyerror!void {
             // Generate a random valid identifier name
@@ -179,7 +179,7 @@ test "Property 2: stripping extension produces correct import name" {
 
 // Feature: sig-build-system, Property 3: Tool step name and description derivation
 test "Property 3: tool step name replaces underscores with hyphens and prepends run-" {
-    // **Validates: Requirements 5.2, 10.1, 10.2**
+    // Validates: Requirements 5.2, 10.1, 10.2
     const S = struct {
         fn run(rand: std.Random) anyerror!void {
             // Generate a random sig_* directory name
@@ -254,7 +254,7 @@ test "Property 3: tool step name replaces underscores with hyphens and prepends 
 
 // Feature: sig-build-system, Property 4: Tool discovery requires main.sig
 test "Property 4: presence of main.sig determines tool discovery" {
-    // **Validates: Requirements 5.1, 5.3**
+    // Validates: Requirements 5.1, 5.3
     const S = struct {
         fn run(rand: std.Random) anyerror!void {
             // Generate a random set of filenames for a hypothetical tool directory
@@ -306,7 +306,7 @@ test "Property 4: presence of main.sig determines tool discovery" {
 
 // Feature: sig-build-system, Property 5: Harness import is PBT-exclusive
 test "Property 5: include_harness boolean controls harness wiring" {
-    // **Validates: Requirements 3.3, 6.5**
+    // Validates: Requirements 3.3, 6.5
     const S = struct {
         fn run(rand: std.Random) anyerror!void {
             // Generate a random boolean for include_harness

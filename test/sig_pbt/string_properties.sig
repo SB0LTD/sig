@@ -4,7 +4,7 @@
 // Sig string operations and reading the resulting slice back shall produce a
 // byte-identical result.
 //
-// **Validates: Requirements 5.1, 5.4**
+// Validates: Requirements 5.1, 5.4
 
 const std = @import("std");
 const harness = @import("harness");
@@ -134,7 +134,7 @@ test "Property 7: replace with empty needle copies haystack verbatim" {
 // of all appended slices. If the total data exceeds the segmented string's
 // capacity, append shall return error.CapacityExceeded.
 //
-// **Validates: Requirements 5.2, 5.3**
+// Validates: Requirements 5.2, 5.3
 // ---------------------------------------------------------------------------
 
 test "Property 8: SegmentedString append then toSlice reproduces concatenation" {

@@ -2,7 +2,7 @@
 // Feature: sig-memory-model, Property 23: HTTP response parse extracts correct status and body
 // Feature: sig-memory-model, Property 24: URI parse-then-reconstruct round trip
 //
-// **Validates: Requirements 14.1, 14.2, 14.3, 14.4, 14.7, 14.9**
+// Validates: Requirements 14.1, 14.2, 14.3, 14.4, 14.7, 14.9
 
 const std = @import("std");
 const harness = @import("harness");

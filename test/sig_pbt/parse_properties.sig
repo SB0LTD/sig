@@ -4,7 +4,7 @@
 // parseInto with a buffer of size n, shall succeed. Calling parseInto with
 // a buffer of size < n shall return error.BufferTooSmall.
 //
-// **Validates: Requirements 6.2, 6.3, 6.4**
+// Validates: Requirements 6.2, 6.3, 6.4
 
 const std = @import("std");
 const harness = @import("harness");
@@ -141,7 +141,7 @@ test "Property 9: parseInto with undersized buffer returns BufferTooSmall" {
 // result and then parsing the pretty-printed output shall produce an
 // equivalent parsed structure.
 //
-// **Validates: Requirements 6.6, 6.7**
+// Validates: Requirements 6.6, 6.7
 // ---------------------------------------------------------------------------
 
 test "Property 10: parse then pretty-print then re-parse produces equivalent pairs" {
@@ -189,7 +189,7 @@ test "Property 10: parse then pretty-print then re-parse produces equivalent pai
 // value that includes the byte offset of the first error location, and that
 // offset shall be within the bounds of the input.
 //
-// **Validates: Requirements 6.5**
+// Validates: Requirements 6.5
 // ---------------------------------------------------------------------------
 
 /// Generates a random invalid line (no '=' character) of length 1..max_len.

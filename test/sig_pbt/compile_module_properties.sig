@@ -5,7 +5,7 @@
 // with their dependency names preserved, and each module's deps should reference names
 // of other registered modules.
 //
-// **Validates: Requirements 6.1, 6.2**
+// Validates: Requirements 6.1, 6.2
 
 const std = @import("std");
 const harness = @import("harness");

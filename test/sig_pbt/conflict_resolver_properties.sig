@@ -4,7 +4,7 @@
 // preserve all fields including ai_resolution_details. Pre-Phase 3 manifests
 // (no ai_resolved entries) shall parse with default AI details.
 //
-// **Validates: Requirements 22.3, 22.4, 22.5**
+// Validates: Requirements 22.3, 22.4, 22.5
 
 const std = @import("std");
 const harness = @import("harness");
@@ -244,7 +244,7 @@ test "Property 34: pre-Phase 3 manifests parse with default AI details" {
 // For any resolved content, the validator shall reject content containing
 // conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) or invalid UTF-8.
 //
-// **Validates: Requirements 24.2, 24.3**
+// Validates: Requirements 24.2, 24.3
 // ---------------------------------------------------------------------------
 
 const sig_validator = @import("sig_validator");
@@ -509,7 +509,7 @@ test "Property 35: invalid UTF-8 content fails validation" {
 //   - The actual conflicted content
 //   - The file path
 //
-// **Validates: Requirements 20.1, 20.2, 20.3, 20.4, 20.5, 20.6**
+// Validates: Requirements 20.1, 20.2, 20.3, 20.4, 20.5, 20.6
 // ---------------------------------------------------------------------------
 
 const sig_prompt = @import("sig_prompt");

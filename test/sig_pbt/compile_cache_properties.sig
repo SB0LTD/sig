@@ -9,7 +9,7 @@
 // dimension (source_path, flags, target.arch, target.os, target.abi) SHALL
 // produce a different 128-bit key from computeKey().
 //
-// **Validates: Requirements 9.1, 9.2, 9.3**
+// Validates: Requirements 9.1, 9.2, 9.3
 
 const std = @import("std");
 const harness = @import("harness");

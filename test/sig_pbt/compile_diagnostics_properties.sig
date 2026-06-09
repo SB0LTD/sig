@@ -5,7 +5,7 @@
 // the identical file path, line number, column number, level, and message
 // without truncation (up to DIAGNOSTIC_BUF_SIZE / PATH_BUF_SIZE).
 //
-// **Validates: Requirements 1.4, 4.5, 10.1, 10.2, 10.4**
+// Validates: Requirements 1.4, 4.5, 10.1, 10.2, 10.4
 
 const std = @import("std");
 const harness = @import("harness");
@@ -258,7 +258,7 @@ test "Property 2: message exceeding DIAGNOSTIC_BUF_SIZE is gracefully truncated"
 // D₁, D₂, ..., Dₙ, the Diagnostic_Buffer.slice()[0..N] SHALL contain those
 // diagnostics in the same emission order.
 //
-// **Validates: Requirements 10.3**
+// Validates: Requirements 10.3
 // ---------------------------------------------------------------------------
 
 const compile_types = @import("compile_types");

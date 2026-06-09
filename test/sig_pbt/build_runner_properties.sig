@@ -186,7 +186,7 @@ const Module_Registry = struct {
 
 const Dependency_Graph = struct {
     adj: [MAX_STEPS][MAX_DEPS_PER_STEP]Step_Handle = undefined,
-    adj_counts: [MAX_STEPS]usize = [_]usize{0} ** MAX_STEPS,
+    adj_counts: [MAX_STEPS]usize = @as([MAX_STEPS]usize, @splat(0)),
     node_count: usize = 0,
 
     pub fn addEdge(self: *Dependency_Graph, dependent: Step_Handle, dependency: Step_Handle) SigError!void {
@@ -203,7 +203,7 @@ const Dependency_Graph = struct {
     }
 
     pub fn topologicalSort(self: *const Dependency_Graph, out: *[MAX_STEPS]Step_Handle) SigError![]const Step_Handle {
-        var in_degree: [MAX_STEPS]usize = [_]usize{0} ** MAX_STEPS;
+        var in_degree: [MAX_STEPS]usize = @as([MAX_STEPS]usize, @splat(0));
         for (0..self.node_count) |i| {
             in_degree[i] = self.adj_counts[i];
         }
@@ -288,15 +288,15 @@ const CACHE_MAGIC = [4]u8{ 'S', 'I', 'G', 'C' };
 const CACHE_VERSION: u32 = 1;
 
 const Cache_Entry = struct {
-    hash: Content_Hash = .{0} ** 16,
-    step_name: [NAME_BUF_SIZE]u8 = .{0} ** NAME_BUF_SIZE,
+    hash: Content_Hash = .{0}@as([16]u8, @splat(0)),
+    step_name: [NAME_BUF_SIZE]u8 = .{0}@as([NAME_BUF_SIZE]u8, @splat(0)),
     step_name_len: usize = 0,
     timestamp: i64 = 0,
     valid: bool = false,
 };
 
 const Cache_Map = struct {
-    entries: [MAX_CACHE_ENTRIES]Cache_Entry = [_]Cache_Entry{.{}} ** MAX_CACHE_ENTRIES,
+    entries: [MAX_CACHE_ENTRIES]Cache_Entry = @as([MAX_CACHE_ENTRIES]Cache_Entry, @splat(.{})),
     count: usize = 0,
 
     pub fn lookup(self: *const Cache_Map, step_name: []const u8) ?Content_Hash {
@@ -375,7 +375,7 @@ const Cache_Map = struct {
         var offset: usize = HEADER_SIZE;
         for (self.entries[0..MAX_CACHE_ENTRIES]) |*entry| {
             if (!entry.valid) continue;
-            var record: [RECORD_SIZE]u8 = .{0} ** RECORD_SIZE;
+            var record: [RECORD_SIZE]u8 = .{0}@as([RECORD_SIZE]u8, @splat(0));
             @memcpy(record[0..16], &entry.hash);
             @memcpy(record[16..80], &entry.step_name);
             std.mem.writeInt(i64, record[80..88], entry.timestamp, .little);
@@ -444,7 +444,7 @@ const Env_Pair = struct {
 
 const Command_Buffer = struct {
     args: [MAX_CMD_ARGS][PATH_BUF_SIZE]u8 = undefined,
-    arg_lens: [MAX_CMD_ARGS]usize = [_]usize{0} ** MAX_CMD_ARGS,
+    arg_lens: [MAX_CMD_ARGS]usize = @as([MAX_CMD_ARGS]usize, @splat(0)),
     arg_count: usize = 0,
     env: [MAX_ENV_VARS]Env_Pair = undefined,
     env_count: usize = 0,
@@ -923,7 +923,7 @@ fn genTargetTriple(random: std.Random, buf: *[PATH_BUF_SIZE]u8) []const u8 {
 // ═══════════════════════════════════════════════════════════════════════
 
 // Feature: sig-build-runner, Property 1: Step registration round-trip
-// **Validates: Requirements 2.1, 2.2, 2.5, 13.1**
+// Validates: Requirements 2.1, 2.2, 2.5, 13.1
 test "Property 1: Step registration round-trip" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -966,7 +966,7 @@ test "Property 1: Step registration round-trip" {
 }
 
 // Feature: sig-build-runner, Property 2: Step duplicate name rejection
-// **Validates: Requirements 2.3**
+// Validates: Requirements 2.3
 test "Property 2: Step duplicate name rejection" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -988,7 +988,7 @@ test "Property 2: Step duplicate name rejection" {
 }
 
 // Feature: sig-build-runner, Property 3: Dependency storage round-trip
-// **Validates: Requirements 2.6, 13.4**
+// Validates: Requirements 2.6, 13.4
 test "Property 3: Dependency storage round-trip" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1038,7 +1038,7 @@ test "Property 3: Dependency storage round-trip" {
 }
 
 // Feature: sig-build-runner, Property 4: Module registration and import round-trip
-// **Validates: Requirements 3.1, 3.2, 3.3, 3.5, 3.7, 13.2, 13.3**
+// Validates: Requirements 3.1, 3.2, 3.3, 3.5, 3.7, 13.2, 13.3
 test "Property 4: Module registration and import round-trip" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1101,7 +1101,7 @@ test "Property 4: Module registration and import round-trip" {
 }
 
 // Feature: sig-build-runner, Property 5: Path resolve/relative round-trip
-// **Validates: Requirements 4.2, 4.3**
+// Validates: Requirements 4.2, 4.3
 test "Property 5: Path resolve/relative round-trip" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1137,7 +1137,7 @@ test "Property 5: Path resolve/relative round-trip" {
 }
 
 // Feature: sig-build-runner, Property 6: Path join preserves segments and normalizes
-// **Validates: Requirements 4.1, 4.7**
+// Validates: Requirements 4.1, 4.7
 test "Property 6: Path join preserves segments and normalizes" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1178,7 +1178,7 @@ test "Property 6: Path join preserves segments and normalizes" {
 }
 
 // Feature: sig-build-runner, Property 7: Topological sort respects all dependency edges
-// **Validates: Requirements 5.2**
+// Validates: Requirements 5.2
 test "Property 7: Topological sort respects all dependency edges" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1190,7 +1190,7 @@ test "Property 7: Topological sort respects all dependency edges" {
             const sorted = try graph.topologicalSort(&out);
 
             // Build position map: position[handle] = index in sorted order.
-            var position: [MAX_STEPS]usize = [_]usize{0} ** MAX_STEPS;
+            var position: [MAX_STEPS]usize = @as([MAX_STEPS]usize, @splat(0));
             for (sorted, 0..) |handle, pos| {
                 position[@as(usize, handle)] = pos;
             }
@@ -1207,7 +1207,7 @@ test "Property 7: Topological sort respects all dependency edges" {
 }
 
 // Feature: sig-build-runner, Property 8: Cycle detection returns error for all cyclic graphs
-// **Validates: Requirements 5.3**
+// Validates: Requirements 5.3
 test "Property 8: Cycle detection returns error for all cyclic graphs" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1232,7 +1232,7 @@ test "Property 8: Cycle detection returns error for all cyclic graphs" {
 }
 
 // Feature: sig-build-runner, Property 9: Ready set contains exactly steps with all deps met
-// **Validates: Requirements 5.5**
+// Validates: Requirements 5.5
 test "Property 9: Ready set contains exactly steps with all deps met" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1287,7 +1287,7 @@ test "Property 9: Ready set contains exactly steps with all deps met" {
 }
 
 // Feature: sig-build-runner, Property 10: Failure propagation skips all transitive dependents
-// **Validates: Requirements 7.5**
+// Validates: Requirements 7.5
 test "Property 10: Failure propagation skips all transitive dependents" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1335,7 +1335,7 @@ test "Property 10: Failure propagation skips all transitive dependents" {
 }
 
 // Feature: sig-build-runner, Property 11: Command_Buffer storage round-trip
-// **Validates: Requirements 6.2, 6.5, 6.6**
+// Validates: Requirements 6.2, 6.5, 6.6
 test "Property 11: Command_Buffer storage round-trip" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1387,7 +1387,7 @@ test "Property 11: Command_Buffer storage round-trip" {
 }
 
 // Feature: sig-build-runner, Property 12: Cache serialization round-trip
-// **Validates: Requirements 8.1, 8.2, 8.3, 8.5, 8.6**
+// Validates: Requirements 8.1, 8.2, 8.3, 8.5, 8.6
 test "Property 12: Cache serialization round-trip" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1431,7 +1431,7 @@ test "Property 12: Cache serialization round-trip" {
 }
 
 // Feature: sig-build-runner, Property 13: Cache eviction preserves most recent entries
-// **Validates: Requirements 8.7**
+// Validates: Requirements 8.7
 test "Property 13: Cache eviction preserves most recent entries" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1473,7 +1473,7 @@ test "Property 13: Cache eviction preserves most recent entries" {
 }
 
 // Feature: sig-build-runner, Property 14: Line ending normalization produces identical hashes
-// **Validates: Requirements 10.5**
+// Validates: Requirements 10.5
 test "Property 14: Line ending normalization produces identical hashes" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1530,7 +1530,7 @@ test "Property 14: Line ending normalization produces identical hashes" {
 }
 
 // Feature: sig-build-runner, Property 15: Option parsing round-trip
-// **Validates: Requirements 14.1, 14.2, 14.3, 14.4, 14.5, 1.1, 1.6, 1.8**
+// Validates: Requirements 14.1, 14.2, 14.3, 14.4, 14.5, 1.1, 1.6, 1.8
 test "Property 15: Option parsing round-trip" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1590,7 +1590,7 @@ test "Property 15: Option parsing round-trip" {
 }
 
 // Feature: sig-build-runner, Property 16: Unknown step name produces error with available steps
-// **Validates: Requirements 1.3**
+// Validates: Requirements 1.3
 test "Property 16: Unknown step name produces error with available steps" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1624,7 +1624,7 @@ test "Property 16: Unknown step name produces error with available steps" {
 }
 
 // Feature: sig-build-runner, Property 17: Compile command flag construction
-// **Validates: Requirements 9.1, 9.2, 13.5**
+// Validates: Requirements 9.1, 9.2, 13.5
 test "Property 17: Compile command flag construction" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1686,7 +1686,7 @@ test "Property 17: Compile command flag construction" {
 }
 
 // Feature: sig-build-runner, Property 18: Target triple parse/format round-trip
-// **Validates: Requirements 9.4**
+// Validates: Requirements 9.4
 test "Property 18: Target triple parse/format round-trip" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -1708,7 +1708,7 @@ test "Property 18: Target triple parse/format round-trip" {
 }
 
 // Feature: sig-build-runner, Property 19: Install file exclusion rules
-// **Validates: Requirements 9.3**
+// Validates: Requirements 9.3
 test "Property 19: Install file exclusion rules" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {

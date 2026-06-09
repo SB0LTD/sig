@@ -25,16 +25,16 @@ const Target_Triple = target_mod.Target_Triple;
 /// Eviction: LRU — when the table is full, the entry with the lowest
 /// `last_access` counter is overwritten.
 pub const Content_Hash_Cache = struct {
-    entries: [MAX_CACHE_ENTRIES]Cache_Entry = [_]Cache_Entry{.{}} ** MAX_CACHE_ENTRIES,
+    entries: [MAX_CACHE_ENTRIES]Cache_Entry = @as([MAX_CACHE_ENTRIES]Cache_Entry, @splat(.{})),
     count: usize = 0,
     /// Monotonically increasing counter for LRU tracking.
     access_counter: u64 = 0,
 
     pub const Cache_Entry = struct {
         /// Key: hash of (source_path + compile params).
-        key: [16]u8 = [_]u8{0} ** 16,
+        key: [16]u8 = @as([16]u8, @splat(0)),
         /// Value: content hash of source file at last successful compile.
-        content_hash: [16]u8 = [_]u8{0} ** 16,
+        content_hash: [16]u8 = @as([16]u8, @splat(0)),
         /// Whether this entry contains valid data.
         valid: bool = false,
         /// LRU timestamp — higher values are more recently accessed.

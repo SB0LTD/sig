@@ -6,7 +6,7 @@
 // pure, testable surface of the fs module). Property 26 tests joinPath
 // directly.
 //
-// **Validates: Requirements 15.1, 15.2, 15.4**
+// Validates: Requirements 15.1, 15.2, 15.4
 
 const std = @import("std");
 const harness = @import("harness");

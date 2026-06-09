@@ -2,7 +2,7 @@
 // Property 29: Tar entry streaming preserves content
 // Property 30: URI parse round trip
 //
-// **Validates: Requirements 18.1, 18.2, 18.3, 18.4, 18.5**
+// Validates: Requirements 18.1, 18.2, 18.3, 18.4, 18.5
 
 const std = @import("std");
 const harness = @import("harness");
@@ -18,13 +18,13 @@ const sig_uri = @import("sig_uri");
 // ---------------------------------------------------------------------------
 
 fn buildTarHeader(name: []const u8, size: u64) [512]u8 {
-    var header: [512]u8 = [_]u8{0} ** 512;
+    var header: [512]u8 = @as([512]u8, @splat(0));
     // Name field (0..100).
     @memcpy(header[0..name.len], name);
     // Type flag: regular file.
     header[156] = '0';
     // Size field (124..136) in octal ASCII.
-    var size_buf: [12]u8 = [_]u8{'0'} ** 12;
+    var size_buf: [12]u8 = [_]u8{'0'}@as([12]u8, @splat(0));
     var s = size;
     var pos: usize = 10;
     while (s > 0) : (pos -= 1) {
@@ -40,7 +40,7 @@ test "Property 29: Tar parse preserves entry names" {
         fn run(random: std.Random) anyerror!void {
             // Build a tar archive with 1-3 entries.
             const entry_count = 1 + random.uintAtMost(usize, 2);
-            var archive_buf: [4096]u8 = [_]u8{0} ** 4096;
+            var archive_buf: [4096]u8 = @as([4096]u8, @splat(0));
             var offset: usize = 0;
 
             var names: [3][16]u8 = undefined;

@@ -5,7 +5,7 @@
 // n bytes, shall succeed without error and produce the same output as calling
 // formatInto with any buffer of size >= n.
 //
-// **Validates: Requirements 2.2, 2.3, 2.5**
+// Validates: Requirements 2.2, 2.3, 2.5
 
 const std = @import("std");
 const harness = @import("harness");
@@ -86,7 +86,7 @@ test "Property 1: format measure-then-write round trip (string + int)" {
 // size n > 0, calling formatInto with a buffer of size < n shall return
 // error.BufferTooSmall.
 //
-// **Validates: Requirements 2.4**
+// Validates: Requirements 2.4
 // ---------------------------------------------------------------------------
 
 test "Property 2: formatInto returns BufferTooSmall on undersized buffer (decimal)" {

@@ -52,7 +52,7 @@ const Import_Entry = struct {
 
 const Command_Buffer = struct {
     args: [MAX_CMD_ARGS][PATH_BUF_SIZE]u8 = undefined,
-    arg_lens: [MAX_CMD_ARGS]usize = [_]usize{0} ** MAX_CMD_ARGS,
+    arg_lens: [MAX_CMD_ARGS]usize = @as([MAX_CMD_ARGS]usize, @splat(0)),
     arg_count: usize = 0,
 
     pub fn addArg(self: *Command_Buffer, arg: []const u8) SigError!void {
@@ -484,7 +484,7 @@ fn randomVersionString(random: std.Random, buf: *[VERSION_BUF_SIZE]u8) []const u
 // ── Property tests (placeholders — implementations in tasks 3.2–3.8) ────
 
 // Feature: sig-compiler-entry, Property 1: Generated file contains all required constants with correct types
-// **Validates: Requirements 1.2, 1.3, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7**
+// Validates: Requirements 1.2, 1.3, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7
 test "property: generated file contains all required constants with correct types" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -533,7 +533,7 @@ test "property: generated file contains all required constants with correct type
 }
 
 // Feature: sig-compiler-entry, Property 2: Flag values are correctly forwarded with defaults
-// **Validates: Requirements 2.4, 2.6, 2.7, 2.8, 2.9, 6.2**
+// Validates: Requirements 2.4, 2.6, 2.7, 2.8, 2.9, 6.2
 test "property: flag values are correctly forwarded with defaults" {
     const S = struct {
         /// Search output for `pub const <name>: bool = true;` or `false;` and return the value.
@@ -632,7 +632,7 @@ test "property: flag values are correctly forwarded with defaults" {
 }
 
 // Feature: sig-compiler-entry, Property 3: Semver struct is consistent with version string
-// **Validates: Requirements 2.3, 7.3**
+// Validates: Requirements 2.3, 7.3
 test "property: semver struct is consistent with version string" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -706,7 +706,7 @@ test "property: semver struct is consistent with version string" {
 }
 
 // Feature: sig-compiler-entry, Property 4: Version string formatting
-// **Validates: Requirements 5.2, 5.3**
+// Validates: Requirements 5.2, 5.3
 test "property: version string formatting" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -785,7 +785,7 @@ test "property: version string formatting" {
 }
 
 // Feature: sig-compiler-entry, Property 5: Deterministic output
-// **Validates: Requirements 7.9**
+// Validates: Requirements 7.9
 test "property: deterministic output" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
@@ -821,7 +821,7 @@ test "property: deterministic output" {
 }
 
 // Feature: sig-compiler-entry, Property 6: mem_leak_frames conditional default
-// **Validates: Requirements 2.10**
+// Validates: Requirements 2.10
 test "property: mem_leak_frames conditional default" {
     const S = struct {
         fn parseMemLeakFrames(output: []const u8) ?u32 {
@@ -901,7 +901,7 @@ test "property: mem_leak_frames conditional default" {
 }
 
 // Feature: sig-compiler-entry, Property 7: Compiler command includes correct module dependencies
-// **Validates: Requirements 3.2, 3.3, 3.4**
+// Validates: Requirements 3.2, 3.3, 3.4
 test "property: compiler command includes correct module dependencies" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {

@@ -3,7 +3,7 @@
 // For any byte sequence, compressing it and then decompressing the result
 // shall produce the original bytes. Tested for deflate and gzip formats.
 //
-// **Validates: Requirements 17.1, 17.2, 17.3**
+// Validates: Requirements 17.1, 17.2, 17.3
 
 const std = @import("std");
 const harness = @import("harness");
