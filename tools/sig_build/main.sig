@@ -3392,6 +3392,15 @@ pub fn generateConfig(ctx: *Step_Context) SigError!void {
         return err;
     };
 
+    // Register build_options as a module so engineStepFn can wire it.
+    var bo_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const bo_segs = [_][]const u8{ cache_dir, "build_options.sig" };
+    const bo_path = sig_fs.joinPath(&bo_path_buf, &bo_segs) catch {
+        printMsg(io, "llvm: failed to construct build_options path", .{});
+        return error.BufferTooSmall;
+    };
+    _ = build_ctx.modules.register("build_options", bo_path) catch {};
+
     printMsg(io, "llvm: config.sig generated successfully", .{});
 }
 
