@@ -861,7 +861,7 @@ fn lowerZigArgs(
         "--error-limit", try allocPrint(arena, "{d}", .{err_limit}),
     };
 
-    try addFlag(gpa, zig_args, "incremental", graph.incremental);
+    try addFlag(gpa, zig_args, "incremental", conf_comp.flags4.incremental.toBool() orelse graph.incremental);
 
     try zig_args.append(gpa, "--listen=-");
 

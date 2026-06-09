@@ -234,6 +234,12 @@ is_linking_libcpp: bool = false,
 /// builtin fuzzer, see the `fuzz` flag in `Module`.
 sanitize_coverage_trace_pc_guard: ?bool = null,
 
+/// Enable or disable incremental compilation.
+///
+/// Incremental compilation reduces compile time by mutating an existing build artifact. Non-
+/// incremental compilation is slower but preserves previous build artifacts.
+incremental: ?bool = null,
+
 emit_directory: Configuration.OptionalGeneratedFileIndex = .none,
 generated_docs: Configuration.OptionalGeneratedFileIndex = .none,
 generated_asm: Configuration.OptionalGeneratedFileIndex = .none,

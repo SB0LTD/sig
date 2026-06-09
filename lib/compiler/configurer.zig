@@ -797,6 +797,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .generated_llvm_bc = c.generated_llvm_bc != .none,
                                 .generated_llvm_ir = c.generated_llvm_ir != .none,
                                 .generated_h = c.generated_h != .none,
+                                .incremental = .init(c.incremental),
                             },
                             .root_module = try s.addModule(c.root_module),
                             .root_name = try wc.addString(c.name),
