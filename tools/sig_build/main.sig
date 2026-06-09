@@ -3072,15 +3072,18 @@ pub fn compileCppFile(ctx: *Step_Context) SigError!void {
     const output_path = try sig_fs.joinPath(&output_path_buf, &output_segs);
 
     // ── 5.9: Build command using zig/sig internal Clang ────────────────
-    // Use sig build-obj with -cflags to leverage zig's built-in Clang.
-    // This handles cross-compilation targets correctly (unlike standalone clang++).
+    // Use sig c++ (zig's integrated Clang) for C++ compilation.
+    // This handles cross-compilation targets and provides C++ stdlib headers.
     var cmd: Command_Buffer = .{};
 
     const sig_compiler = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
     try cmd.appendArg(sig_compiler);
-    try cmd.appendArg("build-obj");
+    try cmd.appendArg("c++");
 
-    // Target (inherit from build context for cross-compilation)
+    // Compile only (produce .o/.obj)
+    try cmd.appendArg("-c");
+
+    // Target (for cross-compilation)
     if (build_ctx.target.arch_len > 0) {
         try cmd.appendArg("-target");
         var triple_buf: [PATH_BUF_SIZE]u8 = undefined;
@@ -3089,7 +3092,6 @@ pub fn compileCppFile(ctx: *Step_Context) SigError!void {
     }
 
     // C++ flags
-    try cmd.appendArg("-cflags");
     try cmd.appendArg("-std=c++17");
     try cmd.appendArg("-D__STDC_CONSTANT_MACROS");
     try cmd.appendArg("-D__STDC_FORMAT_MACROS");
@@ -3130,25 +3132,11 @@ pub fn compileCppFile(ctx: *Step_Context) SigError!void {
         @memcpy(inc_buf[inc_prefix.len..][0..dir.len], dir);
         try cmd.appendArg(inc_buf[0 .. inc_prefix.len + dir.len]);
     }
-    // End cflags, source file
-    try cmd.appendArg("--");
-    try cmd.appendArg(source_path);
     // Output path
-    {
-        var emit_buf: [PATH_BUF_SIZE]u8 = undefined;
-        const emit_prefix = "-femit-bin=";
-        if (emit_prefix.len + output_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
-        @memcpy(emit_buf[0..emit_prefix.len], emit_prefix);
-        @memcpy(emit_buf[emit_prefix.len..][0..output_path.len], output_path);
-        try cmd.appendArg(emit_buf[0 .. emit_prefix.len + output_path.len]);
-    }
-    // Cache and lib dir
-    try cmd.appendArg("--cache-dir");
-    try cmd.appendArg(cache_dir);
-    if (build_ctx.zig_lib_dir_len > 0) {
-        try cmd.appendArg("--zig-lib-dir");
-        try cmd.appendArg(build_ctx.zig_lib_dir[0..build_ctx.zig_lib_dir_len]);
-    }
+    try cmd.appendArg("-o");
+    try cmd.appendArg(output_path);
+    // Source file
+    try cmd.appendArg(source_path);
     // ── 5.10: Execute and capture stderr on failure ─────────────────────
     printMsg(io, "llvm: compiling {s} -> {s}", .{ source_path, output_path });
 
