@@ -3149,8 +3149,6 @@ pub fn compileCppFile(ctx: *Step_Context) SigError!void {
         try cmd.appendArg("--zig-lib-dir");
         try cmd.appendArg(build_ctx.zig_lib_dir[0..build_ctx.zig_lib_dir_len]);
     }
-    // Link C++ stdlib (provides <optional>, <type_traits>, etc. headers)
-    try cmd.appendArg("-lc++");
     // ── 5.10: Execute and capture stderr on failure ─────────────────────
     printMsg(io, "llvm: compiling {s} -> {s}", .{ source_path, output_path });
 
