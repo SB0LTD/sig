@@ -3048,7 +3048,8 @@ pub fn compileCppFile(ctx: *Step_Context) SigError!void {
 
     // ── 5.6: Build output path: <cache_dir>/zigcpp/<stem>.o ─────────────
     const cache_dir = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
-    const is_windows = builtin.os.tag == .windows;
+    // Check TARGET OS (not host) for object file extension
+    const is_windows = build_ctx.target.os_len >= 7 and std.mem.eql(u8, build_ctx.target.os[0..7], "windows");
     const obj_ext: []const u8 = if (is_windows) ".obj" else ".o";
 
     var zigcpp_dir_buf: [PATH_BUF_SIZE]u8 = undefined;
@@ -3190,7 +3191,8 @@ pub fn archiveObjects(ctx: *Step_Context) SigError!void {
     const io = ctx.io;
 
     const cache_dir = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
-    const is_windows = builtin.os.tag == .windows;
+    // Check TARGET OS (not host) for archive format and object extension
+    const is_windows = build_ctx.target.os_len >= 7 and std.mem.eql(u8, build_ctx.target.os[0..7], "windows");
 
     // ── Build zigcpp directory path ─────────────────────────────────────
     var zigcpp_dir_buf: [PATH_BUF_SIZE]u8 = undefined;
@@ -3229,7 +3231,9 @@ pub fn archiveObjects(ctx: *Step_Context) SigError!void {
         @memcpy(out_arg_buf[out_prefix.len..][0..archive_path.len], archive_path);
         try cmd.appendArg(out_arg_buf[0 .. out_prefix.len + archive_path.len]);
     } else {
-        // ── 6.2: Linux/macOS: ar rcs <archive_path> <obj1>.o ... ────────
+        // ── 6.2: Linux/macOS: use sig ar for cross-compilation compat ───
+        const sig_compiler = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
+        try cmd.appendArg(sig_compiler);
         try cmd.appendArg("ar");
         try cmd.appendArg("rcs");
         try cmd.appendArg(archive_path);
