@@ -5287,6 +5287,7 @@ const SigBuildRunnerOptions = struct {
 /// - sig_build: tools/sig_build/main.sig (the build system library)
 /// - @build: the user's build.sig/build.zig
 /// - sig: lib/sig/sig.zig
+/// - compile: lib/sig/compile/compile.sig (compilation engine)
 /// - std: lib/std/std.zig
 /// Outputs to the local cache directory. Returns the path to the compiled binary.
 fn compileSigBuildRunner(gpa: Allocator, arena: Allocator, io: Io, options: SigBuildRunnerOptions) !Path {
@@ -5367,8 +5368,24 @@ fn compileSigBuildRunner(gpa: Allocator, arena: Allocator, io: Io, options: SigB
         .global = config,
         .parent = root_mod,
     });
+    // Wire compile module (lib/sig/compile/compile.sig)
+    // Both main.sig and build_host.sig @import("compile") for the Compilation_Engine.
+    const compile_mod = try Package.Module.create(arena, .{
+        .paths = .{
+            .root = try .fromUnresolved(arena, options.dirs, &.{options.dirs.zig_lib.path orelse "lib"}),
+            .root_src_path = "sig/compile/compile.sig",
+        },
+        .fully_qualified_name = "root.compile",
+        .cc_argv = &.{},
+        .inherited = .{},
+        .global = config,
+        .parent = root_mod,
+    });
+
     try sig_build_mod.deps.put(arena, "sig", sig_mod);
+    try sig_build_mod.deps.put(arena, "compile", compile_mod);
     try root_mod.deps.put(arena, "sig_build", sig_build_mod);
+    try root_mod.deps.put(arena, "compile", compile_mod);
     try build_mod.deps.put(arena, "sig_build", sig_build_mod);
     try build_mod.deps.put(arena, "sig", sig_mod);
 

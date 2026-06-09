@@ -2,11 +2,12 @@
 ///
 /// This is the entry point for executing a user's build.sig. The build runner
 /// (main.sig) compiles this file with:
-///   --dep build --dep sig_build --dep sig --dep std -Mroot=<this file>
-///   --dep sig --dep std -Msig_build=<path/to/main.sig>
+///   --dep build --dep sig_build --dep sig --dep std --dep compile -Mroot=<this file>
+///   --dep sig --dep std --dep compile -Msig_build=<path/to/main.sig>
 ///   --dep sig_build -Mbuild=<path/to/build.sig>
 ///   -Msig=<path/to/sig.zig>
 ///   -Mstd=<path/to/std.zig>
+///   --dep std -Mcompile=<path/to/compile.sig>
 ///
 /// The host creates a Build_Context, calls build.sig's build function,
 /// validates requested steps, and runs the scheduler.
@@ -15,6 +16,7 @@ const sig = @import("sig");
 const sig_build = @import("sig_build");
 const build_mod = @import("build");
 const builtin = @import("builtin");
+const compile = @import("compile");
 
 const containers = sig.containers;
 const sig_fs = sig.fs;
@@ -321,9 +323,14 @@ pub fn main(init: std.process.Init) !void {
     var cache: sig_build.Cache_Map = .{};
     cache.load(io, cache_file_path);
 
-    // Wire cache pointer into Build_Context so step functions (e.g. compileCppFile)
-    // can perform content-hash-based cache lookups and updates.
+    // Wire cache pointer into Build_Context so step functions can perform
+    // content-hash-based cache lookups and updates.
     ctx.cache = &cache;
+
+    // Allocate the compile module's Content_Hash_Cache on the stack and wire it
+    // into Build_Context for use by engineStepFn / engineCppStepFn.
+    var compile_cache: compile.Content_Hash_Cache = .{};
+    ctx.compile_cache = &compile_cache;
 
     if (config.verbose) {
         sig_build.printMsg(io, "cache loaded: {d} entries", .{cache.count});
@@ -334,6 +341,9 @@ pub fn main(init: std.process.Init) !void {
         @min(config.thread_count, sig_build.MAX_THREADS)
     else
         4;
+
+    // Store thread count on Build_Context so engine step functions can access it.
+    ctx.thread_count = thread_count;
 
     var pool: sig_build.Thread_Pool = .{};
     pool.build_ctx = &ctx;
