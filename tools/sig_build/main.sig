@@ -2891,7 +2891,80 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.C
     var cmd: Command_Buffer = .{};
     cmd.appendArg(compiler) catch { inProcessFailResult(result, "compiler path too long"); return; };
 
-    // Choose subcommand based on output mode.
+    // For C++ object files, use "sig c++" which handles -I/-D flags directly.
+    // For Zig executables, use "sig build-exe" with module wiring.
+    if (ctx.output_mode == .Obj and ctx.cpp_source_count > 0) {
+        // C++ compilation mode: sig c++ -c -target <target> <flags> -o <output> <source>
+        cmd.appendArg("c++") catch { inProcessFailResult(result, "arg overflow"); return; };
+        cmd.appendArg("-c") catch { inProcessFailResult(result, "arg overflow"); return; };
+
+        // Target triple.
+        if (ctx.target.arch != .native or ctx.target.os != .native) {
+            cmd.appendArg("-target") catch { inProcessFailResult(result, "arg overflow"); return; };
+            var target_buf: [128]u8 = undefined;
+            var tpos: usize = 0;
+            const arch_s: []const u8 = switch (ctx.target.arch) { .native => "native", .x86_64 => "x86_64", .aarch64 => "aarch64", .arm => "arm" };
+            const os_s: []const u8 = switch (ctx.target.os) { .native => "native", .linux => "linux", .windows => "windows", .macos => "macos" };
+            const abi_s: []const u8 = switch (ctx.target.abi) { .native => "native", .musl => "musl", .gnu => "gnu", .none => "none", .msvc => "msvc" };
+            @memcpy(target_buf[tpos..][0..arch_s.len], arch_s); tpos += arch_s.len;
+            target_buf[tpos] = '-'; tpos += 1;
+            @memcpy(target_buf[tpos..][0..os_s.len], os_s); tpos += os_s.len;
+            target_buf[tpos] = '-'; tpos += 1;
+            @memcpy(target_buf[tpos..][0..abi_s.len], abi_s); tpos += abi_s.len;
+            cmd.appendArg(target_buf[0..tpos]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+
+        // Shared C++ flags.
+        for (ctx.shared_flags[0..ctx.shared_flag_count]) |flag| {
+            cmd.appendArg(flag.value[0..flag.value_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+
+        // Include directories.
+        for (ctx.include_dirs[0..ctx.include_dir_count]) |dir| {
+            var inc_buf: [compile.PATH_BUF_SIZE]u8 = undefined;
+            const inc_prefix = "-I";
+            @memcpy(inc_buf[0..inc_prefix.len], inc_prefix);
+            @memcpy(inc_buf[inc_prefix.len..][0..dir.path_len], dir.path[0..dir.path_len]);
+            cmd.appendArg(inc_buf[0 .. inc_prefix.len + dir.path_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+
+        // Preprocessor definitions.
+        for (ctx.definitions[0..ctx.definition_count]) |def| {
+            var def_buf: [compile.VALUE_BUF_SIZE]u8 = undefined;
+            var dpos: usize = 0;
+            def_buf[0] = '-'; def_buf[1] = 'D'; dpos = 2;
+            @memcpy(def_buf[dpos..][0..def.name_len], def.name[0..def.name_len]); dpos += def.name_len;
+            if (def.value_len > 0) {
+                def_buf[dpos] = '='; dpos += 1;
+                @memcpy(def_buf[dpos..][0..def.value_len], def.value[0..def.value_len]); dpos += def.value_len;
+            }
+            cmd.appendArg(def_buf[0..dpos]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+
+        // Zig lib directory (needed for cross-compilation).
+        if (ctx.zig_lib_dir_len > 0) {
+            cmd.appendArg("--zig-lib-dir") catch { inProcessFailResult(result, "arg overflow"); return; };
+            cmd.appendArg(ctx.zig_lib_dir[0..ctx.zig_lib_dir_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+
+        // Source file.
+        cmd.appendArg(source_path) catch { inProcessFailResult(result, "arg overflow"); return; };
+
+        // Execute.
+        var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
+        var stderr_len: usize = 0;
+        const exit_code = runCommand(&cmd, &stderr_buf, &stderr_len, io) catch {
+            inProcessFailResult(result, "failed to spawn C++ compilation"); return;
+        };
+        if (exit_code != 0) {
+            if (stderr_len > 0) { inProcessFailResult(result, stderr_buf[0..stderr_len]); return; }
+            inProcessFailResult(result, "C++ compilation exited with non-zero code"); return;
+        }
+        result.success = true;
+        return;
+    }
+
+    // Choose subcommand based on output mode (non-C++ paths).
     switch (ctx.output_mode) {
         .Exe => cmd.appendArg("build-exe") catch { inProcessFailResult(result, "arg overflow"); return; },
         .Obj => cmd.appendArg("build-obj") catch { inProcessFailResult(result, "arg overflow"); return; },
