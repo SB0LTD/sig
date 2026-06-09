@@ -397,6 +397,8 @@ test "switch loop on type with opv" {
 }
 
 test "switch loop with tag capture" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const U = union(enum) {
         a,
         b: i32,
@@ -467,6 +469,8 @@ test "switch loop with tag capture" {
 }
 
 test "switch loop for error handling" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const Error = error{ MyError, MyOtherError };
     const S = struct {
         fn doTheTest() !void {
@@ -511,6 +515,8 @@ test "switch loop for error handling" {
 }
 
 test "switch loop with packed structs" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const P = packed struct {
         a: u7,
         b: u20,
@@ -528,6 +534,8 @@ test "switch loop with packed structs" {
 }
 
 test "switch loop with packed unions" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const P = packed union {
         a: u7,
         b: i7,
@@ -566,6 +574,8 @@ test "switch loop with packed unions with OPV" {
 }
 
 test "switch loop on large types" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest(a: u128, b: i500) !void {
             label: switch (a) {

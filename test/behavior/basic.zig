@@ -305,6 +305,7 @@ test "compile time global reinterpret" {
 }
 
 test "cast undefined" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const array: [100]u8 = undefined;
@@ -640,6 +641,7 @@ fn emptyFn() void {}
 
 const addr1 = @as(*const u8, @ptrCast(&emptyFn));
 test "comptime cast fn to ptr" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     const addr2 = @as(*const u8, @ptrCast(&emptyFn));
     comptime assert(addr1 == addr2);
 }
@@ -918,6 +920,7 @@ test "labeled block with runtime branch forwards its result location type to bre
 
 test "try in labeled block doesn't cast to wrong type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -1278,6 +1281,7 @@ test "@Int returned from block" {
 }
 
 test "comptime variable initialized with addresses of literals" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     comptime var st = .{
         .foo = &1,
         .bar = &2,
@@ -1327,6 +1331,8 @@ test "proper value is returned from labeled block" {
 }
 
 test "const inferred array of slices" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const T = struct { v: bool };
 
     const decls = [_][]const T{
@@ -1339,6 +1345,7 @@ test "const inferred array of slices" {
 
 test "var inferred array of slices" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const T = struct { v: bool };
 

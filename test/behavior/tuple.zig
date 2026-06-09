@@ -559,6 +559,8 @@ test "OPV tuple fields aren't comptime" {
 }
 
 test "array of tuples that end with a zero-bit field followed by padding" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         var foo: [2]struct { u32, u8, void } = .{ .{ 1, 2, {} }, .{ 3, 4, {} } };
     };

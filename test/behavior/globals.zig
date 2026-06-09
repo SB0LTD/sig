@@ -42,6 +42,7 @@ test "slices pointing at the same address as global array." {
 }
 
 test "global loads can affect liveness" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 

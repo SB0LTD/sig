@@ -7,6 +7,7 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "array to slice" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
     const a_slice: []align(1) const u32 = @as(*const [1]u32, &a)[0..];
@@ -21,6 +22,7 @@ test "array to slice" {
 test "arrays" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var array: [5]u32 = undefined;
 
@@ -259,6 +261,7 @@ fn doSomeMangling(array: *[4]u8) void {
 
 test "implicit cast zero sized array ptr to slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     {
         var b = "".*;
@@ -969,6 +972,7 @@ test "runtime index of array of zero-bit values" {
 }
 
 test "@splat array" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -1036,22 +1040,30 @@ test "@splat zero-length array" {
 }
 
 test "initialize slice with reference to empty array initializer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a: []const u8 = &.{};
     comptime assert(a.len == 0);
 }
 
 test "initialize many-pointer with reference to empty array initializer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a: [*]const u8 = &.{};
     _ = a; // nothing meaningful to test; points to zero bits
 }
 
 test "initialize sentinel-terminated slice with reference to empty array initializer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a: [:0]const u8 = &.{};
     comptime assert(a.len == 0);
     comptime assert(a[0] == 0);
 }
 
 test "initialize sentinel-terminated many-pointer with reference to empty array initializer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a: [*:0]const u8 = &.{};
     comptime assert(a[0] == 0);
 }

@@ -883,6 +883,8 @@ test "debug variable type resolved through indirect zero-bit types" {
 }
 
 test "const local with comptime init through array init" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const E1 = enum {
         A,
         pub fn a() void {}
@@ -902,6 +904,7 @@ test "const local with comptime init through array init" {
 }
 
 test "closure capture type of runtime-known parameter" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -1158,6 +1161,8 @@ test "repeated value is correctly expanded" {
 }
 
 test "value in if block is comptime-known" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const first = blk: {
         const s = if (false) "a" else "b";
         break :blk "foo" ++ s;

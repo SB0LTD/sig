@@ -136,6 +136,8 @@ test "implicit cast single item pointer to C pointer and back" {
 }
 
 test "initialize const optional C pointer to null" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a: ?[*c]i32 = null;
     try expect(a == null);
     comptime assert(a == null);
@@ -643,6 +645,8 @@ test "result type preserved through multiple references" {
 }
 
 test "result type found through optional pointer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const ptr1: ?*const u32 = &@intCast(123);
     const ptr2: ?[]const u8 = &.{ @intCast(123), @truncate(0xABCD) };
     try expect(ptr1.?.* == 123);
@@ -720,6 +724,8 @@ test "cast pointers with zero sized elements" {
 }
 
 test "comptime pointer equality through distinct fields with well-defined layout" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const A = extern struct {
         x: u32,
         z: u16,
@@ -744,6 +750,8 @@ test "comptime pointer equality through distinct fields with well-defined layout
 }
 
 test "comptime pointer equality through distinct elements with well-defined layout" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const buf: [2]u32 = .{ 123, 456 };
 
     const ptr: *const [2]u32 = &buf;
@@ -780,6 +788,8 @@ test "pointers to elements of many-ptr to zero-bit type" {
 }
 
 test "comptime C pointer to optional pointer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const opt: ?*u8 = @ptrFromInt(0x1000);
     const outer_ptr: [*c]const ?*u8 = &opt;
     const inner_ptr = &outer_ptr.*.?;

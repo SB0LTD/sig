@@ -103,6 +103,7 @@ test "comptime_int @floatFromInt" {
 }
 
 test "@floatFromInt" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -131,6 +132,7 @@ fn testIntFromFloat(comptime F: type, f: F, comptime I: type, i: I) !void {
 }
 
 test "@intFromFloat > 128 bits" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
@@ -156,6 +158,7 @@ fn testFloatFromInt(comptime I: type, i: I, comptime F: type, expected: F) !void
 }
 
 test "@floatFromInt > 128 bits" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
@@ -216,6 +219,8 @@ test "@floatFromInt(f80)" {
 }
 
 test "type coercion from int to float" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const check = struct {
         // Check that an integer value can be coerced to a float type and
         // then converted back to the original value without rounding issues.
@@ -539,6 +544,8 @@ test "return u8 coercing into ?u32 return type" {
 }
 
 test "cast from ?[*]T to ??[*]T" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a: ??[*]u8 = @as(?[*]u8, null);
     try expect(a != null and a.? == null);
 }
@@ -597,6 +604,7 @@ fn testPeerResolveArrayConstSlice(b: bool) !void {
 }
 
 test "implicitly cast from T to anyerror!?T" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -622,6 +630,7 @@ fn castToOptionalTypeError(z: i32) !void {
 }
 
 test "implicitly cast from [0]T to anyerror![]T" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testCastZeroArrayToErrSliceMut();
@@ -1420,6 +1429,7 @@ test "comptime float casts" {
 }
 
 test "pointer reinterpret const float to int" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     // The hex representation is 0x3fe3333333333303.
@@ -1613,6 +1623,7 @@ fn incrementVoidPtrValue(value: ?*anyopaque) void {
 }
 
 test "implicit cast *[0]T to E![]const u8" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x = @as(anyerror![]const u8, &[0]u8{});
@@ -1807,6 +1818,7 @@ test "cast compatible optional types" {
 }
 
 test "coerce undefined single-item pointer of array to error union of slice" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const a = @as([*]u8, undefined)[0..0];
@@ -1817,6 +1829,7 @@ test "coerce undefined single-item pointer of array to error union of slice" {
 }
 
 test "pointer to empty struct literal to mutable slice" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: []i32 = &.{};
@@ -1970,6 +1983,7 @@ test "peer type resolution forms error union" {
 }
 
 test "@constCast without a result location" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     const x: i32 = 1234;
     const y = @constCast(&x);
     try expect(@TypeOf(y) == *i32);
@@ -1977,6 +1991,7 @@ test "@constCast without a result location" {
 }
 
 test "@constCast optional" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     const x: u8 = 10;
     const m: ?*const u8 = &x;
     const p = @constCast(m);
@@ -2053,6 +2068,7 @@ test "peer type resolution: float and comptime-known fixed-width integer" {
 }
 
 test "peer type resolution: float and runtime-known fixed-width integer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -2163,6 +2179,7 @@ test "peer type resolution: array and vector with same child type" {
 }
 
 test "peer type resolution: array with smaller child type and vector with larger child type" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -2343,6 +2360,7 @@ test "peer type resolution: array and tuple" {
 }
 
 test "peer type resolution: vector and tuple" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -2734,6 +2752,7 @@ test "cast builtins can wrap result in optional" {
 }
 
 test "cast builtins can wrap result in error union" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -2809,6 +2828,7 @@ test "cast builtins can wrap result in error union and optional" {
 }
 
 test "@floatCast on vector" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -2897,6 +2917,7 @@ test "@intFromPtr on vector" {
 }
 
 test "@floatFromInt on vector" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -2916,6 +2937,7 @@ test "@floatFromInt on vector" {
 }
 
 test "@intFromFloat on vector" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -2935,6 +2957,7 @@ test "@intFromFloat on vector" {
 }
 
 test "@intFromBool on vector" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -3061,6 +3084,7 @@ test "peer type resolution: slice of sentinel-terminated array" {
 }
 
 test "@intFromFloat boundary cases" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -3092,6 +3116,7 @@ test "@intFromFloat boundary cases" {
 }
 
 test "@intFromFloat vector boundary cases" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 

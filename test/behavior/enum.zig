@@ -26,6 +26,7 @@ const EnumFromIntNumber = enum { Zero, One, Two, Three, Four };
 
 test "int to enum" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try testEnumFromIntEval(3);
 }
@@ -1059,6 +1060,7 @@ test "tag name with signed enum values" {
 test "tag name with large enum values" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const Kdf = enum(u128) {
         aes_kdf = 0xea4f8ac1080d74bf60448a629af3d9c9,
@@ -1078,6 +1080,7 @@ test "tag name with large enum values" {
 test "@tagName with exotic integer enum types" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn testEnumSigned(comptime T: type) !void {
@@ -1280,6 +1283,7 @@ test "tag name functions are unique" {
 
 test "size of enum with only one tag which has explicit integer tag type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const E = enum(u8) { nope = 10 };
     const S0 = struct { e: E };

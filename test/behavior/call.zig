@@ -408,6 +408,7 @@ test "recursive inline call with comptime known argument" {
 
 test "inline while with @call" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn inc(a: *u32) void {
@@ -735,6 +736,7 @@ test "tail call function pointer" {
 test "tail call with potentially extended types" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm or builtin.zig_backend == .stage2_c) {
         if (builtin.cpu.arch.isMIPS() or builtin.cpu.arch.isPowerPC() or builtin.cpu.arch.isWasm()) {

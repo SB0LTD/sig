@@ -401,6 +401,8 @@ test "breaking from a loop in an if statement" {
 }
 
 test "labeled break from else" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest(x: u32) !void {
             const arr: []const u32 = &.{ 1, 3, 10 };

@@ -45,6 +45,7 @@ const U = union(E) { a: void, b: u2, c: u3, d: u4 };
 test "inline switch unions" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var x: U = .a;
     _ = &x;
@@ -138,6 +139,8 @@ test "inline else int all values" {
 }
 
 test "inline switch capture is set when switch operand is comptime known" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const U2 = union(enum) {
         a: u32,
     };

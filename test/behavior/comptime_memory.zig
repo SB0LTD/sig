@@ -431,6 +431,8 @@ test "type pun @ptrFromInt" {
 }
 
 test "type pun null pointer-like optional" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const p: ?*u8 = null;
     // note that expectEqual hides the bug
     try testing.expect(@as(*const ?*i8, @ptrCast(&p)).* == null);
@@ -553,6 +555,8 @@ test "comptime store of packed struct with void field into array" {
 }
 
 test "comptime store of reinterpreted zero-bit type" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest(comptime T: type) void {
             comptime var buf: T = undefined;

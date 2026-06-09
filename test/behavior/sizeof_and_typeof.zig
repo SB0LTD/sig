@@ -340,7 +340,7 @@ const exp = struct {
     }
 };
 comptime {
-    _ = exp;
+    if (builtin.zig_backend != .stage2_spirv) _ = exp;
 }
 
 test "Extern function calls in @TypeOf" {

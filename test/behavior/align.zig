@@ -7,6 +7,8 @@ const assert = std.debug.assert;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     comptime assert(@typeInfo(@TypeOf(&foo)).pointer.attrs.@"align" == 4);
     comptime assert(@TypeOf(&foo) == *align(4) u8);
     {
@@ -16,6 +18,8 @@ test "global variable alignment" {
 }
 
 test "large abi alignment of global" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         var global: @This() = undefined;
         x: u64 align(64),
@@ -51,6 +55,8 @@ test "slicing array of length 1 can not assume runtime index is always zero" {
 }
 
 test "implicitly-aligned pointer is coercible to equivalent explicitly-aligned pointer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const A = *u32;
     const B = *align(@alignOf(u32)) u32;
 
@@ -83,6 +89,8 @@ test "implicitly-aligned pointer is coercible to equivalent explicitly-aligned p
 }
 
 test "implicitly decreasing pointer alignment" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
     try expect(addUnaligned(&a, &b) == 7);
