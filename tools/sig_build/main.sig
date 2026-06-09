@@ -2878,9 +2878,7 @@ fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
 /// - target → Package.Module.ResolvedTarget
 /// - optimize → Compilation.Config
 /// - zig_lib_dir, cache_dir, global_cache_dir → Compilation.Directories
-fn inProcessCompileBackend(ctx: *compile.Compilation_Context, io: std.Io) compile.Compilation_Result {
-    var result: compile.Compilation_Result = .{};
-
+fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.Compilation_Result, io: std.Io) void {
     const source_path = ctx.root_source_path[0..ctx.root_source_path_len];
     const output_name = ctx.output_name[0..ctx.output_name_len];
 
@@ -2891,24 +2889,24 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, io: std.Io) compil
         "sig";
 
     var cmd: Command_Buffer = .{};
-    cmd.appendArg(compiler) catch return inProcessFailResult(&result, "compiler path too long");
+    cmd.appendArg(compiler) catch { inProcessFailResult(result, "compiler path too long"); return; };
 
     // Choose subcommand based on output mode.
     switch (ctx.output_mode) {
-        .Exe => cmd.appendArg("build-exe") catch return inProcessFailResult(&result, "arg overflow"),
-        .Obj => cmd.appendArg("build-obj") catch return inProcessFailResult(&result, "arg overflow"),
-        .Lib => cmd.appendArg("build-lib") catch return inProcessFailResult(&result, "arg overflow"),
+        .Exe => cmd.appendArg("build-exe") catch { inProcessFailResult(result, "arg overflow"); return; },
+        .Obj => cmd.appendArg("build-obj") catch { inProcessFailResult(result, "arg overflow"); return; },
+        .Lib => cmd.appendArg("build-lib") catch { inProcessFailResult(result, "arg overflow"); return; },
     }
 
     // Module dependencies.
     for (ctx.modules[0..ctx.module_count]) |mod_decl| {
         const mod_name = mod_decl.name[0..mod_decl.name_len];
-        cmd.appendArg("--dep") catch return inProcessFailResult(&result, "arg overflow");
-        cmd.appendArg(mod_name) catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg("--dep") catch { inProcessFailResult(result, "arg overflow"); return; };
+        cmd.appendArg(mod_name) catch { inProcessFailResult(result, "arg overflow"); return; };
     }
 
     // Root source file.
-    cmd.appendArg(source_path) catch return inProcessFailResult(&result, "arg overflow");
+    cmd.appendArg(source_path) catch { inProcessFailResult(result, "arg overflow"); return; };
 
     // Module definitions (-Mname=path).
     for (ctx.modules[0..ctx.module_count]) |mod_decl| {
@@ -2917,19 +2915,19 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, io: std.Io) compil
         var mod_buf: [PATH_BUF_SIZE]u8 = undefined;
         const prefix_len = 2 + mod_name.len + 1;
         const total = prefix_len + mod_path.len;
-        if (total > PATH_BUF_SIZE) return inProcessFailResult(&result, "module arg too long");
+        if (total > PATH_BUF_SIZE) { inProcessFailResult(result, "module arg too long"); return; }
         mod_buf[0] = '-';
         mod_buf[1] = 'M';
         @memcpy(mod_buf[2..][0..mod_name.len], mod_name);
         mod_buf[2 + mod_name.len] = '=';
         @memcpy(mod_buf[prefix_len..][0..mod_path.len], mod_path);
-        cmd.appendArg(mod_buf[0..total]) catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg(mod_buf[0..total]) catch { inProcessFailResult(result, "arg overflow"); return; };
     }
 
     // Output name.
     if (output_name.len > 0) {
-        cmd.appendArg("--name") catch return inProcessFailResult(&result, "arg overflow");
-        cmd.appendArg(output_name) catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg("--name") catch { inProcessFailResult(result, "arg overflow"); return; };
+        cmd.appendArg(output_name) catch { inProcessFailResult(result, "arg overflow"); return; };
     }
 
     // Optimization mode.
@@ -2939,18 +2937,18 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, io: std.Io) compil
         .ReleaseFast => "-OReleaseFast",
         .ReleaseSmall => "-OReleaseSmall",
     };
-    cmd.appendArg(opt_flag) catch return inProcessFailResult(&result, "arg overflow");
+    cmd.appendArg(opt_flag) catch { inProcessFailResult(result, "arg overflow"); return; };
 
     // Zig lib directory.
     if (ctx.zig_lib_dir_len > 0) {
-        cmd.appendArg("--zig-lib-dir") catch return inProcessFailResult(&result, "arg overflow");
-        cmd.appendArg(ctx.zig_lib_dir[0..ctx.zig_lib_dir_len]) catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg("--zig-lib-dir") catch { inProcessFailResult(result, "arg overflow"); return; };
+        cmd.appendArg(ctx.zig_lib_dir[0..ctx.zig_lib_dir_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
     }
 
     // Cache directory.
     if (ctx.cache_dir_len > 0) {
-        cmd.appendArg("--cache-dir") catch return inProcessFailResult(&result, "arg overflow");
-        cmd.appendArg(ctx.cache_dir[0..ctx.cache_dir_len]) catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg("--cache-dir") catch { inProcessFailResult(result, "arg overflow"); return; };
+        cmd.appendArg(ctx.cache_dir[0..ctx.cache_dir_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
     }
 
     // Target triple.
@@ -2986,41 +2984,40 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, io: std.Io) compil
         tpos += 1;
         @memcpy(target_buf[tpos..][0..abi_s.len], abi_s);
         tpos += abi_s.len;
-        cmd.appendArg("-target") catch return inProcessFailResult(&result, "arg overflow");
-        cmd.appendArg(target_buf[0..tpos]) catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg("-target") catch { inProcessFailResult(result, "arg overflow"); return; };
+        cmd.appendArg(target_buf[0..tpos]) catch { inProcessFailResult(result, "arg overflow"); return; };
     }
 
     // Strip.
     if (ctx.strip) {
-        cmd.appendArg("--strip") catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg("--strip") catch { inProcessFailResult(result, "arg overflow"); return; };
     }
 
     // Link libc.
     if (ctx.link_libc) {
-        cmd.appendArg("-lc") catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg("-lc") catch { inProcessFailResult(result, "arg overflow"); return; };
     }
 
     // Execute.
     var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
     var stderr_len: usize = 0;
     const exit_code = runCommand(&cmd, &stderr_buf, &stderr_len, io) catch {
-        return inProcessFailResult(&result, "failed to spawn compilation subprocess");
+        { inProcessFailResult(result, "failed to spawn compilation subprocess"); return; }
     };
 
     if (exit_code != 0) {
         // Capture stderr as diagnostic.
         if (stderr_len > 0) {
-            return inProcessFailResult(&result, stderr_buf[0..stderr_len]);
+            { inProcessFailResult(result, stderr_buf[0..stderr_len]); return; }
         }
-        return inProcessFailResult(&result, "compilation exited with non-zero code");
+        { inProcessFailResult(result, "compilation exited with non-zero code"); return; }
     }
 
     result.success = true;
-    return result;
 }
 
 /// Helper to produce a failed Compilation_Result with a diagnostic message.
-fn inProcessFailResult(result: *compile.Compilation_Result, msg: []const u8) compile.Compilation_Result {
+fn inProcessFailResult(result: *compile.Compilation_Result, msg: []const u8) void {
     var diag: compile.Diagnostic = .{};
     const copy_len = @min(msg.len, compile.DIAGNOSTIC_BUF_SIZE);
     @memcpy(diag.message[0..copy_len], msg[0..copy_len]);
@@ -3029,7 +3026,6 @@ fn inProcessFailResult(result: *compile.Compilation_Result, msg: []const u8) com
     result.diagnostics[0] = diag;
     result.diagnostic_count = 1;
     result.success = false;
-    return result.*;
 }
 
 // ── Engine-Based C++ Compilation Step ────────────────────────────────────────

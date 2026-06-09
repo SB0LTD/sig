@@ -135,7 +135,7 @@ pub const Compilation_Context = struct {
     /// Function pointer to the actual compilation implementation.
     /// Set by the build runner to a function that calls Compilation.create() + update().
     /// When null, execute() returns an error.
-    compile_fn: ?*const fn (*Compilation_Context, std.Io) types.Compilation_Result = null,
+    compile_fn: ?*const fn (*Compilation_Context, *types.Compilation_Result, std.Io) void = null,
 
     /// Path to the compiler binary (used for self_exe_path in Compilation.create).
     compiler_path: [types.PATH_BUF_SIZE]u8 = undefined,

@@ -52,7 +52,7 @@ pub const Compilation_Engine = struct {
     /// Function pointer type for the actual compilation backend.
     /// The build runner provides this — it calls Compilation.create() + update()
     /// using the compiler internals available in its module graph.
-    pub const CompileFn = *const fn (*Compilation_Context, Io) Result;
+    pub const CompileFn = *const fn (*Compilation_Context, *Result, Io) void;
 
     /// Execute a compilation from a fully-populated context.
     ///
@@ -120,7 +120,8 @@ pub const Compilation_Engine = struct {
         }
 
         // ── Step 6: Delegate to the compilation backend ──
-        return ctx.compile_fn.?(ctx, io);
+        ctx.compile_fn.?(ctx, &result, io);
+        return result;
     }
 
     // ── Internal Helpers ──
