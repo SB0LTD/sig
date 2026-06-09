@@ -6,8 +6,9 @@
 // success = false and populated diagnostics.
 
 const std = @import("std");
-const Compilation = std.Compilation;
-const Package = std.Package;
+const compiler = @import("compiler");
+const Compilation = compiler.Compilation;
+const Package = compiler.Package;
 const Cache = std.Build.Cache;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;

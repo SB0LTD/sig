@@ -31,7 +31,7 @@ permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v24' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v25' }}
 
 jobs:
   build:
@@ -137,9 +137,8 @@ jobs:
           # Experimental targets (all platforms have them in the LLVM package)
           EXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"
 
-          # Use build.zig until compilation engine bootstrap is ready
+          # sig build uses build.sig natively (bootstrap v25 has compiler module wiring)
           "${SIG}" build \
-            --build-file build.zig \
             --prefix stage3-out \
             -Doptimize=ReleaseFast \
             -Dstrip \
