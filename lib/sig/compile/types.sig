@@ -129,3 +129,22 @@ pub const Output_Mode = enum { Exe, Lib, Obj };
 
 /// Whether to emit binary output (cached or suppressed).
 pub const Emit_Mode = enum { yes_cache, no };
+
+// ── Compilation Result ──
+
+const diag_mod = @import("diagnostics.sig");
+const Diagnostic = diag_mod.Diagnostic;
+
+/// Structured result of a compilation attempt.
+/// Always populated — never panics. When `success` is false,
+/// `diagnostic_count` is guaranteed to be greater than zero.
+pub const Compilation_Result = struct {
+    /// Whether compilation completed successfully.
+    success: bool = false,
+    /// Path to the output artifact (populated on success).
+    output_path: [PATH_BUF_SIZE]u8 = undefined,
+    output_path_len: usize = 0,
+    /// Captured diagnostics from the compilation pipeline.
+    diagnostics: [MAX_DIAGNOSTICS]Diagnostic = undefined,
+    diagnostic_count: usize = 0,
+};

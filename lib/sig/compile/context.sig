@@ -4,6 +4,7 @@
 // libraries, target, optimization mode) before handing off to the Compilation_Engine.
 // All storage is fixed-size — zero heap allocations.
 
+const std = @import("std");
 const types = @import("types.sig");
 const target_mod = @import("target.sig");
 
@@ -128,6 +129,22 @@ pub const Compilation_Context = struct {
     verbose_cc: bool = false,
     /// Emit verbose linker invocation details
     verbose_link: bool = false,
+
+    // ── Compilation Backend ──
+
+    /// Function pointer to the actual compilation implementation.
+    /// Set by the build runner to a function that calls Compilation.create() + update().
+    /// When null, execute() returns an error.
+    compile_fn: ?*const fn (*Compilation_Context, std.Io) types.Compilation_Result = null,
+
+    /// Path to the compiler binary (used for self_exe_path in Compilation.create).
+    compiler_path: [types.PATH_BUF_SIZE]u8 = undefined,
+    compiler_path_len: usize = 0,
+
+    /// Opaque pointer to the process environment map (*const std.process.Environ.Map).
+    /// Set by the build runner before invoking compile steps. Required by
+    /// Compilation.create() for system tool discovery.
+    environ_map_ptr: ?*const anyopaque = null,
 
     // ── Builder Methods ──
 

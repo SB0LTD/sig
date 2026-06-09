@@ -37,6 +37,7 @@ pub const Module_Decl = types.Module_Decl;
 pub const Optimize_Mode = types.Optimize_Mode;
 pub const Output_Mode = types.Output_Mode;
 pub const Emit_Mode = types.Emit_Mode;
+pub const Compilation_Result = types.Compilation_Result;
 
 // ── Capacity Constants ──
 

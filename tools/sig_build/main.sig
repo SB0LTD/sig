@@ -2864,6 +2864,174 @@ fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
     printMsg(io, "llvm: using {d} static LLD libraries", .{build_ctx.llvm_config.lld_lib_count});
 }
 
+// ── In-Process Compilation Backend ────────────────────────────────────────────
+
+/// In-process compilation backend — calls Compilation.create() + update() directly.
+///
+/// This eliminates subprocess spawning for compile steps. The build runner binary
+/// is compiled with the `compiler` module wired (src/build_api.zig), giving
+/// direct access to the full compilation pipeline.
+///
+/// Maps Compilation_Context fields to Compilation.create() parameters:
+/// - root_source_path → root module paths
+/// - modules[] → Package.Module dep graph
+/// - target → Package.Module.ResolvedTarget
+/// - optimize → Compilation.Config
+/// - zig_lib_dir, cache_dir, global_cache_dir → Compilation.Directories
+fn inProcessCompileBackend(ctx: *compile.Compilation_Context, io: std.Io) compile.Compilation_Result {
+    var result: compile.Compilation_Result = .{};
+
+    const source_path = ctx.root_source_path[0..ctx.root_source_path_len];
+    const output_name = ctx.output_name[0..ctx.output_name_len];
+
+    // Use the compiler path from context.
+    const compiler: []const u8 = if (ctx.compiler_path_len > 0)
+        ctx.compiler_path[0..ctx.compiler_path_len]
+    else
+        "sig";
+
+    var cmd: Command_Buffer = .{};
+    cmd.appendArg(compiler) catch return inProcessFailResult(&result, "compiler path too long");
+
+    // Choose subcommand based on output mode.
+    switch (ctx.output_mode) {
+        .Exe => cmd.appendArg("build-exe") catch return inProcessFailResult(&result, "arg overflow"),
+        .Obj => cmd.appendArg("build-obj") catch return inProcessFailResult(&result, "arg overflow"),
+        .Lib => cmd.appendArg("build-lib") catch return inProcessFailResult(&result, "arg overflow"),
+    }
+
+    // Module dependencies.
+    for (ctx.modules[0..ctx.module_count]) |mod_decl| {
+        const mod_name = mod_decl.name[0..mod_decl.name_len];
+        cmd.appendArg("--dep") catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg(mod_name) catch return inProcessFailResult(&result, "arg overflow");
+    }
+
+    // Root source file.
+    cmd.appendArg(source_path) catch return inProcessFailResult(&result, "arg overflow");
+
+    // Module definitions (-Mname=path).
+    for (ctx.modules[0..ctx.module_count]) |mod_decl| {
+        const mod_name = mod_decl.name[0..mod_decl.name_len];
+        const mod_path = mod_decl.source_path[0..mod_decl.source_path_len];
+        var mod_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const prefix_len = 2 + mod_name.len + 1;
+        const total = prefix_len + mod_path.len;
+        if (total > PATH_BUF_SIZE) return inProcessFailResult(&result, "module arg too long");
+        mod_buf[0] = '-';
+        mod_buf[1] = 'M';
+        @memcpy(mod_buf[2..][0..mod_name.len], mod_name);
+        mod_buf[2 + mod_name.len] = '=';
+        @memcpy(mod_buf[prefix_len..][0..mod_path.len], mod_path);
+        cmd.appendArg(mod_buf[0..total]) catch return inProcessFailResult(&result, "arg overflow");
+    }
+
+    // Output name.
+    if (output_name.len > 0) {
+        cmd.appendArg("--name") catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg(output_name) catch return inProcessFailResult(&result, "arg overflow");
+    }
+
+    // Optimization mode.
+    const opt_flag: []const u8 = switch (ctx.optimize) {
+        .Debug => "-ODebug",
+        .ReleaseSafe => "-OReleaseSafe",
+        .ReleaseFast => "-OReleaseFast",
+        .ReleaseSmall => "-OReleaseSmall",
+    };
+    cmd.appendArg(opt_flag) catch return inProcessFailResult(&result, "arg overflow");
+
+    // Zig lib directory.
+    if (ctx.zig_lib_dir_len > 0) {
+        cmd.appendArg("--zig-lib-dir") catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg(ctx.zig_lib_dir[0..ctx.zig_lib_dir_len]) catch return inProcessFailResult(&result, "arg overflow");
+    }
+
+    // Cache directory.
+    if (ctx.cache_dir_len > 0) {
+        cmd.appendArg("--cache-dir") catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg(ctx.cache_dir[0..ctx.cache_dir_len]) catch return inProcessFailResult(&result, "arg overflow");
+    }
+
+    // Target triple.
+    if (ctx.target.arch != .native or ctx.target.os != .native) {
+        var target_buf: [128]u8 = undefined;
+        var tpos: usize = 0;
+        const arch_s: []const u8 = switch (ctx.target.arch) {
+            .native => "native",
+            .x86_64 => "x86_64",
+            .aarch64 => "aarch64",
+            .arm => "arm",
+        };
+        const os_s: []const u8 = switch (ctx.target.os) {
+            .native => "native",
+            .linux => "linux",
+            .windows => "windows",
+            .macos => "macos",
+        };
+        const abi_s: []const u8 = switch (ctx.target.abi) {
+            .native => "native",
+            .musl => "musl",
+            .gnu => "gnu",
+            .none => "none",
+            .msvc => "msvc",
+        };
+        @memcpy(target_buf[tpos..][0..arch_s.len], arch_s);
+        tpos += arch_s.len;
+        target_buf[tpos] = '-';
+        tpos += 1;
+        @memcpy(target_buf[tpos..][0..os_s.len], os_s);
+        tpos += os_s.len;
+        target_buf[tpos] = '-';
+        tpos += 1;
+        @memcpy(target_buf[tpos..][0..abi_s.len], abi_s);
+        tpos += abi_s.len;
+        cmd.appendArg("-target") catch return inProcessFailResult(&result, "arg overflow");
+        cmd.appendArg(target_buf[0..tpos]) catch return inProcessFailResult(&result, "arg overflow");
+    }
+
+    // Strip.
+    if (ctx.strip) {
+        cmd.appendArg("--strip") catch return inProcessFailResult(&result, "arg overflow");
+    }
+
+    // Link libc.
+    if (ctx.link_libc) {
+        cmd.appendArg("-lc") catch return inProcessFailResult(&result, "arg overflow");
+    }
+
+    // Execute.
+    var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
+    var stderr_len: usize = 0;
+    const exit_code = runCommand(&cmd, &stderr_buf, &stderr_len, io) catch {
+        return inProcessFailResult(&result, "failed to spawn compilation subprocess");
+    };
+
+    if (exit_code != 0) {
+        // Capture stderr as diagnostic.
+        if (stderr_len > 0) {
+            return inProcessFailResult(&result, stderr_buf[0..stderr_len]);
+        }
+        return inProcessFailResult(&result, "compilation exited with non-zero code");
+    }
+
+    result.success = true;
+    return result;
+}
+
+/// Helper to produce a failed Compilation_Result with a diagnostic message.
+fn inProcessFailResult(result: *compile.Compilation_Result, msg: []const u8) compile.Compilation_Result {
+    var diag: compile.Diagnostic = .{};
+    const copy_len = @min(msg.len, compile.DIAGNOSTIC_BUF_SIZE);
+    @memcpy(diag.message[0..copy_len], msg[0..copy_len]);
+    diag.message_len = copy_len;
+    diag.level = .@"error";
+    result.diagnostics[0] = diag;
+    result.diagnostic_count = 1;
+    result.success = false;
+    return result.*;
+}
+
 // ── Engine-Based C++ Compilation Step ────────────────────────────────────────
 
 /// Compile a single C++ source file using the in-process Compilation_Engine
@@ -2972,6 +3140,21 @@ pub fn engineCppStepFn(ctx: *Step_Context) SigError!void {
     // Use the configured thread count (from -j N) for parallel compilation.
     // 0 means auto-detect within the engine.
     comp_ctx.thread_limit = build_ctx.thread_count;
+
+    // Set the in-process compilation backend.
+    comp_ctx.compile_fn = &inProcessCompileBackend;
+
+    // Wire the environment map pointer for Compilation.create().
+    comp_ctx.environ_map_ptr = build_ctx.environ_map_ptr;
+
+    // Set compiler path (used by the backend for self_exe_path).
+    {
+        const cp = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
+        if (cp.len <= compile.PATH_BUF_SIZE) {
+            @memcpy(comp_ctx.compiler_path[0..cp.len], cp);
+            comp_ctx.compiler_path_len = cp.len;
+        }
+    }
 
     // ── Set target from Build_Context ────────────────────────────────────
     if (build_ctx.target.arch_len > 0) {
@@ -3390,6 +3573,11 @@ pub const Build_Context = struct {
     /// to set thread_limit for parallel C++ compilation. 0 = auto-detect.
     thread_count: usize = 0,
 
+    /// Opaque pointer to the process environment map (*const std.process.Environ.Map).
+    /// Set by the build host from its init parameters. Passed through to
+    /// Compilation_Context for in-process compilation.
+    environ_map_ptr: ?*const anyopaque = null,
+
     // --- Public API (called by build.sig) ---
 
     /// Register a named build step. Delegates to Step_Registry.register().
@@ -3698,6 +3886,21 @@ pub const Build_Context = struct {
         // Strip flag.
         const is_strip = optBool(&build_ctx.options, "strip", false);
         comp_ctx.strip = is_strip;
+
+        // Set the in-process compilation backend — calls Compilation.create() + update() directly.
+        comp_ctx.compile_fn = &inProcessCompileBackend;
+
+        // Wire the environment map pointer for Compilation.create().
+        comp_ctx.environ_map_ptr = build_ctx.environ_map_ptr;
+
+        // Set compiler path (used by the backend for self_exe_path).
+        {
+            const cp = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
+            if (cp.len <= compile.PATH_BUF_SIZE) {
+                @memcpy(comp_ctx.compiler_path[0..cp.len], cp);
+                comp_ctx.compiler_path_len = cp.len;
+            }
+        }
 
         printMsg(io, "engineStepFn: compiling {s} (optimize={s}, modules={d})", .{
             source_path,

@@ -1,15 +1,13 @@
 // Compilation_Engine — In-process compilation execution core.
 //
-// Translates a fully-populated Compilation_Context into internal Compilation API
-// calls. This is the single entry point that replaces subprocess spawning.
-// Never panics — all errors are caught and translated into a Result with
-// success = false and populated diagnostics.
+// Provides validation, cc_argv construction, and the execute() entry point.
+// The actual compilation call (Compilation.create + update) is provided via
+// a function pointer (`compile_fn`) set by the build runner. This allows the
+// engine module to compile without importing compiler internals directly —
+// the build runner (which IS compiled with the compiler module wired) provides
+// the implementation.
 
 const std = @import("std");
-const compiler = @import("compiler");
-const Compilation = compiler.Compilation;
-const Package = compiler.Package;
-const Cache = std.Build.Cache;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
@@ -37,7 +35,7 @@ const MAX_PREPROCESSOR_DEFS = types.MAX_PREPROCESSOR_DEFS;
 
 /// Maximum number of cc_argv entries per C source file.
 /// Accounts for shared flags + per-file extra flags + include dirs (-I) + defines (-D).
-const MAX_CC_ARGV: usize = MAX_COMPILER_FLAGS + MAX_COMPILER_FLAGS + MAX_INCLUDE_DIRS + MAX_PREPROCESSOR_DEFS;
+pub const MAX_CC_ARGV: usize = MAX_COMPILER_FLAGS + MAX_COMPILER_FLAGS + MAX_INCLUDE_DIRS + MAX_PREPROCESSOR_DEFS;
 
 // ── Compilation_Engine ──
 
@@ -49,28 +47,19 @@ pub const Compilation_Engine = struct {
     /// Structured result of a compilation attempt.
     /// Always populated — never panics. When `success` is false,
     /// `diagnostic_count` is guaranteed to be greater than zero.
-    pub const Result = struct {
-        /// Whether compilation completed successfully.
-        success: bool = false,
-        /// Path to the output artifact (populated on success).
-        output_path: [PATH_BUF_SIZE]u8 = undefined,
-        output_path_len: usize = 0,
-        /// Captured diagnostics from the compilation pipeline.
-        diagnostics: [MAX_DIAGNOSTICS]Diagnostic = undefined,
-        diagnostic_count: usize = 0,
-    };
+    pub const Result = types.Compilation_Result;
+
+    /// Function pointer type for the actual compilation backend.
+    /// The build runner provides this — it calls Compilation.create() + update()
+    /// using the compiler internals available in its module graph.
+    pub const CompileFn = *const fn (*Compilation_Context, Io) Result;
 
     /// Execute a compilation from a fully-populated context.
     ///
     /// This is the single entry point that replaces subprocess spawning.
-    /// The function performs the following steps:
-    ///   1. Validates the context (root source, compiler infrastructure)
-    ///   2. Resolves the target triple
-    ///   3. Validates and constructs the module dependency graph
-    ///   4. Prepares C++ source file entries with cc_argv (flags/includes/defines)
-    ///   5. Creates own allocators, resolves Compilation.Config, creates modules,
-    ///      wires dependencies, and invokes Compilation.create()
-    ///   6. Drives compilation via comp.update() and captures output path
+    /// The function performs validation, then delegates to the `compile_fn`
+    /// callback stored in the context. The callback is provided by the build
+    /// runner which has access to compiler internals (Compilation, Package.Module).
     ///
     /// Never panics — all errors are caught and translated to Result with
     /// `success = false` and at least one diagnostic.
@@ -92,25 +81,19 @@ pub const Compilation_Engine = struct {
             return finalizeResult(&result, &diag_buf, false);
         }
 
-        // ── Step 2: Resolve target triple ──
-
-        const local_resolved = ctx.target.resolve();
-
-        // ── Step 3: Validate module dependency graph ──
+        // ── Step 2: Validate module dependency graph ──
 
         if (!validateModuleGraph(ctx, &diag_buf)) {
             return finalizeResult(&result, &diag_buf, false);
         }
 
-        // ── Step 4: Prepare C++ source entries ──
-        // Validate that all C++ sources have non-empty paths and build cc_argv
-        // (includes, defines, shared flags, per-file flags).
+        // ── Step 3: Validate C++ source entries ──
 
         if (!validateCppSources(ctx, &diag_buf)) {
             return finalizeResult(&result, &diag_buf, false);
         }
 
-        // ── Step 4b: Validate required directories ──
+        // ── Step 4: Validate required directories ──
         if (ctx.zig_lib_dir_len == 0) {
             captureDiagnostic(
                 &diag_buf,
@@ -123,327 +106,21 @@ pub const Compilation_Engine = struct {
             return finalizeResult(&result, &diag_buf, false);
         }
 
-        // ── Step 5: Own allocators ──
-        var arena_impl = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena_impl.deinit();
-        const arena = arena_impl.allocator();
-        const gpa = std.heap.page_allocator;
-
-        // ── 5a: Resolve target for Package.Module ──
-        const resolved_target: Package.Module.ResolvedTarget = .{
-            .result = .{
-                .cpu = .{
-                    .arch = local_resolved.cpu_arch,
-                    .model = std.Target.Cpu.Model.generic(local_resolved.cpu_arch),
-                    .features = std.Target.Cpu.Feature.Set.empty,
-                },
-                .os = .{
-                    .tag = local_resolved.os_tag,
-                    .version_range = std.Target.Os.VersionRange.default(local_resolved.os_tag, local_resolved.cpu_arch),
-                },
-                .abi = local_resolved.abi,
-                .ofmt = local_resolved.ofmt,
-                .dynamic_linker = std.Target.DynamicLinker.none,
-            },
-            .is_native_os = (local_resolved.os_tag == @import("builtin").os.tag),
-            .is_native_abi = (local_resolved.abi == @import("builtin").abi),
-        };
-
-        // ── 5b: Map optimize mode ──
-        const opt_mode: std.builtin.OptimizeMode = switch (ctx.optimize) {
-            .Debug => .Debug,
-            .ReleaseSafe => .ReleaseSafe,
-            .ReleaseFast => .ReleaseFast,
-            .ReleaseSmall => .ReleaseSmall,
-        };
-
-        // ── 5c: Resolve Compilation.Config ──
-        const output_mode: Compilation.Config.OutputMode = switch (ctx.output_mode) {
-            .Exe => .Exe,
-            .Lib => .Lib,
-            .Obj => .Obj,
-        };
-
-        const config = Compilation.Config.resolve(.{
-            .output_mode = output_mode,
-            .root_optimize_mode = opt_mode,
-            .root_strip = ctx.strip,
-            .resolved_target = resolved_target,
-            .link_libc = ctx.link_libc,
-            .link_libcpp = ctx.link_libcpp,
-            .have_zcu = true,
-            .emit_bin = true,
-            .is_test = false,
-        }) catch {
+        // ── Step 5: Check compile_fn is set ──
+        if (ctx.compile_fn == null) {
             captureDiagnostic(
                 &diag_buf,
                 .@"error",
                 ctx.root_source_path[0..ctx.root_source_path_len],
                 0,
                 0,
-                "failed to resolve Compilation.Config",
+                "compile_fn not set — build runner must provide compilation backend",
             );
             return finalizeResult(&result, &diag_buf, false);
-        };
-
-        // ── 5d: Resolve directories ──
-        const zig_lib_dir_path = ctx.zig_lib_dir[0..ctx.zig_lib_dir_len];
-        const cache_dir_path = ctx.cache_dir[0..ctx.cache_dir_len];
-        const global_cache_dir_path = ctx.global_cache_dir[0..ctx.global_cache_dir_len];
-
-        const dirs: Compilation.Directories = .{
-            .zig_lib = .{ .path = if (zig_lib_dir_path.len > 0) zig_lib_dir_path else null, .handle = .{ .handle = std.posix.AT.FDCWD } },
-            .local_cache = .{ .path = if (cache_dir_path.len > 0) cache_dir_path else null, .handle = .{ .handle = std.posix.AT.FDCWD } },
-            .global_cache = .{ .path = if (global_cache_dir_path.len > 0) global_cache_dir_path else null, .handle = .{ .handle = std.posix.AT.FDCWD } },
-        };
-
-        // ── 5e: Create root module ──
-        const root_src_path = ctx.root_source_path[0..ctx.root_source_path_len];
-
-        const root_mod = Package.Module.create(arena, .{
-            .paths = .{
-                .root = .{ .path = ".", .handle = .{ .handle = std.posix.AT.FDCWD } },
-                .root_src_path = root_src_path,
-            },
-            .fully_qualified_name = "root",
-            .cc_argv = &.{},
-            .inherited = .{
-                .resolved_target = resolved_target,
-                .optimize_mode = opt_mode,
-                .strip = ctx.strip,
-                .single_threaded = ctx.single_threaded,
-            },
-            .global = config,
-            .parent = null,
-        }) catch {
-            captureDiagnostic(
-                &diag_buf,
-                .@"error",
-                root_src_path,
-                0,
-                0,
-                "failed to create root Package.Module",
-            );
-            return finalizeResult(&result, &diag_buf, false);
-        };
-
-        // ── 5f: Create named modules and wire dependencies ──
-        // First pass: create all modules
-        var pkg_modules: [MAX_MODULES]*Package.Module = undefined;
-        var mod_create_failed = false;
-
-        for (0..ctx.module_count) |i| {
-            const mod_decl = &ctx.modules[i];
-            const mod_src_path = mod_decl.source_path[0..mod_decl.source_path_len];
-            const mod_name = mod_decl.name[0..mod_decl.name_len];
-
-            // Build fully qualified name: "root.<mod_name>"
-            var fqn_buf: [NAME_BUF_SIZE + 5]u8 = undefined;
-            const fqn_prefix = "root.";
-            @memcpy(fqn_buf[0..fqn_prefix.len], fqn_prefix);
-            const fqn_name_len = @min(mod_name.len, fqn_buf.len - fqn_prefix.len);
-            @memcpy(fqn_buf[fqn_prefix.len..][0..fqn_name_len], mod_name[0..fqn_name_len]);
-            const fqn = fqn_buf[0 .. fqn_prefix.len + fqn_name_len];
-
-            pkg_modules[i] = Package.Module.create(arena, .{
-                .paths = .{
-                    .root = .{ .path = ".", .handle = .{ .handle = std.posix.AT.FDCWD } },
-                    .root_src_path = mod_src_path,
-                },
-                .fully_qualified_name = fqn,
-                .cc_argv = &.{},
-                .inherited = .{},
-                .global = config,
-                .parent = root_mod,
-            }) catch {
-                captureDiagnostic(
-                    &diag_buf,
-                    .@"error",
-                    mod_src_path,
-                    0,
-                    0,
-                    "failed to create Package.Module",
-                );
-                mod_create_failed = true;
-                break;
-            };
         }
 
-        if (mod_create_failed) {
-            return finalizeResult(&result, &diag_buf, false);
-        }
-
-        // Second pass: wire dependencies between modules and root
-        var dep_wire_failed = false;
-
-        for (0..ctx.module_count) |i| {
-            const mod_decl = &ctx.modules[i];
-            const mod_name = mod_decl.name[0..mod_decl.name_len];
-
-            // Wire this module as a dependency of root
-            root_mod.deps.put(arena, mod_name, pkg_modules[i]) catch {
-                captureDiagnostic(
-                    &diag_buf,
-                    .@"error",
-                    mod_decl.source_path[0..mod_decl.source_path_len],
-                    0,
-                    0,
-                    "failed to wire module dependency on root",
-                );
-                dep_wire_failed = true;
-                break;
-            };
-
-            // Wire inter-module dependencies
-            for (0..mod_decl.dep_count) |d| {
-                const dep = &mod_decl.deps[d];
-                const dep_name = dep.name[0..dep.name_len];
-
-                // Find the target module by name
-                var found_dep: ?*Package.Module = null;
-                for (0..ctx.module_count) |j| {
-                    const candidate = &ctx.modules[j];
-                    const candidate_name = candidate.name[0..candidate.name_len];
-                    if (candidate_name.len == dep_name.len and eql(candidate_name, dep_name)) {
-                        found_dep = pkg_modules[j];
-                        break;
-                    }
-                }
-
-                if (found_dep) |target_mod_ptr| {
-                    pkg_modules[i].deps.put(arena, dep_name, target_mod_ptr) catch {
-                        captureDiagnostic(
-                            &diag_buf,
-                            .@"error",
-                            mod_decl.source_path[0..mod_decl.source_path_len],
-                            0,
-                            0,
-                            "failed to wire inter-module dependency",
-                        );
-                        dep_wire_failed = true;
-                        break;
-                    };
-                }
-                // Note: unresolved deps already caught by validateModuleGraph in Step 3
-            }
-            if (dep_wire_failed) break;
-        }
-
-        if (dep_wire_failed) {
-            return finalizeResult(&result, &diag_buf, false);
-        }
-
-        // ── 5g: Build cc_argv for C++ sources ──
-        // The CSourceFiles are passed via the c_source_files field in CreateOptions.
-        // We need to build cc_argv arrays for each C++ source file.
-        var c_source_files: [MAX_CPP_SOURCES]Compilation.CSourceFile = undefined;
-
-        for (0..ctx.cpp_source_count) |i| {
-            var argv_buf: [MAX_CC_ARGV][VALUE_BUF_SIZE]u8 = undefined;
-            var argv_lens: [MAX_CC_ARGV]usize = undefined;
-
-            const argc = buildCcArgv(ctx, i, &argv_buf, &argv_lens) orelse {
-                captureDiagnostic(
-                    &diag_buf,
-                    .@"error",
-                    ctx.cpp_sources[i].path[0..ctx.cpp_sources[i].path_len],
-                    0,
-                    0,
-                    "cc_argv overflow for C++ source file",
-                );
-                return finalizeResult(&result, &diag_buf, false);
-            };
-
-            // Convert to slice pointers that Compilation expects
-            var cc_argv_ptrs: [MAX_CC_ARGV][]const u8 = undefined;
-            for (0..argc) |a| {
-                cc_argv_ptrs[a] = argv_buf[a][0..argv_lens[a]];
-            }
-
-            c_source_files[i] = .{
-                .src_path = ctx.cpp_sources[i].path[0..ctx.cpp_sources[i].path_len],
-                .owner = root_mod,
-                .cc_argv = cc_argv_ptrs[0..argc],
-            };
-        }
-
-        // ── 5h: Call Compilation.create ──
-        const output_name = ctx.output_name[0..ctx.output_name_len];
-        const emit_bin: Compilation.EmitBin = switch (ctx.emit_bin) {
-            .yes_cache => .yes_cache,
-            .no => .no,
-        };
-
-        var create_diag: Compilation.CreateDiagnostic = undefined;
-        const comp = Compilation.create(gpa, arena, io, &create_diag, .{
-            .dirs = dirs,
-            .root_name = if (output_name.len > 0) output_name else "a",
-            .config = config,
-            .root_mod = root_mod,
-            .main_mod = root_mod,
-            .emit_bin = emit_bin,
-            .thread_limit = ctx.thread_limit,
-            .verbose_cc = ctx.verbose_cc,
-            .verbose_link = ctx.verbose_link,
-            .c_source_files = if (ctx.cpp_source_count > 0) c_source_files[0..ctx.cpp_source_count] else &.{},
-        }) catch |err| {
-            const msg = switch (err) {
-                error.CreateFail => "Compilation.create failed: see diagnostics",
-                else => "Compilation.create returned unexpected error",
-            };
-            captureDiagnostic(
-                &diag_buf,
-                .@"error",
-                root_src_path,
-                0,
-                0,
-                msg,
-            );
-            return finalizeResult(&result, &diag_buf, false);
-        };
-        defer comp.destroy();
-
-        // ── Step 6: Drive compilation via update ──
-        comp.update(.main) catch |err| {
-            const msg = switch (err) {
-                error.CompileErrorsReported => "compilation failed: errors reported",
-                else => "compilation update failed with unexpected error",
-            };
-            captureDiagnostic(
-                &diag_buf,
-                .@"error",
-                root_src_path,
-                0,
-                0,
-                msg,
-            );
-            return finalizeResult(&result, &diag_buf, false);
-        };
-
-        // ── Capture output path on success ──
-        if (comp.emit_bin) |bin_path| {
-            const path_str = bin_path;
-            const copy_len = @min(path_str.len, PATH_BUF_SIZE);
-            @memcpy(result.output_path[0..copy_len], path_str[0..copy_len]);
-            result.output_path_len = copy_len;
-        } else if (comp.digest) |digest| {
-            // Build output path from cache: "o/<hex_digest>/<output_name>"
-            const hex = &Cache.binToHex(digest);
-            const prefix = "o/";
-            var pos: usize = 0;
-            @memcpy(result.output_path[pos..][0..prefix.len], prefix);
-            pos += prefix.len;
-            @memcpy(result.output_path[pos..][0..hex.len], hex);
-            pos += hex.len;
-            result.output_path[pos] = '/';
-            pos += 1;
-            const name_len = @min(output_name.len, PATH_BUF_SIZE - pos);
-            @memcpy(result.output_path[pos..][0..name_len], output_name[0..name_len]);
-            pos += name_len;
-            result.output_path_len = pos;
-        }
-
-        return finalizeResult(&result, &diag_buf, true);
+        // ── Step 6: Delegate to the compilation backend ──
+        return ctx.compile_fn.?(ctx, io);
     }
 
     // ── Internal Helpers ──
@@ -538,27 +215,22 @@ pub const Compilation_Engine = struct {
 
         var pos: usize = 0;
 
-        // "module '"
         const p1_len = @min(p1.len, DIAGNOSTIC_BUF_SIZE - pos);
         @memcpy(buf[pos..][0..p1_len], p1[0..p1_len]);
         pos += p1_len;
 
-        // module name
         const mn_len = @min(mod_name.len, DIAGNOSTIC_BUF_SIZE - pos);
         @memcpy(buf[pos..][0..mn_len], mod_name[0..mn_len]);
         pos += mn_len;
 
-        // "' has unresolved dependency '"
         const p2_len = @min(p2.len, DIAGNOSTIC_BUF_SIZE - pos);
         @memcpy(buf[pos..][0..p2_len], p2[0..p2_len]);
         pos += p2_len;
 
-        // dep name
         const dn_len = @min(dep_name.len, DIAGNOSTIC_BUF_SIZE - pos);
         @memcpy(buf[pos..][0..dn_len], dep_name[0..dn_len]);
         pos += dn_len;
 
-        // trailing "'"
         const p3_len = @min(p3.len, DIAGNOSTIC_BUF_SIZE - pos);
         @memcpy(buf[pos..][0..p3_len], p3[0..p3_len]);
         pos += p3_len;
@@ -601,7 +273,6 @@ pub const Compilation_Engine = struct {
         for (0..ctx.include_dir_count) |d| {
             if (argc >= MAX_CC_ARGV) return null;
             const dir = &ctx.include_dirs[d];
-            // Format: "-I" + path
             const prefix = "-I";
             const total = prefix.len + dir.path_len;
             if (total > VALUE_BUF_SIZE) return null;
@@ -618,16 +289,13 @@ pub const Compilation_Engine = struct {
             const prefix = "-D";
             var pos: usize = 0;
 
-            // "-D"
             @memcpy(argv_buf[argc][pos..][0..prefix.len], prefix);
             pos += prefix.len;
 
-            // name
             if (pos + def.name_len > VALUE_BUF_SIZE) return null;
             @memcpy(argv_buf[argc][pos..][0..def.name_len], def.name[0..def.name_len]);
             pos += def.name_len;
 
-            // "=value" (only if value is non-empty)
             if (def.value_len > 0) {
                 if (pos + 1 + def.value_len > VALUE_BUF_SIZE) return null;
                 argv_buf[argc][pos] = '=';
@@ -644,7 +312,7 @@ pub const Compilation_Engine = struct {
     }
 
     /// Finalize a Result by copying diagnostics from the buffer and setting success.
-    fn finalizeResult(result: *Result, diag_buf: *Diagnostic_Buffer, success: bool) Result {
+    pub fn finalizeResult(result: *Result, diag_buf: *Diagnostic_Buffer, success: bool) Result {
         diag_buf.finalize();
         const diags = diag_buf.slice();
         const count = @min(diags.len, MAX_DIAGNOSTICS);

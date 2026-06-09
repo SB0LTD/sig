@@ -5382,23 +5382,16 @@ fn compileSigBuildRunner(gpa: Allocator, arena: Allocator, io: Io, options: SigB
         .parent = root_mod,
     });
 
-    try sig_build_mod.deps.put(arena, "sig", sig_mod);
-    try sig_build_mod.deps.put(arena, "compile", compile_mod);
-    try root_mod.deps.put(arena, "sig_build", sig_build_mod);
-    try root_mod.deps.put(arena, "compile", compile_mod);
-    try build_mod.deps.put(arena, "sig_build", sig_build_mod);
-    try build_mod.deps.put(arena, "sig", sig_mod);
-
-    // Wire compiler internals module for the Compilation_Engine.
-    // The engine imports @import("compiler") to access Compilation, Package.Module, etc.
-    // The compiler source lives at <zig-lib-dir>/../src/
+    // Wire compiler module (src/build_api.zig) — gives the build runner
+    // direct access to Compilation.create() + update() for in-process compilation.
+    // build_api.zig re-exports Compilation, Package, and Config from src/.
     const compiler_src_root = try std.fmt.allocPrint(arena, "{s}/../src", .{
         options.dirs.zig_lib.path orelse "lib",
     });
     const compiler_mod = try Package.Module.create(arena, .{
         .paths = .{
             .root = try .fromUnresolved(arena, options.dirs, &.{compiler_src_root}),
-            .root_src_path = "Compilation.zig",
+            .root_src_path = "build_api.zig",
         },
         .fully_qualified_name = "root.compiler",
         .cc_argv = &.{},
@@ -5406,7 +5399,15 @@ fn compileSigBuildRunner(gpa: Allocator, arena: Allocator, io: Io, options: SigB
         .global = config,
         .parent = root_mod,
     });
-    try compile_mod.deps.put(arena, "compiler", compiler_mod);
+
+    try sig_build_mod.deps.put(arena, "sig", sig_mod);
+    try sig_build_mod.deps.put(arena, "compile", compile_mod);
+    try sig_build_mod.deps.put(arena, "compiler", compiler_mod);
+    try root_mod.deps.put(arena, "sig_build", sig_build_mod);
+    try root_mod.deps.put(arena, "compile", compile_mod);
+    try root_mod.deps.put(arena, "compiler", compiler_mod);
+    try build_mod.deps.put(arena, "sig_build", sig_build_mod);
+    try build_mod.deps.put(arena, "sig", sig_mod);
 
     var create_diag: Compilation.CreateDiagnostic = undefined;
     const comp = Compilation.create(gpa, arena, io, &create_diag, .{
