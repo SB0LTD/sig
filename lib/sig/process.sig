@@ -5,7 +5,7 @@ const native_os = @import("builtin").os.tag;
 
 // ── Capacity constants ──────────────────────────────────────────────────
 
-pub const MAX_CMD_ARGS = 64;
+pub const MAX_CMD_ARGS = 256;
 pub const MAX_ARG_LEN = 4096;
 pub const MAX_CWD_LEN = 4096;
 pub const MAX_ENV_PAIRS = 256;
