@@ -3220,18 +3220,14 @@ pub fn archiveObjects(ctx: *Step_Context) SigError!void {
     var cmd: Command_Buffer = .{};
 
     if (is_windows) {
-        // ── 6.3: Windows: lib.exe /OUT:<archive_path> <obj1>.obj ... ────
-        try cmd.appendArg("lib.exe");
-
-        // Build /OUT:<path> argument.
-        var out_arg_buf: [PATH_BUF_SIZE]u8 = undefined;
-        const out_prefix = "/OUT:";
-        if (out_prefix.len + archive_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
-        @memcpy(out_arg_buf[0..out_prefix.len], out_prefix);
-        @memcpy(out_arg_buf[out_prefix.len..][0..archive_path.len], archive_path);
-        try cmd.appendArg(out_arg_buf[0 .. out_prefix.len + archive_path.len]);
+        // Windows: use sig ar to create .lib archive
+        const sig_compiler = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
+        try cmd.appendArg(sig_compiler);
+        try cmd.appendArg("ar");
+        try cmd.appendArg("rcs");
+        try cmd.appendArg(archive_path);
     } else {
-        // ── 6.2: Linux/macOS: use sig ar for cross-compilation compat ───
+        // Linux/macOS: use sig ar for cross-compilation compat
         const sig_compiler = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
         try cmd.appendArg(sig_compiler);
         try cmd.appendArg("ar");
@@ -3345,15 +3341,28 @@ pub fn appendLlvmLinkerArgs(cmd: *Command_Buffer, build_ctx: *const Build_Contex
 
     const cache_dir = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
 
-    // ── 8.2: Pass zigcpp library path to linker ─────────────────────────
-    // Build the path to the zigcpp archive: <cache_dir>/zigcpp/libzigcpp.a
-    // (or zigcpp.lib on Windows).
+    // ── 8.2: Pass zigcpp object files directly to linker ───────────────
+    // Skip the archive (cross-platform ar format issues) — pass .o files directly.
     {
-        var zigcpp_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-        const archive_name = if (builtin.os.tag == .windows) "zigcpp.lib" else "libzigcpp.a";
-        const segs = [_][]const u8{ cache_dir, "zigcpp", archive_name };
-        const zigcpp_path = try sig_fs.joinPath(&zigcpp_path_buf, &segs);
-        try cmd.appendArg(zigcpp_path);
+        const is_win_target = build_ctx.target.os_len >= 7 and std.mem.eql(u8, build_ctx.target.os[0..7], "windows");
+        const obj_ext: []const u8 = if (is_win_target) ".obj" else ".o";
+        const cpp_stems = [_][]const u8{
+            "zig_llvm",
+            "zig_llvm-ar",
+            "zig_clang_driver",
+            "zig_clang_cc1_main",
+            "zig_clang_cc1as_main",
+        };
+        for (cpp_stems) |stem| {
+            var obj_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+            var obj_name_buf: [NAME_BUF_SIZE]u8 = undefined;
+            @memcpy(obj_name_buf[0..stem.len], stem);
+            @memcpy(obj_name_buf[stem.len..][0..obj_ext.len], obj_ext);
+            const obj_name = obj_name_buf[0 .. stem.len + obj_ext.len];
+            const segs = [_][]const u8{ cache_dir, "zigcpp", obj_name };
+            const obj_path = try sig_fs.joinPath(&obj_path_buf, &segs);
+            try cmd.appendArg(obj_path);
+        }
     }
 
     // ── 8.3: Pass LLVM library search dir ───────────────────────────────
