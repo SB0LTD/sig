@@ -3147,6 +3147,14 @@ pub fn engineCppStepFn(ctx: *Step_Context) SigError!void {
     // Wire the environment map pointer for Compilation.create().
     comp_ctx.environ_map_ptr = build_ctx.environ_map_ptr;
 
+    // Wire zig_lib_dir and cache_dir for the compilation backend.
+    if (build_ctx.zig_lib_dir_len > 0) {
+        comp_ctx.setZigLibDir(build_ctx.zig_lib_dir[0..build_ctx.zig_lib_dir_len]) catch {};
+    }
+    if (build_ctx.cache_dir_len > 0) {
+        comp_ctx.setCacheDir(build_ctx.cache_dir[0..build_ctx.cache_dir_len]) catch {};
+    }
+
     // Set compiler path (used by the backend for self_exe_path).
     {
         const cp = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
