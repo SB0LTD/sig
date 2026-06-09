@@ -174,14 +174,6 @@ pub fn main(init: std.process.Init) !void {
     ctx.options = config.options;
     ctx.io_ctx = io;
 
-    // Create environment map for in-process compilation.
-    // The Compilation API requires an environ_map for system tool discovery.
-    // Use page_allocator since this lives for the entire build runner lifetime.
-    var environ_map = init.minimal.environ.createMap(std.heap.page_allocator) catch {
-        sig_build.fatal(io, "failed to create environment map", .{});
-    };
-    ctx.environ_map_ptr = @ptrCast(&environ_map);
-
     // Set compiler path from runner args so step functions can invoke the compiler.
     {
         const cp = runner_args.compiler_path[0..runner_args.compiler_path_len];
