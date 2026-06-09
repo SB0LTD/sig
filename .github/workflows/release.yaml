@@ -138,8 +138,9 @@ jobs:
           # Experimental targets (all platforms have them in the LLVM package)
           EXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"
 
-          # sig build uses build.sig natively (bootstrap v26 has compiler module wiring)
+          # Transitional for v27 bootstrap
           "${SIG}" build \
+            --build-file build.zig \
             --prefix stage3-out \
             -Doptimize=ReleaseFast \
             -Dstrip \
