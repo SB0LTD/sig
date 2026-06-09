@@ -5323,7 +5323,6 @@ fn compileSigBuildRunner(gpa: Allocator, arena: Allocator, io: Io, options: SigB
             .optimize_mode = .ReleaseSafe,
             .strip = true,
             .single_threaded = true,
-            .link_libc = true,
         },
         .global = config,
         .parent = null,
