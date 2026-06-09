@@ -34,7 +34,7 @@ pub const MAX_OPTIONS = 128;
 pub const MAX_CACHE_ENTRIES = 1024;
 pub const MAX_THREADS = 64;
 pub const MAX_WORK_QUEUE = 64;
-pub const MAX_CMD_ARGS = 64;
+pub const MAX_CMD_ARGS = 512;
 pub const MAX_ENV_VARS = 64;
 pub const PATH_BUF_SIZE = 4096;
 pub const NAME_BUF_SIZE = 64;
@@ -3906,6 +3906,59 @@ pub const Build_Context = struct {
             // The compiler needs this to resolve C ABI extern declarations in std.
             if (build_ctx.target.arch_len > 0) {
                 try cmd.appendArg("-lc");
+            }
+
+            // C++ sources: when LLVM is enabled, pass C++ files with -cflags
+            // so zig's internal Clang compiles them for the correct target.
+            if (build_ctx.llvm_config.discovered) {
+                try cmd.appendArg("-cflags");
+                try cmd.appendArg("-std=c++17");
+                try cmd.appendArg("-D__STDC_CONSTANT_MACROS");
+                try cmd.appendArg("-D__STDC_FORMAT_MACROS");
+                try cmd.appendArg("-D__STDC_LIMIT_MACROS");
+                try cmd.appendArg("-D_GNU_SOURCE");
+                try cmd.appendArg("-fno-exceptions");
+                try cmd.appendArg("-fno-rtti");
+                try cmd.appendArg("-fno-stack-protector");
+                try cmd.appendArg("-fvisibility-inlines-hidden");
+                try cmd.appendArg("-Wno-type-limits");
+                try cmd.appendArg("-Wno-missing-braces");
+                try cmd.appendArg("-Wno-comment");
+                try cmd.appendArg("-DLLVM_BUILD_STATIC");
+                try cmd.appendArg("-DCLANG_BUILD_STATIC");
+                try cmd.appendArg("-DNDEBUG=1");
+                // Include dirs for LLVM/Clang/LLD headers (part of cflags)
+                if (build_ctx.llvm_config.llvm_include_dir_len > 0) {
+                    var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+                    const inc_prefix = "-I";
+                    const dir = build_ctx.llvm_config.llvm_include_dir[0..build_ctx.llvm_config.llvm_include_dir_len];
+                    @memcpy(inc_buf[0..inc_prefix.len], inc_prefix);
+                    @memcpy(inc_buf[inc_prefix.len..][0..dir.len], dir);
+                    try cmd.appendArg(inc_buf[0 .. inc_prefix.len + dir.len]);
+                }
+                if (build_ctx.llvm_config.clang_include_dir_len > 0) {
+                    var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+                    const inc_prefix = "-I";
+                    const dir = build_ctx.llvm_config.clang_include_dir[0..build_ctx.llvm_config.clang_include_dir_len];
+                    @memcpy(inc_buf[0..inc_prefix.len], inc_prefix);
+                    @memcpy(inc_buf[inc_prefix.len..][0..dir.len], dir);
+                    try cmd.appendArg(inc_buf[0 .. inc_prefix.len + dir.len]);
+                }
+                if (build_ctx.llvm_config.lld_include_dir_len > 0) {
+                    var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+                    const inc_prefix = "-I";
+                    const dir = build_ctx.llvm_config.lld_include_dir[0..build_ctx.llvm_config.lld_include_dir_len];
+                    @memcpy(inc_buf[0..inc_prefix.len], inc_prefix);
+                    @memcpy(inc_buf[inc_prefix.len..][0..dir.len], dir);
+                    try cmd.appendArg(inc_buf[0 .. inc_prefix.len + dir.len]);
+                }
+                // Separator between cflags and C++ source files
+                try cmd.appendArg("--");
+                try cmd.appendArg("src/zig_llvm.cpp");
+                try cmd.appendArg("src/zig_llvm-ar.cpp");
+                try cmd.appendArg("src/zig_clang_driver.cpp");
+                try cmd.appendArg("src/zig_clang_cc1_main.cpp");
+                try cmd.appendArg("src/zig_clang_cc1as_main.cpp");
             }
 
             // Log the command for debugging.
