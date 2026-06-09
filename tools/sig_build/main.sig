@@ -3857,7 +3857,7 @@ pub const Build_Context = struct {
             // Strip: --strip if strip option is set.
             const is_strip = optBool(&build_ctx.options, "strip", false);
             if (is_strip) {
-                try cmd.appendArg("--strip");
+                try cmd.appendArg("-fstrip");
             }
 
             // Output binary: -femit-bin=<prefix>/bin/sig[.exe]
