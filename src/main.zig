@@ -5386,7 +5386,7 @@ fn compileSigBuildRunner(gpa: Allocator, arena: Allocator, io: Io, options: SigB
     // direct access to Compilation.create() + update() for in-process compilation.
     // build_api.zig re-exports Compilation, Package, and Config from src/.
     // Use build_root (source checkout) + "src" for reliable path resolution.
-    const compiler_src_root = try build_root.directory.join(arena, &.{"src"});
+    const compiler_src_root = try options.build_root.directory.join(arena, &.{"src"});
     const compiler_mod = try Package.Module.create(arena, .{
         .paths = .{
             .root = try .fromUnresolved(arena, options.dirs, &.{compiler_src_root}),
