@@ -37,9 +37,12 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
 
     const has_target = ctx.target.arch_len > 0;
 
+    // Generate build_options (always needed — src/main.zig imports it)
+    const config = try ctx.addStep("config:sig", "Generate config.sig", &sig_build.generateConfig);
+
     // Compiler compilation step
     if (!no_bin) {
-        _ = try ctx.addCompileStep(.{
+        const sig_handle = try ctx.addCompileStep(.{
             .source_path = "src/main.zig",
             .output_name = "sig",
             .cache_dir = ctx.cache_dir[0..ctx.cache_dir_len],
@@ -48,6 +51,8 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
             .imports = &.{},
             .compiler_path = "",
         });
+        // sig compile depends on config (build_options must exist first)
+        try ctx.addDependency(sig_handle, config);
     }
 
     // LLVM pipeline (conditional)
@@ -80,8 +85,6 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
             .object_handles = &cpp_handles,
             .output_name = "zigcpp",
         });
-
-        const config = try ctx.addStep("config:sig", "Generate config.sig", &sig_build.generateConfig);
 
         _ = try ctx.addLlvmLinkStep(.{
             .zigcpp_handle = archive,
