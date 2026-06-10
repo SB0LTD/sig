@@ -29126,7 +29126,7 @@ fn callconvCoerceAllowed(
             if (@TypeOf(src_data) != void) {
                 const default_stack_align = target.stackAlignment();
                 const src_stack_align = src_data.incoming_stack_alignment orelse default_stack_align;
-                const dest_stack_align = src_data.incoming_stack_alignment orelse default_stack_align;
+                const dest_stack_align = dest_data.incoming_stack_alignment orelse default_stack_align;
                 if (dest_stack_align < src_stack_align) return false;
             }
             switch (@TypeOf(src_data)) {
