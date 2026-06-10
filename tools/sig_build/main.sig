@@ -2882,7 +2882,7 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.C
     const compiler = @import("compiler");
     const Compilation = compiler.getCompilation();
     const Package = compiler.getPackage();
-    const Cache = compiler.Cache;
+    const Cache = compiler.getCache();
 
     const source_path = ctx.root_source_path[0..ctx.root_source_path_len];
     const output_name = ctx.output_name[0..ctx.output_name_len];

@@ -4,9 +4,9 @@
 /// (tools/sig_build/main.sig) to call Compilation.create() + update() directly.
 /// This file is the root_src_path of the "compiler" module wired by compileSigBuildRunner.
 ///
-/// IMPORTANT: All imports are lazy (inside functions/comptime blocks) to avoid
-/// triggering transitive analysis of Compilation.zig → build_options during
-/// the build runner compilation phase (where build_options isn't available).
+/// IMPORTANT: All imports are lazy (inside functions) to avoid triggering
+/// transitive analysis during the build runner compilation phase.
+/// No file-scope imports of compiler internals or std.
 pub fn getCompilation() type {
     return @import("Compilation.zig");
 }
@@ -19,4 +19,6 @@ pub fn getIntrospect() type {
     return @import("introspect.zig");
 }
 
-pub const Cache = @import("std").Build.Cache;
+pub fn getCache() type {
+    return @import("std").Build.Cache;
+}
