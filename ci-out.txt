@@ -1,171 +1,159 @@
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	﻿2026-06-10T03:22:30.5311130Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5311755Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5312288Z [36;1mecho "Building x86_64-linux-musl (version: ${ZIG_VER_BASE})"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5312652Z [36;1m[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5312985Z [36;1m# Experimental targets (all platforms have them in the LLVM package)[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5313550Z [36;1mEXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5313981Z [36;1m[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5314255Z [36;1m# sig build uses build.sig natively (bootstrap v27)[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5314586Z [36;1m"${SIG}" build \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5314833Z [36;1m  --prefix stage3-out \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5315109Z [36;1m  -Doptimize=ReleaseFast \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5315378Z [36;1m  -Dstrip \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5315616Z [36;1m  -Dtarget=x86_64-linux-musl \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5315915Z [36;1m  -Dno-lib \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5316143Z [36;1m  -Denable-llvm \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5316388Z [36;1m  -Dstatic-llvm \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5316657Z [36;1m  -Dversion-string="${ZIG_VER_BASE}" \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5316968Z [36;1m  --zig-lib-dir lib \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5317248Z [36;1m  --search-prefix "${LLVM_PREFIX}" \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5317544Z [36;1m  ${EXP_FLAGS}[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5343682Z shell: /usr/bin/bash -e {0}
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5343949Z env:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5344166Z   BOOTSTRAP_TAG: bootstrap-sig-v28
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5344464Z   VERSION: 0.2.0-rc3-zig0.17.0.0c33912
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5344749Z   SIG: /tmp/bootstrap/bin/sig
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5345043Z   LLVM_PREFIX: /home/runner/work/sig/sig/llvm-22
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5345350Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:22:30.5410836Z Building x86_64-linux-musl (version: 0.17.0)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:37.5113111Z llvm: generating config.sig...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:37.5113621Z llvm: config.sig generated successfully
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:40.7178902Z llvm: found C++ compiler: clang++ (kind: clang++)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:40.7186712Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLVM headers and lib dir
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:40.7187623Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found Clang headers
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:40.7241195Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLD headers
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:40.7242281Z llvm: using 25 static Clang libraries
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:40.7243029Z llvm: using 6 static LLD libraries
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:40.7244156Z llvm: discovery complete (via --search-prefix: /home/runner/work/sig/sig/llvm-22)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:40.7245915Z engine: compiling C++ src/zig_llvm.cpp
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:40.7246719Z engine: compiling C++ src/zig_llvm-ar.cpp
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:40.7247348Z engine: compiling C++ src/zig_clang_driver.cpp
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:40.7247699Z engine: compiling C++ src/zig_clang_cc1_main.cpp
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:45.4381160Z engine: compiled cpp:zig_llvm-ar successfully
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:45.4400879Z engine: compiling C++ src/zig_clang_cc1as_main.cpp
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:51.6596796Z engine: compiled cpp:zig_clang_driver successfully
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:52.5905800Z engine: compiled cpp:zig_clang_cc1as_main successfully
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:53.7855865Z engine: compiled cpp:zig_llvm successfully
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:54.8894849Z engine: compiled cpp:zig_clang_cc1_main successfully
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:54.8897539Z llvm: archiving objects -> .zig-cache/zigcpp/libzigcpp.a
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:54.9014200Z llvm: archiver failed (exit code: 1)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:54.9014935Z llvm: stderr: ar: error: .zig-cache/zigcpp/zig_llvm.o: No such file or directory
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:54.9015529Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:54.9015964Z FAIL: step 'archive:zigcpp' exited with code 1
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:54.9016436Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:54.9016852Z Build summary: 11 total, 9 succeeded, 0 cached, 1 failed, 1 skipped in 17390 ms
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:54.9042648Z error: the following build runner command exited with code 1:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:54.9044615Z .zig-cache/o/7c7cc4985706d748348137886dd5516d/sig_build_runner /tmp/bootstrap/bin/sig lib /home/runner/work/sig/sig .zig-cache /home/runner/.cache/zig --prefix stage3-out -Doptimize=ReleaseFast -Dstrip -Dtarget=x86_64-linux-musl -Dno-lib -Denable-llvm -Dstatic-llvm -Dversion-string=0.17.0 --search-prefix /home/runner/work/sig/sig/llvm-22 -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:23:54.9311614Z ##[error]Process completed with exit code 1.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	﻿2026-06-10T03:22:21.4329066Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4330079Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4330942Z [36;1mecho "Building x86_64-windows-gnu (version: ${ZIG_VER_BASE})"[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4331554Z [36;1m[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4332093Z [36;1m# Experimental targets (all platforms have them in the LLVM package)[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4333013Z [36;1mEXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4333702Z [36;1m[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4334110Z [36;1m# sig build uses build.sig natively (bootstrap v27)[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4334650Z [36;1m"${SIG}" build \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4335034Z [36;1m  --prefix stage3-out \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4335469Z [36;1m  -Doptimize=ReleaseFast \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4335892Z [36;1m  -Dstrip \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4336258Z [36;1m  -Dtarget=x86_64-windows-gnu \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4336754Z [36;1m  -Dno-lib \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4337103Z [36;1m  -Denable-llvm \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4337483Z [36;1m  -Dstatic-llvm \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4338108Z [36;1m  -Dversion-string="${ZIG_VER_BASE}" \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4338597Z [36;1m  --zig-lib-dir lib \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4339033Z [36;1m  --search-prefix "${LLVM_PREFIX}" \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4339501Z [36;1m  ${EXP_FLAGS}[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4372892Z shell: /usr/bin/bash -e {0}
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4373274Z env:
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4373597Z   BOOTSTRAP_TAG: bootstrap-sig-v28
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4374033Z   VERSION: 0.2.0-rc3-zig0.17.0.0c33912
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4374471Z   SIG: /tmp/bootstrap/bin/sig
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4374921Z   LLVM_PREFIX: /home/runner/work/sig/sig/llvm-22
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.4375389Z ##[endgroup]
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:22:21.5936551Z Building x86_64-windows-gnu (version: 0.17.0)
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:26.5121141Z llvm: generating config.sig...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:26.5122098Z llvm: config.sig generated successfully
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:30.1702096Z llvm: found C++ compiler: clang++ (kind: clang++)
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:30.1711940Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLVM headers and lib dir
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:30.1712841Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found Clang headers
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:30.1749051Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLD headers
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:30.1769045Z llvm: using 25 static Clang libraries
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:30.1778373Z llvm: using 6 static LLD libraries
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:30.1779042Z llvm: discovery complete (via --search-prefix: /home/runner/work/sig/sig/llvm-22)
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:30.1779482Z engine: compiling C++ src/zig_llvm.cpp
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:30.1779768Z engine: compiling C++ src/zig_llvm-ar.cpp
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:30.1780066Z engine: compiling C++ src/zig_clang_driver.cpp
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:30.1780378Z engine: compiling C++ src/zig_clang_cc1_main.cpp
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:36.6298698Z engine: compiled cpp:zig_llvm-ar successfully
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:36.6308604Z engine: compiling C++ src/zig_clang_cc1as_main.cpp
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:41.2793730Z engine: compiled cpp:zig_clang_driver successfully
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:43.7628889Z engine: compiled cpp:zig_clang_cc1as_main successfully
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:43.9059067Z engine: compiled cpp:zig_llvm successfully
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:44.4122104Z engine: compiled cpp:zig_clang_cc1_main successfully
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:44.4124694Z llvm: archiving objects -> .zig-cache/zigcpp/zigcpp.lib
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:44.4249647Z llvm: archiver failed (exit code: 1)
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:44.4250446Z llvm: stderr: ar: error: .zig-cache/zigcpp/zig_llvm.obj: No such file or directory
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:44.4250991Z 
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:44.4251657Z FAIL: step 'archive:zigcpp' exited with code 1
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:44.4252259Z 
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:44.4252545Z Build summary: 11 total, 9 succeeded, 0 cached, 1 failed, 1 skipped in 17913 ms
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:44.4274708Z error: the following build runner command exited with code 1:
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:44.4276511Z .zig-cache/o/a1ad1644f04ee9d2b5a2d5ac2017d474/sig_build_runner /tmp/bootstrap/bin/sig lib /home/runner/work/sig/sig .zig-cache /home/runner/.cache/zig --prefix stage3-out -Doptimize=ReleaseFast -Dstrip -Dtarget=x86_64-windows-gnu -Dno-lib -Denable-llvm -Dstatic-llvm -Dversion-string=0.17.0 --search-prefix /home/runner/work/sig/sig/llvm-22 -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:23:44.4543539Z ##[error]Process completed with exit code 1.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	﻿2026-06-10T03:23:51.9181791Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9182391Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9182887Z [36;1mecho "Building aarch64-macos-none (version: ${ZIG_VER_BASE})"[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9183248Z [36;1m[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9183568Z [36;1m# Experimental targets (all platforms have them in the LLVM package)[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9184131Z [36;1mEXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9184547Z [36;1m[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9184808Z [36;1m# sig build uses build.sig natively (bootstrap v27)[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9185149Z [36;1m"${SIG}" build \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9185386Z [36;1m  --prefix stage3-out \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9185649Z [36;1m  -Doptimize=ReleaseFast \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9185902Z [36;1m  -Dstrip \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9186143Z [36;1m  -Dtarget=aarch64-macos-none \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9186428Z [36;1m  -Dno-lib \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9186645Z [36;1m  -Denable-llvm \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9187185Z [36;1m  -Dstatic-llvm \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9187469Z [36;1m  -Dversion-string="${ZIG_VER_BASE}" \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9187763Z [36;1m  --zig-lib-dir lib \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9188024Z [36;1m  --search-prefix "${LLVM_PREFIX}" \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9188297Z [36;1m  ${EXP_FLAGS}[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9497714Z shell: /usr/bin/bash -e {0}
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9498074Z env:
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9498368Z   BOOTSTRAP_TAG: bootstrap-sig-v28
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9498760Z   VERSION: 0.2.0-rc3-zig0.17.0.0c33912
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9499151Z   SIG: /tmp/bootstrap/bin/sig
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9499536Z   LLVM_PREFIX: /home/runner/work/sig/sig/llvm-22
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9499949Z ##[endgroup]
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:23:51.9572589Z Building aarch64-macos-none (version: 0.17.0)
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:24:57.4628337Z llvm: generating config.sig...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:24:57.4629171Z llvm: config.sig generated successfully
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:00.7292038Z llvm: found C++ compiler: clang++ (kind: clang++)
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:00.7300346Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLVM headers and lib dir
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:00.7301328Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found Clang headers
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:00.7302179Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLD headers
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:00.7302865Z llvm: using 25 static Clang libraries
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:00.7303383Z llvm: using 6 static LLD libraries
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:00.7304368Z llvm: discovery complete (via --search-prefix: /home/runner/work/sig/sig/llvm-22)
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:00.7306066Z engine: compiling C++ src/zig_clang_driver.cpp
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:00.7308287Z engine: compiling C++ src/zig_llvm-ar.cpp
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:00.7317569Z engine: compiling C++ src/zig_clang_cc1_main.cpp
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:00.7337613Z engine: compiling C++ src/zig_llvm.cpp
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:05.9944134Z engine: compiled cpp:zig_llvm-ar successfully
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:06.0017777Z engine: compiling C++ src/zig_clang_cc1as_main.cpp
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:12.1258949Z engine: compiled cpp:zig_clang_driver successfully
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:13.4236285Z engine: compiled cpp:zig_clang_cc1as_main successfully
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:14.6976189Z engine: compiled cpp:zig_llvm successfully
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:16.4225429Z engine: compiled cpp:zig_clang_cc1_main successfully
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:16.4228341Z llvm: archiving objects -> .zig-cache/zigcpp/libzigcpp.a
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:16.4346596Z llvm: archiver failed (exit code: 1)
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:16.4347491Z llvm: stderr: ar: error: .zig-cache/zigcpp/zig_llvm.o: No such file or directory
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:16.4347925Z 
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:16.4348248Z FAIL: step 'archive:zigcpp' exited with code 1
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:16.4348864Z 
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:16.4349174Z Build summary: 11 total, 9 succeeded, 0 cached, 1 failed, 1 skipped in 18972 ms
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:16.4376016Z error: the following build runner command exited with code 1:
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:16.4378958Z .zig-cache/o/a1ad1644f04ee9d2b5a2d5ac2017d474/sig_build_runner /tmp/bootstrap/bin/sig lib /home/runner/work/sig/sig .zig-cache /home/runner/.cache/zig --prefix stage3-out -Doptimize=ReleaseFast -Dstrip -Dtarget=aarch64-macos-none -Dno-lib -Denable-llvm -Dstatic-llvm -Dversion-string=0.17.0 --search-prefix /home/runner/work/sig/sig/llvm-22 -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:25:16.4604158Z ##[error]Process completed with exit code 1.
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	﻿2026-06-10T03:36:48.8789075Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8789694Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8790207Z [36;1mecho "Building x86_64-windows-gnu (version: ${ZIG_VER_BASE})"[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8790586Z [36;1m[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8790942Z [36;1m# Experimental targets (all platforms have them in the LLVM package)[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8791503Z [36;1mEXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8791922Z [36;1m[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8792182Z [36;1m# sig build uses build.sig natively (bootstrap v27)[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8792513Z [36;1m"${SIG}" build \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8792762Z [36;1m  --prefix stage3-out \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8793039Z [36;1m  -Doptimize=ReleaseFast \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8793606Z [36;1m  -Dstrip \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8793850Z [36;1m  -Dtarget=x86_64-windows-gnu \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8794154Z [36;1m  -Dno-lib \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8794384Z [36;1m  -Denable-llvm \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8794628Z [36;1m  -Dstatic-llvm \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8794899Z [36;1m  -Dversion-string="${ZIG_VER_BASE}" \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8795215Z [36;1m  --zig-lib-dir lib \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8795495Z [36;1m  --search-prefix "${LLVM_PREFIX}" \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8795788Z [36;1m  ${EXP_FLAGS}[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8821273Z shell: /usr/bin/bash -e {0}
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8821528Z env:
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8821742Z   BOOTSTRAP_TAG: bootstrap-sig-v28
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8822034Z   VERSION: 0.2.0-rc3-zig0.17.0.7a844d1
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8822313Z   SIG: /tmp/bootstrap/bin/sig
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8822600Z   LLVM_PREFIX: /home/runner/work/sig/sig/llvm-22
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8822909Z ##[endgroup]
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:36:48.8888597Z Building x86_64-windows-gnu (version: 0.17.0)
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.1896057Z llvm: generating config.sig...
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.1896632Z llvm: config.sig generated successfully
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4640539Z llvm: found C++ compiler: clang++ (kind: clang++)
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4648471Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLVM headers and lib dir
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4650000Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found Clang headers
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4650908Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLD headers
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4651629Z llvm: using 25 static Clang libraries
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4652170Z llvm: using 6 static LLD libraries
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4652957Z llvm: discovery complete (via --search-prefix: /home/runner/work/sig/sig/llvm-22)
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4654127Z engine: C++ step skipped (compiled inline with main binary)
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4654917Z engine: C++ step skipped (compiled inline with main binary)
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4656011Z engine: C++ step skipped (compiled inline with main binary)
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4657168Z engine: C++ step skipped (compiled inline with main binary)
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4658355Z engine: C++ step skipped (compiled inline with main binary)
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4659441Z llvm: archive step skipped (C++ compiled inline)
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4662817Z engineStepFn: compiling src/main.zig (optimize=ReleaseFast, modules=1)
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4824313Z engineStepFn: error: error: unrecognized parameter: --strip
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4824849Z 
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4825242Z engineStepFn: compilation failed for src/main.zig
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4826192Z FAIL: step 'sig' exited with code 1
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4826544Z 
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4838404Z Build summary: 11 total, 10 succeeded, 0 cached, 1 failed, 0 skipped in 293 ms
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4841973Z error: the following build runner command exited with code 1:
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.4843897Z .zig-cache/o/07c7e866047f7923823cd8e23346d9c0/sig_build_runner /tmp/bootstrap/bin/sig lib /home/runner/work/sig/sig .zig-cache /home/runner/.cache/zig --prefix stage3-out -Doptimize=ReleaseFast -Dstrip -Dtarget=x86_64-windows-gnu -Dno-lib -Denable-llvm -Dstatic-llvm -Dversion-string=0.17.0 --search-prefix /home/runner/work/sig/sig/llvm-22 -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T03:37:53.5104880Z ##[error]Process completed with exit code 1.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	﻿2026-06-10T03:37:12.0849595Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0850705Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0851468Z [36;1mecho "Building x86_64-linux-musl (version: ${ZIG_VER_BASE})"[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0852022Z [36;1m[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0852519Z [36;1m# Experimental targets (all platforms have them in the LLVM package)[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0853400Z [36;1mEXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0854034Z [36;1m[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0854419Z [36;1m# sig build uses build.sig natively (bootstrap v27)[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0854921Z [36;1m"${SIG}" build \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0855298Z [36;1m  --prefix stage3-out \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0855734Z [36;1m  -Doptimize=ReleaseFast \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0856013Z [36;1m  -Dstrip \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0856255Z [36;1m  -Dtarget=x86_64-linux-musl \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0856602Z [36;1m  -Dno-lib \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0856840Z [36;1m  -Denable-llvm \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0857098Z [36;1m  -Dstatic-llvm \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0857373Z [36;1m  -Dversion-string="${ZIG_VER_BASE}" \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0857685Z [36;1m  --zig-lib-dir lib \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0857980Z [36;1m  --search-prefix "${LLVM_PREFIX}" \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0858295Z [36;1m  ${EXP_FLAGS}[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0893124Z shell: /usr/bin/bash -e {0}
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0893407Z env:
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0893643Z   BOOTSTRAP_TAG: bootstrap-sig-v28
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0893936Z   VERSION: 0.2.0-rc3-zig0.17.0.7a844d1
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0894223Z   SIG: /tmp/bootstrap/bin/sig
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0894521Z   LLVM_PREFIX: /home/runner/work/sig/sig/llvm-22
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0894830Z ##[endgroup]
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:37:12.0977176Z Building x86_64-linux-musl (version: 0.17.0)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:03.5294935Z llvm: generating config.sig...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:03.5295836Z llvm: config.sig generated successfully
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0951514Z llvm: found C++ compiler: clang++ (kind: clang++)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0959050Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLVM headers and lib dir
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0960080Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found Clang headers
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0960808Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLD headers
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0961359Z llvm: using 25 static Clang libraries
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0962274Z llvm: using 6 static LLD libraries
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0962957Z llvm: discovery complete (via --search-prefix: /home/runner/work/sig/sig/llvm-22)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0963760Z engine: C++ step skipped (compiled inline with main binary)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0964488Z engine: C++ step skipped (compiled inline with main binary)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0965303Z engine: C++ step skipped (compiled inline with main binary)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0966106Z engine: C++ step skipped (compiled inline with main binary)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0966955Z engine: C++ step skipped (compiled inline with main binary)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0967752Z llvm: archive step skipped (C++ compiled inline)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.0971974Z engineStepFn: compiling src/main.zig (optimize=ReleaseFast, modules=1)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.1155367Z engineStepFn: error: error: unrecognized parameter: --strip
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.1155829Z 
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.1156035Z engineStepFn: compilation failed for src/main.zig
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.1156673Z FAIL: step 'sig' exited with code 1
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.1157403Z 
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.1157813Z Build summary: 11 total, 10 succeeded, 0 cached, 1 failed, 0 skipped in 1586 ms
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.1173088Z error: the following build runner command exited with code 1:
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.1175018Z .zig-cache/o/23f308d80d3263dae70d8c33cffad001/sig_build_runner /tmp/bootstrap/bin/sig lib /home/runner/work/sig/sig .zig-cache /home/runner/.cache/zig --prefix stage3-out -Doptimize=ReleaseFast -Dstrip -Dtarget=x86_64-linux-musl -Dno-lib -Denable-llvm -Dstatic-llvm -Dversion-string=0.17.0 --search-prefix /home/runner/work/sig/sig/llvm-22 -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T03:38:05.1422210Z ##[error]Process completed with exit code 1.
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	﻿2026-06-10T03:38:27.2217916Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2218489Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2218979Z [36;1mecho "Building aarch64-macos-none (version: ${ZIG_VER_BASE})"[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2219331Z [36;1m[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2219656Z [36;1m# Experimental targets (all platforms have them in the LLVM package)[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2220207Z [36;1mEXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2220621Z [36;1m[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2220875Z [36;1m# sig build uses build.sig natively (bootstrap v27)[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2221203Z [36;1m"${SIG}" build \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2221447Z [36;1m  --prefix stage3-out \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2221724Z [36;1m  -Doptimize=ReleaseFast \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2221990Z [36;1m  -Dstrip \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2222226Z [36;1m  -Dtarget=aarch64-macos-none \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2222529Z [36;1m  -Dno-lib \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2222753Z [36;1m  -Denable-llvm \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2222994Z [36;1m  -Dstatic-llvm \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2223256Z [36;1m  -Dversion-string="${ZIG_VER_BASE}" \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2223551Z [36;1m  --zig-lib-dir lib \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2223821Z [36;1m  --search-prefix "${LLVM_PREFIX}" \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2224106Z [36;1m  ${EXP_FLAGS}[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2405792Z shell: /usr/bin/bash -e {0}
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2406099Z env:
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2406334Z   BOOTSTRAP_TAG: bootstrap-sig-v28
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2406619Z   VERSION: 0.2.0-rc3-zig0.17.0.7a844d1
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2406888Z   SIG: /tmp/bootstrap/bin/sig
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2407166Z   LLVM_PREFIX: /home/runner/work/sig/sig/llvm-22
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2407468Z ##[endgroup]
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:38:27.2480546Z Building aarch64-macos-none (version: 0.17.0)
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.7129298Z llvm: generating config.sig...
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.7130028Z llvm: config.sig generated successfully
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9495739Z llvm: found C++ compiler: clang++ (kind: clang++)
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9503574Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLVM headers and lib dir
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9507071Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found Clang headers
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9507693Z llvm: prefix /home/runner/work/sig/sig/llvm-22: found LLD headers
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9508178Z llvm: using 25 static Clang libraries
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9508566Z llvm: using 6 static LLD libraries
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9509614Z llvm: discovery complete (via --search-prefix: /home/runner/work/sig/sig/llvm-22)
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9510279Z engine: C++ step skipped (compiled inline with main binary)
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9510836Z engine: C++ step skipped (compiled inline with main binary)
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9511375Z engine: C++ step skipped (compiled inline with main binary)
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9512099Z engine: C++ step skipped (compiled inline with main binary)
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9512881Z engine: C++ step skipped (compiled inline with main binary)
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9513596Z llvm: archive step skipped (C++ compiled inline)
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9519874Z engineStepFn: compiling src/main.zig (optimize=ReleaseFast, modules=1)
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9691068Z engineStepFn: error: error: unrecognized parameter: --strip
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9691541Z 
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9695826Z engineStepFn: compilation failed for src/main.zig
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9696368Z FAIL: step 'sig' exited with code 1
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9696650Z 
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9697005Z Build summary: 11 total, 10 succeeded, 0 cached, 1 failed, 0 skipped in 256 ms
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9708826Z error: the following build runner command exited with code 1:
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9711342Z .zig-cache/o/cfe234dbf671593506daf9b49f65525c/sig_build_runner /tmp/bootstrap/bin/sig lib /home/runner/work/sig/sig .zig-cache /home/runner/.cache/zig --prefix stage3-out -Doptimize=ReleaseFast -Dstrip -Dtarget=aarch64-macos-none -Dno-lib -Denable-llvm -Dstatic-llvm -Dversion-string=0.17.0 --search-prefix /home/runner/work/sig/sig/llvm-22 -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T03:39:20.9971650Z ##[error]Process completed with exit code 1.

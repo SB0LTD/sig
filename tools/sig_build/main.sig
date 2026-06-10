@@ -3087,7 +3087,7 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.C
 
     // Strip.
     if (ctx.strip) {
-        cmd.appendArg("--strip") catch { inProcessFailResult(result, "arg overflow"); return; };
+        cmd.appendArg("-fstrip") catch { inProcessFailResult(result, "arg overflow"); return; };
     }
 
     // Link libc.
