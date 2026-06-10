@@ -5384,9 +5384,10 @@ fn compileSigBuildRunner(gpa: Allocator, arena: Allocator, io: Io, options: SigB
 
     // Wire compiler module (src/build_api.zig) — gives the build runner
     // direct access to Compilation.create() + update() for in-process compilation.
-    // build_api.zig re-exports Compilation, Package, and Config from src/.
-    // Use build_root (source checkout) + "src" for reliable path resolution.
-    const compiler_src_root = try options.build_root.directory.join(arena, &.{"src"});
+    // Use same path resolution pattern as sig_build_root_path (zig_lib/../src).
+    const compiler_src_root = try std.fmt.allocPrint(arena, "{s}/../src", .{
+        options.dirs.zig_lib.path orelse "lib",
+    });
 
     // DEBUG: print the compiler module path for CI diagnosis
     {
