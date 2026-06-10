@@ -26399,23 +26399,21 @@ fn fieldCallBind(
             .@"struct" => {
                 if (zcu.typeToStruct(concrete_ty)) |struct_type| {
                     const field_index = struct_type.nameIndex(ip, field_name) orelse break :find_field;
-                    const field_ty: Type = .fromInterned(struct_type.field_types.get(ip)[field_index]);
-
-                    return sema.finishFieldCallBind(block, src, ptr_ty, field_ty, field_index, object_ptr);
+                    return sema.finishFieldCallBind(block, src, ptr_ty, field_index, object_ptr);
                 } else if (concrete_ty.isTuple(zcu)) {
                     if (field_name.eqlSlice("len", ip)) {
                         return .{ .direct = try pt.intRef(.usize, concrete_ty.structFieldCount(zcu)) };
                     }
                     if (field_name.toUnsigned(ip)) |field_index| {
                         if (field_index >= concrete_ty.structFieldCount(zcu)) break :find_field;
-                        return sema.finishFieldCallBind(block, src, ptr_ty, concrete_ty.fieldType(field_index, zcu), field_index, object_ptr);
+                        return sema.finishFieldCallBind(block, src, ptr_ty, field_index, object_ptr);
                     }
                 } else {
                     const max = concrete_ty.structFieldCount(zcu);
                     for (0..max) |i_usize| {
                         const i: u32 = @intCast(i_usize);
                         if (field_name == concrete_ty.structFieldName(i, zcu).unwrap().?) {
-                            return sema.finishFieldCallBind(block, src, ptr_ty, concrete_ty.fieldType(i, zcu), i, object_ptr);
+                            return sema.finishFieldCallBind(block, src, ptr_ty, i, object_ptr);
                         }
                     }
                 }
@@ -26531,19 +26529,12 @@ fn finishFieldCallBind(
     block: *Block,
     src: LazySrcLoc,
     ptr_ty: Type,
-    field_ty: Type,
     field_index: u32,
     object_ptr: Air.Inst.Ref,
 ) CompileError!ResolvedFieldCallee {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const ptr_field_ty = try pt.ptrType(.{
-        .child = field_ty.toIntern(),
-        .flags = .{
-            .is_const = !ptr_ty.ptrIsMutable(zcu),
-            .address_space = ptr_ty.ptrAddressSpace(zcu),
-        },
-    });
+    const ptr_field_ty = try ptr_ty.fieldPtrType(field_index, pt);
 
     const container_ty = ptr_ty.childType(zcu);
     if (container_ty.zigTypeTag(zcu) == .@"struct") {
