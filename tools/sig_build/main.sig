@@ -3002,8 +3002,14 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.C
         cmd.appendArg(mod_name) catch { inProcessFailResult(result, "arg overflow"); return; };
     }
 
-    // Root source file.
-    cmd.appendArg(source_path) catch { inProcessFailResult(result, "arg overflow"); return; };
+    // Root source file as explicit module (required when using -M for other modules).
+    {
+        var root_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const root_prefix = "-Mroot=";
+        @memcpy(root_buf[0..root_prefix.len], root_prefix);
+        @memcpy(root_buf[root_prefix.len..][0..source_path.len], source_path);
+        cmd.appendArg(root_buf[0 .. root_prefix.len + source_path.len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+    }
 
     // Module definitions (-Mname=path).
     for (ctx.modules[0..ctx.module_count]) |mod_decl| {
