@@ -2995,7 +2995,34 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.C
         .Lib => cmd.appendArg("build-lib") catch { inProcessFailResult(result, "arg overflow"); return; },
     }
 
-    // Module dependencies.
+    // C++ source files via -cflags <flags> -- <files> (MUST come before -M module defs)
+    if (ctx.cpp_source_count > 0) {
+        cmd.appendArg("-cflags") catch { inProcessFailResult(result, "arg overflow"); return; };
+        for (ctx.shared_flags[0..ctx.shared_flag_count]) |flag| {
+            cmd.appendArg(flag.value[0..flag.value_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+        for (ctx.include_dirs[0..ctx.include_dir_count]) |dir| {
+            var inc_buf: [compile.PATH_BUF_SIZE]u8 = undefined;
+            const inc_p = "-I";
+            @memcpy(inc_buf[0..inc_p.len], inc_p);
+            @memcpy(inc_buf[inc_p.len..][0..dir.path_len], dir.path[0..dir.path_len]);
+            cmd.appendArg(inc_buf[0 .. inc_p.len + dir.path_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+        for (ctx.definitions[0..ctx.definition_count]) |def| {
+            var def_buf: [compile.VALUE_BUF_SIZE]u8 = undefined;
+            var dpos: usize = 0;
+            def_buf[0] = '-'; def_buf[1] = 'D'; dpos = 2;
+            @memcpy(def_buf[dpos..][0..def.name_len], def.name[0..def.name_len]); dpos += def.name_len;
+            if (def.value_len > 0) { def_buf[dpos] = '='; dpos += 1; @memcpy(def_buf[dpos..][0..def.value_len], def.value[0..def.value_len]); dpos += def.value_len; }
+            cmd.appendArg(def_buf[0..dpos]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+        cmd.appendArg("--") catch { inProcessFailResult(result, "arg overflow"); return; };
+        for (ctx.cpp_sources[0..ctx.cpp_source_count]) |src| {
+            cmd.appendArg(src.path[0..src.path_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+    }
+
+    // Module dependencies (--dep before -Mroot).
     for (ctx.modules[0..ctx.module_count]) |mod_decl| {
         const mod_name = mod_decl.name[0..mod_decl.name_len];
         cmd.appendArg("--dep") catch { inProcessFailResult(result, "arg overflow"); return; };
@@ -3099,37 +3126,6 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.C
     // Link libc.
     if (ctx.link_libc) {
         cmd.appendArg("-lc") catch { inProcessFailResult(result, "arg overflow"); return; };
-    }
-
-    // C++ source files via -cflags <flags> -- <files>
-    if (ctx.cpp_source_count > 0) {
-        cmd.appendArg("-cflags") catch { inProcessFailResult(result, "arg overflow"); return; };
-        // Shared C++ flags.
-        for (ctx.shared_flags[0..ctx.shared_flag_count]) |flag| {
-            cmd.appendArg(flag.value[0..flag.value_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
-        }
-        // Include directories.
-        for (ctx.include_dirs[0..ctx.include_dir_count]) |dir| {
-            var inc_buf: [compile.PATH_BUF_SIZE]u8 = undefined;
-            const inc_p = "-I";
-            @memcpy(inc_buf[0..inc_p.len], inc_p);
-            @memcpy(inc_buf[inc_p.len..][0..dir.path_len], dir.path[0..dir.path_len]);
-            cmd.appendArg(inc_buf[0 .. inc_p.len + dir.path_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
-        }
-        // Preprocessor definitions.
-        for (ctx.definitions[0..ctx.definition_count]) |def| {
-            var def_buf: [compile.VALUE_BUF_SIZE]u8 = undefined;
-            var dpos: usize = 0;
-            def_buf[0] = '-'; def_buf[1] = 'D'; dpos = 2;
-            @memcpy(def_buf[dpos..][0..def.name_len], def.name[0..def.name_len]); dpos += def.name_len;
-            if (def.value_len > 0) { def_buf[dpos] = '='; dpos += 1; @memcpy(def_buf[dpos..][0..def.value_len], def.value[0..def.value_len]); dpos += def.value_len; }
-            cmd.appendArg(def_buf[0..dpos]) catch { inProcessFailResult(result, "arg overflow"); return; };
-        }
-        // End of flags, then source files.
-        cmd.appendArg("--") catch { inProcessFailResult(result, "arg overflow"); return; };
-        for (ctx.cpp_sources[0..ctx.cpp_source_count]) |src| {
-            cmd.appendArg(src.path[0..src.path_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
-        }
     }
 
     // Static libraries via -l<name>.
