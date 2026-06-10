@@ -135,22 +135,17 @@ jobs:
           ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
           echo "Building ${{ matrix.zig_target }} (version: ${ZIG_VER_BASE})"
 
-          # Experimental targets (all platforms have them in the LLVM package)
-          EXP_FLAGS="-Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa"
-
-          # sig build uses build.sig natively (bootstrap v27)
+          # Transitional build: no LLVM (CLI subprocess can't pass 150+ -l flags).
+          # This produces a bootstrap-capable binary with compiler module wiring.
+          # Next iteration will use in-process Compilation.create() for LLVM.
           "${SIG}" build \
             --prefix stage3-out \
             -Doptimize=ReleaseFast \
             -Dstrip \
             -Dtarget=${{ matrix.zig_target }} \
             -Dno-lib \
-            -Denable-llvm \
-            -Dstatic-llvm \
             -Dversion-string="${ZIG_VER_BASE}" \
-            --zig-lib-dir lib \
-            --search-prefix "${LLVM_PREFIX}" \
-            ${EXP_FLAGS}
+            --zig-lib-dir lib
 
       - name: Package
         run: |
