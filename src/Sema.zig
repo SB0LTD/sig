@@ -17548,15 +17548,10 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
     const is_cold = sema.branch_hint == .cold;
 
     const operand_ty = sema.typeOf(operand);
-    const ptr_info = operand_ty.ptrInfo(zcu);
-    const res_ty = try pt.ptrType(.{
-        .child = err_union_ty.errorUnionPayload(zcu).toIntern(),
-        .flags = .{
-            .is_const = ptr_info.flags.is_const,
-            .is_volatile = ptr_info.flags.is_volatile,
-            .is_allowzero = ptr_info.flags.is_allowzero,
-            .address_space = ptr_info.flags.address_space,
-        },
+    const res_ty = try pt.ptrType(info: {
+        var new = operand_ty.ptrInfo(zcu);
+        new.child = err_union_ty.errorUnionPayload(zcu).toIntern();
+        break :info new;
     });
     const res_ty_ref = Air.internedToRef(res_ty.toIntern());
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.TryPtr).@"struct".field_names.len +
