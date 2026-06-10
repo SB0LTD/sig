@@ -3095,6 +3095,62 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.C
         cmd.appendArg("-lc") catch { inProcessFailResult(result, "arg overflow"); return; };
     }
 
+    // C++ source files via -cflags <flags> -- <files>
+    if (ctx.cpp_source_count > 0) {
+        cmd.appendArg("-cflags") catch { inProcessFailResult(result, "arg overflow"); return; };
+        // Shared C++ flags.
+        for (ctx.shared_flags[0..ctx.shared_flag_count]) |flag| {
+            cmd.appendArg(flag.value[0..flag.value_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+        // Include directories.
+        for (ctx.include_dirs[0..ctx.include_dir_count]) |dir| {
+            var inc_buf: [compile.PATH_BUF_SIZE]u8 = undefined;
+            const inc_p = "-I";
+            @memcpy(inc_buf[0..inc_p.len], inc_p);
+            @memcpy(inc_buf[inc_p.len..][0..dir.path_len], dir.path[0..dir.path_len]);
+            cmd.appendArg(inc_buf[0 .. inc_p.len + dir.path_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+        // Preprocessor definitions.
+        for (ctx.definitions[0..ctx.definition_count]) |def| {
+            var def_buf: [compile.VALUE_BUF_SIZE]u8 = undefined;
+            var dpos: usize = 0;
+            def_buf[0] = '-'; def_buf[1] = 'D'; dpos = 2;
+            @memcpy(def_buf[dpos..][0..def.name_len], def.name[0..def.name_len]); dpos += def.name_len;
+            if (def.value_len > 0) { def_buf[dpos] = '='; dpos += 1; @memcpy(def_buf[dpos..][0..def.value_len], def.value[0..def.value_len]); dpos += def.value_len; }
+            cmd.appendArg(def_buf[0..dpos]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+        // End of flags, then source files.
+        cmd.appendArg("--") catch { inProcessFailResult(result, "arg overflow"); return; };
+        for (ctx.cpp_sources[0..ctx.cpp_source_count]) |src| {
+            cmd.appendArg(src.path[0..src.path_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+        }
+    }
+
+    // Static libraries via -l<name>.
+    for (ctx.static_libs[0..ctx.static_lib_count]) |lib| {
+        var lib_buf: [compile.NAME_BUF_SIZE + 2]u8 = undefined;
+        lib_buf[0] = '-'; lib_buf[1] = 'l';
+        @memcpy(lib_buf[2..][0..lib.name_len], lib.name[0..lib.name_len]);
+        cmd.appendArg(lib_buf[0 .. 2 + lib.name_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+    }
+
+    // Library search paths.
+    for (ctx.lib_search_paths[0..ctx.lib_search_path_count]) |lsp| {
+        var lsp_buf: [compile.PATH_BUF_SIZE]u8 = undefined;
+        const lp = "-L";
+        @memcpy(lsp_buf[0..lp.len], lp);
+        @memcpy(lsp_buf[lp.len..][0..lsp.path_len], lsp.path[0..lsp.path_len]);
+        cmd.appendArg(lsp_buf[0 .. lp.len + lsp.path_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+    }
+
+    // System libraries.
+    for (ctx.system_libs[0..ctx.system_lib_count]) |lib| {
+        var lib_buf: [compile.NAME_BUF_SIZE + 2]u8 = undefined;
+        lib_buf[0] = '-'; lib_buf[1] = 'l';
+        @memcpy(lib_buf[2..][0..lib.name_len], lib.name[0..lib.name_len]);
+        cmd.appendArg(lib_buf[0 .. 2 + lib.name_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
+    }
+
     // Execute.
     var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
     var stderr_len: usize = 0;
@@ -4046,6 +4102,75 @@ pub const Build_Context = struct {
                 printMsg(io, "engine: cached, skipping {s}", .{source_path});
                 return;
             }
+        }
+
+        // ── Wire LLVM C++ sources and libraries (if enabled) ──────────────
+        // When LLVM is discovered, attach C++ source files, include dirs,
+        // preprocessor definitions, and library lists to the compile context.
+        // This lets the CLI subprocess backend pass them via -cflags ... -- <files> -l<libs>.
+        if (build_ctx.llvm_config.discovered) {
+            const llvm_cfg = &build_ctx.llvm_config;
+
+            // C++ sources.
+            const cpp_stems = [_][]const u8{
+                "src/zig_llvm.cpp",
+                "src/zig_llvm-ar.cpp",
+                "src/zig_clang_driver.cpp",
+                "src/zig_clang_cc1_main.cpp",
+                "src/zig_clang_cc1as_main.cpp",
+            };
+            for (cpp_stems) |stem| {
+                var cpp_src: compile.Cpp_Source = .{};
+                @memcpy(cpp_src.path[0..stem.len], stem);
+                cpp_src.path_len = stem.len;
+                comp_ctx.addCppSource(cpp_src) catch {};
+            }
+
+            // Shared C++ flags.
+            const shared_flags = [_][]const u8{ "-std=c++17", "-fno-exceptions", "-fno-rtti", "-fno-stack-protector", "-fvisibility-inlines-hidden", "-Wno-type-limits", "-Wno-missing-braces", "-Wno-comment" };
+            for (shared_flags) |flag| {
+                comp_ctx.addSharedFlag(flag) catch {};
+            }
+
+            // Include dirs.
+            if (llvm_cfg.llvm_include_dir_len > 0)
+                comp_ctx.addIncludeDir(llvm_cfg.llvm_include_dir[0..llvm_cfg.llvm_include_dir_len]) catch {};
+            if (llvm_cfg.clang_include_dir_len > 0)
+                comp_ctx.addIncludeDir(llvm_cfg.clang_include_dir[0..llvm_cfg.clang_include_dir_len]) catch {};
+            if (llvm_cfg.lld_include_dir_len > 0)
+                comp_ctx.addIncludeDir(llvm_cfg.lld_include_dir[0..llvm_cfg.lld_include_dir_len]) catch {};
+
+            // Preprocessor definitions.
+            comp_ctx.addDefinition("__STDC_CONSTANT_MACROS", "") catch {};
+            comp_ctx.addDefinition("__STDC_FORMAT_MACROS", "") catch {};
+            comp_ctx.addDefinition("__STDC_LIMIT_MACROS", "") catch {};
+            comp_ctx.addDefinition("_GNU_SOURCE", "") catch {};
+            comp_ctx.addDefinition("LLVM_BUILD_STATIC", "") catch {};
+            comp_ctx.addDefinition("NDEBUG", "1") catch {};
+
+            // Library search path.
+            if (llvm_cfg.llvm_lib_dir_len > 0)
+                comp_ctx.addLibSearchPath(llvm_cfg.llvm_lib_dir[0..llvm_cfg.llvm_lib_dir_len]) catch {};
+
+            // LLVM + Clang + LLD libraries.
+            for (0..llvm_cfg.llvm_lib_count) |li| {
+                comp_ctx.addStaticLib(llvm_cfg.llvm_libs[li][0..llvm_cfg.llvm_lib_lens[li]]) catch {};
+            }
+            for (0..llvm_cfg.clang_lib_count) |li| {
+                comp_ctx.addStaticLib(llvm_cfg.clang_libs[li][0..llvm_cfg.clang_lib_lens[li]]) catch {};
+            }
+            for (0..llvm_cfg.lld_lib_count) |li| {
+                comp_ctx.addStaticLib(llvm_cfg.lld_libs[li][0..llvm_cfg.lld_lib_lens[li]]) catch {};
+            }
+
+            // System libraries.
+            for (0..llvm_cfg.system_lib_count) |li| {
+                comp_ctx.addSystemLib(llvm_cfg.system_libs[li][0..llvm_cfg.system_lib_lens[li]]) catch {};
+            }
+
+            // Link libc and libcpp for LLVM.
+            comp_ctx.link_libc = true;
+            comp_ctx.link_libcpp = true;
         }
 
         // ── Execute compilation ─────────────────────────────────────────
