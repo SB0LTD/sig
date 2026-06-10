@@ -75,6 +75,8 @@ pending_uavs: std.array_hash_map.Auto(Node.UavMapIndex, struct {
     alignment: InternPool.Alignment,
 }),
 relocs: std.ArrayList(Reloc),
+first_free_reloc: Reloc.Index,
+last_free_reloc: Reloc.Index,
 const_prog_node: std.Progress.Node,
 synth_prog_node: std.Progress.Node,
 symbol_prog_node: std.Progress.Node,
@@ -1147,10 +1149,14 @@ pub const Reloc = extern struct {
     loc: Symbol.Index,
     target: Symbol.Index,
     flags: packed struct(u8) {
-        // Indicates the addend is not known and should be recovered from the location itself.
-        // COFF relocation tables don't encode the addend, only the location.
+        /// Indicates the addend is not known and should be recovered from the location itself.
+        /// COFF relocation tables don't encode the addend, only the location.
         recover_addend: bool,
-        _: u7 = 0,
+        /// Set if this reloc is in the free list.
+        /// When set, `prev` / `next` refer to other relocs in the free list.
+        /// All other fields are undefined.
+        free: bool,
+        _: u6 = 0,
     },
 
     pub const Type = extern union {
@@ -1168,6 +1174,10 @@ pub const Reloc = extern struct {
     pub const Index = enum(u32) {
         none = std.math.maxInt(u32),
         _,
+
+        pub fn wrap(i: ?u32) Reloc.Index {
+            return @enumFromInt((i orelse return .none) + 1);
+        }
 
         pub fn get(ri: Reloc.Index, coff: *Coff) *Reloc {
             return &coff.relocs.items[@intFromEnum(ri)];
@@ -1490,7 +1500,24 @@ pub const Reloc = extern struct {
             .none => {},
             else => |next| next.get(coff).prev = reloc.prev,
         }
+
         reloc.* = undefined;
+        reloc.flags = .{
+            .recover_addend = false,
+            .free = true,
+        };
+
+        const ri: Reloc.Index = .wrap(@intCast(reloc - coff.relocs.items.ptr));
+        if (coff.last_free_reloc == .none) {
+            assert(coff.first_free_reloc == .none);
+            coff.first_free_reloc = ri;
+            coff.last_free_reloc = ri;
+        } else {
+            coff.last_free_reloc.get(coff).next = ri;
+            reloc.prev = coff.last_free_reloc;
+            reloc.next = .none;
+            coff.last_free_reloc = ri;
+        }
     }
 
     comptime {
@@ -1630,6 +1657,8 @@ fn create(
         }),
         .pending_uavs = .empty,
         .relocs = .empty,
+        .first_free_reloc = .none,
+        .last_free_reloc = .none,
         .const_prog_node = .none,
         .synth_prog_node = .none,
         .symbol_prog_node = .none,
@@ -3624,6 +3653,9 @@ const RelocAddend = union(enum) {
     pending: void,
 };
 
+// TODO: There should be an API where the caller can indicate how many contiguous relocs they need
+//       and it should attempt to allocate these from from the free list if available. We can cache
+//       the run length of each segment on Reloc when `free` is set.
 pub fn addReloc(
     coff: *Coff,
     loc_si: Symbol.Index,
@@ -3747,6 +3779,7 @@ fn addRelocAssumeCapacity(
         .addend = if (addend == .pending) 0 else addend.known,
         .flags = .{
             .recover_addend = addend == .pending,
+            .free = false,
         },
     };
     switch (target.target_relocs) {
@@ -3755,17 +3788,6 @@ fn addRelocAssumeCapacity(
     }
     target.target_relocs = ri;
 }
-
-// pub fn loadInput(coff: *Coff, input: link.Input) link.Error!void {
-//     const diags = &coff.base.comp.link_diags;
-//     return coff.loadInputInner(input) catch |err| switch (err) {
-//         else => |e| return e,
-//         error.MappedFileIo => return diags.fail(
-//             "failed to write output file: {t}",
-//             .{coff.mf.io_err.?},
-//         ),
-//     };
-// }
 
 fn failLoadInput(
     coff: *Coff,
@@ -5673,6 +5695,7 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
 
     var undef_indices: std.ArrayListUnmanaged(u32) = .empty;
     for (coff.relocs.items, 0..) |reloc, reloc_i| {
+        if (reloc.flags.free) continue;
         const target_sym = reloc.target.get(coff);
         switch (target_sym.ni) {
             .none => {
@@ -7321,13 +7344,6 @@ fn updateExportsInner(
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
-    switch (exported) {
-        .nav => |nav| log.debug("updateExports({f})", .{ip.getNav(nav).fqn.fmt(ip)}),
-        .uav => |uav| log.debug("updateExports(@as({f}, {f}))", .{
-            Type.fromInterned(ip.typeOf(uav)).fmt(pt),
-            Value.fromInterned(uav).fmtValue(pt),
-        }),
-    }
     try coff.symbols.ensureUnusedCapacity(gpa, export_indices.len);
     const exported_si: Symbol.Index = switch (exported) {
         .nav => |nav| try coff.navSymbol(zcu, nav),
@@ -7337,6 +7353,14 @@ fn updateExportsInner(
             Type.fromInterned(ip.typeOf(uav)).abiAlignment(zcu),
         ))),
     };
+    switch (exported) {
+        .nav => |nav| log.debug("updateExports({f}) = {d}", .{ ip.getNav(nav).fqn.fmt(ip), exported_si }),
+        .uav => |uav| log.debug("updateExports(@as({f}, {f})) = {d}", .{
+            Type.fromInterned(ip.typeOf(uav)).fmt(pt),
+            Value.fromInterned(uav).fmtValue(pt),
+            exported_si,
+        }),
+    }
     while (try coff.resolve(pt.tid)) {}
     while (try coff.idle(pt.tid)) {}
 
@@ -7349,7 +7373,7 @@ fn updateExportsInner(
         const @"export" = export_index.ptr(zcu);
         const name = @"export".opts.name.toSlice(ip);
 
-        // TODO: add an errMsg if this conflicts with an existing global
+        // TODO: add an errMsg if this conflicts with an existing symbol
         const export_si = try coff.globalSymbol(.{
             .name = name,
             .lib_name = null,
@@ -7360,7 +7384,7 @@ fn updateExportsInner(
         export_sym.section_number = exported_sym.section_number;
         if (@"export".opts.linkage == .weak and !coff.isImage()) {
             // exported_si needs to be ahead of export_si in the symbol table,
-            // so that its sti is known when creating the aux entry
+            // so that its sti is known when creating the weak external aux entry
             try coff.pendingSymbolTableEntry(exported_si);
             export_sym.flags.weak_external_strat = .alias;
             export_sym.setValue(.{ .weak_alias_si = exported_si });
@@ -7371,6 +7395,8 @@ fn updateExportsInner(
         const prev_alias_sym = prev_alias_si.get(coff);
         switch (prev_alias_sym.flags.extra_tag) {
             .size => export_sym.setExtra(.{ .size = prev_alias_sym.extra.size }),
+            // This export should have been deleted
+            .next_alias_si => assert(prev_alias_sym.extra.next_alias_si == export_si),
             else => unreachable,
         }
 
@@ -7474,10 +7500,21 @@ fn updateExportsInner(
     }
 }
 
-pub fn deleteExport(coff: *Coff, exported: Zcu.Exported, name: InternPool.NullTerminatedString) void {
-    _ = coff;
-    _ = exported;
-    _ = name;
+pub fn deleteExport(
+    coff: *Coff,
+    exported: Zcu.Exported,
+    name: InternPool.NullTerminatedString,
+) void {
+    const zcu = coff.base.comp.zcu.?;
+    const ip = &zcu.intern_pool;
+
+    const exported_si: Symbol.Index = switch (exported) {
+        .nav => |nav| coff.navs.get(nav).?,
+        .uav => |uav| coff.uavs.get(uav).?,
+    };
+
+    const name_slice = name.toSlice(ip);
+    log.debug("deleteExport({s}, {d})", .{ name_slice, exported_si });
 
     // TODO: Delete from first / second linker member table
     // TODO: Delete from symbol table inside section
