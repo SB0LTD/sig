@@ -2894,14 +2894,8 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.C
     // For C++ object files, use "sig c++" which handles -I/-D flags directly.
     // For Zig executables, use "sig build-exe" with module wiring.
     if (ctx.output_mode == .Obj and ctx.cpp_source_count > 0) {
-        // C++ compilation mode: sig c++ --zig-lib-dir <lib> -target <target> <flags> -c <source>
+        // C++ compilation mode: sig c++ -target <target> <flags> -c <source>
         cmd.appendArg("c++") catch { inProcessFailResult(result, "arg overflow"); return; };
-
-        // Zig lib directory (must come before -c, it's a zig driver flag).
-        if (ctx.zig_lib_dir_len > 0) {
-            cmd.appendArg("--zig-lib-dir") catch { inProcessFailResult(result, "arg overflow"); return; };
-            cmd.appendArg(ctx.zig_lib_dir[0..ctx.zig_lib_dir_len]) catch { inProcessFailResult(result, "arg overflow"); return; };
-        }
 
         cmd.appendArg("-c") catch { inProcessFailResult(result, "arg overflow"); return; };
 
