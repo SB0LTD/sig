@@ -2945,6 +2945,35 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.C
         // Source file.
         cmd.appendArg(source_path) catch { inProcessFailResult(result, "arg overflow"); return; };
 
+        // Output path: <cache_dir>/zigcpp/<output_name>.o
+        if (output_name.len > 0 and ctx.cache_dir_len > 0) {
+            var out_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const obj_ext = ".o";
+            const sep = "/";
+            const subdir = "zigcpp";
+            // Build: <cache_dir>/zigcpp/<output_name>.o
+            var opos: usize = 0;
+            const cd = ctx.cache_dir[0..ctx.cache_dir_len];
+            @memcpy(out_buf[opos..][0..cd.len], cd); opos += cd.len;
+            @memcpy(out_buf[opos..][0..sep.len], sep); opos += sep.len;
+            @memcpy(out_buf[opos..][0..subdir.len], subdir); opos += subdir.len;
+            @memcpy(out_buf[opos..][0..sep.len], sep); opos += sep.len;
+            @memcpy(out_buf[opos..][0..output_name.len], output_name); opos += output_name.len;
+            @memcpy(out_buf[opos..][0..obj_ext.len], obj_ext); opos += obj_ext.len;
+
+            cmd.appendArg("-o") catch { inProcessFailResult(result, "arg overflow"); return; };
+            cmd.appendArg(out_buf[0..opos]) catch { inProcessFailResult(result, "arg overflow"); return; };
+
+            // Ensure zigcpp directory exists.
+            var dir_buf: [PATH_BUF_SIZE]u8 = undefined;
+            var dpos: usize = 0;
+            @memcpy(dir_buf[dpos..][0..cd.len], cd); dpos += cd.len;
+            @memcpy(dir_buf[dpos..][0..sep.len], sep); dpos += sep.len;
+            @memcpy(dir_buf[dpos..][0..subdir.len], subdir); dpos += subdir.len;
+            const cwd: std.Io.Dir = .cwd();
+            cwd.createDirPath(io, dir_buf[0..dpos]) catch {};
+        }
+
         // Execute.
         var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
         var stderr_len: usize = 0;
