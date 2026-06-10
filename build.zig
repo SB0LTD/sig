@@ -143,24 +143,9 @@ pub fn build(b: *std.Build) !void {
             .install_dir = if (flat) .prefix else .lib,
             .install_subdir = if (flat) "lib" else "zig",
             .exclude_extensions = &[_][]const u8{
-                // exclude files from lib/std/compress/testdata
-                ".gz",
-                ".z.0",
-                ".z.9",
-                ".zst.3",
-                ".zst.19",
-                "rfc1951.txt",
-                "rfc1952.txt",
-                "rfc8478.txt",
                 // exclude files from lib/std/compress/flate/testdata
                 ".expect",
-                ".expect-noinput",
-                ".golden",
                 ".input",
-                "compress-e.txt",
-                "compress-gettysburg.txt",
-                "compress-pi.txt",
-                "rfc1951.txt",
                 // exclude files from lib/std/compress/lzma/testdata
                 ".lzma",
                 // exclude files from lib/std/compress/xz/testdata
