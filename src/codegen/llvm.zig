@@ -20,7 +20,6 @@ const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");
 const aarch64_c_abi = @import("aarch64/abi.zig");
 const FuncGen = @import("llvm/FuncGen.zig");
-const buildAllocaInner = FuncGen.buildAllocaInner;
 const isByRef = FuncGen.isByRef;
 const firstParamSRet = FuncGen.firstParamSRet;
 const lowerFnRetTy = FuncGen.lowerFnRetTy;
@@ -1274,165 +1273,7 @@ pub const Object = struct {
             } }, &o.builder);
         }
 
-        var deinit_wip = true;
-        var wip = try Builder.WipFunction.init(&o.builder, .{
-            .function = llvm_function,
-            .strip = owner_mod.strip,
-        });
-        defer if (deinit_wip) wip.deinit();
-        wip.cursor = .{ .block = try wip.block(0, "Entry") };
-
-        // This is the list of args we will use that correspond directly to the AIR arg
-        // instructions. Depending on the calling convention, this list is not necessarily
-        // a bijection with the actual LLVM parameters of the function.
-        var args: std.ArrayList(Builder.Value) = .empty;
-        defer args.deinit(gpa);
-
-        const ret_ptr: Builder.Value, const err_ret_trace: Builder.Value = implicit_args: {
-            var it = iterateParamTypes(o, fn_info);
-
-            const ret_ptr: Builder.Value = if (firstParamSRet(fn_info, zcu, target)) param: {
-                const param = wip.arg(it.llvm_index);
-                it.llvm_index += 1;
-                break :param param;
-            } else .none;
-
-            const err_return_tracing = fn_info.cc == .auto and comp.config.any_error_tracing;
-            const err_ret_trace: Builder.Value = if (err_return_tracing) param: {
-                const param = wip.arg(it.llvm_index);
-                it.llvm_index += 1;
-                break :param param;
-            } else .none;
-
-            while (try it.next()) |lowering| {
-                try args.ensureUnusedCapacity(gpa, 1);
-
-                switch (lowering) {
-                    .no_bits => continue,
-                    .byval => {
-                        assert(!it.byval_attr);
-                        const param_index = it.zig_index - 1;
-                        const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[param_index]);
-                        const param = wip.arg(it.llvm_index - 1);
-
-                        if (isByRef(param_ty, zcu)) {
-                            const alignment = param_ty.abiAlignment(zcu).toLlvm();
-                            const param_llvm_ty = param.typeOfWip(&wip);
-                            const arg_ptr = try buildAllocaInner(&wip, param_llvm_ty, alignment, target);
-                            _ = try wip.store(.normal, param, arg_ptr, alignment);
-                            args.appendAssumeCapacity(arg_ptr);
-                        } else {
-                            args.appendAssumeCapacity(param);
-                        }
-                    },
-                    .byref => {
-                        const param_ty: Type = .fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
-                        const param = wip.arg(it.llvm_index - 1);
-
-                        if (isByRef(param_ty, zcu)) {
-                            args.appendAssumeCapacity(param);
-                        } else {
-                            const param_llvm_ty = try o.lowerType(param_ty);
-                            const alignment = param_ty.abiAlignment(zcu).toLlvm();
-                            args.appendAssumeCapacity(try wip.load(.normal, param_llvm_ty, param, alignment, ""));
-                        }
-                    },
-                    .byref_mut => {
-                        const param_ty: Type = .fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
-                        const param = wip.arg(it.llvm_index - 1);
-
-                        if (isByRef(param_ty, zcu)) {
-                            args.appendAssumeCapacity(param);
-                        } else {
-                            const param_llvm_ty = try o.lowerType(param_ty);
-                            const alignment = param_ty.abiAlignment(zcu).toLlvm();
-                            args.appendAssumeCapacity(try wip.load(.normal, param_llvm_ty, param, alignment, ""));
-                        }
-                    },
-                    .abi_sized_int => {
-                        assert(!it.byval_attr);
-                        const param_ty: Type = .fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
-                        const param = wip.arg(it.llvm_index - 1);
-
-                        const param_llvm_ty = try o.lowerType(param_ty);
-                        const alignment = param_ty.abiAlignment(zcu).toLlvm();
-                        const arg_ptr = try buildAllocaInner(&wip, param_llvm_ty, alignment, target);
-                        _ = try wip.store(.normal, param, arg_ptr, alignment);
-
-                        if (isByRef(param_ty, zcu)) {
-                            args.appendAssumeCapacity(arg_ptr);
-                        } else {
-                            args.appendAssumeCapacity(try wip.load(.normal, param_llvm_ty, arg_ptr, alignment, ""));
-                        }
-                    },
-                    .slice => {
-                        assert(!it.byval_attr);
-                        const param_ty: Type = .fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
-                        assert(!isByRef(param_ty, zcu));
-                        const slice_val = try wip.buildAggregate(
-                            try o.lowerType(param_ty),
-                            &.{ wip.arg(it.llvm_index - 2), wip.arg(it.llvm_index - 1) },
-                            "",
-                        );
-                        args.appendAssumeCapacity(slice_val);
-                    },
-                    .multiple_llvm_types => {
-                        assert(!it.byval_attr);
-                        const param_ty: Type = .fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
-                        const param_llvm_ty = try o.lowerType(param_ty);
-                        const param_alignment = param_ty.abiAlignment(zcu);
-                        const llvm_ty = try o.builder.arrayType(it.offsets_buffer[it.types_len], .i8);
-                        const arg_ptr = try buildAllocaInner(&wip, llvm_ty, param_alignment.toLlvm(), target);
-                        const llvm_args_start = it.llvm_index - it.types_len;
-                        for (llvm_args_start.., it.offsets_buffer[0..it.types_len]) |llvm_arg_index, offset| {
-                            const param = wip.arg(@intCast(llvm_arg_index));
-                            const part_ptr = try o.ptraddConst(&wip, arg_ptr, offset);
-                            _ = try wip.store(.normal, param, part_ptr, param_alignment.offset(offset).toLlvm());
-                        }
-
-                        if (isByRef(param_ty, zcu)) {
-                            args.appendAssumeCapacity(arg_ptr);
-                        } else {
-                            args.appendAssumeCapacity(try wip.load(.normal, param_llvm_ty, arg_ptr, param_alignment.toLlvm(), ""));
-                        }
-                    },
-                    .float_array => {
-                        const param_ty: Type = .fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
-                        const param_llvm_ty = try o.lowerType(param_ty);
-                        const param = wip.arg(it.llvm_index - 1);
-
-                        const alignment = param_ty.abiAlignment(zcu).toLlvm();
-                        const arg_ptr = try buildAllocaInner(&wip, param_llvm_ty, alignment, target);
-                        _ = try wip.store(.normal, param, arg_ptr, alignment);
-
-                        if (isByRef(param_ty, zcu)) {
-                            args.appendAssumeCapacity(arg_ptr);
-                        } else {
-                            args.appendAssumeCapacity(try wip.load(.normal, param_llvm_ty, arg_ptr, alignment, ""));
-                        }
-                    },
-                    .i32_array, .i64_array => {
-                        const param_ty: Type = .fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
-                        const param_llvm_ty = try o.lowerType(param_ty);
-                        const param = wip.arg(it.llvm_index - 1);
-
-                        const alignment = param_ty.abiAlignment(zcu).toLlvm();
-                        const arg_ptr = try buildAllocaInner(&wip, param.typeOfWip(&wip), alignment, target);
-                        _ = try wip.store(.normal, param, arg_ptr, alignment);
-
-                        if (isByRef(param_ty, zcu)) {
-                            args.appendAssumeCapacity(arg_ptr);
-                        } else {
-                            args.appendAssumeCapacity(try wip.load(.normal, param_llvm_ty, arg_ptr, alignment, ""));
-                        }
-                    },
-                }
-            }
-
-            break :implicit_args .{ ret_ptr, err_ret_trace };
-        };
-
-        const file, const subprogram = if (!wip.strip) debug_info: {
+        const file, const subprogram = if (!owner_mod.strip) debug_info: {
             const file = try o.getDebugFile(file_scope);
 
             const line_number = zcu.navSrcLine(func.owner_nav) + 1;
@@ -1498,11 +1339,12 @@ pub const Object = struct {
             .gpa = gpa,
             .air = air.*,
             .liveness = liveness.*.?,
-            .wip = wip,
+            .wip = try .init(&o.builder, .{
+                .function = llvm_function,
+                .strip = owner_mod.strip,
+            }),
             .is_naked = fn_info.cc == .naked,
             .fuzz = fuzz,
-            .ret_ptr = ret_ptr,
-            .args = args.items,
             .arg_index = 0,
             .arg_inline_index = 0,
             .func_inst_table = .empty,
@@ -1516,14 +1358,18 @@ pub const Object = struct {
             .base_line = zcu.navSrcLine(func.owner_nav),
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
-            .err_ret_trace = err_ret_trace,
             .disable_intrinsics = disable_intrinsics,
             .allowzero_access = false,
+
+            .ret_ptr = undefined, // populated by `genMainBody`
+            .err_ret_trace = undefined, // populated by `genMainBody`
+            .args = undefined, // populated by `genMainBody`
         };
         defer fg.deinit();
-        deinit_wip = false;
 
-        try fg.genBody(air.getMainBody(), .poi);
+        fg.wip.cursor = .{ .block = try fg.wip.block(0, "Entry") };
+
+        try fg.genMainBody();
 
         // If we saw any loads or stores involving `allowzero` pointers, we need to mark the whole
         // function as considering null pointers valid so that LLVM's optimizers don't remove these
@@ -4074,8 +3920,9 @@ pub const Object = struct {
         if (gop.found_existing) {
             // Keep the greater of the two alignments.
             const llvm_variable = gop.value_ptr.*;
-            const old_align: InternPool.Alignment = .fromLlvm(llvm_variable.getAlignment(&o.builder));
-            llvm_variable.setAlignment(old_align.maxStrict(@"align").toLlvm(), &o.builder);
+            const llvm_old_align = llvm_variable.getAlignment(&o.builder);
+            const llvm_new_align = llvm_old_align.max(@"align".toLlvm());
+            llvm_variable.setAlignment(llvm_new_align, &o.builder);
             return llvm_variable.ptrConst(&o.builder).global.toConst();
         }
         errdefer assert(o.uav_map.remove(.{ .val = uav_val, .@"addrspace" = @"addrspace" }));
@@ -4410,13 +4257,6 @@ pub const Object = struct {
             fn_name,
             toLlvmAddressSpace(.generic, o.zcu.getTarget()),
         );
-    }
-
-    pub fn ptraddConst(o: *Object, wip: *Builder.WipFunction, ptr: Builder.Value, offset: u64) Allocator.Error!Builder.Value {
-        if (offset == 0) return ptr;
-        const llvm_usize_ty = try o.lowerType(.usize);
-        const offset_val = try o.builder.intValue(llvm_usize_ty, offset);
-        return wip.gep(.inbounds, .i8, ptr, &.{offset_val}, "");
     }
 };
 

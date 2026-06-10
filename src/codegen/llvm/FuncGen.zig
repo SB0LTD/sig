@@ -175,7 +175,158 @@ fn resolveValue(self: *FuncGen, val: Value) Allocator.Error!Builder.Constant {
     }
 }
 
-pub fn genBody(self: *FuncGen, body: []const Air.Inst.Index, coverage_point: Air.CoveragePoint) TodoError!void {
+/// Populates `fg.ret_ptr`, `fg.err_ret_trace`, and `fg.args` based on the parameters of the
+/// function type, then generates the entire function body.
+///
+/// The caller may initialize `fg.ret_ptr`, `fg.err_ret_trace`, and `fg.args` to undefined.
+pub fn genMainBody(fg: *FuncGen) TodoError!void {
+    const o = fg.object;
+    const zcu = o.zcu;
+    const ip = &zcu.intern_pool;
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+
+    const fn_ty: Type = .fromInterned(ip.getNav(fg.nav_index).resolved.?.type);
+    const fn_info = zcu.typeToFunc(fn_ty).?;
+    const param_types = fn_info.param_types.get(ip);
+
+    var it = iterateParamTypes(o, fn_info);
+
+    // Populate `fg.ret_ptr`...
+    if (firstParamSRet(fn_info, zcu, zcu.getTarget())) {
+        fg.ret_ptr = fg.wip.arg(it.llvm_index);
+        it.llvm_index += 1;
+    } else {
+        fg.ret_ptr = .none;
+    }
+    // ...and `fg.err_ret_trace`...
+    if (fn_info.cc == .auto and comp.config.any_error_tracing) {
+        fg.err_ret_trace = fg.wip.arg(it.llvm_index);
+        it.llvm_index += 1;
+    } else {
+        fg.err_ret_trace = .none;
+    }
+    // ...and as for `fg.args`, we'll put all of the arguments into this ArrayList, and once that's
+    // done we'll use its buffer as `fg.args`.
+    var args: std.ArrayList(Builder.Value) = .empty;
+    defer args.deinit(gpa);
+
+    while (try it.next()) |lowering| {
+        try args.ensureUnusedCapacity(gpa, 1);
+
+        switch (lowering) {
+            .no_bits => continue,
+            .byval => {
+                assert(!it.byval_attr);
+                const param_index = it.zig_index - 1;
+                const param_ty: Type = .fromInterned(param_types[param_index]);
+                const param = fg.wip.arg(it.llvm_index - 1);
+
+                if (isByRef(param_ty, zcu)) {
+                    const alignment = param_ty.abiAlignment(zcu).toLlvm();
+                    const arg_ptr = try fg.buildAlloca(try o.lowerType(param_ty), alignment);
+                    // We don't need to handle non-ABI-sized integer types in memory here since they
+                    // are never by-ref.
+                    _ = try fg.wip.store(.normal, param, arg_ptr, alignment);
+                    args.appendAssumeCapacity(arg_ptr);
+                } else {
+                    args.appendAssumeCapacity(param);
+                }
+            },
+            .byref, .byref_mut => {
+                const param_ty: Type = .fromInterned(param_types[it.zig_index - 1]);
+                const param = fg.wip.arg(it.llvm_index - 1);
+
+                if (isByRef(param_ty, zcu)) {
+                    args.appendAssumeCapacity(param);
+                } else {
+                    args.appendAssumeCapacity(try fg.load(param, .none, param_ty, .normal));
+                }
+            },
+            .abi_sized_int => {
+                assert(!it.byval_attr);
+                const param_ty: Type = .fromInterned(param_types[it.zig_index - 1]);
+                const param = fg.wip.arg(it.llvm_index - 1);
+
+                const param_llvm_ty = try o.lowerType(param_ty);
+                const alignment = param_ty.abiAlignment(zcu).toLlvm();
+                const arg_ptr = try fg.buildAlloca(param_llvm_ty, alignment);
+                _ = try fg.wip.store(.normal, param, arg_ptr, alignment);
+
+                if (isByRef(param_ty, zcu)) {
+                    args.appendAssumeCapacity(arg_ptr);
+                } else {
+                    args.appendAssumeCapacity(try fg.load(arg_ptr, .none, param_ty, .normal));
+                }
+            },
+            .slice => {
+                assert(!it.byval_attr);
+                const param_ty: Type = .fromInterned(param_types[it.zig_index - 1]);
+                assert(!isByRef(param_ty, zcu));
+                const slice_val = try fg.wip.buildAggregate(
+                    try o.lowerType(param_ty),
+                    &.{ fg.wip.arg(it.llvm_index - 2), fg.wip.arg(it.llvm_index - 1) },
+                    "",
+                );
+                args.appendAssumeCapacity(slice_val);
+            },
+            .multiple_llvm_types => {
+                assert(!it.byval_attr);
+                const param_ty: Type = .fromInterned(param_types[it.zig_index - 1]);
+                const param_alignment = param_ty.abiAlignment(zcu);
+                const llvm_ty = try o.builder.arrayType(it.offsets_buffer[it.types_len], .i8);
+                const arg_ptr = try fg.buildAlloca(llvm_ty, param_alignment.toLlvm());
+                const llvm_args_start = it.llvm_index - it.types_len;
+                for (llvm_args_start.., it.offsets_buffer[0..it.types_len]) |llvm_arg_index, offset| {
+                    const param = fg.wip.arg(@intCast(llvm_arg_index));
+                    const part_ptr = try fg.ptraddConst(arg_ptr, offset);
+                    _ = try fg.wip.store(.normal, param, part_ptr, param_alignment.offset(offset).toLlvm());
+                }
+
+                if (isByRef(param_ty, zcu)) {
+                    args.appendAssumeCapacity(arg_ptr);
+                } else {
+                    args.appendAssumeCapacity(try fg.load(arg_ptr, .none, param_ty, .normal));
+                }
+            },
+            .float_array => {
+                const param_ty: Type = .fromInterned(param_types[it.zig_index - 1]);
+                const param_llvm_ty = try o.lowerType(param_ty);
+                const param = fg.wip.arg(it.llvm_index - 1);
+
+                const alignment = param_ty.abiAlignment(zcu).toLlvm();
+                const arg_ptr = try fg.buildAlloca(param_llvm_ty, alignment);
+                _ = try fg.wip.store(.normal, param, arg_ptr, alignment);
+
+                if (isByRef(param_ty, zcu)) {
+                    args.appendAssumeCapacity(arg_ptr);
+                } else {
+                    args.appendAssumeCapacity(try fg.load(arg_ptr, .none, param_ty, .normal));
+                }
+            },
+            .i32_array, .i64_array => {
+                const param_ty: Type = .fromInterned(param_types[it.zig_index - 1]);
+                const param = fg.wip.arg(it.llvm_index - 1);
+
+                const alignment = param_ty.abiAlignment(zcu).toLlvm();
+                const arg_ptr = try fg.buildAlloca(param.typeOfWip(&fg.wip), alignment);
+                _ = try fg.wip.store(.normal, param, arg_ptr, alignment);
+
+                if (isByRef(param_ty, zcu)) {
+                    args.appendAssumeCapacity(arg_ptr);
+                } else {
+                    args.appendAssumeCapacity(try fg.load(arg_ptr, .none, param_ty, .normal));
+                }
+            },
+        }
+    }
+
+    fg.args = args.items;
+
+    try fg.genBody(fg.air.getMainBody(), .poi);
+}
+
+fn genBody(self: *FuncGen, body: []const Air.Inst.Index, coverage_point: Air.CoveragePoint) TodoError!void {
     const o = self.object;
     const zcu = self.object.zcu;
     const ip = &zcu.intern_pool;
@@ -400,8 +551,8 @@ pub fn genBody(self: *FuncGen, body: []const Air.Inst.Index, coverage_point: Air
             .optional_payload_ptr     => try self.airOptionalPayloadPtr(inst),
             .optional_payload_ptr_set => try self.airOptionalPayloadPtrSet(inst),
 
-            .unwrap_errunion_payload     => try self.airErrUnionPayload(inst, false),
-            .unwrap_errunion_payload_ptr => try self.airErrUnionPayload(inst, true),
+            .unwrap_errunion_payload     => try self.airErrUnionPayload(inst),
+            .unwrap_errunion_payload_ptr => try self.airErrUnionPayloadPtr(inst),
             .unwrap_errunion_err         => try self.airErrUnionErr(inst, false),
             .unwrap_errunion_err_ptr     => try self.airErrUnionErr(inst, true),
             .errunion_payload_ptr_set    => try self.airErrUnionPayloadPtrSet(inst),
@@ -644,6 +795,8 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier
             const llvm_param_ty = try o.lowerType(param_ty);
             if (isByRef(param_ty, zcu)) {
                 const alignment = param_ty.abiAlignment(zcu).toLlvm();
+                // We don't need to handle non-ABI-sized integer types in memory here since they are
+                // never by-ref.
                 const loaded = try self.wip.load(.normal, llvm_param_ty, llvm_arg, alignment, "");
                 try llvm_args.append(loaded);
             } else {
@@ -660,7 +813,7 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier
                 const alignment = param_ty.abiAlignment(zcu).toLlvm();
                 const param_llvm_ty = llvm_arg.typeOfWip(&self.wip);
                 const arg_ptr = try self.buildAlloca(param_llvm_ty, alignment);
-                _ = try self.wip.store(.normal, llvm_arg, arg_ptr, alignment);
+                try self.store(arg_ptr, .none, llvm_arg, param_ty, .normal);
                 try llvm_args.append(arg_ptr);
             }
         },
@@ -672,12 +825,7 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier
             const alignment = param_ty.abiAlignment(zcu).toLlvm();
             const param_llvm_ty = try o.lowerType(param_ty);
             const arg_ptr = try self.buildAlloca(param_llvm_ty, alignment);
-            if (isByRef(param_ty, zcu)) {
-                const loaded = try self.wip.load(.normal, param_llvm_ty, llvm_arg, alignment, "");
-                _ = try self.wip.store(.normal, loaded, arg_ptr, alignment);
-            } else {
-                _ = try self.wip.store(.normal, llvm_arg, arg_ptr, alignment);
-            }
+            try self.store(arg_ptr, .none, llvm_arg, param_ty, .normal);
             try llvm_args.append(arg_ptr);
         },
         .abi_sized_int => {
@@ -694,9 +842,9 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier
                 // LLVM does not allow bitcasting structs so we must allocate
                 // a local, store as one type, and then load as another type.
                 const alignment = param_ty.abiAlignment(zcu).toLlvm();
-                const int_ptr = try self.buildAlloca(int_llvm_ty, alignment);
-                _ = try self.wip.store(.normal, llvm_arg, int_ptr, alignment);
-                const loaded = try self.wip.load(.normal, int_llvm_ty, int_ptr, alignment, "");
+                const ptr = try self.buildAlloca(int_llvm_ty, alignment);
+                try self.store(ptr, .none, llvm_arg, param_ty, .normal);
+                const loaded = try self.wip.load(.normal, int_llvm_ty, ptr, alignment, "");
                 try llvm_args.append(loaded);
             }
         },
@@ -711,19 +859,10 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier
             const arg = args[it.zig_index - 1];
             const param_ty = self.typeOf(arg);
             const llvm_arg = try self.resolveInst(arg);
-            const is_by_ref = isByRef(param_ty, zcu);
             const param_alignment = param_ty.abiAlignment(zcu);
             const llvm_ty = try o.builder.arrayType(it.offsets_buffer[it.types_len], .i8);
             const arg_ptr = try self.buildAlloca(llvm_ty, param_alignment.toLlvm());
-            if (is_by_ref) _ = try self.wip.callMemCpy(
-                arg_ptr,
-                param_alignment.toLlvm(),
-                llvm_arg,
-                param_alignment.toLlvm(),
-                try o.builder.intValue(try o.lowerType(.usize), param_ty.abiSize(zcu)),
-                .normal,
-                self.disable_intrinsics,
-            ) else _ = try self.wip.store(.normal, llvm_arg, arg_ptr, param_alignment.toLlvm());
+            try self.store(arg_ptr, .none, llvm_arg, param_ty, .normal);
 
             try llvm_args.ensureUnusedCapacity(it.types_len);
             for (it.types_buffer[0..it.types_len], it.offsets_buffer[0..it.types_len]) |field_ty, offset| {
@@ -735,35 +874,38 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier
         .float_array => |count| {
             const arg = args[it.zig_index - 1];
             const arg_ty = self.typeOf(arg);
-            var llvm_arg = try self.resolveInst(arg);
-            const alignment = arg_ty.abiAlignment(zcu).toLlvm();
-            if (!isByRef(arg_ty, zcu)) {
-                const ptr = try self.buildAlloca(llvm_arg.typeOfWip(&self.wip), alignment);
-                _ = try self.wip.store(.normal, llvm_arg, ptr, alignment);
-                llvm_arg = ptr;
-            }
+            const arg_val = try self.resolveInst(arg);
+
+            const arg_align = arg_ty.abiAlignment(zcu);
+
+            const arg_ptr: Builder.Value = if (!isByRef(arg_ty, zcu)) ptr: {
+                const ptr = try self.buildAlloca(try o.lowerType(arg_ty), arg_align.toLlvm());
+                try self.store(ptr, .none, arg_val, arg_ty, .normal);
+                break :ptr ptr;
+            } else arg_val;
 
             const float_ty = try o.lowerType(aarch64_c_abi.getFloatArrayType(arg_ty, zcu).?);
             const array_ty = try o.builder.arrayType(count, float_ty);
 
-            const loaded = try self.wip.load(.normal, array_ty, llvm_arg, alignment, "");
+            const loaded = try self.wip.load(.normal, array_ty, arg_ptr, arg_align.toLlvm(), "");
             try llvm_args.append(loaded);
         },
         .i32_array, .i64_array => |arr_len| {
             const elem_size: u8 = if (lowering == .i32_array) 32 else 64;
             const arg = args[it.zig_index - 1];
             const arg_ty = self.typeOf(arg);
-            var llvm_arg = try self.resolveInst(arg);
-            const alignment = arg_ty.abiAlignment(zcu).toLlvm();
-            if (!isByRef(arg_ty, zcu)) {
-                const ptr = try self.buildAlloca(llvm_arg.typeOfWip(&self.wip), alignment);
-                _ = try self.wip.store(.normal, llvm_arg, ptr, alignment);
-                llvm_arg = ptr;
-            }
+            const arg_val = try self.resolveInst(arg);
 
-            const array_ty =
-                try o.builder.arrayType(arr_len, try o.builder.intType(@intCast(elem_size)));
-            const loaded = try self.wip.load(.normal, array_ty, llvm_arg, alignment, "");
+            const arg_align = arg_ty.abiAlignment(zcu);
+
+            const arg_ptr: Builder.Value = if (!isByRef(arg_ty, zcu)) ptr: {
+                const ptr = try self.buildAlloca(try o.lowerType(arg_ty), arg_align.toLlvm());
+                try self.store(ptr, .none, arg_val, arg_ty, .normal);
+                break :ptr ptr;
+            } else arg_val;
+
+            const array_ty = try o.builder.arrayType(arr_len, try o.builder.intType(@intCast(elem_size)));
+            const loaded = try self.wip.load(.normal, array_ty, arg_ptr, arg_align.toLlvm(), "");
             try llvm_args.append(loaded);
         },
     };
@@ -875,8 +1017,7 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier
             return rp;
         } else {
             // our by-ref status disagrees with sret so we must load.
-            const return_alignment = return_type.abiAlignment(zcu).toLlvm();
-            return self.wip.load(.normal, llvm_ret_ty, rp, return_alignment, "");
+            return self.load(rp, .none, return_type, .normal);
         }
     }
 
@@ -888,11 +1029,14 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier
         // by using our canonical type, then loading it if necessary.
         const alignment = return_type.abiAlignment(zcu).toLlvm();
         const rp = try self.buildAlloca(abi_ret_ty, alignment);
+        // We don't need to handle non-ABI-sized integer types in memory here since they can only be
+        // returned from `CallingConvention.auto` functions, in which case `abi_ret_ty` will equal
+        // `llvm_ret_ty` anyway.
         _ = try self.wip.store(.normal, call, rp, alignment);
         return if (isByRef(return_type, zcu))
             rp
         else
-            try self.wip.load(.normal, llvm_ret_ty, rp, alignment, "");
+            try self.load(rp, .none, return_type, .normal);
     }
 
     if (isByRef(return_type, zcu)) {
@@ -900,6 +1044,7 @@ fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier
         // and return the allocation pointer.
         const alignment = return_type.abiAlignment(zcu).toLlvm();
         const rp = try self.buildAlloca(llvm_ret_ty, alignment);
+        // We don't need to handle non-ABI-sized integer types here since they are never by-ref.
         _ = try self.wip.store(.normal, call, rp, alignment);
         return rp;
     } else {
@@ -969,12 +1114,7 @@ fn airRet(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error!vo
             return;
         }
 
-        try self.store(
-            self.ret_ptr,
-            .none,
-            operand,
-            ret_ty,
-        );
+        try self.store(self.ret_ptr, .none, operand, ret_ty, .normal);
         _ = try self.wip.retVoid();
         return;
     }
@@ -991,18 +1131,18 @@ fn airRet(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error!vo
         return;
     }
 
+    const llvm_ret_ty = try o.lowerType(ret_ty);
     const abi_ret_ty = try lowerFnRetTy(o, fn_info);
     const operand = try self.resolveInst(un_op);
     const val_is_undef = if (un_op.toInterned()) |i| Value.fromInterned(i).isUndef(zcu) else false;
-    const alignment = ret_ty.abiAlignment(zcu).toLlvm();
+    const ret_ty_align = ret_ty.abiAlignment(zcu);
 
     if (val_is_undef and safety and !self.needMemsetWorkaround(ret_ty.abiSize(zcu))) {
-        const llvm_ret_ty = operand.typeOfWip(&self.wip);
-        const rp = try self.buildAlloca(llvm_ret_ty, alignment);
+        const rp = try self.buildAlloca(llvm_ret_ty, ret_ty_align.toLlvm());
         const len = try o.builder.intValue(try o.lowerType(.usize), ret_ty.abiSize(zcu));
         _ = try self.wip.callMemSet(
             rp,
-            alignment,
+            ret_ty_align.toLlvm(),
             try o.builder.intValue(.i8, 0xaa),
             len,
             .normal,
@@ -1012,27 +1152,37 @@ fn airRet(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error!vo
         if (owner_mod.valgrind) {
             try self.valgrindMarkUndef(rp, len);
         }
-        _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, rp, alignment, ""));
+        if (fn_info.cc == .auto and abi_ret_ty == llvm_ret_ty) {
+            assert(!isByRef(ret_ty, zcu));
+            // The return type could be a non-ABI-sized integer, so use `FuncGen.load` to make sure
+            // we load it from memory correctly.
+            const loaded = try self.load(rp, .none, ret_ty, .normal);
+            _ = try self.wip.ret(loaded);
+        } else {
+            const loaded = try self.wip.load(.normal, abi_ret_ty, rp, ret_ty_align.toLlvm(), "");
+            _ = try self.wip.ret(loaded);
+        }
         return;
     }
 
     if (isByRef(ret_ty, zcu)) {
-        // operand is a pointer however self.ret_ptr is null so that means
-        // we need to return a value.
-        _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, operand, alignment, ""));
+        // operand is a pointer however self.ret_ptr is null so that means we need to return a value.
+        // No need to handle non-ABI-sized integer types in memory here since they are never by-ref.
+        _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, operand, ret_ty_align.toLlvm(), ""));
         return;
     }
 
-    const llvm_ret_ty = operand.typeOfWip(&self.wip);
     if (abi_ret_ty == llvm_ret_ty) {
         _ = try self.wip.ret(operand);
-        return;
+    } else {
+        const rp = try self.buildAlloca(llvm_ret_ty, ret_ty_align.toLlvm());
+        try self.store(rp, .none, operand, ret_ty, .normal);
+        // No need to handle non-ABI-sized integer types in memory here since they can only be
+        // returned from `CallingConvention.auto` functions, in which case `abi_ret_ty` will equal
+        // `llvm_ret_ty` anyway.
+        const ret_val = try self.wip.load(.normal, abi_ret_ty, rp, ret_ty_align.toLlvm(), "");
+        _ = try self.wip.ret(ret_val);
     }
-
-    const rp = try self.buildAlloca(llvm_ret_ty, alignment);
-    _ = try self.wip.store(.normal, operand, rp, alignment);
-    _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, rp, alignment, ""));
-    return;
 }
 
 fn airRetLoad(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!void {
@@ -1043,26 +1193,24 @@ fn airRetLoad(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!void {
     const ptr_ty = self.typeOf(un_op);
     const ret_ty = ptr_ty.childType(zcu);
     const fn_info = zcu.typeToFunc(.fromInterned(ip.getNav(self.nav_index).resolved.?.type)).?;
-    if (!ret_ty.hasRuntimeBits(zcu)) {
-        if (Type.fromInterned(fn_info.return_type).isError(zcu)) {
-            // Functions with an empty error set are emitted with an error code
-            // return type and return zero so they can be function pointers coerced
-            // to functions that return anyerror.
-            _ = try self.wip.ret(try o.builder.intValue(try o.errorIntType(), 0));
-        } else {
-            _ = try self.wip.retVoid();
-        }
-        return;
-    }
-    if (self.ret_ptr != .none) {
+    if (!ret_ty.hasRuntimeBits(zcu) or self.ret_ptr != .none) {
         _ = try self.wip.retVoid();
         return;
     }
     const ptr = try self.resolveInst(un_op);
+    const llvm_ret_ty = try o.lowerType(ret_ty);
     const abi_ret_ty = try lowerFnRetTy(o, fn_info);
-    const alignment = ret_ty.abiAlignment(zcu).toLlvm();
-    _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, ptr, alignment, ""));
-    return;
+    if (fn_info.cc == .auto and abi_ret_ty == llvm_ret_ty) {
+        assert(!isByRef(ret_ty, zcu));
+        // The return type could be a non-ABI-sized integer, so use `FuncGen.load` to make sure we
+        // load it from memory correctly.
+        const loaded = try self.load(ptr, .none, ret_ty, .normal);
+        _ = try self.wip.ret(loaded);
+    } else {
+        const ret_ty_align = ret_ty.abiAlignment(zcu);
+        const loaded = try self.wip.load(.normal, abi_ret_ty, ptr, ret_ty_align.toLlvm(), "");
+        _ = try self.wip.ret(loaded);
+    }
 }
 
 fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
@@ -1089,7 +1237,7 @@ fn airCVaCopy(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Valu
     return if (isByRef(va_list_ty, zcu))
         dest_list
     else
-        try self.wip.load(.normal, llvm_va_list_ty, dest_list, result_alignment, "");
+        try self.load(dest_list, .none, va_list_ty, .normal);
 }
 
 fn airCVaEnd(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
@@ -1113,7 +1261,7 @@ fn airCVaStart(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Val
     return if (isByRef(va_list_ty, zcu))
         dest_list
     else
-        try self.wip.load(.normal, llvm_va_list_ty, dest_list, result_alignment, "");
+        try self.load(dest_list, .none, va_list_ty, .normal);
 }
 
 fn airCmp(
@@ -1147,13 +1295,7 @@ fn airCmpLteErrorsLen(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Buil
     const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try self.resolveInst(un_op);
     const errors_len_ptr = try o.getErrorsLen();
-    const errors_len_val = try self.wip.load(
-        .normal,
-        try o.errorIntType(),
-        errors_len_ptr.toValue(&o.builder),
-        Type.errorAbiAlignment(o.zcu).toLlvm(),
-        "",
-    );
+    const errors_len_val = try self.load(errors_len_ptr.toValue(&o.builder), .none, .anyerror, .normal);
     return self.wip.icmp(.ule, operand, errors_len_val, "");
 }
 
@@ -1630,32 +1772,23 @@ fn lowerTry(
     const payload_has_bits = payload_ty.hasRuntimeBits(zcu);
     const error_type = try o.errorIntType();
 
-    const err_set_align: InternPool.Alignment, const payload_align: InternPool.Alignment = if (operand_is_ptr) .{
-        operand_ptr_align.minStrict(Type.anyerror.abiAlignment(zcu)),
-        operand_ptr_align.minStrict(payload_ty.abiAlignment(zcu)),
-    } else .{ .none, .none };
+    const operand_align: InternPool.Alignment = if (operand_is_ptr) operand_ptr_align else err_union_ty.abiAlignment(zcu);
 
     if (!err_union_ty.errorUnionSet(zcu).errorSetIsEmpty(zcu)) {
         const loaded = loaded: {
-            const access_kind: Builder.MemoryAccessKind =
-                if (err_union_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
-
-            if (!payload_has_bits) {
-                break :loaded if (operand_is_ptr)
-                    try fg.wip.load(access_kind, error_type, err_union, err_set_align.toLlvm(), "")
-                else
-                    err_union;
+            if (payload_has_bits) {
+                assert(isByRef(err_union_ty, zcu)); // error unions are by-ref unless the payload has no bits
+            } else if (!operand_is_ptr) {
+                break :loaded err_union;
             }
 
-            assert(isByRef(err_union_ty, zcu)); // error unions are by-ref unless the payload has no bits
             const offset = codegen.errUnionErrorOffset(payload_ty, zcu);
             const err_field_ptr = try fg.ptraddConst(err_union, offset);
-            break :loaded try fg.wip.load(
-                if (operand_is_ptr) access_kind else .normal,
-                error_type,
+            break :loaded try fg.load(
                 err_field_ptr,
-                err_set_align.toLlvm(),
-                "",
+                operand_align.offset(offset),
+                .anyerror,
+                if (err_union_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
             );
         };
         const zero = try o.builder.intValue(error_type, 0);
@@ -1672,15 +1805,18 @@ fn lowerTry(
         fg.wip.cursor = .{ .block = continue_block };
     }
     if (is_unused) return .none;
-    if (!payload_has_bits) return if (operand_is_ptr) err_union else .none;
-    assert(isByRef(err_union_ty, zcu)); // error unions are by-ref unless the payload has no bits
-    const payload_ptr = try fg.ptraddConst(err_union, codegen.errUnionPayloadOffset(payload_ty, zcu));
+
+    if (!operand_is_ptr) {
+        assert(payload_has_bits); // otherwise the result should be comptime-known
+        assert(isByRef(err_union_ty, zcu)); // error unions are by-ref unless the payload has no bits
+    }
+
+    const offset = codegen.errUnionPayloadOffset(payload_ty, zcu);
+    const payload_ptr = try fg.ptraddConst(err_union, offset);
     if (operand_is_ptr) {
         return payload_ptr;
-    } else if (isByRef(payload_ty, zcu)) {
-        return fg.loadByRef(payload_ptr, payload_ty, payload_align.toLlvm(), .normal);
     } else {
-        return fg.wip.load(.normal, try o.lowerType(payload_ty), payload_ptr, payload_align.toLlvm(), "");
+        return fg.load(payload_ptr, operand_align.offset(offset), payload_ty, .normal);
     }
 }
 
@@ -2144,11 +2280,7 @@ fn airSliceElemVal(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder
     const elem_align = slice_ty.ptrAlignment(zcu).min(elem_ty.abiAlignment(zcu));
     const access_kind: Builder.MemoryAccessKind = if (slice_info.flags.is_volatile) .@"volatile" else .normal;
     self.maybeMarkAllowZeroAccess(slice_info);
-    if (isByRef(elem_ty, zcu)) {
-        return self.loadByRef(ptr, elem_ty, elem_align.toLlvm(), access_kind);
-    } else {
-        return self.loadTruncate(access_kind, elem_ty, ptr, elem_align.toLlvm());
-    }
+    return self.load(ptr, elem_align, elem_ty, access_kind);
 }
 
 fn airSliceElemPtr(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
@@ -2173,12 +2305,7 @@ fn airArrayElemVal(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder
     const elem_ty = array_ty.childType(zcu);
     if (isByRef(array_ty, zcu)) {
         const elem_ptr = try self.ptraddScaled(array_llvm_val, rhs, elem_ty.abiSize(zcu));
-        if (isByRef(elem_ty, zcu)) {
-            const elem_align = elem_ty.abiAlignment(zcu).toLlvm();
-            return self.loadByRef(elem_ptr, elem_ty, elem_align, .normal);
-        } else {
-            return self.loadTruncate(.normal, elem_ty, elem_ptr, .default);
-        }
+        return self.load(elem_ptr, .none, elem_ty, .normal);
     }
 
     // This branch can be reached for vectors, which are always by-value.
@@ -2197,8 +2324,8 @@ fn airPtrElemVal(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.V
 
     return self.load(
         try self.ptraddScaled(base_ptr, rhs, elem_ty.abiSize(zcu)),
+        ptr_ty.ptrAlignment(zcu).min(elem_ty.abiAlignment(zcu)),
         elem_ty,
-        ptr_ty.ptrAlignment(zcu).min(elem_ty.abiAlignment(zcu)).toLlvm(),
         if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
     );
 }
@@ -2294,11 +2421,7 @@ fn airStructFieldVal(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Build
     const field_ptr = try self.ptraddConst(struct_llvm_val, offset);
     const field_ptr_align = struct_ptr_align.offset(offset);
 
-    if (isByRef(field_ty, zcu)) {
-        return self.loadByRef(field_ptr, field_ty, field_ptr_align.toLlvm(), .normal);
-    } else {
-        return self.loadTruncate(.normal, field_ty, field_ptr, field_ptr_align.toLlvm());
-    }
+    return self.load(field_ptr, field_ptr_align, field_ty, .normal);
 }
 
 fn airFieldParentPtr(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
@@ -2439,8 +2562,8 @@ fn airDbgVarVal(self: *FuncGen, inst: Air.Inst.Index, is_arg: bool) Allocator.Er
         // functions even have a valid stack pointer, making the `alloca` + `store` unsafe.
 
         const alignment = operand_ty.abiAlignment(zcu).toLlvm();
-        const alloca = try self.buildAlloca(operand.typeOfWip(&self.wip), alignment);
-        _ = try self.wip.store(.normal, operand, alloca, alignment);
+        const alloca = try self.buildAlloca(try o.lowerType(operand_ty), alignment);
+        try self.store(alloca, .none, operand, operand_ty, .normal);
         _ = try self.wip.callIntrinsic(
             .normal,
             .none,
@@ -2609,8 +2732,7 @@ fn airAssembly(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
             } else {
                 const alignment = arg_ty.abiAlignment(zcu).toLlvm();
                 const arg_llvm_ty = try o.lowerType(arg_ty);
-                const load_inst =
-                    try self.wip.load(.normal, arg_llvm_ty, arg_llvm_value, alignment, "");
+                const load_inst = try self.wip.load(.normal, arg_llvm_ty, arg_llvm_value, alignment, "");
                 llvm_param_values[llvm_param_i] = load_inst;
                 llvm_param_types[llvm_param_i] = arg_llvm_ty;
             }
@@ -2621,7 +2743,7 @@ fn airAssembly(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
             } else {
                 const alignment = arg_ty.abiAlignment(zcu).toLlvm();
                 const arg_ptr = try self.buildAlloca(arg_llvm_value.typeOfWip(&self.wip), alignment);
-                _ = try self.wip.store(.normal, arg_llvm_value, arg_ptr, alignment);
+                try self.store(arg_ptr, .none, arg_llvm_value, arg_ty, .normal);
                 llvm_param_values[llvm_param_i] = arg_ptr;
                 llvm_param_types[llvm_param_i] = arg_ptr.typeOfWip(&self.wip);
             }
@@ -2668,14 +2790,8 @@ fn airAssembly(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
             llvm_param_values[llvm_param_i] = llvm_rw_vals[output.index];
             llvm_param_types[llvm_param_i] = llvm_rw_vals[output.index].typeOfWip(&self.wip);
         } else {
-            const alignment = rw_ty.abiAlignment(zcu).toLlvm();
-            const loaded = try self.wip.load(
-                if (rw_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
-                llvm_elem_ty,
-                llvm_rw_vals[output.index],
-                alignment,
-                "",
-            );
+            const access_kind: Builder.MemoryAccessKind = if (rw_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+            const loaded = try self.load(llvm_rw_vals[output.index], .none, rw_ty.childType(zcu), access_kind);
             llvm_param_values[llvm_param_i] = loaded;
             llvm_param_types[llvm_param_i] = llvm_elem_ty;
         }
@@ -2835,12 +2951,12 @@ fn airAssembly(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
         if (output != .none) {
             const output_ptr = try self.resolveInst(output);
             const output_ptr_ty = self.typeOf(output);
-            const alignment = output_ptr_ty.ptrAlignment(zcu).toLlvm();
-            _ = try self.wip.store(
-                if (output_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
-                output_value,
+            try self.store(
                 output_ptr,
-                alignment,
+                output_ptr_ty.ptrAlignment(zcu),
+                output_value,
+                output_ptr_ty.childType(zcu),
+                if (output_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
             );
         } else {
             ret_val = output_value;
@@ -2863,7 +2979,6 @@ fn airIsNonNull(
     const operand = try self.resolveInst(un_op);
     const operand_ty = self.typeOf(un_op);
     const optional_ty = if (operand_is_ptr) operand_ty.childType(zcu) else operand_ty;
-    const optional_llvm_ty = try o.lowerType(optional_ty);
     const payload_ty = optional_ty.optionalChild(zcu);
 
     const access_kind: Builder.MemoryAccessKind =
@@ -2873,7 +2988,7 @@ fn airIsNonNull(
 
     if (optional_ty.optionalReprIsPayload(zcu)) {
         const loaded = if (operand_is_ptr)
-            try self.wip.load(access_kind, optional_llvm_ty, operand, operand_ty.ptrAlignment(zcu).toLlvm(), "")
+            try self.load(operand, operand_ty.ptrAlignment(zcu), optional_ty, access_kind)
         else
             operand;
         if (payload_ty.isSlice(zcu)) {
@@ -2884,14 +2999,14 @@ fn airIsNonNull(
             ));
             return self.wip.icmp(cond, slice_ptr, try o.builder.nullValue(ptr_ty), "");
         }
-        return self.wip.icmp(cond, loaded, try o.builder.zeroInitValue(optional_llvm_ty), "");
+        return self.wip.icmp(cond, loaded, try o.builder.zeroInitValue(try o.lowerType(optional_ty)), "");
     }
 
     comptime assert(optional_layout_version == 3);
 
     if (!payload_ty.hasRuntimeBits(zcu)) {
         const loaded = if (operand_is_ptr)
-            try self.wip.load(access_kind, optional_llvm_ty, operand, operand_ty.ptrAlignment(zcu).toLlvm(), "")
+            try self.load(operand, operand_ty.ptrAlignment(zcu), optional_ty, access_kind)
         else
             operand;
         return self.wip.icmp(cond, loaded, try o.builder.intValue(.i8, 0), "");
@@ -2932,7 +3047,7 @@ fn airIsErr(
 
     if (!payload_ty.hasRuntimeBits(zcu)) {
         const loaded = if (operand_is_ptr)
-            try self.wip.load(access_kind, try o.lowerType(err_union_ty), operand, operand_ty.ptrAlignment(zcu).toLlvm(), "")
+            try self.load(operand, operand_ty.ptrAlignment(zcu), err_union_ty, access_kind)
         else
             operand;
         return self.wip.icmp(cond, loaded, zero, "");
@@ -2944,7 +3059,7 @@ fn airIsErr(
     else
         .none;
     const err_field_ptr = try self.ptraddConst(operand, codegen.errUnionErrorOffset(payload_ty, zcu));
-    const loaded = try self.wip.load(access_kind, error_type, err_field_ptr, err_align.toLlvm(), "");
+    const loaded = try self.load(err_field_ptr, err_align, .anyerror, access_kind);
     return self.wip.icmp(cond, loaded, zero, "");
 }
 
@@ -2966,7 +3081,6 @@ fn airOptionalPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) Allocator.Erro
     const optional_ptr_ty = self.typeOf(ty_op.operand);
     const optional_ty = optional_ptr_ty.childType(zcu);
     const payload_ty = optional_ty.optionalChild(zcu);
-    const non_null_bit = try o.builder.intValue(.i8, 1);
 
     const access_kind: Builder.MemoryAccessKind =
         if (optional_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
@@ -2976,7 +3090,7 @@ fn airOptionalPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) Allocator.Erro
 
         // We have a pointer to a i8. We need to set it to 1 and then return the same pointer.
         // Default alignment store because align of the non null bit is 1 anyway.
-        _ = try self.wip.store(access_kind, non_null_bit, operand, .default);
+        try self.store(operand, .@"1", .true, .bool, access_kind);
         return operand;
     }
     if (optional_ty.optionalReprIsPayload(zcu)) {
@@ -2992,7 +3106,7 @@ fn airOptionalPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) Allocator.Erro
     self.maybeMarkAllowZeroAccess(optional_ptr_ty.ptrInfo(zcu));
 
     // Default alignment store because align of the non null bit is 1 anyway.
-    _ = try self.wip.store(access_kind, non_null_bit, non_null_ptr, .default);
+    try self.store(non_null_ptr, .@"1", .true, .bool, access_kind);
 
     // Then return the payload pointer (only if it's used).
     if (self.liveness.isUnused(inst)) return .none;
@@ -3016,31 +3130,29 @@ fn airOptionalPayload(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Buil
     return self.optPayloadHandle(operand, optional_ty, false);
 }
 
-fn airErrUnionPayload(self: *FuncGen, inst: Air.Inst.Index, operand_is_ptr: bool) Allocator.Error!Builder.Value {
-    const o = self.object;
+fn airErrUnionPayload(fg: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
+    const o = fg.object;
     const zcu = o.zcu;
-    const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const operand = try self.resolveInst(ty_op.operand);
-    const operand_ty = self.typeOf(ty_op.operand);
-    const err_union_ty = if (operand_is_ptr) operand_ty.childType(zcu) else operand_ty;
-    const result_ty = self.typeOfIndex(inst);
-    const payload_ty = if (operand_is_ptr) result_ty.childType(zcu) else result_ty;
+    const ty_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+    const operand = try fg.resolveInst(ty_op.operand);
+    const err_union_ty = fg.typeOf(ty_op.operand);
+    const payload_ty = fg.typeOfIndex(inst);
 
-    if (!payload_ty.hasRuntimeBits(zcu)) {
-        return if (operand_is_ptr) operand else .none;
-    }
-    const payload_ptr = try self.ptraddConst(operand, codegen.errUnionPayloadOffset(payload_ty, zcu));
-    if (operand_is_ptr) {
-        return payload_ptr;
-    }
+    assert(payload_ty.hasRuntimeBits(zcu));
     assert(isByRef(err_union_ty, zcu)); // error unions are by-ref unless the payload lacks runtime bits
-    const payload_alignment = payload_ty.abiAlignment(zcu).toLlvm();
-    if (isByRef(payload_ty, zcu)) {
-        return self.loadByRef(payload_ptr, payload_ty, payload_alignment, .normal);
-    } else {
-        const payload_llvm_ty = try o.lowerType(payload_ty);
-        return self.wip.load(.normal, payload_llvm_ty, payload_ptr, payload_alignment, "");
-    }
+
+    const payload_offset = codegen.errUnionPayloadOffset(payload_ty, zcu);
+    const payload_ptr = try fg.ptraddConst(operand, payload_offset);
+    return fg.load(payload_ptr, err_union_ty.abiAlignment(zcu).offset(payload_offset), payload_ty, .normal);
+}
+
+fn airErrUnionPayloadPtr(fg: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
+    const o = fg.object;
+    const zcu = o.zcu;
+    const ty_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+    const operand = try fg.resolveInst(ty_op.operand);
+    const payload_ty = fg.typeOfIndex(inst).childType(zcu);
+    return fg.ptraddConst(operand, codegen.errUnionPayloadOffset(payload_ty, zcu));
 }
 
 fn airErrUnionErr(
@@ -3053,40 +3165,28 @@ fn airErrUnionErr(
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try self.resolveInst(ty_op.operand);
     const operand_ty = self.typeOf(ty_op.operand);
-    const error_type = try o.errorIntType();
     const err_union_ty = if (operand_is_ptr) operand_ty.childType(zcu) else operand_ty;
-    if (err_union_ty.errorUnionSet(zcu).errorSetIsEmpty(zcu)) {
-        if (operand_is_ptr) {
-            return operand;
-        } else {
-            return o.builder.intValue(error_type, 0);
-        }
-    }
 
     const access_kind: Builder.MemoryAccessKind =
         if (operand_is_ptr and operand_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
 
     const payload_ty = err_union_ty.errorUnionPayload(zcu);
-    if (!payload_ty.hasRuntimeBits(zcu)) {
-        if (!operand_is_ptr) return operand;
 
-        self.maybeMarkAllowZeroAccess(operand_ty.ptrInfo(zcu));
-
-        return self.wip.load(access_kind, error_type, operand, operand_ty.ptrAlignment(zcu).toLlvm(), "");
+    if (payload_ty.hasRuntimeBits(zcu)) {
+        assert(isByRef(err_union_ty, zcu)); // error unions are by-ref unless the payload lacks runtime bits
+    } else if (!operand_is_ptr) {
+        return operand;
     }
-
-    assert(isByRef(err_union_ty, zcu)); // error unions are by-ref unless the payload lacks runtime bits
 
     if (operand_is_ptr) self.maybeMarkAllowZeroAccess(operand_ty.ptrInfo(zcu));
 
-    const err_align: InternPool.Alignment = a: {
-        const err_abi_align = Type.anyerror.abiAlignment(zcu);
-        if (!operand_is_ptr) break :a err_abi_align;
-        break :a err_abi_align.minStrict(operand_ty.ptrAlignment(zcu));
-    };
+    const ptr_align = if (operand_is_ptr) operand_ty.ptrAlignment(zcu) else err_union_ty.abiAlignment(zcu);
 
-    const err_field_ptr = try self.ptraddConst(operand, codegen.errUnionErrorOffset(payload_ty, zcu));
-    return self.wip.load(access_kind, error_type, err_field_ptr, err_align.toLlvm(), "");
+    const err_offset = codegen.errUnionErrorOffset(payload_ty, zcu);
+    const err_align = ptr_align.offset(err_offset);
+    const err_ptr = try self.ptraddConst(operand, err_offset);
+
+    return self.load(err_ptr, err_align, .anyerror, access_kind);
 }
 
 fn airErrUnionPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
@@ -3107,10 +3207,10 @@ fn airErrUnionPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) Allocator.Erro
     self.maybeMarkAllowZeroAccess(err_union_ptr_ty.ptrInfo(zcu));
 
     {
-        const error_align = Type.anyerror.abiAlignment(zcu).minStrict(err_union_ptr_align).toLlvm();
         // First set the non-error value.
-        const error_ptr = try self.ptraddConst(operand, codegen.errUnionErrorOffset(payload_ty, zcu));
-        _ = try self.wip.store(access_kind, non_error_val, error_ptr, error_align);
+        const error_off = codegen.errUnionErrorOffset(payload_ty, zcu);
+        const error_ptr = try self.ptraddConst(operand, error_off);
+        try self.store(error_ptr, err_union_ptr_align.offset(error_off), non_error_val, .anyerror, access_kind);
     }
 
     // Then return the payload pointer (only if it is used).
@@ -3142,7 +3242,7 @@ fn airSaveErrReturnTraceIndex(self: *FuncGen, inst: Air.Inst.Index) Allocator.Er
     const field_offset = struct_ty.structFieldOffset(field_index, zcu);
     const field_align = struct_ty.abiAlignment(zcu).offset(field_offset);
     const field_ptr = try self.ptraddConst(self.err_ret_trace, field_offset);
-    return self.load(field_ptr, field_ty, field_align.toLlvm(), .normal);
+    return self.load(field_ptr, field_align, field_ty, .normal);
 }
 
 /// As an optimization, we want to avoid unnecessary copies of
@@ -3174,7 +3274,6 @@ fn airWrapOptional(self: *FuncGen, body_tail: []const Air.Inst.Index) Allocator.
     const inst = body_tail[0];
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const payload_ty = self.typeOf(ty_op.operand);
-    const non_null_bit = try o.builder.intValue(.i8, 1);
     comptime assert(optional_layout_version == 3);
     assert(payload_ty.hasRuntimeBits(zcu));
     const operand = try self.resolveInst(ty_op.operand);
@@ -3191,15 +3290,12 @@ fn airWrapOptional(self: *FuncGen, body_tail: []const Air.Inst.Index) Allocator.
     };
 
     const payload_ptr = optional_ptr; // payload always at offset 0
-    try self.store(
-        payload_ptr,
-        .none,
-        operand,
-        payload_ty,
-    );
+    try self.store(payload_ptr, .none, operand, payload_ty, .normal);
+
     // Non-null bit immediately after payload (no padding because the bit has alignment 1).
     const non_null_ptr = try self.ptraddConst(optional_ptr, payload_ty.abiSize(zcu));
-    _ = try self.wip.store(.normal, non_null_bit, non_null_ptr, .default);
+    try self.store(non_null_ptr, .none, .true, .bool, .normal);
+
     return optional_ptr;
 }
 
@@ -3225,15 +3321,11 @@ fn airWrapErrUnionPayload(self: *FuncGen, body_tail: []const Air.Inst.Index) All
     };
 
     const err_ptr = try self.ptraddConst(result_ptr, codegen.errUnionErrorOffset(payload_ty, zcu));
-    const error_alignment = Type.anyerror.abiAlignment(o.zcu).toLlvm();
-    _ = try self.wip.store(.normal, ok_err_code, err_ptr, error_alignment);
+    try self.store(err_ptr, .none, ok_err_code, .anyerror, .normal);
+
     const payload_ptr = try self.ptraddConst(result_ptr, codegen.errUnionPayloadOffset(payload_ty, zcu));
-    try self.store(
-        payload_ptr,
-        .none,
-        operand,
-        payload_ty,
-    );
+    try self.store(payload_ptr, .none, operand, payload_ty, .normal);
+
     return result_ptr;
 }
 
@@ -3258,11 +3350,12 @@ fn airWrapErrUnionErr(self: *FuncGen, body_tail: []const Air.Inst.Index) Allocat
     };
 
     const err_ptr = try self.ptraddConst(result_ptr, codegen.errUnionErrorOffset(payload_ty, zcu));
-    const error_alignment = Type.anyerror.abiAlignment(zcu).toLlvm();
-    _ = try self.wip.store(.normal, operand, err_ptr, error_alignment);
+    try self.store(err_ptr, .none, operand, .anyerror, .normal);
+
     const payload_ptr = try self.ptraddConst(result_ptr, codegen.errUnionPayloadOffset(payload_ty, zcu));
     // TODO store undef to payload_ptr
     _ = payload_ptr;
+
     return result_ptr;
 }
 
@@ -3723,19 +3816,21 @@ fn airOverflow(
     const result_val = try self.wip.extractValue(results, &.{0}, "");
     const overflow_bit = try self.wip.extractValue(results, &.{1}, "");
 
-    const result_alignment = inst_ty.abiAlignment(zcu).toLlvm();
-    const alloca_inst = try self.buildAlloca(llvm_inst_ty, result_alignment);
+    const result_alignment = inst_ty.abiAlignment(zcu);
+    const alloca_inst = try self.buildAlloca(llvm_inst_ty, result_alignment.toLlvm());
 
     {
         // Store to 'result: IntType' field
-        const field_ptr = try self.ptraddConst(alloca_inst, inst_ty.structFieldOffset(0, zcu));
-        _ = try self.wip.store(.normal, result_val, field_ptr, lhs_ty.abiAlignment(zcu).toLlvm());
+        const field_off = inst_ty.structFieldOffset(0, zcu);
+        const field_ptr = try self.ptraddConst(alloca_inst, field_off);
+        try self.store(field_ptr, result_alignment.offset(field_off), result_val, lhs_ty, .normal);
     }
 
     {
         // Store to 'overflow: u1' field
-        const field_ptr = try self.ptraddConst(alloca_inst, inst_ty.structFieldOffset(1, zcu));
-        _ = try self.wip.store(.normal, overflow_bit, field_ptr, comptime .fromByteUnits(1));
+        const field_off = inst_ty.structFieldOffset(1, zcu);
+        const field_ptr = try self.ptraddConst(alloca_inst, field_off);
+        try self.store(field_ptr, result_alignment.offset(field_off), overflow_bit, inst_ty.fieldType(1, zcu), .normal);
     }
 
     return alloca_inst;
@@ -4064,19 +4159,21 @@ fn airShlWithOverflow(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Buil
 
     const overflow_bit = try self.wip.icmp(.ne, lhs, reconstructed, "");
 
-    const result_alignment = dest_ty.abiAlignment(zcu).toLlvm();
-    const alloca_inst = try self.buildAlloca(llvm_dest_ty, result_alignment);
+    const result_alignment = dest_ty.abiAlignment(zcu);
+    const alloca_inst = try self.buildAlloca(llvm_dest_ty, result_alignment.toLlvm());
 
     {
         // Store to 'result: IntType' field
-        const field_ptr = try self.ptraddConst(alloca_inst, dest_ty.structFieldOffset(0, zcu));
-        _ = try self.wip.store(.normal, result, field_ptr, lhs_ty.abiAlignment(zcu).toLlvm());
+        const field_off = dest_ty.structFieldOffset(0, zcu);
+        const field_ptr = try self.ptraddConst(alloca_inst, field_off);
+        try self.store(field_ptr, result_alignment.offset(field_off), result, lhs_ty, .normal);
     }
 
     {
         // Store to 'overflow: u1' field
-        const field_ptr = try self.ptraddConst(alloca_inst, dest_ty.structFieldOffset(1, zcu));
-        _ = try self.wip.store(.normal, overflow_bit, field_ptr, comptime .fromByteUnits(1));
+        const field_off = dest_ty.structFieldOffset(1, zcu);
+        const field_ptr = try self.ptraddConst(alloca_inst, field_off);
+        try self.store(field_ptr, result_alignment.offset(field_off), overflow_bit, dest_ty.fieldType(1, zcu), .normal);
     }
 
     return alloca_inst;
@@ -4264,7 +4361,7 @@ fn airAbs(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
             .none,
             .abs,
             &.{try o.lowerType(operand_ty)},
-            &.{ operand, try o.builder.intValue(.i1, 0) },
+            &.{ operand, .false },
             "",
         ),
         .float => return self.buildFloatOp(.fabs, .normal, operand_ty, 1, .{operand}),
@@ -4483,7 +4580,8 @@ fn bitCast(self: *FuncGen, operand: Builder.Value, operand_ty: Type, inst_ty: Ty
     }
 
     if (inst_ty.isAbiInt(zcu) and operand_ty.isAbiInt(zcu)) {
-        return self.wip.conv(.unsigned, operand, llvm_dest_ty, "");
+        assert(inst_ty.bitSize(zcu) == operand_ty.bitSize(zcu));
+        return operand;
     }
 
     const operand_scalar_ty = operand_ty.scalarType(zcu);
@@ -4498,11 +4596,11 @@ fn bitCast(self: *FuncGen, operand: Builder.Value, operand_ty: Type, inst_ty: Ty
     if (operand_ty.zigTypeTag(zcu) == .vector and inst_ty.zigTypeTag(zcu) == .array) {
         const elem_ty = operand_scalar_ty;
         assert(result_is_ref); // arrays are always by-ref provided they have runtime bits
-        const alignment = inst_ty.abiAlignment(zcu).toLlvm();
-        const array_ptr = try self.buildAlloca(llvm_dest_ty, alignment);
+        const alignment = inst_ty.abiAlignment(zcu);
+        const array_ptr = try self.buildAlloca(llvm_dest_ty, alignment.toLlvm());
         const bitcast_ok = elem_ty.bitSize(zcu) == elem_ty.abiSize(zcu) * 8;
         if (bitcast_ok) {
-            _ = try self.wip.store(.normal, operand, array_ptr, alignment);
+            try self.store(array_ptr, alignment, operand, operand_ty, .normal);
         } else {
             // If the ABI size of the element type is not evenly divisible by size in bits;
             // a simple bitcast will not work, and we fall back to extractelement.
@@ -4512,7 +4610,7 @@ fn bitCast(self: *FuncGen, operand: Builder.Value, operand_ty: Type, inst_ty: Ty
             while (i < vector_len) : (i += 1) {
                 const arr_elem_ptr = try self.ptraddConst(array_ptr, i * elem_size);
                 const vec_elem = try self.wip.extractElement(operand, try o.builder.intValue(.i32, i), "");
-                _ = try self.wip.store(.normal, vec_elem, arr_elem_ptr, .default);
+                try self.store(arr_elem_ptr, .none, vec_elem, elem_ty, .normal);
             }
         }
         return array_ptr;
@@ -4525,19 +4623,17 @@ fn bitCast(self: *FuncGen, operand: Builder.Value, operand_ty: Type, inst_ty: Ty
         if (bitcast_ok) {
             // The array is aligned to the element's alignment, while the vector might have a completely
             // different alignment. This means we need to enforce the alignment of this load.
-            const alignment = elem_ty.abiAlignment(zcu).toLlvm();
-            return self.wip.load(.normal, llvm_vector_ty, operand, alignment, "");
+            return self.load(operand, elem_ty.abiAlignment(zcu), inst_ty, .normal);
         } else {
             // If the ABI size of the element type is not evenly divisible by size in bits;
             // a simple bitcast will not work, and we fall back to extractelement.
-            const elem_llvm_ty = try o.lowerType(elem_ty);
             const elem_size = elem_ty.abiSize(zcu);
             const vector_len = operand_ty.arrayLen(zcu);
             var vector = try o.builder.poisonValue(llvm_vector_ty);
             var i: u64 = 0;
             while (i < vector_len) : (i += 1) {
                 const arr_elem_ptr = try self.ptraddConst(operand, i * elem_size);
-                const arr_elem = try self.wip.load(.normal, elem_llvm_ty, arr_elem_ptr, .default, "");
+                const arr_elem = try self.load(arr_elem_ptr, .none, elem_ty, .normal);
                 vector = try self.wip.insertElement(vector, arr_elem, try o.builder.intValue(.i32, i), "");
             }
             return vector;
@@ -4545,14 +4641,17 @@ fn bitCast(self: *FuncGen, operand: Builder.Value, operand_ty: Type, inst_ty: Ty
     }
 
     if (operand_is_ref) {
-        const alignment = operand_ty.abiAlignment(zcu).toLlvm();
-        return self.wip.load(.normal, llvm_dest_ty, operand, alignment, "");
+        return self.load(operand, operand_ty.abiAlignment(zcu), inst_ty, .normal);
     }
 
     if (result_is_ref) {
-        const alignment = operand_ty.abiAlignment(zcu).max(inst_ty.abiAlignment(zcu)).toLlvm();
-        const result_ptr = try self.buildAlloca(llvm_dest_ty, alignment);
-        _ = try self.wip.store(.normal, operand, result_ptr, alignment);
+        const alignment = operand_ty.abiAlignment(zcu).max(inst_ty.abiAlignment(zcu));
+        const llvm_alloc_ty = if (operand_ty.abiSize(zcu) > inst_ty.abiSize(zcu))
+            try o.lowerType(operand_ty)
+        else
+            llvm_dest_ty;
+        const result_ptr = try self.buildAlloca(llvm_alloc_ty, alignment.toLlvm());
+        try self.store(result_ptr, alignment, operand, operand_ty, .normal);
         return result_ptr;
     }
 
@@ -4563,10 +4662,10 @@ fn bitCast(self: *FuncGen, operand: Builder.Value, operand_ty: Type, inst_ty: Ty
         // Both our operand and our result are values, not pointers,
         // but LLVM won't let us bitcast struct values or vectors with padding bits.
         // Therefore, we store operand to alloca, then load for result.
-        const alignment = operand_ty.abiAlignment(zcu).max(inst_ty.abiAlignment(zcu)).toLlvm();
-        const result_ptr = try self.buildAlloca(llvm_dest_ty, alignment);
-        _ = try self.wip.store(.normal, operand, result_ptr, alignment);
-        return self.wip.load(.normal, llvm_dest_ty, result_ptr, alignment, "");
+        const alignment = operand_ty.abiAlignment(zcu).max(inst_ty.abiAlignment(zcu));
+        const result_ptr = try self.buildAlloca(llvm_dest_ty, alignment.toLlvm());
+        try self.store(result_ptr, alignment, operand, operand_ty, .normal);
+        return self.load(result_ptr, alignment, inst_ty, .normal);
     }
 
     return self.wip.cast(.bitcast, operand, llvm_dest_ty, "");
@@ -4629,8 +4728,8 @@ fn airArg(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
         );
     } else if (mod.optimize_mode == .Debug) {
         const alignment = inst_ty.abiAlignment(zcu).toLlvm();
-        const alloca = try self.buildAlloca(arg_val.typeOfWip(&self.wip), alignment);
-        _ = try self.wip.store(.normal, arg_val, alloca, alignment);
+        const alloca = try self.buildAlloca(try o.lowerType(inst_ty), alignment);
+        try self.store(alloca, .none, arg_val, inst_ty, .normal);
         _ = try self.wip.callIntrinsic(
             .normal,
             .none,
@@ -4689,28 +4788,56 @@ fn airRetPtr(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value
     return self.buildAlloca(llvm_elem_ty, ptr_align.toLlvm());
 }
 
-/// Use this instead of builder.buildAlloca, because this function makes sure to
-/// put the alloca instruction at the top of the function!
+/// Unlike `WipFunction.alloca`, this puts the alloca instruction at the top of the function.
 fn buildAlloca(
-    self: *FuncGen,
+    fg: *FuncGen,
     llvm_ty: Builder.Type,
     alignment: Builder.Alignment,
 ) Allocator.Error!Builder.Value {
-    const target = self.object.zcu.getTarget();
-    return buildAllocaInner(&self.wip, llvm_ty, alignment, target);
+    const wip = &fg.wip;
+
+    const alloca = blk: {
+        const prev_cursor = wip.cursor;
+        const prev_debug_location = wip.debug_location;
+        defer {
+            wip.cursor = prev_cursor;
+            if (wip.cursor.block == .entry) wip.cursor.instruction += 1;
+            wip.debug_location = prev_debug_location;
+        }
+
+        wip.cursor = .{ .block = .entry };
+        wip.debug_location = .no_location;
+        const address_space = llvmAllocaAddressSpace(fg.object.zcu.getTarget());
+        break :blk try wip.alloca(.normal, llvm_ty, .none, alignment, address_space, "");
+    };
+
+    // The pointer returned from this function should have the generic address space,
+    // if this isn't the case then cast it to the generic address space.
+    return fg.wip.conv(.unneeded, alloca, .ptr, "");
 }
 
-fn airStore(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error!Builder.Value {
-    const o = self.object;
+fn airStore(fg: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error!Builder.Value {
+    const o = fg.object;
     const zcu = o.zcu;
-    const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const dest_ptr = try self.resolveInst(bin_op.lhs);
-    const ptr_ty = self.typeOf(bin_op.lhs);
-    const operand_ty = ptr_ty.childType(zcu);
+    const bin_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+    const ptr = try fg.resolveInst(bin_op.lhs);
+    const ptr_ty = fg.typeOf(bin_op.lhs);
+    const ptr_info = ptr_ty.ptrInfo(zcu);
+    const ptr_alignment = ptr_ty.ptrAlignment(zcu);
+
+    const elem_ty = fg.typeOf(bin_op.rhs);
+    assert(elem_ty.hasRuntimeBits(zcu));
+
+    fg.maybeMarkAllowZeroAccess(ptr_info);
+
+    const access_kind: Builder.MemoryAccessKind = switch (ptr_info.flags.is_volatile) {
+        true => .@"volatile",
+        false => .normal,
+    };
 
     const val_is_undef = if (bin_op.rhs.toInterned()) |i| Value.fromInterned(i).isUndef(zcu) else false;
-    if (val_is_undef and !self.needMemsetWorkaround(operand_ty.abiSize(zcu))) {
-        const owner_mod = self.ownerModule();
+    if (val_is_undef and !fg.needMemsetWorkaround(elem_ty.abiSize(zcu))) {
+        const owner_mod = fg.ownerModule();
 
         // Even if safety is disabled, we still emit a memset to undefined since it conveys
         // extra information to LLVM, and LLVM will optimize it out. Safety makes the difference
@@ -4725,7 +4852,6 @@ fn airStore(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error!
             return .none;
         }
 
-        const ptr_info = ptr_ty.ptrInfo(zcu);
         const needs_bitmask = (ptr_info.packed_offset.host_size != 0);
         if (needs_bitmask) {
             // TODO: only some bits are to be undef, we cannot write with a simple memset.
@@ -4734,27 +4860,82 @@ fn airStore(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error!
             return .none;
         }
 
-        self.maybeMarkAllowZeroAccess(ptr_info);
-
-        const len = try o.builder.intValue(try o.lowerType(.usize), operand_ty.abiSize(zcu));
-        _ = try self.wip.callMemSet(
-            dest_ptr,
-            ptr_ty.ptrAlignment(zcu).toLlvm(),
+        const len = try o.builder.intValue(try o.lowerType(.usize), elem_ty.abiSize(zcu));
+        _ = try fg.wip.callMemSet(
+            ptr,
+            ptr_alignment.toLlvm(),
             if (safety) try o.builder.intValue(.i8, 0xaa) else try o.builder.undefValue(.i8),
             len,
-            if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
-            self.disable_intrinsics,
+            access_kind,
+            fg.disable_intrinsics,
         );
         if (safety and owner_mod.valgrind) {
-            try self.valgrindMarkUndef(dest_ptr, len);
+            try fg.valgrindMarkUndef(ptr, len);
         }
         return .none;
     }
 
-    self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
+    const elem = try fg.resolveInst(bin_op.rhs);
 
-    const src_operand = try self.resolveInst(bin_op.rhs);
-    try self.storeFull(dest_ptr, ptr_ty, src_operand, .none);
+    if (ptr_info.flags.vector_index != .none) {
+        // Accepted proposal https://github.com/ziglang/zig/issues/24061 will eliminate this usage of `pt`.
+        const vec_ty = try fg.pt.vectorType(.{
+            .len = ptr_info.packed_offset.host_size,
+            .child = elem_ty.toIntern(),
+        });
+
+        const loaded_vector = try fg.load(ptr, ptr_alignment, vec_ty, access_kind);
+        const index_val = try o.builder.intValue(.i32, ptr_info.flags.vector_index);
+        const modified_vector = try fg.wip.insertElement(loaded_vector, elem, index_val, "");
+
+        try fg.store(ptr, ptr_alignment, modified_vector, vec_ty, access_kind);
+        return .none;
+    }
+
+    if (ptr_info.packed_offset.host_size != 0) {
+        // Accepted proposal https://github.com/ziglang/zig/issues/24061 will eliminate this usage of `pt`.
+        const backing_int_ty = try fg.pt.intType(.unsigned, @intCast(ptr_info.packed_offset.host_size * 8));
+        const llvm_backing_int_ty = try o.lowerType(backing_int_ty);
+
+        const backing_int_val = try fg.load(ptr, ptr_alignment, backing_int_ty, access_kind);
+
+        const elem_bits = ptr_ty.childType(zcu).bitSize(zcu);
+        const shift_amt = try o.builder.intConst(llvm_backing_int_ty, ptr_info.packed_offset.bit_offset);
+
+        // Convert to equally-sized integer type in order to perform the bit
+        // operations on the value to store
+        const new_val_bits_type = try o.builder.intType(@intCast(elem_bits));
+        const new_val_bits = if (elem_ty.isPtrAtRuntime(zcu))
+            try fg.wip.cast(.ptrtoint, elem, new_val_bits_type, "")
+        else
+            try fg.wip.cast(.bitcast, elem, new_val_bits_type, "");
+
+        const mask_val = blk: {
+            const zext = try fg.wip.cast(
+                .zext,
+                try o.builder.intValue(new_val_bits_type, -1),
+                llvm_backing_int_ty,
+                "",
+            );
+            const shl = try fg.wip.bin(.shl, zext, shift_amt.toValue(), "");
+            break :blk try fg.wip.bin(
+                .xor,
+                shl,
+                try o.builder.intValue(llvm_backing_int_ty, -1),
+                "",
+            );
+        };
+
+        const masked_backing_int_val = try fg.wip.bin(.@"and", backing_int_val, mask_val, "");
+        const extended_new_val = try fg.wip.cast(.zext, new_val_bits, llvm_backing_int_ty, "");
+        const shifted_new_val = try fg.wip.bin(.shl, extended_new_val, shift_amt.toValue(), "");
+        const new_backing_int_val = try fg.wip.bin(.@"or", shifted_new_val, masked_backing_int_val, "");
+
+        try fg.store(ptr, ptr_alignment, new_backing_int_val, backing_int_ty, access_kind);
+        return .none;
+    }
+
+    try fg.store(ptr, ptr_alignment, elem, elem_ty, access_kind);
     return .none;
 }
 
@@ -4766,7 +4947,7 @@ fn airLoad(fg: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
     const ptr_info = ptr_ty.ptrInfo(zcu);
     const ptr = try fg.resolveInst(ty_op.operand);
     const elem_ty = ptr_ty.childType(zcu);
-    const llvm_ptr_align = ptr_ty.ptrAlignment(zcu).toLlvm();
+    const ptr_align = ptr_ty.ptrAlignment(zcu);
 
     fg.maybeMarkAllowZeroAccess(ptr_info);
 
@@ -4774,36 +4955,32 @@ fn airLoad(fg: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
         if (ptr_info.flags.is_volatile) .@"volatile" else .normal;
 
     if (ptr_info.flags.vector_index != .none) {
-        const index_u32 = try o.builder.intValue(.i32, ptr_info.flags.vector_index);
-        const vec_elem_ty = try o.lowerType(elem_ty);
-        const vec_ty = try o.builder.vectorType(.normal, ptr_info.packed_offset.host_size, vec_elem_ty);
-
-        const loaded_vector = try fg.wip.load(access_kind, vec_ty, ptr, llvm_ptr_align, "");
-        return fg.wip.extractElement(loaded_vector, index_u32, "");
+        // Accepted proposal https://github.com/ziglang/zig/issues/24061 will eliminate this usage of `pt`.
+        const vec_ty = try fg.pt.vectorType(.{
+            .len = ptr_info.packed_offset.host_size,
+            .child = elem_ty.toIntern(),
+        });
+        const vector_val = try fg.load(ptr, ptr_align, vec_ty, access_kind);
+        const index_val = try o.builder.intValue(.i32, ptr_info.flags.vector_index);
+        return fg.wip.extractElement(vector_val, index_val, "");
     }
 
     if (ptr_info.packed_offset.host_size == 0) {
-        return fg.load(ptr, elem_ty, llvm_ptr_align, access_kind);
+        return fg.load(ptr, ptr_align, elem_ty, access_kind);
     }
 
-    const containing_int_ty = try o.builder.intType(@intCast(ptr_info.packed_offset.host_size * 8));
-    const containing_int =
-        try fg.wip.load(access_kind, containing_int_ty, ptr, llvm_ptr_align, "");
+    assert(!isByRef(elem_ty, zcu)); // all packable types are by-val
+
+    // Accepted proposal https://github.com/ziglang/zig/issues/24061 will eliminate this usage of `pt`.
+    const backing_int_ty = try fg.pt.intType(.unsigned, @intCast(ptr_info.packed_offset.host_size * 8));
+    const llvm_backing_int_ty = try o.lowerType(backing_int_ty);
+
+    const backing_int_val = try fg.load(ptr, ptr_align, backing_int_ty, .normal);
 
     const elem_bits = ptr_ty.childType(zcu).bitSize(zcu);
-    const shift_amt = try o.builder.intValue(containing_int_ty, ptr_info.packed_offset.bit_offset);
-    const shifted_value = try fg.wip.bin(.lshr, containing_int, shift_amt, "");
+    const shift_amt = try o.builder.intValue(llvm_backing_int_ty, ptr_info.packed_offset.bit_offset);
+    const shifted_value = try fg.wip.bin(.lshr, backing_int_val, shift_amt, "");
     const elem_llvm_ty = try o.lowerType(elem_ty);
-
-    if (isByRef(elem_ty, zcu)) {
-        const result_align = elem_ty.abiAlignment(zcu).toLlvm();
-        const result_ptr = try fg.buildAlloca(elem_llvm_ty, result_align);
-
-        const same_size_int = try o.builder.intType(@intCast(elem_bits));
-        const truncated_int = try fg.wip.cast(.trunc, shifted_value, same_size_int, "");
-        _ = try fg.wip.store(.normal, truncated_int, result_ptr, result_align);
-        return result_ptr;
-    }
 
     if (elem_ty.zigTypeTag(zcu) == .float or elem_ty.zigTypeTag(zcu) == .vector) {
         const same_size_int = try o.builder.intType(@intCast(elem_bits));
@@ -4918,21 +5095,22 @@ fn airCmpxchg(
         return self.wip.select(.normal, success_bit, zero, payload, "");
     }
 
-    assert(isByRef(optional_ty, zcu));
+    assert(!isByRef(operand_ty, zcu)); // can only cmpxchg non-by-ref types
+    assert(isByRef(optional_ty, zcu)); // all optionals are by-ref
 
     comptime assert(optional_layout_version == 3);
 
     const non_null_bit = try self.wip.not(success_bit, "");
 
-    const payload_align = operand_ty.abiAlignment(zcu).toLlvm();
-    const alloca_inst = try self.buildAlloca(try o.lowerType(optional_ty), payload_align);
+    const payload_align = operand_ty.abiAlignment(zcu);
+    const alloca_inst = try self.buildAlloca(try o.lowerType(optional_ty), payload_align.toLlvm());
 
     // Payload is always the first field at offset 0, so address is `alloca_inst`
-    _ = try self.wip.store(.normal, payload, alloca_inst, payload_align);
+    try self.store(alloca_inst, .none, payload, operand_ty, .normal);
 
     // Non-null bit is after payload with no padding because it has alignment 1
     const non_null_ptr = try self.ptraddConst(alloca_inst, operand_ty.abiSize(zcu));
-    _ = try self.wip.store(.normal, non_null_bit, non_null_ptr, comptime .fromByteUnits(1));
+    try self.store(non_null_ptr, payload_align, non_null_bit, .bool, .normal);
 
     return alloca_inst;
 }
@@ -5073,7 +5251,17 @@ fn airAtomicStore(
 
     self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
-    try self.storeFull(ptr, ptr_ty, element, ordering);
+    assert(!isByRef(operand_ty, zcu));
+
+    _ = try self.wip.storeAtomic(
+        if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+        element,
+        ptr,
+        self.sync_scope,
+        ordering,
+        ptr_ty.ptrAlignment(zcu).toLlvm(),
+    );
+
     return .none;
 }
 
@@ -5084,7 +5272,7 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
     const dest_slice = try self.resolveInst(bin_op.lhs);
     const ptr_ty = self.typeOf(bin_op.lhs);
     const elem_ty = self.typeOf(bin_op.rhs);
-    const dest_ptr_align = ptr_ty.ptrAlignment(zcu).toLlvm();
+    const dest_ptr_align = ptr_ty.ptrAlignment(zcu);
     const dest_ptr = try self.sliceOrArrayPtr(dest_slice, ptr_ty);
     const access_kind: Builder.MemoryAccessKind =
         if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
@@ -5110,7 +5298,7 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
             const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
             _ = try self.wip.callMemSet(
                 dest_ptr,
-                dest_ptr_align,
+                dest_ptr_align.toLlvm(),
                 fill_byte,
                 len,
                 access_kind,
@@ -5132,7 +5320,7 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
             const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
             _ = try self.wip.callMemSet(
                 dest_ptr,
-                dest_ptr_align,
+                dest_ptr_align.toLlvm(),
                 fill_byte,
                 len,
                 access_kind,
@@ -5152,7 +5340,7 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
 
         _ = try self.wip.callMemSet(
             dest_ptr,
-            dest_ptr_align,
+            dest_ptr_align.toLlvm(),
             fill_byte,
             len,
             access_kind,
@@ -5182,7 +5370,6 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
     const body_block = try self.wip.block(1, "InlineMemsetBody");
     const end_block = try self.wip.block(1, "InlineMemsetEnd");
 
-    const llvm_usize_ty = try o.lowerType(.usize);
     const end_ptr = switch (ptr_ty.ptrSize(zcu)) {
         .slice => try self.ptraddScaled(
             dest_ptr,
@@ -5201,18 +5388,8 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
 
     self.wip.cursor = .{ .block = body_block };
     const elem_abi_align = elem_ty.abiAlignment(zcu);
-    const it_ptr_align = InternPool.Alignment.fromLlvm(dest_ptr_align).min(elem_abi_align).toLlvm();
-    if (isByRef(elem_ty, zcu)) {
-        _ = try self.wip.callMemCpy(
-            it_ptr.toValue(),
-            it_ptr_align,
-            value,
-            elem_abi_align.toLlvm(),
-            try o.builder.intValue(llvm_usize_ty, elem_abi_size),
-            access_kind,
-            self.disable_intrinsics,
-        );
-    } else _ = try self.wip.store(access_kind, value, it_ptr.toValue(), it_ptr_align);
+    const it_ptr_align: InternPool.Alignment = dest_ptr_align.min(elem_abi_align);
+    try self.store(it_ptr.toValue(), it_ptr_align, value, elem_ty, access_kind);
     const next_ptr = try self.ptraddConst(it_ptr.toValue(), elem_abi_size);
     _ = try self.wip.br(loop_block);
 
@@ -5289,14 +5466,11 @@ fn airSetUnionTag(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.
 
     const union_ptr = try self.resolveInst(bin_op.lhs);
     const new_tag = try self.resolveInst(bin_op.rhs);
+    const tag_ty = self.typeOf(bin_op.rhs);
     const union_ptr_align = un_ptr_ty.ptrAlignment(zcu);
-    if (layout.payload_size == 0) {
-        _ = try self.wip.store(access_kind, new_tag, union_ptr, union_ptr_align.toLlvm());
-        return .none;
-    }
     const tag_field_ptr = try self.ptraddConst(union_ptr, layout.tagOffset());
     const tag_ptr_align = union_ptr_align.offset(layout.tagOffset());
-    _ = try self.wip.store(access_kind, new_tag, tag_field_ptr, tag_ptr_align.toLlvm());
+    try self.store(tag_field_ptr, tag_ptr_align, new_tag, tag_ty, access_kind);
     return .none;
 }
 
@@ -5309,9 +5483,8 @@ fn airGetUnionTag(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.
     assert(layout.tag_size != 0);
     const operand = try self.resolveInst(ty_op.operand);
     if (isByRef(un_ty, zcu)) {
-        const llvm_tag_ty = try o.lowerType(un_ty.unionTagTypeRuntime(zcu).?);
         const tag_field_ptr = try self.ptraddConst(operand, layout.tagOffset());
-        return self.wip.load(.normal, llvm_tag_ty, tag_field_ptr, .default, "");
+        return self.load(tag_field_ptr, .none, un_ty.unionTagTypeRuntime(zcu).?, .normal);
     } else {
         // This is only possible if all fields are zero-bit, in which case `operand` is already an
         // integer value (the union is lowered as its enum tag).
@@ -5480,14 +5653,13 @@ fn airErrorName(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Va
     const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try self.resolveInst(un_op);
     const slice_ty = self.typeOfIndex(inst);
-    const slice_llvm_ty = try o.lowerType(slice_ty);
 
     // If operand is small (e.g. `u8`), then signedness becomes a problem -- GEP always treats the index as signed.
     const operand_usize = try self.wip.conv(.unsigned, operand, try o.lowerType(.usize), "");
 
     const error_name_table_ptr = try o.getErrorNameTable();
     const error_name_ptr = try self.ptraddScaled(error_name_table_ptr.toValue(&o.builder), operand_usize, slice_ty.abiSize(zcu));
-    return self.wip.load(.normal, slice_llvm_ty, error_name_ptr, .default, "");
+    return self.load(error_name_ptr, .none, slice_ty, .normal);
 }
 
 fn airSplat(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
@@ -5696,15 +5868,13 @@ fn airShuffleTwo(fg: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Val
 /// Reduce a vector by repeatedly applying `llvm_fn` to produce an accumulated result.
 ///
 /// Equivalent to:
-///   reduce: {
-///     var i: usize = 0;
-///     var accum: T = init;
-///     while (i < vec.len) : (i += 1) {
-///       accum = llvm_fn(accum, vec[i]);
-///     }
-///     break :reduce accum;
-///   }
-///
+/// ```
+/// var accum: T = init;
+/// for (0..i) |i| {
+///     accum = llvm_fn(accum, vec[i]);
+/// }
+/// // result is 'accum'
+/// ```
 fn buildReducedCall(
     self: *FuncGen,
     llvm_fn: Builder.Function.Index,
@@ -5713,56 +5883,54 @@ fn buildReducedCall(
     accum_init: Builder.Value,
 ) Allocator.Error!Builder.Value {
     const o = self.object;
-    const usize_ty = try o.lowerType(.usize);
-    const llvm_vector_len = try o.builder.intValue(usize_ty, vector_len);
+    const llvm_usize_ty = try o.lowerType(.usize);
+    const llvm_vector_len = try o.builder.intValue(llvm_usize_ty, vector_len);
     const llvm_result_ty = accum_init.typeOfWip(&self.wip);
 
-    // Allocate and initialize our mutable variables
-    const i_ptr = try self.buildAlloca(usize_ty, .default);
-    _ = try self.wip.store(.normal, try o.builder.intValue(usize_ty, 0), i_ptr, .default);
-    const accum_ptr = try self.buildAlloca(llvm_result_ty, .default);
-    _ = try self.wip.store(.normal, accum_init, accum_ptr, .default);
+    const entry_block = self.wip.cursor.block;
 
-    // Setup the loop
-    const loop = try self.wip.block(2, "ReduceLoop");
-    const loop_exit = try self.wip.block(1, "AfterReduce");
-    _ = try self.wip.br(loop);
-    {
-        self.wip.cursor = .{ .block = loop };
+    const cond_block = try self.wip.block(2, "ReduceLoopCond");
+    const body_block = try self.wip.block(1, "ReduceLoopBody");
+    const exit_block = try self.wip.block(1, "ReduceLoopExit");
 
-        // while (i < vec.len)
-        const i = try self.wip.load(.normal, usize_ty, i_ptr, .default, "");
-        const cond = try self.wip.icmp(.ult, i, llvm_vector_len, "");
-        const loop_then = try self.wip.block(1, "ReduceLoopThen");
+    _ = try self.wip.br(cond_block);
 
-        _ = try self.wip.brCond(cond, loop_then, loop_exit, .none);
+    // ReduceLoopCond:
+    //   %index = phi iN [0,           %Entry], [%new_index, %ReduceLoopBody]
+    //   %accum = phi T  [%accum_init, %Entry], [%new_accum, %ReduceLoopBody]
+    //   %cond = icmp ult iN %index, %vector_len
+    //   br i1 %cond, label %ReduceLoopBody, label %ReduceLoopExit
+    self.wip.cursor = .{ .block = cond_block };
+    const index = try self.wip.phi(llvm_usize_ty, "");
+    const accum = try self.wip.phi(llvm_result_ty, "");
+    const cond = try self.wip.icmp(.ult, index.toValue(), llvm_vector_len, "");
+    _ = try self.wip.brCond(cond, body_block, exit_block, .none);
 
-        {
-            self.wip.cursor = .{ .block = loop_then };
+    // ReduceLoopBody:
+    //   %elem = extractelement <n x T> %operand_vec, iN %index
+    //   %new_accum = call T @llvm_fn(T %accum, T %elem)
+    //   %new_index = add nuw iN %index, 1
+    //   br label %ReduceLoopCond
+    self.wip.cursor = .{ .block = body_block };
+    const elem = try self.wip.extractElement(operand_vector, index.toValue(), "");
+    const new_accum = try self.wip.call(
+        .normal,
+        .ccc,
+        .none,
+        llvm_fn.typeOf(&o.builder),
+        llvm_fn.toValue(&o.builder),
+        &.{ accum.toValue(), elem },
+        "",
+    );
+    const new_index = try self.wip.bin(.@"add nuw", index.toValue(), try o.builder.intValue(llvm_usize_ty, 1), "");
+    _ = try self.wip.br(cond_block);
 
-            // accum = f(accum, vec[i]);
-            const accum = try self.wip.load(.normal, llvm_result_ty, accum_ptr, .default, "");
-            const element = try self.wip.extractElement(operand_vector, i, "");
-            const new_accum = try self.wip.call(
-                .normal,
-                .ccc,
-                .none,
-                llvm_fn.typeOf(&o.builder),
-                llvm_fn.toValue(&o.builder),
-                &.{ accum, element },
-                "",
-            );
-            _ = try self.wip.store(.normal, new_accum, accum_ptr, .default);
+    const index_init = try o.builder.intValue(llvm_usize_ty, 0);
+    index.finish(&.{ index_init, new_index }, &.{ entry_block, body_block }, &self.wip);
+    accum.finish(&.{ accum_init, new_accum }, &.{ entry_block, body_block }, &self.wip);
 
-            // i += 1
-            const new_i = try self.wip.bin(.add, i, try o.builder.intValue(usize_ty, 1), "");
-            _ = try self.wip.store(.normal, new_i, i_ptr, .default);
-            _ = try self.wip.br(loop);
-        }
-    }
-
-    self.wip.cursor = .{ .block = loop_exit };
-    return self.wip.load(.normal, llvm_result_ty, accum_ptr, .default, "");
+    self.wip.cursor = .{ .block = exit_block };
+    return new_accum;
 }
 
 fn airReduce(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) Allocator.Error!Builder.Value {
@@ -5939,24 +6107,7 @@ fn airAggregateInit(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builde
 
                     const llvm_field_val = try self.resolveInst(elem);
 
-                    if (isByRef(field_ty, zcu)) {
-                        _ = try self.wip.callMemCpy(
-                            field_ptr,
-                            field_ptr_align.toLlvm(),
-                            llvm_field_val,
-                            field_ty.abiAlignment(zcu).toLlvm(),
-                            try o.builder.intValue(try o.lowerType(.usize), field_ty.abiSize(zcu)),
-                            .normal,
-                            self.disable_intrinsics,
-                        );
-                    } else {
-                        _ = try self.wip.store(
-                            .normal,
-                            llvm_field_val,
-                            field_ptr,
-                            field_ptr_align.toLlvm(),
-                        );
-                    }
+                    try self.store(field_ptr, field_ptr_align, llvm_field_val, field_ty, .normal);
                 }
 
                 return alloca_inst;
@@ -5975,12 +6126,12 @@ fn airAggregateInit(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builde
             for (elements, 0..) |elem, i| {
                 const elem_ptr = try self.ptraddConst(alloca_inst, elem_size * i);
                 const llvm_elem = try self.resolveInst(elem);
-                try self.store(elem_ptr, .none, llvm_elem, array_info.elem_type);
+                try self.store(elem_ptr, .none, llvm_elem, array_info.elem_type, .normal);
             }
             if (array_info.sentinel) |sent_val| {
                 const elem_ptr = try self.ptraddConst(alloca_inst, elem_size * array_info.len);
                 const llvm_elem = try self.resolveValue(sent_val);
-                try self.store(elem_ptr, .none, llvm_elem.toValue(), array_info.elem_type);
+                try self.store(elem_ptr, .none, llvm_elem.toValue(), array_info.elem_type, .normal);
             }
 
             return alloca_inst;
@@ -6014,11 +6165,12 @@ fn airUnionInit(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Va
 
     {
         const payload_ptr = try self.ptraddConst(result_ptr, layout.payloadOffset());
-        try self.store(payload_ptr, layout.payload_align, llvm_payload, field_ty);
+        try self.store(payload_ptr, layout.payload_align, llvm_payload, field_ty, .normal);
     }
 
     if (layout.tag_size != 0) {
-        const loaded_enum = ip.loadEnumType(union_obj.enum_tag_type);
+        const tag_ty: Type = .fromInterned(union_obj.enum_tag_type);
+        const loaded_enum = ip.loadEnumType(tag_ty.toIntern());
         const llvm_tag_val = switch (loaded_enum.field_values.getOrNone(ip, extra.field_index)) {
             .none => try o.builder.intConst(
                 try o.lowerType(.fromInterned(union_obj.enum_tag_type)),
@@ -6027,7 +6179,7 @@ fn airUnionInit(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Va
             else => |tag_val_ip| try o.lowerValue(tag_val_ip),
         };
         const tag_ptr = try self.ptraddConst(result_ptr, layout.tagOffset());
-        _ = try self.wip.store(.normal, llvm_tag_val.toValue(), tag_ptr, layout.tag_align.toLlvm());
+        try self.store(tag_ptr, layout.tag_align, llvm_tag_val.toValue(), tag_ty, .normal);
     }
 
     return result_ptr;
@@ -6134,7 +6286,7 @@ fn airWorkGroupSize(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builde
             // Load the work_group_* member from the struct as u16.
             // Just treat the dispatch pointer as an array of u16 to keep things simple.
             const workgroup_size_ptr = try self.ptraddConst(dispatch_ptr, (2 + dimension) * 2);
-            return self.wip.load(.normal, .i16, workgroup_size_ptr, comptime .fromByteUnits(2), "");
+            return self.load(workgroup_size_ptr, .@"2", .u16, .normal);
         },
         .nvptx, .nvptx64 => {
             return self.workIntrinsic(dimension, 1, "nvvm.read.ptx.sreg.ntid");
@@ -6169,8 +6321,8 @@ fn optCmpNull(
     comptime assert(optional_layout_version == 3);
     // Non-null bit is always after the payload, with no padding because it has alignment 1.
     const non_null_ptr = try self.ptraddConst(opt_ptr, opt_ty.optionalChild(zcu).abiSize(zcu));
-    const non_null = try self.wip.load(access_kind, .i8, non_null_ptr, .default, "");
-    return self.wip.icmp(cond, non_null, try self.object.builder.intValue(.i8, 0), "");
+    const non_null = try self.load(non_null_ptr, .@"1", .bool, access_kind);
+    return self.wip.icmp(cond, non_null, .false, "");
 }
 
 /// Assumes that `Type.optionalReprIsPayload` is `false` for `opt_ty` and that the payload has bits.
@@ -6187,13 +6339,9 @@ fn optPayloadHandle(
     // Payload is first field so always at the same address as the optional itself.
     const payload_ptr = opt_ptr;
 
-    const payload_align = payload_ty.abiAlignment(zcu).toLlvm();
-    if (isByRef(payload_ty, zcu)) {
-        if (can_elide_load) return payload_ptr;
-        return fg.loadByRef(payload_ptr, payload_ty, payload_align, .normal);
-    } else {
-        return fg.loadTruncate(.normal, payload_ty, payload_ptr, payload_align);
-    }
+    if (can_elide_load and isByRef(payload_ty, zcu)) return payload_ptr;
+
+    return fg.load(payload_ptr, .none, payload_ty, .normal);
 }
 
 fn fieldPtr(
@@ -6217,214 +6365,145 @@ fn fieldPtr(
     return self.ptraddConst(aggregate_ptr, offset);
 }
 
-/// Load a value and, if needed, mask out padding bits for non byte-sized integer values.
-fn loadTruncate(
-    fg: *FuncGen,
-    access_kind: Builder.MemoryAccessKind,
-    payload_ty: Type,
-    payload_ptr: Builder.Value,
-    payload_alignment: Builder.Alignment,
-) Allocator.Error!Builder.Value {
-    // from https://llvm.org/docs/LangRef.html#load-instruction :
-    // "When loading a value of a type like i20 with a size that is not an integral number of bytes, the result is undefined if the value was not originally written using a store of the same type. "
-    // => so load the byte aligned value and trunc the unwanted bits.
-
-    const o = fg.object;
-    const zcu = o.zcu;
-    const payload_llvm_ty = try o.lowerType(payload_ty);
-    const abi_size = payload_ty.abiSize(zcu);
-
-    const load_llvm_ty = if (payload_ty.isAbiInt(zcu))
-        try o.builder.intType(@intCast(abi_size * 8))
-    else
-        payload_llvm_ty;
-    const loaded = try fg.wip.load(access_kind, load_llvm_ty, payload_ptr, payload_alignment, "");
-    const shifted = if (payload_llvm_ty != load_llvm_ty and zcu.getTarget().cpu.arch.endian() == .big)
-        try fg.wip.bin(.lshr, loaded, try o.builder.intValue(
-            load_llvm_ty,
-            (payload_ty.abiSize(zcu) - (std.math.divCeil(u64, payload_ty.bitSize(zcu), 8) catch unreachable)) * 8,
-        ), "")
-    else
-        loaded;
-
-    return fg.wip.conv(.unneeded, shifted, payload_llvm_ty, "");
-}
-
-/// Load a by-ref type by constructing a new alloca and performing a memcpy.
-fn loadByRef(
-    fg: *FuncGen,
-    ptr: Builder.Value,
-    pointee_type: Type,
-    ptr_alignment: Builder.Alignment,
-    access_kind: Builder.MemoryAccessKind,
-) Allocator.Error!Builder.Value {
-    const o = fg.object;
-    const pointee_llvm_ty = try o.lowerType(pointee_type);
-    const result_align = InternPool.Alignment.fromLlvm(ptr_alignment)
-        .max(pointee_type.abiAlignment(o.zcu)).toLlvm();
-    const result_ptr = try fg.buildAlloca(pointee_llvm_ty, result_align);
-    const size_bytes = pointee_type.abiSize(o.zcu);
-    _ = try fg.wip.callMemCpy(
-        result_ptr,
-        result_align,
-        ptr,
-        ptr_alignment,
-        try o.builder.intValue(try o.lowerType(.usize), size_bytes),
-        access_kind,
-        fg.disable_intrinsics,
-    );
-    return result_ptr;
-}
-
-/// If `isByRef` returns `true` for `elem_ty`, this still performs a copy by memcpy'ing the value
-/// into a new alloca.
+/// Non-atomic, non-bitpacked load of type `load_ty` from pointer `ptr`.
+///
+/// `ptr` has alignment `ptr_align`, or `load_ty.abiAlignment(zcu)` if `ptr_align` is `.none`.
+///
+/// If `load_ty` is a by-ref type, then the value is copied to a new alloca with a memcpy, and a
+/// pointer to that alloca is returned.
 fn load(
     fg: *FuncGen,
     ptr: Builder.Value,
-    elem_ty: Type,
-    ptr_alignment: Builder.Alignment,
+    ptr_align: InternPool.Alignment,
+    load_ty: Type,
     access_kind: Builder.MemoryAccessKind,
 ) Allocator.Error!Builder.Value {
-    const zcu = fg.object.zcu;
-    if (isByRef(elem_ty, zcu)) {
-        return fg.loadByRef(ptr, elem_ty, ptr_alignment, access_kind);
-    } else {
-        return fg.loadTruncate(access_kind, elem_ty, ptr, ptr_alignment);
-    }
-}
-
-fn storeFull(
-    self: *FuncGen,
-    ptr: Builder.Value,
-    ptr_ty: Type,
-    elem: Builder.Value,
-    ordering: Builder.AtomicOrdering,
-) Allocator.Error!void {
-    const o = self.object;
+    const o = fg.object;
     const zcu = o.zcu;
-    const info = ptr_ty.ptrInfo(zcu);
-    const elem_ty = Type.fromInterned(info.child);
-    if (!elem_ty.hasRuntimeBits(zcu)) {
-        return;
-    }
-    const ptr_alignment = ptr_ty.ptrAlignment(zcu).toLlvm();
-    const access_kind: Builder.MemoryAccessKind =
-        if (info.flags.is_volatile) .@"volatile" else .normal;
 
-    if (info.flags.vector_index != .none) {
-        const index_u32 = try o.builder.intValue(.i32, info.flags.vector_index);
-        const vec_elem_ty = try o.lowerType(elem_ty);
-        const vec_ty = try o.builder.vectorType(.normal, info.packed_offset.host_size, vec_elem_ty);
+    const abi_align = load_ty.abiAlignment(zcu);
+    const abi_size = load_ty.abiSize(zcu);
 
-        const loaded_vector = try self.wip.load(.normal, vec_ty, ptr, ptr_alignment, "");
+    const llvm_load_ty = try o.lowerType(load_ty);
+    const llvm_ptr_align: Builder.Alignment = switch (ptr_align) {
+        .none => abi_align.toLlvm(),
+        else => |a| a.toLlvm(),
+    };
 
-        const modified_vector = try self.wip.insertElement(loaded_vector, elem, index_u32, "");
-
-        assert(ordering == .none);
-        _ = try self.wip.store(access_kind, modified_vector, ptr, ptr_alignment);
-        return;
-    }
-
-    if (info.packed_offset.host_size != 0) {
-        const containing_int_ty = try o.builder.intType(@intCast(info.packed_offset.host_size * 8));
-        assert(ordering == .none);
-        const containing_int =
-            try self.wip.load(.normal, containing_int_ty, ptr, ptr_alignment, "");
-        const elem_bits = ptr_ty.childType(zcu).bitSize(zcu);
-        const shift_amt = try o.builder.intConst(containing_int_ty, info.packed_offset.bit_offset);
-        // Convert to equally-sized integer type in order to perform the bit
-        // operations on the value to store
-        const value_bits_type = try o.builder.intType(@intCast(elem_bits));
-        const value_bits = if (elem_ty.isPtrAtRuntime(zcu))
-            try self.wip.cast(.ptrtoint, elem, value_bits_type, "")
-        else
-            try self.wip.cast(.bitcast, elem, value_bits_type, "");
-
-        const mask_val = blk: {
-            const zext = try self.wip.cast(
-                .zext,
-                try o.builder.intValue(value_bits_type, -1),
-                containing_int_ty,
-                "",
-            );
-            const shl = try self.wip.bin(.shl, zext, shift_amt.toValue(), "");
-            break :blk try self.wip.bin(
-                .xor,
-                shl,
-                try o.builder.intValue(containing_int_ty, -1),
-                "",
-            );
-        };
-
-        const anded_containing_int = try self.wip.bin(.@"and", containing_int, mask_val, "");
-        const extended_value = try self.wip.cast(.zext, value_bits, containing_int_ty, "");
-        const shifted_value = try self.wip.bin(.shl, extended_value, shift_amt.toValue(), "");
-        const ored_value = try self.wip.bin(.@"or", shifted_value, anded_containing_int, "");
-
-        assert(ordering == .none);
-        _ = try self.wip.store(access_kind, ored_value, ptr, ptr_alignment);
-        return;
-    }
-    if (!isByRef(elem_ty, zcu)) {
-        _ = try self.wip.storeAtomic(
-            access_kind,
-            elem,
+    if (isByRef(load_ty, zcu)) {
+        const llvm_usize_ty = try o.lowerType(.usize);
+        const result_ptr = try fg.buildAlloca(llvm_load_ty, abi_align.toLlvm());
+        _ = try fg.wip.callMemCpy(
+            result_ptr,
+            abi_align.toLlvm(),
             ptr,
-            self.sync_scope,
-            ordering,
-            ptr_alignment,
+            llvm_ptr_align,
+            try o.builder.intValue(llvm_usize_ty, abi_size),
+            access_kind,
+            fg.disable_intrinsics,
         );
-        return;
+        return result_ptr;
     }
-    assert(ordering == .none);
-    _ = try self.wip.callMemCpy(
-        ptr,
-        ptr_alignment,
-        elem,
-        elem_ty.abiAlignment(zcu).toLlvm(),
-        try o.builder.intValue(try o.lowerType(.usize), elem_ty.abiSize(zcu)),
-        access_kind,
-        self.disable_intrinsics,
-    );
+
+    if (load_ty.isAbiInt(zcu) and load_ty.bitSize(zcu) != abi_size * 8) {
+        // `load_ty` is an integer type with padding bits. In theory, we shouldn't need any special
+        // handling for these, as LLVM's documented semantics are a valid implementation of Zig's
+        // semantics. However:
+        //
+        // * LLVM's lowering for these integer types generally leads to poor codegen, as integers
+        //   are only extended to the next byte, instead of to the next "natural" integer type.
+        //
+        // * Clang never emits loads or stores of these types, so LLVM's support for them is rather
+        //   flaky---we have encountered several LLVM bugs caused by incorrect handling of them.
+        //
+        // Therefore, we handle these memory accesses specially: in this case we will actually load
+        // the next-largest "natural" integer type and then truncate to `load_ty`.
+        const llvm_abi_ty = try o.builder.intType(@intCast(abi_size * 8));
+        const loaded = try fg.wip.load(access_kind, llvm_abi_ty, ptr, llvm_ptr_align, "");
+        // For packed structs, current Zig semantics don't really allow us to make the padding bits
+        // well-defined. This should be solved once https://github.com/ziglang/zig/issues/24061 is
+        // implemented, but until then, do a normal trunc for packed types.
+        return fg.wip.cast(switch (load_ty.zigTypeTag(zcu)) {
+            .@"struct", .@"union" => .trunc,
+            else => switch (load_ty.intInfo(zcu).signedness) {
+                .unsigned => .@"trunc nuw",
+                .signed => .@"trunc nsw",
+            },
+        }, loaded, llvm_load_ty, "");
+    }
+
+    // `load_ty` is a simple by-val type which requires no special handling.
+    return fg.wip.load(access_kind, llvm_load_ty, ptr, llvm_ptr_align, "");
 }
 
-/// Non-atomic, non-volatile, non-packed store.
+/// Non-atomic, non-bitpacked store of `elem` to pointer `ptr`.
+///
+/// `ptr` has alignment `ptr_align`, or `elem_ty.abiAlignment(zcu)` if `ptr_align` is `.none`.
+///
+/// If `elem_ty` is a by-ref type, then `elem` is itself a pointer, and a memcpy is emitted.
 fn store(
     fg: *FuncGen,
     ptr: Builder.Value,
     ptr_align: InternPool.Alignment,
     elem: Builder.Value,
     elem_ty: Type,
+    access_kind: Builder.MemoryAccessKind,
 ) Allocator.Error!void {
     const o = fg.object;
     const zcu = o.zcu;
+
+    const abi_align = elem_ty.abiAlignment(zcu);
+    const abi_size = elem_ty.abiSize(zcu);
+
     const llvm_ptr_align = switch (ptr_align) {
-        .none => elem_ty.abiAlignment(zcu).toLlvm(),
+        .none => abi_align.toLlvm(),
         else => ptr_align.toLlvm(),
     };
+
     if (isByRef(elem_ty, zcu)) {
+        const llvm_usize_ty = try o.lowerType(.usize);
         _ = try fg.wip.callMemCpy(
             ptr,
             llvm_ptr_align,
             elem,
-            elem_ty.abiAlignment(zcu).toLlvm(),
-            try o.builder.intValue(
-                try o.lowerType(.usize),
-                elem_ty.abiSize(zcu),
-            ),
-            .normal,
+            abi_align.toLlvm(),
+            try o.builder.intValue(llvm_usize_ty, abi_size),
+            access_kind,
             fg.disable_intrinsics,
         );
-    } else {
+        return;
+    }
+
+    assert(elem.typeOfWip(&fg.wip) == try o.lowerType(elem_ty));
+
+    if (elem_ty.isAbiInt(zcu) and elem_ty.bitSize(zcu) != abi_size * 8) {
+        // `elem_ty` is an integer type with padding bits, so we need to handle it specially---see
+        // the corresponding comment in `FuncGen.load` for more details.
+        const llvm_abi_ty = try o.builder.intType(@intCast(abi_size * 8));
+        const extended = try fg.wip.cast(switch (elem_ty.intInfo(zcu).signedness) {
+            .unsigned => .zext,
+            .signed => .sext,
+        }, elem, llvm_abi_ty, "");
         _ = try fg.wip.storeAtomic(
-            .normal,
-            elem,
+            access_kind,
+            extended,
             ptr,
             fg.sync_scope,
             .none,
             llvm_ptr_align,
         );
+        return;
     }
+
+    // `elem_ty` is a simple by-val type which requires no special handling.
+    _ = try fg.wip.storeAtomic(
+        access_kind,
+        elem,
+        ptr,
+        fg.sync_scope,
+        .none,
+        llvm_ptr_align,
+    );
 }
 
 fn valgrindMarkUndef(fg: *FuncGen, ptr: Builder.Value, len: Builder.Value) Allocator.Error!void {
@@ -6453,18 +6532,18 @@ fn valgrindClientRequest(
     if (!target_util.hasValgrindSupport(target, .stage2_llvm)) return default_value;
 
     const llvm_usize = try o.lowerType(.usize);
-    const usize_alignment = Type.usize.abiAlignment(zcu).toLlvm();
+    const usize_align = Type.usize.abiAlignment(zcu).toLlvm();
 
     const array_llvm_ty = try o.builder.arrayType(6, llvm_usize);
     const array_ptr = if (fg.valgrind_client_request_array == .none) a: {
-        const array_ptr = try fg.buildAlloca(array_llvm_ty, usize_alignment);
+        const array_ptr = try fg.buildAlloca(array_llvm_ty, usize_align);
         fg.valgrind_client_request_array = array_ptr;
         break :a array_ptr;
     } else fg.valgrind_client_request_array;
     const array_elements = [_]Builder.Value{ request, a1, a2, a3, a4, a5 };
     for (array_elements, 0..) |elem, i| {
         const elem_ptr = try fg.ptraddConst(array_ptr, i * Type.usize.abiSize(zcu));
-        _ = try fg.wip.store(.normal, elem, elem_ptr, usize_alignment);
+        try fg.store(elem_ptr, .none, elem, .usize, .normal);
     }
 
     const arch_specific: struct {
@@ -7283,33 +7362,6 @@ fn isScalar(zcu: *Zcu, ty: Type) bool {
     };
 }
 
-pub fn buildAllocaInner(
-    wip: *Builder.WipFunction,
-    llvm_ty: Builder.Type,
-    alignment: Builder.Alignment,
-    target: *const std.Target,
-) Allocator.Error!Builder.Value {
-    const address_space = llvmAllocaAddressSpace(target);
-
-    const alloca = blk: {
-        const prev_cursor = wip.cursor;
-        const prev_debug_location = wip.debug_location;
-        defer {
-            wip.cursor = prev_cursor;
-            if (wip.cursor.block == .entry) wip.cursor.instruction += 1;
-            wip.debug_location = prev_debug_location;
-        }
-
-        wip.cursor = .{ .block = .entry };
-        wip.debug_location = .no_location;
-        break :blk try wip.alloca(.normal, llvm_ty, .none, alignment, address_space, "");
-    };
-
-    // The pointer returned from this function should have the generic address space,
-    // if this isn't the case then cast it to the generic address space.
-    return wip.conv(.unneeded, alloca, .ptr, "");
-}
-
 /// This is the one source of truth for whether a type is passed around as an LLVM pointer,
 /// or as an LLVM value.
 pub fn isByRef(ty: Type, zcu: *const Zcu) bool {
@@ -7380,7 +7432,11 @@ fn getAtomicAbiType(fg: *const FuncGen, ty: Type, is_rmw_xchg: bool) Allocator.E
 }
 
 fn ptraddConst(fg: *FuncGen, ptr: Builder.Value, offset: u64) Allocator.Error!Builder.Value {
-    return fg.object.ptraddConst(&fg.wip, ptr, offset);
+    if (offset == 0) return ptr;
+    const o = fg.object;
+    const llvm_usize_ty = try o.lowerType(.usize);
+    const offset_val = try o.builder.intValue(llvm_usize_ty, offset);
+    return fg.wip.gep(.inbounds, .i8, ptr, &.{offset_val}, "");
 }
 fn ptraddScaled(fg: *FuncGen, ptr: Builder.Value, index: Builder.Value, scale: u64) Allocator.Error!Builder.Value {
     if (scale == 0) return ptr;
