@@ -106,10 +106,11 @@ jobs:
         run: |
           # Bootstrap needs libc++ (built with -stdlib=libc++)
           sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1
-          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "bootstrap-sig-x86_64-linux.*" --dir /tmp
-          BOOTSTRAP_ARCHIVE=$(ls /tmp/bootstrap-sig-x86_64-linux.* | head -1)
+          # Use curl for reliability (gh release download has auth issues on public assets)
+          ASSET_URL=$(gh release view "${{ env.BOOTSTRAP_TAG }}" --json assets --jq '.assets[] | select(.name | startswith("bootstrap-sig-x86_64-linux")) | .url')
+          curl -L -o /tmp/bootstrap-archive.tar.gz "$ASSET_URL"
           mkdir -p /tmp/bootstrap
-          tar -xf "$BOOTSTRAP_ARCHIVE" -C /tmp/bootstrap
+          tar -xf /tmp/bootstrap-archive.tar.gz -C /tmp/bootstrap
           BIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)
           if [ -z "$BIN" ]; then
             echo "ERROR: sig binary not found in bootstrap archive"
