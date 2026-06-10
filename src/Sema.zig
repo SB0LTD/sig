@@ -12012,15 +12012,12 @@ fn resolveSwitchPayloadCaptureTaggedUnion(
     const field_ty: Type = .fromInterned(union_obj.field_types.get(ip)[field_index]);
     const payload_ref: Air.Inst.Ref = payload_ref: {
         if (capture_by_ref) {
-            const operand_ptr_info = sema.typeOf(loaded_operand).ptrInfo(zcu);
-            const ptr_field_ty = try pt.ptrType(.{
-                .child = field_ty.toIntern(),
-                .flags = .{
-                    .is_const = operand_ptr_info.flags.is_const,
-                    .is_volatile = operand_ptr_info.flags.is_volatile,
-                    .address_space = operand_ptr_info.flags.address_space,
-                },
-            });
+            const ptr_field_ty = try sema.typeOf(loaded_operand).fieldPtrType(field_index, pt);
+            if (try sema.resolveDefinedValue(case_block, operand_src, loaded_operand)) |op_ptr_val| {
+                if (op_ptr_val.isUndef(zcu)) break :payload_ref try pt.undefRef(ptr_field_ty);
+                const field_ptr_val = try op_ptr_val.ptrField(field_index, pt);
+                break :payload_ref .fromValue(try pt.getCoerced(field_ptr_val, ptr_field_ty));
+            }
             break :payload_ref try case_block.addStructFieldPtr(loaded_operand, field_index, ptr_field_ty);
         }
         if (try sema.resolveDefinedValue(case_block, operand_src, loaded_operand)) |union_val| {
