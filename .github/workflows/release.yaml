@@ -135,9 +135,10 @@ jobs:
           ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
           echo "Building ${{ matrix.zig_target }} (version: ${ZIG_VER_BASE})"
 
-          # Generate build_options.zig at project root (so @import("src/dev.zig") resolves)
+          # Generate build_options.zig in a separate directory (can't be in project root — conflicts with root module)
+          mkdir -p .build-gen
           SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
-          cat > build_options.zig << EOF
+          cat > .build-gen/build_options.zig << EOF
           pub const have_llvm: bool = false;
           pub const llvm_has_m68k: bool = false;
           pub const llvm_has_csky: bool = false;
@@ -158,7 +159,7 @@ jobs:
           pub const version: [:0]const u8 = "${ZIG_VER_BASE}";
           pub const sig_version: [:0]const u8 = "${SIG_VER}";
           pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
-          pub const dev: @import("src/dev.zig").Env = .full;
+          pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
           EOF
 
           # Direct build-exe with full module wiring (bypasses build.sig CLI limitations)
@@ -166,7 +167,7 @@ jobs:
           "${SIG}" build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
-            -Mbuild_options=build_options.zig \
+            -Mbuild_options=.build-gen/build_options.zig \
             -Maro=lib/compiler/aro/aro.zig \
             --name sig \
             -OReleaseFast \
