@@ -1,458 +1,72 @@
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	﻿2026-06-10T14:10:40.1326351Z Current runner version: '2.334.0'
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1351183Z ##[group]Runner Image Provisioner
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1352136Z Hosted Compute Agent
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1352797Z Version: 20260520.533
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1353422Z Commit: 189110e25284a9812c124fd27b339e2fb4f2f9db
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1354257Z Build Date: 2026-05-20T17:44:04Z
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1354980Z Worker ID: {4a382222-4bcb-45a1-97fd-dbc7fd73a28b}
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1355832Z Azure Region: northcentralus
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1356770Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1358106Z ##[group]Operating System
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1358874Z Ubuntu
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1359428Z 24.04.4
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1360003Z LTS
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1360595Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1361180Z ##[group]Runner Image
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1361861Z Image: ubuntu-24.04
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1362464Z Version: 20260525.161.1
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1363890Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260525.161/images/ubuntu/Ubuntu2404-Readme.md
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1365447Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260525.161
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1366689Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1367878Z ##[group]GITHUB_TOKEN Permissions
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1369910Z Contents: write
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1370536Z Metadata: read
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1371486Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1373815Z Secret source: Actions
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.1374587Z Prepare workflow directory
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.2013916Z Prepare all required actions
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.2067633Z Getting action download info
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.7525770Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:40.9351024Z Complete job name: build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0128834Z ##[group]Run actions/checkout@v4
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0129730Z with:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0130213Z   fetch-depth: 0
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0130717Z   repository: SB0LTD/sig
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0135518Z   token: ***
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0136208Z   ssh-strict: true
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0136712Z   ssh-user: git
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0137223Z   persist-credentials: true
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0137769Z   clean: true
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0138266Z   sparse-checkout-cone-mode: true
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0138848Z   fetch-tags: false
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0139351Z   show-progress: true
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0139852Z   lfs: false
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0140322Z   submodules: false
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0140818Z   set-safe-directory: true
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0141542Z env:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0142018Z   BOOTSTRAP_TAG: bootstrap-sig-v28
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.0142600Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1255582Z Syncing repository: SB0LTD/sig
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1257852Z ##[group]Getting Git version info
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1258676Z Working directory is '/home/runner/work/sig/sig'
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1259712Z [command]/usr/bin/git version
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1317333Z git version 2.54.0
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1341066Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1355586Z Temporarily overriding HOME='/home/runner/work/_temp/fd96c55f-777a-47d8-ad86-4239e04a61e3' before making global git config changes
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1358205Z Adding repository directory to the temporary git global config as a safe directory
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1368553Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/sig/sig
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1410555Z Deleting the contents of '/home/runner/work/sig/sig'
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1414288Z ##[group]Initializing the repository
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1418217Z [command]/usr/bin/git init /home/runner/work/sig/sig
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1496985Z hint: Using 'master' as the name for the initial branch. This default branch name
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1499108Z hint: will change to "main" in Git 3.0. To configure the initial branch name
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1501188Z hint: to use in all of your new repositories, which will suppress this warning,
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1507365Z hint: call:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1508188Z hint:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1509506Z hint: 	git config --global init.defaultBranch <name>
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1510731Z hint:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1511761Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1513416Z hint: 'development'. The just-created branch can be renamed via this command:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1514717Z hint:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1515440Z hint: 	git branch -m <name>
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1516242Z hint:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1517166Z hint: Disable this message with "git config set advice.defaultBranchName false"
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1518236Z Initialized empty Git repository in /home/runner/work/sig/sig/.git/
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1520008Z [command]/usr/bin/git remote add origin https://github.com/SB0LTD/sig
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1551593Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1552931Z ##[group]Disabling automatic garbage collection
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1555343Z [command]/usr/bin/git config --local gc.auto 0
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1584817Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1586283Z ##[group]Setting up auth
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1591272Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1626288Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1957958Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.1991707Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.2246682Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.2279187Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.2525295Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.2560749Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.2562193Z ##[group]Fetching the repository
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:10:41.2570842Z [command]/usr/bin/git -c protocol.version=2 fetch --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0007395Z From https://github.com/SB0LTD/sig
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0008731Z  * [new branch]            llvm-23-upgrade             -> origin/llvm-23-upgrade
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0009556Z  * [new branch]            master                      -> origin/master
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0010363Z  * [new branch]            sig-sync-v2                 -> origin/sig-sync-v2
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0011342Z  * [new tag]               bootstrap-sig-v1            -> bootstrap-sig-v1
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0012114Z  * [new tag]               bootstrap-sig-v10           -> bootstrap-sig-v10
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0012854Z  * [new tag]               bootstrap-sig-v11           -> bootstrap-sig-v11
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0013623Z  * [new tag]               bootstrap-sig-v12           -> bootstrap-sig-v12
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0014344Z  * [new tag]               bootstrap-sig-v13           -> bootstrap-sig-v13
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0015091Z  * [new tag]               bootstrap-sig-v14           -> bootstrap-sig-v14
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0015789Z  * [new tag]               bootstrap-sig-v15           -> bootstrap-sig-v15
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0017852Z  * [new tag]               bootstrap-sig-v16           -> bootstrap-sig-v16
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0018585Z  * [new tag]               bootstrap-sig-v17           -> bootstrap-sig-v17
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0019283Z  * [new tag]               bootstrap-sig-v18           -> bootstrap-sig-v18
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0020232Z  * [new tag]               bootstrap-sig-v19           -> bootstrap-sig-v19
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0020994Z  * [new tag]               bootstrap-sig-v2            -> bootstrap-sig-v2
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0021720Z  * [new tag]               bootstrap-sig-v20           -> bootstrap-sig-v20
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0022854Z  * [new tag]               bootstrap-sig-v21           -> bootstrap-sig-v21
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0023602Z  * [new tag]               bootstrap-sig-v22           -> bootstrap-sig-v22
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0024291Z  * [new tag]               bootstrap-sig-v23           -> bootstrap-sig-v23
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0024984Z  * [new tag]               bootstrap-sig-v24           -> bootstrap-sig-v24
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0025675Z  * [new tag]               bootstrap-sig-v25           -> bootstrap-sig-v25
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0026603Z  * [new tag]               bootstrap-sig-v26           -> bootstrap-sig-v26
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0027315Z  * [new tag]               bootstrap-sig-v27           -> bootstrap-sig-v27
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0028038Z  * [new tag]               bootstrap-sig-v28           -> bootstrap-sig-v28
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0028746Z  * [new tag]               bootstrap-sig-v29           -> bootstrap-sig-v29
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0029460Z  * [new tag]               bootstrap-sig-v5            -> bootstrap-sig-v5
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0030154Z  * [new tag]               bootstrap-sig-v6            -> bootstrap-sig-v6
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0030843Z  * [new tag]               bootstrap-sig-v7            -> bootstrap-sig-v7
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0032011Z  * [new tag]               bootstrap-sig-v8            -> bootstrap-sig-v8
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0032579Z  * [new tag]               bootstrap-sig-v9            -> bootstrap-sig-v9
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0033026Z  * [new tag]               llvm-21                     -> llvm-21
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0033452Z  * [new tag]               llvm-22                     -> llvm-22
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0034208Z  * [new tag]               sig-0.0.2+zig0.16.0.sig.477dc47f6a -> sig-0.0.2+zig0.16.0.sig.477dc47f6a
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0035238Z  * [new tag]               sig-0.0.3-dev+zig0.16.0.0637de8 -> sig-0.0.3-dev+zig0.16.0.0637de8
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0036483Z  * [new tag]               sig-0.0.3-dev+zig0.16.0.64e7531 -> sig-0.0.3-dev+zig0.16.0.64e7531
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0037586Z  * [new tag]               sig-0.0.4+zig0.16.0.4174eca -> sig-0.0.4+zig0.16.0.4174eca
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0038392Z  * [new tag]               sig-0.0.4+zig0.16.0.b86c5e8 -> sig-0.0.4+zig0.16.0.b86c5e8
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0039159Z  * [new tag]               sig-0.0.4+zig0.16.0.e079615 -> sig-0.0.4+zig0.16.0.e079615
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0040003Z  * [new tag]               sig-0.0.4-dev+zig0.16.0.4b403cc -> sig-0.0.4-dev+zig0.16.0.4b403cc
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0040945Z  * [new tag]               sig-0.0.4-dev+zig0.16.0.64e7531 -> sig-0.0.4-dev+zig0.16.0.64e7531
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0041703Z  * [new tag]               sig-0.0.4-dev+zig0.16.0.7fd4831 -> sig-0.0.4-dev+zig0.16.0.7fd4831
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0042278Z  * [new tag]               sig-0.1-dev+zig0.16.0.451724a -> sig-0.1-dev+zig0.16.0.451724a
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0042858Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.024cc62 -> sig-0.1.0-dev+zig0.16.0.024cc62
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0043408Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.03872c2 -> sig-0.1.0-dev+zig0.16.0.03872c2
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0043957Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.1a9999f -> sig-0.1.0-dev+zig0.16.0.1a9999f
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0044497Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.399b0ac -> sig-0.1.0-dev+zig0.16.0.399b0ac
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0045033Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.591ab17 -> sig-0.1.0-dev+zig0.16.0.591ab17
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0045575Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.6d1803f -> sig-0.1.0-dev+zig0.16.0.6d1803f
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0046514Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.7225896 -> sig-0.1.0-dev+zig0.16.0.7225896
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0047336Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.a39ca69 -> sig-0.1.0-dev+zig0.16.0.a39ca69
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0047882Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.ad71500 -> sig-0.1.0-dev+zig0.16.0.ad71500
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0048495Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.afaa4cd -> sig-0.1.0-dev+zig0.16.0.afaa4cd
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0049364Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.b62f1b6 -> sig-0.1.0-dev+zig0.16.0.b62f1b6
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0049999Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.bb2d3a1 -> sig-0.1.0-dev+zig0.16.0.bb2d3a1
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0050617Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.d37ff6f -> sig-0.1.0-dev+zig0.16.0.d37ff6f
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0051353Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.e5c4782 -> sig-0.1.0-dev+zig0.16.0.e5c4782
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0051975Z  * [new tag]               sig-0.1.0-dev+zig0.16.0.e95dc18 -> sig-0.1.0-dev+zig0.16.0.e95dc18
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0052587Z  * [new tag]               sig-0.1.2+zig0.16.0.68de3d1 -> sig-0.1.2+zig0.16.0.68de3d1
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0053173Z  * [new tag]               sig-0.1.2+zig0.16.0.a89f80d -> sig-0.1.2+zig0.16.0.a89f80d
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0053760Z  * [new tag]               sig-0.1.2-zig0.17.0.02a38ad -> sig-0.1.2-zig0.17.0.02a38ad
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0054334Z  * [new tag]               sig-0.1.2-zig0.17.0.03b62d8 -> sig-0.1.2-zig0.17.0.03b62d8
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0054903Z  * [new tag]               sig-0.1.2-zig0.17.0.058ad60 -> sig-0.1.2-zig0.17.0.058ad60
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0055472Z  * [new tag]               sig-0.1.2-zig0.17.0.0810c74 -> sig-0.1.2-zig0.17.0.0810c74
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0056348Z  * [new tag]               sig-0.1.2-zig0.17.0.082b38f -> sig-0.1.2-zig0.17.0.082b38f
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0056947Z  * [new tag]               sig-0.1.2-zig0.17.0.08bd87b -> sig-0.1.2-zig0.17.0.08bd87b
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0057580Z  * [new tag]               sig-0.1.2-zig0.17.0.092d757 -> sig-0.1.2-zig0.17.0.092d757
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0058148Z  * [new tag]               sig-0.1.2-zig0.17.0.0cafd8a -> sig-0.1.2-zig0.17.0.0cafd8a
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0058874Z  * [new tag]               sig-0.1.2-zig0.17.0.0dfc3c0 -> sig-0.1.2-zig0.17.0.0dfc3c0
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0059446Z  * [new tag]               sig-0.1.2-zig0.17.0.0fe6ef5 -> sig-0.1.2-zig0.17.0.0fe6ef5
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0060020Z  * [new tag]               sig-0.1.2-zig0.17.0.10d4764 -> sig-0.1.2-zig0.17.0.10d4764
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0060596Z  * [new tag]               sig-0.1.2-zig0.17.0.115820f -> sig-0.1.2-zig0.17.0.115820f
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0061167Z  * [new tag]               sig-0.1.2-zig0.17.0.16f178b -> sig-0.1.2-zig0.17.0.16f178b
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0061728Z  * [new tag]               sig-0.1.2-zig0.17.0.18023c8 -> sig-0.1.2-zig0.17.0.18023c8
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0062289Z  * [new tag]               sig-0.1.2-zig0.17.0.1ada1d1 -> sig-0.1.2-zig0.17.0.1ada1d1
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0062860Z  * [new tag]               sig-0.1.2-zig0.17.0.1bdeaf5 -> sig-0.1.2-zig0.17.0.1bdeaf5
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0063439Z  * [new tag]               sig-0.1.2-zig0.17.0.1c5add9 -> sig-0.1.2-zig0.17.0.1c5add9
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0064002Z  * [new tag]               sig-0.1.2-zig0.17.0.1d03323 -> sig-0.1.2-zig0.17.0.1d03323
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0064564Z  * [new tag]               sig-0.1.2-zig0.17.0.1fd7e01 -> sig-0.1.2-zig0.17.0.1fd7e01
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0065137Z  * [new tag]               sig-0.1.2-zig0.17.0.2446780 -> sig-0.1.2-zig0.17.0.2446780
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0065718Z  * [new tag]               sig-0.1.2-zig0.17.0.2993d27 -> sig-0.1.2-zig0.17.0.2993d27
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0066490Z  * [new tag]               sig-0.1.2-zig0.17.0.2a23189 -> sig-0.1.2-zig0.17.0.2a23189
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0067057Z  * [new tag]               sig-0.1.2-zig0.17.0.2adcffc -> sig-0.1.2-zig0.17.0.2adcffc
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0067625Z  * [new tag]               sig-0.1.2-zig0.17.0.30baae2 -> sig-0.1.2-zig0.17.0.30baae2
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0068187Z  * [new tag]               sig-0.1.2-zig0.17.0.340510d -> sig-0.1.2-zig0.17.0.340510d
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0068751Z  * [new tag]               sig-0.1.2-zig0.17.0.3504946 -> sig-0.1.2-zig0.17.0.3504946
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0069316Z  * [new tag]               sig-0.1.2-zig0.17.0.354e6fd -> sig-0.1.2-zig0.17.0.354e6fd
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0069877Z  * [new tag]               sig-0.1.2-zig0.17.0.36d6cb9 -> sig-0.1.2-zig0.17.0.36d6cb9
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0070585Z  * [new tag]               sig-0.1.2-zig0.17.0.3dd5c4c -> sig-0.1.2-zig0.17.0.3dd5c4c
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0071147Z  * [new tag]               sig-0.1.2-zig0.17.0.3e74ec6 -> sig-0.1.2-zig0.17.0.3e74ec6
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0071724Z  * [new tag]               sig-0.1.2-zig0.17.0.4046f87 -> sig-0.1.2-zig0.17.0.4046f87
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0072282Z  * [new tag]               sig-0.1.2-zig0.17.0.45dbeb4 -> sig-0.1.2-zig0.17.0.45dbeb4
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0072847Z  * [new tag]               sig-0.1.2-zig0.17.0.46ba098 -> sig-0.1.2-zig0.17.0.46ba098
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0073408Z  * [new tag]               sig-0.1.2-zig0.17.0.47e5f75 -> sig-0.1.2-zig0.17.0.47e5f75
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0073969Z  * [new tag]               sig-0.1.2-zig0.17.0.4941480 -> sig-0.1.2-zig0.17.0.4941480
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0074531Z  * [new tag]               sig-0.1.2-zig0.17.0.49ca555 -> sig-0.1.2-zig0.17.0.49ca555
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0075098Z  * [new tag]               sig-0.1.2-zig0.17.0.4b86a43 -> sig-0.1.2-zig0.17.0.4b86a43
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0075689Z  * [new tag]               sig-0.1.2-zig0.17.0.4bb0d43 -> sig-0.1.2-zig0.17.0.4bb0d43
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0076545Z  * [new tag]               sig-0.1.2-zig0.17.0.51e86a2 -> sig-0.1.2-zig0.17.0.51e86a2
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0077141Z  * [new tag]               sig-0.1.2-zig0.17.0.54baf24 -> sig-0.1.2-zig0.17.0.54baf24
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0077722Z  * [new tag]               sig-0.1.2-zig0.17.0.54f7154 -> sig-0.1.2-zig0.17.0.54f7154
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0078321Z  * [new tag]               sig-0.1.2-zig0.17.0.5552e18 -> sig-0.1.2-zig0.17.0.5552e18
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0078892Z  * [new tag]               sig-0.1.2-zig0.17.0.573fe40 -> sig-0.1.2-zig0.17.0.573fe40
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0079613Z  * [new tag]               sig-0.1.2-zig0.17.0.5cfa0be -> sig-0.1.2-zig0.17.0.5cfa0be
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0080188Z  * [new tag]               sig-0.1.2-zig0.17.0.5f8a13c -> sig-0.1.2-zig0.17.0.5f8a13c
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0080752Z  * [new tag]               sig-0.1.2-zig0.17.0.6436023 -> sig-0.1.2-zig0.17.0.6436023
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0081346Z  * [new tag]               sig-0.1.2-zig0.17.0.64c146b8 -> sig-0.1.2-zig0.17.0.64c146b8
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0081926Z  * [new tag]               sig-0.1.2-zig0.17.0.6636c42 -> sig-0.1.2-zig0.17.0.6636c42
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0082487Z  * [new tag]               sig-0.1.2-zig0.17.0.66d095a -> sig-0.1.2-zig0.17.0.66d095a
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0083075Z  * [new tag]               sig-0.1.2-zig0.17.0.68a78cc -> sig-0.1.2-zig0.17.0.68a78cc
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0083633Z  * [new tag]               sig-0.1.2-zig0.17.0.70c10e8 -> sig-0.1.2-zig0.17.0.70c10e8
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0084197Z  * [new tag]               sig-0.1.2-zig0.17.0.72cb68d -> sig-0.1.2-zig0.17.0.72cb68d
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0084786Z  * [new tag]               sig-0.1.2-zig0.17.0.7336062 -> sig-0.1.2-zig0.17.0.7336062
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0085353Z  * [new tag]               sig-0.1.2-zig0.17.0.73f7b2e -> sig-0.1.2-zig0.17.0.73f7b2e
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0086113Z  * [new tag]               sig-0.1.2-zig0.17.0.78f961e -> sig-0.1.2-zig0.17.0.78f961e
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0086706Z  * [new tag]               sig-0.1.2-zig0.17.0.7a7f9a4 -> sig-0.1.2-zig0.17.0.7a7f9a4
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0087276Z  * [new tag]               sig-0.1.2-zig0.17.0.7cbbf38 -> sig-0.1.2-zig0.17.0.7cbbf38
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0087845Z  * [new tag]               sig-0.1.2-zig0.17.0.7d3f57c -> sig-0.1.2-zig0.17.0.7d3f57c
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0088416Z  * [new tag]               sig-0.1.2-zig0.17.0.7fd80fd -> sig-0.1.2-zig0.17.0.7fd80fd
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0088992Z  * [new tag]               sig-0.1.2-zig0.17.0.82a2f27 -> sig-0.1.2-zig0.17.0.82a2f27
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0089991Z  * [new tag]               sig-0.1.2-zig0.17.0.864cc00 -> sig-0.1.2-zig0.17.0.864cc00
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0090816Z  * [new tag]               sig-0.1.2-zig0.17.0.88800b5 -> sig-0.1.2-zig0.17.0.88800b5
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0091547Z  * [new tag]               sig-0.1.2-zig0.17.0.8cfa2e3 -> sig-0.1.2-zig0.17.0.8cfa2e3
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0092113Z  * [new tag]               sig-0.1.2-zig0.17.0.9018a07 -> sig-0.1.2-zig0.17.0.9018a07
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0092809Z  * [new tag]               sig-0.1.2-zig0.17.0.9400be9 -> sig-0.1.2-zig0.17.0.9400be9
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0093408Z  * [new tag]               sig-0.1.2-zig0.17.0.9b47c3c -> sig-0.1.2-zig0.17.0.9b47c3c
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0093976Z  * [new tag]               sig-0.1.2-zig0.17.0.a259481 -> sig-0.1.2-zig0.17.0.a259481
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0094542Z  * [new tag]               sig-0.1.2-zig0.17.0.a7ef6df -> sig-0.1.2-zig0.17.0.a7ef6df
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0095103Z  * [new tag]               sig-0.1.2-zig0.17.0.aeba4a9 -> sig-0.1.2-zig0.17.0.aeba4a9
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0095666Z  * [new tag]               sig-0.1.2-zig0.17.0.b2d26a7 -> sig-0.1.2-zig0.17.0.b2d26a7
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0096468Z  * [new tag]               sig-0.1.2-zig0.17.0.b90d170 -> sig-0.1.2-zig0.17.0.b90d170
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0097043Z  * [new tag]               sig-0.1.2-zig0.17.0.c016a23 -> sig-0.1.2-zig0.17.0.c016a23
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0097620Z  * [new tag]               sig-0.1.2-zig0.17.0.c199398 -> sig-0.1.2-zig0.17.0.c199398
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0098197Z  * [new tag]               sig-0.1.2-zig0.17.0.c525828 -> sig-0.1.2-zig0.17.0.c525828
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0098765Z  * [new tag]               sig-0.1.2-zig0.17.0.c5de474 -> sig-0.1.2-zig0.17.0.c5de474
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0099338Z  * [new tag]               sig-0.1.2-zig0.17.0.ca144bc -> sig-0.1.2-zig0.17.0.ca144bc
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0099910Z  * [new tag]               sig-0.1.2-zig0.17.0.cd47aca -> sig-0.1.2-zig0.17.0.cd47aca
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0100477Z  * [new tag]               sig-0.1.2-zig0.17.0.cfb6e63 -> sig-0.1.2-zig0.17.0.cfb6e63
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0101043Z  * [new tag]               sig-0.1.2-zig0.17.0.d004b17 -> sig-0.1.2-zig0.17.0.d004b17
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0101741Z  * [new tag]               sig-0.1.2-zig0.17.0.d3846d1 -> sig-0.1.2-zig0.17.0.d3846d1
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0102307Z  * [new tag]               sig-0.1.2-zig0.17.0.d7389e4 -> sig-0.1.2-zig0.17.0.d7389e4
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0102875Z  * [new tag]               sig-0.1.2-zig0.17.0.d79400b -> sig-0.1.2-zig0.17.0.d79400b
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0103442Z  * [new tag]               sig-0.1.2-zig0.17.0.dc5f941 -> sig-0.1.2-zig0.17.0.dc5f941
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0104009Z  * [new tag]               sig-0.1.2-zig0.17.0.e43f7c0 -> sig-0.1.2-zig0.17.0.e43f7c0
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0104577Z  * [new tag]               sig-0.1.2-zig0.17.0.e5bcfa1 -> sig-0.1.2-zig0.17.0.e5bcfa1
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0105138Z  * [new tag]               sig-0.1.2-zig0.17.0.e76157a -> sig-0.1.2-zig0.17.0.e76157a
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0105697Z  * [new tag]               sig-0.1.2-zig0.17.0.f164e0c -> sig-0.1.2-zig0.17.0.f164e0c
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0106460Z  * [new tag]               sig-0.1.2-zig0.17.0.f5c5ee0 -> sig-0.1.2-zig0.17.0.f5c5ee0
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0107040Z  * [new tag]               sig-0.1.2-zig0.17.0.f6ba121 -> sig-0.1.2-zig0.17.0.f6ba121
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0107610Z  * [new tag]               sig-0.1.2-zig0.17.0.f77662f -> sig-0.1.2-zig0.17.0.f77662f
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0108178Z  * [new tag]               sig-0.1.2-zig0.17.0.f7b0a2f -> sig-0.1.2-zig0.17.0.f7b0a2f
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0108741Z  * [new tag]               sig-0.1.2-zig0.17.0.f7efe2e -> sig-0.1.2-zig0.17.0.f7efe2e
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0109307Z  * [new tag]               sig-0.1.3-zig0.17.0.032f745 -> sig-0.1.3-zig0.17.0.032f745
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0109872Z  * [new tag]               sig-0.1.3-zig0.17.0.b97afa2 -> sig-0.1.3-zig0.17.0.b97afa2
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0110444Z  * [new tag]               sig-0.1.4-zig0.17.0.c551715 -> sig-0.1.4-zig0.17.0.c551715
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0111063Z  * [new tag]               sig-0.2.0-rc1-zig0.17.0.7c71966 -> sig-0.2.0-rc1-zig0.17.0.7c71966
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0111716Z  * [new tag]               sig-0.2.0-rc2-zig0.17.0.61fb2f0 -> sig-0.2.0-rc2-zig0.17.0.61fb2f0
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0112439Z  * [new tag]               sig-0.2.0-rc3-nollvm-zig0.17.0.494c541 -> sig-0.2.0-rc3-nollvm-zig0.17.0.494c541
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0113096Z  * [new tag]               sig-0.2.0-zig0.17.0.0266639 -> sig-0.2.0-zig0.17.0.0266639
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0113783Z  * [new tag]               zig1-wasm                   -> zig1-wasm
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0231267Z [command]/usr/bin/git branch --list --remote origin/master
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0265589Z   origin/master
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0275840Z [command]/usr/bin/git rev-parse refs/remotes/origin/master
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0301719Z 866a9b7fbb16569e0ed392b835a36519ac5041f9
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0307354Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0308266Z ##[group]Determining the checkout info
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0309344Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0314853Z [command]/usr/bin/git sparse-checkout disable
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0364887Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0395286Z ##[group]Checking out the ref
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:25.0400679Z [command]/usr/bin/git checkout --progress --force -B master refs/remotes/origin/master
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.0657812Z Updating files:  55% (12324/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.0740957Z Updating files:  56% (12420/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.0829930Z Updating files:  57% (12642/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.0933043Z Updating files:  58% (12864/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.1021490Z Updating files:  59% (13086/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.1101843Z Updating files:  60% (13307/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.1208132Z Updating files:  61% (13529/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.1317778Z Updating files:  62% (13751/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.1456503Z Updating files:  63% (13973/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.1592956Z Updating files:  64% (14194/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.1700540Z Updating files:  65% (14416/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.1800171Z Updating files:  66% (14638/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.1910454Z Updating files:  67% (14860/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.2008375Z Updating files:  68% (15082/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.2093645Z Updating files:  69% (15303/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.2167071Z Updating files:  70% (15525/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.2248746Z Updating files:  71% (15747/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.2346104Z Updating files:  72% (15969/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.2453716Z Updating files:  73% (16190/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.2549932Z Updating files:  74% (16412/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.2642242Z Updating files:  75% (16634/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.2729897Z Updating files:  76% (16856/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.2819045Z Updating files:  77% (17078/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.2933578Z Updating files:  78% (17299/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.3035653Z Updating files:  79% (17521/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.3150498Z Updating files:  80% (17743/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.3284464Z Updating files:  81% (17965/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.3429871Z Updating files:  82% (18186/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.3563400Z Updating files:  83% (18408/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.3717748Z Updating files:  84% (18630/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.3949616Z Updating files:  85% (18852/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.4179502Z Updating files:  86% (19074/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.4371911Z Updating files:  87% (19295/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.4687053Z Updating files:  88% (19517/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.5003068Z Updating files:  89% (19739/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.5320077Z Updating files:  90% (19961/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.6146795Z Updating files:  91% (20182/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.6510927Z Updating files:  92% (20404/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.6594115Z Updating files:  93% (20626/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.6690270Z Updating files:  94% (20848/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.6775685Z Updating files:  95% (21070/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.6868744Z Updating files:  96% (21291/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.6944758Z Updating files:  97% (21513/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7071553Z Updating files:  98% (21735/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7228527Z Updating files:  99% (21957/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7229437Z Updating files: 100% (22178/22178)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7229855Z Updating files: 100% (22178/22178), done.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7507913Z Reset branch 'master'
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7509395Z branch 'master' set up to track 'origin/master'.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7604011Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7653636Z [command]/usr/bin/git log -1 --format=%H
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7680581Z 866a9b7fbb16569e0ed392b835a36519ac5041f9
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7878794Z ##[group]Run VERSION="bootstrap-sig-v29"
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7879261Z [36;1mVERSION="bootstrap-sig-v29"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7879628Z [36;1mecho "version=${VERSION}" >> "$GITHUB_OUTPUT"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7880593Z [36;1mecho "VERSION=${VERSION}" >> "$GITHUB_ENV"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7918758Z shell: /usr/bin/bash -e {0}
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7919043Z env:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7989603Z   BOOTSTRAP_TAG: bootstrap-sig-v28
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.7990072Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8133328Z ##[group]Run sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8133970Z [36;1msudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8134611Z [36;1mgh release download "bootstrap-sig-v28" --pattern "bootstrap-sig-x86_64-linux.*" --dir /tmp[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8135256Z [36;1mBOOTSTRAP_ARCHIVE=$(ls /tmp/bootstrap-sig-x86_64-linux.* | head -1)[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8135720Z [36;1mmkdir -p /tmp/bootstrap[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8136364Z [36;1mtar -xf "$BOOTSTRAP_ARCHIVE" -C /tmp/bootstrap[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8136772Z [36;1mBIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8137135Z [36;1mchmod +x "$BIN"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8137402Z [36;1mecho "SIG=${BIN}" >> "$GITHUB_ENV"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8137761Z [36;1mln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8138128Z [36;1m"${BIN}" version || true[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8167682Z shell: /usr/bin/bash -e {0}
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8167961Z env:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8168194Z   BOOTSTRAP_TAG: bootstrap-sig-v28
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8168494Z   VERSION: bootstrap-sig-v29
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8171655Z   GH_TOKEN: ***
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:26.8171900Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1647075Z Selecting previously unselected package libunwind-18:amd64.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1863841Z (Reading database ... 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1864559Z (Reading database ... 5%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1865006Z (Reading database ... 10%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1865383Z (Reading database ... 15%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1865738Z (Reading database ... 20%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1866265Z (Reading database ... 25%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1866507Z (Reading database ... 30%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1866750Z (Reading database ... 35%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1866982Z (Reading database ... 40%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1867219Z (Reading database ... 45%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1867450Z (Reading database ... 50%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.1899866Z (Reading database ... 55%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.3514453Z (Reading database ... 60%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.5412005Z (Reading database ... 65%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.6922278Z (Reading database ... 70%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:38.7998598Z (Reading database ... 75%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.0020997Z (Reading database ... 80%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.1909919Z (Reading database ... 85%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.3984310Z (Reading database ... 90%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.5610456Z (Reading database ... 95%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.5610952Z (Reading database ... 100%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.5611507Z (Reading database ... 202271 files and directories currently installed.)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.5661029Z Preparing to unpack .../libunwind-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.5697820Z Unpacking libunwind-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.6028394Z Selecting previously unselected package libc++abi1-18:amd64.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.6163742Z Preparing to unpack .../libc++abi1-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.6173513Z Unpacking libc++abi1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.6418661Z Selecting previously unselected package libc++1-18:amd64.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.6554245Z Preparing to unpack .../libc++1-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.6563597Z Unpacking libc++1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.6830410Z Selecting previously unselected package libc++1:amd64.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.6967232Z Preparing to unpack .../libc++1_1%3a18.0-59~exp2_amd64.deb ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.6977235Z Unpacking libc++1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.7199937Z Selecting previously unselected package libc++abi1:amd64.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.7336100Z Preparing to unpack .../libc++abi1_1%3a18.0-59~exp2_amd64.deb ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.7345562Z Unpacking libc++abi1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.7747188Z Setting up libunwind-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.7770593Z Setting up libc++abi1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.7790206Z Setting up libc++1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.7809020Z Setting up libc++1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.7825431Z Setting up libc++abi1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:39.7845032Z Processing triggers for libc-bin (2.39-0ubuntu8.7) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:40.8454063Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:40.8454719Z Running kernel seems to be up-to-date.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:40.8455139Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:40.8455296Z No services need to be restarted.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:40.8455578Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:40.8455737Z No containers need to be restarted.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:40.8456190Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:40.8456397Z No user sessions are running outdated binaries.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:40.8456736Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:40.8457050Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1767047Z sig 0.1.2 (zig 0.17.0)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1821452Z ##[group]Run SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1822172Z [36;1mSIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1822657Z [36;1mmkdir -p .build-gen stage3-out/bin[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1822958Z [36;1m[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1823205Z [36;1mcat > .build-gen/build_options.zig << EOF[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1823533Z [36;1mpub const have_llvm: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1823863Z [36;1mpub const llvm_has_m68k: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1824186Z [36;1mpub const llvm_has_csky: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1824498Z [36;1mpub const llvm_has_arc: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1824823Z [36;1mpub const llvm_has_xtensa: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1825166Z [36;1mpub const enable_logging: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1825522Z [36;1mpub const enable_debug_extensions: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1826199Z [36;1mpub const enable_link_snapshots: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1826554Z [36;1mpub const debug_gpa: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1826882Z [36;1mpub const enable_tracy: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1827235Z [36;1mpub const enable_tracy_callstack: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1827609Z [36;1mpub const enable_tracy_allocation: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1827986Z [36;1mpub const tracy_callstack_depth: u32 = 6;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1828337Z [36;1mpub const value_tracing: bool = false;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1828664Z [36;1mpub const mem_leak_frames: u32 = 0;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1829037Z [36;1mpub const io_mode: enum { threaded, evented } = .threaded;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1829517Z [36;1mpub const value_interpret_mode: enum { direct, by_name } = .direct;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1829965Z [36;1mpub const version: [:0]const u8 = "${SIG_VER}";[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1830351Z [36;1mpub const sig_version: [:0]const u8 = "${SIG_VER}";[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1830867Z [36;1mpub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1831671Z [36;1mpub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1832274Z [36;1mEOF[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1832487Z [36;1m[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1832701Z [36;1m"${SIG}" build-exe \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1833013Z [36;1m  --dep build_options --dep aro \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1833520Z [36;1m  -Mroot=src/main.zig \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1833850Z [36;1m  -Mbuild_options=.build-gen/build_options.zig \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1834204Z [36;1m  -Maro=lib/compiler/aro/aro.zig \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1834501Z [36;1m  --name sig \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1834751Z [36;1m  -OReleaseFast \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1835002Z [36;1m  -fstrip \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1835242Z [36;1m  --zig-lib-dir lib \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1835519Z [36;1m  -target x86_64-linux-musl \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1835814Z [36;1m  --cache-dir .zig-cache \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1836333Z [36;1m  -femit-bin=stage3-out/bin/sig[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1863284Z shell: /usr/bin/bash -e {0}
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1863551Z env:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1863786Z   BOOTSTRAP_TAG: bootstrap-sig-v28
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1864078Z   VERSION: bootstrap-sig-v29
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1864349Z   SIG: /tmp/bootstrap/bin/sig
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:11:48.1864611Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.7041657Z src/main.zig:5389:35: error: use of undeclared identifier 'build_root'
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.7043545Z     const compiler_src_root = try build_root.directory.join(arena, &.{"src"});
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.7044141Z                                   ^~~~~~~~~~
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.7289591Z ##[error]Process completed with exit code 1.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.7396145Z Post job cleanup.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.8369881Z [command]/usr/bin/git version
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.8406098Z git version 2.54.0
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.8448057Z Temporarily overriding HOME='/home/runner/work/_temp/7734ee1d-3d34-4547-87fc-cde04644ff70' before making global git config changes
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.8448969Z Adding repository directory to the temporary git global config as a safe directory
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.8453681Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/sig/sig
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.8490019Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.8523810Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.8794308Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.8820260Z http.https://github.com/.extraheader
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.8833751Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.8870055Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.9135237Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.9169863Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.9590637Z Cleaning up orphan processes
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	UNKNOWN STEP	2026-06-10T14:19:54.9868052Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/checkout@v4. Actions will be forced to run with Node.js 24 by default starting June 16th, 2026. Node.js 20 will be removed from the runner on September 16th, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	﻿2026-06-10T16:01:18.1907527Z ##[group]Run sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1908169Z [36;1msudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1908794Z [36;1mgh release download "bootstrap-sig-v28" --pattern "bootstrap-sig-x86_64-linux.*" --dir /tmp[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1909423Z [36;1mBOOTSTRAP_ARCHIVE=$(ls /tmp/bootstrap-sig-x86_64-linux.* | head -1)[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1909878Z [36;1mmkdir -p /tmp/bootstrap[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1910234Z [36;1mtar -xf "$BOOTSTRAP_ARCHIVE" -C /tmp/bootstrap[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1910663Z [36;1mBIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1911019Z [36;1mchmod +x "$BIN"[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1911282Z [36;1mecho "SIG=${BIN}" >> "$GITHUB_ENV"[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1911627Z [36;1mln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1911958Z [36;1m"${BIN}" version || true[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1941707Z shell: /usr/bin/bash -e {0}
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1942026Z env:
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1942264Z   BOOTSTRAP_TAG: bootstrap-sig-v28
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1942567Z   VERSION: bootstrap-sig-v29
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1946118Z   GH_TOKEN: ***
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:18.1946365Z ##[endgroup]
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:29.9749627Z Selecting previously unselected package libunwind-18:amd64.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0092230Z (Reading database ... 
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0092895Z (Reading database ... 5%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0093228Z (Reading database ... 10%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0093537Z (Reading database ... 15%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0093811Z (Reading database ... 20%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0094087Z (Reading database ... 25%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0094358Z (Reading database ... 30%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0094602Z (Reading database ... 35%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0094846Z (Reading database ... 40%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0095086Z (Reading database ... 45%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0095323Z (Reading database ... 50%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.0653702Z (Reading database ... 55%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.6819639Z (Reading database ... 60%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:30.9892305Z (Reading database ... 65%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:31.2102278Z (Reading database ... 70%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:31.4773000Z (Reading database ... 75%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:31.9325849Z (Reading database ... 80%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:32.6244665Z (Reading database ... 85%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:32.9512275Z (Reading database ... 90%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.4417952Z (Reading database ... 95%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.4418345Z (Reading database ... 100%
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.4418709Z (Reading database ... 202271 files and directories currently installed.)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.4469831Z Preparing to unpack .../libunwind-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.4548674Z Unpacking libunwind-18:amd64 (1:18.1.3-1ubuntu1) ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.4821707Z Selecting previously unselected package libc++abi1-18:amd64.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.4957617Z Preparing to unpack .../libc++abi1-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.4966225Z Unpacking libc++abi1-18:amd64 (1:18.1.3-1ubuntu1) ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.5197206Z Selecting previously unselected package libc++1-18:amd64.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.5334280Z Preparing to unpack .../libc++1-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.5343015Z Unpacking libc++1-18:amd64 (1:18.1.3-1ubuntu1) ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.5596909Z Selecting previously unselected package libc++1:amd64.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.5734001Z Preparing to unpack .../libc++1_1%3a18.0-59~exp2_amd64.deb ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.5741845Z Unpacking libc++1:amd64 (1:18.0-59~exp2) ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.5950898Z Selecting previously unselected package libc++abi1:amd64.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.6088277Z Preparing to unpack .../libc++abi1_1%3a18.0-59~exp2_amd64.deb ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.6095925Z Unpacking libc++abi1:amd64 (1:18.0-59~exp2) ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.6491851Z Setting up libunwind-18:amd64 (1:18.1.3-1ubuntu1) ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.6516288Z Setting up libc++abi1-18:amd64 (1:18.1.3-1ubuntu1) ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.6538574Z Setting up libc++1-18:amd64 (1:18.1.3-1ubuntu1) ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.6558028Z Setting up libc++1:amd64 (1:18.0-59~exp2) ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.6581068Z Setting up libc++abi1:amd64 (1:18.0-59~exp2) ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:33.6608417Z Processing triggers for libc-bin (2.39-0ubuntu8.7) ...
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:34.9802739Z 
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:34.9803527Z Running kernel seems to be up-to-date.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:34.9803905Z 
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:34.9804063Z No services need to be restarted.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:34.9804297Z 
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:34.9804409Z No containers need to be restarted.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:34.9804617Z 
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:34.9804759Z No user sessions are running outdated binaries.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:34.9804978Z 
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:34.9805202Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:37.1507492Z non-200 OK status code: 401 Unauthorized body: "{\r\n  \"message\": \"Requires authentication\",\r\n  \"documentation_url\": \"https://docs.github.com/rest\",\r\n  \"status\": \"401\"\r\n}"
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig)	Download bootstrap	2026-06-10T16:01:37.1542818Z ##[error]Process completed with exit code 1.
