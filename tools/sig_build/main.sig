@@ -2880,8 +2880,8 @@ fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
 /// - zig_lib_dir, cache_dir, global_cache_dir → Compilation.Directories
 fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.Compilation_Result, io: std.Io) void {
     const compiler = @import("compiler");
-    const Compilation = compiler.Compilation;
-    const Package = compiler.Package;
+    const Compilation = compiler.getCompilation();
+    const Package = compiler.getPackage();
     const Cache = compiler.Cache;
 
     const source_path = ctx.root_source_path[0..ctx.root_source_path_len];
@@ -2925,7 +2925,7 @@ fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.C
     const global_cache_path = if (ctx.global_cache_dir_len > 0) ctx.global_cache_dir[0..ctx.global_cache_dir_len] else cache_path;
     const self_exe_path = if (ctx.compiler_path_len > 0) ctx.compiler_path[0..ctx.compiler_path_len] else "";
 
-    const cwd_path = compiler.introspect.getResolvedCwd(io, arena) catch { inProcessFailResult(result, "failed to get cwd"); return; };
+    const cwd_path = compiler.getIntrospect().getResolvedCwd(io, arena) catch { inProcessFailResult(result, "failed to get cwd"); return; };
 
     var dirs: Compilation.Directories = .init(arena, io, zig_lib_path, global_cache_path, .{ .override = cache_path }, .empty, self_exe_path, environ_map, cwd_path);
     defer dirs.deinit(io);
