@@ -9314,7 +9314,7 @@ fn intCast(
                     break :ok all_in_range;
                 } else ok: {
                     const zero_inst = Air.internedToRef((try pt.intValue(operand_ty, 0)).toIntern());
-                    const is_in_range = try block.addBinOp(.cmp_lte, operand, zero_inst);
+                    const is_in_range = try block.addBinOp(.cmp_eq, operand, zero_inst);
                     break :ok is_in_range;
                 };
                 try sema.addSafetyCheck(block, src, ok, .integer_out_of_bounds);
