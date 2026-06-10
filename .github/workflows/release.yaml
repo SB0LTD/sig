@@ -181,10 +181,17 @@ jobs:
         run: |
           OUT="sig-${VERSION}-${{ matrix.target }}"
           mkdir -p "${OUT}/bin"
-          if [ -f "stage3-out/bin/zig.exe" ]; then
+          # Check for binary in stage3-out/bin (multiple possible names)
+          if [ -f "stage3-out/bin/${{ matrix.bin }}" ]; then
+            cp "stage3-out/bin/${{ matrix.bin }}" "${OUT}/bin/${{ matrix.bin }}"
+          elif [ -f "stage3-out/bin/zig.exe" ]; then
             cp "stage3-out/bin/zig.exe" "${OUT}/bin/${{ matrix.bin }}"
           elif [ -f "stage3-out/bin/zig" ]; then
             cp "stage3-out/bin/zig" "${OUT}/bin/${{ matrix.bin }}"
+          else
+            echo "ERROR: No binary found in stage3-out/bin/"
+            ls -la stage3-out/bin/ 2>/dev/null || echo "stage3-out/bin/ does not exist"
+            exit 1
           fi
           case "${{ matrix.bin }}" in
             sig)     cp "${OUT}/bin/sig" "${OUT}/bin/zig" ;;
