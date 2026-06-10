@@ -1,237 +1,111 @@
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	﻿2026-06-10T16:35:34.6901289Z ##[group]Run # Bootstrap needs libc++ (built with -stdlib=libc++)
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6901794Z [36;1m# Bootstrap needs libc++ (built with -stdlib=libc++)[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6902269Z [36;1msudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6902999Z [36;1m# Use curl for reliability (gh release download has auth issues on public assets)[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6903781Z [36;1mASSET_URL=$(gh release view "bootstrap-sig-v29" --json assets --jq '.assets[] | select(.name | startswith("bootstrap-sig-x86_64-linux")) | .url')[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6904477Z [36;1mcurl -L -o /tmp/bootstrap-archive.tar.gz "$ASSET_URL"[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6904842Z [36;1mmkdir -p /tmp/bootstrap[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6905184Z [36;1mtar -xf /tmp/bootstrap-archive.tar.gz -C /tmp/bootstrap[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6905606Z [36;1mBIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6905969Z [36;1mif [ -z "$BIN" ]; then[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6906300Z [36;1m  echo "ERROR: sig binary not found in bootstrap archive"[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6906661Z [36;1m  exit 1[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6906883Z [36;1mfi[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6907092Z [36;1mchmod +x "$BIN"[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6907630Z [36;1mecho "$(dirname "$BIN")" >> "$GITHUB_PATH"[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6907960Z [36;1mecho "SIG=${BIN}" >> "$GITHUB_ENV"[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6908307Z [36;1mln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6908641Z [36;1m"${BIN}" version || true[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6940540Z shell: /usr/bin/bash -e {0}
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6940821Z env:
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6941052Z   BOOTSTRAP_TAG: bootstrap-sig-v29
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6941340Z   VERSION: 0.2.0-zig0.17.0.00536ba
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6944317Z   GH_TOKEN: ***
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:34.6944553Z ##[endgroup]
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.2254212Z Selecting previously unselected package libunwind-18:amd64.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3086473Z (Reading database ... 
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3086933Z (Reading database ... 5%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3087678Z (Reading database ... 10%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3088023Z (Reading database ... 15%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3088272Z (Reading database ... 20%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3088508Z (Reading database ... 25%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3088754Z (Reading database ... 30%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3088987Z (Reading database ... 35%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3089215Z (Reading database ... 40%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3089502Z (Reading database ... 45%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3089849Z (Reading database ... 50%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.3682054Z (Reading database ... 55%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:48.7860034Z (Reading database ... 60%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:49.1084939Z (Reading database ... 65%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:49.4145645Z (Reading database ... 70%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:49.5271201Z (Reading database ... 75%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:49.9503088Z (Reading database ... 80%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:51.0390199Z (Reading database ... 85%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:52.0765467Z (Reading database ... 90%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.0243963Z (Reading database ... 95%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.0244522Z (Reading database ... 100%
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.0245001Z (Reading database ... 202149 files and directories currently installed.)
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.0302590Z Preparing to unpack .../libunwind-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.0337512Z Unpacking libunwind-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.0676167Z Selecting previously unselected package libc++abi1-18:amd64.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.0812660Z Preparing to unpack .../libc++abi1-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.0821893Z Unpacking libc++abi1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.1055266Z Selecting previously unselected package libc++1-18:amd64.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.1190229Z Preparing to unpack .../libc++1-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.1201213Z Unpacking libc++1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.1556938Z Selecting previously unselected package libc++1:amd64.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.1691608Z Preparing to unpack .../libc++1_1%3a18.0-59~exp2_amd64.deb ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.1701196Z Unpacking libc++1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.1900643Z Selecting previously unselected package libc++abi1:amd64.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.2033246Z Preparing to unpack .../libc++abi1_1%3a18.0-59~exp2_amd64.deb ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.2042003Z Unpacking libc++abi1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.2429970Z Setting up libunwind-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.2459650Z Setting up libc++abi1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.2480125Z Setting up libc++1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.2501852Z Setting up libc++1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.2523105Z Setting up libc++abi1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:53.2547058Z Processing triggers for libc-bin (2.39-0ubuntu8.7) ...
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:54.6563444Z 
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:54.6564727Z Running kernel seems to be up-to-date.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:54.6565110Z 
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:54.6565284Z No services need to be restarted.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:54.6565579Z 
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:54.6565740Z No containers need to be restarted.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:54.6566003Z 
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:54.6566191Z No user sessions are running outdated binaries.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:54.6566534Z 
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:54.6566831Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:57.8725300Z curl: (3) URL rejected: Malformed input to a URL function
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Download bootstrap	2026-06-10T16:35:57.8746637Z ##[error]Process completed with exit code 3.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	﻿2026-06-10T16:35:32.9235651Z ##[group]Run # Bootstrap needs libc++ (built with -stdlib=libc++)
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9236143Z [36;1m# Bootstrap needs libc++ (built with -stdlib=libc++)[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9236624Z [36;1msudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9237207Z [36;1m# Use curl for reliability (gh release download has auth issues on public assets)[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9238650Z [36;1mASSET_URL=$(gh release view "bootstrap-sig-v29" --json assets --jq '.assets[] | select(.name | startswith("bootstrap-sig-x86_64-linux")) | .url')[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9239345Z [36;1mcurl -L -o /tmp/bootstrap-archive.tar.gz "$ASSET_URL"[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9239712Z [36;1mmkdir -p /tmp/bootstrap[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9240057Z [36;1mtar -xf /tmp/bootstrap-archive.tar.gz -C /tmp/bootstrap[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9240477Z [36;1mBIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9240830Z [36;1mif [ -z "$BIN" ]; then[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9241162Z [36;1m  echo "ERROR: sig binary not found in bootstrap archive"[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9241535Z [36;1m  exit 1[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9241758Z [36;1mfi[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9241973Z [36;1mchmod +x "$BIN"[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9242250Z [36;1mecho "$(dirname "$BIN")" >> "$GITHUB_PATH"[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9242572Z [36;1mecho "SIG=${BIN}" >> "$GITHUB_ENV"[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9242922Z [36;1mln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9243269Z [36;1m"${BIN}" version || true[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9269549Z shell: /usr/bin/bash -e {0}
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9269823Z env:
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9270061Z   BOOTSTRAP_TAG: bootstrap-sig-v29
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9270352Z   VERSION: 0.2.0-zig0.17.0.00536ba
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9273436Z   GH_TOKEN: ***
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:32.9273675Z ##[endgroup]
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1645238Z Selecting previously unselected package libunwind-18:amd64.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1956650Z (Reading database ... 
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1957068Z (Reading database ... 5%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1957670Z (Reading database ... 10%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1958188Z (Reading database ... 15%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1958590Z (Reading database ... 20%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1958986Z (Reading database ... 25%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1959350Z (Reading database ... 30%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1959697Z (Reading database ... 35%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1960070Z (Reading database ... 40%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1960352Z (Reading database ... 45%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.1960591Z (Reading database ... 50%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.2192692Z (Reading database ... 55%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.5112449Z (Reading database ... 60%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.7492288Z (Reading database ... 65%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:44.9663852Z (Reading database ... 70%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:45.1981716Z (Reading database ... 75%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:45.4785727Z (Reading database ... 80%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:45.7672857Z (Reading database ... 85%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.0036888Z (Reading database ... 90%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.6164198Z (Reading database ... 95%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.6164748Z (Reading database ... 100%
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.6165121Z (Reading database ... 202271 files and directories currently installed.)
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.6211142Z Preparing to unpack .../libunwind-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.6288517Z Unpacking libunwind-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.6528419Z Selecting previously unselected package libc++abi1-18:amd64.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.6658520Z Preparing to unpack .../libc++abi1-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.6667313Z Unpacking libc++abi1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.6910367Z Selecting previously unselected package libc++1-18:amd64.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7039785Z Preparing to unpack .../libc++1-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7049893Z Unpacking libc++1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7296914Z Selecting previously unselected package libc++1:amd64.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7427091Z Preparing to unpack .../libc++1_1%3a18.0-59~exp2_amd64.deb ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7434704Z Unpacking libc++1:amd64 (1:18.0-59~exp2) ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7631753Z Selecting previously unselected package libc++abi1:amd64.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7759258Z Preparing to unpack .../libc++abi1_1%3a18.0-59~exp2_amd64.deb ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7767726Z Unpacking libc++abi1:amd64 (1:18.0-59~exp2) ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.8145247Z Setting up libunwind-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.8166794Z Setting up libc++abi1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.8187758Z Setting up libc++1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.8208194Z Setting up libc++1:amd64 (1:18.0-59~exp2) ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.8227297Z Setting up libc++abi1:amd64 (1:18.0-59~exp2) ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:46.8250875Z Processing triggers for libc-bin (2.39-0ubuntu8.7) ...
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:47.8974388Z 
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:47.8975151Z Running kernel seems to be up-to-date.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:47.8975534Z 
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:47.8975693Z No services need to be restarted.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:47.8976003Z 
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:47.8976156Z No containers need to be restarted.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:47.8976431Z 
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:47.8976623Z No user sessions are running outdated binaries.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:47.8976953Z 
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:47.8977245Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:49.2800095Z curl: (3) URL rejected: Malformed input to a URL function
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Download bootstrap	2026-06-10T16:35:49.2821156Z ##[error]Process completed with exit code 3.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	﻿2026-06-10T16:35:35.4988807Z ##[group]Run # Bootstrap needs libc++ (built with -stdlib=libc++)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4989358Z [36;1m# Bootstrap needs libc++ (built with -stdlib=libc++)[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4990215Z [36;1msudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4990921Z [36;1m# Use curl for reliability (gh release download has auth issues on public assets)[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4991873Z [36;1mASSET_URL=$(gh release view "bootstrap-sig-v29" --json assets --jq '.assets[] | select(.name | startswith("bootstrap-sig-x86_64-linux")) | .url')[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4992786Z [36;1mcurl -L -o /tmp/bootstrap-archive.tar.gz "$ASSET_URL"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4993153Z [36;1mmkdir -p /tmp/bootstrap[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4993643Z [36;1mtar -xf /tmp/bootstrap-archive.tar.gz -C /tmp/bootstrap[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4994078Z [36;1mBIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4994534Z [36;1mif [ -z "$BIN" ]; then[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4994898Z [36;1m  echo "ERROR: sig binary not found in bootstrap archive"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4995287Z [36;1m  exit 1[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4995689Z [36;1mfi[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4995908Z [36;1mchmod +x "$BIN"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4996188Z [36;1mecho "$(dirname "$BIN")" >> "$GITHUB_PATH"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4996516Z [36;1mecho "SIG=${BIN}" >> "$GITHUB_ENV"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4996876Z [36;1mln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.4997233Z [36;1m"${BIN}" version || true[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.5024859Z shell: /usr/bin/bash -e {0}
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.5025123Z env:
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.5025349Z   BOOTSTRAP_TAG: bootstrap-sig-v29
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.5025859Z   VERSION: 0.2.0-zig0.17.0.00536ba
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.5028940Z   GH_TOKEN: ***
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:35.5029168Z ##[endgroup]
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7551927Z Selecting previously unselected package libunwind-18:amd64.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7897360Z (Reading database ... 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7898125Z (Reading database ... 5%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7898628Z (Reading database ... 10%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7898989Z (Reading database ... 15%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7899280Z (Reading database ... 20%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7899540Z (Reading database ... 25%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7899813Z (Reading database ... 30%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7900067Z (Reading database ... 35%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7900579Z (Reading database ... 40%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7901012Z (Reading database ... 45%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7901427Z (Reading database ... 50%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.7955422Z (Reading database ... 55%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:46.9104886Z (Reading database ... 60%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:47.1147043Z (Reading database ... 65%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:47.2831279Z (Reading database ... 70%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:47.4164342Z (Reading database ... 75%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:47.6114206Z (Reading database ... 80%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:47.7238821Z (Reading database ... 85%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:47.8490801Z (Reading database ... 90%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.0045346Z (Reading database ... 95%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.0046175Z (Reading database ... 100%
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.0046656Z (Reading database ... 202271 files and directories currently installed.)
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.0092550Z Preparing to unpack .../libunwind-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.0134492Z Unpacking libunwind-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.0408496Z Selecting previously unselected package libc++abi1-18:amd64.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.0539715Z Preparing to unpack .../libc++abi1-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.0553175Z Unpacking libc++abi1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.0813821Z Selecting previously unselected package libc++1-18:amd64.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.0945277Z Preparing to unpack .../libc++1-18_1%3a18.1.3-1ubuntu1_amd64.deb ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.0956550Z Unpacking libc++1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.1255077Z Selecting previously unselected package libc++1:amd64.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.1390391Z Preparing to unpack .../libc++1_1%3a18.0-59~exp2_amd64.deb ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.1402938Z Unpacking libc++1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.1624935Z Selecting previously unselected package libc++abi1:amd64.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.1757901Z Preparing to unpack .../libc++abi1_1%3a18.0-59~exp2_amd64.deb ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.1769143Z Unpacking libc++abi1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.2165205Z Setting up libunwind-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.2196720Z Setting up libc++abi1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.2226118Z Setting up libc++1-18:amd64 (1:18.1.3-1ubuntu1) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.2255363Z Setting up libc++1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.2283968Z Setting up libc++abi1:amd64 (1:18.0-59~exp2) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.2319646Z Processing triggers for libc-bin (2.39-0ubuntu8.7) ...
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.9231307Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.9231962Z Running kernel seems to be up-to-date.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.9232257Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.9232385Z No services need to be restarted.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.9232621Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.9232740Z No containers need to be restarted.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.9232965Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.9233107Z No user sessions are running outdated binaries.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.9233346Z 
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:48.9233572Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:50.5035926Z curl: (3) URL rejected: Malformed input to a URL function
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Download bootstrap	2026-06-10T16:35:50.5057826Z ##[error]Process completed with exit code 3.
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	﻿2026-06-10T17:01:20.1116168Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1116618Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1117298Z [36;1mecho "Building x86_64-windows-gnu (version: ${ZIG_VER_BASE})"[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1117566Z [36;1m[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1117842Z [36;1m# Full LLVM-enabled build using in-process Compilation.create() via bootstrap v29[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1118167Z [36;1m"${SIG}" build \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1118365Z [36;1m  --prefix stage3-out \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1118579Z [36;1m  -Doptimize=ReleaseFast \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1118782Z [36;1m  -Dstrip \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1118972Z [36;1m  -Dtarget=x86_64-windows-gnu \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1119180Z [36;1m  -Dno-lib \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1119370Z [36;1m  -Denable-llvm \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1119556Z [36;1m  -Dstatic-llvm \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1119753Z [36;1m  -Dversion-string="${ZIG_VER_BASE}" \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1120006Z [36;1m  --zig-lib-dir lib \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1120214Z [36;1m  --search-prefix "${LLVM_PREFIX}" \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1120524Z [36;1m  -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1142585Z shell: /usr/bin/bash -e {0}
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1142785Z env:
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1142955Z   BOOTSTRAP_TAG: bootstrap-sig-v29
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1143162Z   VERSION: 0.2.0-zig0.17.0.0beed7e
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1143354Z   SIG: /tmp/bootstrap/bin/sig
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1143569Z   LLVM_PREFIX: /home/runner/work/sig/sig/llvm-22
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.1143798Z ##[endgroup]
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:20.2324811Z Building x86_64-windows-gnu (version: 0.17.0)
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4221874Z build host compilation failed with exit code 1:
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4222528Z tools/sig_build/main.sig:2882:30: error: no module named 'compiler' available within module 'sig_build'
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4223152Z     const compiler = @import("compiler");
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4223495Z                              ^~~~~~~~~~
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4223785Z referenced by:
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4224078Z     engineStepFn: tools/sig_build/main.sig:3602:32
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4224460Z     addCompileStep: tools/sig_build/main.sig:3322:85
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4224961Z     6 reference(s) hidden; use '-freference-trace=8' to see all references
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4225298Z 
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4225511Z error: the following build runner command exited with code 1:
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4227537Z .zig-cache/o/972e0ac3bc0791d4ba8da236f7c660db/sig_build_runner /tmp/bootstrap/bin/sig lib /home/runner/work/sig/sig .zig-cache /home/runner/.cache/zig --prefix stage3-out -Doptimize=ReleaseFast -Dstrip -Dtarget=x86_64-windows-gnu -Dno-lib -Denable-llvm -Dstatic-llvm -Dversion-string=0.17.0 --search-prefix /home/runner/work/sig/sig/llvm-22 -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-10T17:01:47.4258129Z ##[error]Process completed with exit code 1.
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	﻿2026-06-10T17:01:33.8542206Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8542810Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8543322Z [36;1mecho "Building x86_64-linux-musl (version: ${ZIG_VER_BASE})"[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8543708Z [36;1m[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8544073Z [36;1m# Full LLVM-enabled build using in-process Compilation.create() via bootstrap v29[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8544499Z [36;1m"${SIG}" build \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8544772Z [36;1m  --prefix stage3-out \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8545057Z [36;1m  -Doptimize=ReleaseFast \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8545334Z [36;1m  -Dstrip \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8545576Z [36;1m  -Dtarget=x86_64-linux-musl \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8545860Z [36;1m  -Dno-lib \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8546094Z [36;1m  -Denable-llvm \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8546335Z [36;1m  -Dstatic-llvm \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8546597Z [36;1m  -Dversion-string="${ZIG_VER_BASE}" \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8546926Z [36;1m  --zig-lib-dir lib \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8547204Z [36;1m  --search-prefix "${LLVM_PREFIX}" \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8547617Z [36;1m  -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8575484Z shell: /usr/bin/bash -e {0}
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8575767Z env:
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8575995Z   BOOTSTRAP_TAG: bootstrap-sig-v29
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8576278Z   VERSION: 0.2.0-zig0.17.0.0beed7e
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8576537Z   SIG: /tmp/bootstrap/bin/sig
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8576822Z   LLVM_PREFIX: /home/runner/work/sig/sig/llvm-22
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8577123Z ##[endgroup]
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:01:33.8646507Z Building x86_64-linux-musl (version: 0.17.0)
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1509577Z build host compilation failed with exit code 1:
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1510431Z tools/sig_build/main.sig:2882:30: error: no module named 'compiler' available within module 'sig_build'
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1510987Z     const compiler = @import("compiler");
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1511436Z                              ^~~~~~~~~~
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1511833Z referenced by:
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1512214Z     engineStepFn: tools/sig_build/main.sig:3602:32
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1512683Z     addCompileStep: tools/sig_build/main.sig:3322:85
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1513117Z     6 reference(s) hidden; use '-freference-trace=8' to see all references
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1513766Z 
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1513960Z error: the following build runner command exited with code 1:
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1515548Z .zig-cache/o/4eee974cd85423f4ffc573dd1d090f09/sig_build_runner /tmp/bootstrap/bin/sig lib /home/runner/work/sig/sig .zig-cache /home/runner/.cache/zig --prefix stage3-out -Doptimize=ReleaseFast -Dstrip -Dtarget=x86_64-linux-musl -Dno-lib -Denable-llvm -Dstatic-llvm -Dversion-string=0.17.0 --search-prefix /home/runner/work/sig/sig/llvm-22 -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-10T17:02:09.1558228Z ##[error]Process completed with exit code 1.
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	﻿2026-06-10T17:03:53.5215866Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5216435Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5217080Z [36;1mecho "Building aarch64-macos-none (version: ${ZIG_VER_BASE})"[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5217432Z [36;1m[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5217781Z [36;1m# Full LLVM-enabled build using in-process Compilation.create() via bootstrap v29[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5218196Z [36;1m"${SIG}" build \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5218440Z [36;1m  --prefix stage3-out \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5218716Z [36;1m  -Doptimize=ReleaseFast \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5218966Z [36;1m  -Dstrip \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5219199Z [36;1m  -Dtarget=aarch64-macos-none \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5219457Z [36;1m  -Dno-lib \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5219678Z [36;1m  -Denable-llvm \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5219912Z [36;1m  -Dstatic-llvm \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5220176Z [36;1m  -Dversion-string="${ZIG_VER_BASE}" \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5220506Z [36;1m  --zig-lib-dir lib \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5220772Z [36;1m  --search-prefix "${LLVM_PREFIX}" \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5221171Z [36;1m  -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5669505Z shell: /usr/bin/bash -e {0}
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5669806Z env:
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5670029Z   BOOTSTRAP_TAG: bootstrap-sig-v29
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5670302Z   VERSION: 0.2.0-zig0.17.0.0beed7e
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5670553Z   SIG: /tmp/bootstrap/bin/sig
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5670837Z   LLVM_PREFIX: /home/runner/work/sig/sig/llvm-22
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5671135Z ##[endgroup]
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:03:53.5739831Z Building aarch64-macos-none (version: 0.17.0)
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7013509Z build host compilation failed with exit code 1:
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7015587Z error: the following build runner command exited with code 1:
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7017634Z .zig-cache/o/05f4a012749b362439c5318d5a2d1acf/sig_build_runner /tmp/bootstrap/bin/sig lib /home/runner/work/sig/sig .zig-cache /home/runner/.cache/zig --prefix stage3-out -Doptimize=ReleaseFast -Dstrip -Dtarget=aarch64-macos-none -Dno-lib -Denable-llvm -Dstatic-llvm -Dversion-string=0.17.0 --search-prefix /home/runner/work/sig/sig/llvm-22 -Dllvm-has-m68k -Dllvm-has-csky -Dllvm-has-arc -Dllvm-has-xtensa
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7019325Z tools/sig_build/main.sig:2882:30: error: no module named 'compiler' available within module 'sig_build'
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7020079Z     const compiler = @import("compiler");
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7020664Z                              ^~~~~~~~~~
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7021096Z referenced by:
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7021462Z     engineStepFn: tools/sig_build/main.sig:3602:32
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7021811Z     addCompileStep: tools/sig_build/main.sig:3322:85
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7022451Z     6 reference(s) hidden; use '-freference-trace=8' to see all references
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7022769Z 
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-10T17:04:23.7044448Z ##[error]Process completed with exit code 1.

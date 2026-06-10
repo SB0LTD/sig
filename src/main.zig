@@ -5387,6 +5387,17 @@ fn compileSigBuildRunner(gpa: Allocator, arena: Allocator, io: Io, options: SigB
     // build_api.zig re-exports Compilation, Package, and Config from src/.
     // Use build_root (source checkout) + "src" for reliable path resolution.
     const compiler_src_root = try options.build_root.directory.join(arena, &.{"src"});
+
+    // DEBUG: print the compiler module path for CI diagnosis
+    {
+        _ = try io.lockStderr(&.{}, .no_color);
+        defer io.unlockStderr();
+        const stderr = std.Io.File.stderr();
+        stderr.writeStreamingAll(io, "DEBUG compileSigBuildRunner: compiler_src_root=") catch {};
+        stderr.writeStreamingAll(io, compiler_src_root) catch {};
+        stderr.writeStreamingAll(io, "/build_api.zig\n") catch {};
+    }
+
     const compiler_mod = try Package.Module.create(arena, .{
         .paths = .{
             .root = try .fromUnresolved(arena, options.dirs, &.{compiler_src_root}),
