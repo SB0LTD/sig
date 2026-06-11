@@ -216,6 +216,15 @@ jobs:
     env:
       VERSION: ${{ needs.build-native.outputs.version }}
     steps:
+      - name: Free disk space
+        run: |
+          # Remove large preinstalled software to free ~10GB
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          sudo rm -rf /usr/local/graalvm /usr/local/.ghcup /usr/local/share/powershell
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go
+          sudo apt-get clean
+          df -h /
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
