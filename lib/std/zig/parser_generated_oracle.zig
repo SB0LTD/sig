@@ -921,8 +921,6 @@ const Parser = struct {
             p.i = pos_0;
             if (p.parseErrorSetDecl()) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseFLOAT()) break :blk_0 true;
-            p.i = pos_0;
             if (p.parseFnProto()) break :blk_0 true;
             p.i = pos_0;
             if (p.parseGroupedExpr()) break :blk_0 true;
@@ -943,8 +941,6 @@ const Parser = struct {
             p.i = pos_0;
             if (p.parseIfTypeExpr()) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseINTEGER()) break :blk_0 true;
-            p.i = pos_0;
             if (p.parseKEYWORD_comptime() and p.parseTypeExpr() and blk_1: {
                 const pos_1 = p.i;
                 const match_1 = p.parseExprSuffix();
@@ -957,6 +953,8 @@ const Parser = struct {
             if (p.parseKEYWORD_anyframe()) break :blk_0 true;
             p.i = pos_0;
             if (p.parseKEYWORD_unreachable()) break :blk_0 true;
+            p.i = pos_0;
+            if (p.parseNUMBERLITERAL()) break :blk_0 true;
             p.i = pos_0;
             if (p.parseSTRINGLITERAL()) break :blk_0 true;
             p.i = pos_0;
@@ -1880,169 +1878,6 @@ const Parser = struct {
             break :blk_0 false;
         };
     }
-    pub fn parsebin(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if ((p.i < p.source.len and switch (p.source[p.i]) {
-                '0'...'0',
-                '1'...'1',
-                => blk_1: {
-                    p.i += 1;
-                    break :blk_1 true;
-                },
-                else => false,
-            })) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parsebin_(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if ((blk_2: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "_")) {
-                    p.i += 1;
-                    break :blk_2 true;
-                }
-                break :blk_2 false;
-            } or true) and p.parsebin()) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parseoct(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if ((p.i < p.source.len and switch (p.source[p.i]) {
-                '0'...'7',
-                => blk_1: {
-                    p.i += 1;
-                    break :blk_1 true;
-                },
-                else => false,
-            })) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parseoct_(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if ((blk_2: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "_")) {
-                    p.i += 1;
-                    break :blk_2 true;
-                }
-                break :blk_2 false;
-            } or true) and p.parseoct()) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parsehex(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if ((p.i < p.source.len and switch (p.source[p.i]) {
-                '0'...'9',
-                'a'...'f',
-                'A'...'F',
-                => blk_1: {
-                    p.i += 1;
-                    break :blk_1 true;
-                },
-                else => false,
-            })) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parsehex_(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if ((blk_2: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "_")) {
-                    p.i += 1;
-                    break :blk_2 true;
-                }
-                break :blk_2 false;
-            } or true) and p.parsehex()) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parsedec(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if ((p.i < p.source.len and switch (p.source[p.i]) {
-                '0'...'9',
-                => blk_1: {
-                    p.i += 1;
-                    break :blk_1 true;
-                },
-                else => false,
-            })) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parsedec_(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if ((blk_2: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "_")) {
-                    p.i += 1;
-                    break :blk_2 true;
-                }
-                break :blk_2 false;
-            } or true) and p.parsedec()) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parsebin_int(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if (p.parsebin() and blk_1: {
-                while (p.parsebin_()) {}
-                break :blk_1 true;
-            }) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parseoct_int(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if (p.parseoct() and blk_1: {
-                while (p.parseoct_()) {}
-                break :blk_1 true;
-            }) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parsedec_int(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if (p.parsedec() and blk_1: {
-                while (p.parsedec_()) {}
-                break :blk_1 true;
-            }) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parsehex_int(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if (p.parsehex() and blk_1: {
-                while (p.parsehex_()) {}
-                break :blk_1 true;
-            }) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
     pub fn parseox80_oxBF(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
@@ -2282,6 +2117,37 @@ const Parser = struct {
                 },
                 else => false,
             })) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parsehex(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if ((p.i < p.source.len and switch (p.source[p.i]) {
+                '0'...'9',
+                'a'...'f',
+                'A'...'F',
+                => blk_1: {
+                    p.i += 1;
+                    break :blk_1 true;
+                },
+                else => false,
+            })) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parsehex_(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if ((blk_2: {
+                if (std.mem.startsWith(u8, p.source[p.i..], "_")) {
+                    p.i += 1;
+                    break :blk_2 true;
+                }
+                break :blk_2 false;
+            } or true) and p.parsehex()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2587,80 +2453,56 @@ const Parser = struct {
             break :blk_0 false;
         };
     }
-    pub fn parseFLOAT(p: *Parser) bool {
+    pub fn parsedigit(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "0x")) {
-                    p.i += 2;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
-            } and p.parsehex_int() and blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], ".")) {
+            if ((p.i < p.source.len and switch (p.source[p.i]) {
+                '_'...'_',
+                '0'...'9',
+                'A'...'D',
+                'F'...'O',
+                'Q'...'Z',
+                'a'...'d',
+                'f'...'o',
+                'q'...'z',
+                => blk_1: {
                     p.i += 1;
                     break :blk_1 true;
-                }
-                break :blk_1 false;
-            } and p.parsehex_int() and (blk_3: {
-                const pos_3 = p.i;
-                if ((p.i < p.source.len and switch (p.source[p.i]) {
-                    'p'...'p',
-                    'P'...'P',
-                    => blk_4: {
-                        p.i += 1;
-                        break :blk_4 true;
-                    },
-                    else => false,
-                }) and ((p.i < p.source.len and switch (p.source[p.i]) {
-                    '-'...'-',
-                    '+'...'+',
-                    => blk_5: {
-                        p.i += 1;
-                        break :blk_5 true;
-                    },
-                    else => false,
-                }) or true) and p.parsedec_int()) break :blk_3 true;
-                p.i = pos_3;
-                break :blk_3 false;
-            } or true) and p.parseskip()) break :blk_0 true;
+                },
+                else => false,
+            })) break :blk_0 true;
             p.i = pos_0;
-            if (p.parsedec_int() and blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], ".")) {
+            break :blk_0 false;
+        };
+    }
+    pub fn parsedigit_int(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parsedigit()) break :blk_0 true;
+            p.i = pos_0;
+            if ((p.i < p.source.len and switch (p.source[p.i]) {
+                'e'...'e',
+                'E'...'E',
+                'p'...'p',
+                'P'...'P',
+                => blk_1: {
                     p.i += 1;
                     break :blk_1 true;
-                }
-                break :blk_1 false;
-            } and p.parsedec_int() and (blk_3: {
-                const pos_3 = p.i;
-                if ((p.i < p.source.len and switch (p.source[p.i]) {
-                    'e'...'e',
-                    'E'...'E',
-                    => blk_4: {
-                        p.i += 1;
-                        break :blk_4 true;
-                    },
-                    else => false,
-                }) and ((p.i < p.source.len and switch (p.source[p.i]) {
-                    '-'...'-',
-                    '+'...'+',
-                    => blk_5: {
-                        p.i += 1;
-                        break :blk_5 true;
-                    },
-                    else => false,
-                }) or true) and p.parsedec_int()) break :blk_3 true;
-                p.i = pos_3;
-                break :blk_3 false;
-            } or true) and p.parseskip()) break :blk_0 true;
+                },
+                else => false,
+            })) break :blk_0 true;
             p.i = pos_0;
-            if (blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "0x")) {
-                    p.i += 2;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
-            } and p.parsehex_int() and (p.i < p.source.len and switch (p.source[p.i]) {
+            break :blk_0 false;
+        };
+    }
+    pub fn parsedigit_float(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parsedigit()) break :blk_0 true;
+            p.i = pos_0;
+            if ((p.i < p.source.len and switch (p.source[p.i]) {
+                'e'...'e',
+                'E'...'E',
                 'p'...'p',
                 'P'...'P',
                 => blk_1: {
@@ -2676,57 +2518,49 @@ const Parser = struct {
                     break :blk_2 true;
                 },
                 else => false,
-            }) or true) and p.parsedec_int() and p.parseskip()) break :blk_0 true;
+            }) or true)) break :blk_0 true;
             p.i = pos_0;
-            if (p.parsedec_int() and (p.i < p.source.len and switch (p.source[p.i]) {
-                'e'...'e',
-                'E'...'E',
+            break :blk_0 false;
+        };
+    }
+    pub fn parseNUMBERLITERAL(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if ((p.i < p.source.len and switch (p.source[p.i]) {
+                '0'...'9',
                 => blk_1: {
                     p.i += 1;
                     break :blk_1 true;
                 },
                 else => false,
-            }) and ((p.i < p.source.len and switch (p.source[p.i]) {
-                '-'...'-',
-                '+'...'+',
-                => blk_2: {
+            }) and blk_1: {
+                while (p.parsedigit_int()) {}
+                break :blk_1 true;
+            } and blk_1: {
+                if (std.mem.startsWith(u8, p.source[p.i..], ".")) {
                     p.i += 1;
-                    break :blk_2 true;
+                    break :blk_1 true;
+                }
+                break :blk_1 false;
+            } and blk_1: {
+                var match_1 = false;
+                while (p.parsedigit_float()) {
+                    match_1 = true;
+                }
+                break :blk_1 match_1;
+            } and p.parseskip()) break :blk_0 true;
+            p.i = pos_0;
+            if ((p.i < p.source.len and switch (p.source[p.i]) {
+                '0'...'9',
+                => blk_1: {
+                    p.i += 1;
+                    break :blk_1 true;
                 },
                 else => false,
-            }) or true) and p.parsedec_int() and p.parseskip()) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parseINTEGER(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if (blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "0b")) {
-                    p.i += 2;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
-            } and p.parsebin_int() and p.parseskip()) break :blk_0 true;
-            p.i = pos_0;
-            if (blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "0o")) {
-                    p.i += 2;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
-            } and p.parseoct_int() and p.parseskip()) break :blk_0 true;
-            p.i = pos_0;
-            if (blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "0x")) {
-                    p.i += 2;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
-            } and p.parsehex_int() and p.parseskip()) break :blk_0 true;
-            p.i = pos_0;
-            if (p.parsedec_int() and p.parseskip()) break :blk_0 true;
+            }) and blk_1: {
+                while (p.parsedigit_float()) {}
+                break :blk_1 true;
+            } and p.parseskip()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };

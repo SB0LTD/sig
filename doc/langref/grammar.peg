@@ -134,17 +134,16 @@ PrimaryTypeExpr
      / DOT IDENTIFIER
      / DOT InitList
      / ErrorSetDecl
-     / FLOAT
      / FnProto
      / GroupedExpr
      / LabeledTypeExpr
      / IDENTIFIER !(COLON LabelableExpr)
      / IfTypeExpr
-     / INTEGER
      / KEYWORD_comptime TypeExpr !ExprSuffix
      / KEYWORD_error DOT IDENTIFIER
      / KEYWORD_anyframe
      / KEYWORD_unreachable
+     / NUMBERLITERAL
      / STRINGLITERAL
 
 ContainerDecl <- (KEYWORD_extern / KEYWORD_packed)? ContainerDeclAuto
@@ -369,19 +368,6 @@ ExprList <- (Expr COMMA)* Expr?
 
 # *** Tokens ***
 eof <- !.
-bin <- [01]
-bin_ <- '_'? bin
-oct <- [0-7]
-oct_ <- '_'? oct
-hex <- [0-9a-fA-F]
-hex_ <- '_'? hex
-dec <- [0-9]
-dec_ <- '_'? dec
-
-bin_int <- bin bin_*
-oct_int <- oct oct_*
-dec_int <- dec dec_*
-hex_int <- hex hex_*
 
 ox80_oxBF <- [\200-\277]
 oxF4 <- '\364'
@@ -422,6 +408,9 @@ multibyte_utf8 <-
 non_control_ascii <- [\040-\176]
 non_control_utf8 <- [\040-\377]
 
+hex <- [0-9a-fA-F]
+hex_ <- '_'? hex
+
 char_escape
     <- "\\x" hex hex
      / "\\u{" hex+ "}"
@@ -443,16 +432,14 @@ line_string <- '\\\\' non_control_utf8* [ \n]*
 skip <- ([ \n] / line_comment)*
 
 CHAR_LITERAL <- ['] char_char ['] skip
-FLOAT
-    <- '0x' hex_int '.' hex_int ([pP] [-+]? dec_int)? skip
-     /      dec_int '.' dec_int ([eE] [-+]? dec_int)? skip
-     / '0x' hex_int [pP] [-+]? dec_int skip
-     /      dec_int [eE] [-+]? dec_int skip
-INTEGER
-    <- '0b' bin_int skip
-     / '0o' oct_int skip
-     / '0x' hex_int skip
-     /      dec_int   skip
+
+digit <- [_0-9A-DF-OQ-Za-df-oq-z]
+digit_int <- digit / [eEpP]
+digit_float <- digit / [eEpP] [-+]?
+NUMBERLITERAL
+    <- [0-9] digit_int* '.' digit_float+ skip
+     / [0-9] digit_float* skip
+
 STRINGLITERALSINGLE <- ["] string_char* ["] skip
 STRINGLITERAL
     <- STRINGLITERALSINGLE
