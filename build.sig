@@ -42,7 +42,7 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
 
     // Compiler compilation step
     if (!no_bin) {
-        const sig_handle = try ctx.addCompileStep(.{
+        _ = try ctx.addCompileStep(.{
             .source_path = "src/main.zig",
             .output_name = "sig",
             .cache_dir = ctx.cache_dir[0..ctx.cache_dir_len],
@@ -51,8 +51,8 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
             .imports = &.{},
             .compiler_path = "",
         });
-        // sig compile depends on config (build_options must exist first)
-        try ctx.addDependency(sig_handle, config);
+        // Note: sig→config dependency is added by addLlvmLinkStep when LLVM is enabled.
+        // For non-LLVM builds, sig has no config dependency (build_options not needed).
     }
 
     // LLVM pipeline (conditional)
