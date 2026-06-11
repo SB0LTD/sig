@@ -2,7 +2,39 @@
 
 All notable changes to Sig are documented here.
 
-Sig follows [Semantic Versioning](https://semver.org/). The version string includes the upstream Zig version it tracks: `sig X.Y.Z+zigA.B.C.<sha>`.
+Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the sig version and the upstream Zig version: `sig-X.Y.Z-zigA.B.C.<sha>`.
+
+## [0.2.0] — 2026-06-12 — No More Excuses
+
+Self-sustained release pipeline. Sig builds sig. Three platforms ship.
+
+### Highlights
+- **Sig builds sig** — The compiler compiles itself. No cmake, no external zig, no hand-holding.
+- **LLVM 22 on Linux** — Full backend with all LLVM targets. One static binary, zero runtime deps.
+- **macOS + Windows ship** — Self-hosted backends for aarch64-macos and x86_64-windows.
+- **Two-stage pipeline** — Stage 1 builds natively with the bootstrap. Stage 2 cross-compiles for other targets.
+- **Upstream zig 0.17.0-dev** — Continuous sync from Codeberg, every commit within minutes.
+
+### Changed
+- Release pipeline completely rewritten: two-stage architecture (native → cross)
+- Linux binary now includes full LLVM 22 (all targets, all backends)
+- macOS/Windows binaries use self-hosted backends (no LLVM dependency)
+- Bootstrap upgraded to v28 (LLVM-enabled, handles zig 0.17.0 source)
+- build.sig replaces build.zig as the primary build definition
+- Version tagging: `sig-X.Y.Z-zigA.B.C.<sha>` format
+
+### Added
+- Dynamic LLVM library discovery in release pipeline (no hardcoded lib lists)
+- libc++ include path injection for C++ cross-compilation
+- Disk space optimization for GitHub Actions runners
+- GCP Cloud Run watcher for sub-minute upstream sync latency
+- `release-nollvm.yaml` — lightweight no-LLVM release for bootstrap binaries
+
+### Fixed
+- C++ standard headers (`<type_traits>`, `<optional>`) not found during cross-compilation
+- LLVM static libraries not linked in release builds (undefined symbol errors)
+- Disk exhaustion on GitHub free runners during cross-compilation
+- sig-sync watcher token permissions (403 on repository_dispatch)
 
 ## [0.1.2] — 2026-04-16
 

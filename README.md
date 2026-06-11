@@ -2,102 +2,80 @@
   <img src="sig.png" alt="Sig" width="420" />
 </p>
 
-<h1 align="center">Sig — Strict Zig</h1>
+<h1 align="center">Sig</h1>
 
 <p align="center">
-  <em>Memory is not a guess.</em>
+  <strong>The Zig compiler that knows how much memory it has.</strong>
 </p>
 
 <p align="center">
-  A capacity-first memory model layer on top of the Zig compiler.<br/>
-  Every buffer is caller-owned. Every container is bounded. Every allocation is visible.
-</p>
-
-<p align="center">
-  <a href="https://github.com/SB0LTD/sig/releases"><img src="https://img.shields.io/github/v/release/SB0LTD/sig?label=sig&color=f7a41d&style=flat-square" alt="Release"></a>
+  <a href="https://github.com/SB0LTD/sig/releases"><img src="https://img.shields.io/github/v/release/SB0LTD/sig?label=latest&color=f7a41d&style=flat-square" alt="Release"></a>
   <a href="https://codeberg.org/ziglang/zig"><img src="https://img.shields.io/badge/upstream-zig%200.17.0--dev-blue?style=flat-square" alt="Upstream"></a>
   <a href="https://github.com/SB0LTD/sig/actions/workflows/sig-sync.yaml"><img src="https://img.shields.io/github/actions/workflow/status/SB0LTD/sig/sig-sync.yaml?label=sync&style=flat-square" alt="Sync Status"></a>
+  <a href="https://github.com/SB0LTD/sig/actions/workflows/release.yaml"><img src="https://img.shields.io/github/actions/workflow/status/SB0LTD/sig/release.yaml?label=release&style=flat-square" alt="Release Status"></a>
+</p>
+
+<p align="center">
+  <code>sig</code> is a drop-in replacement for <code>zig</code>. All your code works. Then you rename a file to <code>.sig</code> and the compiler starts caring about where your bytes come from.
 </p>
 
 ---
 
-## What Sig looks like
+## 0.2.0 — No More Excuses
+
+Three platforms. Self-sustained pipeline. Sig builds sig.
+
+```
+$ sig version
+sig 0.2.0 (zig 0.17.0-dev, LLVM 22)
+```
+
+| Platform | Backend | Download |
+|---|---|---|
+| x86_64-linux | Full (LLVM 22 + self-hosted) | [tar.xz](https://github.com/SB0LTD/sig/releases/latest) |
+| aarch64-macos | Self-hosted | [tar.xz](https://github.com/SB0LTD/sig/releases/latest) |
+| x86_64-windows | Self-hosted | [zip](https://github.com/SB0LTD/sig/releases/latest) |
+
+The Linux binary has the full LLVM backend — it can emit machine code for every target LLVM supports. macOS and Windows ship with the self-hosted backends (x86_64, aarch64, wasm, arm, riscv64). All three produce working binaries today.
+
+The entire release is produced by sig itself. No cmake. No external zig. One `sig build-exe` invocation compiles the compiler, links LLVM, and outputs a static binary. That binary can then cross-compile itself for other targets. Bootstrap complete.
+
+---
+
+## What makes it strict
+
+The `.sig` extension activates strict mode. Same syntax. Same parser. Same compiler. But allocator usage becomes a compile error.
 
 ```zig
-// zig — allocator is a runtime parameter, capacity is implicit
+// foo.zig — business as usual
 var list = std.ArrayList(u8).init(allocator);
-try list.appendSlice(data); // might realloc 1x, 2x, 4x…
+try list.appendSlice(data);
 
-// sig — you provide the buffer, capacity is the type
+// foo.sig — you bring the buffer, you know the cost
 var buf: [4096]u8 = undefined;
 const result = try sig.fmt.formatInto(&buf, "{s}: {d}", .{ name, count });
 ```
 
-```zig
-// bounded container — capacity is comptime-known
-var vec = sig.containers.BoundedVec(u32, 1024){};
-try vec.push(10);
-try vec.push(20); // returns CapacityExceeded if full
-```
+Four errors replace silent reallocation:
 
-## Strict mode
-
-The `.sig` file extension enables strict mode. Same syntax as `.zig`, same parser, same compiler — but allocator usage is a compile error.
-
-```
-src/core.sig:42:5: error: direct allocation in 'init' (.sig file: strict mode enforced)
-```
-
-| File | `allocator.alloc(...)` | Behavior |
-|---|---|---|
-| `foo.zig` | Allowed | Warning (or error with `--sig-mode=strict`) |
-| `foo.sig` | Not allowed | Compile error, always |
-
-`.sig` and `.zig` files interoperate via `@import`. You can adopt strict mode one file at a time.
-
-## Error model
-
-Four explicit errors instead of silent reallocation:
-
-| Error | Meaning |
+| Error | When |
 |---|---|
 | `BufferTooSmall` | Output exceeds the caller-provided buffer |
 | `CapacityExceeded` | Bounded container is full |
-| `DepthExceeded` | Recursive operation hit depth limit |
-| `QuotaExceeded` | Resource usage limit reached |
+| `DepthExceeded` | Recursion hit its limit |
+| `QuotaExceeded` | Resource cap reached |
 
-Standard Zig error unions. Handle with `try`, `catch`, or `orelse`.
-
-## Memory patterns
-
-| Pattern | In `.sig` files |
-|---|---|
-| `var buf: [1024]u8 = undefined;` | ✅ |
-| `fn read(buf: []u8) ![]u8` | ✅ |
-| `BoundedVec(u8, 256)` | ✅ |
-| `FixedPool(Node, 64)` | ✅ |
-| `allocator.alloc(u8, n)` | ❌ compile error |
-| `fn init(alloc: Allocator)` | ❌ compile error |
-| `list.ensureTotalCapacity(n)` | ❌ compile error |
-
-In `.zig` files, the ❌ patterns compile normally (with optional warnings).
+Standard Zig error unions. `try`, `catch`, `orelse`. Nothing new to learn.
 
 ---
 
-## The Spoon Model
+## The Spoon
 
-Sig is not a fork. It's a **Spoon** 🥄
+Sig is not a fork. It stays synchronized with upstream Zig within minutes of every commit.
 
-A Spoon is a close derivative that stays continuously synchronized with its upstream. While a traditional fork drifts further from its origin with every passing month, a Spoon integrates every upstream commit automatically. Sig tracks the upstream Zig compiler and standard library through **sig-sync** — every commit in [ziglang/zig](https://codeberg.org/ziglang/zig) flows into Sig within minutes.
+A watcher on GCP polls Codeberg's RSS feed every 30 seconds. When a new commit lands in `ziglang/zig`, it fires a GitHub dispatch. The sig-sync workflow cherry-picks the commit, resolves conflicts (keeping sig-owned files), validates the bootstrap, and pushes. If the standard library changed in a way that breaks the bootstrap, it triggers a rebuild chain automatically.
 
-| | Traditional Fork | Spoon (Sig) |
-|---|---|---|
-| Upstream tracking | Manual, periodic | Continuous, automatic |
-| Divergence over time | Grows unbounded | Near zero |
-| Merge conflicts | Accumulate silently | Resolved immediately |
-| Upstream compatibility | Degrades | Always maintained |
-
-### Sync status
+The result: sig never drifts. You get upstream bug fixes, optimizations, and new features without waiting.
 
 <!-- Updated automatically by sig-sync workflow -->
 
@@ -109,34 +87,31 @@ A Spoon is a close derivative that stays continuously synchronized with its upst
 | **Base version** | zig 0.17.0-dev · LLVM 22.1.3 |
 | **Sync frequency** | Every commit (< 1 min latency) |
 
-> The sync status above is updated automatically after each successful integration. See the [sig-sync workflow](https://github.com/SB0LTD/sig/actions/workflows/sig-sync.yaml) for live run history.
-
 ---
 
 ## Getting started
 
-Download a binary from [releases](https://github.com/SB0LTD/sig/releases), or build from source:
-
 ```bash
-git clone https://github.com/SB0LTD/sig.git
-cd sig && sig build
+# Download the latest release
+curl -sL https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz | tar -xJ
+export PATH="$PWD/sig/bin:$PATH"
+
+# Or build from source (requires a sig or zig binary)
+git clone https://github.com/SB0LTD/sig.git && cd sig
+sig build -OReleaseFast
 ```
 
-Drop-in replacement for `zig`. All existing `.zig` code works unchanged.
+It's a drop-in replacement. Every `.zig` file compiles unchanged. Rename to `.sig` when you're ready to go strict.
+
+## How it's built
 
 ```
-$ sig version
-sig 0.1.2 (zig 0.17.0-dev)
+build-llvm (one-time)  →  build-bootstrap (one-time)  →  release (every version)
+     LLVM 22 .a files        v28 bootstrap binary            sig builds sig
 ```
 
-## Versioning
-
-Sig follows its own semver while tracking the upstream Zig version it's built on. Release tags encode both: `sig-0.1.2+zig0.17.0.<sha>`.
-
-## Contributing
-
-All sig stdlib APIs must follow the capacity-first model — no `Allocator` parameters in public interfaces. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+The bootstrap is a previous sig release. It compiles the current source with LLVM 22 linked in. The output is a static musl binary that cross-compiles for all targets. No external dependencies at runtime.
 
 ## License
 
-Same as upstream Zig. See [LICENSE](LICENSE).
+Same as upstream Zig — MIT. See [LICENSE](LICENSE).
