@@ -2880,9 +2880,15 @@ fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
 /// - zig_lib_dir, cache_dir, global_cache_dir → Compilation.Directories
 fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.Compilation_Result, io: std.Io) void {
     const compiler = @import("compiler");
-    const Compilation = compiler.getCompilation();
-    const Package = compiler.getPackage();
-    const Cache = compiler.getCache();
+    _ = compiler; // Gate: module exists
+
+    // TODO: In-process compilation via Compilation.create() will be enabled
+    // once the bootstrap chain fully supports compiler module resolution.
+    // For now, fail with a clear message.
+    _ = io;
+    _ = ctx;
+    inProcessFailResult(result, "in-process backend: compiler module found but Compilation API access pending");
+}
 
     const source_path = ctx.root_source_path[0..ctx.root_source_path_len];
     const output_name = ctx.output_name[0..ctx.output_name_len];
