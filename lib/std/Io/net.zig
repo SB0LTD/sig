@@ -512,7 +512,7 @@ pub const Ip6Address = struct {
             // Has to be u16 elements to handle 3-digit hex numbers from compression.
             var parts: [8]u16 = @splat(0);
             var parts_i: u8 = 0;
-            var text_i: usize = 0;
+            var text_i: u8 = 0;
             var digit_i: u8 = 0;
             var compress_start: ?u8 = null;
             var interface_name_text: ?[]const u8 = null;
@@ -576,7 +576,7 @@ pub const Ip6Address = struct {
                         const name = text[text_i..];
                         if (name.len == 0) return .incomplete;
                         interface_name_text = name;
-                        text_i = text.len;
+                        text_i = std.math.cast(u8, text.len) orelse return .{ .overflow = text.len };
                         continue :state .end;
                     },
                     else => return .{ .invalid_byte = text_i },

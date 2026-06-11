@@ -94,7 +94,7 @@ test "invalid but parseable IPv6 scope ids" {
 
 test "oversized IPv6 scope id" {
     const long_scope: [256]u8 = @splat('a');
-    try testing.expectError(error.NameTooLong, net.IpAddress.resolveIp6(testing.io, "ff01::fb%" ++ &long_scope, 0));
+    try testing.expectError(error.ParseFailed, net.IpAddress.resolveIp6(testing.io, "ff01::fb%" ++ &long_scope, 0));
 }
 
 test "parse and render IPv4 addresses" {
