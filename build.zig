@@ -1572,8 +1572,9 @@ fn generateLangRef(b: *std.Build) !std.Build.LazyPath {
 
     var it = dir.iterateAssumeFirstIteration();
     while (it.next(io) catch @panic("failed to read dir")) |entry| {
-        if (std.mem.startsWith(u8, entry.name, ".") or entry.kind != .file)
-            continue;
+        if (entry.kind != .file) continue;
+        if (std.mem.startsWith(u8, entry.name, ".")) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
 
         const out_basename = b.fmt("{s}.out", .{std.fs.path.stem(entry.name)});
         const cmd = b.addRunArtifact(doctest_exe);
@@ -1606,6 +1607,8 @@ fn generateLangRef(b: *std.Build) !std.Build.LazyPath {
     const docgen_cmd = b.addRunArtifact(docgen_exe);
     docgen_cmd.addArgs(&.{"--code-dir"});
     docgen_cmd.addDirectoryArg(wf.getDirectory());
+    docgen_cmd.addArgs(&.{"--grammar"});
+    docgen_cmd.addFileArg(b.path("doc/langref/grammar.peg"));
 
     docgen_cmd.addFileArg(b.path("doc/langref.html.in"));
     return docgen_cmd.addOutputFileArg("langref.html");
