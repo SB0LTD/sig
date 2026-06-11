@@ -2879,7 +2879,6 @@ fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
 /// - optimize → Compilation.Config
 /// - zig_lib_dir, cache_dir, global_cache_dir → Compilation.Directories
 fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.Compilation_Result, io: std.Io) void {
-fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.Compilation_Result, io: std.Io) void {
     const cache_dir = if (ctx.cache_dir_len > 0) ctx.cache_dir[0..ctx.cache_dir_len] else ".zig-cache";
     var path_buf: [PATH_BUF_SIZE]u8 = undefined;
     const req_segs = [_][]const u8{ cache_dir, "compile_request.bin" };
