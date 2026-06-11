@@ -5382,12 +5382,10 @@ fn compileSigBuildRunner(gpa: Allocator, arena: Allocator, io: Io, options: SigB
         .parent = root_mod,
     });
 
-    // Wire compiler module — gives the build runner direct access to
-    // Compilation.create() + update() for in-process compilation.
-    // Root at project directory (CWD), src_path at src/build_api.zig
+    // Wire compiler module — root at build_root directory (already open handle).
     const compiler_mod = try Package.Module.create(arena, .{
         .paths = .{
-            .root = try .fromUnresolved(arena, options.dirs, &.{options.build_root.directory.path orelse "."}),
+            .root = .{ .path = options.build_root.directory.path, .handle = options.build_root.directory.handle },
             .root_src_path = "src/build_api.zig",
         },
         .fully_qualified_name = "root.compiler",
