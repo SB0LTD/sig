@@ -1879,4 +1879,5 @@ test {
     _ = target;
     _ = c_translation;
     _ = llvm;
+    _ = @import("zig/parser_fuzz.zig");
 }

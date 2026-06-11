@@ -1,0 +1,87 @@
+const std = @import("../std.zig");
+const Smith = std.testing.Smith;
+
+const oracle = @import("parser_generated_oracle.zig");
+
+test "fuzz std.zig.Ast.parse() against generated oracle" {
+    try std.testing.fuzz({}, checkAgainstOracle, .{});
+}
+
+fn checkAgainstOracle(_: void, smith: *Smith) !void {
+    var buffer: [1 << 14]u8 = undefined;
+    const len = smith.slice(buffer[0 .. buffer.len - 1]);
+    buffer[len] = 0;
+    const source = buffer[0..len :0];
+
+    var fba_buf: [1 << 18]u8 = undefined;
+    var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);
+    const ast = try std.zig.Ast.parse(fba.allocator(), source, .zig);
+
+    errdefer logBadSource(source, ast);
+    try std.testing.expectEqual(oracle.parse(source), ast.errors.len == 0);
+}
+
+fn logBadSource(source: []const u8, ast: std.zig.Ast) void {
+    @disableInstrumentation();
+    var buf: [256]u8 = undefined;
+    const ls = std.debug.lockStderr(&buf);
+    defer std.debug.unlockStderr();
+    logBadSourceInner(source, ls.terminal(), ast) catch {};
+}
+
+fn logBadSourceInner(source: []const u8, t: std.Io.Terminal, ast: std.zig.Ast) std.Io.Writer.Error!void {
+    @disableInstrumentation();
+    try logSourceInner(source, t);
+    const w = t.writer;
+
+    try w.writeAll("=== Parse Errors ===\n");
+    for (ast.errors) |err| {
+        const loc = ast.tokenLocation(0, err.token);
+        try w.print("{}:{}: ", .{ loc.line + 1, loc.column + 1 });
+        try ast.renderError(err, w);
+        try w.writeByte('\n');
+    }
+}
+
+pub fn logSource(source: []const u8) void {
+    @disableInstrumentation();
+    var buf: [256]u8 = undefined;
+    const ls = std.debug.lockStderr(&buf);
+    defer std.debug.unlockStderr();
+    logSourceInner(source, ls.terminal()) catch {};
+}
+
+fn logSourceInner(source: []const u8, t: std.Io.Terminal) std.Io.Writer.Error!void {
+    @disableInstrumentation();
+    const w = t.writer;
+
+    t.setColor(.dim) catch {};
+    try w.writeAll("=== Source ===\n");
+    t.setColor(.reset) catch {};
+
+    var line: usize = 1;
+    try w.print("{: >5} ", .{line});
+    for (source) |c| switch (c) {
+        ' '...0x7e => try w.writeByte(c),
+        '\n' => {
+            line += 1;
+            try w.print("\n{: >5} ", .{line});
+        },
+        '\r' => {
+            t.setColor(.cyan) catch {};
+            try w.writeAll("\\r");
+            t.setColor(.reset) catch {};
+        },
+        '\t' => {
+            t.setColor(.cyan) catch {};
+            try w.writeAll("\\t");
+            t.setColor(.reset) catch {};
+        },
+        else => {
+            t.setColor(.cyan) catch {};
+            try w.print("\\x{x:0>2}", .{c});
+            t.setColor(.reset) catch {};
+        },
+    };
+    try w.writeByte('\n');
+}
