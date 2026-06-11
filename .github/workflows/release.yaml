@@ -1,10 +1,10 @@
-# [sig] Self-sustained release pipeline ╬ô├ç├╢ sig builds sig
+# [sig] Self-sustained release pipeline — sig builds sig
 #
-# All targets cross-compiled from Linux using the Linux bootstrap.
-# Each target uses its own LLVM package (cross-compiled for that target).
-# This matches upstream zig's approach: zig-bootstrap cross-compiles everything.
+# Two-stage build: first produce a native x86_64-linux binary using the v28 bootstrap,
+# then use that freshly-built binary to cross-compile for all other targets.
+# This mirrors upstream zig-bootstrap's approach.
 #
-# Chain: build-llvm (one-time) ╬ô├Ñ├å build-bootstrap (one-time) ╬ô├Ñ├å release (every release)
+# Chain: build-llvm (one-time) → build-bootstrap (one-time) → release (every release)
 name: release
 
 on:
@@ -24,7 +24,7 @@ on:
       bootstrap_tag:
         description: 'Bootstrap release tag to use'
         required: false
-        default: 'bootstrap-sig-v13'
+        default: 'bootstrap-sig-v28'
         type: string
 
 permissions:
@@ -34,27 +34,9 @@ env:
   BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v28' }}
 
 jobs:
-  build:
+  # Stage 1: Build native x86_64-linux binary using v28 bootstrap
+  build-native:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-linux
-            zig_target: x86_64-linux-musl
-            ext: tar.xz
-            bin: sig
-            llvm_asset: llvm-22-x86_64-linux.tar.xz
-          - target: aarch64-macos
-            zig_target: aarch64-macos-none
-            ext: tar.xz
-            bin: sig
-            llvm_asset: llvm-22-aarch64-macos.tar.xz
-          - target: x86_64-windows
-            zig_target: x86_64-windows-gnu
-            ext: zip
-            bin: sig.exe
-            llvm_asset: llvm-22-x86_64-windows.tar.xz
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -66,7 +48,6 @@ jobs:
         id: version
         shell: bash
         run: |
-          # Determine version source file (build.sig preferred, build.zig fallback)
           if [ -f "build.sig" ]; then
             VER_FILE="build.sig"
           else
@@ -80,7 +61,6 @@ jobs:
             SIG_MINOR=$(sed -n 's/^const sig_version.*minor = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
             SIG_PATCH=$(sed -n 's/^const sig_version.*patch = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
             SIG_PRE=$(sed -n 's/^const sig_version.*pre = "\([^"]*\)".*/\1/p' "$VER_FILE" | head -1)
-            # Fallback: if struct format didn't match, try string format (build.zig)
             if [ -z "$SIG_MAJOR" ]; then
               SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' "$VER_FILE" | head -1)
             else
@@ -98,13 +78,12 @@ jobs:
           VERSION="${SIG_VER}-zig${ZIG_MAJOR}.${ZIG_MINOR}.${ZIG_PATCH}.$(git rev-parse --short=7 HEAD)"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "Building sig ${VERSION} for ${{ matrix.target }} (version source: ${VER_FILE})"
+          echo "Building sig ${VERSION} (native x86_64-linux stage)"
 
       - name: Download bootstrap
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Bootstrap needs libc++ (built with -stdlib=libc++)
           sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1
           gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "bootstrap-sig-x86_64-linux.*" --dir /tmp
           BOOTSTRAP_ARCHIVE=$(ls /tmp/bootstrap-sig-x86_64-linux.* | head -1)
@@ -116,27 +95,25 @@ jobs:
             exit 1
           fi
           chmod +x "$BIN"
-          echo "$(dirname "$BIN")" >> "$GITHUB_PATH"
           echo "SIG=${BIN}" >> "$GITHUB_ENV"
           ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"
           "${BIN}" version || true
 
-      - name: Download LLVM 22
+      - name: Download LLVM 22 (x86_64-linux)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download llvm-22 --pattern "${{ matrix.llvm_asset }}" --dir /tmp
+          gh release download llvm-22 --pattern "llvm-22-x86_64-linux.tar.xz" --dir /tmp
           mkdir -p llvm-22
-          tar -xJf "/tmp/${{ matrix.llvm_asset }}" -C llvm-22 --strip-components=1
+          tar -xJf "/tmp/llvm-22-x86_64-linux.tar.xz" -C llvm-22 --strip-components=1
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
 
-      - name: Build stage3
+      - name: Build native sig (x86_64-linux-musl)
         run: |
           ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
           SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
-          echo "Building ${{ matrix.zig_target }} (version: ${ZIG_VER_BASE}, sig: ${SIG_VER})"
+          echo "Building x86_64-linux-musl (version: ${ZIG_VER_BASE}, sig: ${SIG_VER})"
 
-          # Generate build_options directly (skip sig build — v28 can't run the new build runner)
           mkdir -p .build-gen stage3-out/bin
           cat > .build-gen/build_options.zig << EOF
           pub const have_llvm: bool = true;
@@ -169,7 +146,140 @@ jobs:
             LLVM_LINK_FLAGS="$LLVM_LINK_FLAGS -l${name}"
           done
 
-          # Compile with LLVM-enabled bootstrap (v28) using build-exe directly
+          "${SIG}" build-exe \
+            -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I${LLVM_PREFIX}/include -isystem lib/libcxx/include -isystem lib/libcxxabi/include -- \
+            src/zig_llvm.cpp src/zig_llvm-ar.cpp src/zig_clang_driver.cpp src/zig_clang_cc1_main.cpp src/zig_clang_cc1as_main.cpp \
+            --dep build_options --dep aro \
+            -Mroot=src/main.zig \
+            -Mbuild_options=.build-gen/build_options.zig \
+            -Maro=lib/compiler/aro/aro.zig \
+            --name sig \
+            -OReleaseFast \
+            -fstrip \
+            --zig-lib-dir lib \
+            -target x86_64-linux-musl \
+            --cache-dir .zig-cache \
+            -lc \
+            -lc++ \
+            -L "${LLVM_PREFIX}/lib" \
+            $LLVM_LINK_FLAGS \
+            -femit-bin=stage3-out/bin/sig
+
+      - name: Verify native binary
+        run: |
+          chmod +x stage3-out/bin/sig
+          ./stage3-out/bin/sig version
+
+      - name: Package native binary
+        run: |
+          OUT="sig-${VERSION}-x86_64-linux"
+          mkdir -p "${OUT}/bin"
+          cp stage3-out/bin/sig "${OUT}/bin/sig"
+          cp stage3-out/bin/sig "${OUT}/bin/zig"
+          cp -r lib "${OUT}/lib"
+          echo "Size: $(du -h "${OUT}/bin/sig" | cut -f1)"
+          ARCHIVE="sig-${VERSION}-x86_64-linux.tar.xz"
+          tar -cJf "${ARCHIVE}" "${OUT}"
+          sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sig-x86_64-linux
+          path: |
+            sig-${{ env.VERSION }}-x86_64-linux.tar.xz
+            sig-${{ env.VERSION }}-x86_64-linux.tar.xz.sha256
+
+      - name: Upload stage3 binary for cross jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage3-native
+          path: stage3-out/bin/sig
+
+  # Stage 2: Cross-compile for other targets using the freshly-built native binary
+  build-cross:
+    needs: build-native
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-macos
+            zig_target: aarch64-macos-none
+            ext: tar.xz
+            bin: sig
+            llvm_asset: llvm-22-aarch64-macos.tar.xz
+          - target: x86_64-windows
+            zig_target: x86_64-windows-gnu
+            ext: zip
+            bin: sig.exe
+            llvm_asset: llvm-22-x86_64-windows.tar.xz
+    env:
+      VERSION: ${{ needs.build-native.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download stage3 native binary
+        uses: actions/download-artifact@v4
+        with:
+          name: stage3-native
+          path: /tmp/stage3
+
+      - name: Setup stage3 as compiler
+        run: |
+          chmod +x /tmp/stage3/sig
+          ln -sf "$(pwd)/lib" /tmp/stage3/lib
+          echo "SIG=/tmp/stage3/sig" >> "$GITHUB_ENV"
+          /tmp/stage3/sig version
+
+      - name: Download LLVM 22
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download llvm-22 --pattern "${{ matrix.llvm_asset }}" --dir /tmp
+          mkdir -p llvm-22
+          tar -xJf "/tmp/${{ matrix.llvm_asset }}" -C llvm-22 --strip-components=1
+          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
+
+      - name: Build stage3 (${{ matrix.target }})
+        run: |
+          ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
+          SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
+          echo "Building ${{ matrix.zig_target }} (version: ${ZIG_VER_BASE}, sig: ${SIG_VER})"
+
+          mkdir -p .build-gen stage3-out/bin
+          cat > .build-gen/build_options.zig << EOF
+          pub const have_llvm: bool = true;
+          pub const llvm_has_m68k: bool = true;
+          pub const llvm_has_csky: bool = true;
+          pub const llvm_has_arc: bool = true;
+          pub const llvm_has_xtensa: bool = true;
+          pub const enable_logging: bool = false;
+          pub const enable_debug_extensions: bool = false;
+          pub const enable_link_snapshots: bool = false;
+          pub const debug_gpa: bool = false;
+          pub const enable_tracy: bool = false;
+          pub const enable_tracy_callstack: bool = false;
+          pub const enable_tracy_allocation: bool = false;
+          pub const tracy_callstack_depth: u32 = 6;
+          pub const value_tracing: bool = false;
+          pub const mem_leak_frames: u32 = 0;
+          pub const io_mode: enum { threaded, evented } = .threaded;
+          pub const value_interpret_mode: enum { direct, by_name } = .direct;
+          pub const version: [:0]const u8 = "${ZIG_VER_BASE}";
+          pub const sig_version: [:0]const u8 = "${SIG_VER}";
+          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
+          pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
+          EOF
+
+          # Build LLVM link flags from available static libraries
+          LLVM_LINK_FLAGS=""
+          for lib in "${LLVM_PREFIX}"/lib/lib*.a; do
+            name=$(basename "$lib" .a | sed 's/^lib//')
+            LLVM_LINK_FLAGS="$LLVM_LINK_FLAGS -l${name}"
+          done
+
           "${SIG}" build-exe \
             -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I${LLVM_PREFIX}/include -isystem lib/libcxx/include -isystem lib/libcxxabi/include -- \
             src/zig_llvm.cpp src/zig_llvm-ar.cpp src/zig_clang_driver.cpp src/zig_clang_cc1_main.cpp src/zig_clang_cc1as_main.cpp \
@@ -193,31 +303,13 @@ jobs:
         run: |
           OUT="sig-${VERSION}-${{ matrix.target }}"
           mkdir -p "${OUT}/bin"
-          # Check for binary in stage3-out/bin (multiple possible names)
-          if [ -f "stage3-out/bin/${{ matrix.bin }}" ]; then
-            cp "stage3-out/bin/${{ matrix.bin }}" "${OUT}/bin/${{ matrix.bin }}"
-          elif [ -f "stage3-out/bin/zig.exe" ]; then
-            cp "stage3-out/bin/zig.exe" "${OUT}/bin/${{ matrix.bin }}"
-          elif [ -f "stage3-out/bin/zig" ]; then
-            cp "stage3-out/bin/zig" "${OUT}/bin/${{ matrix.bin }}"
-          else
-            echo "ERROR: No binary found in stage3-out/bin/"
-            ls -la stage3-out/bin/ 2>/dev/null || echo "stage3-out/bin/ does not exist"
-            exit 1
-          fi
+          cp "stage3-out/bin/${{ matrix.bin }}" "${OUT}/bin/${{ matrix.bin }}"
           case "${{ matrix.bin }}" in
             sig)     cp "${OUT}/bin/sig" "${OUT}/bin/zig" ;;
             sig.exe) cp "${OUT}/bin/sig.exe" "${OUT}/bin/zig.exe" ;;
           esac
           cp -r lib "${OUT}/lib"
           echo "Size: $(du -h "${OUT}/bin/${{ matrix.bin }}" | cut -f1)"
-
-      - name: Verify
-        run: |
-          if [ "${{ matrix.target }}" = "x86_64-linux" ]; then
-            chmod +x "sig-${VERSION}-${{ matrix.target }}/bin/sig"
-            "./sig-${VERSION}-${{ matrix.target }}/bin/sig" version
-          fi
 
       - name: Archive (tar.xz)
         if: matrix.ext == 'tar.xz'
@@ -243,11 +335,11 @@ jobs:
             ${{ env.ARCHIVE }}.sha256
 
   publish:
-    needs: build
-    if: needs.build.result == 'success'
+    needs: [build-native, build-cross]
+    if: always() && needs.build-native.result == 'success'
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ needs.build.outputs.version }}
+      VERSION: ${{ needs.build-native.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -260,6 +352,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd artifacts
+          # Remove the raw binary artifact (not an archive)
+          rm -f sig
           cat *.sha256 > sha256sums.txt 2>/dev/null || true
           PRERELEASE=""
           LATEST_FLAG="--latest"
@@ -270,6 +364,6 @@ jobs:
           sleep 2
           gh release create "sig-${VERSION}" \
             --title "Sig ${VERSION}" \
-            --notes "Sig ${VERSION} ╬ô├ç├╢ self-sustained release (sig builds sig)." \
+            --notes "Sig ${VERSION} — self-sustained release (sig builds sig)." \
             ${LATEST_FLAG} ${PRERELEASE} \
             $ARCHIVES sha256sums.txt
