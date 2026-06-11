@@ -189,13 +189,7 @@ jobs:
             sig-${{ env.VERSION }}-x86_64-linux.tar.xz
             sig-${{ env.VERSION }}-x86_64-linux.tar.xz.sha256
 
-      - name: Upload stage3 binary for cross jobs
-        uses: actions/upload-artifact@v4
-        with:
-          name: stage3-native
-          path: stage3-out/bin/sig
-
-  # Stage 2: Cross-compile for other targets using the freshly-built native binary
+  # Stage 2: Cross-compile for other targets using v28 bootstrap (no-LLVM)
   build-cross:
     needs: build-native
     runs-on: ubuntu-latest
@@ -207,12 +201,10 @@ jobs:
             zig_target: aarch64-macos-none
             ext: tar.xz
             bin: sig
-            llvm_asset: llvm-22-aarch64-macos.tar.xz
           - target: x86_64-windows
             zig_target: x86_64-windows-gnu
             ext: zip
             bin: sig.exe
-            llvm_asset: llvm-22-x86_64-windows.tar.xz
     env:
       VERSION: ${{ needs.build-native.outputs.version }}
     steps:
@@ -229,41 +221,35 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download stage3 native binary
-        uses: actions/download-artifact@v4
-        with:
-          name: stage3-native
-          path: /tmp/stage3
-
-      - name: Setup stage3 as compiler
-        run: |
-          chmod +x /tmp/stage3/sig
-          ln -sf "$(pwd)/lib" /tmp/stage3/lib
-          echo "SIG=/tmp/stage3/sig" >> "$GITHUB_ENV"
-          /tmp/stage3/sig version
-
-      - name: Download LLVM 22
+      - name: Download bootstrap (v28)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download llvm-22 --pattern "${{ matrix.llvm_asset }}" --dir /tmp
-          mkdir -p llvm-22
-          tar -xJf "/tmp/${{ matrix.llvm_asset }}" -C llvm-22 --strip-components=1
-          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
+          # Use v28 bootstrap for cross-compilation (no-LLVM, pure Zig)
+          sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1
+          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "bootstrap-sig-x86_64-linux.*" --dir /tmp
+          BOOTSTRAP_ARCHIVE=$(ls /tmp/bootstrap-sig-x86_64-linux.* | head -1)
+          mkdir -p /tmp/bootstrap
+          tar -xf "$BOOTSTRAP_ARCHIVE" -C /tmp/bootstrap
+          BIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)
+          chmod +x "$BIN"
+          echo "SIG=${BIN}" >> "$GITHUB_ENV"
+          ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"
+          "${BIN}" version || true
 
       - name: Build stage3 (${{ matrix.target }})
         run: |
           ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
           SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
-          echo "Building ${{ matrix.zig_target }} (version: ${ZIG_VER_BASE}, sig: ${SIG_VER})"
+          echo "Building ${{ matrix.zig_target }} (version: ${ZIG_VER_BASE}, sig: ${SIG_VER}) [no-LLVM]"
 
           mkdir -p .build-gen stage3-out/bin
           cat > .build-gen/build_options.zig << EOF
-          pub const have_llvm: bool = true;
-          pub const llvm_has_m68k: bool = true;
-          pub const llvm_has_csky: bool = true;
-          pub const llvm_has_arc: bool = true;
-          pub const llvm_has_xtensa: bool = true;
+          pub const have_llvm: bool = false;
+          pub const llvm_has_m68k: bool = false;
+          pub const llvm_has_csky: bool = false;
+          pub const llvm_has_arc: bool = false;
+          pub const llvm_has_xtensa: bool = false;
           pub const enable_logging: bool = false;
           pub const enable_debug_extensions: bool = false;
           pub const enable_link_snapshots: bool = false;
@@ -282,16 +268,7 @@ jobs:
           pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
           EOF
 
-          # Build LLVM link flags from available static libraries
-          LLVM_LINK_FLAGS=""
-          for lib in "${LLVM_PREFIX}"/lib/lib*.a; do
-            name=$(basename "$lib" .a | sed 's/^lib//')
-            LLVM_LINK_FLAGS="$LLVM_LINK_FLAGS -l${name}"
-          done
-
           "${SIG}" build-exe \
-            -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I${LLVM_PREFIX}/include -isystem lib/libcxx/include -isystem lib/libcxxabi/include -- \
-            src/zig_llvm.cpp src/zig_llvm-ar.cpp src/zig_clang_driver.cpp src/zig_clang_cc1_main.cpp src/zig_clang_cc1as_main.cpp \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=.build-gen/build_options.zig \
@@ -302,10 +279,6 @@ jobs:
             --zig-lib-dir lib \
             -target ${{ matrix.zig_target }} \
             --cache-dir .zig-cache \
-            -lc \
-            -lc++ \
-            -L "${LLVM_PREFIX}/lib" \
-            $LLVM_LINK_FLAGS \
             -femit-bin=stage3-out/bin/${{ matrix.bin }}
 
       - name: Package
