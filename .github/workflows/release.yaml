@@ -177,6 +177,7 @@ jobs:
             -target ${{ matrix.zig_target }} \
             --cache-dir .zig-cache \
             -lc \
+            -lc++ \
             -L "${LLVM_PREFIX}/lib" \
             -femit-bin=stage3-out/bin/${{ matrix.bin }}
 
