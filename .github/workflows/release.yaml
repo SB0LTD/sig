@@ -171,9 +171,10 @@ jobs:
             --zig-lib-dir lib \
             -target ${{ matrix.zig_target }} \
             --cache-dir .zig-cache \
-            --search-prefix "${LLVM_PREFIX}" \
             -lc \
-            -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -- \
+            -L "${LLVM_PREFIX}/lib" \
+            -I "${LLVM_PREFIX}/include" \
+            -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I${LLVM_PREFIX}/include -- \
             src/zig_llvm.cpp src/zig_llvm-ar.cpp src/zig_clang_driver.cpp src/zig_clang_cc1_main.cpp src/zig_clang_cc1as_main.cpp \
             -femit-bin=stage3-out/bin/${{ matrix.bin }}
 
