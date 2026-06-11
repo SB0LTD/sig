@@ -164,7 +164,7 @@ jobs:
 
           # Compile with LLVM-enabled bootstrap (v28) using build-exe directly
           "${SIG}" build-exe \
-            -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I${LLVM_PREFIX}/include -- \
+            -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I${LLVM_PREFIX}/include -isystem lib/libcxx/include -isystem lib/libcxxabi/include -- \
             src/zig_llvm.cpp src/zig_llvm-ar.cpp src/zig_clang_driver.cpp src/zig_clang_cc1_main.cpp src/zig_clang_cc1as_main.cpp \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
