@@ -25,24 +25,24 @@ base: link.File,
 mf: MappedFile,
 nodes: std.MultiArrayList(Node),
 members: std.ArrayList(Member),
-pending_members: std.AutoArrayHashMapUnmanaged(Member.Index, void),
+pending_members: std.array_hash_map.Auto(Member.Index, void),
 lib_string_table: std.ArrayList(String),
 lib_string_len: u32,
 long_names_table: LongNamesTable,
 import_table: ImportTable,
 export_table: ExportTable,
 symbol_table: SymbolTable,
-inputs: std.ArrayHashMapUnmanaged(std.Build.Cache.Path, void, std.Build.Cache.Path.TableAdapter, false),
+inputs: std.array_hash_map.Custom(std.Build.Cache.Path, void, std.Build.Cache.Path.TableAdapter, false),
 input_archives: std.ArrayList(InputArchive),
 input_archive_members: std.ArrayList(InputArchive.Member),
 input_archive_symbols: std.ArrayList(InputArchive.Member.Symbol),
-input_archive_symbol_indices: std.AutoArrayHashMapUnmanaged(String, InputArchive.SearchList),
+input_archive_symbol_indices: std.array_hash_map.Auto(String, InputArchive.SearchList),
 pending_input: ?InputArchive.Member.Index,
 pending_default_libs: std.ArrayList(struct {
     path: []const u8,
     ioi: InputObject.Index,
 }),
-alternate_names: std.AutoArrayHashMapUnmanaged(String, String),
+alternate_names: std.array_hash_map.Auto(String, String),
 input_objects: std.ArrayList(InputObject),
 input_symbols: std.ArrayList(struct { si: Symbol.Index, name: String }),
 input_sections: std.ArrayList(Node.InputSection),
@@ -57,10 +57,10 @@ strings: std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 ),
 string_bytes: std.ArrayList(u8),
-section_table: std.AutoArrayHashMapUnmanaged(String, Section),
+section_table: std.array_hash_map.Auto(String, Section),
 pseudo_section_table: std.array_hash_map.Auto(String, Symbol.Index),
 object_section_table: std.array_hash_map.Auto(String, Symbol.Index),
-section_merges: std.AutoArrayHashMapUnmanaged(String, String),
+section_merges: std.array_hash_map.Auto(String, String),
 section_merge_pending_index: u32,
 symbols: std.ArrayList(Symbol),
 globals: std.array_hash_map.Auto(GlobalName, Symbol.Index),
@@ -480,7 +480,7 @@ pub const Member = struct {
     kind: std.coff.ArchiveMemberHeader.Kind,
     header_ni: MappedFile.Node.Index,
     content_ni: MappedFile.Node.Index,
-    first_linker_indices: std.AutoArrayHashMapUnmanaged(struct {
+    first_linker_indices: std.array_hash_map.Auto(struct {
         mi: Member.Index,
         name: String,
     }, FirstLinkerIndex),
@@ -594,7 +594,7 @@ pub const Member = struct {
 
 pub const LongNamesTable = struct {
     ni: MappedFile.Node.Index = .none,
-    entries: std.AutoArrayHashMapUnmanaged(void, Entry),
+    entries: std.array_hash_map.Auto(void, Entry),
 
     pub const Entry = struct {
         offset: u64,
@@ -621,8 +621,8 @@ pub const LongNamesTable = struct {
 pub const SymbolTable = struct {
     ni: MappedFile.Node.Index,
     strings_ni: MappedFile.Node.Index,
-    strings: std.AutoArrayHashMapUnmanaged(String, StringIndex),
-    symbols: std.AutoArrayHashMapUnmanaged(Symbol.Index, SymbolTable.Index),
+    strings: std.array_hash_map.Auto(String, StringIndex),
+    symbols: std.array_hash_map.Auto(Symbol.Index, SymbolTable.Index),
     pending_symbol_index: u32,
 
     // Resizing the symbol table node has the result of accumulating padding
@@ -681,7 +681,7 @@ pub const ExportTable = struct {
     name_pointer_table_ni: MappedFile.Node.Index,
     ordinal_table_ni: MappedFile.Node.Index,
     name_table_ni: MappedFile.Node.Index,
-    entries: std.AutoArrayHashMapUnmanaged(void, Entry),
+    entries: std.array_hash_map.Auto(void, Entry),
     pending_sort: bool = false,
 
     pub const Entry = struct {
@@ -719,7 +719,7 @@ pub const ExportTable = struct {
 pub const ImportTable = struct {
     ni: MappedFile.Node.Index,
     entries: std.array_hash_map.Auto(void, Entry),
-    iat_symbol_indices: std.AutoArrayHashMapUnmanaged(struct {
+    iat_symbol_indices: std.array_hash_map.Auto(struct {
         iti: ImportTable.Index,
         name: String.Optional,
         // If name == .none this is the ordinal, otherwise the hint
@@ -2767,7 +2767,7 @@ const GlobalOptions = struct {
 fn getOrPutGlobalSymbol(
     coff: *Coff,
     opts: GlobalOptions,
-) !std.AutoArrayHashMapUnmanaged(GlobalName, Symbol.Index).GetOrPutResult {
+) !std.array_hash_map.Auto(GlobalName, Symbol.Index).GetOrPutResult {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     try coff.symbols.ensureUnusedCapacity(gpa, 1);
@@ -4134,7 +4134,7 @@ fn loadObject(
     };
 
     var num_global_symbols: u32 = 0;
-    var pending_symbols: std.AutoArrayHashMapUnmanaged(u32, PendingSymbol) = .empty;
+    var pending_symbols: std.array_hash_map.Auto(u32, PendingSymbol) = .empty;
     defer pending_symbols.deinit(gpa);
     if (!is_archive)
         try pending_symbols.ensureUnusedCapacity(gpa, header.number_of_symbols);
