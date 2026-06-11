@@ -38,14 +38,15 @@ pub fn build(b: *std.Build) void {
         lib_use_llvm,
         exe_use_llvm,
     ) |exe_name, lib_name, dyn_libc, lib_llvm, exe_llvm| {
-        const use_llvm = lib_llvm or exe_llvm;
-        if (!use_llvm and target.result.os.tag == .macos) continue; // TODO
-        if (!use_llvm and target.result.os.tag == .freebsd) continue; // TODO
-        if (!use_llvm and target.result.os.tag == .netbsd) continue; // TODO
-        if (!use_llvm and target.result.os.tag == .openbsd) continue; // TODO
-        if (!use_llvm and target.result.cpu.arch == .loongarch64) continue; // TODO
-        if (!use_llvm and target.result.cpu.arch == .powerpc64le) continue; // TODO
-        if (!use_llvm and target.result.cpu.arch == .s390x) continue; // TODO
+        const no_llvm = !lib_llvm or !exe_llvm;
+        if (no_llvm and target.result.os.tag == .macos) continue; // TODO
+        if (no_llvm and target.result.os.tag == .freebsd) continue; // TODO
+        if (no_llvm and target.result.os.tag == .netbsd) continue; // TODO
+        if (no_llvm and target.result.os.tag == .openbsd) continue; // TODO
+        if (no_llvm and target.result.cpu.arch == .aarch64) continue; // TODO
+        if (no_llvm and target.result.cpu.arch == .loongarch64) continue; // TODO
+        if (no_llvm and target.result.cpu.arch == .powerpc64le) continue; // TODO
+        if (no_llvm and target.result.cpu.arch == .s390x) continue; // TODO
 
         const lib = b.addLibrary(.{
             .linkage = .dynamic,
