@@ -162,6 +162,13 @@ jobs:
           pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
           EOF
 
+          # Build LLVM link flags from available static libraries
+          LLVM_LINK_FLAGS=""
+          for lib in "${LLVM_PREFIX}"/lib/lib*.a; do
+            name=$(basename "$lib" .a | sed 's/^lib//')
+            LLVM_LINK_FLAGS="$LLVM_LINK_FLAGS -l${name}"
+          done
+
           # Compile with LLVM-enabled bootstrap (v28) using build-exe directly
           "${SIG}" build-exe \
             -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I${LLVM_PREFIX}/include -isystem lib/libcxx/include -isystem lib/libcxxabi/include -- \
@@ -179,6 +186,7 @@ jobs:
             -lc \
             -lc++ \
             -L "${LLVM_PREFIX}/lib" \
+            $LLVM_LINK_FLAGS \
             -femit-bin=stage3-out/bin/${{ matrix.bin }}
 
       - name: Package
