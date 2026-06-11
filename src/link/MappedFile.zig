@@ -1064,7 +1064,7 @@ fn realignNode(
     };
 
     if (try_backward) {
-        const backward_offset = new_alignment.backward(old_offset);
+        const backward_offset = new_alignment.backward(@intCast(old_offset));
         const prev_end = if (node.prev == .none) 0 else prev: {
             const prev_offset, const prev_size = node.prev.location(mf).resolve(mf);
             break :prev prev_offset + prev_size;

@@ -27,7 +27,7 @@ nodes: std.MultiArrayList(Node),
 members: std.ArrayList(Member),
 pending_members: std.AutoArrayHashMapUnmanaged(Member.Index, void),
 lib_string_table: std.ArrayList(String),
-lib_string_len: u64,
+lib_string_len: u32,
 long_names_table: LongNamesTable,
 import_table: ImportTable,
 export_table: ExportTable,
@@ -528,7 +528,7 @@ pub const Member = struct {
 
                 try Node.known.longnames_member.resize(&coff.mf, gpa, new_size);
                 const name_table_slice = Node.known.longnames_member.slice(&coff.mf);
-                const name_slice = name_table_slice[old_size..][0 .. name.len + 1];
+                const name_slice = name_table_slice[@intCast(old_size)..][0 .. name.len + 1];
                 @memcpy(name_slice[0..name.len], name);
                 name_slice[name.len] = 0;
 
@@ -608,7 +608,7 @@ pub const LongNamesTable = struct {
             assert(adapter.coff.isArchive());
             const longnames_slice = Node.known.longnames_member.slice(&adapter.coff.mf);
             const rhs = adapter.coff.long_names_table.entries.values()[rhs_index];
-            return std.mem.eql(u8, longnames_slice[rhs.offset..][0..rhs.len], lhs_key);
+            return std.mem.eql(u8, longnames_slice[@intCast(rhs.offset)..][0..@intCast(rhs.len)], lhs_key);
         }
 
         pub fn hash(_: Adapter, key: []const u8) u32 {
@@ -2721,8 +2721,8 @@ fn getOrPutSymbolName(coff: *Coff, name: []const u8, opt_string: ?String) !Symbo
 
             try coff.symbol_table.strings_ni.resize(&coff.mf, gpa, string_index + name.len + 1);
             const slice = coff.symbol_table.strings_ni.slice(&coff.mf);
-            @memcpy(slice[string_index..][0..name.len], name);
-            slice[string_index + name.len] = 0;
+            @memcpy(slice[@intCast(string_index)..][0..name.len], name);
+            slice[@intCast(string_index + name.len)] = 0;
         }
 
         break :name .{ .long = string_gop.value_ptr.* };
@@ -2941,7 +2941,7 @@ pub fn getVAddr(coff: *Coff, reloc_info: link.File.RelocInfo, target_si: Symbol.
 }
 
 /// Caller guarantees there is capacity for one member and two nodes
-fn addMemberAssumeCapacity(coff: *Coff, kind: std.coff.ArchiveMemberHeader.Kind, size: usize) !Member.Index {
+fn addMemberAssumeCapacity(coff: *Coff, kind: std.coff.ArchiveMemberHeader.Kind, size: u64) !Member.Index {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
 
@@ -2987,7 +2987,7 @@ fn addMemberAssumeCapacity(coff: *Coff, kind: std.coff.ArchiveMemberHeader.Kind,
 
             const old_size = Node.known.second_linker_member.location(&coff.mf).resolve(&coff.mf)[1];
             const old_header_size = new_num_members * @sizeOf(u32);
-            const trailing_size = old_size - old_header_size;
+            const trailing_size: usize = @intCast(old_size - old_header_size);
             try Node.known.second_linker_member.resize(&coff.mf, gpa, old_size + @sizeOf(u32));
 
             const slice = Node.known.second_linker_member.slice(&coff.mf);
@@ -3053,12 +3053,12 @@ fn ensureMemberSymbol(coff: *Coff, mi: Member.Index, name: String) !void {
     // can't guarantee that they will be tightly packed after resizing
 
     const name_slice = name.toSlice(coff);
-    const new_string_table_size = coff.lib_string_len + name_slice.len + 1;
+    const new_string_table_size: u32 = @intCast(coff.lib_string_len + name_slice.len + 1);
     defer coff.lib_string_len = new_string_table_size;
 
     {
-        const old_header_size = @sizeOf(u32) + @intFromEnum(mfli) * @sizeOf(u32);
-        const new_header_size = old_header_size + @sizeOf(u32);
+        const old_header_size: usize = @intCast(@sizeOf(u32) + @intFromEnum(mfli) * @sizeOf(u32));
+        const new_header_size: usize = @intCast(old_header_size + @sizeOf(u32));
         try Node.known.first_linker_member.resize(&coff.mf, gpa, new_header_size + new_string_table_size);
 
         const slice = Node.known.first_linker_member.slice(&coff.mf);
@@ -3231,7 +3231,7 @@ fn flushSymbolTableEntry(coff: *Coff, index: u32, pt: Zcu.PerThread) !void {
                     .unused = @splat(0),
                 };
                 if (coff.targetEndian() != native_endian)
-                    std.mem.byteSwapAllFields(std.coff.SectionDefinition, .@"2", aux_ptr);
+                    std.mem.byteSwapAllFieldsAligned(std.coff.WeakExternalDefinition, .@"2", aux_ptr);
 
                 break :aux_init;
             } else switch (coff.getNode(sym.ni)) {
@@ -3249,7 +3249,7 @@ fn flushSymbolTableEntry(coff: *Coff, index: u32, pt: Zcu.PerThread) !void {
                         .unused = @splat(0),
                     };
                     if (coff.targetEndian() != native_endian)
-                        std.mem.byteSwapAllFields(std.coff.SectionDefinition, .@"2", aux_ptr);
+                        std.mem.byteSwapAllFieldsAligned(std.coff.SectionDefinition, .@"2", aux_ptr);
 
                     break :aux_init;
                 },
@@ -4269,7 +4269,7 @@ fn loadObject(
                     var weak_external: std.coff.WeakExternalDefinition = undefined;
                     @memcpy(std.mem.asBytes(&weak_external)[0..symbol_size], aux_symbols[0..symbol_size]);
                     if (target_endian != native_endian)
-                        std.mem.byteSwapAllFields(std.coff.SectionDefinition, &weak_external);
+                        std.mem.byteSwapAllFields(std.coff.WeakExternalDefinition, &weak_external);
 
                     if (weak_external.tag_index >= header.number_of_symbols)
                         return diags.failParse(
@@ -5131,7 +5131,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) Loa
                     symbol_member_indices.addOneAssumeCapacity().* = (try r.takeInt(u16, target_endian)) - 1;
 
                 pos = fr.logicalPos();
-                try coff.ensureManyUnusedStringCapacity(num_symbols, member_end - pos);
+                try coff.ensureManyUnusedStringCapacity(num_symbols, @intCast(member_end - pos));
                 try coff.input_archive_members.ensureUnusedCapacity(gpa, num_members);
                 try coff.input_archive_symbols.ensureUnusedCapacity(gpa, num_symbols);
                 try coff.input_archive_symbol_indices.ensureUnusedCapacity(gpa, num_symbols);
@@ -5202,7 +5202,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) Loa
             .longnames => {
                 // This member is optional
                 if (std.mem.eql(u8, res.name, "//"))
-                    opt_longnames = try r.readAlloc(gpa, res.size);
+                    opt_longnames = try r.readAlloc(gpa, @intCast(res.size));
 
                 opt_expected_kind = null;
                 break;
@@ -5753,9 +5753,8 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
                 // TODO: Make this a helper for anything that needs to report "referenced by" notes
                 switch (coff.getNode(loc_sym.ni)) {
                     .data_directories => {
-                        const dir_align = std.mem.Alignment.of(std.coff.ImageDataDirectory);
                         const dir: std.coff.IMAGE.DIRECTORY_ENTRY =
-                            @enumFromInt(dir_align.backward(reloc.offset) / @sizeOf(std.coff.IMAGE.DIRECTORY_ENTRY));
+                            @enumFromInt(reloc.offset / @sizeOf(std.coff.ImageDataDirectory));
                         err.addNote("referenced by data directory entry: {t}", .{dir});
                     },
                     .optional_header => err.addNote("referenced by optional header field", .{}),
@@ -6566,7 +6565,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
                 const Entry = std.coff.ImportLookupTableEntry(ct_magic);
                 const import_lookup_table: []Entry = @ptrCast(@alignCast(import_lookup_slice));
                 const import_address_table: []Entry = @ptrCast(@alignCast(import_address_slice));
-                const import_hint_name_rvas: [2]Entry = .{
+                var import_hint_name_rvas: [2]Entry = .{
                     .{
                         .payload = if (import.name == .none)
                             .{ .ordinal = .{ .ordinal = import.ordinal_hint } }
@@ -6577,7 +6576,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
                     @bitCast(@as(@typeInfo(Entry).@"struct".backing_integer.?, 0)),
                 };
                 if (native_endian != target_endian)
-                    for (import_hint_name_rvas) |*v| std.mem.byteSwapAllFields(Entry, v);
+                    for (&import_hint_name_rvas) |*v| std.mem.byteSwapAllFields(Entry, v);
 
                 import_lookup_table[import_symbol_index..][0..2].* = import_hint_name_rvas;
                 import_address_table[import_symbol_index..][0..2].* = import_hint_name_rvas;
@@ -7182,7 +7181,7 @@ fn flushMember(coff: *Coff, mi: Member.Index) !void {
                 .strings = coff.lib_string_table.items,
             });
 
-            var offset: u64 = 0;
+            var offset: usize = 0;
             var string_table = coff.secondLinkerMemberStringsSlice();
             for (coff.lib_string_table.items) |string| {
                 const str = string.toSlice(coff);
@@ -7419,7 +7418,7 @@ fn updateExportsInner(
             if (export_count > std.math.maxInt(@FieldType(std.coff.ExportDirectoryTable, "number_of_entries")))
                 return coff.base.comp.link_diags.fail("exceeded maximum number of exports", .{});
 
-            const name_index: u64 = coff.export_table.name_table_ni.location(&coff.mf).resolve(&coff.mf)[1];
+            const name_index: u32 = @intCast(coff.export_table.name_table_ni.location(&coff.mf).resolve(&coff.mf)[1]);
             const new_name_table_size = name_index + name.len + 1;
             if (new_name_table_size > std.math.maxInt(@FieldType(ExportTable.Entry, "name_index")))
                 return coff.base.comp.link_diags.fail("exports name table limit reached", .{});

@@ -2043,7 +2043,7 @@ pub const ArchiveMemberHeader = extern struct {
 
             if (opt_longnames) |longnames| {
                 if (offset >= longnames.len) return error.BadName;
-                break :name std.mem.sliceTo(longnames[offset..], 0);
+                break :name std.mem.sliceTo(longnames[@intCast(offset)..], 0);
             } else return error.NoLongNames;
         } else if (trim[trim.len - 1] == '/')
             trim[0 .. trim.len - 1]
