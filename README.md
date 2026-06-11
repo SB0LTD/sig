@@ -73,7 +73,7 @@ Standard Zig error unions. `try`, `catch`, `orelse`. Nothing new to learn.
 
 Sig is not a fork. It stays synchronized with upstream Zig within minutes of every commit.
 
-A watcher on GCP polls Codeberg's RSS feed every 30 seconds. When a new commit lands in `ziglang/zig`, it fires a GitHub dispatch. The sig-sync workflow cherry-picks the commit, resolves conflicts (keeping sig-owned files), validates the bootstrap, and pushes. If the standard library changed in a way that breaks the bootstrap, it triggers a rebuild chain automatically.
+When a new commit lands in `ziglang/zig`, it fires a GitHub dispatch. The sig-sync workflow cherry-picks the commit, resolves conflicts (keeping sig-owned files), validates the bootstrap, and pushes. If the standard library changed in a way that breaks the bootstrap, it triggers a rebuild chain automatically.
 
 The result: sig never drifts. You get upstream bug fixes, optimizations, and new features without waiting.
 
