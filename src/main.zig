@@ -5382,11 +5382,11 @@ fn compileSigBuildRunner(gpa: Allocator, arena: Allocator, io: Io, options: SigB
         .parent = root_mod,
     });
 
-    // Wire compiler module — root at build_root directory.
-    // Use fromUnresolved which properly constructs a Compilation.Path.
+    // Wire compiler module — root at build_root, src_path at src/build_api.zig.
+    // Construct Path manually to avoid fromUnresolved resolution issues.
     const compiler_mod = try Package.Module.create(arena, .{
         .paths = .{
-            .root = try Compilation.Path.fromUnresolved(arena, options.dirs, &.{options.build_root.directory.path orelse "."}),
+            .root = .{ .root = .none, .sub_path = try arena.dupe(u8, options.build_root.directory.path orelse ".") },
             .root_src_path = "src/build_api.zig",
         },
         .fully_qualified_name = "root.compiler",
