@@ -1,10 +1,20 @@
-# [sig] Build LLVM 22 from source for all platforms using zig cc cross-compilation.
-# All targets are cross-compiled from Linux using zig cc, matching upstream zig's approach.
+# [sig] Build LLVM 22 from source for all platforms.
+# Cross-compiled targets use zig cc from Linux. Native targets build on their own runner.
 # One-time setup — re-run only when upgrading LLVM version.
 name: build-llvm
 
 on:
   workflow_dispatch:
+    inputs:
+      targets:
+        description: 'Which targets to build (all, native-only, cross-only)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - native-only
+          - cross-only
 
 permissions:
   contents: write
@@ -222,5 +232,76 @@ jobs:
             gh release create "${{ env.RELEASE_TAG }}" \
               --title "LLVM 22 (build artifacts)" \
               --notes "Pre-built LLVM 22.1.6 with Clang + LLD. Cross-compiled for all targets using zig cc 0.17.0-dev." \
+              --prerelease
+          gh release upload "${{ env.RELEASE_TAG }}" "${{ matrix.artifact }}" --clobber
+
+  # Native LLVM builds on Windows and macOS (for bootstrap compilation)
+  build-native-platform:
+    if: inputs.targets != 'cross-only'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: llvm-22-x86_64-windows-native.tar.xz
+            cmake_extra: ""
+          - os: macos-14
+            artifact: llvm-22-aarch64-macos-native.tar.xz
+            cmake_extra: ""
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    steps:
+      - name: Install deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja zlib zstd
+
+      - name: Install deps (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: choco install ninja -y
+
+      - name: Clone LLVM
+        shell: bash
+        run: git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
+
+      - name: Build LLVM natively
+        shell: bash
+        run: |
+          cmake -S llvm-src/llvm -B llvm-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" \
+            -DLLVM_ENABLE_PROJECTS="clang;lld" \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SPIRV;SystemZ;VE;WebAssembly;X86;XCore" \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="ARC;CSKY;M68k;Xtensa" \
+            -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_ENABLE_ZLIB=OFF \
+            -DLLVM_ENABLE_ZSTD=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLVM_BUILD_LLVM_DYLIB=OFF \
+            -DLLVM_BUILD_TOOLS=ON \
+            -DCLANG_ENABLE_ARCMT=OFF \
+            -DCLANG_ENABLE_STATIC_ANALYZER=ON \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF \
+            ${{ matrix.cmake_extra }}
+          ninja -C llvm-build install -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+      - name: Package
+        shell: bash
+        run: tar -cJf "${{ matrix.artifact }}" llvm-install/
+
+      - name: Upload to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ env.RELEASE_TAG }}" >/dev/null 2>&1 || \
+            gh release create "${{ env.RELEASE_TAG }}" \
+              --title "LLVM 22 (build artifacts)" \
+              --notes "Pre-built LLVM 22.1.6 with Clang + LLD." \
               --prerelease
           gh release upload "${{ env.RELEASE_TAG }}" "${{ matrix.artifact }}" --clobber
