@@ -1,5 +1,7 @@
 # Build bootstrap sig compiler binaries using cmake + ninja.
-# Linux: LLVM-enabled (full backend). Windows/macOS: no-LLVM (self-hosted backends).
+# Linux: LLVM-enabled (full backend) built natively with cmake.
+# Windows/macOS: Use build-exe with an existing sig binary on native runners.
+#
 # Chain: build-llvm (one-time) → build-bootstrap (one-time) → release (every release)
 name: build-bootstrap
 
@@ -10,42 +12,23 @@ on:
         description: 'Bootstrap release tag'
         required: false
         default: 'bootstrap-sig-v31'
+      seed_tag:
+        description: 'Existing sig release to use as seed for Win/Mac'
+        required: false
+        default: 'bootstrap-sig-v30'
 
 permissions:
   contents: write
 
 env:
   VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v31' }}
+  SEED_TAG: ${{ github.event.inputs.seed_tag || 'bootstrap-sig-v30' }}
   ZIG_VERSION: "0.14.1"
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-linux
-            llvm_asset: llvm-22-x86_64-linux-native.tar.xz
-            artifact: bootstrap-sig-x86_64-linux
-            deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev
-            cmake_extra: >-
-              -DZIG_USE_LLVM_CONFIG=ON
-              -DZLIB=$(find /usr/lib/x86_64-linux-gnu -name 'libz.a' 2>/dev/null | head -1)
-              -DZSTD=$(find /usr/lib/x86_64-linux-gnu -name 'libzstd.a' 2>/dev/null | head -1)
-          - os: windows-latest
-            target: x86_64-windows
-            llvm_asset: ""
-            artifact: bootstrap-sig-x86_64-windows
-            deps: echo "no extra deps needed"
-            cmake_extra: "-DZIG_NO_LLVM=ON -DZIG_NO_ZLIB=ON -DZIG_NO_ZSTD=ON"
-          - os: macos-14
-            target: aarch64-macos
-            llvm_asset: ""
-            artifact: bootstrap-sig-aarch64-macos
-            deps: brew install cmake ninja
-            cmake_extra: "-DZIG_NO_LLVM=ON -DZIG_NO_ZLIB=ON -DZIG_NO_ZSTD=ON"
-    runs-on: ${{ matrix.os }}
+  # Linux: cmake + LLVM (full backend, native)
+  build-linux:
+    runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
@@ -53,8 +36,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install build deps
-        shell: bash
-        run: ${{ matrix.deps }}
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
@@ -62,50 +44,244 @@ jobs:
           version: ${{ env.ZIG_VERSION }}
 
       - name: Download pre-built LLVM 22
-        if: matrix.llvm_asset != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download llvm-22 --pattern "llvm-22-x86_64-linux-native.tar.xz" --dir /tmp
+          mkdir -p "$PWD/llvm-22"
+          tar -xJf "/tmp/llvm-22-x86_64-linux-native.tar.xz" -C "$PWD/llvm-22" --strip-components=1
+          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
+
+      - name: Build with cmake + ninja
+        run: |
+          export PATH="$PWD/llvm-22/bin:$PATH"
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
+            -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DZIG_USE_LLVM_CONFIG=ON \
+            -DZIG_NO_LIB=ON \
+            -DZIG_TARGET_MCPU="baseline" \
+            "-DZLIB=$(find /usr/lib/x86_64-linux-gnu -name 'libz.a' | head -1)" \
+            "-DZSTD=$(find /usr/lib/x86_64-linux-gnu -name 'libzstd.a' | head -1)" \
+            -GNinja
+          ninja zig2 -j$(nproc)
+          file zig2
+
+      - name: Package and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p bootstrap-sig-x86_64-linux/bin
+          cp build/zig2 bootstrap-sig-x86_64-linux/bin/sig
+          cp build/zig2 bootstrap-sig-x86_64-linux/bin/zig
+          tar -czf bootstrap-sig-x86_64-linux.tar.gz -C bootstrap-sig-x86_64-linux .
+          gh release view "${VERSION}" >/dev/null 2>&1 || \
+            gh release create "${VERSION}" \
+              --title "Bootstrap Sig Compiler ${VERSION}" \
+              --notes "Native bootstrap sig. Linux: LLVM 22. Windows/macOS: self-hosted." \
+              --prerelease
+          gh release upload "${VERSION}" bootstrap-sig-x86_64-linux.tar.gz --clobber
+
+  # Windows: use existing sig (from seed release) to build sig natively
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download seed sig binary
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download llvm-22 --pattern "${{ matrix.llvm_asset }}" --dir /tmp
-          mkdir -p "$PWD/llvm-22"
-          tar -xJf "/tmp/${{ matrix.llvm_asset }}" -C "$PWD/llvm-22" --strip-components=1
-          rm "/tmp/${{ matrix.llvm_asset }}"
-          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
+          # Try platform-specific bootstrap first, fall back to linux bootstrap on WSL
+          gh release download "${{ env.SEED_TAG }}" --pattern "bootstrap-sig-x86_64-windows.*" --dir /tmp 2>/dev/null && {
+            mkdir -p /tmp/seed
+            tar -xf /tmp/bootstrap-sig-x86_64-windows.* -C /tmp/seed
+            SIG=$(find /tmp/seed -name "sig.exe" | head -1)
+          } || {
+            echo "No Windows bootstrap found, using setup-zig as seed"
+            echo "USE_ZIG_SEED=true" >> "$GITHUB_ENV"
+          }
+          if [ -n "$SIG" ]; then
+            echo "SIG=${SIG}" >> "$GITHUB_ENV"
+            "$SIG" version || true
+          fi
 
-      - name: Build with cmake + ninja
+      - name: Setup Zig (fallback seed)
+        if: env.USE_ZIG_SEED == 'true'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Set compiler
         shell: bash
         run: |
-          [ -d llvm-22 ] && export PATH="$PWD/llvm-22/bin:$PATH"
-          mkdir build && cd build
-          cmake .. \
-            -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
-            -DCMAKE_PREFIX_PATH="${LLVM_PREFIX:-/usr}" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DZIG_NO_LIB=ON \
-            -DZIG_TARGET_MCPU="baseline" \
-            ${{ matrix.cmake_extra }} \
-            -GNinja
-          ninja zig2 -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-          file zig2 || file zig2.exe || true
+          if [ "$USE_ZIG_SEED" = "true" ]; then
+            echo "SIG=zig" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build sig natively
+        shell: bash
+        run: |
+          mkdir -p .build-gen bootstrap-out/bin
+          cat > .build-gen/build_options.zig << 'EOF'
+          pub const have_llvm: bool = false;
+          pub const llvm_has_m68k: bool = false;
+          pub const llvm_has_csky: bool = false;
+          pub const llvm_has_arc: bool = false;
+          pub const llvm_has_xtensa: bool = false;
+          pub const enable_logging: bool = false;
+          pub const enable_debug_extensions: bool = false;
+          pub const enable_link_snapshots: bool = false;
+          pub const debug_gpa: bool = false;
+          pub const enable_tracy: bool = false;
+          pub const enable_tracy_callstack: bool = false;
+          pub const enable_tracy_allocation: bool = false;
+          pub const tracy_callstack_depth: u32 = 6;
+          pub const value_tracing: bool = false;
+          pub const mem_leak_frames: u32 = 0;
+          pub const io_mode: enum { threaded, evented } = .threaded;
+          pub const value_interpret_mode: enum { direct, by_name } = .direct;
+          pub const version: [:0]const u8 = "0.17.0";
+          pub const sig_version: [:0]const u8 = "0.2.0";
+          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
+          pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
+          EOF
+
+          "${SIG}" build-exe \
+            --dep build_options --dep aro \
+            -Mroot=src/main.zig \
+            -Mbuild_options=.build-gen/build_options.zig \
+            -Maro=lib/compiler/aro/aro.zig \
+            --name sig \
+            -OReleaseFast \
+            -fstrip \
+            --zig-lib-dir lib \
+            --cache-dir .zig-cache \
+            -femit-bin=bootstrap-out/bin/sig.exe
+
+          cp bootstrap-out/bin/sig.exe bootstrap-out/bin/zig.exe
+          file bootstrap-out/bin/sig.exe || true
+
+      - name: Verify
+        shell: bash
+        run: bootstrap-out/bin/sig.exe version || true
 
       - name: Package and publish
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p ${{ matrix.artifact }}/bin
-          if [ -f build/zig2.exe ]; then
-            cp build/zig2.exe ${{ matrix.artifact }}/bin/sig.exe
-            cp build/zig2.exe ${{ matrix.artifact }}/bin/zig.exe
-          else
-            cp build/zig2 ${{ matrix.artifact }}/bin/sig
-            cp build/zig2 ${{ matrix.artifact }}/bin/zig
-          fi
-          tar -czf ${{ matrix.artifact }}.tar.gz -C ${{ matrix.artifact }} .
+          tar -czf bootstrap-sig-x86_64-windows.tar.gz -C bootstrap-out .
           gh release view "${VERSION}" >/dev/null 2>&1 || \
             gh release create "${VERSION}" \
               --title "Bootstrap Sig Compiler ${VERSION}" \
-              --notes "Native bootstrap sig. Linux: LLVM 22. Windows/macOS: self-hosted backends." \
+              --notes "Native bootstrap sig. Linux: LLVM 22. Windows/macOS: self-hosted." \
               --prerelease
-          gh release upload "${VERSION}" ${{ matrix.artifact }}.tar.gz --clobber
+          gh release upload "${VERSION}" bootstrap-sig-x86_64-windows.tar.gz --clobber
+
+  # macOS: use existing sig (from seed release) to build sig natively
+  build-macos:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download seed sig binary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ env.SEED_TAG }}" --pattern "bootstrap-sig-aarch64-macos.*" --dir /tmp 2>/dev/null && {
+            mkdir -p /tmp/seed
+            tar -xf /tmp/bootstrap-sig-aarch64-macos.* -C /tmp/seed
+            SIG=$(find /tmp/seed -name "sig" -type f | head -1)
+          } || {
+            echo "No macOS bootstrap found, using setup-zig as seed"
+            echo "USE_ZIG_SEED=true" >> "$GITHUB_ENV"
+          }
+          if [ -n "$SIG" ]; then
+            chmod +x "$SIG"
+            echo "SIG=${SIG}" >> "$GITHUB_ENV"
+            "$SIG" version || true
+          fi
+
+      - name: Setup Zig (fallback seed)
+        if: env.USE_ZIG_SEED == 'true'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Set compiler
+        shell: bash
+        run: |
+          if [ "$USE_ZIG_SEED" = "true" ]; then
+            echo "SIG=zig" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build sig natively
+        shell: bash
+        run: |
+          mkdir -p .build-gen bootstrap-out/bin
+          cat > .build-gen/build_options.zig << 'EOF'
+          pub const have_llvm: bool = false;
+          pub const llvm_has_m68k: bool = false;
+          pub const llvm_has_csky: bool = false;
+          pub const llvm_has_arc: bool = false;
+          pub const llvm_has_xtensa: bool = false;
+          pub const enable_logging: bool = false;
+          pub const enable_debug_extensions: bool = false;
+          pub const enable_link_snapshots: bool = false;
+          pub const debug_gpa: bool = false;
+          pub const enable_tracy: bool = false;
+          pub const enable_tracy_callstack: bool = false;
+          pub const enable_tracy_allocation: bool = false;
+          pub const tracy_callstack_depth: u32 = 6;
+          pub const value_tracing: bool = false;
+          pub const mem_leak_frames: u32 = 0;
+          pub const io_mode: enum { threaded, evented } = .threaded;
+          pub const value_interpret_mode: enum { direct, by_name } = .direct;
+          pub const version: [:0]const u8 = "0.17.0";
+          pub const sig_version: [:0]const u8 = "0.2.0";
+          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
+          pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
+          EOF
+
+          "${SIG}" build-exe \
+            --dep build_options --dep aro \
+            -Mroot=src/main.zig \
+            -Mbuild_options=.build-gen/build_options.zig \
+            -Maro=lib/compiler/aro/aro.zig \
+            --name sig \
+            -OReleaseFast \
+            -fstrip \
+            --zig-lib-dir lib \
+            --cache-dir .zig-cache \
+            -femit-bin=bootstrap-out/bin/sig
+
+          cp bootstrap-out/bin/sig bootstrap-out/bin/zig
+          file bootstrap-out/bin/sig
+
+      - name: Verify
+        shell: bash
+        run: bootstrap-out/bin/sig version || true
+
+      - name: Package and publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tar -czf bootstrap-sig-aarch64-macos.tar.gz -C bootstrap-out .
+          gh release view "${VERSION}" >/dev/null 2>&1 || \
+            gh release create "${VERSION}" \
+              --title "Bootstrap Sig Compiler ${VERSION}" \
+              --notes "Native bootstrap sig. Linux: LLVM 22. Windows/macOS: self-hosted." \
+              --prerelease
+          gh release upload "${VERSION}" bootstrap-sig-aarch64-macos.tar.gz --clobber
