@@ -11389,6 +11389,7 @@ pub const clock_res_t = darwin.clock_res_t;
 pub const @"close$NOCANCEL" = darwin.@"close$NOCANCEL";
 pub const dispatch = darwin.dispatch;
 pub const fcopyfile = darwin.fcopyfile;
+pub const renameatx_np = darwin.renameatx_np;
 pub const host_t = darwin.host_t;
 pub const integer_t = darwin.integer_t;
 pub const ipc_space_t = darwin.ipc_space_t;

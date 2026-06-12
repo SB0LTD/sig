@@ -7505,6 +7505,7 @@ fn dirRenamePreserve(
 ) Dir.RenamePreserveError!void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     if (is_windows) return dirRenameWindowsInner(old_dir, old_sub_path, new_dir, new_sub_path, false);
+    if (is_darwin) return dirRenamePreserveDarwin(old_dir, old_sub_path, new_dir, new_sub_path);
     if (native_os == .linux) return dirRenamePreserveLinux(old_dir, old_sub_path, new_dir, new_sub_path);
     // Make a hard link then delete the original.
     try dirHardLink(t, old_dir, old_sub_path, new_dir, new_sub_path, .{ .follow_symlinks = false });
@@ -7696,6 +7697,58 @@ fn dirRenamePosix(
     return renameat(old_dir.handle, old_sub_path_posix, new_dir.handle, new_sub_path_posix);
 }
 
+fn dirRenamePreserveDarwin(
+    old_dir: Dir,
+    old_sub_path: []const u8,
+    new_dir: Dir,
+    new_sub_path: []const u8,
+) Dir.RenamePreserveError!void {
+    var old_path_buffer: [posix.PATH_MAX]u8 = undefined;
+    var new_path_buffer: [posix.PATH_MAX]u8 = undefined;
+    const old_sub_path_posix = try pathToPosix(old_sub_path, &old_path_buffer);
+    const new_sub_path_posix = try pathToPosix(new_sub_path, &new_path_buffer);
+
+    const syscall: Syscall = try .start();
+    while (true) {
+        switch (posix.errno(std.c.renameatx_np(
+            old_dir.handle,
+            old_sub_path_posix,
+            new_dir.handle,
+            new_sub_path_posix,
+            .{ .EXCL = true },
+        ))) {
+            .SUCCESS => {
+                syscall.finish();
+                break;
+            },
+            .INTR => {
+                try syscall.checkCancel();
+                continue;
+            },
+            .INVAL => |err| return syscall.errnoBug(err),
+            .FAULT => |err| return syscall.errnoBug(err),
+            .BADF => |err| return syscall.errnoBug(err),
+            .ISDIR => |err| return syscall.errnoBug(err),
+            .NOTEMPTY => |err| return syscall.errnoBug(err),
+            .OPNOTSUPP => return syscall.fail(error.OperationUnsupported),
+            .IO => return syscall.fail(error.HardwareFailure),
+            .DEADLK => return syscall.fail(error.AccessDenied),
+            .ACCES => return syscall.fail(error.AccessDenied),
+            .DQUOT => return syscall.fail(error.DiskQuota),
+            .EXIST => return syscall.fail(error.PathAlreadyExists),
+            .LOOP => return syscall.fail(error.LinkQuotaExceeded),
+            .NAMETOOLONG => return syscall.fail(error.NameTooLong),
+            .NOENT => return syscall.fail(error.FileNotFound),
+            .NOSPC => return syscall.fail(error.NoSpaceLeft),
+            .NOTDIR => return syscall.fail(error.NotDir),
+            .PERM => return syscall.fail(error.PermissionDenied),
+            .ROFS => return syscall.fail(error.ReadOnlyFileSystem),
+            .XDEV => return syscall.fail(error.CrossDevice),
+            else => |err| return syscall.unexpectedErrno(err),
+        }
+    }
+}
+
 fn dirRenamePreserveLinux(
     old_dir: Dir,
     old_sub_path: []const u8,
@@ -7781,49 +7834,6 @@ fn renameat(
         .INVAL => |err| return syscall.errnoBug(err),
         else => |err| return syscall.unexpectedErrno(err),
     };
-}
-
-fn renameatPreserve(
-    old_dir: posix.fd_t,
-    old_sub_path: [*:0]const u8,
-    new_dir: posix.fd_t,
-    new_sub_path: [*:0]const u8,
-) Dir.RenameError!void {
-    const syscall: Syscall = try .start();
-    while (true) {
-        switch (posix.errno(posix.system.renameat(old_dir, old_sub_path, new_dir, new_sub_path))) {
-            .SUCCESS => return syscall.finish(),
-            .INTR => {
-                try syscall.checkCancel();
-                continue;
-            },
-            else => |e| {
-                syscall.finish();
-                switch (e) {
-                    .ACCES => return error.AccessDenied,
-                    .PERM => return error.PermissionDenied,
-                    .BUSY => return error.FileBusy,
-                    .DQUOT => return error.DiskQuota,
-                    .FAULT => |err| return errnoBug(err),
-                    .INVAL => |err| return errnoBug(err),
-                    .ISDIR => return error.IsDir,
-                    .LOOP => return error.SymLinkLoop,
-                    .MLINK => return error.LinkQuotaExceeded,
-                    .NAMETOOLONG => return error.NameTooLong,
-                    .NOENT => return error.FileNotFound,
-                    .NOTDIR => return error.NotDir,
-                    .NOMEM => return error.SystemResources,
-                    .NOSPC => return error.NoSpaceLeft,
-                    .EXIST => return error.PathAlreadyExists,
-                    .NOTEMPTY => return error.PathAlreadyExists,
-                    .ROFS => return error.ReadOnlyFileSystem,
-                    .XDEV => return error.CrossDevice,
-                    .ILSEQ => return error.BadPathName,
-                    else => |err| return posix.unexpectedErrno(err),
-                }
-            },
-        }
-    }
 }
 
 const dirSymLink = switch (native_os) {
