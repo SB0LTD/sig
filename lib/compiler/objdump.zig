@@ -1029,7 +1029,7 @@ const coff = struct {
                             var weak_external: std.coff.WeakExternalDefinition = undefined;
                             @memcpy(std.mem.asBytes(&weak_external)[0..symbol_size], aux_symbols[0..symbol_size]);
                             if (native_endian != .little)
-                                std.mem.byteSwapAllFields(std.coff.SectionDefinition, &weak_external);
+                                std.mem.byteSwapAllFields(std.coff.WeakExternalDefinition, &weak_external);
 
                             if (weak_external.tag_index >= header.number_of_symbols)
                                 return d.failParse(
