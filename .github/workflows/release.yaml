@@ -189,7 +189,7 @@ jobs:
             sig-${{ env.VERSION }}-x86_64-linux.tar.xz
             sig-${{ env.VERSION }}-x86_64-linux.tar.xz.sha256
 
-  # Stage 2: Cross-compile for other targets using v28 bootstrap (no-LLVM)
+  # Stage 2: Cross-compile for other targets using v30 bootstrap (no-LLVM)
   build-cross:
     needs: build-native
     runs-on: ubuntu-latest
@@ -220,7 +220,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download bootstrap (v28)
+      - name: Download bootstrap (v30)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -229,10 +229,10 @@ jobs:
           BOOTSTRAP_ARCHIVE=$(ls /tmp/bootstrap-sig-x86_64-linux.* | head -1)
           mkdir -p /tmp/bootstrap
           tar -xf "$BOOTSTRAP_ARCHIVE" -C /tmp/bootstrap
-          BIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)
+          BIN=$(find /tmp/bootstrap -type f -name "sig" -o -name "zig" | head -1)
           chmod +x "$BIN"
           echo "SIG=${BIN}" >> "$GITHUB_ENV"
-          ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"
+          # Do NOT symlink lib — let the bootstrap find its own lib via --zig-lib-dir
           "${BIN}" version || true
 
       - name: Build stage3 (${{ matrix.target }})
@@ -266,6 +266,8 @@ jobs:
           pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
           EOF
 
+          # Use --zig-lib-dir to point to repo lib (needed for std + compiler sources)
+          # The v30 bootstrap has LLVM built-in — it should handle cross-target linking
           "${SIG}" build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
@@ -274,10 +276,14 @@ jobs:
             --name sig \
             -OReleaseFast \
             -fstrip \
-            --zig-lib-dir lib \
+            --zig-lib-dir "$(pwd)/lib" \
             -target ${{ matrix.zig_target }} \
             --cache-dir .zig-cache \
             -femit-bin=stage3-out/bin/${{ matrix.bin }}
+
+          # Debug: show what was produced
+          file stage3-out/bin/${{ matrix.bin }} || true
+          xxd -l 4 stage3-out/bin/${{ matrix.bin }} || true
 
       - name: Validate binary format
         run: |
