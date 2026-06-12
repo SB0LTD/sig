@@ -292,7 +292,6 @@ jobs:
             --zig-lib-dir lib \
             -target ${{ matrix.zig_target }} \
             --cache-dir .zig-cache \
-            -fno-emit-debug \
             -femit-bin=stage3-out/bin/${{ matrix.bin }}
 
       - name: Package
