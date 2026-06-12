@@ -1,7 +1,5 @@
-# Build LLVM-enabled bootstrap sig compiler binaries using cmake + ninja.
-# Requires: pre-built LLVM 22 from build-llvm.yaml (release tag: llvm-22)
-#
-# All platforms build natively on their own runner using cmake + zig as CC.
+# Build bootstrap sig compiler binaries using cmake + ninja.
+# Linux: LLVM-enabled (full backend). Windows/macOS: no-LLVM (self-hosted backends).
 # Chain: build-llvm (one-time) → build-bootstrap (one-time) → release (every release)
 name: build-bootstrap
 
@@ -11,13 +9,13 @@ on:
       version:
         description: 'Bootstrap release tag'
         required: false
-        default: 'bootstrap-sig-v30'
+        default: 'bootstrap-sig-v31'
 
 permissions:
   contents: write
 
 env:
-  VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v30' }}
+  VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v31' }}
   ZIG_VERSION: "0.14.1"
 
 jobs:
@@ -30,26 +28,23 @@ jobs:
             target: x86_64-linux
             llvm_asset: llvm-22-x86_64-linux-native.tar.xz
             artifact: bootstrap-sig-x86_64-linux
-            bin: sig
             deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev
-            zlib_flag: "-DZLIB=$(find /usr/lib/x86_64-linux-gnu -name 'libz.a' 2>/dev/null | head -1)"
-            zstd_flag: "-DZSTD=$(find /usr/lib/x86_64-linux-gnu -name 'libzstd.a' 2>/dev/null | head -1)"
+            cmake_extra: >-
+              -DZIG_USE_LLVM_CONFIG=ON
+              -DZLIB=$(find /usr/lib/x86_64-linux-gnu -name 'libz.a' 2>/dev/null | head -1)
+              -DZSTD=$(find /usr/lib/x86_64-linux-gnu -name 'libzstd.a' 2>/dev/null | head -1)
           - os: windows-latest
             target: x86_64-windows
-            llvm_asset: llvm-22-x86_64-windows.tar.xz
+            llvm_asset: ""
             artifact: bootstrap-sig-x86_64-windows
-            bin: sig.exe
-            deps: echo "deps ready"
-            zlib_flag: "-DZIG_NO_ZLIB=ON"
-            zstd_flag: "-DZIG_NO_ZSTD=ON"
+            deps: echo "no extra deps needed"
+            cmake_extra: "-DZIG_NO_LLVM=ON -DZIG_NO_ZLIB=ON -DZIG_NO_ZSTD=ON"
           - os: macos-14
             target: aarch64-macos
-            llvm_asset: llvm-22-aarch64-macos.tar.xz
+            llvm_asset: ""
             artifact: bootstrap-sig-aarch64-macos
-            bin: sig
-            deps: brew install cmake ninja zlib zstd
-            zlib_flag: "-DZLIB=$(find /opt/homebrew/lib -name 'libz.a' 2>/dev/null | head -1)"
-            zstd_flag: "-DZSTD=$(find /opt/homebrew/lib -name 'libzstd.a' 2>/dev/null | head -1)"
+            deps: brew install cmake ninja
+            cmake_extra: "-DZIG_NO_LLVM=ON -DZIG_NO_ZLIB=ON -DZIG_NO_ZSTD=ON"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     steps:
@@ -67,6 +62,7 @@ jobs:
           version: ${{ env.ZIG_VERSION }}
 
       - name: Download pre-built LLVM 22
+        if: matrix.llvm_asset != ''
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -80,17 +76,15 @@ jobs:
       - name: Build with cmake + ninja
         shell: bash
         run: |
-          export PATH="$PWD/llvm-22/bin:$PATH"
+          [ -d llvm-22 ] && export PATH="$PWD/llvm-22/bin:$PATH"
           mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
-            -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
+            -DCMAKE_PREFIX_PATH="${LLVM_PREFIX:-/usr}" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DZIG_USE_LLVM_CONFIG=ON \
             -DZIG_NO_LIB=ON \
             -DZIG_TARGET_MCPU="baseline" \
-            ${{ matrix.zlib_flag }} \
-            ${{ matrix.zstd_flag }} \
+            ${{ matrix.cmake_extra }} \
             -GNinja
           ninja zig2 -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
           file zig2 || file zig2.exe || true
@@ -112,6 +106,6 @@ jobs:
           gh release view "${VERSION}" >/dev/null 2>&1 || \
             gh release create "${VERSION}" \
               --title "Bootstrap Sig Compiler ${VERSION}" \
-              --notes "LLVM-enabled bootstrap sig built with cmake+ninja+zig. All platforms native." \
+              --notes "Native bootstrap sig. Linux: LLVM 22. Windows/macOS: self-hosted backends." \
               --prerelease
           gh release upload "${VERSION}" ${{ matrix.artifact }}.tar.gz --clobber
