@@ -251,6 +251,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
     steps:
+      - uses: actions/checkout@v4
+
       - name: Install deps (macOS)
         if: runner.os == 'macOS'
         run: brew install cmake ninja zlib zstd
