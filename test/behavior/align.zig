@@ -616,3 +616,28 @@ test "function pointer align mask" {
     const aligned: *align(16) const fn () callconv(.c) void = @alignCast(unaligned);
     try expect(@intFromPtr(aligned) == int);
 }
+
+test "align expression is implicitly comptime" {
+    const S = struct {
+        fn alignment() usize {
+            return 4;
+        }
+
+        var global: [3]u8 align(alignment()) = @splat(0);
+        fn check() !void {
+            try std.testing.expect(@intFromPtr(&global) % alignment() == 0);
+            var local: [3]u8 align(alignment()) = @splat(0);
+            try std.testing.expect(@intFromPtr(&local) % alignment() == 0);
+            var de: [3]u8 align(alignment()), var structure: [3]u8 align(alignment()) = .{ @splat(0), @splat(0) };
+            try std.testing.expect(@intFromPtr(&de) % alignment() == 0);
+            try std.testing.expect(@intFromPtr(&structure) % alignment() == 0);
+            var @"struct": struct { field: [3]u8 align(alignment()) } = .{ .field = @splat(0) };
+            try std.testing.expect(@intFromPtr(&@"struct".field) % alignment() == 0);
+            var @"union": union { field: [3]u8 align(alignment()) } = .{ .field = @splat(0) };
+            try std.testing.expect(@intFromPtr(&@"union".field) % alignment() == 0);
+            const ptr: *align(alignment()) [3]u8 = &global;
+            try std.testing.expect(@intFromPtr(ptr) % alignment() == 0);
+        }
+    };
+    try S.check();
+}

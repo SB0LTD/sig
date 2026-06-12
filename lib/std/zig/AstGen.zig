@@ -3130,7 +3130,7 @@ fn varDecl(
     }
 
     const align_inst: Zir.Inst.Ref = if (var_decl.ast.align_node.unwrap()) |align_node|
-        try expr(gz, scope, coerced_align_ri, align_node)
+        try comptimeExpr(gz, scope, coerced_align_ri, align_node, .@"align")
     else
         .none;
 
@@ -3477,7 +3477,7 @@ fn assignDestructureMaybeDecls(
                 const this_variable_comptime = is_comptime or (is_const and value_is_comptime);
 
                 const align_inst: Zir.Inst.Ref = if (full_var_decl.ast.align_node.unwrap()) |align_node|
-                    try expr(gz, scope, coerced_align_ri, align_node)
+                    try comptimeExpr(gz, scope, coerced_align_ri, align_node, .@"align")
                 else
                     .none;
 
