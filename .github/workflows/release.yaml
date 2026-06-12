@@ -189,11 +189,9 @@ jobs:
             sig-${{ env.VERSION }}-x86_64-linux.tar.xz
             sig-${{ env.VERSION }}-x86_64-linux.tar.xz.sha256
 
-  # Native builds on Windows and macOS runners
-  # Uses zig 0.14.1 as seed compiler (same bootstrapping model as Linux:
-  # Linux uses cmake+zig to build the initial bootstrap, then sig builds sig.
-  # Windows/macOS: zig 0.14.1 compiles sig source → produces native sig binary.
-  # The output IS sig, built from sig source. The seed is just the initial compiler.)
+  # Native builds on Windows and macOS using their own platform bootstraps
+  # Each platform has a native sig bootstrap (built via cmake in build-bootstrap.yaml)
+  # sig builds sig — bootstrap is sig, output is sig.
   build-platform:
     needs: build-native
     strategy:
@@ -202,12 +200,12 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-windows
-            zig_target: x86_64-windows-gnu
+            bootstrap_asset: bootstrap-sig-x86_64-windows.tar.gz
             ext: zip
             bin: sig.exe
           - os: macos-14
             target: aarch64-macos
-            zig_target: aarch64-macos-none
+            bootstrap_asset: bootstrap-sig-aarch64-macos.tar.gz
             ext: tar.xz
             bin: sig
     runs-on: ${{ matrix.os }}
@@ -218,17 +216,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.14.1
+      - name: Download native bootstrap
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${{ matrix.bootstrap_asset }}" --dir /tmp
+          mkdir -p /tmp/bootstrap
+          tar -xf "/tmp/${{ matrix.bootstrap_asset }}" -C /tmp/bootstrap
+          BIN=$(find /tmp/bootstrap -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "SIG=${BIN}" >> "$GITHUB_ENV"
+          "$BIN" version || true
 
-      - name: Build sig (no-LLVM, native)
+      - name: Build sig natively
         shell: bash
         run: |
           ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
           SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
-          echo "Building ${{ matrix.zig_target }} natively (version: ${ZIG_VER_BASE}, sig: ${SIG_VER}) [no-LLVM]"
+          echo "Building ${{ matrix.target }} natively (sig builds sig, no-LLVM)"
 
           mkdir -p .build-gen stage3-out/bin
           cat > .build-gen/build_options.zig << EOF
@@ -255,7 +261,7 @@ jobs:
           pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
           EOF
 
-          zig build-exe \
+          "${SIG}" build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=.build-gen/build_options.zig \
@@ -270,9 +276,9 @@ jobs:
       - name: Verify binary
         shell: bash
         run: |
-          file stage3-out/bin/${{ matrix.bin }} || true
           chmod +x stage3-out/bin/${{ matrix.bin }} 2>/dev/null || true
-          ./stage3-out/bin/${{ matrix.bin }} version || stage3-out/bin/${{ matrix.bin }} version || true
+          file stage3-out/bin/${{ matrix.bin }} || true
+          stage3-out/bin/${{ matrix.bin }} version || ./stage3-out/bin/${{ matrix.bin }} version || true
 
       - name: Package
         shell: bash
@@ -285,7 +291,6 @@ jobs:
             sig.exe) cp "${OUT}/bin/sig.exe" "${OUT}/bin/zig.exe" ;;
           esac
           cp -r lib "${OUT}/lib"
-          echo "Size: $(du -h "${OUT}/bin/${{ matrix.bin }}" | cut -f1)"
 
       - name: Archive (tar.xz)
         if: matrix.ext == 'tar.xz'
@@ -301,7 +306,7 @@ jobs:
         shell: bash
         run: |
           ARCHIVE="sig-${VERSION}-${{ matrix.target }}.zip"
-          cd "sig-${VERSION}-${{ matrix.target }}" && 7z a -r "../${ARCHIVE}" . && cd ..
+          7z a -r "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
           sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256" 2>/dev/null || certutil -hashfile "${ARCHIVE}" SHA256 > "${ARCHIVE}.sha256"
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
