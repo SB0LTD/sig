@@ -2110,92 +2110,8 @@ const Parser = struct {
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
-                ' '...'\xff',
-                => blk_1: {
-                    p.i += 1;
-                    break :blk_1 true;
-                },
-                else => false,
-            })) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parsehex(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if ((p.i < p.source.len and switch (p.source[p.i]) {
-                '0'...'9',
-                'a'...'f',
-                'A'...'F',
-                => blk_1: {
-                    p.i += 1;
-                    break :blk_1 true;
-                },
-                else => false,
-            })) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parsehex_(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if ((blk_2: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "_")) {
-                    p.i += 1;
-                    break :blk_2 true;
-                }
-                break :blk_2 false;
-            } or true) and p.parsehex()) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parsechar_escape(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if (blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "\\x")) {
-                    p.i += 2;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
-            } and p.parsehex() and p.parsehex()) break :blk_0 true;
-            p.i = pos_0;
-            if (blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "\\u{")) {
-                    p.i += 3;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
-            } and blk_1: {
-                var match_1 = false;
-                while (p.parsehex()) {
-                    match_1 = true;
-                }
-                break :blk_1 match_1;
-            } and blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "}")) {
-                    p.i += 1;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
-            }) break :blk_0 true;
-            p.i = pos_0;
-            if (blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "\\")) {
-                    p.i += 1;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
-            } and (p.i < p.source.len and switch (p.source[p.i]) {
-                'n'...'n',
-                'r'...'r',
-                '\\'...'\\',
-                't'...'t',
-                '\''...'\'',
-                '"'...'"',
+                ' '...'~',
+                '\x80'...'\xff',
                 => blk_1: {
                     p.i += 1;
                     break :blk_1 true;
@@ -2209,16 +2125,18 @@ const Parser = struct {
     pub fn parsechar_char(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parsemultibyte_utf8()) break :blk_0 true;
-            p.i = pos_0;
-            if (p.parsechar_escape()) break :blk_0 true;
+            if (blk_1: {
+                if (std.mem.startsWith(u8, p.source[p.i..], "\\'")) {
+                    p.i += 2;
+                    break :blk_1 true;
+                }
+                break :blk_1 false;
+            }) break :blk_0 true;
             p.i = pos_0;
             if (blk_1: {
                 const pos_1 = p.i;
                 const match_1 = (p.i < p.source.len and switch (p.source[p.i]) {
-                    '\\'...'\\',
                     '\''...'\'',
-                    '\n'...'\n',
                     => blk_2: {
                         p.i += 1;
                         break :blk_2 true;
@@ -2227,7 +2145,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parsenon_control_ascii()) break :blk_0 true;
+            } and p.parsenon_control_utf8()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2235,16 +2153,18 @@ const Parser = struct {
     pub fn parsestring_char(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parsemultibyte_utf8()) break :blk_0 true;
-            p.i = pos_0;
-            if (p.parsechar_escape()) break :blk_0 true;
+            if (blk_1: {
+                if (std.mem.startsWith(u8, p.source[p.i..], "\\\"")) {
+                    p.i += 2;
+                    break :blk_1 true;
+                }
+                break :blk_1 false;
+            }) break :blk_0 true;
             p.i = pos_0;
             if (blk_1: {
                 const pos_1 = p.i;
                 const match_1 = (p.i < p.source.len and switch (p.source[p.i]) {
-                    '\\'...'\\',
                     '"'...'"',
-                    '\n'...'\n',
                     => blk_2: {
                         p.i += 1;
                         break :blk_2 true;
@@ -2253,7 +2173,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parsenon_control_ascii()) break :blk_0 true;
+            } and p.parsenon_control_utf8()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2443,7 +2363,10 @@ const Parser = struct {
                     break :blk_1 true;
                 },
                 else => false,
-            }) and p.parsechar_char() and (p.i < p.source.len and switch (p.source[p.i]) {
+            }) and blk_1: {
+                while (p.parsechar_char()) {}
+                break :blk_1 true;
+            } and (p.i < p.source.len and switch (p.source[p.i]) {
                 '\''...'\'',
                 => blk_1: {
                     p.i += 1;

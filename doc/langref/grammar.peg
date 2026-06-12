@@ -405,25 +405,30 @@ multibyte_utf8 <-
      / oxE0      oxA0_oxBF ox80_oxBF
      / oxC2_oxDF ox80_oxBF
 
+# Exclude \177 which is DEL
 non_control_ascii <- [\040-\176]
-non_control_utf8 <- [\040-\377]
+non_control_utf8 <- [\040-\176\200-\377]
 
-hex <- [0-9a-fA-F]
-hex_ <- '_'? hex
+# XXX: the Zig tokenizer doesn't yet perform UTF-8 validation
+# When the tokenizer is fixed, switch back to these definitions
+# that forbid invalid UTF-8:
+#
+# char_char
+#     <- multibyte_utf8
+#      / "\\'"
+#      / !['] non_control_ascii
+# string_char
+#     <- multibyte_utf8
+#      / '\\"'
+#      / !["] non_control_ascii
 
-char_escape
-    <- "\\x" hex hex
-     / "\\u{" hex+ "}"
-     / "\\" [nr\\t'"]
 char_char
-    <- multibyte_utf8
-     / char_escape
-     / ![\\'\n] non_control_ascii
+    <- "\\'"
+     / !['] non_control_utf8
 
 string_char
-    <- multibyte_utf8
-     / char_escape
-     / ![\\"\n] non_control_ascii
+    <- '\\"'
+     / !["] non_control_utf8
 
 container_doc_comment <- ('//!' non_control_utf8* [ \n]* skip)+
 doc_comment <- ('///' non_control_utf8* [ \n]* skip)+
@@ -431,7 +436,7 @@ line_comment <- '//' ![!/] non_control_utf8* / '////' non_control_utf8*
 line_string <- '\\\\' non_control_utf8* [ \n]*
 skip <- ([ \n\t\r] / line_comment)*
 
-CHAR_LITERAL <- ['] char_char ['] skip
+CHAR_LITERAL <- ['] char_char* ['] skip
 
 digit <- [_0-9A-DF-OQ-Za-df-oq-z]
 digit_int <- digit / [eEpP]
@@ -439,6 +444,7 @@ digit_float <- digit / [eEpP] [-+]?
 NUMBERLITERAL
     <- [0-9] digit_int* '.' digit_float+ skip
      / [0-9] digit_float* skip
+
 
 STRINGLITERALSINGLE <- ["] string_char* ["] skip
 STRINGLITERAL
