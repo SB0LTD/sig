@@ -2194,18 +2194,7 @@ const Parser = struct {
                     } and blk_4: {
                         while (p.parsenon_control_utf8()) {}
                         break :blk_4 true;
-                    } and blk_4: {
-                        while ((p.i < p.source.len and switch (p.source[p.i]) {
-                            ' '...' ',
-                            '\n'...'\n',
-                            => blk_5: {
-                                p.i += 1;
-                                break :blk_5 true;
-                            },
-                            else => false,
-                        })) {}
-                        break :blk_4 true;
-                    } and p.parseskip()) break :blk_3 true;
+                    } and p.parsenewline() and p.parseskip()) break :blk_3 true;
                     p.i = pos_3;
                     break :blk_3 false;
                 }) {
@@ -2233,18 +2222,7 @@ const Parser = struct {
                     } and blk_4: {
                         while (p.parsenon_control_utf8()) {}
                         break :blk_4 true;
-                    } and blk_4: {
-                        while ((p.i < p.source.len and switch (p.source[p.i]) {
-                            ' '...' ',
-                            '\n'...'\n',
-                            => blk_5: {
-                                p.i += 1;
-                                break :blk_5 true;
-                            },
-                            else => false,
-                        })) {}
-                        break :blk_4 true;
-                    } and p.parseskip()) break :blk_3 true;
+                    } and p.parsenewline() and p.parseskip()) break :blk_3 true;
                     p.i = pos_3;
                     break :blk_3 false;
                 }) {
@@ -2281,7 +2259,7 @@ const Parser = struct {
             } and blk_1: {
                 while (p.parsenon_control_utf8()) {}
                 break :blk_1 true;
-            }) break :blk_0 true;
+            } and p.parsenewline()) break :blk_0 true;
             p.i = pos_0;
             if (blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "////")) {
@@ -2292,7 +2270,7 @@ const Parser = struct {
             } and blk_1: {
                 while (p.parsenon_control_utf8()) {}
                 break :blk_1 true;
-            }) break :blk_0 true;
+            } and p.parsenewline()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2309,18 +2287,31 @@ const Parser = struct {
             } and blk_1: {
                 while (p.parsenon_control_utf8()) {}
                 break :blk_1 true;
-            } and blk_1: {
-                while ((p.i < p.source.len and switch (p.source[p.i]) {
-                    ' '...' ',
-                    '\n'...'\n',
-                    => blk_2: {
-                        p.i += 1;
-                        break :blk_2 true;
-                    },
-                    else => false,
-                })) {}
-                break :blk_1 true;
+            } and p.parsenewline()) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parsenewline(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (blk_1: {
+                if (std.mem.startsWith(u8, p.source[p.i..], "\n")) {
+                    p.i += 1;
+                    break :blk_1 true;
+                }
+                break :blk_1 false;
             }) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
+                if (std.mem.startsWith(u8, p.source[p.i..], "\r\n")) {
+                    p.i += 2;
+                    break :blk_1 true;
+                }
+                break :blk_1 false;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            if (p.parseeof()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };

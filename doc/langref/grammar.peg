@@ -430,10 +430,13 @@ string_char
     <- '\\"'
      / !["] non_control_utf8
 
-container_doc_comment <- ('//!' non_control_utf8* [ \n]* skip)+
-doc_comment <- ('///' non_control_utf8* [ \n]* skip)+
-line_comment <- '//' ![!/] non_control_utf8* / '////' non_control_utf8*
-line_string <- '\\\\' non_control_utf8* [ \n]*
+container_doc_comment <- ('//!' non_control_utf8* newline skip)+
+doc_comment <- ('///' non_control_utf8* newline skip)+
+line_comment
+    <- '//' ![!/] non_control_utf8* newline
+     / '////' non_control_utf8* newline
+line_string <- '\\\\' non_control_utf8* newline
+newline <- "\n" / "\r\n" / eof
 skip <- ([ \n\t\r] / line_comment)*
 
 CHAR_LITERAL <- ['] char_char* ['] skip
