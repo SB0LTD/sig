@@ -429,7 +429,7 @@ container_doc_comment <- ('//!' non_control_utf8* [ \n]* skip)+
 doc_comment <- ('///' non_control_utf8* [ \n]* skip)+
 line_comment <- '//' ![!/] non_control_utf8* / '////' non_control_utf8*
 line_string <- '\\\\' non_control_utf8* [ \n]*
-skip <- ([ \n] / line_comment)*
+skip <- ([ \n\t\r] / line_comment)*
 
 CHAR_LITERAL <- ['] char_char ['] skip
 

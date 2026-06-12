@@ -2414,6 +2414,8 @@ const Parser = struct {
                     if ((p.i < p.source.len and switch (p.source[p.i]) {
                         ' '...' ',
                         '\n'...'\n',
+                        '\t'...'\t',
+                        '\r'...'\r',
                         => blk_4: {
                             p.i += 1;
                             break :blk_4 true;
