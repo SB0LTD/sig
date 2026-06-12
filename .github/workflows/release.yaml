@@ -24,14 +24,14 @@ on:
       bootstrap_tag:
         description: 'Bootstrap release tag to use'
         required: false
-        default: 'bootstrap-sig-v28'
+        default: 'bootstrap-sig-v30'
         type: string
 
 permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v28' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v30' }}
 
 jobs:
   # Stage 1: Build native x86_64-linux binary using v28 bootstrap
