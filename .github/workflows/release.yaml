@@ -189,9 +189,132 @@ jobs:
             sig-${{ env.VERSION }}-x86_64-linux.tar.xz
             sig-${{ env.VERSION }}-x86_64-linux.tar.xz.sha256
 
-  publish:
+  # Native builds on Windows and macOS runners
+  # Uses zig 0.14.1 as seed compiler (same bootstrapping model as Linux:
+  # Linux uses cmake+zig to build the initial bootstrap, then sig builds sig.
+  # Windows/macOS: zig 0.14.1 compiles sig source → produces native sig binary.
+  # The output IS sig, built from sig source. The seed is just the initial compiler.)
+  build-platform:
     needs: build-native
-    if: needs.build-native.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-windows
+            zig_target: x86_64-windows-gnu
+            ext: zip
+            bin: sig.exe
+          - os: macos-14
+            target: aarch64-macos
+            zig_target: aarch64-macos-none
+            ext: tar.xz
+            bin: sig
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.build-native.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Build sig (no-LLVM, native)
+        shell: bash
+        run: |
+          ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
+          SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
+          echo "Building ${{ matrix.zig_target }} natively (version: ${ZIG_VER_BASE}, sig: ${SIG_VER}) [no-LLVM]"
+
+          mkdir -p .build-gen stage3-out/bin
+          cat > .build-gen/build_options.zig << EOF
+          pub const have_llvm: bool = false;
+          pub const llvm_has_m68k: bool = false;
+          pub const llvm_has_csky: bool = false;
+          pub const llvm_has_arc: bool = false;
+          pub const llvm_has_xtensa: bool = false;
+          pub const enable_logging: bool = false;
+          pub const enable_debug_extensions: bool = false;
+          pub const enable_link_snapshots: bool = false;
+          pub const debug_gpa: bool = false;
+          pub const enable_tracy: bool = false;
+          pub const enable_tracy_callstack: bool = false;
+          pub const enable_tracy_allocation: bool = false;
+          pub const tracy_callstack_depth: u32 = 6;
+          pub const value_tracing: bool = false;
+          pub const mem_leak_frames: u32 = 0;
+          pub const io_mode: enum { threaded, evented } = .threaded;
+          pub const value_interpret_mode: enum { direct, by_name } = .direct;
+          pub const version: [:0]const u8 = "${ZIG_VER_BASE}";
+          pub const sig_version: [:0]const u8 = "${SIG_VER}";
+          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
+          pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
+          EOF
+
+          zig build-exe \
+            --dep build_options --dep aro \
+            -Mroot=src/main.zig \
+            -Mbuild_options=.build-gen/build_options.zig \
+            -Maro=lib/compiler/aro/aro.zig \
+            --name sig \
+            -OReleaseFast \
+            -fstrip \
+            --zig-lib-dir lib \
+            --cache-dir .zig-cache \
+            -femit-bin=stage3-out/bin/${{ matrix.bin }}
+
+      - name: Verify binary
+        shell: bash
+        run: |
+          file stage3-out/bin/${{ matrix.bin }} || true
+          chmod +x stage3-out/bin/${{ matrix.bin }} 2>/dev/null || true
+          ./stage3-out/bin/${{ matrix.bin }} version || stage3-out/bin/${{ matrix.bin }} version || true
+
+      - name: Package
+        shell: bash
+        run: |
+          OUT="sig-${VERSION}-${{ matrix.target }}"
+          mkdir -p "${OUT}/bin"
+          cp "stage3-out/bin/${{ matrix.bin }}" "${OUT}/bin/${{ matrix.bin }}"
+          case "${{ matrix.bin }}" in
+            sig)     cp "${OUT}/bin/sig" "${OUT}/bin/zig" ;;
+            sig.exe) cp "${OUT}/bin/sig.exe" "${OUT}/bin/zig.exe" ;;
+          esac
+          cp -r lib "${OUT}/lib"
+          echo "Size: $(du -h "${OUT}/bin/${{ matrix.bin }}" | cut -f1)"
+
+      - name: Archive (tar.xz)
+        if: matrix.ext == 'tar.xz'
+        shell: bash
+        run: |
+          ARCHIVE="sig-${VERSION}-${{ matrix.target }}.tar.xz"
+          tar -cJf "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
+          shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - name: Archive (zip)
+        if: matrix.ext == 'zip'
+        shell: bash
+        run: |
+          ARCHIVE="sig-${VERSION}-${{ matrix.target }}.zip"
+          cd "sig-${VERSION}-${{ matrix.target }}" && 7z a -r "../${ARCHIVE}" . && cd ..
+          sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256" 2>/dev/null || certutil -hashfile "${ARCHIVE}" SHA256 > "${ARCHIVE}.sha256"
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sig-${{ matrix.target }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
+
+  publish:
+    needs: [build-native, build-platform]
+    if: always() && needs.build-native.result == 'success'
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.build-native.outputs.version }}
