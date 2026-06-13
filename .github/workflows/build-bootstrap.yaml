@@ -166,7 +166,7 @@ jobs:
           set PATH=%CD%\llvm-22\bin;%PATH%
           mkdir build
           cd build
-          cmake .. -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_PREFIX_PATH=%LLVM_PREFIX% -DCMAKE_BUILD_TYPE=Release -DZIG_USE_LLVM_CONFIG=ON -DZIG_NO_LIB=ON -DZIG_TARGET_MCPU=baseline -GNinja
+          cmake .. -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_LINKER=lld-link -DCMAKE_PREFIX_PATH=%LLVM_PREFIX% -DCMAKE_BUILD_TYPE=Release -DZIG_USE_LLVM_CONFIG=ON -DZIG_NO_LIB=ON -DZIG_TARGET_MCPU=baseline -GNinja
           ninja zig2 -j%NUMBER_OF_PROCESSORS%
 
       - name: Verify
