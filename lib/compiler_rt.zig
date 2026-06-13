@@ -649,8 +649,73 @@ inline fn negXi2(comptime T: type, a: T) T {
     return -a;
 }
 
-pub fn memset(dest: ?[*]u8, c: c_int, len: usize) callconv(.c) ?[*]u8 {
-    @setRuntimeSafety(false);
+fn memsetSmallPowerOf2(d: [*]u8, b: u8, comptime size: usize) void {
+    if (size > @sizeOf(usize)) {
+        d[0..size].* = @splat(b);
+    } else {
+        const T = @Int(.unsigned, 8 * size);
+        var splatted: T = 0; // Setting this to undefined causes a memset call and thus infinite recursion in Debug test-compiler-rt.
+        @as(*[size]u8, @ptrCast(&splatted)).* = @splat(b);
+        @as(*align(1) T, @ptrCast(d)).* = splatted;
+    }
+}
+
+fn shortMemset(
+    log_min: comptime_int,
+    log_max: comptime_int,
+    d: [*]u8,
+    b: u8,
+    len: usize,
+) void {
+    if (log_min + 1 != log_max) {
+        const mid = (log_min + log_max) / 2;
+        if (len > 1 << mid) {
+            shortMemset(mid, log_max, d, b, len);
+        } else {
+            shortMemset(log_min, mid, d, b, len);
+        }
+    } else {
+        const size = 1 << log_min;
+
+        memsetSmallPowerOf2(d, b, size);
+        memsetSmallPowerOf2(d + len - size, b, size);
+    }
+}
+
+fn fastMemset(dest: ?[*]u8, c: c_int, len: usize) callconv(.c) ?[*]u8 {
+    const b: u8 = @truncate(@as(c_uint, @bitCast(c)));
+    const n = std.simd.suggestVectorLength(u8) orelse @sizeOf(usize);
+
+    const d = dest.?;
+
+    if (len > 2 * n) {
+        memsetSmallPowerOf2(d, b, n);
+
+        const begin_aligned = std.mem.alignBackward(usize, @intFromPtr(d) + n, n);
+        const end_aligned = std.mem.alignForward(usize, @intFromPtr(d) + len - n, n);
+
+        const aligned_ptr: [*]align(n) u8 = @ptrFromInt(begin_aligned);
+
+        var i: usize = 0;
+        while (true) {
+            memsetSmallPowerOf2(aligned_ptr + n * i, b, n);
+
+            i += 1;
+            if (i == @divExact(end_aligned - begin_aligned, n))
+                break;
+        }
+
+        memsetSmallPowerOf2(d + len - n, b, n);
+    } else {
+        if (len == 0) return dest;
+
+        shortMemset(0, @ctz(@as(usize, 2 * n)), d, b, len);
+    }
+
+    return dest;
+}
+
+fn smallMemset(dest: ?[*]u8, c: c_int, len: usize) callconv(.c) ?[*]u8 {
     const b: u8 = @truncate(@as(c_uint, @bitCast(c)));
 
     if (len != 0) {
@@ -666,6 +731,11 @@ pub fn memset(dest: ?[*]u8, c: c_int, len: usize) callconv(.c) ?[*]u8 {
 
     return dest;
 }
+
+pub const memset = if (builtin.optimize == .small)
+    smallMemset
+else
+    fastMemset;
 
 pub fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.c) c_int {
     @setRuntimeSafety(false);
