@@ -250,7 +250,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2022
             artifact: llvm-22-x86_64-windows-native.tar.zst
             cmake_extra: ""
           - os: macos-14
@@ -274,7 +274,8 @@ jobs:
         shell: bash
         run: git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
 
-      - name: Build LLVM natively
+      - name: Build LLVM natively (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           cmake -S llvm-src/llvm -B llvm-build -G Ninja \
@@ -299,6 +300,14 @@ jobs:
             -DLLVM_INCLUDE_DOCS=OFF \
             ${{ matrix.cmake_extra }}
           ninja -C llvm-build install -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+      - name: Build LLVM natively (Windows MSVC)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          cmake -S llvm-src\llvm -B llvm-build -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=%CD%\llvm-install -DLLVM_ENABLE_PROJECTS=clang;lld -DLLVM_TARGETS_TO_BUILD=AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SPIRV;SystemZ;VE;WebAssembly;X86;XCore -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=ARC;CSKY;M68k;Xtensa -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DBUILD_SHARED_LIBS=OFF -DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_BUILD_TOOLS=ON -DCLANG_ENABLE_ARCMT=OFF -DCLANG_ENABLE_STATIC_ANALYZER=ON -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF
+          ninja -C llvm-build install -j%NUMBER_OF_PROCESSORS%
 
       - name: Package
         shell: bash

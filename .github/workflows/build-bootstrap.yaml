@@ -90,9 +90,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download llvm-22 --pattern "llvm-22-aarch64-macos-native.tar.xz" --dir /tmp
-          mkdir -p llvm-22
-          tar -xJf /tmp/llvm-22-aarch64-macos-native.tar.xz -C llvm-22 --strip-components=1
+          # Try zstd first (faster decompression), fall back to xz
+          if gh release download llvm-22 --pattern "llvm-22-aarch64-macos-native.tar.zst" --dir /tmp 2>/dev/null; then
+            mkdir -p llvm-22
+            zstd -d /tmp/llvm-22-aarch64-macos-native.tar.zst --stdout | tar -x -C llvm-22 --strip-components=1
+          else
+            gh release download llvm-22 --pattern "llvm-22-aarch64-macos-native.tar.xz" --dir /tmp
+            mkdir -p llvm-22
+            tar -xJf /tmp/llvm-22-aarch64-macos-native.tar.xz -C llvm-22 --strip-components=1
+          fi
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
 
       - name: Build with cmake
