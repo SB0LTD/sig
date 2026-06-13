@@ -1,4 +1,6 @@
 #undef linux
+#undef environ
+#undef _environ
 
 #include <stdarg.h>
 #include <stddef.h>
