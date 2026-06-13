@@ -645,7 +645,7 @@ else()
   if(APPLE)
     set(ZIG2_LINK_FLAGS "-Wl,-stack_size,0x10000000")
   elseif(MINGW)
-    set(ZIG2_LINK_FLAGS "-Wl,--stack,0x10000000")
+    set(ZIG2_LINK_FLAGS "-Wl,--stack,0x10000000 -Wl,--allow-multiple-definition -lversion")
   # Solaris/illumos ld(1) does not provide a --stack-size option.
   elseif(CMAKE_HOST_SOLARIS)
     unset(ZIG2_LINK_FLAGS)
