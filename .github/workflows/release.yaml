@@ -267,8 +267,7 @@ jobs:
             -Mbuild_options=.build-gen/build_options.zig \
             -Maro=lib/compiler/aro/aro.zig \
             --name sig \
-            -OReleaseFast \
-            -fstrip \
+            -OReleaseSafe \
             --zig-lib-dir lib \
             --cache-dir .zig-cache \
             -femit-bin=stage3-out/bin/${{ matrix.bin }}
