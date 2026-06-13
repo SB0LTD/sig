@@ -139,9 +139,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download llvm-22 --pattern "llvm-22-x86_64-windows-native.tar.xz" --dir $env:TEMP
-          mkdir llvm-22
-          tar -xJf "$env:TEMP\llvm-22-x86_64-windows-native.tar.xz" -C llvm-22 --strip-components=1
+          # Try zstd format first (faster), fall back to xz
+          $zst = "llvm-22-x86_64-windows-native.tar.zst"
+          $xz = "llvm-22-x86_64-windows-native.tar.xz"
+          gh release download llvm-22 --pattern $zst --dir $env:TEMP 2>$null
+          if (Test-Path "$env:TEMP\$zst") {
+            mkdir llvm-22
+            zstd -d "$env:TEMP\$zst" --stdout | tar -x -C llvm-22 --strip-components=1
+          } else {
+            gh release download llvm-22 --pattern $xz --dir $env:TEMP
+            mkdir llvm-22
+            tar -xJf "$env:TEMP\$xz" -C llvm-22 --strip-components=1
+          }
           echo "LLVM_PREFIX=$PWD\llvm-22" >> $env:GITHUB_ENV
 
       - name: Build with cmake + MSVC

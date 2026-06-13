@@ -243,10 +243,10 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact: llvm-22-x86_64-windows-native.tar.xz
+            artifact: llvm-22-x86_64-windows-native.tar.zst
             cmake_extra: ""
           - os: macos-14
-            artifact: llvm-22-aarch64-macos-native.tar.xz
+            artifact: llvm-22-aarch64-macos-native.tar.zst
             cmake_extra: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
@@ -294,7 +294,9 @@ jobs:
 
       - name: Package
         shell: bash
-        run: tar -cJf "${{ matrix.artifact }}" llvm-install/
+        run: |
+          # Use zstd for native platform packages (10x faster decompression than xz)
+          tar -cf - llvm-install/ | zstd -19 -T0 -o "${{ matrix.artifact }}"
 
       - name: Upload to release
         shell: bash
