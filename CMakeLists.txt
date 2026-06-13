@@ -644,8 +644,8 @@ else()
   endif()
   if(APPLE)
     set(ZIG2_LINK_FLAGS "-Wl,-stack_size,0x10000000")
-  elseif(MINGW)
-    set(ZIG2_LINK_FLAGS "-Wl,--stack,0x10000000 -Wl,--allow-multiple-definition -lversion")
+  elseif(MINGW OR WIN32)
+    set(ZIG2_LINK_FLAGS "-Wl,--stack,0x10000000 -Wl,--allow-multiple-definition")
   # Solaris/illumos ld(1) does not provide a --stack-size option.
   elseif(CMAKE_HOST_SOLARIS)
     unset(ZIG2_LINK_FLAGS)
@@ -758,7 +758,7 @@ target_link_libraries(zig2 LINK_PUBLIC zigcpp)
 
 if(MSVC)
   target_link_libraries(zig2 LINK_PUBLIC ntdll.lib ws2_32.lib crypt32.lib)
-elseif(MINGW)
+elseif(MINGW OR WIN32)
   target_link_libraries(zig2 LINK_PUBLIC ntdll ws2_32 crypt32)
 endif()
 
@@ -770,7 +770,7 @@ if(ZIG_DIA_GUIDS_LIB)
     target_link_libraries(zig2 LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
 endif()
 
-if(MSVC OR MINGW)
+if(MSVC OR MINGW OR WIN32)
     target_link_libraries(zig2 LINK_PUBLIC version)
 endif()
 
