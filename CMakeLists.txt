@@ -628,6 +628,10 @@ if(MSVC)
   # Suppress conflicting libc redeclarations in auto-generated zig2.c (e.g. _msize const mismatch)
   # clang-cl needs /clang: prefix for -W flags
   set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /clang:-Wno-incompatible-library-redeclaration /clang:-Wno-builtin-requires-header")
+  # Undefine 'environ' and '_environ' macros that UCRT expands to __p__environ() function calls,
+  # which conflict with struct field names in the generated zig2.c.
+  # /D redefines them as plain identifiers, overriding the UCRT macro.
+  set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /Denviron=environ /D_environ=_environ")
   # [sig] Windows bootstrap: the C-backend generated zig2.c has undefined behavior that
   # causes STATUS_HEAP_CORRUPTION (0xC0000374) on Windows regardless of compiler or
   # optimization level. This is a known upstream zig C backend limitation.
