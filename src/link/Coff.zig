@@ -4055,14 +4055,14 @@ fn loadObject(
             section.name = coff.getOrPutStringAssumeCapacity(section_name_slice);
 
             if (section.header.pointer_to_linenumbers +
-                section.header.number_of_linenumbers * std.coff.LineNumber.sizeOf() > fl.size)
+                @as(u32, section.header.number_of_linenumbers) * std.coff.LineNumber.sizeOf() > fl.size)
                 return diags.failParse(path, "bad line numbers location in section {d} `{s}`", .{
                     section_i,
                     section_name_slice,
                 });
 
             if (section.header.pointer_to_relocations +
-                section.header.number_of_relocations * std.coff.Relocation.sizeOf() > fl.size)
+                @as(u32, section.header.number_of_relocations) * std.coff.Relocation.sizeOf() > fl.size)
                 return diags.failParse(path, "bad relocations location in section {d} `{s}`", .{
                     section_i,
                     section_name_slice,
