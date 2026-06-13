@@ -1037,21 +1037,25 @@ const coff = struct {
                                     .{ weak_external.tag_index, symbol_i },
                                 );
 
-                            try w.print("  Weak External [falls back to {x:0>8} via {t}]", .{
-                                weak_external.tag_index,
-                                weak_external.flag,
-                            });
+                            if (d.redacted(.ord))
+                                try w.print("  Weak External [falls back to relative ordinal {x:0>8} via {t}]", .{
+                                    @as(i64, weak_external.tag_index) - symbol_i,
+                                    weak_external.flag,
+                                })
+                            else
+                                try w.print("  Weak External [falls back to ordinal {x:0>8} via {t}]", .{
+                                    weak_external.tag_index,
+                                    weak_external.flag,
+                                });
                         } else if (symbol.storage_class == .FILE) {
                             if (!std.mem.eql(u8, name, ".file")) {
                                 try w.print(" !! unexpected symbol name '{s}' for file symbol 0x{x}", .{ name, symbol_i });
                                 continue;
                             }
 
-                            var file: std.coff.FileDefinition = undefined;
-                            @memcpy(std.mem.asBytes(&file)[0..symbol_size], aux_symbols[0..symbol_size]);
-
-                            // TODO
-                            _ = file.getFileName();
+                            const filename = std.mem.sliceTo(aux_symbols, 0);
+                            try w.print("     File       '{s}'", .{filename});
+                            break;
                         } else if (symbol.storage_class == .STATIC and
                             symbol.type == std.coff.SymType{
                                 .complex_type = .NULL,

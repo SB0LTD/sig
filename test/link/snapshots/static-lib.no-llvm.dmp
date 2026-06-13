@@ -9,4 +9,4 @@ xxxx 00000000     2 NULL          EXTERNAL | foo_strong
 xxxx 00000000     2 NULL          EXTERNAL | foo_strong_alias
 xxxx 00000010     2 NULL          EXTERNAL | foo_array
 xxxx 00000000 UNDEF NULL()   WEAK_EXTERNAL | fooWeak
-   |  Weak External [falls back to 0000000d via SEARCH_ALIAS]
+   |  Weak External [falls back to relative ordinal 000000-4 via SEARCH_ALIAS]
