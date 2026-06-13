@@ -1,5 +1,6 @@
-# Build bootstrap sig compiler binaries using cmake + ninja.
-# All platforms build natively with their own LLVM package.
+# Build bootstrap sig compiler binaries natively on each platform.
+# Linux: GCC + native LLVM 22. macOS: Apple Clang + native LLVM 22. Windows: MSVC + native LLVM 22.
+# Each platform uses its native toolchain for best compatibility.
 # Chain: build-llvm (one-time) → build-bootstrap (one-time) → release (every release)
 name: build-bootstrap
 
@@ -18,89 +19,154 @@ env:
   VERSION: ${{ github.event.inputs.version || 'bootstrap-sig-v31' }}
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-linux
-            llvm_asset: llvm-22-x86_64-linux-native.tar.xz
-            artifact: bootstrap-sig-x86_64-linux
-            deps: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev
-            zig_version: "0.14.1"
-          - os: windows-latest
-            target: x86_64-windows
-            llvm_asset: llvm-22-x86_64-windows-native.tar.xz
-            artifact: bootstrap-sig-x86_64-windows
-            deps: choco install ninja -y
-            zig_version: "0.14.1"
-          - os: macos-14
-            target: aarch64-macos
-            llvm_asset: llvm-22-aarch64-macos-native.tar.xz
-            artifact: bootstrap-sig-aarch64-macos
-            deps: brew install cmake ninja
-            zig_version: "0.14.1"
-    runs-on: ${{ matrix.os }}
+  build-linux:
+    runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install build deps
-        shell: bash
-        run: ${{ matrix.deps }}
+      - name: Install deps
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: ${{ matrix.zig_version }}
+          version: "0.14.1"
 
-      - name: Download pre-built LLVM 22
-        shell: bash
+      - name: Download LLVM 22
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download llvm-22 --pattern "${{ matrix.llvm_asset }}" --dir /tmp
-          mkdir -p "$PWD/llvm-22"
-          tar -xJf "/tmp/${{ matrix.llvm_asset }}" -C "$PWD/llvm-22" --strip-components=1
-          rm "/tmp/${{ matrix.llvm_asset }}"
+          gh release download llvm-22 --pattern "llvm-22-x86_64-linux-native.tar.xz" --dir /tmp
+          mkdir -p llvm-22
+          tar -xJf /tmp/llvm-22-x86_64-linux-native.tar.xz -C llvm-22 --strip-components=1
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
 
-      - name: Build with cmake + ninja
-        shell: bash
+      - name: Build with cmake
         run: |
           export PATH="$PWD/llvm-22/bin:$PATH"
           mkdir build && cd build
           cmake .. \
-            -DCMAKE_INSTALL_PREFIX="$PWD/stage3" \
             -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
             -DCMAKE_BUILD_TYPE=Release \
             -DZIG_USE_LLVM_CONFIG=ON \
             -DZIG_NO_LIB=ON \
-            -DZIG_TARGET_MCPU="baseline" \
+            -DZIG_TARGET_MCPU=baseline \
             -GNinja
-          ninja zig2 -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-          file zig2 || file zig2.exe || true
+          ninja zig2 -j$(nproc)
+          file zig2
+
+      - name: Package and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p out/bin
+          cp build/zig2 out/bin/sig
+          cp build/zig2 out/bin/zig
+          tar -czf bootstrap-sig-x86_64-linux.tar.gz -C out .
+          gh release view "${VERSION}" >/dev/null 2>&1 || \
+            gh release create "${VERSION}" --title "Bootstrap ${VERSION}" --notes "Native bootstrap sig." --prerelease
+          gh release upload "${VERSION}" bootstrap-sig-x86_64-linux.tar.gz --clobber
+
+  build-macos:
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install deps
+        run: brew install cmake ninja
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.14.1"
+
+      - name: Download LLVM 22
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download llvm-22 --pattern "llvm-22-aarch64-macos-native.tar.xz" --dir /tmp
+          mkdir -p llvm-22
+          tar -xJf /tmp/llvm-22-aarch64-macos-native.tar.xz -C llvm-22 --strip-components=1
+          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
+
+      - name: Build with cmake
+        run: |
+          export PATH="$PWD/llvm-22/bin:$PATH"
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_PREFIX_PATH="${LLVM_PREFIX}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DZIG_USE_LLVM_CONFIG=ON \
+            -DZIG_NO_LIB=ON \
+            -DZIG_TARGET_MCPU=baseline \
+            -GNinja
+          ninja zig2 -j$(sysctl -n hw.ncpu)
+          file zig2
+
+      - name: Package and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p out/bin
+          cp build/zig2 out/bin/sig
+          cp build/zig2 out/bin/zig
+          tar -czf bootstrap-sig-aarch64-macos.tar.gz -C out .
+          gh release view "${VERSION}" >/dev/null 2>&1 || \
+            gh release create "${VERSION}" --title "Bootstrap ${VERSION}" --notes "Native bootstrap sig." --prerelease
+          gh release upload "${VERSION}" bootstrap-sig-aarch64-macos.tar.gz --clobber
+
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.14.1"
+
+      - name: Download LLVM 22
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download llvm-22 --pattern "llvm-22-x86_64-windows-native.tar.xz" --dir $env:TEMP
+          mkdir llvm-22
+          tar -xJf "$env:TEMP\llvm-22-x86_64-windows-native.tar.xz" -C llvm-22 --strip-components=1
+          echo "LLVM_PREFIX=$PWD\llvm-22" >> $env:GITHUB_ENV
+
+      - name: Build with cmake + MSVC
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          set PATH=%CD%\llvm-22\bin;%PATH%
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_PREFIX_PATH=%LLVM_PREFIX% -DCMAKE_BUILD_TYPE=Release -DZIG_USE_LLVM_CONFIG=ON -DZIG_NO_LIB=ON -DZIG_TARGET_MCPU=baseline -GNinja
+          ninja zig2 -j%NUMBER_OF_PROCESSORS%
+
+      - name: Verify
+        shell: cmd
+        run: build\zig2.exe version
 
       - name: Package and publish
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p ${{ matrix.artifact }}/bin
-          if [ -f build/zig2.exe ]; then
-            cp build/zig2.exe ${{ matrix.artifact }}/bin/sig.exe
-            cp build/zig2.exe ${{ matrix.artifact }}/bin/zig.exe
-          else
-            cp build/zig2 ${{ matrix.artifact }}/bin/sig
-            cp build/zig2 ${{ matrix.artifact }}/bin/zig
-          fi
-          tar -czf ${{ matrix.artifact }}.tar.gz -C ${{ matrix.artifact }} .
+          mkdir -p out/bin
+          cp build/zig2.exe out/bin/sig.exe
+          cp build/zig2.exe out/bin/zig.exe
+          tar -czf bootstrap-sig-x86_64-windows.tar.gz -C out .
           gh release view "${VERSION}" >/dev/null 2>&1 || \
-            gh release create "${VERSION}" \
-              --title "Bootstrap Sig Compiler ${VERSION}" \
-              --notes "Native bootstrap sig with LLVM 22. All platforms." \
-              --prerelease
-          gh release upload "${VERSION}" ${{ matrix.artifact }}.tar.gz --clobber
+            gh release create "${VERSION}" --title "Bootstrap ${VERSION}" --notes "Native bootstrap sig." --prerelease
+          gh release upload "${VERSION}" bootstrap-sig-x86_64-windows.tar.gz --clobber
