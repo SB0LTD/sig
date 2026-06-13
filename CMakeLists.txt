@@ -196,6 +196,8 @@ if(WIN32)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lm.lib")
     # Also filter via regex in case the above didn't catch it
     list(FILTER LLVM_LIBRARIES EXCLUDE REGEX "^-?l?m(\\.lib)?$")
+    # Add version.dll (needed by clangDriver for GetFileVersionInfo*)
+    list(APPEND LLVM_LIBRARIES "-lversion")
 endif()
 
 find_package(Threads)
