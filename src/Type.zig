@@ -1257,7 +1257,7 @@ pub fn bitSize(ty: Type, zcu: *const Zcu) u64 {
             const elem_ty: Type = .fromInterned(array_type.child);
             const len = array_type.lenIncludingSentinel();
             return switch (zcu.comp.getZigBackend()) {
-                .stage2_x86_64 => len * elem_ty.bitSize(zcu),
+                .stage2_x86_64, .stage2_llvm => len * elem_ty.bitSize(zcu),
                 // this case will be removed under #19755
                 else => switch (len) {
                     0 => 0,

@@ -355,9 +355,10 @@ fn genBody(self: *FuncGen, body: []const Air.Inst.Index, coverage_point: Air.Cov
         const val: Builder.Value = switch (air_tags[@intFromEnum(inst)]) {
             // zig fmt: off
 
-            // No "scalarize" legalizations are enabled, so these instructions never appear.
-            .legalize_vec_elem_val   => unreachable,
-            .legalize_vec_store_elem => unreachable,
+            // Required due to `.scalarize_bitcast_vector_non_elementwise` being enabled.
+            .legalize_vec_elem_val   => try self.airLegalizeVecElemVal(inst),
+            .legalize_vec_store_elem => try self.airLegalizeVecStoreElem(inst),
+
             // No soft float legalizations are enabled.
             .legalize_compiler_rt_call => unreachable,
 
@@ -2310,6 +2311,34 @@ fn airArrayElemVal(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder
 
     // This branch can be reached for vectors, which are always by-value.
     return self.wip.extractElement(array_llvm_val, rhs, "");
+}
+
+fn airLegalizeVecElemVal(fg: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
+    const bin_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+    const vec = try fg.resolveInst(bin_op.lhs);
+    const index = try fg.resolveInst(bin_op.rhs);
+    return fg.wip.extractElement(vec, index, "");
+}
+fn airLegalizeVecStoreElem(fg: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
+    const zcu = fg.object.zcu;
+
+    const pl_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
+    const extra = fg.air.extraData(Air.Bin, pl_op.payload).data;
+
+    const ptr_ty = fg.typeOf(pl_op.operand);
+    const vec_ty = ptr_ty.childType(zcu);
+
+    const ptr_align = ptr_ty.ptrAlignment(zcu);
+
+    const vec_ptr = try fg.resolveInst(pl_op.operand);
+    const index = try fg.resolveInst(extra.lhs);
+    const elem = try fg.resolveInst(extra.rhs);
+
+    const old_vec = try fg.load(vec_ptr, ptr_align, vec_ty, .normal);
+    const new_vec = try fg.wip.insertElement(old_vec, elem, index, "");
+    try fg.store(vec_ptr, ptr_align, new_vec, vec_ty, .normal);
+
+    return .none;
 }
 
 fn airPtrElemVal(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
@@ -4559,116 +4588,50 @@ fn airFpext(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value 
     }
 }
 
-fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
-    const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const operand_ty = self.typeOf(ty_op.operand);
-    const inst_ty = self.typeOfIndex(inst);
-    const operand = try self.resolveInst(ty_op.operand);
-    return self.bitCast(operand, operand_ty, inst_ty);
-}
-
-fn bitCast(self: *FuncGen, operand: Builder.Value, operand_ty: Type, inst_ty: Type) Allocator.Error!Builder.Value {
-    const o = self.object;
+fn airBitCast(fg: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
+    const o = fg.object;
     const zcu = o.zcu;
-    const operand_is_ref = isByRef(operand_ty, zcu);
-    const result_is_ref = isByRef(inst_ty, zcu);
-    const llvm_dest_ty = try o.lowerType(inst_ty);
 
-    if (operand_is_ref and result_is_ref) {
-        // They are both pointers, so just return the same opaque pointer :)
+    const ty_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+    const operand_ty = fg.typeOf(ty_op.operand);
+    const dest_ty = fg.typeOfIndex(inst);
+    const operand = try fg.resolveInst(ty_op.operand);
+
+    // We have the following `Air.Legalize` features enabled:
+    //
+    // * `.scalarize_bitcast_array`
+    // * `.scalarize_bitcast_vector_non_elementwise`
+    //
+    // That means the set of bitcasts we might see is limited to the following:
+    //
+    // * bool/int/float <-> bool/int/float
+    // * `@Vector(n, A)` <-> `@Vector(n, B)`
+    // * pointer <-> pointer
+    // * pointer <-> int
+    // * slice <-> slice
+    //
+    // Most of these can be handled by LLVM's `bitcast` instruction. We will check for the few cases
+    // that aren't, and otherwise use `bitcast`.
+
+    if (operand_ty.isSlice(zcu) and dest_ty.isSlice(zcu)) {
+        // The slice types are the same type in LLVM IR, so this conversion is a nop.
         return operand;
     }
 
-    if (inst_ty.isAbiInt(zcu) and operand_ty.isAbiInt(zcu)) {
-        assert(inst_ty.bitSize(zcu) == operand_ty.bitSize(zcu));
-        return operand;
+    assert(!isByRef(operand_ty, zcu));
+    assert(!isByRef(dest_ty, zcu));
+
+    const llvm_dest_ty = try o.lowerType(dest_ty);
+
+    if (operand_ty.scalarType(zcu).zigTypeTag(zcu) == .int and dest_ty.scalarType(zcu).isPtrAtRuntime(zcu)) {
+        return fg.wip.cast(.inttoptr, operand, llvm_dest_ty, "");
     }
 
-    const operand_scalar_ty = operand_ty.scalarType(zcu);
-    const inst_scalar_ty = inst_ty.scalarType(zcu);
-    if (operand_scalar_ty.zigTypeTag(zcu) == .int and inst_scalar_ty.isPtrAtRuntime(zcu)) {
-        return self.wip.cast(.inttoptr, operand, llvm_dest_ty, "");
-    }
-    if (operand_scalar_ty.isPtrAtRuntime(zcu) and inst_scalar_ty.zigTypeTag(zcu) == .int) {
-        return self.wip.cast(.ptrtoint, operand, llvm_dest_ty, "");
+    if (operand_ty.scalarType(zcu).isPtrAtRuntime(zcu) and dest_ty.scalarType(zcu).zigTypeTag(zcu) == .int) {
+        return fg.wip.cast(.ptrtoint, operand, llvm_dest_ty, "");
     }
 
-    if (operand_ty.zigTypeTag(zcu) == .vector and inst_ty.zigTypeTag(zcu) == .array) {
-        const elem_ty = operand_scalar_ty;
-        assert(result_is_ref); // arrays are always by-ref provided they have runtime bits
-        const alignment = inst_ty.abiAlignment(zcu);
-        const array_ptr = try self.buildAlloca(llvm_dest_ty, alignment.toLlvm());
-        const bitcast_ok = elem_ty.bitSize(zcu) == elem_ty.abiSize(zcu) * 8;
-        if (bitcast_ok) {
-            try self.store(array_ptr, alignment, operand, operand_ty, .normal);
-        } else {
-            // If the ABI size of the element type is not evenly divisible by size in bits;
-            // a simple bitcast will not work, and we fall back to extractelement.
-            const elem_size = elem_ty.abiSize(zcu);
-            const vector_len = operand_ty.arrayLen(zcu);
-            var i: u64 = 0;
-            while (i < vector_len) : (i += 1) {
-                const arr_elem_ptr = try self.ptraddConst(array_ptr, i * elem_size);
-                const vec_elem = try self.wip.extractElement(operand, try o.builder.intValue(.i32, i), "");
-                try self.store(arr_elem_ptr, .none, vec_elem, elem_ty, .normal);
-            }
-        }
-        return array_ptr;
-    } else if (operand_ty.zigTypeTag(zcu) == .array and inst_ty.zigTypeTag(zcu) == .vector) {
-        const elem_ty = operand_ty.childType(zcu);
-        assert(operand_is_ref); // arrays are always by-ref provided they have runtime bits
-        const llvm_vector_ty = try o.lowerType(inst_ty);
-
-        const bitcast_ok = elem_ty.bitSize(zcu) == elem_ty.abiSize(zcu) * 8;
-        if (bitcast_ok) {
-            // The array is aligned to the element's alignment, while the vector might have a completely
-            // different alignment. This means we need to enforce the alignment of this load.
-            return self.load(operand, elem_ty.abiAlignment(zcu), inst_ty, .normal);
-        } else {
-            // If the ABI size of the element type is not evenly divisible by size in bits;
-            // a simple bitcast will not work, and we fall back to extractelement.
-            const elem_size = elem_ty.abiSize(zcu);
-            const vector_len = operand_ty.arrayLen(zcu);
-            var vector = try o.builder.poisonValue(llvm_vector_ty);
-            var i: u64 = 0;
-            while (i < vector_len) : (i += 1) {
-                const arr_elem_ptr = try self.ptraddConst(operand, i * elem_size);
-                const arr_elem = try self.load(arr_elem_ptr, .none, elem_ty, .normal);
-                vector = try self.wip.insertElement(vector, arr_elem, try o.builder.intValue(.i32, i), "");
-            }
-            return vector;
-        }
-    }
-
-    if (operand_is_ref) {
-        return self.load(operand, operand_ty.abiAlignment(zcu), inst_ty, .normal);
-    }
-
-    if (result_is_ref) {
-        const alignment = operand_ty.abiAlignment(zcu).max(inst_ty.abiAlignment(zcu));
-        const llvm_alloc_ty = if (operand_ty.abiSize(zcu) > inst_ty.abiSize(zcu))
-            try o.lowerType(operand_ty)
-        else
-            llvm_dest_ty;
-        const result_ptr = try self.buildAlloca(llvm_alloc_ty, alignment.toLlvm());
-        try self.store(result_ptr, alignment, operand, operand_ty, .normal);
-        return result_ptr;
-    }
-
-    if (inst_ty.isSliceAtRuntime(zcu) or
-        ((operand_ty.zigTypeTag(zcu) == .vector or inst_ty.zigTypeTag(zcu) == .vector) and
-            operand_ty.bitSize(zcu) != inst_ty.bitSize(zcu)))
-    {
-        // Both our operand and our result are values, not pointers,
-        // but LLVM won't let us bitcast struct values or vectors with padding bits.
-        // Therefore, we store operand to alloca, then load for result.
-        const alignment = operand_ty.abiAlignment(zcu).max(inst_ty.abiAlignment(zcu));
-        const result_ptr = try self.buildAlloca(llvm_dest_ty, alignment.toLlvm());
-        try self.store(result_ptr, alignment, operand, operand_ty, .normal);
-        return self.load(result_ptr, alignment, inst_ty, .normal);
-    }
-
-    return self.wip.cast(.bitcast, operand, llvm_dest_ty, "");
+    return fg.wip.cast(.bitcast, operand, llvm_dest_ty, "");
 }
 
 fn airArg(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
@@ -5333,11 +5296,25 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
     const value = try self.resolveInst(bin_op.rhs);
     const elem_abi_size = elem_ty.abiSize(zcu);
 
-    if (allow_byte_memset and elem_abi_size == 1 and elem_ty.bitSize(zcu) == 8) {
-        // In this case we can take advantage of LLVM's intrinsic.
-        const fill_byte = try self.bitCast(value, elem_ty, Type.u8);
+    intrinsic: {
+        if (!allow_byte_memset) break :intrinsic;
+        if (elem_abi_size != 1) break :intrinsic;
+        // To use LLVM's intrinsic, we need to convert the operand to a raw 8-bit integer value.
+        const fill_byte: Builder.Value = byte: {
+            if (isByRef(elem_ty, zcu)) {
+                break :byte try self.load(value, elem_ty.abiAlignment(zcu), .u8, .normal);
+            }
+            if (elem_ty.isAbiInt(zcu)) {
+                const info = elem_ty.intInfo(zcu);
+                break :byte self.wip.conv(info.signedness, value, .i8, "");
+            }
+            if (elem_ty == .bool) {
+                break :byte self.wip.cast(.zext, value, .i8, "");
+            }
+            break :intrinsic;
+        };
+        // Great, we can use the intrinsic!
         const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-
         _ = try self.wip.callMemSet(
             dest_ptr,
             dest_ptr_align.toLlvm(),

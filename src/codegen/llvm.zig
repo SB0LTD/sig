@@ -36,6 +36,11 @@ pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
     return comptime &.initMany(&.{
         .expand_int_from_float_safe,
         .expand_int_from_float_optimized_safe,
+
+        .scalarize_bitcast_array,
+        // Needed because LLVM's `bitcast` on vectors is endian-specific unless the source and dest
+        // types are vectors with equal length (hence also with equal bits-per-element).
+        .scalarize_bitcast_vector_non_elementwise,
     });
 }
 
