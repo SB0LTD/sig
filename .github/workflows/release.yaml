@@ -221,17 +221,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p .bootstrap-dl
+          mkdir -p .bootstrap-dl .bootstrap
           gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${{ matrix.bootstrap_asset }}" --dir .bootstrap-dl
-          ls -la .bootstrap-dl/
-          mkdir -p .bootstrap
           tar -xf ".bootstrap-dl/${{ matrix.bootstrap_asset }}" -C .bootstrap
-          ls -laR .bootstrap/
           BIN=$(find .bootstrap -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
-          echo "Found binary: '$BIN'"
+          echo "Found: $BIN"
           chmod +x "$BIN" 2>/dev/null || true
-          echo "SIG=$PWD/$BIN" >> "$GITHUB_ENV"
-          "$PWD/$BIN" version || echo "Bootstrap binary failed to run (exit $?)"
+          # Use relative path — avoids Windows drive letter issues in bash
+          echo "SIG=./$BIN" >> "$GITHUB_ENV"
+          "./$BIN" version || echo "WARNING: bootstrap failed to run"
 
       - name: Build sig natively
         shell: bash
