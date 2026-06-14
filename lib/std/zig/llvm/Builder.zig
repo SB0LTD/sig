@@ -1816,7 +1816,7 @@ pub const Linkage = enum(u4) {
     }
 };
 
-pub const Preemption = enum {
+pub const Preemption = enum(u2) {
     dso_preemptable,
     dso_local,
     implicit_dso_local,
@@ -2011,7 +2011,7 @@ pub const AddrSpace = enum(u24) {
     }
 };
 
-pub const ExternallyInitialized = enum {
+pub const ExternallyInitialized = enum(u1) {
     default,
     externally_initialized,
 
