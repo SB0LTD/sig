@@ -21,83 +21,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Strategy: try bootstrap sig first, fall back to upstream zig release.
-          # The bootstrap can become stale when upstream makes breaking changes
-          # to compiler internals (ZIR, AstGen, etc.) that zig1.wasm doesn't understand.
+          # Use upstream zig nightly directly — the cmake-built bootstrap has a
+          # cross-compilation linker bug that makes it ignore -target.
+          # For zig1.wasm regen, we need a compiler that can target wasm32-wasi.
+          echo "Downloading upstream zig nightly..."
 
-          USE_UPSTREAM=false
-
-          # Read bootstrap tag from manifest
-          BOOT_TAG="bootstrap-sig-v10"
-          if [ -f tools/sig_sync/manifest.json ]; then
-            MANIFEST_BOOT=$(python3 -c "
-          import json
-          with open('tools/sig_sync/manifest.json') as f:
-              m = json.load(f)
-          print(m.get('bootstrap_tag', ''))" 2>/dev/null || true)
-            [ -n "$MANIFEST_BOOT" ] && BOOT_TAG="$MANIFEST_BOOT"
-          fi
-          echo "Trying bootstrap: $BOOT_TAG"
-
-          # Try downloading bootstrap
-          if gh release download "$BOOT_TAG" --pattern "bootstrap-sig-x86_64-linux.tar.gz" --dir /tmp 2>/dev/null; then
-            mkdir -p /tmp/bootstrap
-            tar -xzf /tmp/bootstrap-sig-x86_64-linux.tar.gz -C /tmp/bootstrap
-            BIN=$(find /tmp/bootstrap -type f \( -name "sig" -o -name "zig" -o -name "zig2" \) | head -1)
-            chmod +x "$BIN"
-
-            # Quick probe: can the bootstrap compile a trivial file with current lib?
-            cat > /tmp/probe.zig << 'PROBE'
-          pub fn main() void {}
-          PROBE
-            if "$BIN" build-exe /tmp/probe.zig --zig-lib-dir lib -target x86_64-linux -fno-emit-bin 2>/tmp/probe.log; then
-              echo "Bootstrap $BOOT_TAG works"
-              echo "SIG=$BIN" >> "$GITHUB_ENV"
-            else
-              echo "::warning::Bootstrap $BOOT_TAG is stale:"
-              cat /tmp/probe.log
-              USE_UPSTREAM=true
-            fi
-          else
-            echo "::warning::Bootstrap $BOOT_TAG not found"
-            USE_UPSTREAM=true
-          fi
-
-          # Fallback: download upstream zig dev build (same 0.17.0-dev series)
-          if [ "$USE_UPSTREAM" = "true" ]; then
-            echo "Falling back to upstream zig dev build..."
-
-            # Fetch the latest dev build URL from ziglang.org/download/index.json
-            ZIG_INDEX=$(curl -sSL "https://ziglang.org/download/index.json")
-            ZIG_URL=$(echo "$ZIG_INDEX" | python3 -c "
+          ZIG_INDEX=$(curl -sSL "https://ziglang.org/download/index.json")
+          ZIG_URL=$(echo "$ZIG_INDEX" | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
           master = data.get('master', {})
           linux = master.get('x86_64-linux', {})
           print(linux.get('tarball', ''))" 2>/dev/null || true)
 
-            if [ -z "$ZIG_URL" ]; then
-              # Hardcoded fallback
-              ZIG_URL="https://ziglang.org/builds/zig-x86_64-linux-0.17.0-dev.314+eae06cf5c.tar.xz"
-            fi
-
-            echo "Downloading upstream zig from: $ZIG_URL"
-            curl -sSL "$ZIG_URL" -o /tmp/zig-upstream.tar.xz
-
-            mkdir -p /tmp/zig-upstream
-            tar -xJf /tmp/zig-upstream.tar.xz -C /tmp/zig-upstream --strip-components=1
-            BIN="/tmp/zig-upstream/zig"
-            chmod +x "$BIN"
-
-            # Verify it works
-            if "$BIN" version; then
-              echo "Using upstream zig: $("$BIN" version)"
-              echo "SIG=$BIN" >> "$GITHUB_ENV"
-            else
-              echo "::error::Upstream zig binary doesn't work either"
-              exit 1
-            fi
+          if [ -z "$ZIG_URL" ]; then
+            echo "::error::Could not get upstream zig URL"
+            exit 1
           fi
+
+          echo "URL: $ZIG_URL"
+          curl -sSL "$ZIG_URL" -o /tmp/zig-upstream.tar.xz
+          mkdir -p /tmp/zig-upstream
+          tar -xJf /tmp/zig-upstream.tar.xz -C /tmp/zig-upstream --strip-components=1
+          BIN="/tmp/zig-upstream/zig"
+          chmod +x "$BIN"
+          "$BIN" version
+          echo "SIG=$BIN" >> "$GITHUB_ENV"
 
       - name: Regenerate zig1.wasm via build system
         run: |
