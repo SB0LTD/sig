@@ -174,12 +174,14 @@
 #define zig_has_attribute(attribute) 0
 #endif
 
+#ifndef zig_static_assert
 #if __STDC_VERSION__ >= 201112L
 #define zig_static_assert(cond, msg) _Static_assert(cond, msg)
 #elif zig_has_attribute(unused)
 #define zig_static_assert(cond, _) typedef char zig_expand_concat(zig_static_assert_fail_, __LINE__)[!!(cond)] __attribute__((unused))
 #else
 #define zig_static_assert(cond, _) typedef char zig_expand_concat(zig_static_assert_fail_, __LINE__)[!!(cond)]
+#endif
 #endif
 
 #if __STDC_VERSION__ >= 202311L
