@@ -635,8 +635,7 @@ if(MSVC)
   # Suppress struct size/alignment static assertions on Windows.
   # The zig C backend doesn't perfectly match MSVC ABI struct padding for all types.
   # The code is functionally correct — fields are accessed by name, not absolute offset.
-  # The zig.h #ifndef guard allows /D to override the macro definition.
-  set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /Dzig_static_assert(cond,msg)=")
+  set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} -DZIG_SUPPRESS_STATIC_ASSERT")
   # [sig] Windows bootstrap: the C-backend generated zig2.c has undefined behavior that
   # causes STATUS_HEAP_CORRUPTION (0xC0000374) on Windows regardless of compiler or
   # optimization level. This is a known upstream zig C backend limitation.

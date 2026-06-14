@@ -174,7 +174,9 @@
 #define zig_has_attribute(attribute) 0
 #endif
 
-#ifndef zig_static_assert
+#ifdef ZIG_SUPPRESS_STATIC_ASSERT
+#define zig_static_assert(cond, msg) /* suppressed */
+#elif !defined(zig_static_assert)
 #if __STDC_VERSION__ >= 201112L
 #define zig_static_assert(cond, msg) _Static_assert(cond, msg)
 #elif zig_has_attribute(unused)
