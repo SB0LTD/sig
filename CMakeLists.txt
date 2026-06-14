@@ -607,7 +607,7 @@ endif()
 string(REGEX REPLACE "^ppc((64)?(le)?)$" "powerpc\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
 
 set(ZIG_HOST_TARGET_ABI "")
-if(MSVC)
+if(MSVC OR (WIN32 AND CMAKE_C_SIMULATE_ID STREQUAL "MSVC"))
   set(ZIG_HOST_TARGET_ABI "-msvc")
 elseif(MINGW)
   set(ZIG_HOST_TARGET_ABI "-gnu")
@@ -632,10 +632,6 @@ if(MSVC)
   # which conflict with struct field names in the generated zig2.c.
   # Force-include a header that pre-includes <stdlib.h> then undefs the macros.
   set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /FI${CMAKE_SOURCE_DIR}/stage1/win_undef_environ.h")
-  # Suppress struct size/alignment static assertions — MSVC ABI has different
-  # padding rules than Linux (tagged unions get 8-byte aligned padding).
-  # The code is correct regardless; assertions are a cross-ABI sanity check.
-  set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /Dzig_static_assert(cond,msg)=")
   # [sig] Windows bootstrap: the C-backend generated zig2.c has undefined behavior that
   # causes STATUS_HEAP_CORRUPTION (0xC0000374) on Windows regardless of compiler or
   # optimization level. This is a known upstream zig C backend limitation.
