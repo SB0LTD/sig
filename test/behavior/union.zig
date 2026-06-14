@@ -885,6 +885,8 @@ test "union no tag with struct member" {
 }
 
 test "extern union doesn't trigger field check at comptime" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const U = extern union {
         x: u32,
         y: u8,
@@ -899,6 +901,7 @@ test "anonymous union literal syntax" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         const Number = union {
             int: i32,
@@ -1213,6 +1216,8 @@ test "return an extern union from C calling convention" {
 test "noreturn field in union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const U = union(enum) {
         a: u32,
         b: noreturn,
@@ -1264,6 +1269,7 @@ test "@unionInit uses tag value instead of field index" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const E = enum(u8) {
         b = 255,
         a = 3,

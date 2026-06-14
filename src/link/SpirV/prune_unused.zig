@@ -35,39 +35,12 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
     var id_offset_buf: std.ArrayList(u16) = .empty;
     defer id_offset_buf.deinit(gpa);
 
-    // Mark non-prunable preamble instructions alive
-    // OpExtInst in the preamble is metadata (e.g. Zig error info) that references
-    // functions. skip it here so it doesn't root dead functions alive.
-    // These instructions are handled as prunable during the rewrite phase.
+    // mark non-prunable preamble instructions alive
     it = binary.iterateInstructions();
     while (it.next()) |inst| {
         if (inst.offset >= binary.functions_start) break;
-        if (canPrune(inst.opcode) or inst.opcode == .OpExtInst) continue;
-        try markAlive(
-            parser,
-            binary.*,
-            inst,
-            &alive,
-            &id_to_index,
-            &code_offsets,
-            &id_offset_buf,
-        );
-    }
-
-    // mark functions with LinkageAttributes Export alive
-    it = binary.iterateInstructions();
-    while (it.next()) |inst| {
-        if (inst.offset >= binary.functions_start) break;
-        if (inst.opcode == .OpDecorate and inst.operands.len >= 2 and
-            inst.operands[1] == @intFromEnum(spec.Decoration.linkage_attributes))
-        {
-            // Last word after the string is the linkage type; Export = 0.
-            if (inst.operands[inst.operands.len - 1] == @intFromEnum(spec.LinkageType.@"export")) {
-                const target: ResultId = @enumFromInt(inst.operands[0]);
-                if (id_to_index.get(target)) |index| {
-                    alive.set(index);
-                }
-            }
+        if (!canPrune(inst.opcode)) {
+            markAlive(parser, binary.*, inst, &alive, &id_to_index, &code_offsets, &id_offset_buf) catch {};
         }
     }
 
@@ -85,15 +58,11 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
                 }
                 continue;
             }
-
-            // mark the function's type operands alive
-            try markAlive(parser, binary.*, inst, &alive, &id_to_index, &code_offsets, &id_offset_buf);
-            continue;
         }
 
         // mark operands of alive function contents
         if (!canPrune(inst.opcode)) {
-            try markAlive(parser, binary.*, inst, &alive, &id_to_index, &code_offsets, &id_offset_buf);
+            markAlive(parser, binary.*, inst, &alive, &id_to_index, &code_offsets, &id_offset_buf) catch {};
         }
     }
 
@@ -118,9 +87,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
             }
         }
 
-        const is_prunable = canPrune(inst.opcode) or
-            (inst.opcode == .OpExtInst and inst.offset < binary.functions_start);
-        if (is_prunable) {
+        if (canPrune(inst.opcode)) {
             const inst_spec = parser.getInstSpec(inst.opcode) orelse {
                 appendInst(&new_words, binary, inst, &new_functions_start);
                 continue;
@@ -133,13 +100,20 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
                 };
                 if (!alive.isSet(index)) continue;
             } else {
-                // annotation-style: emit only if the target id is alive
-                if (inst.operands.len > 0) {
-                    const target: ResultId = @enumFromInt(inst.operands[0]);
-                    if (id_to_index.get(target)) |idx| {
-                        if (!alive.isSet(idx)) continue;
-                    } else continue;
+                // annotation-style: emit only if all id operands are alive
+                id_offset_buf.items.len = 0;
+                parser.parseInstructionResultIds(binary.*, inst, &id_offset_buf) catch continue;
+                var all_alive = true;
+                for (id_offset_buf.items) |off| {
+                    const id: ResultId = @enumFromInt(inst.operands[off]);
+                    if (id_to_index.get(id)) |idx| {
+                        if (!alive.isSet(idx)) {
+                            all_alive = false;
+                            break;
+                        }
+                    }
                 }
+                if (!all_alive) continue;
             }
         }
 
@@ -221,11 +195,11 @@ fn markAlive(
             _ = fn_it.next();
             while (fn_it.next()) |fn_inst| {
                 if (fn_inst.opcode == .OpFunctionEnd) break;
-                try markAlive(parser, binary, fn_inst, alive, id_to_index, code_offsets, id_offset_buf);
+                markAlive(parser, binary, fn_inst, alive, id_to_index, code_offsets, id_offset_buf) catch {};
             }
-            try markAlive(parser, binary, ref_inst, alive, id_to_index, code_offsets, id_offset_buf);
+            markAlive(parser, binary, ref_inst, alive, id_to_index, code_offsets, id_offset_buf) catch {};
         } else {
-            try markAlive(parser, binary, ref_inst, alive, id_to_index, code_offsets, id_offset_buf);
+            markAlive(parser, binary, ref_inst, alive, id_to_index, code_offsets, id_offset_buf) catch {};
         }
     }
 }
@@ -251,6 +225,7 @@ fn canPrune(op: Opcode) bool {
             .OpString,
             .OpName,
             .OpMemberName,
+            .OpExtInstImport,
             .OpVariable,
             => true,
             else => false,

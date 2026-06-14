@@ -14,6 +14,10 @@ const Instruction = BinaryModule.Instruction;
 /// When merging fragments from parallel codegen, duplicate type definitions
 /// may exist. This pass identifies structurally identical types/constants,
 /// keeps one canonical instance, and remaps all references to duplicates.
+///
+/// Decorations and names (OpName, OpMemberName) are included in the
+/// equality check: two types that are structurally identical but have
+/// different decorations or names are NOT considered duplicates.
 pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
     const gpa = parser.gpa;
 
@@ -28,7 +32,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
     while (it.next()) |inst| {
         if (inst.offset >= binary.functions_start) break;
         switch (inst.opcode) {
-            .OpName, .OpMemberName => continue,
+            .OpName, .OpMemberName => {},
             else => switch (inst.opcode.class()) {
                 .annotation => {},
                 else => continue,
@@ -97,11 +101,18 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
             dec_hashes.items.len = 0;
             for (dec_list.items) |dec| {
                 const dec_words = binary.instructions[dec.offset..][0..dec.len];
+                const dec_opcode: Opcode = @enumFromInt(dec_words[0] & 0xFFFF);
                 var hasher = std.hash.Wyhash.init(0);
                 hasher.update(std.mem.asBytes(&dec_words[0]));
-                for (dec_words[2..]) |w| {
-                    const w_val = if (id_remap.get(@enumFromInt(w))) |c| @intFromEnum(c) else w;
-                    hasher.update(std.mem.asBytes(&w_val));
+                // OpName/OpMemberName operands are literals (member index, string),
+                // not ids — hash them directly without remapping
+                if (dec_opcode == .OpName or dec_opcode == .OpMemberName) {
+                    hasher.update(std.mem.sliceAsBytes(dec_words[2..]));
+                } else {
+                    for (dec_words[2..]) |w| {
+                        const w_val = if (id_remap.get(@enumFromInt(w))) |c| @intFromEnum(c) else w;
+                        hasher.update(std.mem.asBytes(&w_val));
+                    }
                 }
                 try dec_hashes.append(gpa, hasher.final());
             }
