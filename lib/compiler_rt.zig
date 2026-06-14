@@ -649,14 +649,15 @@ inline fn negXi2(comptime T: type, a: T) T {
     return -a;
 }
 
-pub fn memset(dest: ?[*]u8, c: u8, len: usize) callconv(.c) ?[*]u8 {
+pub fn memset(dest: ?[*]u8, c: c_int, len: usize) callconv(.c) ?[*]u8 {
     @setRuntimeSafety(false);
+    const b: u8 = @truncate(@as(c_uint, @bitCast(c)));
 
     if (len != 0) {
         var d = dest.?;
         var n = len;
         while (true) {
-            d[0] = c;
+            d[0] = b;
             n -= 1;
             if (n == 0) break;
             d += 1;
