@@ -3730,33 +3730,37 @@ fn addRelocAssumeCapacity(
                 break :sti .none;
             } else .none;
 
-            const section = loc_sn.section(coff);
-            const header = loc_sn.header(coff);
-            const old_num_relocations = coff.targetLoad(&header.number_of_relocations);
-            const new_num_relocations = old_num_relocations + 1;
-            const new_size = new_num_relocations * std.coff.Relocation.sizeOf();
-            if (section.relocation_table_ni == .none) {
-                section.relocation_table_ni = try coff.mf.addLastChildNode(
-                    gpa,
-                    coff.sectionParent(),
-                    .{
-                        .size = new_size,
-                        .alignment = .@"2",
-                        .moved = true,
-                        .resized = true,
-                    },
-                );
-                coff.nodes.appendAssumeCapacity(.{ .relocation_table = loc_sn });
-            } else {
-                try section.relocation_table_ni.resize(&coff.mf, gpa, new_size);
-            }
+            const sri: Section.RelocationIndex = blk: {
+                const section = loc_sn.section(coff);
+                const header = loc_sn.header(coff);
+                const old_num_relocations = coff.targetLoad(&header.number_of_relocations);
+                const new_num_relocations = old_num_relocations + 1;
+                const new_size = new_num_relocations * std.coff.Relocation.sizeOf();
 
-            coff.targetStore(&header.number_of_relocations, new_num_relocations);
-            if (coff.symbolTableSectionAuxEntryPtr(loc_sn.symbol(coff).sti(coff))) |aux_ptr|
-                coff.targetStore(&aux_ptr.number_of_relocations, new_num_relocations);
+                coff.targetStore(&header.number_of_relocations, new_num_relocations);
+                if (coff.symbolTableSectionAuxEntryPtr(loc_sn.symbol(coff).sti(coff))) |aux_ptr|
+                    coff.targetStore(&aux_ptr.number_of_relocations, new_num_relocations);
 
-            // TODO: These need to allocate from a free list, once deleting relocs is supported
-            const sri: Section.RelocationIndex = .wrap(old_num_relocations);
+                if (section.relocation_table_ni == .none) {
+                    section.relocation_table_ni = try coff.mf.addLastChildNode(
+                        gpa,
+                        coff.sectionParent(),
+                        .{
+                            .size = new_size,
+                            .alignment = .@"2",
+                            .moved = true,
+                            .resized = true,
+                        },
+                    );
+                    coff.nodes.appendAssumeCapacity(.{ .relocation_table = loc_sn });
+                } else {
+                    try section.relocation_table_ni.resize(&coff.mf, gpa, new_size);
+                }
+
+                // TODO: These need to allocate from a free list, once deleting relocs from the table is supported
+                break :blk .wrap(old_num_relocations);
+            };
+
             const entry = sri.entry(coff, loc_sn).?;
             if (sti.unwrap()) |index| coff.targetStore(&entry.symbol_table_index, index);
 

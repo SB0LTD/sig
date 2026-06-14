@@ -799,6 +799,17 @@ fn resizeNode(
     if (is_linux and !mf.flags.fallocate_insert_range_unsupported and
         node.flags.alignment.order(mf.flags.block_size).compare(.gte))
     insert_range: {
+        const range_file_offset = ni.fileLocation(mf, false).offset + old_size;
+        const range_size = node.flags.alignment.forward(
+            @intCast(requested_size +| requested_size / growth_factor),
+        ) - old_size;
+
+        // If this node is being realigned, its current state might not
+        // meet the requirements for fallocate
+        if (!mf.flags.block_size.check(@intCast(range_file_offset)) or
+            !mf.flags.block_size.check(@intCast(range_size)))
+            break :insert_range;
+
         mf.memory_map.write(io) catch |err| switch (err) {
             error.WouldBlock => return error.Unexpected, // file was not opened as non-blocking
             error.NotOpenForWriting => return error.Unexpected, // we definitely opened the file for writing
@@ -808,10 +819,6 @@ fn resizeNode(
         const last_offset, const last_size = parent.last.location(mf).resolve(mf);
         const last_end = last_offset + last_size;
         assert(last_end <= old_parent_size);
-        const range_file_offset = ni.fileLocation(mf, false).offset + old_size;
-        const range_size = node.flags.alignment.forward(
-            @intCast(requested_size +| requested_size / growth_factor),
-        ) - old_size;
         _, const file_size = Node.Index.root.location(mf).resolve(mf);
         while (true) switch (linux.errno(switch (std.math.order(range_file_offset, file_size)) {
             .lt => linux.fallocate(
