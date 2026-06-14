@@ -94,8 +94,9 @@ jobs:
 
           echo "Building zig1.wasm via build system..."
           # Use zig build with build_wasm.zig — the build system properly resolves
-          # wasm32-wasi target (build-exe ignores -target for the linker)
-          "${SIG}" build --build-file build_wasm.zig update-zig1
+          # wasm32-wasi target (build-exe ignores -target for the linker).
+          # Use --zig-lib-dir to point at our repo's lib (has latest CallingConvention defs).
+          "${SIG}" build --build-file build_wasm.zig --zig-lib-dir lib update-zig1
 
           ls -la stage1/zig1.wasm
           file stage1/zig1.wasm
