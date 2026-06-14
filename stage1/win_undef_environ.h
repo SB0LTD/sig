@@ -1,13 +1,16 @@
 /* Force-included before zig2.c on Windows.
- * Pre-includes stdlib.h/corecrt_malloc.h then undefs problematic macros.
- * The environ macro conflicts with struct field names.
- * The _msize declaration in UCRT conflicts with zig2.c's declaration
- * (const qualifier difference). We suppress that specific diagnostic. */
+ *
+ * 1. Rename UCRT's _msize before including stdlib.h so zig2.c can
+ *    declare its own _msize without conflicting types.
+ * 2. Pre-include stdlib.h to lock the environ include guard.
+ * 3. Undef environ macros that conflict with struct fields. */
+
+/* Rename UCRT _msize to avoid type conflict with zig2.c's declaration */
+#define _msize _ucrt_msize
 #include <stdlib.h>
+#undef _msize
+
 #undef environ
 #undef _environ
 
-/* Suppress the _msize conflicting types error. zig2.c declares it with
- * const void* but UCRT has void*. Functionally identical on x86_64. */
 #pragma clang diagnostic ignored "-Wincompatible-library-redeclaration"
-#pragma clang diagnostic ignored "-Wmicrosoft-redeclare-static"
