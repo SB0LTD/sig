@@ -92,18 +92,10 @@ jobs:
           pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .bootstrap;
           EOF
 
-          echo "Building zig1.wasm via build-exe..."
-          "${SIG}" build-exe \
-            --dep build_options --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.build-gen/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
-            --name zig1 \
-            -target wasm32-wasi \
-            -OReleaseSmall \
-            -fsingle-threaded \
-            --cache-dir .zig-cache \
-            -femit-bin=stage1/zig1.wasm
+          echo "Building zig1.wasm via build system..."
+          # Use zig build with build_wasm.zig — the build system properly resolves
+          # wasm32-wasi target (build-exe ignores -target for the linker)
+          "${SIG}" build --build-file build_wasm.zig update-zig1
 
           ls -la stage1/zig1.wasm
           file stage1/zig1.wasm
