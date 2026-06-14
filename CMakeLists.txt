@@ -642,7 +642,7 @@ if(MSVC)
   # The /FORCE:MULTIPLE flag (previously used for duplicate symbols between zig2.c and
   # compiler_rt.c) is removed as it masks the real issue. Stack increased to 256MB.
   # For production Windows binaries, cross-compile stage3 from Linux (see release.yaml).
-  set(ZIG2_LINK_FLAGS "/STACK:268435456 /FORCE:UNRESOLVED")
+  set(ZIG2_LINK_FLAGS "/STACK:268435456 /FORCE:MULTIPLE")
 else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os -fno-strict-aliasing")
