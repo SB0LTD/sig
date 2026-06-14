@@ -224,12 +224,10 @@ jobs:
           mkdir -p .bootstrap-dl .bootstrap
           gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${{ matrix.bootstrap_asset }}" --dir .bootstrap-dl
           tar -xf ".bootstrap-dl/${{ matrix.bootstrap_asset }}" -C .bootstrap
-          BIN=$(find .bootstrap -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
-          echo "Found: $BIN"
-          chmod +x "$BIN" 2>/dev/null || true
-          # Use relative path — avoids Windows drive letter issues in bash
-          echo "SIG=./$BIN" >> "$GITHUB_ENV"
-          "./$BIN" version || echo "WARNING: bootstrap failed to run"
+          # Add bootstrap bin to PATH so sig/sig.exe can be found by name
+          echo "$PWD/.bootstrap/bin" >> "$GITHUB_PATH"
+          ls .bootstrap/bin/
+          .bootstrap/bin/sig version 2>/dev/null || .bootstrap/bin/sig.exe version 2>/dev/null || echo "WARNING: bootstrap failed"
 
       - name: Build sig natively
         shell: bash
@@ -263,7 +261,7 @@ jobs:
           pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
           EOF
 
-          "${SIG}" build-exe \
+          sig build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=.build-gen/build_options.zig \
