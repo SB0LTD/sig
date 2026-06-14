@@ -221,10 +221,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${{ matrix.bootstrap_asset }}" --dir /tmp
-          mkdir -p /tmp/bootstrap
-          tar -xf "/tmp/${{ matrix.bootstrap_asset }}" -C /tmp/bootstrap
-          BIN=$(find /tmp/bootstrap -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
+          DLDIR="${RUNNER_TEMP:-/tmp}"
+          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${{ matrix.bootstrap_asset }}" --dir "$DLDIR"
+          mkdir -p "$DLDIR/bootstrap"
+          tar -xf "$DLDIR/${{ matrix.bootstrap_asset }}" -C "$DLDIR/bootstrap"
+          BIN=$(find "$DLDIR/bootstrap" -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
           chmod +x "$BIN" 2>/dev/null || true
           echo "SIG=${BIN}" >> "$GITHUB_ENV"
           "$BIN" version || true
