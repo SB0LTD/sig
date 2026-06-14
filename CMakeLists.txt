@@ -166,10 +166,8 @@ endif()
 
 if (MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
     if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
-        # Use static CRT (/MT) to match upstream zig and avoid heap corruption
-        # from CRT mismatch when zig2.c redefines libc symbols with /FORCE:MULTIPLE.
-        # The pre-built LLVM 22 libs must also be built with /MT (see build-llvm.yaml).
-        set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
+        # Use dynamic CRT (/MD) to match the pre-built LLVM 22 libs.
+        set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
     endif()
 endif ()
 
@@ -538,7 +536,7 @@ else()
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   target_compile_options(zigcpp PRIVATE /Zc:preprocessor)
 endif()
-set_property(TARGET zigcpp PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+set_property(TARGET zigcpp PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 endif()
 
 target_include_directories(zigcpp PUBLIC
@@ -702,7 +700,7 @@ add_custom_command(
 add_executable(zig1 ${ZIG1_C_SOURCE} stage1/wasi.c)
 set_target_properties(zig1 PROPERTIES COMPILE_FLAGS ${ZIG1_COMPILE_FLAGS})
 if(MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
-  set_property(TARGET zig1 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+  set_property(TARGET zig1 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 endif()
 
 if(MSVC)
@@ -763,7 +761,7 @@ set_target_properties(zig2 PROPERTIES
   LINK_FLAGS "${ZIG2_LINK_FLAGS}"
 )
 if(MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
-  set_property(TARGET zig2 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+  set_property(TARGET zig2 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 endif()
 target_include_directories(zig2 PUBLIC stage1)
 target_link_libraries(zig2 LINK_PUBLIC zigcpp)
