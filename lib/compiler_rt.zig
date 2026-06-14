@@ -302,7 +302,6 @@ comptime {
         _ = @import("compiler_rt/memcpy.zig");
         if (!ofmt_c) {
             symbol(&memset, "memset");
-            symbol(&__memset, "__memset");
         }
         _ = @import("compiler_rt/memmove.zig");
         symbol(&memcmp, "memcmp");
@@ -665,12 +664,6 @@ pub fn memset(dest: ?[*]u8, c: u8, len: usize) callconv(.c) ?[*]u8 {
     }
 
     return dest;
-}
-
-pub fn __memset(dest: ?[*]u8, c: u8, n: usize, dest_n: usize) callconv(.c) ?[*]u8 {
-    if (dest_n < n)
-        @panic("buffer overflow");
-    return memset(dest, c, n);
 }
 
 pub fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.c) c_int {
