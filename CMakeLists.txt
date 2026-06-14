@@ -627,7 +627,9 @@ if(MSVC)
   set(ZIG2_COMPILE_FLAGS "/Od")
   # Suppress conflicting libc redeclarations in auto-generated zig2.c (e.g. _msize const mismatch)
   # clang-cl needs /clang: prefix for -W flags
-  set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /clang:-Wno-incompatible-library-redeclaration /clang:-Wno-builtin-requires-header")
+  set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /clang:-Wno-incompatible-library-redeclaration /clang:-Wno-builtin-requires-header /clang:-Werror=no-incompatible-pointer-types-discards-qualifiers")
+  # Also treat _msize redeclaration as non-fatal (const qualifier mismatch with UCRT)
+  set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /clang:-Wno-error=incompatible-library-redeclaration")
   # Undefine 'environ' and '_environ' macros that UCRT expands to __p__environ() function calls,
   # which conflict with struct field names in the generated zig2.c.
   # Force-include a header that pre-includes <stdlib.h> then undefs the macros.
