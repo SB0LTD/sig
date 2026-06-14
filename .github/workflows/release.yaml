@@ -223,12 +223,15 @@ jobs:
         run: |
           mkdir -p .bootstrap-dl
           gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${{ matrix.bootstrap_asset }}" --dir .bootstrap-dl
+          ls -la .bootstrap-dl/
           mkdir -p .bootstrap
           tar -xf ".bootstrap-dl/${{ matrix.bootstrap_asset }}" -C .bootstrap
+          ls -laR .bootstrap/
           BIN=$(find .bootstrap -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
+          echo "Found binary: '$BIN'"
           chmod +x "$BIN" 2>/dev/null || true
           echo "SIG=$PWD/$BIN" >> "$GITHUB_ENV"
-          "$BIN" version || true
+          "$PWD/$BIN" version || echo "Bootstrap binary failed to run (exit $?)"
 
       - name: Build sig natively
         shell: bash
