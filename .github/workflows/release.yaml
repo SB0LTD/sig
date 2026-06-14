@@ -221,7 +221,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DLDIR="${RUNNER_TEMP:-/tmp}"
+          # Convert Windows paths to Unix-style for Git Bash tar
+          DLDIR="$(cygpath -u "${RUNNER_TEMP:-/tmp}" 2>/dev/null || echo "${RUNNER_TEMP:-/tmp}")"
           gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${{ matrix.bootstrap_asset }}" --dir "$DLDIR"
           mkdir -p "$DLDIR/bootstrap"
           tar -xf "$DLDIR/${{ matrix.bootstrap_asset }}" -C "$DLDIR/bootstrap"
