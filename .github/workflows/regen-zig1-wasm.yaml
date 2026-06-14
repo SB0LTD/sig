@@ -102,7 +102,6 @@ jobs:
             -target wasm32-wasi \
             -OReleaseSmall \
             -fsingle-threaded \
-            --zig-lib-dir lib \
             --cache-dir .zig-cache \
             -femit-bin=stage1/zig1.wasm
 
