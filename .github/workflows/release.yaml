@@ -221,14 +221,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Convert Windows paths to Unix-style for Git Bash tar
-          DLDIR="$(cygpath -u "${RUNNER_TEMP:-/tmp}" 2>/dev/null || echo "${RUNNER_TEMP:-/tmp}")"
-          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${{ matrix.bootstrap_asset }}" --dir "$DLDIR"
-          mkdir -p "$DLDIR/bootstrap"
-          tar -xf "$DLDIR/${{ matrix.bootstrap_asset }}" -C "$DLDIR/bootstrap"
-          BIN=$(find "$DLDIR/bootstrap" -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
+          mkdir -p .bootstrap-dl
+          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${{ matrix.bootstrap_asset }}" --dir .bootstrap-dl
+          mkdir -p .bootstrap
+          tar -xf ".bootstrap-dl/${{ matrix.bootstrap_asset }}" -C .bootstrap
+          BIN=$(find .bootstrap -type f \( -name "sig" -o -name "sig.exe" \) | head -1)
           chmod +x "$BIN" 2>/dev/null || true
-          echo "SIG=${BIN}" >> "$GITHUB_ENV"
+          echo "SIG=$PWD/$BIN" >> "$GITHUB_ENV"
           "$BIN" version || true
 
       - name: Build sig natively
