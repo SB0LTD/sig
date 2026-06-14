@@ -83,7 +83,6 @@ pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
         .scalarize_shl_sat,
         .scalarize_xor,
         .scalarize_not,
-        .scalarize_bitcast,
         .scalarize_clz,
         .scalarize_ctz,
         .scalarize_popcount,
@@ -120,6 +119,8 @@ pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
         .scalarize_shuffle_two,
         .scalarize_select,
         .scalarize_mul_add,
+
+        .scalarize_bitcast_padded_elems,
     });
 }
 

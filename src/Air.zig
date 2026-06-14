@@ -955,7 +955,7 @@ pub const Inst = struct {
         /// here is runtime-known, which is usually not allowed for vectors. `Legalize` may emit
         /// this instruction when scalarizing vector operations.
         ///
-        /// Uses the `bin_op` field. `lhs` is the vector pointer. `rhs` is the element index. Result
+        /// Uses the `bin_op` field. `lhs` is the vector value. `rhs` is the element index. Result
         /// type is the vector element type.
         legalize_vec_elem_val,
 
