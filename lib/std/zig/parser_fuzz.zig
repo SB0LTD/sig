@@ -25,6 +25,7 @@ test "operator whitespace" {
         \\}
     );
 }
+
 // Found using AFL++
 test "doc comment or division operator" {
     try checkAgainstOracle("0=0///\n0");
@@ -34,6 +35,17 @@ test "doc comment or division operator" {
 test "double ampersand" {
     try checkAgainstOracle("0=0&&0"); // error
     try checkAgainstOracle("test{&&0;}"); // ok
+}
+
+// Found using AFL++
+test "newline required before doc comment not at start of file" {
+    try checkAgainstOracle("0,///\n0"); // error
+    try checkAgainstOracle("///\n0"); // ok
+    try checkAgainstOracle(" ///\n0"); // ok
+    try checkAgainstOracle("\n///\n0"); // ok
+    try checkAgainstOracle("///"); // error
+    try checkAgainstOracle("///\n//!");
+    try checkAgainstOracle("///\ntest {}");
 }
 
 fn checkAgainstOracle(source: [:0]const u8) !void {

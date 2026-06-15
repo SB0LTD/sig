@@ -1,4 +1,4 @@
-Root <- ContainerMembers skip eof
+Root <- initial_doc_comment? ContainerMembers skip eof
 
 # *** Top level ***
 ContainerMembers <- container_doc_comment? ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
@@ -446,14 +446,20 @@ string_char
     <- '\\"'
      / !["] non_control_utf8
 
+
+# We forbid same-line doc comments to disambiguate the mapping to e.g. struct
+# fields for documentation generation tooling. However, this requires a special
+# case in the grammar to handle a doc comment right at the beginning of a file.
+initial_doc_comment <- (skip '///' non_control_utf8* newline)+ skip !'//!' !KEYWORD_test !KEYWORD_comptime !eof
 container_doc_comment <- (skip '//!' non_control_utf8* newline)+
-doc_comment <- (skip '///' non_control_utf8* newline)+
+doc_comment <- skip_require_newline (skip '///' non_control_utf8* newline)+
 line_comment
     <- '//' ![!/] non_control_utf8* newline
      / '////' non_control_utf8* newline
 line_string <- '\\\\' non_control_utf8* newline
 newline <- "\n" / "\r\n" / eof
 skip <- ([ \n\t\r] / line_comment)*
+skip_require_newline <- [ \t\r]* ([\n] / line_comment) skip
 pre_op_white <- ([ \n\t\r] / line_comment)+
 post_op_white <- [ \n\t\r] skip
 
