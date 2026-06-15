@@ -233,13 +233,11 @@ jobs:
           fi
           ./bootstrap-sig* version || echo "WARNING: bootstrap binary failed"
 
-      - name: Build sig natively
+      - name: Generate build options
         shell: bash
         run: |
           ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
           SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
-          echo "Building ${{ matrix.target }} natively (sig builds sig, no-LLVM)"
-
           mkdir -p .build-gen stage3-out/bin
           cat > .build-gen/build_options.zig << EOF
           pub const have_llvm: bool = false;
@@ -265,10 +263,20 @@ jobs:
           pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
           EOF
 
-          # Use the bootstrap binary from workspace root
-          SIGBIN="./bootstrap-sig.exe"
-          [ ! -f "$SIGBIN" ] && SIGBIN="./bootstrap-sig"
-          "$SIGBIN" build-exe \
+      - name: Build sig natively (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          bootstrap-sig.exe version
+          bootstrap-sig.exe build-exe --dep build_options --dep aro -Mroot=src/main.zig -Mbuild_options=.build-gen/build_options.zig -Maro=lib/compiler/aro/aro.zig --name sig -OReleaseSafe --zig-lib-dir lib --cache-dir .zig-cache -femit-bin=stage3-out/bin/sig.exe
+
+      - name: Build sig natively (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          echo "Building ${{ matrix.target }} natively (sig builds sig, no-LLVM)"
+          ./bootstrap-sig build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=.build-gen/build_options.zig \
