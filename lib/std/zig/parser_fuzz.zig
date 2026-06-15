@@ -57,6 +57,11 @@ test "extra capture in for loop" {
     try checkAgainstOracle("for(0)|t,r|0");
 }
 
+// Found using AFL++
+test "expression nesting" {
+    try checkAgainstOracle("test{*comptime 0 == 0;}");
+}
+
 fn checkAgainstOracle(source: [:0]const u8) !void {
     var fba_buf: [1 << 18]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);
