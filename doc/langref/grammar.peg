@@ -537,7 +537,7 @@ RBRACE               <- skip '}'
 RBRACKET             <- skip ']'
 RPAREN               <- skip ')'
 SEMICOLON            <- skip ';'
-SLASH                <- skip '/'      ![=]
+SLASH                <- skip '/'      ![=/]
 SLASHEQUAL           <- skip '/='
 TILDE                <- skip '~'
 

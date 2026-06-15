@@ -3927,6 +3927,7 @@ const Parser = struct {
                 const pos_1 = p.i;
                 const match_1 = (p.i < p.source.len and switch (p.source[p.i]) {
                     '='...'=',
+                    '/'...'/',
                     => blk_2: {
                         p.i += 1;
                         break :blk_2 true;
