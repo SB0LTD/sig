@@ -272,7 +272,7 @@ CompareOpTok
 BitwiseOp <- pre_op_white BitwiseOpTok post_op_white
            / !pre_op_white BitwiseOpTok !post_op_white
 BitwiseOpTok
-    <- AMPERSAND
+    <- AMPERSAND ![&]
      / CARET
      / PIPE
      / KEYWORD_orelse

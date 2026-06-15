@@ -30,6 +30,12 @@ test "doc comment or division operator" {
     try checkAgainstOracle("0=0///\n0");
 }
 
+// Found using AFL++
+test "double ampersand" {
+    try checkAgainstOracle("0=0&&0"); // error
+    try checkAgainstOracle("test{&&0;}"); // ok
+}
+
 fn checkAgainstOracle(source: [:0]const u8) !void {
     var fba_buf: [1 << 18]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);

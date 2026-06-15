@@ -1528,7 +1528,19 @@ const Parser = struct {
     pub fn parseBitwiseOpTok(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parseAMPERSAND()) break :blk_0 true;
+            if (p.parseAMPERSAND() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = (p.i < p.source.len and switch (p.source[p.i]) {
+                    '&'...'&',
+                    => blk_2: {
+                        p.i += 1;
+                        break :blk_2 true;
+                    },
+                    else => false,
+                });
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            }) break :blk_0 true;
             p.i = pos_0;
             if (p.parseCARET()) break :blk_0 true;
             p.i = pos_0;
