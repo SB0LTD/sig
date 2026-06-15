@@ -141,7 +141,21 @@ const Generator = struct {
         switch (node.get(g.p)) {
             .id => |id| try g.w.print("p.parse{s}()", .{id}),
             .expr => try g.genExpr(node),
-            .@"&" => @panic("'&' not supported, unused in Zig's grammar.peg"),
+            .@"&" => |child| {
+                // XXX forbid unbounded lookahead
+                try g.w.print(
+                    \\blk_{d}: {{
+                    \\const pos_{d} = p.i;
+                    \\const match_{d} = 
+                , .{ suffix, suffix, suffix });
+                try g.genNode(child);
+                try g.w.print(
+                    \\;
+                    \\p.i = pos_{d};
+                    \\    break :blk_{d} match_{d};
+                    \\}}
+                , .{ suffix, suffix, suffix });
+            },
             .@"!" => |child| {
                 // XXX forbid unbounded lookahead
                 try g.w.print(

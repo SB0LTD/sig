@@ -2502,22 +2502,32 @@ const Parser = struct {
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "\n")) {
-                    p.i += 1;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
+                const pos_1 = p.i;
+                const match_1 = blk_3: {
+                    const pos_3 = p.i;
+                    if (blk_4: {
+                        if (std.mem.startsWith(u8, p.source[p.i..], "\n")) {
+                            p.i += 1;
+                            break :blk_4 true;
+                        }
+                        break :blk_4 false;
+                    }) break :blk_3 true;
+                    p.i = pos_3;
+                    if (blk_4: {
+                        if (std.mem.startsWith(u8, p.source[p.i..], "\r\n")) {
+                            p.i += 2;
+                            break :blk_4 true;
+                        }
+                        break :blk_4 false;
+                    }) break :blk_3 true;
+                    p.i = pos_3;
+                    if (p.parseeof()) break :blk_3 true;
+                    p.i = pos_3;
+                    break :blk_3 false;
+                };
+                p.i = pos_1;
+                break :blk_1 match_1;
             }) break :blk_0 true;
-            p.i = pos_0;
-            if (blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], "\r\n")) {
-                    p.i += 2;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
-            }) break :blk_0 true;
-            p.i = pos_0;
-            if (p.parseeof()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };

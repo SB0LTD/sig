@@ -24,6 +24,10 @@ test "operator whitespace" {
         \\    _!= 0;
         \\}
     );
+    try checkAgainstOracle(
+        \\test{{\\
+        \\*0;}}
+    );
 }
 
 // Found using AFL++

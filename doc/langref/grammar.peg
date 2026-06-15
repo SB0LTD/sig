@@ -457,7 +457,11 @@ line_comment
     <- '//' ![!/] non_control_utf8* newline
      / '////' non_control_utf8* newline
 line_string <- '\\\\' non_control_utf8* newline
-newline <- "\n" / "\r\n" / eof
+
+# This uses a positive lookahead rather than consuming input to make e.g.
+# the newline terminating a multiline string literal or doc comment visible
+# to the pre_op_white non-terminal.
+newline <- &("\n" / "\r\n" / eof)
 skip <- ([ \n\t\r] / line_comment)*
 skip_require_newline <- [ \t\r]* ([\n] / line_comment) skip
 pre_op_white <- ([ \n\t\r] / line_comment)+
