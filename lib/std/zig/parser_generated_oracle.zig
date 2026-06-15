@@ -16,7 +16,7 @@ const Parser = struct {
     pub fn parseRoot(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parseskip() and p.parseContainerMembers() and p.parseeof()) break :blk_0 true;
+            if (p.parseContainerMembers() and p.parseskip() and p.parseeof()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -603,6 +603,40 @@ const Parser = struct {
                 while (blk_3: {
                     const pos_3 = p.i;
                     if (p.parseMultiplyOp() and p.parsePrefixExpr()) break :blk_3 true;
+                    p.i = pos_3;
+                    break :blk_3 false;
+                }) {}
+                break :blk_1 true;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseBinOp(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parseExpr() and blk_1: {
+                while (blk_3: {
+                    const pos_3 = p.i;
+                    if (blk_4: {
+                        var match_4 = false;
+                        while (p.parsewhite()) {
+                            match_4 = true;
+                        }
+                        break :blk_4 match_4;
+                    } and blk_4: {
+                        if (std.mem.startsWith(u8, p.source[p.i..], "or")) {
+                            p.i += 2;
+                            break :blk_4 true;
+                        }
+                        break :blk_4 false;
+                    } and blk_4: {
+                        var match_4 = false;
+                        while (p.parsewhite()) {
+                            match_4 = true;
+                        }
+                        break :blk_4 match_4;
+                    } and p.parseBoolAndExpr()) break :blk_3 true;
                     p.i = pos_3;
                     break :blk_3 false;
                 }) {}
@@ -2185,7 +2219,7 @@ const Parser = struct {
                 var match_1 = false;
                 while (blk_3: {
                     const pos_3 = p.i;
-                    if (blk_4: {
+                    if (p.parseskip() and blk_4: {
                         if (std.mem.startsWith(u8, p.source[p.i..], "//!")) {
                             p.i += 3;
                             break :blk_4 true;
@@ -2194,7 +2228,7 @@ const Parser = struct {
                     } and blk_4: {
                         while (p.parsenon_control_utf8()) {}
                         break :blk_4 true;
-                    } and p.parsenewline() and p.parseskip()) break :blk_3 true;
+                    } and p.parsenewline()) break :blk_3 true;
                     p.i = pos_3;
                     break :blk_3 false;
                 }) {
@@ -2213,7 +2247,7 @@ const Parser = struct {
                 var match_1 = false;
                 while (blk_3: {
                     const pos_3 = p.i;
-                    if (blk_4: {
+                    if (p.parseskip() and blk_4: {
                         if (std.mem.startsWith(u8, p.source[p.i..], "///")) {
                             p.i += 3;
                             break :blk_4 true;
@@ -2222,7 +2256,7 @@ const Parser = struct {
                     } and blk_4: {
                         while (p.parsenon_control_utf8()) {}
                         break :blk_4 true;
-                    } and p.parsenewline() and p.parseskip()) break :blk_3 true;
+                    } and p.parsenewline()) break :blk_3 true;
                     p.i = pos_3;
                     break :blk_3 false;
                 }) {
@@ -2347,7 +2381,7 @@ const Parser = struct {
     pub fn parseCHAR_LITERAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if ((p.i < p.source.len and switch (p.source[p.i]) {
+            if (p.parseskip() and (p.i < p.source.len and switch (p.source[p.i]) {
                 '\''...'\'',
                 => blk_1: {
                     p.i += 1;
@@ -2364,7 +2398,7 @@ const Parser = struct {
                     break :blk_1 true;
                 },
                 else => false,
-            }) and p.parseskip()) break :blk_0 true;
+            })) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2442,7 +2476,7 @@ const Parser = struct {
     pub fn parseNUMBERLITERAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if ((p.i < p.source.len and switch (p.source[p.i]) {
+            if (p.parseskip() and (p.i < p.source.len and switch (p.source[p.i]) {
                 '0'...'9',
                 => blk_1: {
                     p.i += 1;
@@ -2464,9 +2498,9 @@ const Parser = struct {
                     match_1 = true;
                 }
                 break :blk_1 match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
-            if ((p.i < p.source.len and switch (p.source[p.i]) {
+            if (p.parseskip() and (p.i < p.source.len and switch (p.source[p.i]) {
                 '0'...'9',
                 => blk_1: {
                     p.i += 1;
@@ -2476,7 +2510,7 @@ const Parser = struct {
             }) and blk_1: {
                 while (p.parsedigit_float()) {}
                 break :blk_1 true;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2484,7 +2518,7 @@ const Parser = struct {
     pub fn parseSTRINGLITERALSINGLE(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if ((p.i < p.source.len and switch (p.source[p.i]) {
+            if (p.parseskip() and (p.i < p.source.len and switch (p.source[p.i]) {
                 '"'...'"',
                 => blk_1: {
                     p.i += 1;
@@ -2501,7 +2535,7 @@ const Parser = struct {
                     break :blk_1 true;
                 },
                 else => false,
-            }) and p.parseskip()) break :blk_0 true;
+            })) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2515,7 +2549,7 @@ const Parser = struct {
                 var match_1 = false;
                 while (blk_3: {
                     const pos_3 = p.i;
-                    if (p.parseline_string() and p.parseskip()) break :blk_3 true;
+                    if (p.parseskip() and p.parseline_string()) break :blk_3 true;
                     p.i = pos_3;
                     break :blk_3 false;
                 }) {
@@ -2530,7 +2564,7 @@ const Parser = struct {
     pub fn parseIDENTIFIER(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 const pos_1 = p.i;
                 const match_1 = p.parsekeyword();
                 p.i = pos_1;
@@ -2557,9 +2591,9 @@ const Parser = struct {
                     else => false,
                 })) {}
                 break :blk_1 true;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "@")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -2573,7 +2607,7 @@ const Parser = struct {
     pub fn parseBUILTINIDENTIFIER(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "@")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -2601,7 +2635,7 @@ const Parser = struct {
                     else => false,
                 })) {}
                 break :blk_1 true;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2609,7 +2643,7 @@ const Parser = struct {
     pub fn parseAMPERSAND(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "&")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -2627,7 +2661,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2635,13 +2669,13 @@ const Parser = struct {
     pub fn parseAMPERSANDEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "&=")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2649,7 +2683,7 @@ const Parser = struct {
     pub fn parseASTERISK(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "*")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -2669,7 +2703,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2677,13 +2711,13 @@ const Parser = struct {
     pub fn parseASTERISKEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "*=")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2691,7 +2725,7 @@ const Parser = struct {
     pub fn parseASTERISKPERCENT(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "*%")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -2709,7 +2743,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2717,13 +2751,13 @@ const Parser = struct {
     pub fn parseASTERISKPERCENTEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "*%=")) {
                     p.i += 3;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2731,7 +2765,7 @@ const Parser = struct {
     pub fn parseASTERISKPIPE(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "*|")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -2749,7 +2783,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2757,13 +2791,13 @@ const Parser = struct {
     pub fn parseASTERISKPIPEEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "*|=")) {
                     p.i += 3;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2771,7 +2805,7 @@ const Parser = struct {
     pub fn parseCARET(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "^")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -2789,7 +2823,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2797,13 +2831,13 @@ const Parser = struct {
     pub fn parseCARETEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "^=")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2811,13 +2845,13 @@ const Parser = struct {
     pub fn parseCOLON(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ":")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2825,13 +2859,13 @@ const Parser = struct {
     pub fn parseCOMMA(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ",")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2839,7 +2873,7 @@ const Parser = struct {
     pub fn parseDOT(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ".")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -2859,7 +2893,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2867,7 +2901,7 @@ const Parser = struct {
     pub fn parseDOT2(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "..")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -2885,7 +2919,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2893,13 +2927,13 @@ const Parser = struct {
     pub fn parseDOT3(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "...")) {
                     p.i += 3;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2907,13 +2941,13 @@ const Parser = struct {
     pub fn parseDOTASTERISK(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ".*")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2921,13 +2955,13 @@ const Parser = struct {
     pub fn parseDOTQUESTIONMARK(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ".?")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2935,7 +2969,7 @@ const Parser = struct {
     pub fn parseEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "=")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -2954,7 +2988,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2962,13 +2996,13 @@ const Parser = struct {
     pub fn parseEQUALEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "==")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2976,13 +3010,13 @@ const Parser = struct {
     pub fn parseEQUALRARROW(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "=>")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2990,7 +3024,7 @@ const Parser = struct {
     pub fn parseEXCLAMATIONMARK(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "!")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -3008,7 +3042,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3016,13 +3050,13 @@ const Parser = struct {
     pub fn parseEXCLAMATIONMARKEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "!=")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3030,7 +3064,7 @@ const Parser = struct {
     pub fn parseLARROW(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "<")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -3049,7 +3083,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3057,7 +3091,7 @@ const Parser = struct {
     pub fn parseLARROW2(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "<<")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -3076,7 +3110,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3084,13 +3118,13 @@ const Parser = struct {
     pub fn parseLARROW2EQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "<<=")) {
                     p.i += 3;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3098,7 +3132,7 @@ const Parser = struct {
     pub fn parseLARROW2PIPE(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "<<|")) {
                     p.i += 3;
                     break :blk_1 true;
@@ -3116,7 +3150,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3124,13 +3158,13 @@ const Parser = struct {
     pub fn parseLARROW2PIPEEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "<<|=")) {
                     p.i += 4;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3138,13 +3172,13 @@ const Parser = struct {
     pub fn parseLARROWEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "<=")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3152,13 +3186,13 @@ const Parser = struct {
     pub fn parseLBRACE(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "{")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3166,13 +3200,13 @@ const Parser = struct {
     pub fn parseLBRACKET(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "[")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3180,13 +3214,13 @@ const Parser = struct {
     pub fn parseLPAREN(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "(")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3194,7 +3228,7 @@ const Parser = struct {
     pub fn parseMINUS(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "-")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -3215,7 +3249,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3223,13 +3257,13 @@ const Parser = struct {
     pub fn parseMINUSEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "-=")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3237,7 +3271,7 @@ const Parser = struct {
     pub fn parseMINUSPERCENT(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "-%")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -3255,7 +3289,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3263,13 +3297,13 @@ const Parser = struct {
     pub fn parseMINUSPERCENTEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "-%=")) {
                     p.i += 3;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3277,7 +3311,7 @@ const Parser = struct {
     pub fn parseMINUSPIPE(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "-|")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -3295,7 +3329,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3303,13 +3337,13 @@ const Parser = struct {
     pub fn parseMINUSPIPEEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "-|=")) {
                     p.i += 3;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3317,13 +3351,13 @@ const Parser = struct {
     pub fn parseMINUSRARROW(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "->")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3331,7 +3365,7 @@ const Parser = struct {
     pub fn parsePERCENT(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "%")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -3349,7 +3383,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3357,13 +3391,13 @@ const Parser = struct {
     pub fn parsePERCENTEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "%=")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3371,7 +3405,7 @@ const Parser = struct {
     pub fn parsePIPE(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "|")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -3390,7 +3424,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3398,13 +3432,13 @@ const Parser = struct {
     pub fn parsePIPE2(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "||")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3412,13 +3446,13 @@ const Parser = struct {
     pub fn parsePIPEEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "|=")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3426,7 +3460,7 @@ const Parser = struct {
     pub fn parsePLUS(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "+")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -3447,7 +3481,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3455,13 +3489,13 @@ const Parser = struct {
     pub fn parsePLUS2(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "++")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3469,13 +3503,13 @@ const Parser = struct {
     pub fn parsePLUSEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "+=")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3483,7 +3517,7 @@ const Parser = struct {
     pub fn parsePLUSPERCENT(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "+%")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -3501,7 +3535,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3509,13 +3543,13 @@ const Parser = struct {
     pub fn parsePLUSPERCENTEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "+%=")) {
                     p.i += 3;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3523,7 +3557,7 @@ const Parser = struct {
     pub fn parsePLUSPIPE(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "+|")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -3541,7 +3575,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3549,13 +3583,13 @@ const Parser = struct {
     pub fn parsePLUSPIPEEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "+|=")) {
                     p.i += 3;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3563,13 +3597,13 @@ const Parser = struct {
     pub fn parseLETTERC(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "c")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3577,13 +3611,13 @@ const Parser = struct {
     pub fn parseQUESTIONMARK(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "?")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3591,7 +3625,7 @@ const Parser = struct {
     pub fn parseRARROW(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ">")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -3610,7 +3644,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3618,7 +3652,7 @@ const Parser = struct {
     pub fn parseRARROW2(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ">>")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -3636,7 +3670,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3644,13 +3678,13 @@ const Parser = struct {
     pub fn parseRARROW2EQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ">>=")) {
                     p.i += 3;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3658,13 +3692,13 @@ const Parser = struct {
     pub fn parseRARROWEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ">=")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3672,13 +3706,13 @@ const Parser = struct {
     pub fn parseRBRACE(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "}")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3686,13 +3720,13 @@ const Parser = struct {
     pub fn parseRBRACKET(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "]")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3700,13 +3734,13 @@ const Parser = struct {
     pub fn parseRPAREN(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ")")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3714,13 +3748,13 @@ const Parser = struct {
     pub fn parseSEMICOLON(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ";")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3728,7 +3762,7 @@ const Parser = struct {
     pub fn parseSLASH(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "/")) {
                     p.i += 1;
                     break :blk_1 true;
@@ -3746,7 +3780,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3754,13 +3788,13 @@ const Parser = struct {
     pub fn parseSLASHEQUAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "/=")) {
                     p.i += 2;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3768,13 +3802,13 @@ const Parser = struct {
     pub fn parseTILDE(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "~")) {
                     p.i += 1;
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3797,7 +3831,7 @@ const Parser = struct {
                 });
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and p.parseskip()) break :blk_0 true;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3805,7 +3839,7 @@ const Parser = struct {
     pub fn parseKEYWORD_addrspace(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "addrspace")) {
                     p.i += 9;
                     break :blk_1 true;
@@ -3819,7 +3853,7 @@ const Parser = struct {
     pub fn parseKEYWORD_align(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "align")) {
                     p.i += 5;
                     break :blk_1 true;
@@ -3833,7 +3867,7 @@ const Parser = struct {
     pub fn parseKEYWORD_allowzero(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "allowzero")) {
                     p.i += 9;
                     break :blk_1 true;
@@ -3847,7 +3881,7 @@ const Parser = struct {
     pub fn parseKEYWORD_and(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "and")) {
                     p.i += 3;
                     break :blk_1 true;
@@ -3861,7 +3895,7 @@ const Parser = struct {
     pub fn parseKEYWORD_anyframe(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "anyframe")) {
                     p.i += 8;
                     break :blk_1 true;
@@ -3875,7 +3909,7 @@ const Parser = struct {
     pub fn parseKEYWORD_anytype(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "anytype")) {
                     p.i += 7;
                     break :blk_1 true;
@@ -3889,7 +3923,7 @@ const Parser = struct {
     pub fn parseKEYWORD_asm(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "asm")) {
                     p.i += 3;
                     break :blk_1 true;
@@ -3903,7 +3937,7 @@ const Parser = struct {
     pub fn parseKEYWORD_break(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "break")) {
                     p.i += 5;
                     break :blk_1 true;
@@ -3917,7 +3951,7 @@ const Parser = struct {
     pub fn parseKEYWORD_callconv(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "callconv")) {
                     p.i += 8;
                     break :blk_1 true;
@@ -3931,7 +3965,7 @@ const Parser = struct {
     pub fn parseKEYWORD_catch(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "catch")) {
                     p.i += 5;
                     break :blk_1 true;
@@ -3945,7 +3979,7 @@ const Parser = struct {
     pub fn parseKEYWORD_comptime(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "comptime")) {
                     p.i += 8;
                     break :blk_1 true;
@@ -3959,7 +3993,7 @@ const Parser = struct {
     pub fn parseKEYWORD_const(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "const")) {
                     p.i += 5;
                     break :blk_1 true;
@@ -3973,7 +4007,7 @@ const Parser = struct {
     pub fn parseKEYWORD_continue(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "continue")) {
                     p.i += 8;
                     break :blk_1 true;
@@ -3987,7 +4021,7 @@ const Parser = struct {
     pub fn parseKEYWORD_defer(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "defer")) {
                     p.i += 5;
                     break :blk_1 true;
@@ -4001,7 +4035,7 @@ const Parser = struct {
     pub fn parseKEYWORD_else(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "else")) {
                     p.i += 4;
                     break :blk_1 true;
@@ -4015,7 +4049,7 @@ const Parser = struct {
     pub fn parseKEYWORD_enum(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "enum")) {
                     p.i += 4;
                     break :blk_1 true;
@@ -4029,7 +4063,7 @@ const Parser = struct {
     pub fn parseKEYWORD_errdefer(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "errdefer")) {
                     p.i += 8;
                     break :blk_1 true;
@@ -4043,7 +4077,7 @@ const Parser = struct {
     pub fn parseKEYWORD_error(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "error")) {
                     p.i += 5;
                     break :blk_1 true;
@@ -4057,7 +4091,7 @@ const Parser = struct {
     pub fn parseKEYWORD_export(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "export")) {
                     p.i += 6;
                     break :blk_1 true;
@@ -4071,7 +4105,7 @@ const Parser = struct {
     pub fn parseKEYWORD_extern(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "extern")) {
                     p.i += 6;
                     break :blk_1 true;
@@ -4085,7 +4119,7 @@ const Parser = struct {
     pub fn parseKEYWORD_fn(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "fn")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -4099,7 +4133,7 @@ const Parser = struct {
     pub fn parseKEYWORD_for(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "for")) {
                     p.i += 3;
                     break :blk_1 true;
@@ -4113,7 +4147,7 @@ const Parser = struct {
     pub fn parseKEYWORD_if(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "if")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -4127,7 +4161,7 @@ const Parser = struct {
     pub fn parseKEYWORD_inline(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "inline")) {
                     p.i += 6;
                     break :blk_1 true;
@@ -4141,7 +4175,7 @@ const Parser = struct {
     pub fn parseKEYWORD_noalias(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "noalias")) {
                     p.i += 7;
                     break :blk_1 true;
@@ -4155,7 +4189,7 @@ const Parser = struct {
     pub fn parseKEYWORD_nosuspend(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "nosuspend")) {
                     p.i += 9;
                     break :blk_1 true;
@@ -4169,7 +4203,7 @@ const Parser = struct {
     pub fn parseKEYWORD_noinline(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "noinline")) {
                     p.i += 8;
                     break :blk_1 true;
@@ -4183,7 +4217,7 @@ const Parser = struct {
     pub fn parseKEYWORD_opaque(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "opaque")) {
                     p.i += 6;
                     break :blk_1 true;
@@ -4197,7 +4231,7 @@ const Parser = struct {
     pub fn parseKEYWORD_or(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "or")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -4211,7 +4245,7 @@ const Parser = struct {
     pub fn parseKEYWORD_orelse(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "orelse")) {
                     p.i += 6;
                     break :blk_1 true;
@@ -4225,7 +4259,7 @@ const Parser = struct {
     pub fn parseKEYWORD_packed(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "packed")) {
                     p.i += 6;
                     break :blk_1 true;
@@ -4239,7 +4273,7 @@ const Parser = struct {
     pub fn parseKEYWORD_pub(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "pub")) {
                     p.i += 3;
                     break :blk_1 true;
@@ -4253,7 +4287,7 @@ const Parser = struct {
     pub fn parseKEYWORD_resume(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "resume")) {
                     p.i += 6;
                     break :blk_1 true;
@@ -4267,7 +4301,7 @@ const Parser = struct {
     pub fn parseKEYWORD_return(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "return")) {
                     p.i += 6;
                     break :blk_1 true;
@@ -4281,7 +4315,7 @@ const Parser = struct {
     pub fn parseKEYWORD_linksection(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "linksection")) {
                     p.i += 11;
                     break :blk_1 true;
@@ -4295,7 +4329,7 @@ const Parser = struct {
     pub fn parseKEYWORD_struct(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "struct")) {
                     p.i += 6;
                     break :blk_1 true;
@@ -4309,7 +4343,7 @@ const Parser = struct {
     pub fn parseKEYWORD_suspend(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "suspend")) {
                     p.i += 7;
                     break :blk_1 true;
@@ -4323,7 +4357,7 @@ const Parser = struct {
     pub fn parseKEYWORD_switch(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "switch")) {
                     p.i += 6;
                     break :blk_1 true;
@@ -4337,7 +4371,7 @@ const Parser = struct {
     pub fn parseKEYWORD_test(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "test")) {
                     p.i += 4;
                     break :blk_1 true;
@@ -4351,7 +4385,7 @@ const Parser = struct {
     pub fn parseKEYWORD_threadlocal(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "threadlocal")) {
                     p.i += 11;
                     break :blk_1 true;
@@ -4365,7 +4399,7 @@ const Parser = struct {
     pub fn parseKEYWORD_try(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "try")) {
                     p.i += 3;
                     break :blk_1 true;
@@ -4379,7 +4413,7 @@ const Parser = struct {
     pub fn parseKEYWORD_union(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "union")) {
                     p.i += 5;
                     break :blk_1 true;
@@ -4393,7 +4427,7 @@ const Parser = struct {
     pub fn parseKEYWORD_unreachable(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "unreachable")) {
                     p.i += 11;
                     break :blk_1 true;
@@ -4407,7 +4441,7 @@ const Parser = struct {
     pub fn parseKEYWORD_var(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "var")) {
                     p.i += 3;
                     break :blk_1 true;
@@ -4421,7 +4455,7 @@ const Parser = struct {
     pub fn parseKEYWORD_volatile(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "volatile")) {
                     p.i += 8;
                     break :blk_1 true;
@@ -4435,7 +4469,7 @@ const Parser = struct {
     pub fn parseKEYWORD_while(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "while")) {
                     p.i += 5;
                     break :blk_1 true;
