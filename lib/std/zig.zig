@@ -43,6 +43,8 @@ pub const PkgConfig = @import("zig/PkgConfig.zig");
 pub const target = @import("zig/target.zig");
 pub const llvm = @import("zig/llvm.zig");
 
+pub const parser_generated_oracle = @import("zig/parser_generated_oracle.zig");
+
 // Character literal parsing
 pub const ParsedCharLiteral = string_literal.ParsedCharLiteral;
 pub const parseCharLiteral = string_literal.parseCharLiteral;
