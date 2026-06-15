@@ -559,12 +559,6 @@ pub fn renderError(tree: Ast, parse_error: Error, w: *Writer) Writer.Error!void 
         .var_const_decl => {
             return w.writeAll("use 'var' or 'const' to declare variable");
         },
-        .extra_for_capture => {
-            return w.writeAll("extra capture in for loop");
-        },
-        .for_input_not_captured => {
-            return w.writeAll("for input is not captured");
-        },
 
         .invalid_byte => {
             const tok_slice = tree.source[tree.tokens.items(.start)[parse_error.token]..];
@@ -2889,8 +2883,6 @@ pub const Error = struct {
         expected_var_const,
         wrong_equal_var_decl,
         var_const_decl,
-        extra_for_capture,
-        for_input_not_captured,
 
         zig_style_container,
         previous_field,

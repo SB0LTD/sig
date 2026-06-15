@@ -2106,16 +2106,9 @@ fn forPrefix(p: *Parse) Error!usize {
         return inputs;
     };
 
-    var warned_excess = false;
-    var captures: u32 = 0;
     while (true) {
         _ = p.eatToken(.asterisk);
-        const identifier = try p.expectToken(.identifier);
-        captures += 1;
-        if (captures > inputs and !warned_excess) {
-            try p.warnMsg(.{ .tag = .extra_for_capture, .token = identifier });
-            warned_excess = true;
-        }
+        _ = try p.expectToken(.identifier);
         switch (p.tokenTag(p.tok_i)) {
             .comma => p.tok_i += 1,
             .pipe => {
@@ -2128,11 +2121,6 @@ fn forPrefix(p: *Parse) Error!usize {
         if (p.eatToken(.pipe)) |_| break;
     }
 
-    if (captures < inputs) {
-        const index = p.scratch.items.len - captures;
-        const input = p.nodeMainToken(p.scratch.items[index]);
-        try p.warnMsg(.{ .tag = .for_input_not_captured, .token = input });
-    }
     return inputs;
 }
 

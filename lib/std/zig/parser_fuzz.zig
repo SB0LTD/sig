@@ -52,6 +52,11 @@ test "newline required before doc comment not at start of file" {
     try checkAgainstOracle("///\ntest {}");
 }
 
+// Found using AFL++
+test "extra capture in for loop" {
+    try checkAgainstOracle("for(0)|t,r|0");
+}
+
 fn checkAgainstOracle(source: [:0]const u8) !void {
     var fba_buf: [1 << 18]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);
