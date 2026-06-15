@@ -509,7 +509,7 @@ const Parser = struct {
             if (p.parseBoolAndExpr() and blk_1: {
                 while (blk_3: {
                     const pos_3 = p.i;
-                    if (p.parseKEYWORD_or() and p.parseBoolAndExpr()) break :blk_3 true;
+                    if (p.parseOrOp() and p.parseBoolAndExpr()) break :blk_3 true;
                     p.i = pos_3;
                     break :blk_3 false;
                 }) {}
@@ -525,7 +525,7 @@ const Parser = struct {
             if (p.parseCompareExpr() and blk_1: {
                 while (blk_3: {
                     const pos_3 = p.i;
-                    if (p.parseKEYWORD_and() and p.parseCompareExpr()) break :blk_3 true;
+                    if (p.parseAndOp() and p.parseCompareExpr()) break :blk_3 true;
                     p.i = pos_3;
                     break :blk_3 false;
                 }) {}
@@ -603,40 +603,6 @@ const Parser = struct {
                 while (blk_3: {
                     const pos_3 = p.i;
                     if (p.parseMultiplyOp() and p.parsePrefixExpr()) break :blk_3 true;
-                    p.i = pos_3;
-                    break :blk_3 false;
-                }) {}
-                break :blk_1 true;
-            }) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parseBinOp(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if (p.parseExpr() and blk_1: {
-                while (blk_3: {
-                    const pos_3 = p.i;
-                    if (blk_4: {
-                        var match_4 = false;
-                        while (p.parsewhite()) {
-                            match_4 = true;
-                        }
-                        break :blk_4 match_4;
-                    } and blk_4: {
-                        if (std.mem.startsWith(u8, p.source[p.i..], "or")) {
-                            p.i += 2;
-                            break :blk_4 true;
-                        }
-                        break :blk_4 false;
-                    } and blk_4: {
-                        var match_4 = false;
-                        while (p.parsewhite()) {
-                            match_4 = true;
-                        }
-                        break :blk_4 match_4;
-                    } and p.parseBoolAndExpr()) break :blk_3 true;
                     p.i = pos_3;
                     break :blk_3 false;
                 }) {}
@@ -1461,7 +1427,67 @@ const Parser = struct {
             break :blk_0 false;
         };
     }
+    pub fn parseOrOp(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parsepre_op_white() and p.parseKEYWORD_or() and p.parsepost_op_white()) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepre_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and p.parseKEYWORD_or() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepost_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseAndOp(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parsepre_op_white() and p.parseKEYWORD_and() and p.parsepost_op_white()) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepre_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and p.parseKEYWORD_and() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepost_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
     pub fn parseCompareOp(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parsepre_op_white() and p.parseCompareOpTok() and p.parsepost_op_white()) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepre_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and p.parseCompareOpTok() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepost_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseCompareOpTok(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
             if (p.parseEQUALEQUAL()) break :blk_0 true;
@@ -1482,6 +1508,26 @@ const Parser = struct {
     pub fn parseBitwiseOp(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
+            if (p.parsepre_op_white() and p.parseBitwiseOpTok() and p.parsepost_op_white()) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepre_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and p.parseBitwiseOpTok() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepost_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseBitwiseOpTok(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
             if (p.parseAMPERSAND()) break :blk_0 true;
             p.i = pos_0;
             if (p.parseCARET()) break :blk_0 true;
@@ -1498,6 +1544,26 @@ const Parser = struct {
     pub fn parseBitShiftOp(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
+            if (p.parsepre_op_white() and p.parseBitShiftOpTok() and p.parsepost_op_white()) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepre_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and p.parseBitShiftOpTok() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepost_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseBitShiftOpTok(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
             if (p.parseLARROW2()) break :blk_0 true;
             p.i = pos_0;
             if (p.parseRARROW2()) break :blk_0 true;
@@ -1508,6 +1574,26 @@ const Parser = struct {
         };
     }
     pub fn parseAdditionOp(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parsepre_op_white() and p.parseAdditionOpTok() and p.parsepost_op_white()) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepre_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and p.parseAdditionOpTok() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepost_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseAdditionOpTok(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
             if (p.parsePLUS()) break :blk_0 true;
@@ -1528,6 +1614,26 @@ const Parser = struct {
         };
     }
     pub fn parseMultiplyOp(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parsepre_op_white() and p.parseMultiplyOpTok() and p.parsepost_op_white()) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepre_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and p.parseMultiplyOpTok() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parsepost_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseMultiplyOpTok(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
             if (p.parsePIPE2()) break :blk_0 true;
@@ -2374,6 +2480,55 @@ const Parser = struct {
                 }) {}
                 break :blk_1 true;
             }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parsepre_op_white(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (blk_1: {
+                var match_1 = false;
+                while (blk_3: {
+                    const pos_3 = p.i;
+                    if ((p.i < p.source.len and switch (p.source[p.i]) {
+                        ' '...' ',
+                        '\n'...'\n',
+                        '\t'...'\t',
+                        '\r'...'\r',
+                        => blk_4: {
+                            p.i += 1;
+                            break :blk_4 true;
+                        },
+                        else => false,
+                    })) break :blk_3 true;
+                    p.i = pos_3;
+                    if (p.parseline_comment()) break :blk_3 true;
+                    p.i = pos_3;
+                    break :blk_3 false;
+                }) {
+                    match_1 = true;
+                }
+                break :blk_1 match_1;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parsepost_op_white(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if ((p.i < p.source.len and switch (p.source[p.i]) {
+                ' '...' ',
+                '\n'...'\n',
+                '\t'...'\t',
+                '\r'...'\r',
+                => blk_1: {
+                    p.i += 1;
+                    break :blk_1 true;
+                },
+                else => false,
+            }) and p.parseskip()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };

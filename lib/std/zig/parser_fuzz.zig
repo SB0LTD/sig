@@ -1,20 +1,35 @@
 const std = @import("../std.zig");
+const Allocator = std.mem.Allocator;
 const Smith = std.testing.Smith;
 
 const oracle = @import("parser_generated_oracle.zig");
 
 test "fuzz std.zig.Ast.parse() against generated oracle" {
-    try std.testing.fuzz({}, checkAgainstOracle, .{});
+    try std.testing.fuzz({}, fuzzAgainstOracle, .{});
 }
 
-fn checkAgainstOracle(_: void, smith: *Smith) !void {
+fn fuzzAgainstOracle(_: void, smith: *Smith) !void {
     var buffer: [1 << 14]u8 = undefined;
     const len = smith.slice(buffer[0 .. buffer.len - 1]);
     buffer[len] = 0;
     const source = buffer[0..len :0];
 
+    try checkAgainstOracle(source);
+}
+
+// Found using AFL++
+test "operator whitespace" {
+    try checkAgainstOracle(
+        \\test {
+        \\    _!= 0;
+        \\}
+    );
+}
+
+fn checkAgainstOracle(source: [:0]const u8) !void {
     var fba_buf: [1 << 18]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);
+
     const ast = try std.zig.Ast.parse(fba.allocator(), source, .zig);
 
     errdefer logBadSource(source, ast);

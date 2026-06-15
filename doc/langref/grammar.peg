@@ -74,9 +74,9 @@ SingleAssignExpr <- Expr (AssignOp Expr)?
 
 Expr <- BoolOrExpr
 
-BoolOrExpr <- BoolAndExpr (KEYWORD_or BoolAndExpr)*
+BoolOrExpr <- BoolAndExpr (OrOp BoolAndExpr)*
 
-BoolAndExpr <- CompareExpr (KEYWORD_and CompareExpr)*
+BoolAndExpr <- CompareExpr (AndOp CompareExpr)*
 
 CompareExpr <- BitwiseExpr (CompareOp BitwiseExpr)?
 
@@ -253,7 +253,15 @@ AssignOp
      / MINUSPERCENTEQUAL
      / EQUAL
 
-CompareOp
+OrOp <- pre_op_white KEYWORD_or post_op_white
+      / !pre_op_white KEYWORD_or !post_op_white
+
+AndOp <- pre_op_white KEYWORD_and post_op_white
+       / !pre_op_white KEYWORD_and !post_op_white
+
+CompareOp <- pre_op_white CompareOpTok post_op_white
+           / !pre_op_white CompareOpTok !post_op_white
+CompareOpTok
     <- EQUALEQUAL
      / EXCLAMATIONMARKEQUAL
      / LARROW
@@ -261,19 +269,25 @@ CompareOp
      / LARROWEQUAL
      / RARROWEQUAL
 
-BitwiseOp
+BitwiseOp <- pre_op_white BitwiseOpTok post_op_white
+           / !pre_op_white BitwiseOpTok !post_op_white
+BitwiseOpTok
     <- AMPERSAND
      / CARET
      / PIPE
      / KEYWORD_orelse
      / KEYWORD_catch Payload?
 
-BitShiftOp
+BitShiftOp <- pre_op_white BitShiftOpTok post_op_white
+           / !pre_op_white BitShiftOpTok !post_op_white
+BitShiftOpTok
     <- LARROW2
      / RARROW2
      / LARROW2PIPE
 
-AdditionOp
+AdditionOp <- pre_op_white AdditionOpTok post_op_white
+           / !pre_op_white AdditionOpTok !post_op_white
+AdditionOpTok
     <- PLUS
      / MINUS
      / PLUS2
@@ -282,7 +296,9 @@ AdditionOp
      / PLUSPIPE
      / MINUSPIPE
 
-MultiplyOp
+MultiplyOp <- pre_op_white MultiplyOpTok post_op_white
+           / !pre_op_white MultiplyOpTok !post_op_white
+MultiplyOpTok
     <- PIPE2
      / ASTERISK
      / SLASH
@@ -438,6 +454,8 @@ line_comment
 line_string <- '\\\\' non_control_utf8* newline
 newline <- "\n" / "\r\n" / eof
 skip <- ([ \n\t\r] / line_comment)*
+pre_op_white <- ([ \n\t\r] / line_comment)+
+post_op_white <- [ \n\t\r] skip
 
 CHAR_LITERAL <- skip ['] char_char* [']
 
