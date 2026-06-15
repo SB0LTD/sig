@@ -19116,12 +19116,10 @@ fn arrayInitAnon(
         .values = values_no_comptime,
     }));
 
-    const runtime_src = opt_runtime_src orelse {
+    _ = opt_runtime_src orelse {
         const tuple_val = try pt.aggregateValue(tuple_ty, values);
         return sema.addConstantMaybeRef(tuple_val, is_ref);
     };
-
-    try sema.requireRuntimeBlock(block, src, runtime_src);
 
     for (operands, 0..) |operand, i| {
         const operand_src = block.src(.{ .init_elem = .{
