@@ -164,12 +164,7 @@ const Parser = struct {
     pub fn parseContainerField(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if ((p.parsedoc_comment() or true) and (p.parseKEYWORD_comptime() or true) and blk_1: {
-                const pos_1 = p.i;
-                const match_1 = p.parseKEYWORD_fn();
-                p.i = pos_1;
-                break :blk_1 !match_1;
-            } and (blk_3: {
+            if ((p.parsedoc_comment() or true) and (p.parseKEYWORD_comptime() or true) and (blk_3: {
                 const pos_3 = p.i;
                 if (p.parseIDENTIFIER() and p.parseCOLON()) break :blk_3 true;
                 p.i = pos_3;
