@@ -50,6 +50,7 @@ test "newline required before doc comment not at start of file" {
     try checkAgainstOracle("///"); // error
     try checkAgainstOracle("///\n//!");
     try checkAgainstOracle("///\ntest {}");
+    try checkAgainstOracle("///\ncomptime 0");
 }
 
 // Found using AFL++

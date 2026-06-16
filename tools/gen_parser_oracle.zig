@@ -242,6 +242,7 @@ const Generator = struct {
                     \\}})
                 , .{ suffix, suffix });
             },
+            .sof => try g.w.writeAll("(p.i == 0)"),
             else => unreachable,
         }
     }
@@ -337,6 +338,8 @@ const Parser = struct {
             start: u8,
             end: u8,
         },
+        /// Start of file
+        sof,
 
         const Index = enum(u32) {
             _,
@@ -422,8 +425,17 @@ const Parser = struct {
     // Prefix          <- AND Action
     //                  / ( AND / NOT )? Suffix
     fn parsePrefix(p: *Parser) !?Node.Index {
-        // We don't implement Action
         if (p.eatAnd()) {
+            // We only support a single hardcoded "start of file" Action
+            if (p.eat('{')) {
+                // Action          <- '{' < [^}]* > '}' Spacing
+                if (std.mem.startsWith(u8, p.source[p.i..], " (yy->__pos == 0) }")) {
+                    while (!p.eat('}')) p.i += 1;
+                    _ = p.eatSpacing();
+                    return try p.addNode(.sof);
+                }
+                return null;
+            }
             const suffix = try p.parseSuffix() orelse return null;
             return try p.addNode(.{ .@"&" = suffix });
         }

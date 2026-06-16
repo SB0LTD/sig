@@ -16,7 +16,7 @@ const Parser = struct {
     pub fn parseRoot(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if ((p.parseinitial_doc_comment() or true) and p.parseContainerMembers() and p.parseskip() and p.parseeof()) break :blk_0 true;
+            if (p.parseContainerMembers() and p.parseskip() and p.parseeof()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -1764,6 +1764,14 @@ const Parser = struct {
             break :blk_0 false;
         };
     }
+    pub fn parsesof(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if ((p.i == 0)) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
     pub fn parseeof(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
@@ -2083,60 +2091,6 @@ const Parser = struct {
             break :blk_0 false;
         };
     }
-    pub fn parseinitial_doc_comment(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if (blk_1: {
-                var match_1 = false;
-                while (blk_3: {
-                    const pos_3 = p.i;
-                    if (p.parseskip() and blk_4: {
-                        if (std.mem.startsWith(u8, p.source[p.i..], "///")) {
-                            p.i += 3;
-                            break :blk_4 true;
-                        }
-                        break :blk_4 false;
-                    } and blk_4: {
-                        while (p.parsenon_control_utf8()) {}
-                        break :blk_4 true;
-                    } and p.parsenewline()) break :blk_3 true;
-                    p.i = pos_3;
-                    break :blk_3 false;
-                }) {
-                    match_1 = true;
-                }
-                break :blk_1 match_1;
-            } and p.parseskip() and blk_1: {
-                const pos_1 = p.i;
-                const match_1 = blk_2: {
-                    if (std.mem.startsWith(u8, p.source[p.i..], "//!")) {
-                        p.i += 3;
-                        break :blk_2 true;
-                    }
-                    break :blk_2 false;
-                };
-                p.i = pos_1;
-                break :blk_1 !match_1;
-            } and blk_1: {
-                const pos_1 = p.i;
-                const match_1 = p.parseKEYWORD_test();
-                p.i = pos_1;
-                break :blk_1 !match_1;
-            } and blk_1: {
-                const pos_1 = p.i;
-                const match_1 = p.parseKEYWORD_comptime();
-                p.i = pos_1;
-                break :blk_1 !match_1;
-            } and blk_1: {
-                const pos_1 = p.i;
-                const match_1 = p.parseeof();
-                p.i = pos_1;
-                break :blk_1 !match_1;
-            }) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
     pub fn parsecontainer_doc_comment(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
@@ -2168,7 +2122,14 @@ const Parser = struct {
     pub fn parsedoc_comment(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parseskip_require_newline() and blk_1: {
+            if (blk_2: {
+                const pos_2 = p.i;
+                if (p.parsesof()) break :blk_2 true;
+                p.i = pos_2;
+                if (p.parseskip_require_newline()) break :blk_2 true;
+                p.i = pos_2;
+                break :blk_2 false;
+            } and blk_1: {
                 var match_1 = false;
                 while (blk_3: {
                     const pos_3 = p.i;
