@@ -760,10 +760,11 @@ endif()
 # /alternatename linker directives aliasing internal names (zig_sqrt_f32) to
 # standard C names (sqrtf). These conflict with MSVC CRT symbols.
 # Fix: define ZIG_NO_EXPORT_ALIASES to make zig_export a no-op in zig.h.
-# The internal zig_* functions are still compiled; only the aliases are suppressed.
+# Additionally, some symbols (fabsl) are emitted as direct function definitions
+# by the C backend, not via zig_export — rename those via preprocessor.
 if(MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
   set_source_files_properties("${ZIG_COMPILER_RT_C_SOURCE}" PROPERTIES
-    COMPILE_FLAGS "/DZIG_NO_EXPORT_ALIASES"
+    COMPILE_FLAGS "/DZIG_NO_EXPORT_ALIASES /Dfabsl=__zig_crt_fabsl"
   )
 endif()
 set_target_properties(zig2 PROPERTIES
