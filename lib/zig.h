@@ -349,7 +349,11 @@
 #endif /* zig_macho */
 #endif /* zig_msvc */
 
-#if defined(zig_msvc)
+#if defined(ZIG_NO_EXPORT_ALIASES)
+/* When ZIG_NO_EXPORT_ALIASES is defined (e.g. compiling compiler_rt.c on Windows),
+ * suppress zig_export to avoid /alternatename conflicts with CRT symbols. */
+#define zig_export(symbol, name) ;
+#elif defined(zig_msvc)
 #define zig_export(symbol, name) ; \
     __pragma(comment(linker, "/alternatename:" zig_mangle_c(name) "=" zig_mangle_c(symbol)))
 #elif (zig_has_attribute(alias) || defined(zig_tinyc)) && !defined(zig_macho)
