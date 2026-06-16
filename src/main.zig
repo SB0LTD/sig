@@ -174,6 +174,11 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         safe_allocator.allocator()
     else if (native_os == .wasi)
         std.heap.wasm_allocator
+    else if (builtin.link_libc and native_os == .windows)
+        // On Windows, the C-backend bootstrap's malloc/free/realloc declarations
+        // conflict with the MSVC CRT, causing heap corruption. Use page_allocator
+        // (VirtualAlloc/VirtualFree) to bypass the CRT heap entirely.
+        std.heap.page_allocator
     else if (builtin.link_libc)
         std.heap.c_allocator
     else
