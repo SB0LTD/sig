@@ -302,6 +302,7 @@ test "compile time global reinterpret" {
 }
 
 test "cast undefined" {
+    // if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const array: [100]u8 = undefined;
@@ -373,6 +374,7 @@ fn fB() []const u8 {
 test "call function pointer in struct" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     try expect(mem.eql(u8, f3(true), "a"));
     try expect(mem.eql(u8, f3(false), "b"));
 }

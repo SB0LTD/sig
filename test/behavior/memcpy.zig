@@ -168,6 +168,7 @@ test "@memcpy with sentinel" {
 }
 
 test "@memcpy no sentinel source into sentinel destination" {
+
     const S = struct {
         fn doTheTest() void {
             const src: []const u8 = &.{ 1, 2, 3 };
