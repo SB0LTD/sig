@@ -756,12 +756,14 @@ add_executable(zig2 ${ZIG2_C_SOURCE} ${ZIG_COMPILER_RT_C_SOURCE})
 if(WIN32)
   target_sources(zig2 PRIVATE stage1/float_stubs.c)
 endif()
-# On MSVC/clang-cl, compiler_rt.c exports standard math symbols (fabs, round, ceil,
-# floor, sqrt, etc.) that duplicate MSVC CRT symbols. Force-include a header that
-# renames them to avoid linker conflicts without requiring /FORCE:MULTIPLE.
+# On MSVC/clang-cl, compiler_rt.c uses zig_export() from zig.h to create
+# /alternatename linker directives aliasing internal names (zig_sqrt_f32) to
+# standard C names (sqrtf). These conflict with MSVC CRT symbols.
+# Fix: define ZIG_NO_EXPORT_ALIASES to make zig_export a no-op in zig.h.
+# The internal zig_* functions are still compiled; only the aliases are suppressed.
 if(MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
   set_source_files_properties("${ZIG_COMPILER_RT_C_SOURCE}" PROPERTIES
-    COMPILE_FLAGS "/FI${CMAKE_SOURCE_DIR}/stage1/compiler_rt_msvc_math.h"
+    COMPILE_FLAGS "/DZIG_NO_EXPORT_ALIASES"
   )
 endif()
 set_target_properties(zig2 PROPERTIES
