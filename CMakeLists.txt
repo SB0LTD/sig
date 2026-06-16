@@ -166,8 +166,8 @@ endif()
 
 if (MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
     if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
-        # Use dynamic CRT (/MD) to match the pre-built LLVM 22 libs.
-        set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+        # Use static CRT (/MT) to match the LLVM 22 libs rebuilt with /MT.
+        set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
     endif()
 endif ()
 
@@ -536,7 +536,7 @@ else()
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   target_compile_options(zigcpp PRIVATE /Zc:preprocessor)
 endif()
-set_property(TARGET zigcpp PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+set_property(TARGET zigcpp PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 
 target_include_directories(zigcpp PUBLIC
@@ -639,10 +639,10 @@ if(MSVC)
   # [sig] Windows bootstrap: the C-backend generated zig2.c has undefined behavior that
   # causes STATUS_HEAP_CORRUPTION (0xC0000374) on Windows regardless of compiler or
   # optimization level. This is a known upstream zig C backend limitation.
-  # The /FORCE:MULTIPLE flag (previously used for duplicate symbols between zig2.c and
-  # compiler_rt.c) is removed as it masks the real issue. Stack increased to 256MB.
+  # With static CRT (/MT) and compiler_rt symbol conflicts resolved, /FORCE:MULTIPLE
+  # is no longer needed. Stack increased to 256MB.
   # For production Windows binaries, cross-compile stage3 from Linux (see release.yaml).
-  set(ZIG2_LINK_FLAGS "/STACK:268435456 /FORCE:MULTIPLE")
+  set(ZIG2_LINK_FLAGS "/STACK:268435456")
 else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os -fno-strict-aliasing")
@@ -700,7 +700,7 @@ add_custom_command(
 add_executable(zig1 ${ZIG1_C_SOURCE} stage1/wasi.c)
 set_target_properties(zig1 PROPERTIES COMPILE_FLAGS ${ZIG1_COMPILE_FLAGS})
 if(MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
-  set_property(TARGET zig1 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+  set_property(TARGET zig1 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 
 if(MSVC)
@@ -756,12 +756,20 @@ add_executable(zig2 ${ZIG2_C_SOURCE} ${ZIG_COMPILER_RT_C_SOURCE})
 if(WIN32)
   target_sources(zig2 PRIVATE stage1/float_stubs.c)
 endif()
+# On MSVC/clang-cl, compiler_rt.c exports standard math symbols (fabs, round, ceil,
+# floor, sqrt, etc.) that duplicate MSVC CRT symbols. Force-include a header that
+# renames them to avoid linker conflicts without requiring /FORCE:MULTIPLE.
+if(MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
+  set_source_files_properties("${ZIG_COMPILER_RT_C_SOURCE}" PROPERTIES
+    COMPILE_FLAGS "/FI${CMAKE_SOURCE_DIR}/stage1/compiler_rt_msvc_math.h"
+  )
+endif()
 set_target_properties(zig2 PROPERTIES
   COMPILE_FLAGS ${ZIG2_COMPILE_FLAGS}
   LINK_FLAGS "${ZIG2_LINK_FLAGS}"
 )
 if(MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
-  set_property(TARGET zig2 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+  set_property(TARGET zig2 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 target_include_directories(zig2 PUBLIC stage1)
 target_link_libraries(zig2 LINK_PUBLIC zigcpp)
