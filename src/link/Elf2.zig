@@ -161,7 +161,6 @@ textrel_count: u32,
 const_prog_node: std.Progress.Node,
 synth_prog_node: std.Progress.Node,
 input_prog_node: std.Progress.Node,
-dump_snapshot: bool,
 
 const Error = link.Error || error{MappedFileIo};
 
@@ -2625,7 +2624,6 @@ fn create(
         .synth_prog_node = .none,
         .input_prog_node = .none,
         .textrel_count = 0,
-        .dump_snapshot = options.enable_link_snapshots,
     };
     errdefer elf.deinit();
 
@@ -3787,7 +3785,7 @@ fn mapInputSection(elf: *Elf, opts: struct {
         const new_alignment: std.mem.Alignment = .fromByteUnits(
             std.math.ceilPowerOfTwoAssert(usize, @intCast(opts.addralign)),
         );
-        try existing_shndx.get(elf).ni.realign(&elf.mf, gpa, new_alignment, true);
+        try existing_shndx.get(elf).ni.realign(&elf.mf, gpa, new_alignment, .{ .set_alignment = true });
     }
     // ...and update the shdr as needed.
     switch (elf.shdrPtr(existing_shndx)) {
@@ -3950,7 +3948,7 @@ fn uavMapIndex(
     } else {
         const node = uav_gop.value_ptr.lsi.index().ptr(elf).node;
         if (resolved_align.toStdMem().order(node.alignment(&elf.mf)).compare(.gt)) {
-            try node.realign(&elf.mf, gpa, resolved_align.toStdMem(), true);
+            try node.realign(&elf.mf, gpa, resolved_align.toStdMem(), .{ .set_alignment = true });
         }
     }
     return umi;
@@ -4679,7 +4677,7 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) (LoadPars
                             // We have a copy relocation for this global, but the amount of space we
                             // reserved for it could be too small or underaligned!
                             try copied_global.node.resize(&elf.mf, gpa, gop.value_ptr.size);
-                            try copied_global.node.realign(&elf.mf, gpa, gop.value_ptr.alignment, true);
+                            try copied_global.node.realign(&elf.mf, gpa, gop.value_ptr.alignment, .{ .set_alignment = true });
                             const global_ptr = elf.globalByName(name).?;
                             switch (elf.symPtr(global_ptr.symtab_index)) {
                                 inline else => |sym_ptr| elf.targetStore(&sym_ptr.size, @intCast(gop.value_ptr.size)),
@@ -6714,7 +6712,7 @@ pub fn deleteExport(elf: *Elf, exported: Zcu.Exported, name: InternPool.NullTerm
 }
 
 pub fn dump(elf: *Elf, w: *Io.Writer, tid: Zcu.PerThread.Id) !link.File.DumpResult {
-    if (elf.dump_snapshot) {
+    if (elf.options.enable_link_snapshots) {
         try elf.printNode(tid, w, .root, 0);
         return .enabled;
     }

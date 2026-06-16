@@ -22,6 +22,7 @@ const implib = @import("../libs/mingw/implib.zig");
 const Path = std.Build.Cache.Path;
 
 base: link.File,
+options: link.File.OpenOptions,
 mf: MappedFile,
 nodes: std.MultiArrayList(Node),
 members: std.ArrayList(Member),
@@ -82,7 +83,6 @@ synth_prog_node: std.Progress.Node,
 symbol_prog_node: std.Progress.Node,
 member_prog_node: std.Progress.Node,
 input_prog_node: std.Progress.Node,
-dump_snapshot: bool,
 
 pub const default_file_alignment: u16 = 0x200;
 pub const default_size_of_stack_reserve: u32 = 0x1000000;
@@ -1593,6 +1593,7 @@ fn create(
             .allow_shlib_undefined = false,
             .stack_size = 0,
         },
+        .options = options,
         .mf = try .init(file, comp.gpa, io),
         .nodes = .empty,
         .members = .empty,
@@ -1664,7 +1665,6 @@ fn create(
         .symbol_prog_node = .none,
         .member_prog_node = .none,
         .input_prog_node = .none,
-        .dump_snapshot = options.enable_link_snapshots,
     };
     errdefer coff.deinit();
 
@@ -3579,13 +3579,13 @@ fn objectSectionMapIndex(
     const parent_alignment = parent_ni.alignment(&coff.mf);
     if (alignment.compare(.gt, parent_alignment)) {
         log.debug("realignParent({s}, {d}) {d}->{d}", .{ name.toSlice(coff), parent_ni, parent_alignment, alignment });
-        try parent_ni.realign(&coff.mf, gpa, alignment, true);
+        try parent_ni.realign(&coff.mf, gpa, alignment, .{ .set_alignment = true });
     }
 
     const old_alignment = sym.ni.alignment(&coff.mf);
     if (alignment.compare(.gt, old_alignment)) {
         log.debug("realignObject({s}) {d}->{d}", .{ name.toSlice(coff), old_alignment, alignment });
-        try sym.ni.realign(&coff.mf, gpa, alignment, true);
+        try sym.ni.realign(&coff.mf, gpa, alignment, .{ .set_alignment = true });
     }
 
     try coff.verifyParentSectionAttributes(
@@ -3980,7 +3980,9 @@ fn loadObject(
 
     try coff.ensureManyUnusedStringCapacity(
         header.number_of_sections + header.number_of_symbols,
-        string_table_len - @sizeOf(u32),
+        header.number_of_sections * 9 +
+            header.number_of_symbols * 9 +
+            string_table_len - @sizeOf(u32),
     );
 
     const PendingSymbolIndex = enum(u32) {
@@ -5886,7 +5888,7 @@ pub fn flush(
         else => |e| return comp.link_diags.fail("flush write failed: {t}", .{e}),
     };
 
-    if (coff.dump_snapshot)
+    if (coff.options.enable_link_snapshots)
         coff.dumpStderr(tid) catch |err|
             return comp.link_diags.fail("dumping link snapshot failed: {t}", .{err});
 }
@@ -7534,7 +7536,7 @@ fn dumpStderr(coff: *Coff, tid: Zcu.PerThread.Id) !void {
 }
 
 pub fn dump(coff: *Coff, w: *Io.Writer, tid: Zcu.PerThread.Id) !link.File.DumpResult {
-    if (coff.dump_snapshot) {
+    if (coff.options.enable_link_snapshots) {
         try coff.printNode(tid, w, .root, 0);
         try w.writeAll("Section table:\n");
         for (coff.section_table.keys(), coff.section_table.values()) |name, sec|

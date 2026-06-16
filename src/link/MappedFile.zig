@@ -354,18 +354,23 @@ pub const Node = extern struct {
             }
         }
 
+        pub const RealignNodeOptions = struct {
+            /// Shift the node backwards if possible
+            try_backwards: bool = true,
+            /// If `set, persists `new_alignment` as the node's alignment for future operations.
+            set_alignment: bool = true,
+        };
+
         /// Moves and expands a node such that its offset and size are aligned to `new_alignment`.
-        /// If it is possible to move the node backwards, this will be done instead of moving it forward.
-        /// If `set_alignment` is set, persists `new_alignment` as the node's alignment for future operations.
         /// Asserts that `ni` is not `Node.Index.root`.
         pub fn realign(
             ni: Node.Index,
             mf: *MappedFile,
             gpa: std.mem.Allocator,
             new_alignment: std.mem.Alignment,
-            set_alignment: bool,
+            opts: RealignNodeOptions,
         ) Error!void {
-            mf.realignNode(gpa, ni, new_alignment, true, set_alignment) catch |err| switch (err) {
+            mf.realignNode(gpa, ni, new_alignment, opts) catch |err| switch (err) {
                 error.OutOfMemory,
                 error.Canceled,
                 => |e| return e,
@@ -573,7 +578,10 @@ fn addNode(mf: *MappedFile, gpa: std.mem.Allocator, opts: struct {
             else => |next_ni| {
                 const next_offset, _ = next_ni.location(mf).resolve(mf);
                 if (new_end > next_offset)
-                    try next_ni.realign(mf, gpa, opts.add_node.alignment, false);
+                    try next_ni.realign(mf, gpa, opts.add_node.alignment, .{
+                        .try_backwards = false,
+                        .set_alignment = false,
+                    });
             },
         }
     }
@@ -1035,8 +1043,7 @@ fn realignNode(
     gpa: std.mem.Allocator,
     ni: Node.Index,
     new_alignment: std.mem.Alignment,
-    try_backward: bool,
-    set_alignment: bool,
+    opts: Node.Index.RealignNodeOptions,
 ) (Allocator.Error || Io.Cancelable || IoError)!void {
     assert(ni != Node.Index.root); // currently unsupported
     mf.nodes_lock.assertUnlocked();
@@ -1052,7 +1059,7 @@ fn realignNode(
     node.flags.alignment = new_alignment;
     defer {
         // alignment needs to be temporarily set for the resizes below
-        if (!set_alignment) node.flags.alignment = prev_alignment;
+        if (!opts.set_alignment) node.flags.alignment = prev_alignment;
     }
 
     const new_size = node.flags.alignment.forward(@intCast(size));
@@ -1070,7 +1077,7 @@ fn realignNode(
         },
     };
 
-    if (try_backward) {
+    if (opts.try_backwards) {
         const backward_offset = new_alignment.backward(@intCast(old_offset));
         const prev_end = if (node.prev == .none) 0 else prev: {
             const prev_offset, const prev_size = node.prev.location(mf).resolve(mf);

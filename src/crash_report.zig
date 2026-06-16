@@ -132,14 +132,11 @@ fn dumpCrashContext() Io.Writer.Error!void {
         try dumpCrashContextSema(anal, w, &S.crash_heap);
     } else if (LinkerOp.current) |linker_op| {
         try w.writeAll("Linker snapshot:\n");
-        if (build_options.enable_link_snapshots) {
-            switch (try linker_op.lf.dump(w, linker_op.tid)) {
-                .unsupported => try w.writeAll("(backend does not support link snapshots)"),
-                .disabled => try w.writeAll("(run with --debug-link-snapshot to dump linker state)"),
-                .enabled => {},
-            }
-        } else {
-            try w.writeAll("(build with -Dlink-snapshot to dump linker state)");
+        switch (try linker_op.lf.dump(w, linker_op.tid)) {
+            .unimplemented => try w.writeAll("(backend does not support link snapshots)"),
+            .needs_extensions => try w.writeAll("(build with -Ddebug-extensions to dump linker state)"),
+            .disabled => try w.writeAll("(run with --debug-link-snapshot to dump linker state)"),
+            .enabled => {},
         }
         try w.writeAll("\n\n");
     } else {

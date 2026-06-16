@@ -1091,13 +1091,14 @@ pub const File = struct {
     }
 
     pub const DumpResult = enum {
-        unsupported,
+        unimplemented,
+        needs_extensions,
         disabled,
         enabled,
     };
 
     pub fn dump(base: *File, w: *Io.Writer, tid: Zcu.PerThread.Id) !DumpResult {
-        if (!build_options.enable_link_snapshots) unreachable;
+        if (!build_options.enable_debug_extensions) return .not_built;
         switch (base.tag) {
             .elf,
             .macho,
@@ -1106,7 +1107,7 @@ pub const File = struct {
             .spirv,
             .plan9,
             .lld,
-            => return .unsupported,
+            => return .unimplemented,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).dump(w, tid);
