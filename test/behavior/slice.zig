@@ -1133,3 +1133,41 @@ test "address of dereferenced slice is array pointer" {
         comptime assert(array_ptr[3] == 0);
     }
 }
+
+test "coerce slice with comptime-known length to array pointer" {
+    {
+        const slice: []const u16 = &.{ 1, 2, 3 };
+        const array_ptr: *const [3]u16 = slice;
+
+        comptime assert(array_ptr[0] == 1);
+        comptime assert(array_ptr[1] == 2);
+        comptime assert(array_ptr[2] == 3);
+    }
+    {
+        const slice: [:0]const u16 = &.{ 1, 2, 3 };
+        const array_ptr: *const [3:0]u16 = slice;
+
+        comptime assert(array_ptr[0] == 1);
+        comptime assert(array_ptr[1] == 2);
+        comptime assert(array_ptr[2] == 3);
+        comptime assert(array_ptr[3] == 0);
+    }
+    {
+        const slice: [:0]const u16 = &.{ 1, 2, 3 };
+        const array_ptr: *const [3]u16 = slice;
+
+        comptime assert(array_ptr[0] == 1);
+        comptime assert(array_ptr[1] == 2);
+        comptime assert(array_ptr[2] == 3);
+    }
+}
+
+test "modify slice through coerced array pointer" {
+    comptime {
+        var array: [3]u16 = .{ 1, 2, 3 };
+        const slice: []u16 = &array;
+        const array_ptr: *[3]u16 = slice;
+        array_ptr[2] = 0;
+        assert(slice[2] == 0);
+    }
+}
