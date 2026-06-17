@@ -80,6 +80,7 @@ pub const restore_rt = syscall_bits.restore_rt;
 pub const socketcall = syscall_bits.socketcall;
 pub const syscall_pipe = syscall_bits.syscall_pipe;
 pub const syscall_fork = syscall_bits.syscall_fork;
+pub const syscall_lseek = syscall_bits.syscall_lseek;
 
 pub fn clone(
     func: *const fn (arg: usize) callconv(.c) u8,
@@ -1809,7 +1810,7 @@ pub fn fchmodat2(fd: fd_t, path: [*:0]const u8, mode: mode_t, flags: u32) usize 
 }
 
 /// Can only be called on 32 bit systems. For 64 bit see `lseek`.
-pub fn llseek(fd: fd_t, offset: off_t, result: ?*off_t, whence: u32) usize {
+pub fn llseek(fd: fd_t, offset: off_t, result: ?*off_t, whence: u32) u32 {
     // NOTE: The offset parameter splitting is independent from the target
     // endianness.
     return syscall5(
@@ -1823,8 +1824,15 @@ pub fn llseek(fd: fd_t, offset: off_t, result: ?*off_t, whence: u32) usize {
 }
 
 /// Can only be called on 64 bit systems. For 32 bit see `llseek`.
-pub fn lseek(fd: fd_t, offset: off_t, whence: u32) usize {
-    return syscall3(.lseek, @as(u32, @bitCast(fd)), @as(u64, @bitCast(offset)), whence);
+pub fn lseek(fd: fd_t, offset: off_t, whence: u32) u64 {
+    return switch (builtin.abi) {
+        .gnuabin32,
+        .muslabin32,
+        .gnux32,
+        .muslx32,
+        => syscall_lseek(fd, offset, whence),
+        else => syscall3(.lseek, @as(u32, @bitCast(fd)), @as(u64, @bitCast(offset)), whence),
+    };
 }
 
 pub fn exit(status: i32) noreturn {
