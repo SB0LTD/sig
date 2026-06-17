@@ -752,8 +752,8 @@ fn splitValue64(val: i64) [2]u32 {
 }
 
 /// Get the errno from a syscall return value. SUCCESS means no error.
-pub fn errno(r: usize) E {
-    const signed_r: isize = @bitCast(r);
+pub fn errno(r: u64) E {
+    const signed_r: i32 = @bitCast(@as(u32, @truncate(r)));
     const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
     return @enumFromInt(int);
 }
