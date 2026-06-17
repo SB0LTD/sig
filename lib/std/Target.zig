@@ -887,8 +887,12 @@ pub const Abi = enum {
                 => .muslabi64,
 
                 // No musl support.
+                .alpha,
                 .arc,
                 .arceb,
+                .or1k,
+                .sparc,
+                .sparc64,
                 => .gnu,
                 .csky,
                 => .gnueabi,
