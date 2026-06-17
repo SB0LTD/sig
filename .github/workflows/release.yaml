@@ -317,9 +317,9 @@ jobs:
             ${{ env.ARCHIVE }}
             ${{ env.ARCHIVE }}.sha256
 
-  # Cross-compile Windows from Linux using the native binary.
-  # The Windows cmake bootstrap has C-backend UB causing heap corruption during
-  # build-exe, so we cross-compile from the working Linux binary instead.
+  # Cross-compile Windows from Linux using the cmake bootstrap directly.
+  # The native binary (compiled by the C-backend bootstrap) has broken LLVM codegen.
+  # The cmake bootstrap itself has working LLVM (linked via cmake) on Linux.
   build-windows-cross:
     needs: build-native
     runs-on: ubuntu-latest
@@ -337,16 +337,18 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go
           sudo apt-get clean
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: sig-x86_64-linux
-          path: .native-build
-
-      - name: Extract native binary
+      - name: Download bootstrap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tar -xJf .native-build/sig-${VERSION}-x86_64-linux.tar.xz
-          SIG="$PWD/sig-${VERSION}-x86_64-linux/bin/sig"
+          sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1
+          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "bootstrap-sig-x86_64-linux.*" --dir /tmp
+          ARCHIVE=$(ls /tmp/bootstrap-sig-x86_64-linux.* | head -1)
+          mkdir -p /tmp/bootstrap
+          tar -xf "$ARCHIVE" -C /tmp/bootstrap
+          SIG=$(find /tmp/bootstrap -type f -name "sig" | head -1)
           chmod +x "$SIG"
+          ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$SIG")")/lib"
           echo "SIG=${SIG}" >> "$GITHUB_ENV"
           "$SIG" version
 
@@ -383,6 +385,7 @@ jobs:
           # Increase stack size for deep Sema recursion during cross-compilation
           ulimit -s unlimited
 
+          # Use bootstrap directly — it has LLVM+LLD linked via cmake
           "${SIG}" build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
@@ -401,7 +404,10 @@ jobs:
       - name: Verify PE binary
         run: |
           file stage3-out/bin/sig.exe
+          # Verify it's actually a PE, not ELF
+          head -c 2 stage3-out/bin/sig.exe | xxd | grep -q "4d5a" || { echo "ERROR: Not a PE binary!"; exit 1; }
           ls -la stage3-out/bin/sig.exe
+          echo "Valid PE binary produced"
 
       - name: Package
         run: |
