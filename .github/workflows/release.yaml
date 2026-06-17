@@ -391,6 +391,7 @@ jobs:
             --name sig \
             -OReleaseFast \
             -fstrip \
+            -flld \
             --zig-lib-dir lib \
             -target x86_64-windows \
             --cache-dir .zig-cache \
