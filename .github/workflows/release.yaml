@@ -380,13 +380,16 @@ jobs:
           pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
           EOF
 
+          # Increase stack size for deep Sema recursion during cross-compilation
+          ulimit -s unlimited
+
           "${SIG}" build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=.build-gen/build_options.zig \
             -Maro=lib/compiler/aro/aro.zig \
             --name sig \
-            -OReleaseSafe \
+            -OReleaseFast \
             -fstrip \
             --zig-lib-dir lib \
             -target x86_64-windows \
