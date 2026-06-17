@@ -27,39 +27,37 @@ BlockStatement
     <- Statement
      / KEYWORD_defer BlockExprStatement
      / KEYWORD_errdefer BlockExprStatement
-     / (KEYWORD_comptime)? VarAssignStatement
+     / (KEYWORD_comptime !BlockExprPrefix)? VarAssignStatement
 
 Statement
-    <- ExprStatement
-     / KEYWORD_suspend BlockExprStatement
-     / (KEYWORD_comptime)? AssignExpr SEMICOLON
-
-ExprStatement
     <- IfStatement
      / LabeledStatement
      / KEYWORD_nosuspend BlockExprStatement
      / KEYWORD_comptime BlockExpr
+     / KEYWORD_suspend BlockExprStatement
+     / (KEYWORD_comptime !BlockExprPrefix)? AssignExpr SEMICOLON
 
 IfStatement
-    <- IfPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
-     / IfPrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
+    <- IfPrefix BlockExpr (KEYWORD_else Payload? Statement / !KEYWORD_else)
+     / IfPrefix !BlockExprPrefix AssignExpr (SEMICOLON / KEYWORD_else Payload? Statement)
 
 LabeledStatement <- BlockLabel? (Block / LoopStatement / SwitchExpr)
 
 LoopStatement <- KEYWORD_inline? (ForStatement / WhileStatement)
 
 ForStatement
-    <- ForPrefix BlockExpr ( KEYWORD_else Statement / !KEYWORD_else )
-     / ForPrefix AssignExpr ( SEMICOLON / KEYWORD_else Statement )
+    <- ForPrefix BlockExpr (KEYWORD_else Statement / !KEYWORD_else)
+     / ForPrefix !BlockExprPrefix AssignExpr (SEMICOLON / KEYWORD_else Statement)
 
 WhileStatement
-    <- WhilePrefix BlockExpr ( KEYWORD_else Payload? Statement )?
-     / WhilePrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
+    <- WhilePrefix BlockExpr (KEYWORD_else Payload? Statement / !KEYWORD_else)
+     / WhilePrefix !BlockExprPrefix AssignExpr (SEMICOLON / KEYWORD_else Payload? Statement)
 
 BlockExprStatement
     <- BlockExpr
-     / !BlockExpr AssignExpr SEMICOLON
+     / !BlockExprPrefix AssignExpr SEMICOLON
 
+BlockExprPrefix <- BlockLabel? LBRACE
 BlockExpr <- BlockLabel? Block
 
 # An assignment or a destructure whose LHS are all lvalue expressions or variable declarations.

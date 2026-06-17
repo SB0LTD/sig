@@ -864,7 +864,7 @@ fn parseGlobalVarDecl(p: *Parse) !?Node.Index {
     return var_decl;
 }
 
-/// ContainerField <- doc_comment? (KEYWORD_comptime / !KEYWORD_comptime) !KEYWORD_fn (IDENTIFIER COLON / !(IDENTIFIER COLON))? TypeExpr ByteAlign? (EQUAL Expr)?
+// ContainerField <- doc_comment? KEYWORD_comptime? (IDENTIFIER COLON)? TypeExpr ByteAlign? (EQUAL Expr)?
 fn expectContainerField(p: *Parse) !Node.Index {
     _ = p.eatToken(.keyword_comptime);
     const main_token = p.tok_i;
@@ -910,18 +910,15 @@ fn expectContainerField(p: *Parse) !Node.Index {
 ///     <- Statement
 ///      / KEYWORD_defer BlockExprStatement
 ///      / KEYWORD_errdefer BlockExprStatement
-///      / !ExprStatement (KEYWORD_comptime !BlockExpr)? VarAssignStatement
+///      / (KEYWORD_comptime !BlockExprPrefix)? VarAssignStatement
 ///
 /// Statement
-///     <- ExprStatement
-///      / KEYWORD_suspend BlockExprStatement
-///      / !ExprStatement (KEYWORD_comptime !BlockExpr)? AssignExpr SEMICOLON
-///
-/// ExprStatement
 ///     <- IfStatement
 ///      / LabeledStatement
 ///      / KEYWORD_nosuspend BlockExprStatement
 ///      / KEYWORD_comptime BlockExpr
+///      / KEYWORD_suspend BlockExprStatement
+///      / (KEYWORD_comptime !BlockExprPrefix)? AssignExpr SEMICOLON
 fn expectStatement(p: *Parse, is_block_level: bool) Error!Node.Index {
     if (p.eatToken(.keyword_comptime)) |comptime_token| {
         const opt_block_expr = try p.parseBlockExpr();
@@ -934,7 +931,7 @@ fn expectStatement(p: *Parse, is_block_level: bool) Error!Node.Index {
         }
 
         if (is_block_level) {
-            return p.expectVarDeclExprStatement(comptime_token);
+            return p.expectVarAssignStatement(comptime_token);
         } else {
             const assign = try p.expectAssignExpr();
             try p.expectSemicolon(.expected_semi_after_stmt, true);
@@ -995,7 +992,7 @@ fn expectStatement(p: *Parse, is_block_level: bool) Error!Node.Index {
     if (try p.parseLabeledStatement()) |labeled_statement| return labeled_statement;
 
     if (is_block_level) {
-        return p.expectVarDeclExprStatement(null);
+        return p.expectVarAssignStatement(null);
     } else {
         const assign = try p.expectAssignExpr();
         try p.expectSemicolon(.expected_semi_after_stmt, true);
@@ -1003,30 +1000,8 @@ fn expectStatement(p: *Parse, is_block_level: bool) Error!Node.Index {
     }
 }
 
-/// ComptimeStatement
-///     <- BlockExpr
-///      / VarDeclExprStatement
-fn expectComptimeStatement(p: *Parse, comptime_token: TokenIndex) !Node.Index {
-    const maybe_block_expr = try p.parseBlockExpr();
-    if (maybe_block_expr) |block_expr| {
-        return p.addNode(.{
-            .tag = .@"comptime",
-            .main_token = comptime_token,
-            .data = .{
-                .lhs = .{ .node = block_expr },
-                .rhs = undefined,
-            },
-        });
-    }
-    return p.expectVarDeclExprStatement(comptime_token);
-}
-
-/// VarDeclExprStatement
-///    <- Expr
-///     / VarAssignStatement
-///
 /// VarAssignStatement <- (VarDeclProto / Expr) (COMMA (VarDeclProto / Expr))* EQUAL Expr SEMICOLON
-fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Index {
+fn expectVarAssignStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Index {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
@@ -1138,7 +1113,7 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
 
 /// If a parse error occurs, reports an error, but then finds the next statement
 /// and returns that one instead. If a parse error occurs but there is no following
-/// statement, returns 0.
+/// statement, returns null.
 fn expectStatementRecoverable(p: *Parse) Error!?Node.Index {
     while (true) {
         return p.expectStatement(true) catch |err| switch (err) {
@@ -1156,8 +1131,10 @@ fn expectStatementRecoverable(p: *Parse) Error!?Node.Index {
 }
 
 /// IfStatement
-///     <- IfPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
-///      / IfPrefix !BlockExpr AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
+///     <- IfPrefix BlockExpr (KEYWORD_else Payload? Statement / !KEYWORD_else)
+///      / IfPrefix !BlockExprPrefix AssignExpr (SEMICOLON / KEYWORD_else Payload? Statement)
+///
+/// IfPrefix <- KEYWORD_if LPAREN Expr RPAREN PtrPayload?
 fn expectIfStatement(p: *Parse) !Node.Index {
     const if_token = p.assertToken(.keyword_if);
     _ = try p.expectToken(.l_paren);
@@ -1252,8 +1229,8 @@ fn parseLoopStatement(p: *Parse) !?Node.Index {
 }
 
 /// ForStatement
-///     <- ForPrefix BlockExpr ( KEYWORD_else Statement / !KEYWORD_else )
-///      / ForPrefix !BlockExpr AssignExpr ( SEMICOLON / KEYWORD_else Statement )
+///     <- ForPrefix BlockExpr (KEYWORD_else Statement / !KEYWORD_else)
+///      / ForPrefix !BlockExprPrefix AssignExpr (SEMICOLON / KEYWORD_else Statement)
 fn parseForStatement(p: *Parse) !?Node.Index {
     const for_token = p.eatToken(.keyword_for) orelse return null;
 
@@ -1309,8 +1286,8 @@ fn parseForStatement(p: *Parse) !?Node.Index {
 /// WhilePrefix <- KEYWORD_while LPAREN Expr RPAREN PtrPayload? WhileContinueExpr?
 ///
 /// WhileStatement
-///     <- WhilePrefix BlockExpr ( KEYWORD_else Payload? Statement )?
-///      / WhilePrefix !BlockExpr AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
+///     <- WhilePrefix BlockExpr (KEYWORD_else Payload? Statement / !KEYWORD_else)
+///      / WhilePrefix !BlockExprPrefix AssignExpr (SEMICOLON / KEYWORD_else Payload? Statement)
 fn parseWhileStatement(p: *Parse) !?Node.Index {
     const while_token = p.eatToken(.keyword_while) orelse return null;
     _ = try p.expectToken(.l_paren);
@@ -1400,7 +1377,7 @@ fn parseWhileStatement(p: *Parse) !?Node.Index {
 
 /// BlockExprStatement
 ///     <- BlockExpr
-///      / !BlockExpr AssignExpr SEMICOLON
+///      / !BlockExprPrefix AssignExpr SEMICOLON
 fn parseBlockExprStatement(p: *Parse) !?Node.Index {
     const block_expr = try p.parseBlockExpr();
     if (block_expr) |expr| return expr;

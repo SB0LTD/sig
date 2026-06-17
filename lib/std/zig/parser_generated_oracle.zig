@@ -190,7 +190,12 @@ const Parser = struct {
             p.i = pos_0;
             if ((blk_3: {
                 const pos_3 = p.i;
-                if (p.parseKEYWORD_comptime()) break :blk_3 true;
+                if (p.parseKEYWORD_comptime() and blk_4: {
+                    const pos_4 = p.i;
+                    const match_4 = p.parseBlockExprPrefix();
+                    p.i = pos_4;
+                    break :blk_4 !match_4;
+                }) break :blk_3 true;
                 p.i = pos_3;
                 break :blk_3 false;
             } or true) and p.parseVarAssignStatement()) break :blk_0 true;
@@ -201,23 +206,6 @@ const Parser = struct {
     pub fn parseStatement(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parseExprStatement()) break :blk_0 true;
-            p.i = pos_0;
-            if (p.parseKEYWORD_suspend() and p.parseBlockExprStatement()) break :blk_0 true;
-            p.i = pos_0;
-            if ((blk_3: {
-                const pos_3 = p.i;
-                if (p.parseKEYWORD_comptime()) break :blk_3 true;
-                p.i = pos_3;
-                break :blk_3 false;
-            } or true) and p.parseAssignExpr() and p.parseSEMICOLON()) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parseExprStatement(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
             if (p.parseIfStatement()) break :blk_0 true;
             p.i = pos_0;
             if (p.parseLabeledStatement()) break :blk_0 true;
@@ -226,20 +214,46 @@ const Parser = struct {
             p.i = pos_0;
             if (p.parseKEYWORD_comptime() and p.parseBlockExpr()) break :blk_0 true;
             p.i = pos_0;
+            if (p.parseKEYWORD_suspend() and p.parseBlockExprStatement()) break :blk_0 true;
+            p.i = pos_0;
+            if ((blk_3: {
+                const pos_3 = p.i;
+                if (p.parseKEYWORD_comptime() and blk_4: {
+                    const pos_4 = p.i;
+                    const match_4 = p.parseBlockExprPrefix();
+                    p.i = pos_4;
+                    break :blk_4 !match_4;
+                }) break :blk_3 true;
+                p.i = pos_3;
+                break :blk_3 false;
+            } or true) and p.parseAssignExpr() and p.parseSEMICOLON()) break :blk_0 true;
+            p.i = pos_0;
             break :blk_0 false;
         };
     }
     pub fn parseIfStatement(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parseIfPrefix() and p.parseBlockExpr() and (blk_3: {
-                const pos_3 = p.i;
-                if (p.parseKEYWORD_else() and (p.parsePayload() or true) and p.parseStatement()) break :blk_3 true;
-                p.i = pos_3;
-                break :blk_3 false;
-            } or true)) break :blk_0 true;
+            if (p.parseIfPrefix() and p.parseBlockExpr() and blk_2: {
+                const pos_2 = p.i;
+                if (p.parseKEYWORD_else() and (p.parsePayload() or true) and p.parseStatement()) break :blk_2 true;
+                p.i = pos_2;
+                if (blk_3: {
+                    const pos_3 = p.i;
+                    const match_3 = p.parseKEYWORD_else();
+                    p.i = pos_3;
+                    break :blk_3 !match_3;
+                }) break :blk_2 true;
+                p.i = pos_2;
+                break :blk_2 false;
+            }) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseIfPrefix() and p.parseAssignExpr() and blk_2: {
+            if (p.parseIfPrefix() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parseBlockExprPrefix();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and p.parseAssignExpr() and blk_2: {
                 const pos_2 = p.i;
                 if (p.parseSEMICOLON()) break :blk_2 true;
                 p.i = pos_2;
@@ -300,7 +314,12 @@ const Parser = struct {
                 break :blk_2 false;
             }) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseForPrefix() and p.parseAssignExpr() and blk_2: {
+            if (p.parseForPrefix() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parseBlockExprPrefix();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and p.parseAssignExpr() and blk_2: {
                 const pos_2 = p.i;
                 if (p.parseSEMICOLON()) break :blk_2 true;
                 p.i = pos_2;
@@ -315,14 +334,26 @@ const Parser = struct {
     pub fn parseWhileStatement(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parseWhilePrefix() and p.parseBlockExpr() and (blk_3: {
-                const pos_3 = p.i;
-                if (p.parseKEYWORD_else() and (p.parsePayload() or true) and p.parseStatement()) break :blk_3 true;
-                p.i = pos_3;
-                break :blk_3 false;
-            } or true)) break :blk_0 true;
+            if (p.parseWhilePrefix() and p.parseBlockExpr() and blk_2: {
+                const pos_2 = p.i;
+                if (p.parseKEYWORD_else() and (p.parsePayload() or true) and p.parseStatement()) break :blk_2 true;
+                p.i = pos_2;
+                if (blk_3: {
+                    const pos_3 = p.i;
+                    const match_3 = p.parseKEYWORD_else();
+                    p.i = pos_3;
+                    break :blk_3 !match_3;
+                }) break :blk_2 true;
+                p.i = pos_2;
+                break :blk_2 false;
+            }) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseWhilePrefix() and p.parseAssignExpr() and blk_2: {
+            if (p.parseWhilePrefix() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parseBlockExprPrefix();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and p.parseAssignExpr() and blk_2: {
                 const pos_2 = p.i;
                 if (p.parseSEMICOLON()) break :blk_2 true;
                 p.i = pos_2;
@@ -341,10 +372,18 @@ const Parser = struct {
             p.i = pos_0;
             if (blk_1: {
                 const pos_1 = p.i;
-                const match_1 = p.parseBlockExpr();
+                const match_1 = p.parseBlockExprPrefix();
                 p.i = pos_1;
                 break :blk_1 !match_1;
             } and p.parseAssignExpr() and p.parseSEMICOLON()) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseBlockExprPrefix(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if ((p.parseBlockLabel() or true) and p.parseLBRACE()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
