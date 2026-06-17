@@ -17109,7 +17109,8 @@ const byval_tail_callsite_attr = struct {
         }
 
         fn cast(self: MyRect) struct_Rect {
-            return @bitCast(self);
+            const ptr: *const struct_Rect = @ptrCast(&self);
+            return ptr.*;
         }
 
         extern fn c_byval_tail_callsite_attr(struct_Rect) f64;
