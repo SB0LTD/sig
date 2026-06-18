@@ -661,17 +661,53 @@ const Parser = struct {
             p.i = pos_0;
             if (p.parseIfExpr()) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseKEYWORD_break() and (p.parseBreakLabel() or true) and (p.parseExpr() or true)) break :blk_0 true;
+            if (p.parseKEYWORD_break() and (p.parseBreakLabel() or true) and blk_2: {
+                const pos_2 = p.i;
+                if (p.parseExpr()) break :blk_2 true;
+                p.i = pos_2;
+                if (blk_3: {
+                    const pos_3 = p.i;
+                    const match_3 = p.parseExprPrefix();
+                    p.i = pos_3;
+                    break :blk_3 !match_3;
+                }) break :blk_2 true;
+                p.i = pos_2;
+                break :blk_2 false;
+            }) break :blk_0 true;
             p.i = pos_0;
             if (p.parseKEYWORD_comptime() and p.parseExpr()) break :blk_0 true;
             p.i = pos_0;
             if (p.parseKEYWORD_nosuspend() and p.parseExpr()) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseKEYWORD_continue() and (p.parseBreakLabel() or true) and (p.parseExpr() or true)) break :blk_0 true;
+            if (p.parseKEYWORD_continue() and (p.parseBreakLabel() or true) and blk_2: {
+                const pos_2 = p.i;
+                if (p.parseExpr()) break :blk_2 true;
+                p.i = pos_2;
+                if (blk_3: {
+                    const pos_3 = p.i;
+                    const match_3 = p.parseExprPrefix();
+                    p.i = pos_3;
+                    break :blk_3 !match_3;
+                }) break :blk_2 true;
+                p.i = pos_2;
+                break :blk_2 false;
+            }) break :blk_0 true;
             p.i = pos_0;
             if (p.parseKEYWORD_resume() and p.parseExpr()) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseKEYWORD_return() and (p.parseExpr() or true)) break :blk_0 true;
+            if (p.parseKEYWORD_return() and blk_2: {
+                const pos_2 = p.i;
+                if (p.parseExpr()) break :blk_2 true;
+                p.i = pos_2;
+                if (blk_3: {
+                    const pos_3 = p.i;
+                    const match_3 = p.parseExprPrefix();
+                    p.i = pos_3;
+                    break :blk_3 !match_3;
+                }) break :blk_2 true;
+                p.i = pos_2;
+                break :blk_2 false;
+            }) break :blk_0 true;
             p.i = pos_0;
             if ((p.parseBlockLabel() or true) and p.parseLoopExpr()) break :blk_0 true;
             p.i = pos_0;
@@ -1314,12 +1350,31 @@ const Parser = struct {
     pub fn parseForItem(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parseExpr() and (blk_3: {
-                const pos_3 = p.i;
-                if (p.parseDOT2() and (p.parseExpr() or true)) break :blk_3 true;
-                p.i = pos_3;
-                break :blk_3 false;
-            } or true)) break :blk_0 true;
+            if (p.parseExpr() and blk_2: {
+                const pos_2 = p.i;
+                if (p.parseDOT2() and blk_4: {
+                    const pos_4 = p.i;
+                    if (p.parseExpr()) break :blk_4 true;
+                    p.i = pos_4;
+                    if (blk_5: {
+                        const pos_5 = p.i;
+                        const match_5 = p.parseExprPrefix();
+                        p.i = pos_5;
+                        break :blk_5 !match_5;
+                    }) break :blk_4 true;
+                    p.i = pos_4;
+                    break :blk_4 false;
+                }) break :blk_2 true;
+                p.i = pos_2;
+                if (blk_3: {
+                    const pos_3 = p.i;
+                    const match_3 = p.parseDOT2();
+                    p.i = pos_3;
+                    break :blk_3 !match_3;
+                }) break :blk_2 true;
+                p.i = pos_2;
+                break :blk_2 false;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -1662,7 +1717,19 @@ const Parser = struct {
             const pos_0 = p.i;
             if (p.parseLBRACKET() and p.parseExpr() and (blk_3: {
                 const pos_3 = p.i;
-                if (p.parseDOT2() and (p.parseExpr() or true) and (blk_6: {
+                if (p.parseDOT2() and blk_5: {
+                    const pos_5 = p.i;
+                    if (p.parseExpr()) break :blk_5 true;
+                    p.i = pos_5;
+                    if (blk_6: {
+                        const pos_6 = p.i;
+                        const match_6 = p.parseExprPrefix();
+                        p.i = pos_6;
+                        break :blk_6 !match_6;
+                    }) break :blk_5 true;
+                    p.i = pos_5;
+                    break :blk_5 false;
+                } and (blk_6: {
                     const pos_6 = p.i;
                     if (p.parseCOLON() and p.parseExpr()) break :blk_6 true;
                     p.i = pos_6;
@@ -1934,7 +2001,27 @@ const Parser = struct {
                     break :blk_3 false;
                 }) {}
                 break :blk_1 true;
-            } and (p.parseExpr() or true)) break :blk_0 true;
+            } and blk_2: {
+                const pos_2 = p.i;
+                if (p.parseExpr()) break :blk_2 true;
+                p.i = pos_2;
+                if (blk_3: {
+                    const pos_3 = p.i;
+                    const match_3 = p.parseExprPrefix();
+                    p.i = pos_3;
+                    break :blk_3 !match_3;
+                }) break :blk_2 true;
+                p.i = pos_2;
+                break :blk_2 false;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseExprPrefix(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parseASTERISK()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
