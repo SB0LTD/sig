@@ -1,3 +1,41 @@
+# This grammar is intended to be LL(k) at the token level.
+# In other words, whenever the parser is required to make a choice it must be
+# able to choose "correctly" with constant token lookahead. This means that the
+# handwritten recursive descent parser for this grammar can be implemented with
+# worst-case linear run time rather than worst-case exponential runtime.
+#
+# To ensure this property is upheld, care must be taken to avoid requiring
+# unbounded token lookahead in the grammar. To illustrate this, consider the
+# following examples requiring unbounded lookahead:
+#
+# This is rather subtle as it looks fine at first glance:
+#
+# SingleAssignExpr <- Expr (AssignOp Expr)?
+#
+# Consider the case where the AssignOp token matches but Expr after it does
+# not match. The parser would attempt to parse the Expr after the AssignOp,
+# fail, then backtrack and succeed the SingleAssignExpr rule matching only
+# the first Expr. This is an example of unbounded lookahead. The rule must
+# be rewritten so that if the AssignOp token is not followed by an Expr the
+# whole SingleAssignExpr rule fails to match:
+#
+# SingleAssignExpr <- Expr (AssignOp Expr / !AssignOp)
+#
+# The pattern is similar for e.g. the * operator. The following rule requires
+# unbounded lookahead:
+#
+# BoolOrExpr <- BoolAndExpr (OrOp BoolAndExpr)*
+#
+# and can be fixed to require only bounded lookahead by adding a !OrOp:
+#
+# BoolOrExpr <- BoolAndExpr (OrOp BoolAndExpr)* !OrOp
+#
+# Note also that the negative lookahead added with the ! operator must always be
+# for a constant maximum number of tokens.
+#
+# See this paper for analysis of how LL(k) grammars relate to PEGs:
+# https://arxiv.org/abs/1304.3177
+
 Root <- ContainerMembers skip eof
 
 # *** Top level ***
@@ -66,27 +104,27 @@ VarAssignStatement <- (VarDeclProto / Expr) (COMMA (VarDeclProto / Expr))* EQUAL
 # *** Expression Level ***
 
 # An assignment or a destructure whose LHS are all lvalue expressions.
-AssignExpr <- Expr (AssignOp Expr / (COMMA Expr)+ EQUAL Expr)?
+AssignExpr <- Expr (AssignOp Expr / (COMMA Expr)+ EQUAL Expr / !AssignOp !COMMA)
 
-SingleAssignExpr <- Expr (AssignOp Expr)?
+SingleAssignExpr <- Expr (AssignOp Expr / !AssignOp)
 
 Expr <- BoolOrExpr
 
-BoolOrExpr <- BoolAndExpr (OrOp BoolAndExpr)*
+BoolOrExpr <- BoolAndExpr (OrOp BoolAndExpr)* !OrOp
 
-BoolAndExpr <- CompareExpr (AndOp CompareExpr)*
+BoolAndExpr <- CompareExpr (AndOp CompareExpr)* !AndOp
 
-CompareExpr <- BitwiseExpr (CompareOp BitwiseExpr)?
+CompareExpr <- BitwiseExpr (CompareOp BitwiseExpr / !CompareOp)
 
-BitwiseExpr <- BitShiftExpr (BitwiseOp BitShiftExpr)*
+BitwiseExpr <- BitShiftExpr (BitwiseOp BitShiftExpr)* !BitwiseOp
 
-BitShiftExpr <- AdditionExpr (BitShiftOp AdditionExpr)*
+BitShiftExpr <- AdditionExpr (BitShiftOp AdditionExpr)* !BitShiftOp
 
-AdditionExpr <- MultiplyExpr (AdditionOp MultiplyExpr)*
+AdditionExpr <- MultiplyExpr (AdditionOp MultiplyExpr)* !AdditionOp
 
-MultiplyExpr <- PrefixExpr (MultiplyOp PrefixExpr)*
+MultiplyExpr <- PrefixExpr (MultiplyOp PrefixExpr)* !MultiplyOp
 
-PrefixExpr <- PrefixOp* PrimaryExpr
+PrefixExpr <- PrefixOp* !PrefixOp PrimaryExpr
 
 PrimaryExpr
     <- AsmExpr
@@ -101,7 +139,7 @@ PrimaryExpr
      / Block
      / CurlySuffixExpr
 
-IfExpr <- IfPrefix Expr (KEYWORD_else Payload? Expr)?
+IfExpr <- IfPrefix Expr (KEYWORD_else Payload? Expr / !KEYWORD_else)
 
 Block <- LBRACE BlockStatement* RBRACE
 
@@ -111,19 +149,18 @@ ForExpr <- ForPrefix Expr (KEYWORD_else Expr / !KEYWORD_else)
 
 WhileExpr <- WhilePrefix Expr (KEYWORD_else Payload? Expr)?
 
-CurlySuffixExpr <- TypeExpr InitList?
+CurlySuffixExpr <- TypeExpr (InitList / !LBRACE)
 
 InitList
     <- LBRACE FieldInit (COMMA FieldInit)* COMMA? RBRACE
      / LBRACE Expr (COMMA Expr)* COMMA? RBRACE
      / LBRACE RBRACE
 
-TypeExpr <- PrefixTypeOp* ErrorUnionExpr
+TypeExpr <- PrefixTypeOp* !PrefixTypeOpPrefix ErrorUnionExpr
 
-ErrorUnionExpr <- SuffixExpr (EXCLAMATIONMARK TypeExpr)?
+ErrorUnionExpr <- SuffixExpr (EXCLAMATIONMARK TypeExpr / !EXCLAMATIONMARK)
 
-SuffixExpr
-    <- PrimaryTypeExpr (SuffixOp / FnCallArguments)*
+SuffixExpr <- PrimaryTypeExpr SuffixOp* !SuffixOpPrefix
 
 PrimaryTypeExpr
     <- BUILTINIDENTIFIER FnCallArguments
@@ -150,7 +187,7 @@ ErrorSetDecl <- KEYWORD_error LBRACE IdentifierList RBRACE
 
 GroupedExpr <- LPAREN Expr RPAREN
 
-IfTypeExpr <- IfPrefix TypeExpr (KEYWORD_else Payload? TypeExpr)?
+IfTypeExpr <- IfPrefix TypeExpr (KEYWORD_else Payload? TypeExpr / !KEYWORD_else)
 
 LabeledTypeExpr
     <- BlockLabel Block
@@ -161,7 +198,7 @@ LoopTypeExpr <- KEYWORD_inline? (ForTypeExpr / WhileTypeExpr)
 
 ForTypeExpr <- ForPrefix TypeExpr (KEYWORD_else TypeExpr / !KEYWORD_else)
 
-WhileTypeExpr <- WhilePrefix TypeExpr (KEYWORD_else Payload? TypeExpr)?
+WhileTypeExpr <- WhilePrefix TypeExpr (KEYWORD_else Payload? TypeExpr / !KEYWORD_else)
 
 SwitchExpr <- KEYWORD_switch LPAREN Expr RPAREN LBRACE SwitchProngList RBRACE
 
@@ -319,11 +356,25 @@ PrefixTypeOp
      / SinglePtrTypeStart KEYWORD_allowzero? BitAlign? AddrSpace? KEYWORD_const? KEYWORD_volatile?
      / ArrayTypeStart
 
+PrefixTypeOpPrefix
+    <- QUESTIONMARK
+     / KEYWORD_anyframe MINUSRARROW
+     / LBRACKET
+     / ASTERISK
+
 SuffixOp
     <- LBRACKET Expr (DOT2 Expr? (COLON Expr)?)? RBRACKET
      / DOT IDENTIFIER
      / DOTASTERISK
      / DOTQUESTIONMARK
+     / FnCallArguments
+
+SuffixOpPrefix
+    <- LBRACKET
+     / DOT IDENTIFIER
+     / DOTASTERISK
+     / DOTQUESTIONMARK
+     / LPAREN
 
 FnCallArguments <- LPAREN ExprList RPAREN
 
@@ -334,7 +385,7 @@ SinglePtrTypeStart <- ASTERISK
 
 ManyPtrTypeStart <- LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
 
-ArrayTypeStart <- LBRACKET Expr (COLON Expr)? RBRACKET
+ArrayTypeStart <- LBRACKET !ASTERISK Expr (COLON Expr)? RBRACKET
 
 # ContainerDecl specific
 ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
