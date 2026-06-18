@@ -39,9 +39,16 @@
 Root <- ContainerMembers skip eof
 
 # *** Top level ***
-ContainerMembers <- container_doc_comment? ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
+ContainerMembers <- container_doc_comment? ContainerDecl* !ContainerDeclPrefix
+                    (!ContainerDeclPrefix ContainerField COMMA)*
+                    (!ContainerDeclPrefix ContainerField / ContainerDecl*)
 
-ContainerDeclaration <- TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl
+ContainerDecl <- TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl
+
+ContainerDeclPrefix
+    <- KEYWORD_test
+     / KEYWORD_comptime LBRACE
+     / doc_comment? KEYWORD_pub? DeclPrefix
 
 TestDecl <- KEYWORD_test (STRINGLITERALSINGLE / IDENTIFIER)? Block
 
@@ -51,6 +58,11 @@ Decl
     <- (KEYWORD_export / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
      / KEYWORD_extern STRINGLITERALSINGLE? FnProto SEMICOLON
      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? GlobalVarDecl
+
+DeclPrefix
+    <- (KEYWORD_export / KEYWORD_inline / KEYWORD_noinline)? KEYWORD_fn
+     / KEYWORD_extern STRINGLITERALSINGLE? KEYWORD_fn
+     / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? (KEYWORD_const / KEYWORD_var)
 
 FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
 
@@ -165,7 +177,7 @@ SuffixExpr <- PrimaryTypeExpr SuffixOp* !SuffixOpPrefix
 PrimaryTypeExpr
     <- BUILTINIDENTIFIER FnCallArguments
      / CHAR_LITERAL
-     / ContainerDecl
+     / ContainerType
      / DOT IDENTIFIER
      / DOT InitList
      / ErrorSetDecl
@@ -181,7 +193,7 @@ PrimaryTypeExpr
      / NUMBERLITERAL
      / STRINGLITERAL
 
-ContainerDecl <- (KEYWORD_extern / KEYWORD_packed)? ContainerDeclAuto
+ContainerType <- (KEYWORD_extern / KEYWORD_packed)? ContainerTypeAuto
 
 ErrorSetDecl <- KEYWORD_error LBRACE IdentifierList RBRACE
 
@@ -387,10 +399,10 @@ ManyPtrTypeStart <- LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
 
 ArrayTypeStart <- LBRACKET !ASTERISK Expr (COLON Expr)? RBRACKET
 
-# ContainerDecl specific
-ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
+# ContainerType specific
+ContainerTypeAuto <- ContainerTypeKind LBRACE ContainerMembers RBRACE
 
-ContainerDeclType
+ContainerTypeKind
     <- KEYWORD_struct (LPAREN Expr RPAREN)?
      / KEYWORD_opaque
      / KEYWORD_enum (LPAREN Expr RPAREN)?

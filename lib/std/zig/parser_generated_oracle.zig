@@ -25,22 +25,37 @@ const Parser = struct {
         return blk_0: {
             const pos_0 = p.i;
             if ((p.parsecontainer_doc_comment() or true) and blk_1: {
-                while (p.parseContainerDeclaration()) {}
+                while (p.parseContainerDecl()) {}
                 break :blk_1 true;
+            } and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = p.parseContainerDeclPrefix();
+                p.i = pos_1;
+                break :blk_1 !match_1;
             } and blk_1: {
                 while (blk_3: {
                     const pos_3 = p.i;
-                    if (p.parseContainerField() and p.parseCOMMA()) break :blk_3 true;
+                    if (blk_4: {
+                        const pos_4 = p.i;
+                        const match_4 = p.parseContainerDeclPrefix();
+                        p.i = pos_4;
+                        break :blk_4 !match_4;
+                    } and p.parseContainerField() and p.parseCOMMA()) break :blk_3 true;
                     p.i = pos_3;
                     break :blk_3 false;
                 }) {}
                 break :blk_1 true;
             } and blk_2: {
                 const pos_2 = p.i;
-                if (p.parseContainerField()) break :blk_2 true;
+                if (blk_3: {
+                    const pos_3 = p.i;
+                    const match_3 = p.parseContainerDeclPrefix();
+                    p.i = pos_3;
+                    break :blk_3 !match_3;
+                } and p.parseContainerField()) break :blk_2 true;
                 p.i = pos_2;
                 if (blk_3: {
-                    while (p.parseContainerDeclaration()) {}
+                    while (p.parseContainerDecl()) {}
                     break :blk_3 true;
                 }) break :blk_2 true;
                 p.i = pos_2;
@@ -50,7 +65,7 @@ const Parser = struct {
             break :blk_0 false;
         };
     }
-    pub fn parseContainerDeclaration(p: *Parser) bool {
+    pub fn parseContainerDecl(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
             if (p.parseTestDecl()) break :blk_0 true;
@@ -58,6 +73,18 @@ const Parser = struct {
             if (p.parseComptimeDecl()) break :blk_0 true;
             p.i = pos_0;
             if ((p.parsedoc_comment() or true) and (p.parseKEYWORD_pub() or true) and p.parseDecl()) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseContainerDeclPrefix(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parseKEYWORD_test()) break :blk_0 true;
+            p.i = pos_0;
+            if (p.parseKEYWORD_comptime() and p.parseLBRACE()) break :blk_0 true;
+            p.i = pos_0;
+            if ((p.parsedoc_comment() or true) and (p.parseKEYWORD_pub() or true) and p.parseDeclPrefix()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -116,6 +143,41 @@ const Parser = struct {
                 p.i = pos_3;
                 break :blk_3 false;
             } or true) and (p.parseKEYWORD_threadlocal() or true) and p.parseGlobalVarDecl()) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseDeclPrefix(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if ((blk_3: {
+                const pos_3 = p.i;
+                if (p.parseKEYWORD_export()) break :blk_3 true;
+                p.i = pos_3;
+                if (p.parseKEYWORD_inline()) break :blk_3 true;
+                p.i = pos_3;
+                if (p.parseKEYWORD_noinline()) break :blk_3 true;
+                p.i = pos_3;
+                break :blk_3 false;
+            } or true) and p.parseKEYWORD_fn()) break :blk_0 true;
+            p.i = pos_0;
+            if (p.parseKEYWORD_extern() and (p.parseSTRINGLITERALSINGLE() or true) and p.parseKEYWORD_fn()) break :blk_0 true;
+            p.i = pos_0;
+            if ((blk_3: {
+                const pos_3 = p.i;
+                if (p.parseKEYWORD_export()) break :blk_3 true;
+                p.i = pos_3;
+                if (p.parseKEYWORD_extern() and (p.parseSTRINGLITERALSINGLE() or true)) break :blk_3 true;
+                p.i = pos_3;
+                break :blk_3 false;
+            } or true) and (p.parseKEYWORD_threadlocal() or true) and blk_2: {
+                const pos_2 = p.i;
+                if (p.parseKEYWORD_const()) break :blk_2 true;
+                p.i = pos_2;
+                if (p.parseKEYWORD_var()) break :blk_2 true;
+                p.i = pos_2;
+                break :blk_2 false;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -904,7 +966,7 @@ const Parser = struct {
             p.i = pos_0;
             if (p.parseCHAR_LITERAL()) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseContainerDecl()) break :blk_0 true;
+            if (p.parseContainerType()) break :blk_0 true;
             p.i = pos_0;
             if (p.parseDOT() and p.parseIDENTIFIER()) break :blk_0 true;
             p.i = pos_0;
@@ -937,7 +999,7 @@ const Parser = struct {
             break :blk_0 false;
         };
     }
-    pub fn parseContainerDecl(p: *Parser) bool {
+    pub fn parseContainerType(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
             if ((blk_3: {
@@ -947,7 +1009,7 @@ const Parser = struct {
                 if (p.parseKEYWORD_packed()) break :blk_3 true;
                 p.i = pos_3;
                 break :blk_3 false;
-            } or true) and p.parseContainerDeclAuto()) break :blk_0 true;
+            } or true) and p.parseContainerTypeAuto()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -1828,15 +1890,15 @@ const Parser = struct {
             break :blk_0 false;
         };
     }
-    pub fn parseContainerDeclAuto(p: *Parser) bool {
+    pub fn parseContainerTypeAuto(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parseContainerDeclType() and p.parseLBRACE() and p.parseContainerMembers() and p.parseRBRACE()) break :blk_0 true;
+            if (p.parseContainerTypeKind() and p.parseLBRACE() and p.parseContainerMembers() and p.parseRBRACE()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
     }
-    pub fn parseContainerDeclType(p: *Parser) bool {
+    pub fn parseContainerTypeKind(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
             if (p.parseKEYWORD_struct() and (blk_3: {
