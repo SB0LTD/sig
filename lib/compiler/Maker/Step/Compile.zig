@@ -45,12 +45,14 @@ pub fn make(
 
     try lowerZigArgs(arena, compile, compile_index, maker, progress_node, &argv, false);
 
+    const incremental = conf_comp.flags4.incremental.toBool() orelse graph.incremental == true;
+
     const maybe_output_dir = Step.evalZigProcess(
         compile_index,
         maker,
         argv.items,
         progress_node,
-        (graph.incremental == true) and (maker.watch or maker.web_server != null),
+        incremental and (maker.watch or maker.web_server != null),
     ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             try checkCompileErrors(arena, maker, compile_index);
