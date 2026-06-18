@@ -78,6 +78,14 @@ test "fn container field" {
     try checkAgainstOracle("fn()0");
 }
 
+// Found using AFL++
+test "at newline string" {
+    try checkAgainstOracle(
+        \\@
+        \\""
+    );
+}
+
 fn checkAgainstOracle(source: [:0]const u8) !void {
     var fba_buf: [1 << 18]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);

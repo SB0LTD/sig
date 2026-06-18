@@ -527,13 +527,14 @@ NUMBERLITERAL
      / skip [0-9] digit_float*
 
 
-STRINGLITERALSINGLE <- skip ["] string_char* ["]
+string <- ["] string_char* ["]
+STRINGLITERALSINGLE <- skip string
 STRINGLITERAL
-    <- STRINGLITERALSINGLE
+    <- skip string
      / (skip line_string)+
 IDENTIFIER
     <- skip !keyword [A-Za-z_] [A-Za-z0-9_]*
-     / skip '@' STRINGLITERALSINGLE
+     / skip '@' string
 BUILTINIDENTIFIER <- skip '@'[A-Za-z_][A-Za-z0-9_]*
 
 

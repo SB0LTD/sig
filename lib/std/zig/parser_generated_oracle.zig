@@ -2818,10 +2818,10 @@ const Parser = struct {
             break :blk_0 false;
         };
     }
-    pub fn parseSTRINGLITERALSINGLE(p: *Parser) bool {
+    pub fn parsestring(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parseskip() and (p.i < p.source.len and switch (p.source[p.i]) {
+            if ((p.i < p.source.len and switch (p.source[p.i]) {
                 '"'...'"',
                 => blk_1: {
                     p.i += 1;
@@ -2843,10 +2843,18 @@ const Parser = struct {
             break :blk_0 false;
         };
     }
+    pub fn parseSTRINGLITERALSINGLE(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parseskip() and p.parsestring()) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
     pub fn parseSTRINGLITERAL(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (p.parseSTRINGLITERALSINGLE()) break :blk_0 true;
+            if (p.parseskip() and p.parsestring()) break :blk_0 true;
             p.i = pos_0;
             if (blk_1: {
                 var match_1 = false;
@@ -2902,7 +2910,7 @@ const Parser = struct {
                     break :blk_1 true;
                 }
                 break :blk_1 false;
-            } and p.parseSTRINGLITERALSINGLE()) break :blk_0 true;
+            } and p.parsestring()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
