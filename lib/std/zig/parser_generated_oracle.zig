@@ -2363,6 +2363,14 @@ const Parser = struct {
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
+                if (std.mem.startsWith(u8, p.source[p.i..], "\\\\")) {
+                    p.i += 2;
+                    break :blk_1 true;
+                }
+                break :blk_1 false;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "\\'")) {
                     p.i += 2;
                     break :blk_1 true;
@@ -2390,6 +2398,14 @@ const Parser = struct {
     pub fn parsestring_char(p: *Parser) bool {
         return blk_0: {
             const pos_0 = p.i;
+            if (blk_1: {
+                if (std.mem.startsWith(u8, p.source[p.i..], "\\\\")) {
+                    p.i += 2;
+                    break :blk_1 true;
+                }
+                break :blk_1 false;
+            }) break :blk_0 true;
+            p.i = pos_0;
             if (blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], "\\\"")) {
                     p.i += 2;

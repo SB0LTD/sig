@@ -483,19 +483,23 @@ non_control_utf8 <- [\040-\176\200-\377]
 #
 # char_char
 #     <- multibyte_utf8
+#      / "\\\\"
 #      / "\\'"
 #      / !['] non_control_ascii
 # string_char
 #     <- multibyte_utf8
+#      / '\\\\'
 #      / '\\"'
 #      / !["] non_control_ascii
 
 char_char
-    <- "\\'"
+    <- "\\\\"
+     / "\\'"
      / !['] non_control_utf8
 
 string_char
-    <- '\\"'
+    <- '\\\\'
+     / '\\"'
      / !["] non_control_utf8
 
 
