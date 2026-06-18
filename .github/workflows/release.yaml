@@ -317,9 +317,9 @@ jobs:
             ${{ env.ARCHIVE }}
             ${{ env.ARCHIVE }}.sha256
 
-  # Cross-compile Windows from Linux using the cmake bootstrap directly.
-  # The native binary (compiled by the C-backend bootstrap) has broken LLVM codegen.
-  # The cmake bootstrap itself has working LLVM (linked via cmake) on Linux.
+  # Cross-compile Windows from Linux using official zig.
+  # The C-backend bootstrap has broken LLVM codegen (produces ELF not PE).
+  # Use setup-zig with official zig 0.14.1 which has working cross-compilation.
   build-windows-cross:
     needs: build-native
     runs-on: ubuntu-latest
@@ -337,20 +337,10 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go
           sudo apt-get clean
 
-      - name: Download bootstrap
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1
-          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "bootstrap-sig-x86_64-linux.*" --dir /tmp
-          ARCHIVE=$(ls /tmp/bootstrap-sig-x86_64-linux.* | head -1)
-          mkdir -p /tmp/bootstrap
-          tar -xf "$ARCHIVE" -C /tmp/bootstrap
-          SIG=$(find /tmp/bootstrap -type f -name "sig" | head -1)
-          chmod +x "$SIG"
-          ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$SIG")")/lib"
-          echo "SIG=${SIG}" >> "$GITHUB_ENV"
-          "$SIG" version
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.14.1"
 
       - name: Cross-compile for Windows
         run: |
@@ -382,11 +372,7 @@ jobs:
           pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
           EOF
 
-          # Increase stack size for deep Sema recursion during cross-compilation
-          ulimit -s unlimited
-
-          # Use bootstrap directly — it has LLVM+LLD linked via cmake
-          "${SIG}" build-exe \
+          zig build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=.build-gen/build_options.zig \
@@ -394,8 +380,6 @@ jobs:
             --name sig \
             -OReleaseFast \
             -fstrip \
-            -fllvm \
-            -flld \
             --zig-lib-dir lib \
             -target x86_64-windows \
             --cache-dir .zig-cache \
@@ -404,7 +388,6 @@ jobs:
       - name: Verify PE binary
         run: |
           file stage3-out/bin/sig.exe
-          # Verify it's actually a PE, not ELF
           head -c 2 stage3-out/bin/sig.exe | xxd | grep -q "4d5a" || { echo "ERROR: Not a PE binary!"; exit 1; }
           ls -la stage3-out/bin/sig.exe
           echo "Valid PE binary produced"
