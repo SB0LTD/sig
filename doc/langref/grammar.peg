@@ -378,14 +378,14 @@ SuffixOp
     <- LBRACKET Expr (DOT2 (Expr / !ExprPrefix) (COLON Expr)?)? RBRACKET
      / DOT IDENTIFIER
      / DOTASTERISK
-     / DOTQUESTIONMARK
+     / DOT QUESTIONMARK
      / FnCallArguments
 
 SuffixOpPrefix
     <- LBRACKET
      / DOT IDENTIFIER
      / DOTASTERISK
-     / DOTQUESTIONMARK
+     / DOT QUESTIONMARK
      / LPAREN
 
 FnCallArguments <- LPAREN ExprList RPAREN
@@ -554,11 +554,10 @@ CARET                <- skip '^'      ![=]
 CARETEQUAL           <- skip '^='
 COLON                <- skip ':'
 COMMA                <- skip ','
-DOT                  <- skip '.'      ![*.?]
+DOT                  <- skip '.'      ![*.]
 DOT2                 <- skip '..'     ![.]
 DOT3                 <- skip '...'
 DOTASTERISK          <- skip '.*'
-DOTQUESTIONMARK      <- skip '.?'
 EQUAL                <- skip '='      ![>=]
 EQUALEQUAL           <- skip '=='
 EQUALRARROW          <- skip '=>'

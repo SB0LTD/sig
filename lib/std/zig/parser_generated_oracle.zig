@@ -1805,7 +1805,7 @@ const Parser = struct {
             p.i = pos_0;
             if (p.parseDOTASTERISK()) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseDOTQUESTIONMARK()) break :blk_0 true;
+            if (p.parseDOT() and p.parseQUESTIONMARK()) break :blk_0 true;
             p.i = pos_0;
             if (p.parseFnCallArguments()) break :blk_0 true;
             p.i = pos_0;
@@ -1821,7 +1821,7 @@ const Parser = struct {
             p.i = pos_0;
             if (p.parseDOTASTERISK()) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseDOTQUESTIONMARK()) break :blk_0 true;
+            if (p.parseDOT() and p.parseQUESTIONMARK()) break :blk_0 true;
             p.i = pos_0;
             if (p.parseLPAREN()) break :blk_0 true;
             p.i = pos_0;
@@ -3211,7 +3211,6 @@ const Parser = struct {
                 const match_1 = (p.i < p.source.len and switch (p.source[p.i]) {
                     '*'...'*',
                     '.'...'.',
-                    '?'...'?',
                     => blk_2: {
                         p.i += 1;
                         break :blk_2 true;
@@ -3270,20 +3269,6 @@ const Parser = struct {
             const pos_0 = p.i;
             if (p.parseskip() and blk_1: {
                 if (std.mem.startsWith(u8, p.source[p.i..], ".*")) {
-                    p.i += 2;
-                    break :blk_1 true;
-                }
-                break :blk_1 false;
-            }) break :blk_0 true;
-            p.i = pos_0;
-            break :blk_0 false;
-        };
-    }
-    pub fn parseDOTQUESTIONMARK(p: *Parser) bool {
-        return blk_0: {
-            const pos_0 = p.i;
-            if (p.parseskip() and blk_1: {
-                if (std.mem.startsWith(u8, p.source[p.i..], ".?")) {
                     p.i += 2;
                     break :blk_1 true;
                 }

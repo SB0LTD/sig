@@ -3069,7 +3069,7 @@ fn parsePtrModifiers(p: *Parse) !PtrModifiers {
 ///     <- LBRACKET Expr (DOT2 Expr? (COLON Expr)?)? RBRACKET
 ///      / DOT IDENTIFIER
 ///      / DOTASTERISK
-///      / DOTQUESTIONMARK
+///      / DOT QUESTIONMARK
 ///      / FnCallArguments
 ///
 /// FnCallArguments <- LPAREN ExprList RPAREN
