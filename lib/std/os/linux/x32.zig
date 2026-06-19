@@ -175,7 +175,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
     }
 }
 
-pub const time_t = i32;
+pub const time_t = i64;
 
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
