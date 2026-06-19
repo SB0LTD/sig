@@ -211,10 +211,10 @@ pub const MCValue = union(enum) {
     /// The value is in memory at a constant offset from the address in a register.
     indirect: bits.RegisterOffset,
     indirect_load_frame: bits.FrameAddr,
-    /// The value stored at an offset from a frame index
+    /// The value stored at an offset from a frame index.
     /// Payload is a frame address.
     load_frame: bits.FrameAddr,
-    /// The address of an offset from a frame index
+    /// The address of an offset from a frame index.
     /// Payload is a frame address.
     lea_frame: bits.FrameAddr,
     load_nav: InternPool.Nav.Index,
@@ -225,15 +225,17 @@ pub const MCValue = union(enum) {
     lea_lazy_sym: link.File.LazySymbol,
     load_extern_func: Mir.NullTerminatedString,
     lea_extern_func: Mir.NullTerminatedString,
-    /// Supports `integer_per_element` abi
+    /// The value is duplicated in two different registers.
+    register_tee: [4]Register,
+    /// Supports `integer_per_element` abi.
     elementwise_gpr: ArgsInfo,
-    /// Supports `sse_per_element` abi
+    /// Supports `sse_per_element` abi.
     elementwise_sse: ArgsInfo,
-    /// Supports `sse_per_xword` abi
+    /// Supports `sse_per_xword` abi.
     xwordwise_sse: ArgsInfo,
-    /// Supports `sse_per_yword` abi
+    /// Supports `sse_per_yword` abi.
     ywordwise_sse: ArgsInfo,
-    /// Supports `sse_per_zword` abi
+    /// Supports `sse_per_zword` abi.
     zwordwise_sse: ArgsInfo,
     /// This indicates that we have already allocated a frame index for this instruction,
     /// but it has not been spilled there yet in the current control flow.
@@ -261,6 +263,7 @@ pub const MCValue = union(enum) {
             .lea_lazy_sym,
             .lea_extern_func,
             .load_extern_func,
+            .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
             .xwordwise_sse,
@@ -386,6 +389,7 @@ pub const MCValue = union(enum) {
             .lea_uav,
             .lea_lazy_sym,
             .lea_extern_func,
+            .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
             .xwordwise_sse,
@@ -427,6 +431,7 @@ pub const MCValue = union(enum) {
             .load_uav,
             .load_lazy_sym,
             .load_extern_func,
+            .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
             .xwordwise_sse,
@@ -453,6 +458,7 @@ pub const MCValue = union(enum) {
             .unreach,
             .dead,
             .undef,
+            .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
             .xwordwise_sse,
@@ -511,6 +517,7 @@ pub const MCValue = union(enum) {
             .register_mask,
             .indirect_load_frame,
             .lea_frame,
+            .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
             .xwordwise_sse,
@@ -593,6 +600,7 @@ pub const MCValue = union(enum) {
             .lea_lazy_sym => |pl| try w.print("lazy:{s}:{d}", .{ @tagName(pl.kind), @intFromEnum(pl.ty) }),
             .load_extern_func => |pl| try w.print("[extern:{d}]", .{@intFromEnum(pl)}),
             .lea_extern_func => |pl| try w.print("extern:{d}", .{@intFromEnum(pl)}),
+            .register_tee => |pl| try w.print("tee:{s}:{s}", .{ @tagName(pl[1]), @tagName(pl[0]) }),
             .elementwise_gpr => |pl| try w.print("elementwise:gpr{d}:[{f} + 0x{x}]", .{
                 pl.info.reg_index, pl.frame_index, pl.info.frame_off,
             }),
@@ -640,6 +648,7 @@ const InstTracking = struct {
             .lea_extern_func,
             => result,
             .dead,
+            .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
             .xwordwise_sse,
@@ -756,6 +765,7 @@ const InstTracking = struct {
             .register_overflow,
             .register_mask,
             .indirect,
+            .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
             .xwordwise_sse,
@@ -174266,15 +174276,16 @@ fn restoreState(self: *CodeGen, state: State, deaths: []const Air.Inst.Index, co
     const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).array.len]RegisterLock;
     const bfa_buf_len = if (opts.update_tracking) 0 else 1;
     var bfa_buf: [bfa_buf_len]ExpectedContents = undefined;
-    var stack = if (opts.update_tracking) {} else std.heap.BufferFirstAllocator.init(@ptrCast(&bfa_buf), self.gpa);
+    var stack = if (!opts.update_tracking) std.heap.BufferFirstAllocator.init(@ptrCast(&bfa_buf), self.gpa);
+    const allocator = if (!opts.update_tracking) stack.allocator();
 
-    var reg_locks = if (opts.update_tracking) {} else try std.array_list.Managed(RegisterLock).initCapacity(
-        stack.allocator(),
+    var reg_locks = if (!opts.update_tracking) try std.ArrayList(RegisterLock).initCapacity(
+        allocator,
         @typeInfo(ExpectedContents).array.len,
     );
     defer if (!opts.update_tracking) {
         for (reg_locks.items) |lock| self.register_manager.unlockReg(lock);
-        reg_locks.deinit();
+        reg_locks.deinit(allocator);
     };
 
     for (
@@ -174304,7 +174315,7 @@ fn restoreState(self: *CodeGen, state: State, deaths: []const Air.Inst.Index, co
                 self.inst_tracking.getPtr(target_inst).?.trackMaterialize(target_inst, reg_tracking);
             }
         } else if (target_maybe_inst) |_|
-            try reg_locks.append(self.register_manager.lockRegIndexAssumeUnused(reg_index));
+            try reg_locks.append(allocator, self.register_manager.lockRegIndexAssumeUnused(reg_index));
     }
     if (opts.emit_instructions) if (self.eflags_inst) |inst|
         try self.inst_tracking.getPtr(inst).?.spill(self, inst);
@@ -174517,6 +174528,7 @@ fn load(self: *CodeGen, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) InnerE
         .register_overflow,
         .register_mask,
         .indirect_load_frame,
+        .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
         .xwordwise_sse,
@@ -174574,6 +174586,7 @@ fn store(
         .register_overflow,
         .register_mask,
         .indirect_load_frame,
+        .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
         .xwordwise_sse,
@@ -174628,6 +174641,7 @@ fn genUnOpMir(self: *CodeGen, mir_tag: Mir.Inst.FixedTag, dst_ty: Type, dst_mcv:
         .lea_uav,
         .lea_lazy_sym,
         .lea_extern_func,
+        .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
         .xwordwise_sse,
@@ -175322,6 +175336,7 @@ fn genBinOpMir(
         .lea_lazy_sym,
         .lea_extern_func,
         .indirect_load_frame,
+        .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
         .xwordwise_sse,
@@ -175363,6 +175378,7 @@ fn genBinOpMir(
                     .register_overflow,
                     .register_mask,
                     .indirect_load_frame,
+                    .register_tee,
                     .elementwise_gpr,
                     .elementwise_sse,
                     .xwordwise_sse,
@@ -175539,6 +175555,7 @@ fn genBinOpMir(
                 .register_overflow,
                 .register_mask,
                 .indirect_load_frame,
+                .register_tee,
                 .elementwise_gpr,
                 .elementwise_sse,
                 .xwordwise_sse,
@@ -175647,6 +175664,7 @@ fn genBinOpMir(
                     .register_overflow,
                     .register_mask,
                     .indirect_load_frame,
+                    .register_tee,
                     .elementwise_gpr,
                     .elementwise_sse,
                     .xwordwise_sse,
@@ -176002,6 +176020,7 @@ fn genLocalDebugInfo(cg: *CodeGen, air_tag: Air.Inst.Tag, ty: Type, mcv: MCValue
             .none,
             .unreach,
             .dead,
+            .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
             .xwordwise_sse,
@@ -176060,6 +176079,7 @@ fn genLocalDebugInfo(cg: *CodeGen, air_tag: Air.Inst.Tag, ty: Type, mcv: MCValue
             .none,
             .unreach,
             .dead,
+            .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
             .xwordwise_sse,
@@ -176197,14 +176217,14 @@ fn genCall(cg: *CodeGen, info: union(enum) {
 
     const var_args = try allocator.alloc(Type, args.len - fn_info.param_types.len);
     defer allocator.free(var_args);
-    for (var_args, arg_types[fn_info.param_types.len..]) |*var_arg, arg_ty| var_arg.* = arg_ty;
+    @memcpy(var_args, arg_types[fn_info.param_types.len..]);
 
     const frame_indices = try allocator.alloc(FrameIndex, args.len);
     defer allocator.free(frame_indices);
 
-    var reg_locks: std.array_list.Managed(?RegisterLock) = .init(allocator);
-    defer reg_locks.deinit();
-    try reg_locks.ensureTotalCapacity(16);
+    var reg_locks: std.ArrayList(?RegisterLock) = .empty;
+    defer reg_locks.deinit(allocator);
+    try reg_locks.ensureTotalCapacity(allocator, 16);
     defer for (reg_locks.items) |reg_lock| if (reg_lock) |lock| cg.register_manager.unlockReg(lock);
 
     var call_info = try cg.resolveCallingConventionValues(fn_info, var_args, .call_frame);
@@ -176235,169 +176255,165 @@ fn genCall(cg: *CodeGen, info: union(enum) {
         .indirect => |reg_off| try cg.register_manager.getReg(reg_off.reg, null),
         else => unreachable,
     }
-    for (call_info.args, arg_types, args, frame_indices, 0..) |dst_arg, arg_ty, src_arg, *frame_index, arg_i|
-        switch (dst_arg) {
-            .none => {},
-            .register => |reg| {
+    for (call_info.args, arg_types, args, frame_indices) |dst_arg, arg_ty, src_arg, *frame_index| switch (dst_arg) {
+        .none => {},
+        .register => |reg| {
+            try cg.register_manager.getReg(reg, null);
+            try reg_locks.append(allocator, cg.register_manager.lockReg(reg));
+        },
+        inline .register_pair, .register_triple, .register_quadruple => |regs| {
+            for (regs) |reg| try cg.register_manager.getReg(reg, null);
+            try reg_locks.appendSlice(allocator, &cg.register_manager.lockRegs(regs.len, regs));
+        },
+        .indirect => |reg_off| {
+            frame_index.* = try cg.allocFrameIndex(.initType(arg_ty, zcu));
+            try cg.genSetMem(.{ .frame = frame_index.* }, 0, arg_ty, src_arg, opts);
+            try cg.register_manager.getReg(reg_off.reg, null);
+            try reg_locks.append(allocator, cg.register_manager.lockReg(reg_off.reg));
+        },
+        .indirect_load_frame => |frame_addr| {
+            frame_index.* = try cg.allocFrameIndex(.initType(arg_ty, zcu));
+            try cg.genSetMem(.{ .frame = frame_index.* }, 0, arg_ty, src_arg, opts);
+            try cg.genSetMem(
+                .{ .frame = frame_addr.index },
+                frame_addr.off,
+                .usize,
+                .{ .lea_frame = .{ .index = frame_index.* } },
+                opts,
+            );
+        },
+        .load_frame => {
+            try cg.genCopy(arg_ty, dst_arg, src_arg, opts);
+            try cg.freeValue(src_arg, .{});
+        },
+        .register_tee => |regs| {
+            try reg_locks.ensureUnusedCapacity(allocator, regs.len);
+            for (regs) |reg| if (reg != .none) {
                 try cg.register_manager.getReg(reg, null);
-                try reg_locks.append(cg.register_manager.lockReg(reg));
+                reg_locks.appendAssumeCapacity(cg.register_manager.lockReg(reg));
+            };
+        },
+        .elementwise_gpr, .elementwise_sse => |regs_frame_addr| {
+            const src_mem: Memory = if (src_arg.isBase()) try src_arg.mem(cg, .{ .size = .dword }) else .{
+                .base = .{ .reg = try cg.copyToTmpRegister(.usize, switch (src_arg) {
+                    else => src_arg,
+                    .air_ref => |src_ref| try cg.resolveInst(src_ref),
+                }.address()) },
+                .mod = .{ .rm = .{ .size = .dword } },
+            };
+            const src_lock = switch (src_mem.base) {
+                .reg => |src_reg| cg.register_manager.lockReg(src_reg),
+                else => null,
+            };
+            defer if (src_lock) |lock| cg.register_manager.unlockReg(lock);
 
-                if (fn_info.is_var_args and
-                    fn_info.cc == .x86_64_win and
-                    reg.class() == .sse and
-                    arg_i < abi.Win64.c_abi_int_param_regs.len)
-                {
-                    // Floating point arguments must be duplicated into the equivalent integer registers on this ABI
-                    const int_reg = abi.Win64.c_abi_int_param_regs[arg_i];
-                    try reg_locks.append(cg.register_manager.lockReg(int_reg));
+            const elem_rc: Register.Class, const param_regs = switch (dst_arg) {
+                else => unreachable,
+                .elementwise_gpr => .{ .general_purpose, abi.getCAbiIntParamRegs(fn_info.cc) },
+                .elementwise_sse => .{ .sse, abi.getCAbiSseParamRegs(fn_info.cc, cg.target) },
+            };
+            const len = arg_ty.vectorLen(zcu);
+            const param_reg_len: u31 =
+                @intCast(@min(param_regs.len - regs_frame_addr.info.reg_index, len));
+
+            if (len - param_reg_len > 0) {
+                const index_reg = try cg.register_manager.allocReg(null, abi.RegisterClass.gp);
+                const index_lock = cg.register_manager.lockRegAssumeUnused(index_reg);
+                defer cg.register_manager.unlockReg(index_lock);
+                try cg.asmRegisterImmediate(.{ ._, .mov }, index_reg.to32(), .u(param_reg_len));
+
+                const loop: Mir.Inst.Index = @intCast(cg.mir_instructions.len);
+                const elem_ty = arg_ty.childType(zcu);
+                if (elem_ty.toIntern() == .bool_type) {
+                    try cg.asmMemoryRegister(.{ ._, .bt }, src_mem, index_reg.to32());
+                    try cg.asmSetccMemory(.c, .{
+                        .base = .{ .frame = regs_frame_addr.frame_index },
+                        .mod = .{ .rm = .{
+                            .size = .byte,
+                            .index = index_reg.to64(),
+                            .scale = .@"8",
+                            .disp = @as(i32, regs_frame_addr.info.frame_off) - 8 * param_reg_len,
+                        } },
+                    });
+                } else {
+                    const elem_reg =
+                        try cg.register_manager.allocReg(null, regSetForRegClass(elem_rc));
+                    const elem_lock = cg.register_manager.lockRegAssumeUnused(elem_reg);
+                    defer cg.register_manager.unlockReg(elem_lock);
+                    const elem_size = cg.memSize(elem_ty, .general_purpose);
+                    const elem_alias = elem_reg.toSize(elem_size, cg.target);
+
+                    const strat = try cg.moveStrategy(elem_ty, elem_rc, true);
+                    assert(src_mem.mod.rm.index == .none and src_mem.mod.rm.scale == .@"1");
+                    try strat.read(cg, elem_alias, .{
+                        .base = src_mem.base,
+                        .mod = .{ .rm = .{
+                            .size = elem_size,
+                            .index = index_reg.to64(),
+                            .scale = .fromFactor(@intCast(@divExact(elem_size.bitSize(cg.target), 8))),
+                            .disp = src_mem.mod.rm.disp,
+                        } },
+                    });
+                    try strat.write(cg, .{
+                        .base = .{ .frame = regs_frame_addr.frame_index },
+                        .mod = .{ .rm = .{
+                            .size = elem_size,
+                            .index = index_reg.to64(),
+                            .scale = .@"8",
+                            .disp = @as(i32, regs_frame_addr.info.frame_off) - 8 * param_reg_len,
+                        } },
+                    }, elem_alias);
                 }
-            },
-            .register_pair => |regs| {
-                for (regs) |reg| try cg.register_manager.getReg(reg, null);
-                try reg_locks.appendSlice(&cg.register_manager.lockRegs(2, regs));
-            },
-            .indirect => |reg_off| {
-                frame_index.* = try cg.allocFrameIndex(.initType(arg_ty, zcu));
-                try cg.genSetMem(.{ .frame = frame_index.* }, 0, arg_ty, src_arg, opts);
-                try cg.register_manager.getReg(reg_off.reg, null);
-                try reg_locks.append(cg.register_manager.lockReg(reg_off.reg));
-            },
-            .indirect_load_frame => |frame_addr| {
-                frame_index.* = try cg.allocFrameIndex(.initType(arg_ty, zcu));
-                try cg.genSetMem(.{ .frame = frame_index.* }, 0, arg_ty, src_arg, opts);
-                try cg.genSetMem(
-                    .{ .frame = frame_addr.index },
-                    frame_addr.off,
-                    .usize,
-                    .{ .lea_frame = .{ .index = frame_index.* } },
-                    opts,
-                );
-            },
-            .load_frame => {
-                try cg.genCopy(arg_ty, dst_arg, src_arg, opts);
-                try cg.freeValue(src_arg, .{});
-            },
-            .elementwise_gpr, .elementwise_sse => |regs_frame_addr| {
-                const src_mem: Memory = if (src_arg.isBase()) try src_arg.mem(cg, .{ .size = .dword }) else .{
-                    .base = .{ .reg = try cg.copyToTmpRegister(.usize, switch (src_arg) {
-                        else => src_arg,
-                        .air_ref => |src_ref| try cg.resolveInst(src_ref),
-                    }.address()) },
-                    .mod = .{ .rm = .{ .size = .dword } },
-                };
-                const src_lock = switch (src_mem.base) {
-                    .reg => |src_reg| cg.register_manager.lockReg(src_reg),
-                    else => null,
-                };
-                defer if (src_lock) |lock| cg.register_manager.unlockReg(lock);
-
-                const elem_rc: Register.Class, const param_regs = switch (dst_arg) {
-                    else => unreachable,
-                    .elementwise_gpr => .{ .general_purpose, abi.getCAbiIntParamRegs(fn_info.cc) },
-                    .elementwise_sse => .{ .sse, abi.getCAbiSseParamRegs(fn_info.cc, cg.target) },
-                };
-                const len = arg_ty.vectorLen(zcu);
-                const param_reg_len: u31 =
-                    @intCast(@min(param_regs.len - regs_frame_addr.info.reg_index, len));
-
-                if (len - param_reg_len > 0) {
-                    const index_reg = try cg.register_manager.allocReg(null, abi.RegisterClass.gp);
-                    const index_lock = cg.register_manager.lockRegAssumeUnused(index_reg);
-                    defer cg.register_manager.unlockReg(index_lock);
-                    try cg.asmRegisterImmediate(.{ ._, .mov }, index_reg.to32(), .u(param_reg_len));
-
-                    const loop: Mir.Inst.Index = @intCast(cg.mir_instructions.len);
-                    const elem_ty = arg_ty.childType(zcu);
-                    if (elem_ty.toIntern() == .bool_type) {
-                        try cg.asmMemoryRegister(.{ ._, .bt }, src_mem, index_reg.to32());
-                        try cg.asmSetccMemory(.c, .{
-                            .base = .{ .frame = regs_frame_addr.frame_index },
-                            .mod = .{ .rm = .{
-                                .size = .byte,
-                                .index = index_reg.to64(),
-                                .scale = .@"8",
-                                .disp = @as(i32, regs_frame_addr.info.frame_off) - 8 * param_reg_len,
-                            } },
-                        });
-                    } else {
-                        const elem_reg =
-                            try cg.register_manager.allocReg(null, regSetForRegClass(elem_rc));
-                        const elem_lock = cg.register_manager.lockRegAssumeUnused(elem_reg);
-                        defer cg.register_manager.unlockReg(elem_lock);
-                        const elem_size = cg.memSize(elem_ty, .general_purpose);
-                        const elem_alias = elem_reg.toSize(elem_size, cg.target);
-
-                        const strat = try cg.moveStrategy(elem_ty, elem_rc, true);
-                        assert(src_mem.mod.rm.index == .none and src_mem.mod.rm.scale == .@"1");
-                        try strat.read(cg, elem_alias, .{
-                            .base = src_mem.base,
-                            .mod = .{ .rm = .{
-                                .size = elem_size,
-                                .index = index_reg.to64(),
-                                .scale = .fromFactor(@intCast(@divExact(elem_size.bitSize(cg.target), 8))),
-                                .disp = src_mem.mod.rm.disp,
-                            } },
-                        });
-                        try strat.write(cg, .{
-                            .base = .{ .frame = regs_frame_addr.frame_index },
-                            .mod = .{ .rm = .{
-                                .size = elem_size,
-                                .index = index_reg.to64(),
-                                .scale = .@"8",
-                                .disp = @as(i32, regs_frame_addr.info.frame_off) - 8 * param_reg_len,
-                            } },
-                        }, elem_alias);
-                    }
-                    if (cg.hasFeature(.slow_incdec)) {
-                        try cg.asmRegisterImmediate(.{ ._, .add }, index_reg.to32(), .u(1));
-                    } else {
-                        try cg.asmRegister(.{ ._c, .in }, index_reg.to32());
-                    }
-                    try cg.asmRegisterImmediate(.{ ._, .cmp }, index_reg.to32(), .u(len));
-                    _ = try cg.asmJccReloc(.b, loop);
+                if (cg.hasFeature(.slow_incdec)) {
+                    try cg.asmRegisterImmediate(.{ ._, .add }, index_reg.to32(), .u(1));
+                } else {
+                    try cg.asmRegister(.{ ._c, .in }, index_reg.to32());
                 }
+                try cg.asmRegisterImmediate(.{ ._, .cmp }, index_reg.to32(), .u(len));
+                _ = try cg.asmJccReloc(.b, loop);
+            }
 
-                for (param_regs[regs_frame_addr.info.reg_index..][0..param_reg_len]) |dst_reg| {
-                    try cg.register_manager.getReg(dst_reg, null);
-                    try reg_locks.append(cg.register_manager.lockReg(dst_reg));
-                }
-            },
-            .xwordwise_sse, .ywordwise_sse, .zwordwise_sse => |regs_frame_addr| {
-                const elem_size: u31 = switch (dst_arg) {
-                    else => unreachable,
-                    .xwordwise_sse => 16,
-                    .ywordwise_sse => 32,
-                    .zwordwise_sse => 64,
-                };
-                const param_gpr_regs = abi.getCAbiIntParamRegs(fn_info.cc);
-                const arg_size: u31 = @intCast(arg_ty.abiSize(zcu));
-                const len = @divExact(arg_size, elem_size);
-                const param_gpr_len: u31 =
-                    @intCast(@min(param_gpr_regs.len - regs_frame_addr.info.reg_index, len));
+            for (param_regs[regs_frame_addr.info.reg_index..][0..param_reg_len]) |dst_reg| {
+                try cg.register_manager.getReg(dst_reg, null);
+                try reg_locks.append(allocator, cg.register_manager.lockReg(dst_reg));
+            }
+        },
+        .xwordwise_sse, .ywordwise_sse, .zwordwise_sse => |regs_frame_addr| {
+            const elem_size: u31 = switch (dst_arg) {
+                else => unreachable,
+                .xwordwise_sse => 16,
+                .ywordwise_sse => 32,
+                .zwordwise_sse => 64,
+            };
+            const param_gpr_regs = abi.getCAbiIntParamRegs(fn_info.cc);
+            const arg_size: u31 = @intCast(arg_ty.abiSize(zcu));
+            const len = @divExact(arg_size, elem_size);
+            const param_gpr_len: u31 =
+                @intCast(@min(param_gpr_regs.len - regs_frame_addr.info.reg_index, len));
 
-                frame_index.* = try cg.allocFrameIndex(.initType(arg_ty, zcu));
-                try cg.genSetMem(.{ .frame = frame_index.* }, 0, arg_ty, src_arg, opts);
+            frame_index.* = try cg.allocFrameIndex(.initType(arg_ty, zcu));
+            try cg.genSetMem(.{ .frame = frame_index.* }, 0, arg_ty, src_arg, opts);
 
-                var frame_offset: i32 = regs_frame_addr.info.frame_off;
-                var arg_offset = elem_size * param_gpr_len;
-                while (arg_size - arg_offset != 0) : ({
-                    frame_offset += 8;
-                    arg_offset += elem_size;
-                }) try cg.genSetMem(
-                    .{ .frame = regs_frame_addr.frame_index },
-                    frame_offset,
-                    .usize,
-                    .{ .lea_frame = .{ .index = frame_index.*, .off = arg_offset } },
-                    opts,
-                );
+            var frame_offset: i32 = regs_frame_addr.info.frame_off;
+            var arg_offset = elem_size * param_gpr_len;
+            while (arg_size - arg_offset != 0) : ({
+                frame_offset += 8;
+                arg_offset += elem_size;
+            }) try cg.genSetMem(
+                .{ .frame = regs_frame_addr.frame_index },
+                frame_offset,
+                .usize,
+                .{ .lea_frame = .{ .index = frame_index.*, .off = arg_offset } },
+                opts,
+            );
 
-                for (param_gpr_regs[regs_frame_addr.info.reg_index..][0..param_gpr_len]) |dst_reg| {
-                    try cg.register_manager.getReg(dst_reg, null);
-                    try reg_locks.append(cg.register_manager.lockReg(dst_reg));
-                }
-            },
-            else => unreachable,
-        };
+            for (param_gpr_regs[regs_frame_addr.info.reg_index..][0..param_gpr_len]) |dst_reg| {
+                try cg.register_manager.getReg(dst_reg, null);
+                try reg_locks.append(allocator, cg.register_manager.lockReg(dst_reg));
+            }
+        },
+        else => unreachable,
+    };
 
     if (call_info.err_ret_trace_reg != .none) {
         if (cg.inst_tracking.getPtr(err_ret_trace_index)) |err_ret_trace| {
@@ -176406,7 +176422,7 @@ fn genCall(cg: *CodeGen, info: union(enum) {
                 else => true,
             }) {
                 try cg.register_manager.getReg(call_info.err_ret_trace_reg, err_ret_trace_index);
-                try reg_locks.append(cg.register_manager.lockReg(call_info.err_ret_trace_reg));
+                try reg_locks.append(allocator, cg.register_manager.lockReg(call_info.err_ret_trace_reg));
 
                 try cg.genSetReg(call_info.err_ret_trace_reg, .usize, err_ret_trace.short, opts);
                 err_ret_trace.trackMaterialize(err_ret_trace_index, .{
@@ -176427,114 +176443,102 @@ fn genCall(cg: *CodeGen, info: union(enum) {
                 .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
             }, opts);
             call_info.return_value.short = .{ .load_frame = .{ .index = frame_index } };
-            try reg_locks.append(cg.register_manager.lockReg(reg_off.reg));
+            try reg_locks.append(allocator, cg.register_manager.lockReg(reg_off.reg));
         },
         else => unreachable,
     }
 
-    for (call_info.args, arg_types, args, frame_indices, 0..) |dst_arg, arg_ty, src_arg, frame_index, arg_i|
-        switch (dst_arg) {
-            .none, .load_frame, .indirect_load_frame => {},
-            .register => |dst_reg| switch (fn_info.cc) {
-                else => try cg.genSetReg(registerAlias(
+    for (call_info.args, arg_types, args, frame_indices) |dst_arg, arg_ty, src_arg, frame_index| switch (dst_arg) {
+        .none, .load_frame, .indirect_load_frame => {},
+        .register => |dst_reg| try cg.genSetReg(registerAlias(
+            dst_reg,
+            @intCast(cg.unalignedSize(arg_ty)),
+        ), arg_ty, src_arg, opts),
+        .register_pair,
+        .register_triple,
+        .register_quadruple,
+        => try cg.genCopy(arg_ty, dst_arg, src_arg, opts),
+        .indirect => |reg_off| try cg.genSetReg(reg_off.reg, .usize, .{
+            .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
+        }, opts),
+        .register_tee => |dst_regs| {
+            try cg.genSetReg(dst_regs[0], arg_ty, src_arg, opts);
+            for (dst_regs[1..]) |dst_reg| if (dst_reg != .none) try cg.genSetReg(dst_reg, arg_ty, .{
+                .register = dst_regs[0],
+            }, opts);
+        },
+        .elementwise_gpr, .elementwise_sse => |regs_frame_addr| {
+            const src_mem: Memory = if (src_arg.isBase()) try src_arg.mem(cg, .{ .size = .dword }) else .{
+                .base = .{ .reg = try cg.copyToTmpRegister(
+                    .usize,
+                    switch (src_arg) {
+                        else => src_arg,
+                        .air_ref => |src_ref| try cg.resolveInst(src_ref),
+                    }.address(),
+                ) },
+                .mod = .{ .rm = .{ .size = .dword } },
+            };
+            const src_lock = switch (src_mem.base) {
+                .reg => |src_reg| cg.register_manager.lockReg(src_reg),
+                else => null,
+            };
+            defer if (src_lock) |lock| cg.register_manager.unlockReg(lock);
+
+            const elem_rc: Register.Class, const param_regs = switch (dst_arg) {
+                else => unreachable,
+                .elementwise_gpr => .{ .general_purpose, abi.getCAbiIntParamRegs(fn_info.cc) },
+                .elementwise_sse => .{ .sse, abi.getCAbiSseParamRegs(fn_info.cc, cg.target) },
+            };
+            const len = arg_ty.vectorLen(zcu);
+            const elem_ty = arg_ty.childType(zcu);
+            const elem_size = cg.memSize(elem_ty, .general_purpose);
+            const elem_abi_size = @divExact(elem_size.bitSize(cg.target), 8);
+            const param_reg_len: u31 =
+                @intCast(@min(param_regs.len - regs_frame_addr.info.reg_index, len));
+            const strat = if (elem_ty.toIntern() == .bool_type) strat: {
+                try cg.spillEflagsIfOccupied();
+                break :strat undefined;
+            } else try cg.moveStrategy(elem_ty, elem_rc, true);
+            for (
+                param_regs[regs_frame_addr.info.reg_index..][0..param_reg_len],
+                0..,
+            ) |dst_reg, elem_index| if (elem_ty.toIntern() == .bool_type) {
+                try cg.asmRegisterRegister(.{ ._, .xor }, dst_reg.to32(), dst_reg.to32());
+                try cg.asmMemoryImmediate(.{ ._, .bt }, src_mem, .u(elem_index));
+                try cg.asmSetccRegister(.c, dst_reg.to8());
+            } else try strat.read(cg, dst_reg.toSize(elem_size, cg.target), .{
+                .base = src_mem.base,
+                .mod = .{ .rm = .{
+                    .size = elem_size,
+                    .disp = src_mem.mod.rm.disp + @as(u31, @intCast(elem_abi_size * elem_index)),
+                } },
+            });
+        },
+        .xwordwise_sse, .ywordwise_sse, .zwordwise_sse => |regs_frame_addr| {
+            const elem_size: u31 = switch (dst_arg) {
+                else => unreachable,
+                .xwordwise_sse => 16,
+                .ywordwise_sse => 32,
+                .zwordwise_sse => 64,
+            };
+            const param_gpr_regs = abi.getCAbiIntParamRegs(fn_info.cc);
+            const len = @divExact(arg_ty.abiSize(zcu), elem_size);
+            const param_gpr_len: u31 =
+                @intCast(@min(param_gpr_regs.len - regs_frame_addr.info.reg_index, len));
+
+            var arg_offset: u31 = 0;
+            for (param_gpr_regs[regs_frame_addr.info.reg_index..][0..param_gpr_len]) |dst_reg| {
+                try cg.genSetReg(
                     dst_reg,
-                    @intCast(arg_ty.abiSize(zcu)),
-                ), arg_ty, src_arg, opts),
-                .x86_64_sysv, .x86_64_win => {
-                    const promoted_ty = cg.promoteInt(arg_ty);
-                    const promoted_unaligned_size: u32 = @intCast(cg.unalignedSize(promoted_ty));
-                    const dst_alias = registerAlias(dst_reg, promoted_unaligned_size);
-                    try cg.genSetReg(dst_alias, promoted_ty, src_arg, opts);
-                    if (promoted_ty.toIntern() != arg_ty.toIntern())
-                        try cg.truncateRegister(arg_ty, dst_alias);
-
-                    if (fn_info.is_var_args and
-                        fn_info.cc == .x86_64_win and
-                        dst_reg.class() == .sse and
-                        arg_i < abi.Win64.c_abi_int_param_regs.len)
-                    {
-                        const int_dst_reg = abi.Win64.c_abi_int_param_regs[arg_i];
-                        const int_dst_alias = registerAlias(int_dst_reg, promoted_unaligned_size);
-                        try cg.genSetReg(int_dst_alias, promoted_ty, .{ .register = dst_alias }, opts);
-                    }
-                },
-            },
-            .register_pair => try cg.genCopy(arg_ty, dst_arg, src_arg, opts),
-            .indirect => |reg_off| try cg.genSetReg(reg_off.reg, .usize, .{
-                .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
-            }, opts),
-            .elementwise_gpr, .elementwise_sse => |regs_frame_addr| {
-                const src_mem: Memory = if (src_arg.isBase()) try src_arg.mem(cg, .{ .size = .dword }) else .{
-                    .base = .{ .reg = try cg.copyToTmpRegister(
-                        .usize,
-                        switch (src_arg) {
-                            else => src_arg,
-                            .air_ref => |src_ref| try cg.resolveInst(src_ref),
-                        }.address(),
-                    ) },
-                    .mod = .{ .rm = .{ .size = .dword } },
-                };
-                const src_lock = switch (src_mem.base) {
-                    .reg => |src_reg| cg.register_manager.lockReg(src_reg),
-                    else => null,
-                };
-                defer if (src_lock) |lock| cg.register_manager.unlockReg(lock);
-
-                const elem_rc: Register.Class, const param_regs = switch (dst_arg) {
-                    else => unreachable,
-                    .elementwise_gpr => .{ .general_purpose, abi.getCAbiIntParamRegs(fn_info.cc) },
-                    .elementwise_sse => .{ .sse, abi.getCAbiSseParamRegs(fn_info.cc, cg.target) },
-                };
-                const len = arg_ty.vectorLen(zcu);
-                const elem_ty = arg_ty.childType(zcu);
-                const elem_size = cg.memSize(elem_ty, .general_purpose);
-                const elem_abi_size = @divExact(elem_size.bitSize(cg.target), 8);
-                const param_reg_len: u31 =
-                    @intCast(@min(param_regs.len - regs_frame_addr.info.reg_index, len));
-                const strat = if (elem_ty.toIntern() == .bool_type) strat: {
-                    try cg.spillEflagsIfOccupied();
-                    break :strat undefined;
-                } else try cg.moveStrategy(elem_ty, elem_rc, true);
-                for (
-                    param_regs[regs_frame_addr.info.reg_index..][0..param_reg_len],
-                    0..,
-                ) |dst_reg, elem_index| if (elem_ty.toIntern() == .bool_type) {
-                    try cg.asmRegisterRegister(.{ ._, .xor }, dst_reg.to32(), dst_reg.to32());
-                    try cg.asmMemoryImmediate(.{ ._, .bt }, src_mem, .u(elem_index));
-                    try cg.asmSetccRegister(.c, dst_reg.to8());
-                } else try strat.read(cg, dst_reg.toSize(elem_size, cg.target), .{
-                    .base = src_mem.base,
-                    .mod = .{ .rm = .{
-                        .size = elem_size,
-                        .disp = src_mem.mod.rm.disp + @as(u31, @intCast(elem_abi_size * elem_index)),
-                    } },
-                });
-            },
-            .xwordwise_sse, .ywordwise_sse, .zwordwise_sse => |regs_frame_addr| {
-                const elem_size: u31 = switch (dst_arg) {
-                    else => unreachable,
-                    .xwordwise_sse => 16,
-                    .ywordwise_sse => 32,
-                    .zwordwise_sse => 64,
-                };
-                const param_gpr_regs = abi.getCAbiIntParamRegs(fn_info.cc);
-                const len = @divExact(arg_ty.abiSize(zcu), elem_size);
-                const param_gpr_len: u31 =
-                    @intCast(@min(param_gpr_regs.len - regs_frame_addr.info.reg_index, len));
-
-                var arg_offset: u31 = 0;
-                for (param_gpr_regs[regs_frame_addr.info.reg_index..][0..param_gpr_len]) |dst_reg| {
-                    try cg.genSetReg(
-                        dst_reg,
-                        .usize,
-                        .{ .lea_frame = .{ .index = frame_index, .off = arg_offset } },
-                        opts,
-                    );
-                    arg_offset += elem_size;
-                }
-            },
-            else => unreachable,
-        };
+                    .usize,
+                    .{ .lea_frame = .{ .index = frame_index, .off = arg_offset } },
+                    opts,
+                );
+                arg_offset += elem_size;
+            }
+        },
+        else => unreachable,
+    };
 
     if (fn_info.is_var_args and fn_info.cc == .x86_64_sysv)
         try cg.asmRegisterImmediate(.{ ._, .mov }, .al, .u(call_info.fp_count));
@@ -177474,13 +177478,13 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
     const inputs = unwrapped_asm.inputs;
 
     var result: MCValue = .none;
-    var args: std.array_list.Managed(MCValue) = .init(self.gpa);
-    try args.ensureTotalCapacity(outputs.len + inputs.len);
+    var args = try self.gpa.alloc(MCValue, outputs.len + inputs.len);
+    var args_len: usize = 0;
     defer {
-        for (args.items) |arg| if (arg.getReg()) |reg| self.register_manager.unlockReg(.{
+        for (args[0..args_len]) |arg| if (arg.getReg()) |reg| self.register_manager.unlockReg(.{
             .tracked_index = RegisterManager.indexOfRegIntoTracked(reg) orelse continue,
         });
-        args.deinit();
+        self.gpa.free(args);
     }
     var arg_map: std.StringHashMap(u8) = .init(self.gpa);
     try arg_map.ensureTotalCapacity(@intCast(outputs.len + inputs.len));
@@ -177539,10 +177543,10 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                     return self.fail("invalid register constraint: '{s}'", .{out.constraint})
             else if (rest.len == 1 and std.ascii.isDigit(rest[0])) {
                 const index = std.fmt.charToDigit(rest[0], 10) catch unreachable;
-                if (index >= args.items.len) return self.fail("constraint out of bounds: '{s}'", .{
+                if (index >= args_len) return self.fail("constraint out of bounds: '{s}'", .{
                     out.constraint,
                 });
-                break :arg_mcv args.items[index];
+                break :arg_mcv args[index];
             } else return self.fail("invalid constraint: '{s}'", .{out.constraint});
             break :arg_mcv if (arg_maybe_reg) |reg| .{ .register = reg } else arg: {
                 const ptr_mcv = try self.resolveInst(out.operand);
@@ -177560,8 +177564,9 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
             _ = self.register_manager.lockRegIndexAssumeUnused(tracked_index);
         };
         if (!std.mem.eql(u8, out.name, "_"))
-            arg_map.putAssumeCapacityNoClobber(out.name, @intCast(args.items.len));
-        args.appendAssumeCapacity(arg_mcv);
+            arg_map.putAssumeCapacityNoClobber(out.name, @intCast(args_len));
+        args[args_len] = arg_mcv;
+        args_len += 1;
         if (out.operand == .none) result = arg_mcv;
         if (is_read) try self.load(arg_mcv, self.typeOf(out.operand), .{ .air_ref = out.operand });
     }
@@ -177644,17 +177649,19 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
             break :arg .{ .register = reg };
         } else if (in.constraint.len == 1 and std.ascii.isDigit(in.constraint[0])) arg: {
             const index = std.fmt.charToDigit(in.constraint[0], 10) catch unreachable;
-            if (index >= args.items.len) return self.fail("constraint out of bounds: '{s}'", .{in.constraint});
-            try self.genCopy(ty, args.items[index], input_mcv, .{});
-            break :arg args.items[index];
+            if (index >= args_len) return self.fail("constraint out of bounds: '{s}'", .{in.constraint});
+            try self.genCopy(ty, args[index], input_mcv, .{});
+            break :arg args[index];
         } else return self.fail("invalid constraint: '{s}'", .{in.constraint});
         if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
             _ = self.register_manager.lockReg(reg);
         };
         if (!std.mem.eql(u8, in.name, "_"))
-            arg_map.putAssumeCapacityNoClobber(in.name, @intCast(args.items.len));
-        args.appendAssumeCapacity(arg_mcv);
+            arg_map.putAssumeCapacityNoClobber(in.name, @intCast(args_len));
+        args[args_len] = arg_mcv;
+        args_len += 1;
     }
+    assert(args_len == args.len);
 
     const ip = &zcu.intern_pool;
     const clobbers_val: Value = .fromInterned(unwrapped_asm.clobbers);
@@ -177887,7 +177894,7 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                     op_str[colon_pos + ":".len .. op_str.len - "]".len]
                 else
                     "";
-                op.* = switch (args.items[
+                op.* = switch (args[
                     arg_map.get(op_str["%[".len .. colon orelse op_str.len - "]".len]) orelse
                         return self.fail("no matching constraint: '{s}'", .{op_str})
                 ]) {
@@ -178031,7 +178038,7 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                                 op_str[colon_pos + ":".len .. open - "]".len]
                             else
                                 "";
-                            break :disp switch (args.items[
+                            break :disp switch (args[
                                 arg_map.get(op_str["%[".len .. colon orelse open - "]".len]) orelse
                                     return self.fail("no matching constraint: '{s}'", .{op_str})
                             ]) {
@@ -178191,7 +178198,7 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
 
     it = unwrapped_asm.iterateOutputs();
     while (it.next()) |out| {
-        const arg_mcv = args.items[it.current - 1];
+        const arg_mcv = args[it.current - 1];
         if (out.operand == .none) continue;
         if (arg_mcv != .register) continue;
         if (out.constraint.len == 2 and std.ascii.isDigit(out.constraint[1])) continue;
@@ -178638,6 +178645,7 @@ fn genCopy(self: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: C
         .lea_uav,
         .lea_lazy_sym,
         .lea_extern_func,
+        .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
         .xwordwise_sse,
@@ -178653,6 +178661,7 @@ fn genCopy(self: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: C
             .dead,
             .undef,
             .register_overflow,
+            .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
             .xwordwise_sse,
@@ -178844,6 +178853,7 @@ fn genSetReg(
         .unreach,
         .dead,
         .indirect_load_frame,
+        .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
         .xwordwise_sse,
@@ -179422,6 +179432,7 @@ fn genSetMem(
         .unreach,
         .dead,
         .indirect_load_frame,
+        .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
         .xwordwise_sse,
@@ -181569,142 +181580,139 @@ fn resolveCallingConventionValues(
                 .x86_64_win => result.stack_byte_count += @intCast(win64_shadow_space),
             }
 
-            // Return values
-            if (ret_ty.isNoReturn(zcu)) {
-                result.return_value = .init(.unreach);
-            } else if (!ret_ty.hasRuntimeBits(zcu)) {
-                // TODO: is this even possible for C calling convention?
-                result.return_value = .init(.none);
-            } else {
-                var ret_tracking: [4]InstTracking = undefined;
-                var ret_tracking_len: u32 = 0;
-                var ret_gpr = abi.getCAbiIntReturnRegs(cc);
-                var ret_sse = abi.getCAbiSseReturnRegs(cc);
-                var ret_x87 = abi.getCAbiX87ReturnRegs(cc);
+            result.return_value = switch (ret_ty.classify(zcu)) {
+                .no_possible_value => .init(.unreach),
+                .one_possible_value => .init(.none),
+                .runtime, .partially_comptime => return_value: {
+                    var ret_tracking: [4]InstTracking = undefined;
+                    var ret_tracking_len: u32 = 0;
+                    var ret_gpr = abi.getCAbiIntReturnRegs(cc);
+                    var ret_sse = abi.getCAbiSseReturnRegs(cc);
+                    var ret_x87 = abi.getCAbiX87ReturnRegs(cc);
 
-                var classes_buf: [8]abi.Class = undefined;
-                const classes = classes: switch (cc) {
-                    else => unreachable,
-                    .x86_64_sysv => {
-                        classes_buf = abi.classifySystemV(ret_ty, zcu, cg.target, .ret);
-                        break :classes std.mem.sliceTo(&classes_buf, .none);
-                    },
-                    .x86_64_win => {
-                        classes_buf[0] = abi.classifyWindows(ret_ty, zcu, cg.target, .ret);
-                        break :classes classes_buf[0..1];
-                    },
-                };
-                for (classes) |class| switch (class) {
-                    .integer => {
-                        ret_tracking[ret_tracking_len] = .init(.{ .register = registerAlias(
-                            ret_gpr[0],
-                            @intCast(@min(ret_ty.abiSize(zcu), 8)),
-                        ) });
-                        ret_tracking_len += 1;
-                        ret_gpr = ret_gpr[1..];
-                    },
-                    .sse, .float, .float_combine, .win_i128 => {
-                        ret_tracking[ret_tracking_len] = .init(.{
-                            .register = registerAlias(ret_sse[0], @intCast(ret_ty.abiSize(zcu))),
-                        });
-                        ret_tracking_len += 1;
-                        ret_sse = ret_sse[1..];
-                    },
-                    .sseup => assert(ret_tracking[ret_tracking_len - 1].short.register.isClass(.sse)),
-                    .x87 => {
-                        ret_tracking[ret_tracking_len] = .init(.{ .register = ret_x87[0] });
-                        ret_tracking_len += 1;
-                        ret_x87 = ret_x87[1..];
-                    },
-                    .x87up => assert(ret_tracking[ret_tracking_len - 1].short.register.isClass(.x87)),
-                    .none => unreachable,
-                    .memory => {
-                        ret_tracking[ret_tracking_len] = .{
-                            .short = .{ .indirect = .{ .reg = ret_gpr[0].to64() } },
-                            .long = .{ .indirect = .{ .reg = param_gpr[param_gpr_index].to64() } },
-                        };
-                        ret_tracking_len += 1;
-                        ret_gpr = ret_gpr[1..];
-                        param_gpr_index += 1;
-                    },
-                    .integer_per_element => {
-                        const len: u32 = @intCast(ret_ty.vectorLen(zcu));
-                        const alias_size: u32 = @intCast(@min(ret_ty.childType(zcu).abiSize(zcu), 8));
-                        for (ret_tracking[ret_tracking_len..][0..len], ret_gpr[0..len]) |*tracking, gpr|
-                            tracking.* = .init(.{ .register = registerAlias(gpr, alias_size) });
-                        ret_tracking_len += len;
-                        ret_gpr = ret_gpr[len..];
-                    },
-                    .sse_per_element => {
-                        const len: u32 = @intCast(ret_ty.vectorLen(zcu));
-                        const alias_size: u32 = @intCast(@min(ret_ty.childType(zcu).abiSize(zcu), 8));
-                        for (ret_tracking[ret_tracking_len..][0..len], ret_sse[0..len]) |*tracking, sse|
-                            tracking.* = .init(.{ .register = registerAlias(sse, alias_size) });
-                        ret_tracking_len += len;
-                        ret_sse = ret_sse[len..];
-                    },
-                    .sse_sse_x87_per_qword, .sse_per_xword, .sse_per_yword, .sse_per_zword => {
-                        const reg_size: u32 = switch (class) {
-                            else => unreachable,
-                            .sse_sse_x87_per_qword => 8,
-                            .sse_per_xword => 16,
-                            .sse_per_yword => 32,
-                            .sse_per_zword => 64,
-                        };
-                        var byte_offset: u32 = 0;
-                        const unaligned_size = cg.unalignedSize(ret_ty);
-                        while (byte_offset < unaligned_size) : (byte_offset += reg_size) {
-                            switch (@as(enum { sse, x87 }, switch (class) {
+                    var classes_buf: [8]abi.Class = undefined;
+                    const classes = classes: switch (cc) {
+                        else => unreachable,
+                        .x86_64_sysv => {
+                            classes_buf = abi.classifySystemV(ret_ty, zcu, cg.target, .ret);
+                            break :classes &classes_buf;
+                        },
+                        .x86_64_win => {
+                            classes_buf[0] = abi.classifyWindows(ret_ty, zcu, cg.target, .ret);
+                            break :classes classes_buf[0..1];
+                        },
+                    };
+                    for (classes) |class| switch (class) {
+                        .integer => {
+                            ret_tracking[ret_tracking_len] = .init(.{ .register = registerAlias(
+                                ret_gpr[0],
+                                @intCast(@min(ret_ty.abiSize(zcu), 8)),
+                            ) });
+                            ret_tracking_len += 1;
+                            ret_gpr = ret_gpr[1..];
+                        },
+                        .sse, .float, .float_combine, .win_i128 => {
+                            ret_tracking[ret_tracking_len] = .init(.{
+                                .register = registerAlias(ret_sse[0], @intCast(ret_ty.abiSize(zcu))),
+                            });
+                            ret_tracking_len += 1;
+                            ret_sse = ret_sse[1..];
+                        },
+                        .sseup => assert(ret_tracking[ret_tracking_len - 1].short.register.isClass(.sse)),
+                        .x87 => {
+                            ret_tracking[ret_tracking_len] = .init(.{ .register = ret_x87[0] });
+                            ret_tracking_len += 1;
+                            ret_x87 = ret_x87[1..];
+                        },
+                        .x87up => assert(ret_tracking[ret_tracking_len - 1].short.register.isClass(.x87)),
+                        .none => {},
+                        .memory => {
+                            ret_tracking[ret_tracking_len] = .{
+                                .short = .{ .indirect = .{ .reg = ret_gpr[0].to64() } },
+                                .long = .{ .indirect = .{ .reg = param_gpr[param_gpr_index].to64() } },
+                            };
+                            ret_tracking_len += 1;
+                            ret_gpr = ret_gpr[1..];
+                            param_gpr_index += 1;
+                        },
+                        .integer_per_element => {
+                            const len: u32 = @intCast(ret_ty.vectorLen(zcu));
+                            const alias_size: u32 = @intCast(@min(ret_ty.childType(zcu).abiSize(zcu), 8));
+                            for (ret_tracking[ret_tracking_len..][0..len], ret_gpr[0..len]) |*tracking, gpr|
+                                tracking.* = .init(.{ .register = registerAlias(gpr, alias_size) });
+                            ret_tracking_len += len;
+                            ret_gpr = ret_gpr[len..];
+                        },
+                        .sse_per_element => {
+                            const len: u32 = @intCast(ret_ty.vectorLen(zcu));
+                            const alias_size: u32 = @intCast(@min(ret_ty.childType(zcu).abiSize(zcu), 8));
+                            for (ret_tracking[ret_tracking_len..][0..len], ret_sse[0..len]) |*tracking, sse|
+                                tracking.* = .init(.{ .register = registerAlias(sse, alias_size) });
+                            ret_tracking_len += len;
+                            ret_sse = ret_sse[len..];
+                        },
+                        .sse_sse_x87_per_qword, .sse_per_xword, .sse_per_yword, .sse_per_zword => {
+                            const reg_size: u32 = switch (class) {
                                 else => unreachable,
-                                .sse_sse_x87_per_qword => switch (byte_offset) {
-                                    0 => .sse, // duck
-                                    8 => .sse, // duck
-                                    else => .x87, // goose!
-                                },
-                                .sse_per_xword, .sse_per_yword, .sse_per_zword => .sse,
-                            })) {
-                                .sse => {
-                                    ret_tracking[ret_tracking_len] = .init(.{
-                                        .register = registerAlias(ret_sse[0], reg_size),
-                                    });
-                                    ret_tracking_len += 1;
-                                    ret_sse = ret_sse[1..];
-                                },
-                                .x87 => {
-                                    ret_tracking[ret_tracking_len] = .init(.{
-                                        .register = registerAlias(ret_x87[0], reg_size),
-                                    });
-                                    ret_tracking_len += 1;
-                                    ret_x87 = ret_x87[1..];
-                                },
+                                .sse_sse_x87_per_qword => 8,
+                                .sse_per_xword => 16,
+                                .sse_per_yword => 32,
+                                .sse_per_zword => 64,
+                            };
+                            var byte_offset: u32 = 0;
+                            const unaligned_size = cg.unalignedSize(ret_ty);
+                            while (byte_offset < unaligned_size) : (byte_offset += reg_size) {
+                                switch (@as(enum { sse, x87 }, switch (class) {
+                                    else => unreachable,
+                                    .sse_sse_x87_per_qword => switch (byte_offset) {
+                                        0 => .sse, // duck
+                                        8 => .sse, // duck
+                                        else => .x87, // goose!
+                                    },
+                                    .sse_per_xword, .sse_per_yword, .sse_per_zword => .sse,
+                                })) {
+                                    .sse => {
+                                        ret_tracking[ret_tracking_len] = .init(.{
+                                            .register = registerAlias(ret_sse[0], reg_size),
+                                        });
+                                        ret_tracking_len += 1;
+                                        ret_sse = ret_sse[1..];
+                                    },
+                                    .x87 => {
+                                        ret_tracking[ret_tracking_len] = .init(.{
+                                            .register = registerAlias(ret_x87[0], reg_size),
+                                        });
+                                        ret_tracking_len += 1;
+                                        ret_x87 = ret_x87[1..];
+                                    },
+                                }
                             }
-                        }
-                    },
-                };
-                result.return_value = switch (ret_tracking_len) {
-                    else => unreachable,
-                    1 => ret_tracking[0],
-                    2 => .init(.{ .register_pair = .{
-                        ret_tracking[0].short.register,
-                        ret_tracking[1].short.register,
-                    } }),
-                    3 => .init(.{ .register_triple = .{
-                        ret_tracking[0].short.register,
-                        ret_tracking[1].short.register,
-                        ret_tracking[2].short.register,
-                    } }),
-                    4 => .init(.{ .register_quadruple = .{
-                        ret_tracking[0].short.register,
-                        ret_tracking[1].short.register,
-                        ret_tracking[2].short.register,
-                        ret_tracking[3].short.register,
-                    } }),
-                };
-            }
+                        },
+                    };
+                    break :return_value switch (ret_tracking_len) {
+                        else => unreachable,
+                        1 => ret_tracking[0],
+                        2 => .init(.{ .register_pair = .{
+                            ret_tracking[0].short.register,
+                            ret_tracking[1].short.register,
+                        } }),
+                        3 => .init(.{ .register_triple = .{
+                            ret_tracking[0].short.register,
+                            ret_tracking[1].short.register,
+                            ret_tracking[2].short.register,
+                        } }),
+                        4 => .init(.{ .register_quadruple = .{
+                            ret_tracking[0].short.register,
+                            ret_tracking[1].short.register,
+                            ret_tracking[2].short.register,
+                            ret_tracking[3].short.register,
+                        } }),
+                    };
+                },
+                .fully_comptime => unreachable,
+            };
 
-            // Input params
-            params: for (param_types, result.args) |ty, *arg| {
-                assert(ty.hasRuntimeBits(zcu));
+            params: for (0.., param_types, result.args) |param_index, ty, *arg| {
                 result.air_arg_count += 1;
                 switch (cc) {
                     else => unreachable,
@@ -181726,7 +181734,7 @@ fn resolveCallingConventionValues(
                     else => unreachable,
                     .x86_64_sysv => {
                         classes_buf = abi.classifySystemV(ty, zcu, cg.target, .arg);
-                        break :classes std.mem.sliceTo(&classes_buf, .none);
+                        break :classes &classes_buf;
                     },
                     .x86_64_win => {
                         classes_buf[0] = abi.classifyWindows(ty, zcu, cg.target, .arg);
@@ -181749,12 +181757,28 @@ fn resolveCallingConventionValues(
                         var byte_offset: u32 = 0;
                         while (byte_offset < abi_size) : (byte_offset += reg_size) {
                             if (param_sse_index >= param_sse.len) break :classes;
-
-                            const param_sse_reg = registerAlias(param_sse[param_sse_index], reg_size);
-                            param_sse_index += 1;
-
-                            arg_mcv[arg_mcv_len] = .{ .register = param_sse_reg };
+                            arg_mcv[arg_mcv_len] = arg_mcv: {
+                                const param_sse_reg =
+                                    registerAlias(param_sse[param_sse_index], reg_size);
+                                switch (cc) {
+                                    else => unreachable,
+                                    .x86_64_sysv => {},
+                                    .x86_64_win => if (param_index >= fn_info.param_types.len) {
+                                        const param_gpr_reg =
+                                            registerAlias(param_gpr[param_gpr_index], reg_size);
+                                        param_gpr_index += 1;
+                                        break :arg_mcv .{ .register_tee = .{
+                                            param_sse_reg,
+                                            param_gpr_reg,
+                                            .none,
+                                            .none,
+                                        } };
+                                    },
+                                }
+                                break :arg_mcv .{ .register = param_sse_reg };
+                            };
                             arg_mcv_len += 1;
+                            param_sse_index += 1;
                         }
                     },
                     .sseup => assert(arg_mcv[arg_mcv_len - 1].register.isClass(.sse)),
@@ -181764,13 +181788,16 @@ fn resolveCallingConventionValues(
                             .x87, .x87up, .memory => break,
                         },
                         .x86_64_win => if (param_gpr_index < param_gpr.len) {
-                            arg_mcv[arg_mcv_len] = .{ .indirect = .{ .reg = param_gpr[param_gpr_index].to64() } };
+                            arg_mcv[arg_mcv_len] = .{ .indirect = .{
+                                .reg = param_gpr[param_gpr_index].to64(),
+                            } };
                             arg_mcv_len += 1;
                             param_gpr_index += 1;
                         } else {
                             assert(arg_mcv_len == 0);
                             const param_align = Type.usize.abiAlignment(zcu);
-                            result.stack_byte_count = @intCast(param_align.forward(result.stack_byte_count));
+                            result.stack_byte_count =
+                                @intCast(param_align.forward(result.stack_byte_count));
                             result.stack_align = result.stack_align.max(param_align);
                             arg.* = .{ .indirect_load_frame = .{
                                 .index = stack_frame_base,
@@ -181781,7 +181808,7 @@ fn resolveCallingConventionValues(
                         },
                         else => unreachable,
                     },
-                    .none => unreachable,
+                    .none => {},
                     .integer_per_element,
                     .sse_per_element,
                     .sse_per_xword,
@@ -181850,6 +181877,7 @@ fn resolveCallingConventionValues(
                 } else {
                     arg.* = switch (arg_mcv_len) {
                         else => unreachable,
+                        0 => .none,
                         1 => arg_mcv[0],
                         2 => .{ .register_pair = .{
                             arg_mcv[0].register,
@@ -181899,82 +181927,82 @@ fn resolveCallingConventionValues(
                 param_gpr = param_gpr[0 .. param_gpr.len - 1];
             }
 
-            // Return values
-            result.return_value = if (ret_ty.isNoReturn(zcu))
-                .init(.unreach)
-            else if (!ret_ty.hasRuntimeBits(zcu))
-                .init(.none)
-            else return_value: {
-                const ret_gpr = abi.getCAbiIntReturnRegs(cc);
-                const ret_size: u31 = @intCast(ret_ty.abiSize(zcu));
-                if (abi.zigcc.return_in_regs) switch (cg.regClassForType(ret_ty)) {
-                    .general_purpose, .gphi => if (ret_size <= @as(u4, switch (cg.target.cpu.arch) {
-                        else => unreachable,
-                        .x86 => 4,
-                        .x86_64 => 8,
-                    }))
-                        break :return_value .init(.{ .register = registerAlias(ret_gpr[0], ret_size) })
-                    else if (ret_gpr.len >= 2 and ret_ty.isSliceAtRuntime(zcu))
-                        break :return_value .init(.{ .register_pair = ret_gpr[0..2].* }),
-                    .segment, .mmx, .ip, .cr, .dr => unreachable,
-                    .x87 => if (ret_size <= 16) break :return_value .init(.{ .register = .st0 }),
-                    .sse => if (ret_size <= cg.vectorSize(.float)) break :return_value .init(.{
-                        .register = registerAlias(abi.getCAbiSseReturnRegs(cc)[0], @max(ret_size, 16)),
-                    }),
-                };
-                const ret_indirect_reg = param_gpr[0];
-                param_gpr = param_gpr[1..];
-                break :return_value .{
-                    .short = .{ .indirect = .{ .reg = ret_gpr[0] } },
-                    .long = .{ .indirect = .{ .reg = ret_indirect_reg } },
-                };
+            result.return_value = switch (ret_ty.classify(zcu)) {
+                .no_possible_value => .init(.unreach),
+                .one_possible_value => .init(.none),
+                .runtime, .partially_comptime => return_value: {
+                    const ret_gpr = abi.getCAbiIntReturnRegs(cc);
+                    const ret_size: u31 = @intCast(ret_ty.abiSize(zcu));
+                    if (abi.zigcc.return_in_regs) switch (cg.regClassForType(ret_ty)) {
+                        .general_purpose, .gphi => if (ret_size <= @as(u4, switch (cg.target.cpu.arch) {
+                            else => unreachable,
+                            .x86 => 4,
+                            .x86_64 => 8,
+                        }))
+                            break :return_value .init(.{ .register = registerAlias(ret_gpr[0], ret_size) })
+                        else if (ret_gpr.len >= 2 and ret_ty.isSliceAtRuntime(zcu))
+                            break :return_value .init(.{ .register_pair = ret_gpr[0..2].* }),
+                        .segment, .mmx, .ip, .cr, .dr => unreachable,
+                        .x87 => if (ret_size <= 16) break :return_value .init(.{ .register = .st0 }),
+                        .sse => if (ret_size <= cg.vectorSize(.float)) break :return_value .init(.{
+                            .register = registerAlias(abi.getCAbiSseReturnRegs(cc)[0], @max(ret_size, 16)),
+                        }),
+                    };
+                    const ret_indirect_reg = param_gpr[0];
+                    param_gpr = param_gpr[1..];
+                    break :return_value .{
+                        .short = .{ .indirect = .{ .reg = ret_gpr[0] } },
+                        .long = .{ .indirect = .{ .reg = ret_indirect_reg } },
+                    };
+                },
+                .fully_comptime => unreachable,
             };
 
-            // Input params
-            for (param_types, result.args) |param_ty, *arg| {
-                if (!param_ty.hasRuntimeBits(zcu)) {
-                    arg.* = .none;
-                    continue;
-                }
-                result.air_arg_count += 1;
-                const param_size: u31 = @intCast(param_ty.abiSize(zcu));
-                if (abi.zigcc.params_in_regs) switch (cg.regClassForType(param_ty)) {
-                    .general_purpose, .gphi => if (param_gpr.len >= 1 and param_size <= @as(u4, switch (cg.target.cpu.arch) {
-                        else => unreachable,
-                        .x86 => 4,
-                        .x86_64 => 8,
-                    })) {
-                        arg.* = .{ .register = registerAlias(param_gpr[0], param_size) };
-                        param_gpr = param_gpr[1..];
-                        continue;
-                    } else if (param_gpr.len >= 2 and param_ty.isSliceAtRuntime(zcu)) {
-                        arg.* = .{ .register_pair = param_gpr[0..2].* };
-                        param_gpr = param_gpr[2..];
-                        continue;
-                    },
-                    .segment, .mmx, .ip, .cr, .dr => unreachable,
-                    .x87 => if (param_x87.len >= 1 and param_size <= 16) {
-                        arg.* = .{ .register = param_x87[0] };
-                        param_x87 = param_x87[1..];
-                        continue;
-                    },
-                    .sse => if (param_sse.len >= 1 and param_size <= cg.vectorSize(.float)) {
-                        arg.* = .{
-                            .register = registerAlias(param_sse[0], @max(param_size, 16)),
-                        };
-                        param_sse = param_sse[1..];
-                        continue;
-                    },
-                };
-                const param_align = param_ty.abiAlignment(zcu);
-                result.stack_byte_count = @intCast(param_align.forward(result.stack_byte_count));
-                result.stack_align = result.stack_align.max(param_align);
-                arg.* = .{ .load_frame = .{
-                    .index = stack_frame_base,
-                    .off = result.stack_byte_count,
-                } };
-                result.stack_byte_count += param_size;
-            }
+            for (param_types, result.args) |param_ty, *arg| switch (param_ty.classify(zcu)) {
+                .no_possible_value => arg.* = .unreach,
+                .one_possible_value => arg.* = .none,
+                .runtime, .partially_comptime => {
+                    result.air_arg_count += 1;
+                    const param_size: u31 = @intCast(param_ty.abiSize(zcu));
+                    if (abi.zigcc.params_in_regs) switch (cg.regClassForType(param_ty)) {
+                        .general_purpose, .gphi => if (param_gpr.len >= 1 and param_size <= @as(u4, switch (cg.target.cpu.arch) {
+                            else => unreachable,
+                            .x86 => 4,
+                            .x86_64 => 8,
+                        })) {
+                            arg.* = .{ .register = registerAlias(param_gpr[0], param_size) };
+                            param_gpr = param_gpr[1..];
+                            continue;
+                        } else if (param_gpr.len >= 2 and param_ty.isSliceAtRuntime(zcu)) {
+                            arg.* = .{ .register_pair = param_gpr[0..2].* };
+                            param_gpr = param_gpr[2..];
+                            continue;
+                        },
+                        .segment, .mmx, .ip, .cr, .dr => unreachable,
+                        .x87 => if (param_x87.len >= 1 and param_size <= 16) {
+                            arg.* = .{ .register = param_x87[0] };
+                            param_x87 = param_x87[1..];
+                            continue;
+                        },
+                        .sse => if (param_sse.len >= 1 and param_size <= cg.vectorSize(.float)) {
+                            arg.* = .{
+                                .register = registerAlias(param_sse[0], @max(param_size, 16)),
+                            };
+                            param_sse = param_sse[1..];
+                            continue;
+                        },
+                    };
+                    const param_align = param_ty.abiAlignment(zcu);
+                    result.stack_byte_count = @intCast(param_align.forward(result.stack_byte_count));
+                    result.stack_align = result.stack_align.max(param_align);
+                    arg.* = .{ .load_frame = .{
+                        .index = stack_frame_base,
+                        .off = result.stack_byte_count,
+                    } };
+                    result.stack_byte_count += param_size;
+                },
+                .fully_comptime => unreachable,
+            };
         },
         else => return cg.fail("TODO implement function parameters and return values for {} on x86_64", .{cc}),
     }
@@ -182241,13 +182269,11 @@ fn typeOfIndex(self: *CodeGen, inst: Air.Inst.Index) Type {
     return Temp.typeOf(.{ .index = inst }, self);
 }
 
-fn promoteInt(self: *CodeGen, ty: Type) Type {
-    const pt = self.pt;
+fn promoteInt(cg: *CodeGen, ty: Type) Type {
+    const pt = cg.pt;
     const zcu = pt.zcu;
-    const int_info: InternPool.Key.IntType = switch (ty.toIntern()) {
-        .bool_type => .{ .signedness = .unsigned, .bits = 1 },
-        else => if (ty.isAbiInt(zcu)) ty.intInfo(zcu) else return ty,
-    };
+    const int_info = cg.intInfo(ty) orelse return ty;
+    if (int_info.bits == 0) return .void;
     for ([_]Type{
         .c_int,      .c_uint,
         .c_long,     .c_ulong,
@@ -182424,6 +182450,7 @@ const Temp = struct {
                 .lea_lazy_sym,
                 .lea_extern_func,
                 .load_extern_func,
+                .register_tee,
                 .elementwise_gpr,
                 .elementwise_sse,
                 .xwordwise_sse,
@@ -182891,6 +182918,7 @@ const Temp = struct {
             .register_overflow,
             .register_mask,
             .indirect_load_frame,
+            .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
             .xwordwise_sse,
@@ -188002,6 +188030,7 @@ const Temp = struct {
                         .unreach,
                         .dead,
                         .indirect_load_frame,
+                        .register_tee,
                         .elementwise_gpr,
                         .elementwise_sse,
                         .xwordwise_sse,
@@ -190673,6 +190702,7 @@ const Select = struct {
                         .lea_extern_func => |extern_func| .{ .imm = .{ .extern_func = extern_func } },
                         else => |mcv| .{ .mem = try mcv.mem(s.cg, .{ .size = op.flags.base.size }) },
                         .lea_frame,
+                        .register_tee,
                         .elementwise_gpr,
                         .elementwise_sse,
                         .xwordwise_sse,

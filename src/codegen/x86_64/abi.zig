@@ -37,6 +37,8 @@ pub const Class = enum {
     /// Clang passes each 64 bytes in a separate `Class.sse`.
     sse_per_zword,
 
+    pub const zero_bit: [8]Class = .{ .none, .none, .none, .none, .none, .none, .none, .none };
+
     pub const one_integer: [8]Class = .{ .integer, .none, .none, .none, .none, .none, .none, .none };
     pub const two_integers: [8]Class = .{ .integer, .integer, .none, .none, .none, .none, .none, .none };
     pub const three_integers: [8]Class = .{ .integer, .integer, .integer, .none, .none, .none, .none, .none };
@@ -100,12 +102,11 @@ pub fn classifyWindows(init_ty: Type, zcu: *Zcu, target: *const std.Target, ctx:
     // as if they were integers of the same size."
     var ty = init_ty;
     while (true) return switch (ty.zigTypeTag(zcu)) {
+        .void => return .none,
+        .bool,
         .pointer,
         .int,
-        .bool,
         .@"enum",
-        .void,
-        .noreturn,
         .error_set,
         .@"struct",
         .@"union",
@@ -115,7 +116,7 @@ pub fn classifyWindows(init_ty: Type, zcu: *Zcu, target: *const std.Target, ctx:
         .@"anyframe",
         .frame,
         => switch (ty.abiSize(zcu)) {
-            0 => unreachable,
+            0 => .none,
             1, 2, 4, 8 => .integer,
             else => switch (ty.zigTypeTag(zcu)) {
                 .int => .win_i128,
@@ -126,6 +127,7 @@ pub fn classifyWindows(init_ty: Type, zcu: *Zcu, target: *const std.Target, ctx:
                 else => .memory,
             },
         },
+        .noreturn => unreachable,
         .float => switch (ty.floatBits(target)) {
             16, 32, 64 => .sse,
             80 => .memory,
@@ -134,6 +136,7 @@ pub fn classifyWindows(init_ty: Type, zcu: *Zcu, target: *const std.Target, ctx:
         },
         .vector => {
             const len = ty.vectorLen(zcu);
+            if (len == 0) return .none;
             const elem_ty = ty.childType(zcu);
             if (len == 1) {
                 ty = elem_ty;
@@ -178,19 +181,18 @@ pub fn classifyWindows(init_ty: Type, zcu: *Zcu, target: *const std.Target, ctx:
 /// the beginning of the array; unused slots are filled with .none.
 pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Context) [8]Class {
     switch (ty.zigTypeTag(zcu)) {
-        .pointer => switch (ty.ptrSize(zcu)) {
-            .slice => return Class.two_integers,
-            else => return Class.one_integer,
-        },
+        .void => return Class.zero_bit,
+        .bool => return Class.one_integer,
+        .noreturn => unreachable,
         .int, .@"enum", .error_set => {
             const bits = ty.intInfo(zcu).bits;
+            if (bits == 0) return Class.zero_bit;
             if (bits <= 64 * 1) return Class.one_integer;
             if (bits <= 64 * 2) return Class.two_integers;
             if (bits <= 64 * 3) return Class.three_integers;
             if (bits <= 64 * 4) return Class.four_integers;
             return Class.stack;
         },
-        .bool, .void, .noreturn => return Class.one_integer,
         .float => switch (ty.floatBits(target)) {
             16 => {
                 if (ctx == .other) return Class.stack;
@@ -209,9 +211,13 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
             80 => return Class.f80,
             else => unreachable,
         },
+        .pointer => switch (ty.ptrSize(zcu)) {
+            .slice => return Class.two_integers,
+            else => return Class.one_integer,
+        },
         .vector => {
             const len = ty.vectorLen(zcu);
-            if (len == 0) return Class.one_integer;
+            if (len == 0) return Class.zero_bit;
             const elem_ty = ty.childType(zcu);
             if (elem_ty.toIntern() == .bool_type) {
                 if (len <= 32) return Class.one_integer;
@@ -275,6 +281,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
             const ty_size = ty.abiSize(zcu);
+            if (ty_size == 0) return Class.zero_bit;
             switch (ty.containerLayout(zcu)) {
                 .auto => unreachable,
                 .@"extern" => {},
@@ -325,6 +332,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
         },
         .array => {
             const ty_size = ty.abiSize(zcu);
+            if (ty_size == 0) return Class.zero_bit;
             if (ty_size <= 8) return Class.one_integer;
             if (ty_size <= 16) return Class.two_integers;
             return Class.stack;

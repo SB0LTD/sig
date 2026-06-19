@@ -16211,3 +16211,18 @@ void __attribute__((vectorcall)) c_vectorcall_check(int a, float b, double c, vo
     zig_vectorcall_check(a, b, c, d, e, f, g, h, i, j);
 }
 #endif
+
+#if defined(__x86_64__) && defined(_WIN64)
+void c_win64_varargs_u64_f64_u64_f64(uint64_t a, double b, uint64_t c, double d) {
+    assert_or_panic(a == UINT64_C(0x3ff0000000000000));
+    assert_or_panic(b == 2.0);
+    assert_or_panic(c == UINT64_C(0x4008000000000000));
+    assert_or_panic(d == 4.0);
+}
+void c_win64_varargs_f64_u64_f64_u64(double a, uint64_t b, double c, uint64_t d) {
+    assert_or_panic(a == 5.0);
+    assert_or_panic(b == UINT64_C(0x4018000000000000));
+    assert_or_panic(c == 7.0);
+    assert_or_panic(d == UINT64_C(0x4020000000000000));
+}
+#endif

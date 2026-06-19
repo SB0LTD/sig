@@ -17140,9 +17140,7 @@ test "byval tail callsite attribute" {
 }
 
 test "x86 fastcall calling convention" {
-    if (builtin.cpu.arch != .x86) return error.SkipZigTest;
-    if (builtin.os.tag != .windows) return error.SkipZigTest;
-    if (builtin.abi != .msvc) return error.SkipZigTest;
+    if (builtin.cpu.arch != .x86 or builtin.os.tag != .windows or builtin.abi != .msvc) return error.SkipZigTest;
 
     const static = struct {
         const fastcall: std.builtin.CallingConvention = .{ .x86_fastcall = .{} };
@@ -17252,9 +17250,7 @@ test "x86 fastcall calling convention" {
 }
 
 test "x86 vectorcall calling convention" {
-    if (builtin.cpu.arch != .x86) return error.SkipZigTest;
-    if (builtin.os.tag != .windows) return error.SkipZigTest;
-    if (builtin.abi != .msvc) return error.SkipZigTest;
+    if (builtin.cpu.arch != .x86 or builtin.os.tag != .windows or builtin.abi != .msvc) return error.SkipZigTest;
 
     const static = struct {
         extern fn c_vectorcall_check(a: c_int, b: f32, c: f64, d: *anyopaque, e: f32, f: f64, g: f64, h: f32, i: f32, j: c_int) callconv(.{ .x86_vectorcall = .{} }) void;
@@ -17272,4 +17268,35 @@ test "x86 vectorcall calling convention" {
         }
     };
     static.c_vectorcall_check(1, 2.0, 3.0, @ptrFromInt(4), 5.0, 6.0, 7.0, 8.0, 9.0, 10);
+}
+
+extern fn c_win64_varargs_u64_f64_u64_f64(...) void;
+extern fn c_win64_varargs_f64_u64_f64_u64(...) void;
+
+test "win64 varargs" {
+    if (builtin.cpu.arch != .x86_64 or builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const Opv = extern struct {};
+    c_win64_varargs_u64_f64_u64_f64(
+        @as(Opv, .{}),
+        @as(f32, 1),
+        @as(Opv, .{}),
+        @as(f32, 2.0),
+        @as(Opv, .{}),
+        @as(f64, 3),
+        @as(Opv, .{}),
+        @as(f64, 4.0),
+        @as(Opv, .{}),
+    );
+    c_win64_varargs_f64_u64_f64_u64(
+        @as(Opv, .{}),
+        @as(f32, 5),
+        @as(Opv, .{}),
+        @as(f32, 6.0),
+        @as(Opv, .{}),
+        @as(f64, 7),
+        @as(Opv, .{}),
+        @as(f64, 8.0),
+        @as(Opv, .{}),
+    );
 }
