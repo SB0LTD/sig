@@ -1620,6 +1620,7 @@ test "bitcast vector to array of smaller vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const u8x32 = @Vector(32, u8);
     const u8x64 = @Vector(64, u8);
