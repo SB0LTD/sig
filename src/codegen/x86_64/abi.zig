@@ -24,6 +24,8 @@ pub const Class = enum {
     float,
     /// A `Class.sse` containing two `f32`s.
     float_combine,
+    /// Clang uses different element sizes depending on the vector length.
+    bool_vector_mask,
     /// Clang passes each vector element in a separate `Class.integer`.
     integer_per_element,
     /// Clang passes each vector element in a separate `Class.sse`.
@@ -150,7 +152,7 @@ pub fn classifyWindows(init_ty: Type, zcu: *Zcu, target: *const std.Target, ctx:
                 .{ 16, .sse_per_xword };
             if (elem_ty.toIntern() == .bool_type) {
                 if (len > reg_size) return if (ctx == .arg) .integer_per_element else .memory;
-                return if (ctx == .arg) .memory else .sse;
+                return .bool_vector_mask;
             }
             const elem_size = elem_ty.abiSize(zcu);
             const unaligned_size = elem_size * len;

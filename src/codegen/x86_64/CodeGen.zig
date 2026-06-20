@@ -164,7 +164,7 @@ next_temp_index: Temp.Index = @enumFromInt(0),
 temp_type: [Temp.Index.max]Type = undefined,
 
 const MaskInfo = packed struct {
-    kind: enum(u1) { sign, all },
+    kind: enum(u2) { lsb, msb, zero_extend, sign_extend },
     inverted: bool = false,
     scalar: Memory.Size,
 };
@@ -204,13 +204,15 @@ pub const MCValue = union(enum) {
     /// The value is a tuple { wrapped, overflow } where wrapped value is stored in the GP register.
     register_overflow: struct { reg: Register, eflags: Condition },
     /// The value is a bool vector stored in a vector register with a different scalar type.
-    register_mask: struct { reg: Register, info: MaskInfo },
+    register_mask: Mask,
     /// The value is in memory at a hard-coded address.
     /// If the type is a pointer, it means the pointer address is stored at this memory location.
     memory: u64,
     /// The value is in memory at a constant offset from the address in a register.
     indirect: bits.RegisterOffset,
     indirect_load_frame: bits.FrameAddr,
+    /// The value is a bool vector stored in memory with a different scalar type at the address in a register.
+    indirect_mask: Mask,
     /// The value stored at an offset from a frame index.
     /// Payload is a frame address.
     load_frame: bits.FrameAddr,
@@ -242,6 +244,8 @@ pub const MCValue = union(enum) {
     /// Payload is a frame index.
     reserved_frame: FrameIndex,
     air_ref: Air.Inst.Ref,
+
+    const Mask = struct { reg: Register, info: MaskInfo };
 
     fn isModifiable(mcv: MCValue) bool {
         return switch (mcv) {
@@ -278,6 +282,7 @@ pub const MCValue = union(enum) {
             .register_quadruple,
             .memory,
             .indirect,
+            .indirect_mask,
             .load_nav,
             => true,
             .load_frame => |frame_addr| !frame_addr.index.isNamed(),
@@ -346,9 +351,10 @@ pub const MCValue = union(enum) {
             .register_quadruple,
             => |*regs| regs,
             inline .register_offset,
-            .indirect,
             .register_overflow,
             .register_mask,
+            .indirect,
+            .indirect_mask,
             => |*pl| (&pl.reg)[0..1],
             else => &.{},
         };
@@ -384,6 +390,7 @@ pub const MCValue = union(enum) {
             .register_offset,
             .register_overflow,
             .register_mask,
+            .indirect_mask,
             .lea_frame,
             .lea_nav,
             .lea_uav,
@@ -427,6 +434,7 @@ pub const MCValue = union(enum) {
             .memory,
             .indirect,
             .indirect_load_frame,
+            .indirect_mask,
             .load_nav,
             .load_uav,
             .load_lazy_sym,
@@ -476,6 +484,7 @@ pub const MCValue = union(enum) {
             .memory,
             .indirect,
             .indirect_load_frame,
+            .indirect_mask,
             .load_frame,
             .load_nav,
             .lea_nav,
@@ -547,6 +556,10 @@ pub const MCValue = union(enum) {
                     .disp = reg_off.off + mod_rm.disp,
                 } },
             },
+            .indirect_mask => |reg_mask| .{
+                .base = .{ .reg = reg_mask.reg.toSize(.ptr, function.target) },
+                .mod = .{ .rm = mod_rm },
+            },
             .load_frame => |frame_addr| .{
                 .base = .{ .frame = frame_addr.index },
                 .mod = .{ .rm = .{
@@ -568,7 +581,6 @@ pub const MCValue = union(enum) {
         switch (mcv) {
             .none, .unreach, .dead, .undef => try w.print("({s})", .{@tagName(mcv)}),
             .immediate => |pl| try w.print("0x{x}", .{pl}),
-            .memory => |pl| try w.print("[ds:0x{x}]", .{pl}),
             inline .eflags, .register => |pl| try w.print("{s}", .{@tagName(pl)}),
             .register_pair => |pl| try w.print("{s}:{s}", .{ @tagName(pl[1]), @tagName(pl[0]) }),
             .register_triple => |pl| try w.print("{s}:{s}:{s}", .{
@@ -582,14 +594,21 @@ pub const MCValue = union(enum) {
                 @tagName(pl.eflags),
                 @tagName(pl.reg),
             }),
-            .register_mask => |pl| try w.print("mask({s},{f}):{c}{s}", .{
+            .register_mask => |pl| try w.print("mask({s},{f}):{s}{s}", .{
                 @tagName(pl.info.kind),
                 pl.info.scalar,
-                @as(u8, if (pl.info.inverted) '!' else ' '),
+                if (pl.info.inverted) "!" else "",
                 @tagName(pl.reg),
             }),
+            .memory => |pl| try w.print("[ds:0x{x}]", .{pl}),
             .indirect => |pl| try w.print("[{s} + 0x{x}]", .{ @tagName(pl.reg), pl.off }),
             .indirect_load_frame => |pl| try w.print("[[{f} + 0x{x}]]", .{ pl.index, pl.off }),
+            .indirect_mask => |pl| try w.print("[mask({s},{f}):{s}{s}]", .{
+                @tagName(pl.info.kind),
+                pl.info.scalar,
+                if (pl.info.inverted) "!" else "",
+                @tagName(pl.reg),
+            }),
             .load_frame => |pl| try w.print("[{f} + 0x{x}]", .{ pl.index, pl.off }),
             .lea_frame => |pl| try w.print("{f} + 0x{x}", .{ pl.index, pl.off }),
             .load_nav => |pl| try w.print("[nav:{d}]", .{@intFromEnum(pl)}),
@@ -666,6 +685,7 @@ const InstTracking = struct {
             .register_overflow,
             .register_mask,
             .indirect,
+            .indirect_mask,
             => .none,
         }, .short = result };
     }
@@ -765,6 +785,7 @@ const InstTracking = struct {
             .register_overflow,
             .register_mask,
             .indirect,
+            .indirect_mask,
             .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
@@ -72517,7 +72538,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -72541,7 +72562,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -72565,7 +72586,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -72593,7 +72614,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -72622,7 +72643,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
                         .unused,
@@ -72651,7 +72672,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
                         .unused,
@@ -72718,7 +72739,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -72744,7 +72765,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -72770,7 +72791,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -72800,7 +72821,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -72831,7 +72852,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
                         .unused,
@@ -72862,7 +72883,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
                         .unused,
@@ -72932,7 +72953,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -72958,7 +72979,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -72984,7 +73005,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -73014,7 +73035,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -73045,7 +73066,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
                         .unused,
@@ -73076,7 +73097,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
                         .unused,
@@ -73146,8 +73167,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73172,8 +73193,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73198,7 +73219,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73224,8 +73245,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word, .smear = 8 } } },
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word, .smear = 8 } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -73253,8 +73274,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word, .smear = 8 } } },
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word, .smear = 8 } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
                         .unused,
@@ -73323,8 +73344,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73350,8 +73371,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73377,7 +73398,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73404,8 +73425,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word, .smear = 8 } } },
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word, .smear = 8 } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -73435,8 +73456,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word, .smear = 8 } } },
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word, .smear = 8 } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
                         .unused,
@@ -73508,8 +73529,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73535,8 +73556,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73562,7 +73583,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -73590,8 +73611,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word, .smear = 8 } } },
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word, .smear = 8 } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -73621,8 +73642,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .word, .smear = 8 } } },
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .word, .smear = 8 } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .unused,
                         .unused,
@@ -73694,8 +73715,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .dword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .dword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73720,8 +73741,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .dword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .dword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73746,7 +73767,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73773,8 +73794,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_32_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .dword, .smear = 8 } } },
-                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_32_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .dword, .smear = 8 } } },
+                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_32_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -73844,8 +73865,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .dword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .dword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73871,8 +73892,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .dword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .dword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73898,7 +73919,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -73926,8 +73947,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_32_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .dword, .smear = 8 } } },
-                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_32_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .dword, .smear = 8 } } },
+                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_32_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -74000,8 +74021,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .dword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .dword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -74027,8 +74048,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .dword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .dword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -74054,7 +74075,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -74082,8 +74103,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_32_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .dword, .smear = 8 } } },
-                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .reverse } },
+                        .{ .type = .vector_32_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .dword, .smear = 8 } } },
+                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .{ .direction = .reverse } } },
                         .{ .type = .vector_32_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
                         .unused,
@@ -74156,8 +74177,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .qword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .qword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -74182,8 +74203,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .qword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .qword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -74208,7 +74229,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .unused,
                         .unused,
                         .unused,
@@ -74279,7 +74300,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .unused,
                         .unused,
@@ -74307,7 +74328,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .unused,
                         .unused,
                         .unused,
@@ -74381,8 +74402,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .qword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .qword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -74408,8 +74429,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .qword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .qword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -74435,7 +74456,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
                         .unused,
                         .unused,
                         .unused,
@@ -74509,8 +74530,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .xword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .xword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -74535,8 +74556,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .xword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .xword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -74561,8 +74582,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .xword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .xword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
@@ -74594,8 +74615,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .xword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .xword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                         .unused,
@@ -74627,8 +74648,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .xword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .xword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .{ .type = .vector_16_u8, .kind = .{ .mut_rc = .{ .ref = .src0, .rc = .sse } } },
                         .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
@@ -74660,8 +74681,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_mut_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .xword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .xword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                         .unused,
@@ -74693,8 +74714,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_32_u8, .kind = .{ .pshufb_bswap_mem = .{ .repeat = 2, .size = .xword } } },
+                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_32_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .repeat = 2, .size = .xword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .unused,
                         .unused,
@@ -74720,8 +74741,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ .src = .{ .to_sse, .none, .none } },
                     },
                     .extra_temps = .{
-                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .xword } } },
+                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .xword } } },
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
@@ -74752,8 +74773,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .extra_temps = .{
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
-                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_32_u8, .kind = .{ .pshufb_bswap_mem = .{ .repeat = 2, .size = .xword } } },
+                        .{ .type = .vector_32_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_32_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .repeat = 2, .size = .xword } } },
                         .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
                         .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
                         .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
@@ -74788,8 +74809,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .extra_temps = .{
                         .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                         .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
-                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .forward } },
-                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bswap_mem = .{ .size = .xword } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                        .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .reverse, .size = .xword } } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
                         .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
@@ -82067,7 +82088,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .dword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .dword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_ps, .cvtph2, .dst0x, .src0q, ._, ._ },
@@ -82107,7 +82128,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .dword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .dword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_ps, .cvtph2, .dst0x, .src0q, ._, ._ },
@@ -82147,7 +82168,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .dword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .dword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_ps, .cvtph2, .dst0y, .src0x, ._, ._ },
@@ -82171,7 +82192,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .dword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .dword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_ss, .cmp, .dst0x, .src0x, .src1d, .vp(switch (cc) {
@@ -82194,7 +82215,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .dword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .dword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_ss, .cmp, .dst0x, .src0x, .src1d, .vp(switch (cc) {
@@ -82216,7 +82237,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 },
                                 .dst_temps = .{ .{ .ref_mask = .{
                                     .ref = .src0,
-                                    .info = .{ .kind = .all, .scalar = .dword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .dword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, ._ss, .cmp, .dst0x, .src1d, .sp(switch (cc) {
@@ -82238,7 +82259,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .dword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .dword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_ps, .cmp, .dst0x, .src0x, .src1x, .vp(switch (cc) {
@@ -82261,7 +82282,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .dword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .dword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_ps, .cmp, .dst0x, .src0x, .src1x, .vp(switch (cc) {
@@ -82283,7 +82304,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 },
                                 .dst_temps = .{ .{ .ref_mask = .{
                                     .ref = .src0,
-                                    .info = .{ .kind = .all, .scalar = .dword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .dword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, ._ps, .cmp, .dst0x, .src1x, .sp(switch (cc) {
@@ -82305,7 +82326,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .dword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .dword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_ps, .cmp, .dst0y, .src0y, .src1y, .vp(switch (cc) {
@@ -82328,7 +82349,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .dword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .dword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_ps, .cmp, .dst0y, .src0y, .src1y, .vp(switch (cc) {
@@ -82350,7 +82371,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .qword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .qword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_sd, .cmp, .dst0x, .src0x, .src1q, .vp(switch (cc) {
@@ -82373,7 +82394,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .qword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .qword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_sd, .cmp, .dst0x, .src0x, .src1q, .vp(switch (cc) {
@@ -82395,7 +82416,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 },
                                 .dst_temps = .{ .{ .ref_mask = .{
                                     .ref = .src0,
-                                    .info = .{ .kind = .all, .scalar = .qword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .qword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, ._sd, .cmp, .dst0x, .src1q, .sp(switch (cc) {
@@ -82417,7 +82438,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .qword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .qword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_pd, .cmp, .dst0x, .src0x, .src1x, .vp(switch (cc) {
@@ -82440,7 +82461,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .qword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .qword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_pd, .cmp, .dst0x, .src0x, .src1x, .vp(switch (cc) {
@@ -82462,7 +82483,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 },
                                 .dst_temps = .{ .{ .ref_mask = .{
                                     .ref = .src0,
-                                    .info = .{ .kind = .all, .scalar = .qword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .qword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, ._pd, .cmp, .dst0x, .src1x, .sp(switch (cc) {
@@ -82484,7 +82505,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .qword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .qword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_pd, .cmp, .dst0y, .src0y, .src1y, .vp(switch (cc) {
@@ -82507,7 +82528,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_temps = .{ .{ .mut_rc_mask = .{
                                     .ref = .src0,
                                     .rc = .sse,
-                                    .info = .{ .kind = .all, .scalar = .qword },
+                                    .info = .{ .kind = .sign_extend, .scalar = .qword },
                                 } }, .unused },
                                 .each = .{ .once = &.{
                                     .{ ._, .v_pd, .cmp, .dst0y, .src0y, .src1y, .vp(switch (cc) {
@@ -84711,7 +84732,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .mut_rc_mask = .{ .ref = .src0, .rc = .sse, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84735,7 +84756,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .mut_rc_mask = .{ .ref = .src0, .rc = .sse, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84759,7 +84780,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .mut_rc_mask = .{ .ref = .src0, .rc = .sse, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84783,7 +84804,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .mut_rc_mask = .{ .ref = .src0, .rc = .sse, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84807,7 +84828,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mut_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .ref_mask = .{ .ref = .src0, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84831,7 +84852,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mut_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .ref_mask = .{ .ref = .src0, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84855,7 +84876,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mut_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .ref_mask = .{ .ref = .src0, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84879,7 +84900,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mut_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .ref_mask = .{ .ref = .src0, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84903,7 +84924,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mut_mmx, .to_mmx, .none } },
                             },
                             .dst_temps = .{ .{ .ref_mask = .{ .ref = .src0, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84927,7 +84948,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mut_mmx, .to_mmx, .none } },
                             },
                             .dst_temps = .{ .{ .ref_mask = .{ .ref = .src0, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84951,7 +84972,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mut_mmx, .to_mmx, .none } },
                             },
                             .dst_temps = .{ .{ .ref_mask = .{ .ref = .src0, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84975,7 +84996,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .mut_rc_mask = .{ .ref = .src0, .rc = .sse, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -84999,7 +85020,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .mut_rc_mask = .{ .ref = .src0, .rc = .sse, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -85023,7 +85044,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .mut_rc_mask = .{ .ref = .src0, .rc = .sse, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -85047,7 +85068,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_sse, .to_sse, .none } },
                             },
                             .dst_temps = .{ .{ .mut_rc_mask = .{ .ref = .src0, .rc = .sse, .info = .{
-                                .kind = .all,
+                                .kind = .sign_extend,
                                 .inverted = switch (cc) {
                                     else => unreachable,
                                     .e => false,
@@ -86699,7 +86720,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .dst_temps = .{ .{ .mut_rc_mask = .{
                                 .ref = .src0,
                                 .rc = .sse,
-                                .info = .{ .kind = .all, .scalar = .dword },
+                                .info = .{ .kind = .sign_extend, .scalar = .dword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, .v_ps, .cvtph2, .dst0x, .src0q, ._, ._ },
@@ -86739,7 +86760,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .dst_temps = .{ .{ .mut_rc_mask = .{
                                 .ref = .src0,
                                 .rc = .sse,
-                                .info = .{ .kind = .all, .scalar = .dword },
+                                .info = .{ .kind = .sign_extend, .scalar = .dword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, .v_ps, .cvtph2, .dst0x, .src0q, ._, ._ },
@@ -86779,7 +86800,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .dst_temps = .{ .{ .mut_rc_mask = .{
                                 .ref = .src0,
                                 .rc = .sse,
-                                .info = .{ .kind = .all, .scalar = .dword },
+                                .info = .{ .kind = .sign_extend, .scalar = .dword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, .v_ps, .cvtph2, .dst0y, .src0x, ._, ._ },
@@ -86805,7 +86826,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .dst_temps = .{ .{ .mut_rc_mask = .{
                                 .ref = .src0,
                                 .rc = .sse,
-                                .info = .{ .kind = .all, .scalar = .dword },
+                                .info = .{ .kind = .sign_extend, .scalar = .dword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, .v_ss, .cmp, .dst0x, .src0x, .src1d, .vp(switch (cc) {
@@ -86828,7 +86849,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             },
                             .dst_temps = .{ .{ .ref_mask = .{
                                 .ref = .src0,
-                                .info = .{ .kind = .all, .scalar = .dword },
+                                .info = .{ .kind = .sign_extend, .scalar = .dword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, ._ss, .cmp, .dst0x, .src1d, .sp(switch (cc) {
@@ -86852,7 +86873,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .dst_temps = .{ .{ .mut_rc_mask = .{
                                 .ref = .src0,
                                 .rc = .sse,
-                                .info = .{ .kind = .all, .scalar = .dword },
+                                .info = .{ .kind = .sign_extend, .scalar = .dword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, .v_ps, .cmp, .dst0x, .src0x, .src1x, .vp(switch (cc) {
@@ -86875,7 +86896,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             },
                             .dst_temps = .{ .{ .ref_mask = .{
                                 .ref = .src0,
-                                .info = .{ .kind = .all, .scalar = .dword },
+                                .info = .{ .kind = .sign_extend, .scalar = .dword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, ._ps, .cmp, .dst0x, .src1x, .sp(switch (cc) {
@@ -86899,7 +86920,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .dst_temps = .{ .{ .mut_rc_mask = .{
                                 .ref = .src0,
                                 .rc = .sse,
-                                .info = .{ .kind = .all, .scalar = .dword },
+                                .info = .{ .kind = .sign_extend, .scalar = .dword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, .v_ps, .cmp, .dst0y, .src0y, .src1y, .vp(switch (cc) {
@@ -86923,7 +86944,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .dst_temps = .{ .{ .mut_rc_mask = .{
                                 .ref = .src0,
                                 .rc = .sse,
-                                .info = .{ .kind = .all, .scalar = .qword },
+                                .info = .{ .kind = .sign_extend, .scalar = .qword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, .v_sd, .cmp, .dst0x, .src0x, .src1q, .vp(switch (cc) {
@@ -86946,7 +86967,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             },
                             .dst_temps = .{ .{ .ref_mask = .{
                                 .ref = .src0,
-                                .info = .{ .kind = .all, .scalar = .qword },
+                                .info = .{ .kind = .sign_extend, .scalar = .qword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, ._sd, .cmp, .dst0x, .src1q, .sp(switch (cc) {
@@ -86970,7 +86991,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .dst_temps = .{ .{ .mut_rc_mask = .{
                                 .ref = .src0,
                                 .rc = .sse,
-                                .info = .{ .kind = .all, .scalar = .qword },
+                                .info = .{ .kind = .sign_extend, .scalar = .qword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, .v_pd, .cmp, .dst0x, .src0x, .src1x, .vp(switch (cc) {
@@ -86993,7 +87014,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             },
                             .dst_temps = .{ .{ .ref_mask = .{
                                 .ref = .src0,
-                                .info = .{ .kind = .all, .scalar = .qword },
+                                .info = .{ .kind = .sign_extend, .scalar = .qword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, ._pd, .cmp, .dst0x, .src1x, .sp(switch (cc) {
@@ -87017,7 +87038,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .dst_temps = .{ .{ .mut_rc_mask = .{
                                 .ref = .src0,
                                 .rc = .sse,
-                                .info = .{ .kind = .all, .scalar = .qword },
+                                .info = .{ .kind = .sign_extend, .scalar = .qword },
                             } }, .unused },
                             .each = .{ .once = &.{
                                 .{ ._, .v_pd, .cmp, .dst0y, .src0y, .src1y, .vp(switch (cc) {
@@ -89392,6 +89413,25 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .store, .store_safe => |air_tag| {
                 const bin_op = air_datas[@intFromEnum(inst)].bin_op;
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
+                switch (ops[1].tracking(cg).short) {
+                    else => {},
+                    .register_mask => |src_reg_mask| {
+                        const ty = ops[1].typeOf(cg);
+                        const new_op1 = try cg.tempAllocReg(ty, abi.RegisterClass.gp);
+                        try cg.genSetReg(
+                            new_op1.tracking(cg).short.register,
+                            ty,
+                            .{ .register_mask = src_reg_mask },
+                            .{ .safety = switch (air_tag) {
+                                else => unreachable,
+                                .store => false,
+                                .store_safe => true,
+                            } },
+                        );
+                        try ops[1].die(cg);
+                        ops[1] = new_op1;
+                    },
+                }
                 cg.select(&.{}, &.{}, &ops, comptime &.{ .{
                     .src_constraints = .{ .{ .ptr_bool_vec_elem = .byte }, .bool, .any },
                     .patterns = &.{
@@ -127167,7 +127207,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .xword, .is = .inverted } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .sign_extend, .is = .inverted } }, .none, .none } },
                                 },
                                 .dst_temps = .{ .{ .cc = .z }, .unused },
                                 .clobbers = .{ .eflags = true },
@@ -127179,7 +127219,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .xword, .is = .inverted } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .sign_extend, .is = .inverted } }, .none, .none } },
                                 },
                                 .dst_temps = .{ .{ .cc = .z }, .unused },
                                 .clobbers = .{ .eflags = true },
@@ -127191,7 +127231,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .xword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .sign_extend } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
@@ -127217,7 +127257,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .xword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .sign_extend } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
@@ -127243,7 +127283,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .msb } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
@@ -127269,7 +127309,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .msb } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
@@ -127295,7 +127335,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .yword, .is = .inverted } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .sign_extend, .is = .inverted } }, .none, .none } },
                                 },
                                 .dst_temps = .{ .{ .cc = .z }, .unused },
                                 .clobbers = .{ .eflags = true },
@@ -127307,7 +127347,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .yword, .is = .inverted } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .sign_extend, .is = .inverted } }, .none, .none } },
                                 },
                                 .dst_temps = .{ .{ .cc = .z }, .unused },
                                 .clobbers = .{ .eflags = true },
@@ -127319,7 +127359,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .yword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .sign_extend } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
@@ -127345,7 +127385,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .yword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .sign_extend } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .vector_8_f32, .kind = .{ .rc = .sse } },
@@ -127371,7 +127411,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .msb } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
@@ -127572,7 +127612,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .xword, .is = .uninverted } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .sign_extend, .is = .uninverted } }, .none, .none } },
                                 },
                                 .dst_temps = .{ .{ .cc = .nz }, .unused },
                                 .clobbers = .{ .eflags = true },
@@ -127584,7 +127624,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .xword, .is = .uninverted } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .sign_extend, .is = .uninverted } }, .none, .none } },
                                 },
                                 .dst_temps = .{ .{ .cc = .nz }, .unused },
                                 .clobbers = .{ .eflags = true },
@@ -127596,7 +127636,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .xword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .sign_extend } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
@@ -127622,7 +127662,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .xword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .sign_extend } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
@@ -127648,7 +127688,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .msb } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
@@ -127674,7 +127714,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .msb } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
@@ -127700,7 +127740,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .yword, .is = .uninverted } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .sign_extend, .is = .uninverted } }, .none, .none } },
                                 },
                                 .dst_temps = .{ .{ .cc = .nz }, .unused },
                                 .clobbers = .{ .eflags = true },
@@ -127712,7 +127752,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .yword, .is = .uninverted } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .sign_extend, .is = .uninverted } }, .none, .none } },
                                 },
                                 .dst_temps = .{ .{ .cc = .nz }, .unused },
                                 .clobbers = .{ .eflags = true },
@@ -127724,7 +127764,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .yword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .sign_extend } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
@@ -127750,7 +127790,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .all_reg_mask = .{ .size = .yword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .sign_extend } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .vector_8_f32, .kind = .{ .rc = .sse } },
@@ -127776,7 +127816,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .dst_constraints = .{ .bool, .any },
                                 .src_constraints = .{ .any_bool_vec, .any, .any },
                                 .patterns = &.{
-                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword } }, .none, .none } },
+                                    .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .msb } }, .none, .none } },
                                 },
                                 .extra_temps = .{
                                     .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
@@ -174528,6 +174568,7 @@ fn load(self: *CodeGen, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) InnerE
         .register_overflow,
         .register_mask,
         .indirect_load_frame,
+        .indirect_mask,
         .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
@@ -174586,6 +174627,7 @@ fn store(
         .register_overflow,
         .register_mask,
         .indirect_load_frame,
+        .indirect_mask,
         .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
@@ -174636,6 +174678,7 @@ fn genUnOpMir(self: *CodeGen, mir_tag: Mir.Inst.FixedTag, dst_ty: Type, dst_mcv:
         .register_overflow,
         .register_mask,
         .indirect_load_frame,
+        .indirect_mask,
         .lea_frame,
         .lea_nav,
         .lea_uav,
@@ -175336,6 +175379,7 @@ fn genBinOpMir(
         .lea_lazy_sym,
         .lea_extern_func,
         .indirect_load_frame,
+        .indirect_mask,
         .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
@@ -175378,6 +175422,7 @@ fn genBinOpMir(
                     .register_overflow,
                     .register_mask,
                     .indirect_load_frame,
+                    .indirect_mask,
                     .register_tee,
                     .elementwise_gpr,
                     .elementwise_sse,
@@ -175555,6 +175600,7 @@ fn genBinOpMir(
                 .register_overflow,
                 .register_mask,
                 .indirect_load_frame,
+                .indirect_mask,
                 .register_tee,
                 .elementwise_gpr,
                 .elementwise_sse,
@@ -175664,6 +175710,7 @@ fn genBinOpMir(
                     .register_overflow,
                     .register_mask,
                     .indirect_load_frame,
+                    .indirect_mask,
                     .register_tee,
                     .elementwise_gpr,
                     .elementwise_sse,
@@ -175793,7 +175840,13 @@ fn airArg(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const result: MCValue = if (cg.mod.strip and cg.liveness.isUnused(inst)) .unreach else result: {
         const arg_ty = cg.typeOfIndex(inst);
         switch (src_mcv) {
-            .register, .register_pair, .load_frame => {
+            .register,
+            .register_pair,
+            .register_triple,
+            .register_quadruple,
+            .register_mask,
+            .load_frame,
+            => {
                 for (src_mcv.getRegs()) |reg| cg.register_manager.getRegAssumeFree(reg, inst);
                 break :result src_mcv;
             },
@@ -175802,6 +175855,22 @@ fn airArg(cg: *CodeGen, inst: Air.Inst.Index) !void {
                 const dst_mcv = try cg.allocRegOrMem(inst, false);
                 try cg.genCopy(arg_ty, dst_mcv, src_mcv, .{});
                 break :result dst_mcv;
+            },
+            .indirect_mask => |reg_mask| {
+                cg.register_manager.getRegAssumeFree(reg_mask.reg, null);
+                const dst_reg = try cg.register_manager.allocReg(inst, abi.RegisterClass.sse);
+                const mask_size: u32 = @intCast(
+                    @divExact(reg_mask.info.scalar.bitSize(cg.target), 8) * arg_ty.vectorLen(zcu),
+                );
+                try cg.asmRegisterMemory(
+                    .{ if (cg.hasFeature(.avx)) .v_dqa else ._dqa, .mov },
+                    registerAlias(dst_reg, mask_size),
+                    .{
+                        .base = .{ .reg = reg_mask.reg },
+                        .mod = .{ .rm = .{ .size = .fromSize(mask_size) } },
+                    },
+                );
+                break :result .{ .register_mask = .{ .reg = dst_reg, .info = reg_mask.info } };
             },
             .indirect_load_frame => |frame_addr| {
                 const dst_mcv = try cg.allocRegOrMem(inst, false);
@@ -176265,6 +176334,10 @@ fn genCall(cg: *CodeGen, info: union(enum) {
             for (regs) |reg| try cg.register_manager.getReg(reg, null);
             try reg_locks.appendSlice(allocator, &cg.register_manager.lockRegs(regs.len, regs));
         },
+        .register_mask => |reg_mask| {
+            try cg.register_manager.getReg(reg_mask.reg, null);
+            try reg_locks.append(allocator, cg.register_manager.lockReg(reg_mask.reg));
+        },
         .indirect => |reg_off| {
             frame_index.* = try cg.allocFrameIndex(.initType(arg_ty, zcu));
             try cg.genSetMem(.{ .frame = frame_index.* }, 0, arg_ty, src_arg, opts);
@@ -176281,6 +176354,44 @@ fn genCall(cg: *CodeGen, info: union(enum) {
                 .{ .lea_frame = .{ .index = frame_index.* } },
                 opts,
             );
+        },
+        .indirect_mask => |reg_mask| {
+            var src = switch (src_arg) {
+                else => try cg.tempInit(arg_ty, src_arg),
+                .air_ref => |src_ref| try cg.tempFromOperand(src_ref, false),
+            };
+            var dst = try cg.tempInit(arg_ty, .{ .register_mask = .{
+                .reg = try cg.register_manager.allocReg(null, abi.RegisterClass.sse),
+                .info = reg_mask.info,
+            } });
+            dst.copyToMask(&src, cg) catch |err| switch (err) {
+                error.SelectFailed => return cg.fail("failed to select arg {f} {f} {f}", .{
+                    arg_ty.fmt(pt),
+                    dst.tracking(cg),
+                    src.tracking(cg),
+                }),
+                else => |e| return e,
+            };
+            try src.die(cg);
+            const mask_size: u32 = @intCast(
+                @divExact(reg_mask.info.scalar.bitSize(cg.target), 8) * arg_ty.vectorLen(zcu),
+            );
+            frame_index.* = try cg.allocFrameIndex(.init(.{
+                .size = mask_size,
+                .alignment = .fromByteUnits(std.math.ceilPowerOfTwoAssert(u32, mask_size)),
+            }));
+            try cg.asmMemoryRegister(
+                .{ if (cg.hasFeature(.avx)) .v_dqa else ._dqa, .mov },
+                .{
+                    .base = .{ .frame = frame_index.* },
+                    .mod = .{ .rm = .{ .size = .fromSize(mask_size) } },
+                },
+                registerAlias(dst.tracking(cg).short.register_mask.reg, mask_size),
+            );
+            try dst.die(cg);
+
+            try cg.register_manager.getReg(reg_mask.reg, null);
+            try reg_locks.append(allocator, cg.register_manager.lockReg(reg_mask.reg));
         },
         .load_frame => {
             try cg.genCopy(arg_ty, dst_arg, src_arg, opts);
@@ -176396,7 +176507,7 @@ fn genCall(cg: *CodeGen, info: union(enum) {
 
             var frame_offset: i32 = regs_frame_addr.info.frame_off;
             var arg_offset = elem_size * param_gpr_len;
-            while (arg_size - arg_offset != 0) : ({
+            while (arg_size - arg_offset > 0) : ({
                 frame_offset += 8;
                 arg_offset += elem_size;
             }) try cg.genSetMem(
@@ -176458,8 +176569,28 @@ fn genCall(cg: *CodeGen, info: union(enum) {
         .register_triple,
         .register_quadruple,
         => try cg.genCopy(arg_ty, dst_arg, src_arg, opts),
-        .indirect => |reg_off| try cg.genSetReg(reg_off.reg, .usize, .{
-            .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
+        .register_mask => {
+            var src = switch (src_arg) {
+                else => try cg.tempInit(arg_ty, src_arg),
+                .air_ref => |src_ref| try cg.tempFromOperand(src_ref, false),
+            };
+            var dst = try cg.tempInit(arg_ty, dst_arg);
+            dst.copyToMask(&src, cg) catch |err| switch (err) {
+                error.SelectFailed => return cg.fail("failed to select arg {f} {f} {f}", .{
+                    arg_ty.fmt(pt),
+                    dst.tracking(cg),
+                    src.tracking(cg),
+                }),
+                else => |e| return e,
+            };
+            try src.die(cg);
+            try dst.die(cg);
+        },
+        .indirect => |dst_reg_off| try cg.genSetReg(dst_reg_off.reg, .usize, .{
+            .lea_frame = .{ .index = frame_index, .off = -dst_reg_off.off },
+        }, opts),
+        .indirect_mask => |dst_reg_mask| try cg.genSetReg(dst_reg_mask.reg, .usize, .{
+            .lea_frame = .{ .index = frame_index },
         }, opts),
         .register_tee => |dst_regs| {
             try cg.genSetReg(dst_regs[0], arg_ty, src_arg, opts);
@@ -176570,31 +176701,43 @@ fn genCall(cg: *CodeGen, info: union(enum) {
     return call_info.return_value.short;
 }
 
-fn airRet(self: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
-    const pt = self.pt;
-    const zcu = pt.zcu;
-    const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
+fn airRet(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
+    const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
-    const ret_ty = self.fn_type.fnReturnType(zcu);
-    switch (self.ret_mcv.short) {
+    const ret_ty = cg.fn_type.fnReturnType(cg.pt.zcu);
+    switch (cg.ret_mcv.short) {
         .none => {},
         .register => |reg| {
-            const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
-            defer self.register_manager.unlockReg(reg_lock);
-            try self.genCopy(ret_ty, self.ret_mcv.short, .{ .air_ref = un_op }, .{ .safety = safety });
+            const reg_lock = cg.register_manager.lockRegAssumeUnused(reg);
+            defer cg.register_manager.unlockReg(reg_lock);
+            try cg.genCopy(ret_ty, cg.ret_mcv.short, .{ .air_ref = un_op }, .{ .safety = safety });
         },
         inline .register_pair, .register_triple, .register_quadruple => |regs| {
-            const reg_locks = self.register_manager.lockRegsAssumeUnused(regs.len, regs);
-            defer for (reg_locks) |reg_lock| self.register_manager.unlockReg(reg_lock);
-            try self.genCopy(ret_ty, self.ret_mcv.short, .{ .air_ref = un_op }, .{ .safety = safety });
+            const reg_locks = cg.register_manager.lockRegsAssumeUnused(regs.len, regs);
+            defer for (reg_locks) |reg_lock| cg.register_manager.unlockReg(reg_lock);
+            try cg.genCopy(ret_ty, cg.ret_mcv.short, .{ .air_ref = un_op }, .{ .safety = safety });
+        },
+        .register_mask => {
+            var src = try cg.tempFromOperand(un_op, true);
+            var dst = try cg.tempInit(ret_ty, cg.ret_mcv.short);
+            dst.copyToMask(&src, cg) catch |err| switch (err) {
+                error.SelectFailed => return cg.fail("failed to select ret {f} {f} {f}", .{
+                    ret_ty.fmt(cg.pt),
+                    dst.tracking(cg),
+                    src.tracking(cg),
+                }),
+                else => |e| return e,
+            };
+            try src.die(cg);
+            try dst.die(cg);
         },
         .indirect => |reg_off| {
-            try self.register_manager.getReg(reg_off.reg, null);
-            const lock = self.register_manager.lockRegAssumeUnused(reg_off.reg);
-            defer self.register_manager.unlockReg(lock);
+            try cg.register_manager.getReg(reg_off.reg, null);
+            const lock = cg.register_manager.lockRegAssumeUnused(reg_off.reg);
+            defer cg.register_manager.unlockReg(lock);
 
-            try self.genSetReg(reg_off.reg, .usize, self.ret_mcv.long, .{});
-            try self.genSetMem(
+            try cg.genSetReg(reg_off.reg, .usize, cg.ret_mcv.long, .{});
+            try cg.genSetMem(
                 .{ .reg = reg_off.reg },
                 reg_off.off,
                 ret_ty,
@@ -176604,59 +176747,78 @@ fn airRet(self: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
         },
         else => unreachable,
     }
-    self.ret_mcv.liveOut(self, inst);
+    cg.ret_mcv.liveOut(cg, inst);
 
-    if (self.err_ret_trace_reg != .none) {
-        if (self.inst_tracking.getPtr(err_ret_trace_index)) |err_ret_trace| {
+    if (cg.err_ret_trace_reg != .none) {
+        if (cg.inst_tracking.getPtr(err_ret_trace_index)) |err_ret_trace| {
             if (switch (err_ret_trace.short) {
-                .register => |reg| self.err_ret_trace_reg != reg,
+                .register => |reg| cg.err_ret_trace_reg != reg,
                 else => true,
-            }) try self.genSetReg(self.err_ret_trace_reg, .usize, err_ret_trace.short, .{});
-            err_ret_trace.liveOut(self, err_ret_trace_index);
+            }) try cg.genSetReg(cg.err_ret_trace_reg, .usize, err_ret_trace.short, .{});
+            err_ret_trace.liveOut(cg, err_ret_trace_index);
         }
     }
 
-    try self.finishAir(inst, .unreach, .{ un_op, .none, .none });
+    try cg.finishAir(inst, .unreach, .{ un_op, .none, .none });
 
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
     // which is available if the jump is 127 bytes or less forward.
-    const jmp_reloc = try self.asmJmpReloc(undefined);
-    try self.epilogue_relocs.append(self.gpa, jmp_reloc);
+    const jmp_reloc = try cg.asmJmpReloc(undefined);
+    try cg.epilogue_relocs.append(cg.gpa, jmp_reloc);
 }
 
-fn airRetLoad(self: *CodeGen, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const ptr = try self.resolveInst(un_op);
-
-    const ptr_ty = self.typeOf(un_op);
-    switch (self.ret_mcv.short) {
+fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
+    switch (cg.ret_mcv.short) {
         .none => {},
         .register,
         .register_pair,
         .register_triple,
         .register_quadruple,
-        => try self.load(self.ret_mcv.short, ptr_ty, ptr),
-        .indirect => |reg_off| try self.genSetReg(reg_off.reg, ptr_ty, ptr, .{}),
+        => try cg.load(cg.ret_mcv.short, cg.typeOf(un_op), try cg.resolveInst(un_op)),
+        .register_mask => {
+            var ptr = try cg.tempFromOperand(un_op, true);
+            const ret_ty = ptr.typeOf(cg).childType(cg.pt.zcu);
+            var src = try ptr.load(ret_ty, .{}, cg);
+            try ptr.die(cg);
+            var dst = try cg.tempInit(ret_ty, cg.ret_mcv.short);
+            dst.copyToMask(&src, cg) catch |err| switch (err) {
+                error.SelectFailed => return cg.fail("failed to select ret_load {f} {f} {f}", .{
+                    ret_ty.fmt(cg.pt),
+                    dst.tracking(cg),
+                    src.tracking(cg),
+                }),
+                else => |e| return e,
+            };
+            try src.die(cg);
+            try dst.die(cg);
+        },
+        .indirect => |dst_reg_off| try cg.genSetReg(
+            dst_reg_off.reg,
+            cg.typeOf(un_op),
+            try cg.resolveInst(un_op),
+            .{},
+        ),
         else => unreachable,
     }
-    self.ret_mcv.liveOut(self, inst);
+    cg.ret_mcv.liveOut(cg, inst);
 
-    if (self.err_ret_trace_reg != .none) {
-        if (self.inst_tracking.getPtr(err_ret_trace_index)) |err_ret_trace| {
+    if (cg.err_ret_trace_reg != .none) {
+        if (cg.inst_tracking.getPtr(err_ret_trace_index)) |err_ret_trace| {
             if (switch (err_ret_trace.short) {
-                .register => |reg| self.err_ret_trace_reg != reg,
+                .register => |reg| cg.err_ret_trace_reg != reg,
                 else => true,
-            }) try self.genSetReg(self.err_ret_trace_reg, .usize, err_ret_trace.short, .{});
-            err_ret_trace.liveOut(self, err_ret_trace_index);
+            }) try cg.genSetReg(cg.err_ret_trace_reg, .usize, err_ret_trace.short, .{});
+            err_ret_trace.liveOut(cg, err_ret_trace_index);
         }
     }
 
-    try self.finishAir(inst, .unreach, .{ un_op, .none, .none });
+    try cg.finishAir(inst, .unreach, .{ un_op, .none, .none });
 
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
     // which is available if the jump is 127 bytes or less forward.
-    const jmp_reloc = try self.asmJmpReloc(undefined);
-    try self.epilogue_relocs.append(self.gpa, jmp_reloc);
+    const jmp_reloc = try cg.asmJmpReloc(undefined);
+    try cg.epilogue_relocs.append(cg.gpa, jmp_reloc);
 }
 
 fn airTry(self: *CodeGen, inst: Air.Inst.Index) !void {
@@ -178640,6 +178802,7 @@ fn genCopy(self: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: C
         .register_overflow,
         .register_mask,
         .indirect_load_frame,
+        .indirect_mask,
         .lea_frame,
         .lea_nav,
         .lea_uav,
@@ -178853,6 +179016,7 @@ fn genSetReg(
         .unreach,
         .dead,
         .indirect_load_frame,
+        .indirect_mask,
         .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
@@ -179282,33 +179446,105 @@ fn genSetReg(
             const bits_lock = cg.register_manager.lockReg(bits_reg);
             defer if (bits_lock) |lock| cg.register_manager.unlockReg(lock);
 
+            var mask_size: u32 = @intCast(
+                @divExact(src_reg_mask.info.scalar.bitSize(cg.target), 8) * ty.vectorLen(zcu),
+            );
+            const sign_reg = switch (src_reg_mask.info.kind) {
+                .lsb => sign_reg: {
+                    const sign_reg = try cg.register_manager.allocReg(null, abi.RegisterClass.sse);
+                    const src_alias = registerAlias(src_reg_mask.reg, mask_size);
+                    const sign_alias = registerAlias(sign_reg, mask_size);
+                    if (cg.hasFeature(.avx2)) try cg.asmRegisterRegisterImmediate(
+                        .{ switch (src_reg_mask.info.scalar) {
+                            else => unreachable,
+                            .byte, .word => .vp_w,
+                            .dword => .vp_d,
+                            .qword => .vp_q,
+                        }, .sll },
+                        sign_alias,
+                        src_alias,
+                        .u(src_reg_mask.info.scalar.bitSize(cg.target) - 1),
+                    ) else {
+                        if (sign_alias != src_alias) try cg.asmRegisterRegister(
+                            .{ ._dqa, .mov },
+                            sign_alias,
+                            src_alias,
+                        );
+                        try cg.asmRegisterImmediate(
+                            .{ switch (src_reg_mask.info.scalar) {
+                                else => unreachable,
+                                .byte, .word => .p_w,
+                                .dword => .p_d,
+                                .qword => .p_q,
+                            }, .sll },
+                            sign_alias,
+                            .u(src_reg_mask.info.scalar.bitSize(cg.target) - 1),
+                        );
+                    }
+                    break :sign_reg sign_reg;
+                },
+                .zero_extend => sign_reg: {
+                    const sign_reg = try cg.register_manager.allocReg(null, abi.RegisterClass.sse);
+                    const src_alias = registerAlias(src_reg_mask.reg, mask_size);
+                    const sign_alias = registerAlias(sign_reg, mask_size);
+                    if (has_avx) {
+                        try cg.asmRegisterRegisterRegister(
+                            .{ .vp_, .xor },
+                            sign_alias,
+                            sign_alias,
+                            sign_alias,
+                        );
+                        try cg.asmRegisterRegisterRegister(.{ switch (src_reg_mask.info.scalar) {
+                            else => unreachable,
+                            .byte => .vp_b,
+                            .word => .vp_w,
+                            .dword => .vp_d,
+                            .qword => .vp_q,
+                        }, .sub }, sign_alias, sign_alias, src_alias);
+                    } else {
+                        try cg.asmRegisterRegister(.{ .p_, .xor }, sign_alias, sign_alias);
+                        try cg.asmRegisterRegister(.{ switch (src_reg_mask.info.scalar) {
+                            else => unreachable,
+                            .byte => .p_b,
+                            .word => .p_w,
+                            .dword => .p_d,
+                            .qword => .p_q,
+                        }, .sub }, sign_alias, src_alias);
+                    }
+                    break :sign_reg sign_reg;
+                },
+                .msb, .sign_extend => src_reg_mask.reg,
+            };
+            const sign_lock = cg.register_manager.lockReg(sign_reg);
+            defer if (sign_lock) |lock| cg.register_manager.unlockReg(lock);
+
             const pack_reg = switch (src_reg_mask.info.scalar) {
-                else => src_reg_mask.reg,
-                .word => try cg.register_manager.allocReg(null, abi.RegisterClass.sse),
+                else => sign_reg,
+                .word => pack_reg: {
+                    const pack_reg = if (sign_reg == src_reg_mask.reg)
+                        try cg.register_manager.allocReg(null, abi.RegisterClass.sse)
+                    else
+                        sign_reg;
+                    const sign_alias = registerAlias(sign_reg, mask_size);
+                    const pack_alias = registerAlias(pack_reg, mask_size);
+                    if (has_avx) {
+                        try cg.asmRegisterRegisterRegister(.{ .vp_b, .ackssw }, pack_alias, sign_alias, sign_alias);
+                    } else {
+                        if (pack_alias != sign_alias) try cg.asmRegisterRegister(.{ ._dqa, .mov }, pack_alias, sign_alias);
+                        try cg.asmRegisterRegister(.{ .p_b, .ackssw }, pack_alias, pack_alias);
+                    }
+                    mask_size = std.math.divCeil(u32, mask_size, 2) catch unreachable;
+                    break :pack_reg pack_reg;
+                },
             };
             const pack_lock = cg.register_manager.lockReg(pack_reg);
             defer if (pack_lock) |lock| cg.register_manager.unlockReg(lock);
 
-            var mask_size: u32 = @intCast(ty.vectorLen(zcu) * @divExact(src_reg_mask.info.scalar.bitSize(cg.target), 8));
-            switch (src_reg_mask.info.scalar) {
-                else => {},
-                .word => {
-                    const src_alias = registerAlias(src_reg_mask.reg, mask_size);
-                    const pack_alias = registerAlias(pack_reg, mask_size);
-                    if (has_avx) {
-                        try cg.asmRegisterRegisterRegister(.{ .vp_b, .ackssw }, pack_alias, src_alias, src_alias);
-                    } else {
-                        try cg.asmRegisterRegister(.{ ._dqa, .mov }, pack_alias, src_alias);
-                        try cg.asmRegisterRegister(.{ .p_b, .ackssw }, pack_alias, pack_alias);
-                    }
-                    mask_size = std.math.divCeil(u32, mask_size, 2) catch unreachable;
-                },
-            }
             try cg.asmRegisterRegister(.{ switch (src_reg_mask.info.scalar) {
+                else => unreachable,
                 .byte, .word => if (has_avx) .vp_b else .p_b,
                 .dword => if (has_avx) .v_ps else ._ps,
                 .qword => if (has_avx) .v_pd else ._pd,
-                else => unreachable,
             }, .movmsk }, bits_reg.to32(), registerAlias(pack_reg, mask_size));
             if (src_reg_mask.info.inverted) try cg.asmRegister(.{ ._, .not }, registerAlias(bits_reg, abi_size));
             try cg.genSetReg(dst_reg, ty, .{ .register = bits_reg }, .{});
@@ -179432,6 +179668,7 @@ fn genSetMem(
         .unreach,
         .dead,
         .indirect_load_frame,
+        .indirect_mask,
         .register_tee,
         .elementwise_gpr,
         .elementwise_sse,
@@ -180697,32 +180934,32 @@ fn airSelect(self: *CodeGen, inst: Air.Inst.Index) !void {
                     const dst_lock = self.register_manager.lockReg(dst_reg);
                     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-                    const mir_tag = @as(?Mir.Inst.FixedTag, if ((pred_reg_mask.info.kind == .all and
+                    const mir_tag = @as(?Mir.Inst.FixedTag, if ((pred_reg_mask.info.kind == .sign_extend and
                         elem_ty.toIntern() != .f32_type and elem_ty.toIntern() != .f64_type) or pred_reg_mask.info.scalar == .byte)
                         if (has_avx)
                             .{ .vp_b, .blendv }
                         else if (has_blend)
                             .{ .p_b, .blendv }
-                        else if (pred_reg_mask.info.kind == .all)
+                        else if (pred_reg_mask.info.kind == .sign_extend)
                             .{ .p_, undefined }
                         else
                             null
-                    else if ((pred_reg_mask.info.kind == .all and (elem_ty.toIntern() != .f64_type or !self.hasFeature(.sse2))) or
+                    else if ((pred_reg_mask.info.kind == .sign_extend and (elem_ty.toIntern() != .f64_type or !self.hasFeature(.sse2))) or
                         pred_reg_mask.info.scalar == .dword)
                         if (has_avx)
                             .{ .v_ps, .blendv }
                         else if (has_blend)
                             .{ ._ps, .blendv }
-                        else if (pred_reg_mask.info.kind == .all)
+                        else if (pred_reg_mask.info.kind == .sign_extend)
                             .{ ._ps, undefined }
                         else
                             null
-                    else if (pred_reg_mask.info.kind == .all or pred_reg_mask.info.scalar == .qword)
+                    else if (pred_reg_mask.info.kind == .sign_extend or pred_reg_mask.info.scalar == .qword)
                         if (has_avx)
                             .{ .v_pd, .blendv }
                         else if (has_blend)
                             .{ ._pd, .blendv }
-                        else if (pred_reg_mask.info.kind == .all)
+                        else if (pred_reg_mask.info.kind == .sign_extend)
                             .{ ._pd, undefined }
                         else
                             null
@@ -181635,6 +181872,17 @@ fn resolveCallingConventionValues(
                             ret_gpr = ret_gpr[1..];
                             param_gpr_index += 1;
                         },
+                        .bool_vector_mask => {
+                            const len = ret_ty.vectorLen(zcu);
+                            const elem_size =
+                                @divExact(16, std.math.ceilPowerOfTwoAssert(u32, @min(len, 16)));
+                            ret_tracking[ret_tracking_len] = .init(.{ .register_mask = .{
+                                .reg = registerAlias(ret_sse[0], elem_size * len),
+                                .info = .{ .kind = .lsb, .scalar = .fromSize(elem_size) },
+                            } });
+                            ret_tracking_len += 1;
+                            ret_sse = ret_sse[1..];
+                        },
                         .integer_per_element => {
                             const len: u32 = @intCast(ret_ty.vectorLen(zcu));
                             const alias_size: u32 = @intCast(@min(ret_ty.childType(zcu).abiSize(zcu), 8));
@@ -181809,6 +182057,17 @@ fn resolveCallingConventionValues(
                         else => unreachable,
                     },
                     .none => {},
+                    .bool_vector_mask => {
+                        arg_mcv[arg_mcv_len] = .{ .indirect_mask = .{
+                            .reg = param_gpr[param_gpr_index].to64(),
+                            .info = .{ .kind = .lsb, .scalar = .fromSize(@divExact(
+                                16,
+                                std.math.ceilPowerOfTwoAssert(u32, @min(ty.vectorLen(zcu), 16)),
+                            )) },
+                        } };
+                        arg_mcv_len += 1;
+                        param_gpr_index += 1;
+                    },
                     .integer_per_element,
                     .sse_per_element,
                     .sse_per_xword,
@@ -182441,6 +182700,7 @@ const Temp = struct {
                 .memory,
                 .indirect,
                 .indirect_load_frame,
+                .indirect_mask,
                 .lea_frame,
                 .load_nav,
                 .lea_nav,
@@ -182918,6 +183178,7 @@ const Temp = struct {
             .register_overflow,
             .register_mask,
             .indirect_load_frame,
+            .indirect_mask,
             .register_tee,
             .elementwise_gpr,
             .elementwise_sse,
@@ -183423,6 +183684,7 @@ const Temp = struct {
                 .x87up,
                 .none,
                 .win_i128,
+                .bool_vector_mask,
                 .integer_per_element,
                 .sse_per_element,
                 .sse_sse_x87_per_qword,
@@ -183440,6 +183702,7 @@ const Temp = struct {
                 .x87up,
                 .none,
                 .win_i128,
+                .bool_vector_mask,
                 .integer_per_element,
                 .sse_per_element,
                 .sse_sse_x87_per_qword,
@@ -183464,6 +183727,7 @@ const Temp = struct {
                 .memory,
                 .none,
                 .win_i128,
+                .bool_vector_mask,
                 .integer_per_element,
                 .sse_per_element,
                 .sse_sse_x87_per_qword,
@@ -183500,6 +183764,1331 @@ const Temp = struct {
             if (try temp.toReg(reg, cg)) break;
         } else break;
         try cg.asmOpOnly(.{ .@"rep _sb", .sto });
+    }
+
+    fn copyToMask(dst: *Temp, src: *Temp, cg: *CodeGen) Select.Error!void {
+        var ops: [2]Temp = .{ dst.*, src.* };
+        try cg.select(&.{}, &.{}, &ops, comptime &.{ .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 2 }, .{ .exact_bool_vec = 2 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .mem, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 8 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1b, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 2 }, .{ .exact_bool_vec = 2 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 8 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 2 }, .{ .exact_bool_vec = 2 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .mem, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 8 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1b, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_q, .sub, .src0x, .tmp2x, .src0x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 2 }, .{ .exact_bool_vec = 2 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 8 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_q, .sub, .src0x, .tmp2x, .src0x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 2 }, .{ .exact_bool_vec = 2 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 8 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .tmp2x, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 2 }, .{ .exact_bool_vec = 2 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 8 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .tmp2x, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_q, .sub, .src0x, .tmp2x, .src0x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .ssse3, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 2 }, .{ .exact_bool_vec = 2 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 8 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .p_, .xor, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, ._dqa, .mov, .src0x, .src1x, ._, ._ },
+                .{ ._, .p_b, .shuf, .src0x, .tmp2x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .src0x, .tmp2x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .ssse3, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 2 }, .{ .exact_bool_vec = 2 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_mut_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 8 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_b, .shuf, .src1x, .src0x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .src0x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .src1x, .src0x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src1x, .src0x, ._, ._ },
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_q, .sub, .src0x, .src1x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .sse2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 2 }, .{ .exact_bool_vec = 2 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 8 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._dqa, .mov, .src0x, .src1x, ._, ._ },
+                .{ ._, .p_, .unpcklbw, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpcklwd, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpckldq, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpcklqdq, .src0x, .src0x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .src0x, .tmp2x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .sse2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 2 }, .{ .exact_bool_vec = 2 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_mut_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 8 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._dqa, .mov, .tmp2x, .src1x, ._, ._ },
+                .{ ._, .p_, .unpcklbw, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpcklwd, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpckldq, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpcklqdq, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .src0x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .tmp2x, .src0x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .tmp2x, .src0x, ._, ._ },
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_q, .sub, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 4 }, .{ .exact_bool_vec = 4 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .mem, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 4 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1b, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 4 }, .{ .exact_bool_vec = 4 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 4 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 4 }, .{ .exact_bool_vec = 4 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .mem, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 4 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1b, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .sub, .src0x, .tmp2x, .src0x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 4 }, .{ .exact_bool_vec = 4 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 4 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .sub, .src0x, .tmp2x, .src0x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 4 }, .{ .exact_bool_vec = 4 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 4 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .tmp2x, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 4 }, .{ .exact_bool_vec = 4 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 4 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .tmp2x, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .sub, .src0x, .tmp2x, .src0x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .ssse3, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 4 }, .{ .exact_bool_vec = 4 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 4 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .p_, .xor, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, ._dqa, .mov, .src0x, .src1x, ._, ._ },
+                .{ ._, .p_b, .shuf, .src0x, .tmp2x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .src0x, .tmp2x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .ssse3, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 4 }, .{ .exact_bool_vec = 4 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_mut_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 4 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_b, .shuf, .src1x, .src0x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .src0x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .src1x, .src0x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src1x, .src0x, ._, ._ },
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_b, .sub, .src0x, .src1x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .sse2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 4 }, .{ .exact_bool_vec = 4 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 4 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._dqa, .mov, .src0x, .src1x, ._, ._ },
+                .{ ._, .p_, .unpcklbw, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpcklwd, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpckldq, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpcklqdq, .src0x, .src0x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .src0x, .tmp2x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .sse2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 4 }, .{ .exact_bool_vec = 4 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 4 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._dqa, .mov, .tmp2x, .src1x, ._, ._ },
+                .{ ._, .p_, .unpcklbw, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpcklwd, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpckldq, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpcklqdq, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .src0x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .tmp2x, .src0x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .tmp2x, .src0x, ._, ._ },
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_b, .sub, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 8 }, .{ .exact_bool_vec = 8 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .mem, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 2 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1b, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 8 }, .{ .exact_bool_vec = 8 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 2 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 8 }, .{ .exact_bool_vec = 8 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .mem, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 2 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1b, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .sub, .src0x, .tmp2x, .src0x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 8 }, .{ .exact_bool_vec = 8 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 2 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_b, .broadcast, .src0x, .src1x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .sub, .src0x, .tmp2x, .src0x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 8 }, .{ .exact_bool_vec = 8 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 2 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .tmp2x, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 8 }, .{ .exact_bool_vec = 8 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 2 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .tmp2x, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp2x, ._ },
+                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
+                .{ ._, .vp_b, .sub, .src0x, .tmp2x, .src0x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .ssse3, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 8 }, .{ .exact_bool_vec = 8 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 2 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .p_, .xor, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, ._dqa, .mov, .src0x, .src1x, ._, ._ },
+                .{ ._, .p_b, .shuf, .src0x, .tmp2x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .src0x, .tmp2x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .ssse3, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 8 }, .{ .exact_bool_vec = 8 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_mut_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 2 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_b, .shuf, .src1x, .src0x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .src0x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .src1x, .src0x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src1x, .src0x, ._, ._ },
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_b, .sub, .src0x, .src1x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .sse2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 8 }, .{ .exact_bool_vec = 8 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 2 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._dqa, .mov, .src0x, .src1x, ._, ._ },
+                .{ ._, .p_, .unpcklbw, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpcklwd, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpckldq, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpcklqdq, .src0x, .src0x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .src0x, .tmp2x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .sse2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 8 }, .{ .exact_bool_vec = 8 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward, .smear = 2 } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._dqa, .mov, .tmp2x, .src1x, ._, ._ },
+                .{ ._, .p_, .unpcklbw, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpcklwd, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpckldq, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpcklqdq, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .src0x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .tmp2x, .src0x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .tmp2x, .src0x, ._, ._ },
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_b, .sub, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 16 }, .{ .exact_bool_vec = 16 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .word, .smear = 8 } } },
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .lea(.tmp2x), ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, .vp_q, .broadcast, .tmp3x, .lea(.tmp2q), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp3x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp3x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 16 }, .{ .exact_bool_vec = 16 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .word, .smear = 8 } } },
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .lea(.tmp2x), ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, .vp_q, .broadcast, .tmp3x, .lea(.tmp2q), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp3x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp3x, ._ },
+                .{ ._, .vp_, .xor, .tmp3x, .tmp3x, .tmp3x, ._ },
+                .{ ._, .vp_b, .sub, .src0x, .tmp3x, .src0x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 16 }, .{ .exact_bool_vec = 16 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .word, .smear = 8 } } },
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .lea(.tmp2x), ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, .v_, .movddup, .tmp3x, .lea(.tmp2q), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp3x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp3x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 16 }, .{ .exact_bool_vec = 16 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .word, .smear = 8 } } },
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_16_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .lea(.tmp2x), ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, .v_, .movddup, .tmp3x, .lea(.tmp2q), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp3x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp3x, ._ },
+                .{ ._, .vp_, .xor, .tmp3x, .tmp3x, .tmp3x, ._ },
+                .{ ._, .vp_b, .sub, .src0x, .tmp3x, .src0x, ._ },
+            } },
+        }, .{
+            .required_features = .{ .ssse3, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 16 }, .{ .exact_bool_vec = 16 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .word, .smear = 8 } } },
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .usize, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .src0x, .src1x, ._, ._ },
+                .{ ._, .p_b, .shuf, .src0x, .lea(.tmp2x), ._, ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, ._, .movddup, .tmp3x, .lea(.tmp2q), ._, ._ },
+                .{ ._, .p_, .@"and", .src0x, .tmp3x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src0x, .tmp3x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .ssse3, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 16 }, .{ .exact_bool_vec = 16 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_mut_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .word, .smear = 8 } } },
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, .p_b, .shuf, .src1x, .lea(.tmp2x), ._, ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, ._, .movddup, .src0x, .lea(.tmp2q), ._, ._ },
+                .{ ._, .p_, .@"and", .src1x, .src0x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src1x, .src0x, ._, ._ },
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_b, .sub, .src0x, .src1x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .sse3, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 16 }, .{ .exact_bool_vec = 16 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .usize, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._dqa, .mov, .src0x, .src1x, ._, ._ },
+                .{ ._, .p_, .unpcklbw, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpcklwd, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpckldq, .src0x, .src0x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._, .movddup, .tmp2x, .lea(.tmp1q), ._, ._ },
+                .{ ._, .p_, .@"and", .src0x, .tmp2x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .sse3, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 16 }, .{ .exact_bool_vec = 16 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .usize, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._dqa, .mov, .tmp2x, .src1x, ._, ._ },
+                .{ ._, .p_, .unpcklbw, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpcklwd, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpckldq, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._, .movddup, .src0x, .lea(.tmp1q), ._, ._ },
+                .{ ._, .p_, .@"and", .tmp2x, .src0x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .tmp2x, .src0x, ._, ._ },
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_b, .sub, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .sse2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 16 }, .{ .exact_bool_vec = 16 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .usize, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._dqa, .mov, .src0x, .src1x, ._, ._ },
+                .{ ._, .p_, .unpcklbw, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpcklwd, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_, .unpckldq, .src0x, .src0x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .tmp2x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .src0x, .tmp2x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .sse2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 16 }, .{ .exact_bool_vec = 16 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .xword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .usize, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._dqa, .mov, .tmp2x, .src1x, ._, ._ },
+                .{ ._, .p_, .unpcklbw, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpcklwd, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, .p_, .unpckldq, .tmp2x, .tmp2x, ._, ._ },
+                .{ ._, ._, .lea, .tmp1p, .mem(.tmp0), ._, ._ },
+                .{ ._, ._dqa, .mov, .src0x, .lea(.tmp1x), ._, ._ },
+                .{ ._, .p_, .@"and", .tmp2x, .src0x, ._, ._ },
+                .{ ._, .p_b, .cmpeq, .tmp2x, .src0x, ._, ._ },
+                .{ ._, .p_, .xor, .src0x, .src0x, ._, ._ },
+                .{ ._, .p_b, .sub, .src0x, .tmp2x, ._, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 32 }, .{ .exact_bool_vec = 32 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .from_sign_extend, .is = .uninverted } }, .mem, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_32_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .dword, .smear = 8 } } },
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_d, .broadcast, .src0y, .src1d, ._, ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, .vp_b, .shuf, .src0y, .src0y, .lea(.tmp2y), ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, .vp_q, .broadcast, .tmp3y, .lea(.tmp2q), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0y, .src0y, .tmp3y, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0y, .src0y, .tmp3y, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 32 }, .{ .exact_bool_vec = 32 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_32_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .dword, .smear = 8 } } },
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_d, .broadcast, .src0y, .src1x, ._, ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, .vp_b, .shuf, .src0y, .src0y, .lea(.tmp2y), ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, .vp_q, .broadcast, .tmp3y, .lea(.tmp2q), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0y, .src0y, .tmp3y, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0y, .src0y, .tmp3y, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 32 }, .{ .exact_bool_vec = 32 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .from_zero_extend, .is = .uninverted } }, .mem, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_32_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .dword, .smear = 8 } } },
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_d, .broadcast, .src0y, .src1d, ._, ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, .vp_b, .shuf, .src0y, .src0y, .lea(.tmp2y), ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, .vp_q, .broadcast, .tmp3y, .lea(.tmp2q), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0y, .src0y, .tmp3y, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0y, .src0y, .tmp3y, ._ },
+                .{ ._, .vp_, .xor, .tmp3y, .tmp3y, .tmp3y, ._ },
+                .{ ._, .vp_b, .sub, .src0y, .tmp3y, .src0y, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx2, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 32 }, .{ .exact_bool_vec = 32 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_32_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .dword, .smear = 8 } } },
+                .{ .type = .vector_8_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, .vp_d, .broadcast, .src0y, .src1x, ._, ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, .vp_b, .shuf, .src0y, .src0y, .lea(.tmp2y), ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, .vp_q, .broadcast, .tmp3y, .lea(.tmp2q), ._, ._ },
+                .{ ._, .vp_, .@"and", .src0y, .src0y, .tmp3y, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0y, .src0y, .tmp3y, ._ },
+                .{ ._, .vp_, .xor, .tmp3y, .tmp3y, .tmp3y, ._ },
+                .{ ._, .vp_b, .sub, .src0y, .tmp3y, .src0y, ._ },
+            } },
+        }, .{
+            .required_features = .{ .avx, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 32 }, .{ .exact_bool_vec = 32 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .from_sign_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_32_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .dword, .smear = 8 } } },
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
+                .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, .vp_b, .shuf, .tmp3x, .src1x, .lea(.tmp2y), ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .lead(.tmp2y, 16), ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp4x, .lea(.tmp2x), ._, ._ },
+                .{ ._, .vp_, .@"and", .tmp3x, .tmp3x, .tmp4x, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp4x, ._ },
+                .{ ._, .vp_b, .cmpeq, .tmp3x, .tmp3x, .tmp4x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp4x, ._ },
+                .{ ._, .v_f128, .insert, .src0y, .tmp3y, .src0x, .ui(1) },
+            } },
+        }, .{
+            .required_features = .{ .avx, null, null, null },
+            .src_constraints = .{ .{ .exact_bool_vec = 32 }, .{ .exact_bool_vec = 32 }, .any },
+            .patterns = &.{
+                .{ .src = .{ .{ .reg_mask = .{ .size = .yword, .kind = .from_zero_extend, .is = .uninverted } }, .to_sse, .none } },
+            },
+            .extra_temps = .{
+                .{ .type = .vector_32_u8, .kind = .{ .pshufb_bytes_mem = .{ .direction = .forward, .size = .dword, .smear = 8 } } },
+                .{ .type = .vector_16_u8, .kind = .{ .bits_mem = .{ .direction = .forward } } },
+                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
+                .{ .type = .vector_32_u8, .kind = .{ .rc = .sse } },
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+                .unused,
+            },
+            .each = .{ .once = &.{
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp0), ._, ._ },
+                .{ ._, .vp_b, .shuf, .tmp3x, .src1x, .lea(.tmp2y), ._ },
+                .{ ._, .vp_b, .shuf, .src0x, .src1x, .lead(.tmp2y, 16), ._ },
+                .{ ._, ._, .lea, .tmp2p, .mem(.tmp1), ._, ._ },
+                .{ ._, .v_dqa, .mov, .tmp4x, .lea(.tmp2x), ._, ._ },
+                .{ ._, .vp_, .@"and", .tmp3x, .tmp3x, .tmp4x, ._ },
+                .{ ._, .vp_, .@"and", .src0x, .src0x, .tmp4x, ._ },
+                .{ ._, .vp_b, .cmpeq, .tmp3x, .tmp3x, .tmp4x, ._ },
+                .{ ._, .vp_b, .cmpeq, .src0x, .src0x, .tmp4x, ._ },
+                .{ ._, .vp_, .xor, .tmp4x, .tmp4x, .tmp4x, ._ },
+                .{ ._, .vp_b, .sub, .tmp3x, .tmp4x, .tmp3x, ._ },
+                .{ ._, .vp_b, .sub, .src0x, .tmp4x, .src0x, ._ },
+                .{ ._, .v_f128, .insert, .src0y, .tmp3y, .src0x, .ui(1) },
+            } },
+        } });
+        dst.*, src.* = ops;
     }
 
     fn wrapInt(temp: *Temp, cg: *CodeGen) Select.Error!void {
@@ -188030,6 +189619,7 @@ const Temp = struct {
                         .unreach,
                         .dead,
                         .indirect_load_frame,
+                        .indirect_mask,
                         .register_tee,
                         .elementwise_gpr,
                         .elementwise_sse,
@@ -188885,25 +190475,60 @@ const Select = struct {
             to_sse,
             mut_sse,
             to_mut_sse,
-            reg_mask: RegMaskSpec,
-            all_reg_mask: RegMaskSpec,
-
-            const RegMaskSpec = struct {
+            reg_mask: struct {
                 size: Memory.Size,
+                kind: enum {
+                    any,
+                    lsb,
+                    msb,
+                    zero_extend,
+                    sign_extend,
+                    from_lsb,
+                    from_msb,
+                    from_zero_extend,
+                    from_sign_extend,
+                },
                 is: enum {
                     any,
                     uninverted,
                     inverted,
-
-                    fn matches(is: @This(), inverted: bool) bool {
-                        return switch (is) {
-                            .any => true,
-                            .uninverted => !inverted,
-                            .inverted => inverted,
-                        };
-                    }
                 } = .any,
-            };
+
+                fn matches(spec: @This(), info: MaskInfo) bool {
+                    return switch (spec.kind) {
+                        .any => true,
+                        .lsb => switch (info.kind) {
+                            .lsb, .msb, .zero_extend, .sign_extend => true,
+                        },
+                        .msb => switch (info.kind) {
+                            .lsb, .zero_extend => false,
+                            .msb, .sign_extend => true,
+                        },
+                        .zero_extend => info.kind == .zero_extend,
+                        .sign_extend => info.kind == .sign_extend,
+                        .from_lsb => switch (info.kind) {
+                            .lsb => true,
+                            .msb, .zero_extend, .sign_extend => false,
+                        },
+                        .from_msb => switch (info.kind) {
+                            .lsb, .msb => true,
+                            .zero_extend, .sign_extend => false,
+                        },
+                        .from_sign_extend => switch (info.kind) {
+                            .lsb, .msb, .sign_extend => true,
+                            .zero_extend => false,
+                        },
+                        .from_zero_extend => switch (info.kind) {
+                            .lsb, .zero_extend => true,
+                            .msb, .sign_extend => false,
+                        },
+                    } and switch (spec.is) {
+                        .any => true,
+                        .uninverted => !info.inverted,
+                        .inverted => info.inverted,
+                    };
+                }
+            },
 
             fn matches(src: Src, temp: Temp, cg: *CodeGen) bool {
                 return switch (src) {
@@ -188988,13 +190613,7 @@ const Select = struct {
                     .reg_mask => |mask_spec| switch (temp.tracking(cg).short) {
                         .register_mask => |reg_mask| mask_spec.size.bitSize(cg.target) >=
                             reg_mask.info.scalar.bitSize(cg.target) * temp.typeOf(cg).vectorLen(cg.pt.zcu) and
-                            mask_spec.is.matches(reg_mask.info.inverted),
-                        else => false,
-                    },
-                    .all_reg_mask => |mask_spec| switch (temp.tracking(cg).short) {
-                        .register_mask => |reg_mask| mask_spec.size.bitSize(cg.target) ==
-                            reg_mask.info.scalar.bitSize(cg.target) * temp.typeOf(cg).vectorLen(cg.pt.zcu) and
-                            reg_mask.info.kind == .all and mask_spec.is.matches(reg_mask.info.inverted),
+                            mask_spec.matches(reg_mask.info),
                         else => false,
                     },
                 };
@@ -189002,7 +190621,7 @@ const Select = struct {
 
             fn convert(src: Src, temp: *Temp, cg: *CodeGen) InnerError!bool {
                 return switch (src) {
-                    .none, .any, .imm, .imm8, .imm16, .imm32, .simm32, .reg_mask, .all_reg_mask => false,
+                    .none, .any, .imm, .imm8, .imm16, .imm32, .simm32, .reg_mask => false,
                     .mem, .to_mem => try temp.toBase(false, cg),
                     .mut_mem, .to_mut_mem => try temp.toBase(true, cg),
                     .to_reg => |reg| try temp.toReg(reg, cg),
@@ -189073,8 +190692,8 @@ const Select = struct {
             pand_trunc_mem: struct { from: Memory.Size, to: Memory.Size },
             pand_mask_mem: struct { ref: Select.Operand.Ref, invert: bool = false },
             ptest_mask_mem: Select.Operand.Ref,
-            pshufb_bswap_mem: struct { repeat: u4 = 1, size: Memory.Size, smear: u4 = 1 },
-            bits_mem: enum { forward, reverse },
+            pshufb_bytes_mem: struct { direction: Direction, repeat: u4 = 1, size: Memory.Size, smear: u4 = 1 },
+            bits_mem: struct { direction: Direction, smear: u4 = 1 },
             splat_int_mem: struct { ref: Select.Operand.Ref, inside: enum { umin, smin, smax } = .umin, outside: enum { smin, smax } },
             splat_float_mem: struct { ref: Select.Operand.Ref, inside: enum { zero } = .zero, outside: f16 },
             frame: FrameIndex,
@@ -189108,6 +190727,8 @@ const Select = struct {
                     };
                 }
             };
+
+            const Direction = enum { forward, reverse };
 
             fn lock(kind: Kind, cg: *CodeGen) ![2]?RegisterLock {
                 var reg_locks: [2]?RegisterLock = @splat(null);
@@ -189430,11 +191051,15 @@ const Select = struct {
                     var index: u7 = 0;
                     for (0..@intCast(ref_ty.vectorLen(zcu))) |_| {
                         switch (mask_info.kind) {
-                            .sign => {
+                            .lsb, .zero_extend => {
+                                elems[index] = 1;
+                                @memset(elems[index + 1 ..][0 .. elem_bytes - 1], std.math.minInt(u8));
+                            },
+                            .msb => {
                                 @memset(elems[index..][0 .. elem_bytes - 1], std.math.minInt(u8));
                                 elems[index + elem_bytes - 1] = @bitCast(@as(i8, std.math.minInt(i8)));
                             },
-                            .all => @memset(elems[index..][0..elem_bytes], std.math.maxInt(u8)),
+                            .sign_extend => @memset(elems[index..][0..elem_bytes], std.math.maxInt(u8)),
                         }
                         index += elem_bytes;
                     }
@@ -189443,31 +191068,40 @@ const Select = struct {
                         .storage = .{ .bytes = try zcu.intern_pool.getOrPutString(zcu.gpa, io, pt.tid, elems, .maybe_embedded_nulls) },
                     } }))), true };
                 },
-                .pshufb_bswap_mem => |bswap_spec| {
+                .pshufb_bytes_mem => |bytes_spec| {
                     const zcu = pt.zcu;
                     assert(spec.type.isVector(zcu) and spec.type.childType(zcu).toIntern() == .u8_type);
                     var elem_buf: [32]u8 = @splat(1 << 7);
                     const elems = elem_buf[0..spec.type.vectorLen(zcu)];
-                    const len: usize = @intCast(@divExact(bswap_spec.size.bitSize(cg.target), 8));
+                    const len: usize = @intCast(@divExact(bytes_spec.size.bitSize(cg.target), 8));
                     var to_index: u6 = 0;
-                    for (0..bswap_spec.repeat) |_| for (0..len) |from_index| {
-                        @memset(elems[to_index..][0..bswap_spec.smear], @intCast(len - 1 - from_index));
-                        to_index += bswap_spec.smear;
+                    for (0..bytes_spec.repeat) |_| for (0..len) |from_index| {
+                        @memset(elems[to_index..][0..bytes_spec.smear], @intCast(switch (bytes_spec.direction) {
+                            .forward => from_index,
+                            .reverse => len - 1 - from_index,
+                        }));
+                        to_index += bytes_spec.smear;
                     };
                     return .{ try cg.tempMemFromValue(.fromInterned(try pt.intern(.{ .aggregate = .{
                         .ty = spec.type.toIntern(),
                         .storage = .{ .bytes = try zcu.intern_pool.getOrPutString(zcu.gpa, io, pt.tid, elems, .maybe_embedded_nulls) },
                     } }))), true };
                 },
-                .bits_mem => |direction| {
+                .bits_mem => |bits_spec| {
                     const zcu = pt.zcu;
                     assert(spec.type.isVector(zcu) and spec.type.childType(zcu).toIntern() == .u8_type);
-                    var bytes: [32]u8 = undefined;
-                    const elems = bytes[0..spec.type.vectorLen(zcu)];
-                    for (elems, 0..) |*elem, index| elem.* = switch (direction) {
-                        .forward => @as(u8, 1 << 0) << @truncate(index),
-                        .reverse => @as(u8, 1 << 7) >> @truncate(index),
-                    };
+                    var elem_buf: [32]u8 = @splat(1 << 7);
+                    const elems = elem_buf[0..spec.type.vectorLen(zcu)];
+                    var from_index: u6 = 0;
+                    var to_index: u6 = 0;
+                    while (elems.len - to_index > 0) {
+                        @memset(elems[to_index..][0..bits_spec.smear], @intCast(switch (bits_spec.direction) {
+                            .forward => @as(u8, 1 << 0) << @truncate(from_index),
+                            .reverse => @as(u8, 1 << 7) >> @truncate(from_index),
+                        }));
+                        from_index += 1;
+                        to_index += bits_spec.smear;
+                    }
                     return .{ try cg.tempMemFromValue(.fromInterned(try pt.intern(.{ .aggregate = .{
                         .ty = spec.type.toIntern(),
                         .storage = .{ .bytes = try zcu.intern_pool.getOrPutString(zcu.gpa, io, pt.tid, elems, .maybe_embedded_nulls) },

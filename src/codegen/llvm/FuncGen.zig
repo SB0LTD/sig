@@ -6790,6 +6790,7 @@ const ParamTypeIterator = struct {
                 }
             },
             .sse,
+            .bool_vector_mask,
             .integer_per_element,
             .sse_per_element,
             .sse_sse_x87_per_qword,
@@ -6874,6 +6875,7 @@ const ParamTypeIterator = struct {
                 .none => break,
                 .memory => unreachable, // handled above
                 .win_i128 => unreachable, // windows only
+                .bool_vector_mask,
                 .integer_per_element,
                 .sse_per_element,
                 .sse_sse_x87_per_qword,
@@ -7091,6 +7093,7 @@ fn lowerWin64FnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Err
             }
         },
         .sse,
+        .bool_vector_mask,
         .integer_per_element,
         .sse_per_element,
         .sse_sse_x87_per_qword,
@@ -7156,6 +7159,7 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
             .none => break,
             .memory => return .void,
             .win_i128 => unreachable, // windows only
+            .bool_vector_mask,
             .integer_per_element,
             .sse_per_element,
             .sse_sse_x87_per_qword,

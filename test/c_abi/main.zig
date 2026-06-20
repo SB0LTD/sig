@@ -295,7 +295,6 @@ extern fn c_test_vector_2_bool() void;
 
 test "@Vector(2, bool)" {
     if (builtin.zig_backend == .stage2_llvm and (builtin.cpu.arch != .powerpc and builtin.cpu.arch != .wasm32)) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const vec = c_ret_vector_2_bool();
     try expect(vec[0] == true);
@@ -337,7 +336,6 @@ extern fn c_test_vector_4_bool() void;
 
 test "@Vector(4, bool)" {
     if (builtin.zig_backend == .stage2_llvm and (builtin.cpu.arch != .powerpc and builtin.cpu.arch != .wasm32)) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const vec = c_ret_vector_4_bool();
     try expect(vec[0] == true);
@@ -391,7 +389,6 @@ extern fn c_test_vector_8_bool() void;
 
 test "@Vector(8, bool)" {
     if (builtin.zig_backend == .stage2_llvm and (builtin.cpu.arch != .powerpc and builtin.cpu.arch != .wasm32)) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const vec = c_ret_vector_8_bool();
     try expect(vec[0] == false);
@@ -469,7 +466,6 @@ extern fn c_test_vector_16_bool() void;
 
 test "@Vector(16, bool)" {
     if (builtin.zig_backend == .stage2_llvm and (builtin.cpu.arch != .powerpc and builtin.cpu.arch != .wasm32)) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const vec = c_ret_vector_16_bool();
     try expect(vec[0] == true);
@@ -595,7 +591,6 @@ extern fn c_test_vector_32_bool() void;
 
 test "@Vector(32, bool)" {
     if (builtin.zig_backend == .stage2_llvm and (builtin.cpu.arch != .powerpc and builtin.cpu.arch != .wasm32)) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows and builtin.cpu.has(.x86, .avx)) return error.SkipZigTest;
 
     const vec = c_ret_vector_32_bool();
     try expect(vec[0] == true);
