@@ -48,7 +48,7 @@ comptime {
 
 // error
 // backend=selfhosted
-// target=spirv64-vulkan
+// target=spirv32-vulkan
 //
 // :2:21: error: access qualifier '.read_only' is only valid under the 'opencl' os
 // :14:21: error: invalid 'sampled' field value 'bool'

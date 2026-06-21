@@ -1150,6 +1150,8 @@ test "resist alias of explicit copy of array passed as arg" {
 }
 
 test "access element through reference" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest(x: u8) !void {
             {

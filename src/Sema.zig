@@ -8694,14 +8694,25 @@ fn checkReturnTypeAndCallConv(
                 return sema.fail(block, callconv_src, "'pixel_centered_integer' is not supported on this target", .{});
             }
         },
-        .spirv_kernel, .spirv_task => |kernel| {
+        .spirv_kernel => |kernel| {
             if (kernel.x == 0 or kernel.y == 0 or kernel.z == 0) {
                 return sema.fail(block, callconv_src, "kernel workgroup dimensions must be at least 1", .{});
+            }
+        },
+        .spirv_task => |task| {
+            if (task.x == 0 or task.y == 0 or task.z == 0) {
+                return sema.fail(block, callconv_src, "kernel workgroup dimensions must be at least 1", .{});
+            }
+            if (!target.cpu.has(.spirv, .mesh_shading_ext)) {
+                return sema.fail(block, callconv_src, "calling convention '{t}' requires the 'mesh_shading_ext' feature", .{@"callconv"});
             }
         },
         .spirv_mesh => |mesh| {
             if (mesh.max_vertices == 0 or mesh.max_primitives == 0) {
                 return sema.fail(block, callconv_src, "mesh shader 'max_vertices' and 'max_primitives' must be at least 1", .{});
+            }
+            if (!target.cpu.has(.spirv, .mesh_shading_ext)) {
+                return sema.fail(block, callconv_src, "calling convention '{t}' requires the 'mesh_shading_ext' feature", .{@"callconv"});
             }
         },
         else => {},
@@ -8844,7 +8855,7 @@ fn checkMergeAllowed(sema: *Sema, block: *Block, src: LazySrcLoc, peer_ty: Type)
         try sema.errNote(runtime_src, msg, "runtime control flow here", .{});
 
         const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
-        try sema.errNote(src, msg, "pointers with address space '{s}' cannot be returned from a branch on target {s}-{s} by compiler backend {s}", .{
+        try sema.errNote(src, msg, "pointers with address space '{s}' cannot be returned from a branch on target '{s}-{s}' by compiler backend '{s}'", .{
             @tagName(as),
             @tagName(target.cpu.arch.family()),
             @tagName(target.os.tag),
