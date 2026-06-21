@@ -725,7 +725,10 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
     const val = zcu.navValue(cg.owner_nav);
     const ty = val.typeOf(zcu);
 
-    if (!do_codegen and !ty.hasRuntimeBits(zcu)) return;
+    if (!do_codegen and !ty.hasRuntimeBits(zcu)) {
+        const child_ty = if (ty.zigTypeTag(zcu) == .pointer) ty.childType(zcu) else ty;
+        if (child_ty.zigTypeTag(zcu) != .spirv) return;
+    }
 
     const spv_decl_index = try cg.resolveNav(ip, cg.owner_nav);
     const decl = cg.declPtr(spv_decl_index);
@@ -1800,7 +1803,9 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
                 },
             }
 
-            if (!nav_ty.hasRuntimeBits(zcu)) return cg.constUndef(ty_id);
+            if (!nav_ty.hasRuntimeBits(zcu) and nav_ty.zigTypeTag(zcu) != .spirv) {
+                return cg.constUndef(ty_id);
+            }
 
             const spv_decl_index = try cg.resolveNav(ip, nav_index);
             const spv_decl = cg.declPtr(spv_decl_index);
@@ -1835,7 +1840,9 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
                 else => {},
             }
 
-            if (!uav_ty.hasRuntimeBits(zcu)) return cg.constUndef(ty_id);
+            if (!uav_ty.hasRuntimeBits(zcu) and uav_ty.zigTypeTag(zcu) != .spirv) {
+                return cg.constUndef(ty_id);
+            }
 
             // Uav refs are always generic.
             assert(result_ptr_ty.ptrAddressSpace(zcu) == .generic);
