@@ -2958,7 +2958,24 @@ fn initHeaders(
             ehdr.entry = 0;
             ehdr.phoff = 0;
             ehdr.shoff = 0;
-            ehdr.flags = 0;
+            ehdr.flags = switch (machine) {
+                .X86_64 => 0,
+                .LOONGARCH => e_flags: {
+                    const target_cpu = &elf.base.comp.getTarget().cpu;
+                    const e_flags: std.elf.loongarch.EFlags = .{
+                        .base_abi_modifier = if (target_cpu.has(.loongarch, .d))
+                            .d
+                        else if (target_cpu.has(.loongarch, .f))
+                            .f
+                        else
+                            .s,
+                        .abi_extension = .base,
+                        .abi_version = 1,
+                    };
+                    break :e_flags @bitCast(e_flags);
+                },
+                else => @panic(@tagName(machine)),
+            };
             ehdr.ehsize = @sizeOf(ElfN.Ehdr);
             ehdr.phentsize = @sizeOf(ElfN.Phdr);
             ehdr.phnum = @min(phnum, std.elf.PN_XNUM);
