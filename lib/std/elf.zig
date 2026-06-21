@@ -3263,3 +3263,21 @@ pub const gnu_hash = struct {
         try std.testing.expectEqual(0x8ae9f18e, calculate("flapenguin.me"));
     }
 };
+
+pub const loongarch = struct {
+    /// Ehdr.e_flags bits of LoongArch
+    pub const EFlags = packed struct(Word) {
+        base_abi_modifier: BaseAbiModifier,
+        abi_extension: AbiExtension,
+        abi_version: u2,
+        reserved: u24 = 0,
+
+        pub const BaseAbiModifier = enum(u3) {
+            s = 1,
+            f = 2,
+            d = 3,
+            _,
+        };
+        pub const AbiExtension = enum(u3) { base = 0, _ };
+    };
+};
