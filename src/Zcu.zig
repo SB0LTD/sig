@@ -469,6 +469,12 @@ pub const StdLangDecl = enum {
     @"Type.ContainerLayout",
     @"Type.Opaque",
     @"Type.Spirv",
+    @"Type.Spirv.Image",
+    @"Type.Spirv.Image.Usage",
+    @"Type.Spirv.Image.Format",
+    @"Type.Spirv.Image.Dimensionality",
+    @"Type.Spirv.Image.Depth",
+    @"Type.Spirv.Image.Access",
 
     panic,
     @"panic.call",
@@ -550,6 +556,12 @@ pub const StdLangDecl = enum {
             .@"Type.ContainerLayout",
             .@"Type.Opaque",
             .@"Type.Spirv",
+            .@"Type.Spirv.Image",
+            .@"Type.Spirv.Image.Usage",
+            .@"Type.Spirv.Image.Format",
+            .@"Type.Spirv.Image.Dimensionality",
+            .@"Type.Spirv.Image.Depth",
+            .@"Type.Spirv.Image.Access",
             => .type,
 
             .panic => .type,
@@ -603,7 +615,7 @@ pub const StdLangDecl = enum {
             .VaList => .va_list,
             .assembly, .@"assembly.Clobbers" => .assembly,
             else => {
-                if (@intFromEnum(decl) <= @intFromEnum(StdLangDecl.@"Type.Spirv")) {
+                if (@intFromEnum(decl) <= @intFromEnum(StdLangDecl.@"Type.Spirv.Image.Access")) {
                     return .main;
                 } else {
                     return .panic;

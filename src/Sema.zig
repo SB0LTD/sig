@@ -16793,7 +16793,43 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 .val = (try pt.aggregateValue(type_opaque_ty, &field_values)).toIntern(),
             })));
         },
-        .spirv => unreachable, // TODO: ALI
+        .spirv => {
+            const spirv_info = ip.loadSpirvType(ty.toIntern());
+            const spirv_union_ty = try sema.getStdLangType(src, .@"Type.Spirv");
+            const spirv_tag_ty = spirv_union_ty.unionTagType(zcu).?;
+            const spirv_tag_val = try pt.enumValueFieldIndex(spirv_tag_ty, @intFromEnum(spirv_info.flags.tag));
+            const spirv_payload_val: Value = switch (spirv_info.flags.tag) {
+                .sampler => .void,
+                .sampled_image, .runtime_array => .fromInterned(spirv_info.ty),
+                .image => image: {
+                    const image_ty = try sema.getStdLangType(src, .@"Type.Spirv.Image");
+                    const usage_union_ty = try sema.getStdLangType(src, .@"Type.Spirv.Image.Usage");
+                    const format_ty = try sema.getStdLangType(src, .@"Type.Spirv.Image.Format");
+                    const dim_ty = try sema.getStdLangType(src, .@"Type.Spirv.Image.Dimensionality");
+                    const depth_ty = try sema.getStdLangType(src, .@"Type.Spirv.Image.Depth");
+                    const access_ty = try sema.getStdLangType(src, .@"Type.Spirv.Image.Access");
+                    const usage_tag_ty = usage_union_ty.unionTagType(zcu).?;
+                    const usage_tag_val = try pt.enumValueFieldIndex(usage_tag_ty, @intFromEnum(spirv_info.flags.usage));
+                    const usage_val = try pt.unionValue(usage_union_ty, usage_tag_val, .fromInterned(spirv_info.ty));
+                    const image_field_vals = [_]InternPool.Index{
+                        usage_val.toIntern(),
+                        (try pt.enumValueFieldIndex(format_ty, @intFromEnum(spirv_info.flags.format))).toIntern(),
+                        (try pt.enumValueFieldIndex(dim_ty, @intFromEnum(spirv_info.flags.dim))).toIntern(),
+                        (try pt.enumValueFieldIndex(depth_ty, @intFromEnum(spirv_info.flags.depth))).toIntern(),
+                        (try pt.enumValueFieldIndex(access_ty, @intFromEnum(spirv_info.flags.access))).toIntern(),
+                        Value.makeBool(spirv_info.flags.is_arrayed).toIntern(),
+                        Value.makeBool(spirv_info.flags.is_multisampled).toIntern(),
+                    };
+                    break :image try pt.aggregateValue(image_ty, &image_field_vals);
+                },
+            };
+            const spirv_val = try pt.unionValue(spirv_union_ty, spirv_tag_val, spirv_payload_val);
+            return Air.internedToRef((try pt.internUnion(.{
+                .ty = type_info_ty.toIntern(),
+                .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.lang.TypeId.spirv))).toIntern(),
+                .val = spirv_val.toIntern(),
+            })));
+        },
         .frame => return sema.failWithUseOfAsync(block, src),
         .@"anyframe" => return sema.failWithUseOfAsync(block, src),
     }
