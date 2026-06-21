@@ -1034,10 +1034,6 @@ fn collectEntryPointInterface(
     for (mir.decl_deps) |dep| {
         try collectEntryPointInterface(linker, dep.nav, interface, visited, nav_final_ids, uav_final_ids, frag_infos, gpa);
     }
-
-    for (mir.nav_refs) |ref| {
-        try collectEntryPointInterface(linker, ref.nav, interface, visited, nav_final_ids, uav_final_ids, frag_infos, gpa);
-    }
 }
 
 fn remapAndAppend(
