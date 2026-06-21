@@ -8112,7 +8112,8 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) 
         if (!arg_ty.hasRuntimeBits(zcu)) continue;
 
         if (arg_ty.zigTypeTag(zcu) == .pointer and !arg_ty.isSlice(zcu) and
-            !arg_ty.childType(zcu).hasRuntimeBits(zcu))
+            !arg_ty.childType(zcu).hasRuntimeBits(zcu) and
+            cg.module.storageClass(arg_ty.ptrAddressSpace(zcu)) == .function)
         {
             // in logical addressing, pointer arguments to function calls
             // must be memory object declarations (OpVariable). for pointers to
