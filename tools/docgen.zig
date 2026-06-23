@@ -877,6 +877,7 @@ fn tokenizeAndPrintRaw(
             .minus_pipe_equal,
             .asterisk,
             .asterisk_equal,
+            .asterisk_asterisk,
             .asterisk_percent,
             .asterisk_percent_equal,
             .asterisk_pipe,
@@ -902,7 +903,7 @@ fn tokenizeAndPrintRaw(
             .tilde,
             => try writeEscaped(out, src[token.loc.start..token.loc.end]),
 
-            .invalid => return parseError(
+            .invalid, .invalid_periodasterisks => return parseError(
                 docgen_tokenizer,
                 source_token,
                 "syntax error",

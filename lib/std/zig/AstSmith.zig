@@ -18,6 +18,7 @@ token_tag_buf: [2048]Token.Tag,
 token_start_buf: [2048]std.zig.Ast.ByteOffset,
 tokens_len: usize,
 
+/// For `.asterisk`, this also includes `.asterisk2`
 not_token: ?Token.Tag,
 not_token_comptime: bool,
 /// ExprSuffix
@@ -195,6 +196,7 @@ fn preservePegEndOfWord(a: *AstSmith) SourceError!void {
 /// Assumes the token has not been written yet
 fn addTokenTag(a: *AstSmith, tag: Token.Tag) SourceError!void {
     assert(tag != a.not_token);
+    if (a.not_token == .asterisk) assert(tag != .asterisk_asterisk);
     a.not_token = null;
 
     if (a.not_token_comptime) assert(tag != .keyword_comptime);
@@ -238,6 +240,11 @@ fn pegToken(a: *AstSmith, tag: Token.Tag) SourceError!void {
 
     switch (lexeme[0]) {
         '_', 'a'...'z', 'A'...'Z', '0'...'9' => try a.preservePegEndOfWord(),
+        '*' => if (a.tokens_len > 0 and a.source_buf[a.source_len - 1] == '*' and
+            a.token_tag_buf[a.tokens_len - 1] != .asterisk_asterisk)
+        {
+            try a.addSourceByte(' ');
+        },
         '.' => if (a.tokens_len > 0 and switch (a.source_buf[a.source_len - 1]) {
             '.' => true,
             '0'...'9', 'a'...'z', 'A'...'Z' => a.token_tag_buf[a.tokens_len - 1] == .number_literal,
@@ -1716,11 +1723,13 @@ fn pegAdditionOp(a: *AstSmith) SourceError!void {
 ///      / ASTERISK
 ///      / SLASH
 ///      / PERCENT
+///      / ASTERISK2
 ///      / ASTERISKPERCENT
 ///      / ASTERISKPIPE
 fn pegMultiplyOp(a: *AstSmith) SourceError!void {
     const tags = [_]Token.Tag{
         .asterisk,
+        .asterisk_asterisk,
         .pipe_pipe,
         .slash,
         .percent,
@@ -1858,9 +1867,9 @@ fn pegSliceTypeStart(a: *AstSmith) SourceError!void {
     try a.pegToken(.r_bracket);
 }
 
-/// SinglePtrTypeStart <- ASTERISK
+/// SinglePtrTypeStart <- ASTERISK / ASTERISK2
 fn pegSinglePtrTypeStart(a: *AstSmith) SourceError!void {
-    try a.pegToken(.asterisk);
+    try a.pegToken(if (!a.smith.value(bool)) .asterisk else .asterisk_asterisk);
 }
 
 /// ManyPtrTypeStart <- LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
@@ -1882,7 +1891,7 @@ fn pegManyPtrTypeStart(a: *AstSmith) SourceError!void {
     try a.pegToken(.r_bracket);
 }
 
-/// ArrayTypeStart <- LBRACKET !ASTERISK Expr (COLON Expr)? RBRACKET
+/// ArrayTypeStart <- LBRACKET !(ASTERISK / ASTERISK2) Expr (COLON Expr)? RBRACKET
 fn pegArrayTypeStart(a: *AstSmith) SourceError!void {
     try a.pegToken(.l_bracket);
     a.not_token = .asterisk;
