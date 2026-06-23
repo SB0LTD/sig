@@ -170,8 +170,10 @@ pub fn main(init: process.Init.Minimal) !void {
         .random_seed = parseRandomSeed(seed_arg),
     };
 
-    const cmd = stringToEnum(enum { fetch, build }, cmd_name) orelse fatal("bad command name: {q}", .{ cmd_name });
+    const cmd = stringToEnum(enum { init, fetch, build }, cmd_name) orelse
+        fatal("bad command name: {q}", .{ cmd_name });
     switch (cmd) {
+        .init => return cmdInit( gpa, &graph, args[arg_i..]),
         .fetch => return cmdFetch( gpa, &graph, args[arg_i..]),
         .build => {},
     }
@@ -978,7 +980,7 @@ pub fn main(init: process.Init.Minimal) !void {
             }
 
             const rand_int = randInt(io, u64);
-            const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
+            const tmp_dir_sub_path = "tmp" ++ Dir.path.sep_str ++ std.fmt.hex(rand_int);
             const config_tmp_path: Path = .{
                 .root_dir = dirs.local_cache,
                 .sub_path = tmp_dir_sub_path,
@@ -1033,7 +1035,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 if (system_pkg_dir_path) |p| {
                     // In this mode, the system needs to provide these packages; they
                     // cannot be fetched by Zig.
-                    const s = fs.path.sep_str;
+                    const s = Dir.path.sep_str;
                     for (unlazy_set.keys()) |*hash| {
                         std.log.err("lazy dependency package not found: {s}" ++ s ++ "{s}", .{ p, hash.toSlice() });
                     }
@@ -1100,7 +1102,7 @@ pub fn main(init: process.Init.Minimal) !void {
                         config_tmp_path, final_path, e,
                     });
                 };
-                config_man.writeManifest() catch |err| warn("failed to write cache manifest: {t}", .{err});
+                config_man.writeManifest() catch |err| log.warn("failed to write cache manifest: {t}", .{err});
                 break :cp .{ final_path, false };
             }
         };
@@ -1549,7 +1551,7 @@ fn cmdFetch(
         ast.deinit(gpa);
     }
 
-    var fixups: Ast.Render.Fixups = .{};
+    var fixups: std.zig.Ast.Render.Fixups = .{};
     defer fixups.deinit(gpa);
 
     var saved_path_or_url = path_or_url;
@@ -1630,7 +1632,7 @@ fn cmdFetch(
             .{std.zig.fmtString(package_hash_slice)},
         );
 
-        warn("overwriting existing dependency named {q}", .{name});
+        log.warn("overwriting existing dependency named {q}", .{name});
         try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
         if (dep.hash_node.unwrap()) |hash_node| {
             try fixups.replace_nodes_with_string.put(gpa, hash_node, hash_replace);
@@ -1692,9 +1694,128 @@ const usage_fetch =
     \\
 ;
 
-fn cmdBuild() !void {
+const usage_init =
+    \\Usage: zig init
+    \\
+    \\   Initializes a `zig build` project in the current working
+    \\   directory.
+    \\
+    \\Options:
+    \\  -m, --minimal          Use minimal init template
+    \\  -h, --help             Print this help and exit
+    \\
+    \\
+;
 
+fn cmdInit(
+    gpa: Allocator,
+    graph: *Graph,
+    args: []const []const u8
+) !void {
+    const arena = graph.arena;
+    const io = graph.io;
+
+    var template: enum { example, minimal } = .example;
+    {
+        var i: usize = 0;
+        while (i < args.len) : (i += 1) {
+            const arg = args[i];
+            if (mem.startsWith(u8, arg, "-")) {
+                if (mem.eql(u8, arg, "-m") or mem.eql(u8, arg, "--minimal")) {
+                    template = .minimal;
+                } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+                    try Io.File.stdout().writeStreamingAll(io, usage_init);
+                    return cleanExit(io);
+                } else {
+                    fatal("unrecognized parameter: {q}", .{arg});
+                }
+            } else {
+                fatal("unexpected extra parameter: {q}", .{arg});
+            }
+        }
+    }
+
+    const cwd_path = try std.zig.getResolvedCwd(io, arena);
+    const cwd_basename = Dir.path.basename(cwd_path);
+    const sanitized_root_name = try sanitizeExampleName(arena, cwd_basename);
+
+    const rng: std.Random.IoSource = .{ .io = io };
+    const fingerprint: Package.Fingerprint = .generate(rng.interface(), sanitized_root_name);
+
+    switch (template) {
+        .example => {
+            var templates = findTemplates(gpa, arena, io);
+            defer templates.deinit(io);
+
+            const s = Dir.path.sep_str;
+            const template_paths = [_][]const u8{
+                Package.build_zig_basename,
+                Package.Manifest.basename,
+                "src" ++ s ++ "main.zig",
+                "src" ++ s ++ "root.zig",
+            };
+            var ok_count: usize = 0;
+
+            for (template_paths) |template_path| {
+                if (templates.write(arena, io, Io.Dir.cwd(), sanitized_root_name, template_path, fingerprint)) |_| {
+                    std.log.info("created {s}", .{template_path});
+                    ok_count += 1;
+                } else |err| switch (err) {
+                    error.PathAlreadyExists => std.log.info("preserving already existing file: {s}", .{
+                        template_path,
+                    }),
+                    else => std.log.err("unable to write {s}: {s}\n", .{ template_path, @errorName(err) }),
+                }
+            }
+
+            if (ok_count == template_paths.len) {
+                std.log.info("see `zig build --help` for a menu of options", .{});
+            }
+            return cleanExit(io);
+        },
+        .minimal => {
+            writeSimpleTemplateFile(io, Package.Manifest.basename,
+                \\.{{
+                \\    .name = .{s},
+                \\    .version = "0.0.1",
+                \\    .minimum_zig_version = "{s}",
+                \\    .paths = .{{""}},
+                \\    .fingerprint = 0x{x},
+                \\}}
+                \\
+            , .{
+                sanitized_root_name,
+                builtin.zig_version_string,
+                fingerprint.int(),
+            }) catch |err| switch (err) {
+                else => fatal("failed to create {q}: {t}", .{ Package.Manifest.basename, err }),
+                error.PathAlreadyExists => fatal("refusing to overwrite {q}", .{Package.Manifest.basename}),
+            };
+            writeSimpleTemplateFile(io, Package.build_zig_basename,
+                \\const std = @import("std");
+                \\
+                \\pub fn build(b: *std.Build) void {{
+                \\    _ = b; // stub
+                \\}}
+                \\
+            , .{}) catch |err| switch (err) {
+                else => fatal("failed to create {q}: {t}", .{ Package.build_zig_basename, err }),
+                // `build.zig` already existing is okay: the user has just used `zig init` to set up
+                // their `build.zig.zon` *after* writing their `build.zig`. So this one isn't fatal.
+                error.PathAlreadyExists => {
+                    std.log.info("successfully populated {q}, preserving existing {q}", .{
+                        Package.Manifest.basename, Package.build_zig_basename,
+                    });
+                    return cleanExit(io);
+                },
+            };
+            std.log.info("successfully populated {q} and {q}", .{ Package.Manifest.basename, Package.build_zig_basename });
+            return cleanExit(io);
+        },
+    }
 }
+
+
 
 fn markFailedStepsDirty(maker: *Maker) void {
     const all_steps = maker.step_stack.keys();
@@ -3234,7 +3355,7 @@ fn loadManifest(
                     \\
                 , .{
                     options.root_name,
-                    build_options.version,
+                    builtin.zig_version_string,
                     Package.Fingerprint.generate(rng.interface(), options.root_name).int(),
                 }) catch |e| {
                     fatal("unable to write {s}: {t}", .{ Package.Manifest.basename, e });
@@ -3244,7 +3365,7 @@ fn loadManifest(
             else => |e| fatal("unable to load {s}: {t}", .{ Package.Manifest.basename, e }),
         };
     };
-    var ast = try Ast.parse(gpa, manifest_bytes, .zon);
+    var ast = try std.zig.Ast.parse(gpa, manifest_bytes, .zon);
     errdefer ast.deinit(gpa);
 
     if (ast.errors.len > 0) {
@@ -3270,5 +3391,140 @@ fn loadManifest(
         process.exit(2);
     }
     return .{ manifest, ast };
+}
+
+fn sanitizeExampleName(arena: Allocator, bytes: []const u8) error{OutOfMemory}![]const u8 {
+    var result: std.ArrayList(u8) = .empty;
+    for (bytes, 0..) |byte, i| switch (byte) {
+        '0'...'9' => {
+            if (i == 0) try result.append(arena, '_');
+            try result.append(arena, byte);
+        },
+        '_', 'a'...'z', 'A'...'Z' => try result.append(arena, byte),
+        '-', '.', ' ' => try result.append(arena, '_'),
+        else => continue,
+    };
+    if (!std.zig.isValidId(result.items)) return "foo";
+    if (result.items.len > Package.Manifest.max_name_len)
+        result.shrinkRetainingCapacity(Package.Manifest.max_name_len);
+
+    return result.toOwnedSlice(arena);
+}
+
+test sanitizeExampleName {
+    var arena_instance = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    try std.testing.expectEqualStrings("foo_bar", try sanitizeExampleName(arena, "foo bar+"));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, ""));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, "!"));
+    try std.testing.expectEqualStrings("a", try sanitizeExampleName(arena, "!a"));
+    try std.testing.expectEqualStrings("a_b", try sanitizeExampleName(arena, "a.b!"));
+    try std.testing.expectEqualStrings("_01234", try sanitizeExampleName(arena, "01234"));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, "error"));
+    try std.testing.expectEqualStrings("foo", try sanitizeExampleName(arena, "test"));
+    try std.testing.expectEqualStrings("tests", try sanitizeExampleName(arena, "tests"));
+    try std.testing.expectEqualStrings("test_project", try sanitizeExampleName(arena, "test project"));
+}
+
+const Templates = struct {
+    zig_lib_directory: Cache.Directory,
+    dir: Io.Dir,
+    buffer: std.array_list.Managed(u8),
+
+    fn deinit(templates: *Templates, io: Io) void {
+        templates.zig_lib_directory.handle.close(io);
+        templates.dir.close(io);
+        templates.buffer.deinit();
+        templates.* = undefined;
+    }
+
+    fn write(
+        templates: *Templates,
+        arena: Allocator,
+        io: Io,
+        out_dir: Io.Dir,
+        root_name: []const u8,
+        template_path: []const u8,
+        fingerprint: Package.Fingerprint,
+    ) !void {
+        if (Dir.path.dirname(template_path)) |dirname| {
+            out_dir.createDirPath(io, dirname) catch |err| {
+                fatal("unable to make path {q}: {t}", .{ dirname, err });
+            };
+        }
+
+        const max_bytes = 10 * 1024 * 1024;
+        const contents = templates.dir.readFileAlloc(io, template_path, arena, .limited(max_bytes)) catch |err| {
+            fatal("unable to read template file {q}: {t}", .{ template_path, err });
+        };
+        templates.buffer.clearRetainingCapacity();
+        try templates.buffer.ensureUnusedCapacity(contents.len);
+        var i: usize = 0;
+        while (i < contents.len) {
+            if (contents[i] == '_' or contents[i] == '.') {
+                // Both '_' and '.' are allowed because depending on the context
+                // one prefix will be valid, while the other might not.
+                if (std.mem.startsWith(u8, contents[i + 1 ..], "NAME")) {
+                    try templates.buffer.appendSlice(root_name);
+                    i += "_NAME".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i + 1 ..], "FINGERPRINT")) {
+                    try templates.buffer.print("0x{x}", .{fingerprint.int()});
+                    i += "_FINGERPRINT".len;
+                    continue;
+                } else if (std.mem.startsWith(u8, contents[i + 1 ..], "ZIGVER")) {
+                    try templates.buffer.appendSlice(builtin.zig_version_string);
+                    i += "_ZIGVER".len;
+                    continue;
+                }
+            }
+
+            try templates.buffer.append(contents[i]);
+            i += 1;
+        }
+
+        return out_dir.writeFile(io, .{
+            .sub_path = template_path,
+            .data = templates.buffer.items,
+            .flags = .{ .exclusive = true },
+        });
+    }
+};
+fn writeSimpleTemplateFile(io: Io, file_name: []const u8, comptime format: []const u8, args: anytype) !void {
+    const f = try Io.Dir.cwd().createFile(io, file_name, .{ .exclusive = true });
+    defer f.close(io);
+    var buf: [4096]u8 = undefined;
+    var fw = f.writer(io, &buf);
+    try fw.interface.print(format, args);
+    try fw.interface.flush();
+}
+
+fn findTemplates(gpa: Allocator, arena: Allocator, io: Io) Templates {
+    const cwd_path = std.zig.getResolvedCwd(io, arena) catch |err| {
+        fatal("unable to get cwd: {t}", .{err});
+    };
+    const self_exe_path = process.executablePathAlloc(io, arena) catch |err| {
+        fatal("unable to find self exe path: {t}", .{err});
+    };
+    var zig_lib_directory = std.zig.findZigLibDirFromSelfExe(arena, io, cwd_path, self_exe_path) catch |err| {
+        fatal("unable to find zig installation directory {q}: {t}", .{ self_exe_path, err });
+    };
+
+    const s = Dir.path.sep_str;
+    const template_sub_path = "init";
+    const template_dir = zig_lib_directory.handle.openDir(io, template_sub_path, .{}) catch |err| {
+        const path = zig_lib_directory.path orelse ".";
+        fatal("unable to open zig project template directory '{s}{s}{s}': {t}", .{
+            path, s, template_sub_path, err,
+        });
+    };
+
+    return .{
+        .zig_lib_directory = zig_lib_directory,
+        .dir = template_dir,
+        .buffer = std.array_list.Managed(u8).init(gpa),
+    };
 }
 
