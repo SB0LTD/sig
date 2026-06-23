@@ -277,6 +277,64 @@ pub fn addCases(ctx: *LinkContext) void {
             });
         }
     }
+
+    if (ctx.includeTest("explicit-extern-lib-name")) |case| {
+        // TODO: Lld.zig does not look at explicit inputs to resolve explicit extern lib names
+        if (ctx.use_llvm) return;
+
+        const lib1 = case.addLibrary(.dynamic, .{
+            .name = "lib1",
+            .name_target = false,
+            .zig_source_bytes =
+            \\export fn foo() u8 {
+            \\    return 43;
+            \\}
+            ,
+        });
+
+        const lib2 = case.addLibrary(.dynamic, .{
+            .name = "lib2",
+            .name_target = false,
+            .zig_source_bytes =
+            \\export fn foo() u8 {
+            \\    return 42;
+            \\}
+            ,
+        });
+
+        const lib3 = case.addLibrary(.static, .{
+            .name = "lib3",
+            .zig_source_bytes =
+            \\extern fn foo() u8;
+            \\export fn callFoo() u8 {
+            \\    return foo();
+            \\}
+            ,
+        });
+
+        const exe = case.addExecutable(.{
+            .name = "test",
+            .zig_source_bytes =
+            \\extern "explicit-extern-lib-name-lib2" fn foo() u8;
+            \\extern fn callFoo() u8;
+            \\pub fn main() !u8 {
+            \\    return foo() + callFoo();
+            \\}
+            ,
+        });
+        exe.root_module.linkLibrary(lib1);
+        exe.root_module.linkLibrary(lib2);
+        // exe.root_module.addLibraryPath(.{
+        //     .generated = .{
+        //         .index = lib2.getEmittedBin().generated.index,
+        //         .up = 1,
+        //     },
+        // });
+        exe.root_module.linkLibrary(lib3);
+
+        const run = case.addRunArtifact(exe);
+        run.addCheck(.{ .expect_term = .{ .exited = 84 } });
+    }
 }
 
 const LinkContext = @import("tests.zig").LinkContext;
