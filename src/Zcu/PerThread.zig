@@ -23,7 +23,6 @@ const builtin = @import("builtin");
 const dev = @import("../dev.zig");
 const InternPool = @import("../InternPool.zig");
 const AnalUnit = InternPool.AnalUnit;
-const introspect = @import("../introspect.zig");
 const Module = @import("../Package.zig").Module;
 const Sema = @import("../Sema.zig");
 const target_util = @import("../target.zig");

@@ -1035,7 +1035,7 @@ pub const Manifest = struct {
     pub fn addPathPost(man: *Manifest, path: Path) !void {
         _ = man;
         _ = path;
-        @panic("TODO");
+        std.log.err("TODO Build.Cache.addPathPost", .{});
     }
 
     /// Like `addFilePost` but when the file contents have already been loaded from disk.

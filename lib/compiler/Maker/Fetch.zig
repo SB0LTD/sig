@@ -96,7 +96,10 @@ latest_commit: ?git.Oid,
 
 /// The module for this `Fetch` tasks's package, which exposes `build.zig` as
 /// the root source file.
-module: ?*Package.Module,
+///
+/// This could be an opaque "userdata" field because this code does not observe
+/// this data in any way but let's have some type safety because we can.
+cli_module: ?*@import("../Maker.zig").CliModule,
 
 pub const LazyStatus = enum {
     /// Not lazy.
@@ -227,16 +230,16 @@ pub const JobQueue = struct {
 
     /// Creates the dependencies.zig source code for the build runner to obtain
     /// via `@import("@dependencies")`.
-    pub fn createDependenciesSource(jq: *JobQueue, buf: *std.array_list.Managed(u8)) Allocator.Error!void {
+    pub fn createDependenciesSource(jq: *JobQueue, w: *Io.Writer) Io.Writer.Error!void {
         const keys = jq.table.keys();
 
         assert(keys.len != 0); // caller should have added the first one
         if (keys.len == 1) {
             // This is the first one. It must have no dependencies.
-            return createEmptyDependenciesSource(buf);
+            return createEmptyDependenciesSource(w);
         }
 
-        try buf.appendSlice("pub const packages = struct {\n");
+        try w.writeAll("pub const packages = struct {\n");
 
         // Ensure the generated .zig file is deterministic.
         jq.table.sortUnstable(@as(struct {
@@ -254,7 +257,7 @@ pub const JobQueue = struct {
 
             const hash_slice = hash.toSlice();
 
-            try buf.print(
+            try w.print(
                 \\    pub const {f} = struct {{
                 \\
             , .{std.zig.fmtId(hash_slice)});
@@ -263,14 +266,14 @@ pub const JobQueue = struct {
                 switch (fetch.lazy_status) {
                     .eager => break :lazy,
                     .available => {
-                        try buf.appendSlice(
+                        try w.writeAll(
                             \\        pub const available = true;
                             \\
                         );
                         break :lazy;
                     },
                     .unavailable => {
-                        try buf.appendSlice(
+                        try w.writeAll(
                             \\        pub const available = false;
                             \\    };
                             \\
@@ -280,13 +283,13 @@ pub const JobQueue = struct {
                 }
             }
 
-            try buf.print(
+            try w.print(
                 \\        pub const build_root = "{f}";
                 \\
             , .{std.fmt.alt(fetch.package_root, .formatEscapeString)});
 
             if (fetch.has_build_zig) {
-                try buf.print(
+                try w.print(
                     \\        pub const build_zig = @import("{f}");
                     \\
                 , .{std.zig.fmtString(hash_slice)});
@@ -294,25 +297,25 @@ pub const JobQueue = struct {
 
             if (fetch.have_manifest) {
                 const manifest = &fetch.manifest;
-                try buf.appendSlice(
+                try w.writeAll(
                     \\        pub const deps: []const struct { []const u8, []const u8 } = &.{
                     \\
                 );
                 for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
                     const h = depDigest(fetch.package_root, jq.global_cache, dep) orelse continue;
-                    try buf.print(
+                    try w.print(
                         "            .{{ \"{f}\", \"{f}\" }},\n",
                         .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
                     );
                 }
 
-                try buf.appendSlice(
+                try w.writeAll(
                     \\        };
                     \\    };
                     \\
                 );
             } else {
-                try buf.appendSlice(
+                try w.writeAll(
                     \\        pub const deps: []const struct { []const u8, []const u8 } = &.{};
                     \\    };
                     \\
@@ -320,7 +323,7 @@ pub const JobQueue = struct {
             }
         }
 
-        try buf.appendSlice(
+        try w.writeAll(
             \\};
             \\
             \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{
@@ -333,16 +336,16 @@ pub const JobQueue = struct {
 
         for (root_manifest.dependencies.keys(), root_manifest.dependencies.values()) |name, dep| {
             const h = depDigest(root_fetch.package_root, jq.global_cache, dep) orelse continue;
-            try buf.print(
+            try w.print(
                 "    .{{ \"{f}\", \"{f}\" }},\n",
                 .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
             );
         }
-        try buf.appendSlice("};\n");
+        try w.appendSlice("};\n");
     }
 
-    pub fn createEmptyDependenciesSource(buf: *std.array_list.Managed(u8)) Allocator.Error!void {
-        try buf.appendSlice(
+    pub fn createEmptyDependenciesSource(w: *Io.Writer) Io.Writer!void {
+        try w.writeAll(
             \\pub const packages = struct {};
             \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{};
             \\
@@ -1020,7 +1023,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .oom_flag = false,
                 .latest_commit = null,
 
-                .module = null,
+                .cli_module = null,
             };
         }
 

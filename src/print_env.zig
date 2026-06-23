@@ -8,7 +8,6 @@ const fatal = std.process.fatal;
 
 const build_options = @import("build_options");
 const Compilation = @import("Compilation.zig");
-const introspect = @import("introspect.zig");
 
 pub fn cmdEnv(
     arena: Allocator,
@@ -29,7 +28,7 @@ pub fn cmdEnv(
         },
     };
 
-    const cwd_path = try introspect.getResolvedCwd(io, arena);
+    const cwd_path = try std.zig.getResolvedCwd(io, arena);
 
     var dirs: Compilation.Directories = .init(
         arena,
