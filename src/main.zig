@@ -4897,6 +4897,7 @@ fn jitCmd(
 
     const root_prog_node = std.Progress.start(io, .{
         .disable_printing = (color == .off),
+        .root_name = try allocPrint(arena, "Compiling {s} (first time setup)", .{options.cmd_name}),
     });
     defer root_prog_node.end();
 
