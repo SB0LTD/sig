@@ -471,6 +471,42 @@ pub fn dupeSentinel(
     return new_buf[0..m.len :sentinel];
 }
 
+/// Allocates a formatted string which is returned on success.
+///
+/// Returned slice can be deallocated with `free`. If an arena-style allocator
+/// is used instead, such as `std.heap.ArenaAllocator`, then no call to `free`
+/// is necessary.
+///
+/// See `std.Io.Writer.print`.
+pub fn print(a: Allocator, comptime format: []const u8, args: anytype) Error![]u8 {
+    var aw = try std.Io.Writer.Allocating.initCapacity(a, format.len);
+    defer aw.deinit();
+    aw.writer.print(format, args) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
+    return aw.toOwnedSlice();
+}
+
+/// Like `print` but returned slice has the provided sentinel.
+///
+/// Returned slice can be deallocated with `free`. If an arena-style allocator
+/// is used instead, such as `std.heap.ArenaAllocator`, then no call to `free`
+/// is necessary. Illegal behavior occurs if the returned slice is type-coerced
+/// to a slice without the sentinel and then passed to `free`.
+pub fn printSentinel(
+    a: Allocator,
+    comptime format: []const u8,
+    args: anytype,
+    comptime sentinel: u8,
+) Allocator.Error![:sentinel]u8 {
+    var aw = try std.Io.Writer.Allocating.initCapacity(a, format.len);
+    defer aw.deinit();
+    aw.writer.print(format, args) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
+    return aw.toOwnedSliceSentinel(sentinel);
+}
+
 /// An allocator that always fails to allocate.
 pub const failing: Allocator = .{
     .ptr = undefined,
