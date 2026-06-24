@@ -574,10 +574,10 @@ pub fn main(init: process.Init.Minimal) !void {
         .cwd = cwd_path,
     };
     graph.cache.addPrefix(.{ .path = null, .handle = cwd });
-    graph.cache.addPrefix(graph.build_root_directory);
+    graph.cache.addPrefix(zig_lib_directory);
     graph.cache.addPrefix(graph.local_cache_root);
     graph.cache.addPrefix(global_cache_directory);
-    graph.cache.addPrefix(zig_lib_directory);
+    graph.cache.addPrefix(graph.build_root_directory);
     graph.cache.hash.addBytes(builtin.zig_version_string);
 
     const NO_COLOR = EnvVar.NO_COLOR.isSet(&graph.environ_map);
@@ -659,7 +659,7 @@ pub fn main(init: process.Init.Minimal) !void {
 
         const configurer_root_src_path: Cache.Path = .{
             .root_dir = graph.zig_lib_directory,
-            .sub_path = "lib/compiler/configurer.zig",
+            .sub_path = "compiler/configurer.zig",
         };
 
         const root_build_src_path: Cache.Path = .{
