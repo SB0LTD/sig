@@ -132,7 +132,6 @@ pub fn main(init: process.Init.Minimal) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    // ...but we'll back our arena by `std.heap.page_allocator` for efficiency.
     var arena_instance: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena_instance.deinit();
     defer if (debugMakerLeaks()) log.debug("used {Bi} of arena", .{arena_instance.queryCapacity()});
@@ -2742,20 +2741,20 @@ pub fn printErrorMessages(
     try writer.writeByte('\n');
 }
 
-fn nextArg(args: []const []const u8, idx: *usize) ?[]const u8 {
-    if (idx.* >= args.len) return null;
-    defer idx.* += 1;
-    return args[idx.*];
+fn nextArg(args: []const []const u8, i: *usize) ?[]const u8 {
+    if (i.* >= args.len) return null;
+    defer i.* += 1;
+    return args[i.*];
 }
 
-fn nextArgOrFatal(args: []const []const u8, idx: *usize) []const u8 {
-    return nextArg(args, idx) orelse fatalWithHint("expected argument after {q}", .{args[idx.* - 1]});
+fn nextArgOrFatal(args: []const []const u8, i: *usize) []const u8 {
+    return nextArg(args, i) orelse fatalWithHint("expected another argument after {q}", .{args[i.* - 1]});
 }
 
-fn prefixedArgOrFatal(args: []const []const u8, index_ptr: *usize, prefix: []const u8) []const u8 {
-    const arg = args[index_ptr.*];
+fn prefixedArgOrFatal(args: []const []const u8, i: *usize, prefix: []const u8) []const u8 {
+    const arg = nextArgOrFatal(args, i);
     if (mem.cutPrefix(u8, arg, prefix)) |rest| return rest;
-    fatal("expected {q} to begin with {q}", .{ arg, prefix });
+    fatal("expected {q} to instead begin with {q}", .{ arg, prefix });
 }
 
 fn argsRest(args: []const []const u8, idx: usize) ?[]const []const u8 {
