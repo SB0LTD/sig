@@ -566,9 +566,9 @@ pub fn main(init: process.Init.Minimal) !void {
     };
     graph.cache.addPrefix(.{ .path = null, .handle = cwd });
     graph.cache.addPrefix(graph.build_root_directory);
-    graph.cache.addPrefix(zig_lib_directory);
     graph.cache.addPrefix(graph.local_cache_root);
     graph.cache.addPrefix(global_cache_directory);
+    graph.cache.addPrefix(zig_lib_directory);
     graph.cache.hash.addBytes(builtin.zig_version_string);
 
     const NO_COLOR = EnvVar.NO_COLOR.isSet(&graph.environ_map);

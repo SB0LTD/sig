@@ -28,7 +28,7 @@ mutex: Io.Mutex = .init,
 /// are replaced with single-character indicators. This is not to save
 /// space but to eliminate absolute file paths. This improves portability
 /// and usefulness of the cache for advanced use cases.
-prefixes_buffer: [4]Directory = undefined,
+prefixes_buffer: [5]Directory = undefined,
 prefixes_len: usize = 0,
 /// Used to identify prefixes. References external memory.
 cwd: []const u8,
