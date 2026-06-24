@@ -2345,10 +2345,7 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
             switch (spirv_type.flags.tag) {
                 .sampler => try cg.sections.globals.emit(gpa, .OpTypeSampler, .{ .id_result = result_id }),
                 .image => {
-                    const sampled_type_id = if (spirv_type.ty == .none)
-                        try cg.intType(.unsigned, 32)
-                    else
-                        try cg.resolveType(Type.fromInterned(spirv_type.ty), .direct);
+                    const sampled_type_id = try cg.resolveType(.fromInterned(spirv_type.ty), .direct);
                     try cg.sections.globals.emit(gpa, .OpTypeImage, .{
                         .id_result = result_id,
                         .sampled_type = sampled_type_id,
@@ -2366,7 +2363,7 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
                         .arrayed = @intFromBool(spirv_type.flags.is_arrayed),
                         .ms = @intFromBool(spirv_type.flags.is_multisampled),
                         .sampled = switch (spirv_type.flags.usage) {
-                            .unknown => 1,
+                            .unknown => 0,
                             .sampled => 1,
                             .storage => 2,
                         },

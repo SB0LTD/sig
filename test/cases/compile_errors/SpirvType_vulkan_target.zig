@@ -1,6 +1,6 @@
 comptime {
     _ = @SpirvType(.{ .image = .{
-        .usage = .storage,
+        .usage = .{ .storage = u32 },
         .format = .unknown,
         .dim = .@"2d",
         .depth = .unknown,
