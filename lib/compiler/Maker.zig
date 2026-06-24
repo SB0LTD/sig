@@ -256,31 +256,26 @@ pub fn main(init: process.Init.Minimal) !void {
             {
                 try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
                 configure_argv.appendAssumeCapacity(arg);
-                continue;
             } else if (mem.eql(u8, arg, "--system")) {
                 system_pkg_dir_path = nextArgOrFatal(args, &arg_i);
 
                 try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
                 configure_argv.appendAssumeCapacity(arg); // Intentionally "--system" only; not the path.
-                continue;
             } else if (mem.cutPrefix(u8, arg, "--color=")) |rest| {
                 color = stringToEnum(Color, rest) orelse
                     fatal("expected --color=[auto|on|off]; found {q}", .{arg});
 
                 try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
                 configure_argv.appendAssumeCapacity(arg);
-                continue;
             } else if (mem.eql(u8, arg, "--cache-poison")) {
                 cache_poison = .poisoned;
                 configure_argv.appendAssumeCapacity("--cache-poison=poisoned");
-                continue;
             } else if (mem.cutPrefix(u8, arg, "--cache-poison=")) |rest| {
                 // Allow the configurer process to report parse failure.
                 if (stringToEnum(std.Build.Graph.CachePoison, rest)) |poison| {
                     cache_poison = poison;
                 }
                 configure_argv.appendAssumeCapacity(arg);
-                continue;
             } else if (mem.eql(u8, arg, "--verbose")) {
                 // Intentionally is added both to make and configure but
                 // does not go into the cache hash.
@@ -291,7 +286,6 @@ pub fn main(init: process.Init.Minimal) !void {
                 // the cache and configurer must set the poison bit when
                 // choosing to observe it.
                 configure_argv.addManyAsArrayAssumeCapacity(2).* = .{ arg, prefix };
-                continue;
             } else if (mem.eql(u8, arg, "--cache-dir")) {
                 override_local_cache_dir = nextArgOrFatal(args, &arg_i);
             } else if (mem.eql(u8, arg, "--pkg-dir")) {
