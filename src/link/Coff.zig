@@ -1110,7 +1110,7 @@ pub const Symbol = struct {
                         if (reloc.loc != si) break;
                         if (reloc.sri.entry(coff, sym.section_number)) |entry| coff.targetStore(
                             &entry.virtual_address,
-                            @intCast(coff.computeSymbolSectionOffset(sym) + reloc.offset),
+                            @intCast(coff.computeSymbolSectionOffset(sym, .image) + reloc.offset),
                         );
                         try reloc.apply(coff);
                     }
@@ -1442,7 +1442,7 @@ pub const Reloc = extern struct {
                     .SECREL => std.mem.writeInt(
                         u32,
                         loc_slice[0..4],
-                        @intCast(coff.computeSymbolSectionOffset(target_sym) + reloc.addend),
+                        @intCast(coff.computeSymbolSectionOffset(target_sym, .pseudo) + reloc.addend),
                         target_endian,
                     ),
                 },
@@ -1482,7 +1482,7 @@ pub const Reloc = extern struct {
                     .SECREL => std.mem.writeInt(
                         u32,
                         loc_slice[0..4],
-                        @intCast(coff.computeSymbolSectionOffset(target_sym) + reloc.addend),
+                        @intCast(coff.computeSymbolSectionOffset(target_sym, .pseudo) + reloc.addend),
                         target_endian,
                     ),
                 },
@@ -1496,7 +1496,7 @@ pub const Reloc = extern struct {
             // TODO: If this was the last reloc causing something to be in the symbol table, we should remove
             //       the symbol table entry (and unset sti). That will require flushSymbolTableIndex on the
             //       swapped symbol if we exchange indices
-            unreachable;
+            @panic("TODO implement symbol table reloc deletions");
         }
 
         switch (reloc.prev) {
@@ -2443,7 +2443,12 @@ fn computeNodeRva(coff: *Coff, ni: MappedFile.Node.Index) u32 {
     const offset, _ = ni.location(&coff.mf).resolve(&coff.mf);
     return @intCast(parent_rva + offset);
 }
-fn computeSymbolSectionOffset(coff: *Coff, sym: *const Symbol) u32 {
+
+fn computeSymbolSectionOffset(
+    coff: *Coff,
+    sym: *const Symbol,
+    relative_to: enum { image, pseudo },
+) u32 {
     var section_offset: u32 = sym.nodeOffset(coff);
     var parent_ni = sym.ni;
     while (true) {
@@ -2452,10 +2457,14 @@ fn computeSymbolSectionOffset(coff: *Coff, sym: *const Symbol) u32 {
         parent_ni = parent_ni.parent(&coff.mf);
         switch (coff.getNode(parent_ni)) {
             else => unreachable,
-            .image_section, .pseudo_section => return section_offset,
-            .object_section => {},
+            .image_section => break,
+            .pseudo_section => if (relative_to == .pseudo) break,
+            .object_section,
+            => {},
         }
     }
+
+    return section_offset;
 }
 
 pub inline fn targetEndian(_: *const Coff) std.lang.Endian {
@@ -3279,7 +3288,7 @@ fn flushSymbolTableEntry(coff: *Coff, index: u32, pt: Zcu.PerThread) !void {
         => unreachable,
         else => switch (coff.getNode(sym.ni)) {
             .image_section => 0,
-            else => coff.computeSymbolSectionOffset(sym),
+            else => coff.computeSymbolSectionOffset(sym, .image),
         },
     });
 
@@ -3328,10 +3337,12 @@ fn flushInputSection(coff: *Coff, isi: Node.InputSection.Index) !void {
     const si = isi.symbol(coff);
     si.node(coff).writer(&coff.mf, gpa, &nw);
     defer nw.deinit();
-    log.debug("flushInputSection({f}{f}, {s})", .{
+    log.debug("flushInputSection({f}{f}, {s}, {d}, n{d})", .{
         path,
         fmtMemberNameString(ioi.memberName(coff)),
-        isi.symbol(coff).get(coff).section_number.name(coff).toSlice(coff),
+        si.get(coff).section_number.name(coff).toSlice(coff),
+        si,
+        si.node(coff),
     });
     if (try nw.interface.sendFileAll(&fr, .limited(@intCast(file_loc.size))) != file_loc.size)
         return error.EndOfStream;
