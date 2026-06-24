@@ -116,9 +116,13 @@ pub const CliModule = struct {
 
     fn lower(cm: *const CliModule, arena: Allocator, gpa: Allocator, argv: *std.ArrayList([]const u8)) !void {
         try argv.ensureUnusedCapacity(gpa, 2 * cm.deps.count() + 1);
-        for (cm.deps.values()) |dep| {
+        for (cm.deps.keys(), cm.deps.values()) |name, dep| {
             argv.appendAssumeCapacity("--dep");
-            argv.appendAssumeCapacity(dep.name);
+            if (mem.eql(u8, name, dep.name)) {
+                argv.appendAssumeCapacity(dep.name);
+            } else {
+                argv.appendAssumeCapacity(try allocPrint(arena, "{s}={s}", .{ name, dep.name }));
+            }
         }
         argv.appendAssumeCapacity(try allocPrint(arena, "-M{s}={s}", .{ cm.name, cm.root_path }));
     }
@@ -922,12 +926,18 @@ pub fn main(init: process.Init.Minimal) !void {
                     build_configurer_argv.shrinkRetainingCapacity(argv_deps_index);
                     for (deps_mod.deps.values()) |dep| {
                         try build_configurer_argv.ensureUnusedCapacity(gpa, 2 * dep.deps.count() + 1);
-                        for (dep.deps.values()) |sub| {
+                        for (dep.deps.keys(), dep.deps.values()) |name, sub| {
                             build_configurer_argv.appendAssumeCapacity("--dep");
-                            build_configurer_argv.appendAssumeCapacity(sub.name);
+                            if (mem.eql(u8, name, sub.name)) {
+                                build_configurer_argv.appendAssumeCapacity(sub.name);
+                            } else {
+                                build_configurer_argv.appendAssumeCapacity(try allocPrint(arena, "{s}={s}", .{
+                                    name, sub.name,
+                                }));
+                            }
                         }
-                        build_configurer_argv.appendAssumeCapacity(try allocPrint(arena, "-M{s}={s}", .{
-                            dep.name, dep.root_path,
+                        build_configurer_argv.appendAssumeCapacity(try allocPrint(arena, "-M{s}={s}/{s}", .{
+                            dep.name, dep.root_path, std.zig.build_zig_basename,
                         }));
                     }
                     try deps_mod.lower(arena, gpa, &build_configurer_argv);
