@@ -777,7 +777,7 @@ fn lowerZigArgs(
 
     for (graph.search_prefixes.items) |search_prefix| {
         var prefix_dir = cwd.openDir(io, search_prefix, .{}) catch |err| {
-            return step.fail(maker, "unable to open prefix directory '{s}': {t}", .{ search_prefix, err });
+            return step.fail(maker, "unable to open prefix directory {q}: {t}", .{ search_prefix, err });
         };
         defer prefix_dir.close(io);
 
@@ -791,7 +791,7 @@ fn lowerZigArgs(
             });
         } else |err| switch (err) {
             error.FileNotFound => {},
-            else => |e| return step.fail(maker, "unable to access '{s}/lib' directory: {t}", .{ search_prefix, e }),
+            else => |e| return step.fail(maker, "unable to access {s}/lib directory: {t}", .{ search_prefix, e }),
         }
 
         if (prefix_dir.access(io, "include", .{})) |_| {
@@ -800,7 +800,7 @@ fn lowerZigArgs(
             });
         } else |err| switch (err) {
             error.FileNotFound => {},
-            else => |e| return step.fail(maker, "unable to access '{s}/include' directory: {t}", .{ search_prefix, e }),
+            else => |e| return step.fail(maker, "unable to access {s}/include directory: {t}", .{ search_prefix, e }),
         }
     }
 
