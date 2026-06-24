@@ -60,7 +60,7 @@ pub fn parse(allocator: Allocator, io: Io, libc_file: []const u8, target: *const
     const contents = try Io.Dir.cwd().readFileAlloc(io, libc_file, allocator, .limited(std.math.maxInt(usize)));
     defer allocator.free(contents);
 
-    var it = std.mem.tokenizeScalar(u8, contents, '\n');
+    var it = std.mem.tokenizeAny(u8, contents, "\n\r");
     while (it.next()) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         var line_it = std.mem.splitScalar(u8, line, '=');
