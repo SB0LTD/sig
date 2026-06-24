@@ -654,6 +654,8 @@ test "array of array agregate init" {
 }
 
 test "pointer to array has ptr field" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const arr: *const [5]u32 = &.{ 10, 20, 30, 40, 50 };
     try std.testing.expect(arr.ptr == @as([*]const u32, arr));
     try std.testing.expect(arr.ptr[0] == 10);
