@@ -939,6 +939,20 @@ pub fn main(init: process.Init.Minimal) !void {
                 const compile_prog_node = main_progress_node.start("Compile Configure Script", 0);
                 defer compile_prog_node.end();
 
+                switch (cache_poison) {
+                    .pure, .disallowed, .ignored => if (try config_man.hit()) {
+                        const digest = config_man.final();
+                        break :cp .{
+                            .{
+                                .root_dir = graph.local_cache_root,
+                                .sub_path = try allocPrint(arena, "c/{s}", .{&digest}),
+                            },
+                            false,
+                        };
+                    },
+                    .poisoned => {}, // Don't bother checking for cache hit.
+                }
+
                 const configure_exe_path: Path = if (std.zig.buildExeSubprocess(gpa, io, .{
                     .argv = build_configurer_argv.items,
                     .cache_root = graph.local_cache_root,
@@ -957,20 +971,6 @@ pub fn main(init: process.Init.Minimal) !void {
                 defer gpa.free(configure_exe_path.sub_path);
 
                 configure_argv.items[0] = try configure_exe_path.toString(arena);
-
-                switch (cache_poison) {
-                    .pure, .disallowed, .ignored => if (try config_man.hit()) {
-                        const digest = config_man.final();
-                        break :cp .{
-                            .{
-                                .root_dir = graph.local_cache_root,
-                                .sub_path = try allocPrint(arena, "c/{s}", .{&digest}),
-                            },
-                            false,
-                        };
-                    },
-                    .poisoned => {}, // Don't bother checking for cache hit.
-                }
             }
 
             if (!process.can_spawn) {
