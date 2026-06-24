@@ -7,6 +7,7 @@ const builtin = @import("builtin");
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
+const log = std.log;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Writer = std.Io.Writer;
@@ -721,7 +722,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 for (diags.arch.?.allCpuModels()) |cpu| {
                     help_text.print(" {s}\n", .{cpu.name}) catch break :help;
                 }
-                std.log.info("available CPUs for architecture '{s}':\n{s}", .{
+                log.info("available CPUs for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
                 });
             }
@@ -734,7 +735,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 for (diags.arch.?.allFeaturesList()) |feature| {
                     help_text.print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
                 }
-                std.log.info("available CPU features for architecture '{s}':\n{s}", .{
+                log.info("available CPU features for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
                 });
             }
@@ -747,7 +748,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 inline for (@typeInfo(std.Target.ObjectFormat).@"enum".field_names) |field_name| {
                     help_text.print(" {s}\n", .{field_name}) catch break :help;
                 }
-                std.log.info("available object formats:\n{s}", .{help_text.items});
+                log.info("available object formats:\n{s}", .{help_text.items});
             }
             std.process.fatal("unknown object format: '{s}'", .{opts.object_format.?});
         },
@@ -758,7 +759,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".field_names) |field_name| {
                     help_text.print(" {s}\n", .{field_name}) catch break :help;
                 }
-                std.log.info("available architectures:\n{s} native\n", .{help_text.items});
+                log.info("available architectures:\n{s} native\n", .{help_text.items});
             }
             std.process.fatal("unknown architecture: '{s}'", .{diags.unknown_architecture_name.?});
         },
@@ -1182,73 +1183,88 @@ pub const ClangCliParam = struct {
     }
 };
 
+/// Deprecated
 pub const AllocPrintCmdOptions = struct {
     cwd: ?[]const u8 = null,
     parent_env: ?*const std.process.Environ.Map = null,
     child_env: ?*const std.process.Environ.Map = null,
 };
 
+/// Deprecated
 pub fn allocPrintCmd(gpa: Allocator, argv: []const []const u8, options: AllocPrintCmdOptions) Allocator.Error![]u8 {
-    const shell = struct {
-        fn escape(writer: *Io.Writer, string: []const u8, is_argv0: bool) !void {
-            for (string) |c| {
-                if (switch (c) {
-                    else => true,
-                    '%', '+'...':', '@'...'Z', '_', 'a'...'z' => false,
-                    '=' => is_argv0,
-                }) break;
-            } else return writer.writeAll(string);
-
-            try writer.writeByte('"');
-            for (string) |c| {
-                if (switch (c) {
-                    std.ascii.control_code.nul => break,
-                    '!', '"', '$', '\\', '`' => true,
-                    else => !std.ascii.isPrint(c),
-                }) try writer.writeByte('\\');
-                switch (c) {
-                    std.ascii.control_code.nul => unreachable,
-                    std.ascii.control_code.bel => try writer.writeByte('a'),
-                    std.ascii.control_code.bs => try writer.writeByte('b'),
-                    std.ascii.control_code.ht => try writer.writeByte('t'),
-                    std.ascii.control_code.lf => try writer.writeByte('n'),
-                    std.ascii.control_code.vt => try writer.writeByte('v'),
-                    std.ascii.control_code.ff => try writer.writeByte('f'),
-                    std.ascii.control_code.cr => try writer.writeByte('r'),
-                    std.ascii.control_code.esc => try writer.writeByte('E'),
-                    ' '...'~' => try writer.writeByte(c),
-                    else => try writer.print("{o:0>3}", .{c}),
-                }
-            }
-            try writer.writeByte('"');
-        }
-    };
-
     var aw: Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
-    const writer = &aw.writer;
-    if (options.cwd) |path| {
-        writer.print("cd {s} && ", .{path}) catch return error.OutOfMemory;
-    }
-    if (options.child_env) |child_env| {
-        for (child_env.keys(), child_env.values()) |key, value| {
-            if (options.parent_env) |parent_env| {
-                if (parent_env.get(key)) |process_value| {
-                    if (std.mem.eql(u8, value, process_value)) continue;
-                }
-            }
-            writer.print("{s}=", .{key}) catch return error.OutOfMemory;
-            shell.escape(writer, value, false) catch return error.OutOfMemory;
-            writer.writeByte(' ') catch return error.OutOfMemory;
-        }
-    }
-    shell.escape(writer, argv[0], true) catch return error.OutOfMemory;
-    for (argv[1..]) |arg| {
-        writer.writeByte(' ') catch return error.OutOfMemory;
-        shell.escape(writer, arg, false) catch return error.OutOfMemory;
-    }
+    SubprocessCommand.format(.{
+        .argv = argv,
+        .cwd = options.cwd,
+        .parent_env = options.parent_env,
+        .child_env = options.child_env,
+    }, &aw.writer) catch return error.OutOfMemory;
     return aw.toOwnedSlice();
 }
+
+fn shellEscape(writer: *Io.Writer, string: []const u8, is_argv0: bool) !void {
+    for (string) |c| {
+        if (switch (c) {
+            else => true,
+            '%', '+'...':', '@'...'Z', '_', 'a'...'z' => false,
+            '=' => is_argv0,
+        }) break;
+    } else return writer.writeAll(string);
+
+    try writer.writeByte('"');
+    for (string) |c| {
+        if (switch (c) {
+            std.ascii.control_code.nul => break,
+            '!', '"', '$', '\\', '`' => true,
+            else => !std.ascii.isPrint(c),
+        }) try writer.writeByte('\\');
+        switch (c) {
+            std.ascii.control_code.nul => unreachable,
+            std.ascii.control_code.bel => try writer.writeByte('a'),
+            std.ascii.control_code.bs => try writer.writeByte('b'),
+            std.ascii.control_code.ht => try writer.writeByte('t'),
+            std.ascii.control_code.lf => try writer.writeByte('n'),
+            std.ascii.control_code.vt => try writer.writeByte('v'),
+            std.ascii.control_code.ff => try writer.writeByte('f'),
+            std.ascii.control_code.cr => try writer.writeByte('r'),
+            std.ascii.control_code.esc => try writer.writeByte('E'),
+            ' '...'~' => try writer.writeByte(c),
+            else => try writer.print("{o:0>3}", .{c}),
+        }
+    }
+    try writer.writeByte('"');
+}
+
+pub const SubprocessCommand = struct {
+    argv: []const []const u8,
+    cwd: ?[]const u8 = null,
+    parent_env: ?*const std.process.Environ.Map = null,
+    child_env: ?*const std.process.Environ.Map = null,
+
+    pub fn format(sc: SubprocessCommand, w: *Io.Writer) Io.Writer.Error!void {
+        if (sc.cwd) |path| {
+            try w.print("cd {s} && ", .{path});
+        }
+        if (sc.child_env) |child_env| {
+            for (child_env.keys(), child_env.values()) |key, value| {
+                if (sc.parent_env) |parent_env| {
+                    if (parent_env.get(key)) |process_value| {
+                        if (std.mem.eql(u8, value, process_value)) continue;
+                    }
+                }
+                try w.print("{s}=", .{key});
+                try shellEscape(w, value, false);
+                try w.writeByte(' ');
+            }
+        }
+        try shellEscape(w, sc.argv[0], true);
+        for (sc.argv[1..]) |arg| {
+            try w.writeByte(' ');
+            try shellEscape(w, arg, false);
+        }
+    }
+};
 
 /// Like `std.process.currentPathAlloc`, but also resolves the path with `Dir.path.resolve`. This
 /// means the path has no repeated separators, no "." or ".." components, and no trailing separator.
@@ -1391,7 +1407,7 @@ pub const Directories = struct {
             },
         };
     }
-    fn openUnresolved(
+    pub fn openUnresolved(
         arena: Allocator,
         io: Io,
         cwd: []const u8,
@@ -1607,6 +1623,214 @@ pub fn resolvePath(
 
 pub fn isUpDir(p: []const u8) bool {
     return mem.startsWith(u8, p, "..") and (p.len == 2 or p[2] == Dir.path.sep);
+}
+
+pub const BuildExeSubprocessOptions = struct {
+    argv: []const []const u8,
+    cache_root: Cache.Directory,
+    root_name: []const u8,
+
+    environ_map: ?*std.process.Environ.Map = null,
+    cache_manifest: ?*Cache.Manifest = null,
+    arch_os_abi: ?[]const u8 = null,
+    cpu_features: ?[]const u8 = null,
+};
+
+pub const BuildExeSubprocessError = error{
+    /// Error message has been logged.
+    AlreadyReported,
+    /// Error message has been logged, and source files added to the `Cache.Manifest`.
+    FailedButCacheIntact,
+} || Io.Cancelable || Allocator.Error;
+
+/// Assumes `argv` has `--listen=-` in it and the child process is `zig build-exe`.
+///
+/// Result path is allocated via gpa.
+pub fn buildExeSubprocess(gpa: Allocator, io: Io, options: BuildExeSubprocessOptions) BuildExeSubprocessError!Cache.Path {
+    const cmd: SubprocessCommand = .{ .argv = options.argv };
+
+    var child = std.process.spawn(io, .{
+        .argv = options.argv,
+        .environ_map = options.environ_map,
+        .stdin = .pipe,
+        .stdout = .pipe,
+        .stderr = .pipe,
+    }) catch |err| {
+        log.err("spawning command {t}: {f}", .{ err, cmd });
+        return error.AlreadyReported;
+    };
+    defer child.kill(io);
+
+    var stderr_task = io.concurrent(readStreamAlloc, .{ gpa, io, child.stderr.?, .unlimited }) catch
+        @panic("TODO use multireader instead");
+    defer if (stderr_task.cancel(io)) |slice| gpa.free(slice) else |_| {};
+
+    var stdout_buffer: [512]u8 = undefined;
+    var stdout_reader: Io.File.Reader = .initStreaming(child.stdout.?, io, &stdout_buffer);
+    const stdout = &stdout_reader.interface;
+
+    {
+        var w = child.stdin.?.writer(io, &.{});
+        w.interface.writeStruct(Client.Message.Header{ .tag = .update, .bytes_len = 0 }, .little) catch |err| switch (err) {
+            error.WriteFailed => {
+                log.err("{t} writing to command: {f}", .{ w.err.?, cmd });
+                return error.AlreadyReported;
+            },
+        };
+        w.interface.writeStruct(Client.Message.Header{ .tag = .exit, .bytes_len = 0 }, .little) catch |err| switch (err) {
+            error.WriteFailed => {
+                log.err("{t} writing to command: {f}", .{ w.err.?, cmd });
+                return error.AlreadyReported;
+            },
+        };
+    }
+
+    const Header = Server.Message.Header;
+
+    var result: ?Cache.Path = null;
+    defer if (result) |r| gpa.free(r.sub_path);
+
+    var result_error_bundle: ErrorBundle = .empty;
+    defer result_error_bundle.deinit(gpa);
+
+    var body_buffer: std.ArrayList(u8) = .empty;
+    defer body_buffer.deinit(gpa);
+
+    var received_fs_inputs = false;
+
+    while (true) {
+        const header = stdout.takeStruct(Header, .little) catch |err| switch (err) {
+            error.ReadFailed => {
+                log.err("{t} reading from command: {f}", .{ stdout_reader.err.?, cmd });
+                return error.AlreadyReported;
+            },
+            error.EndOfStream => break,
+        };
+        body_buffer.clearRetainingCapacity();
+        stdout.appendExact(gpa, &body_buffer, header.bytes_len) catch |err| switch (err) {
+            error.ReadFailed => {
+                log.err("{t} reading from command: {f}", .{ stdout_reader.err.?, cmd });
+                return error.AlreadyReported;
+            },
+            error.OutOfMemory => |e| return e,
+            error.EndOfStream => {
+                log.err("unexpected end of stream from command: {f}", .{cmd});
+                return error.AlreadyReported;
+            },
+        };
+        const body = body_buffer.items;
+
+        switch (header.tag) {
+            .zig_version => {
+                if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
+                    log.err("zig protocol version mismatch from command: {f}", .{cmd});
+                    return error.AlreadyReported;
+                }
+            },
+            .error_bundle => {
+                result_error_bundle.deinit(gpa);
+                result_error_bundle = Server.allocErrorBundle(gpa, body) catch |err| switch (err) {
+                    error.EndOfStream => break,
+                    else => |e| return e,
+                };
+            },
+            .emit_digest => {
+                const EmitDigest = Server.Message.EmitDigest;
+                const ebp_hdr: *align(1) const EmitDigest = @ptrCast(body);
+                if (!ebp_hdr.flags.cache_hit) {
+                    log.info("source changes detected; rebuilt {s}", .{options.root_name});
+                }
+                const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
+                if (result) |r| gpa.free(r.sub_path);
+                result = .{
+                    .root_dir = options.cache_root,
+                    .sub_path = try Dir.path.join(gpa, &.{ "o", &Cache.binToHex(digest.*) }),
+                };
+            },
+            .file_system_inputs => {
+                received_fs_inputs = true;
+                @panic("TODO");
+                //var it = mem.splitScalar(u8, file_system_inputs.items, 0);
+                //while (it.next()) |input| {
+                //    _ = try config_man.addPrefixedPathPost(.{
+                //        .prefix = input[0],
+                //        .sub_path = input[1..],
+                //    });
+                //}
+            },
+            else => {}, // ignore other messages
+        }
+    }
+
+    const stderr_contents = stderr_task.await(io) catch |err| switch (err) {
+        error.Canceled, error.OutOfMemory => |e| return e,
+        else => |e| c: {
+            log.warn("{t} reading stderr from command: {f}", .{ e, cmd });
+            break :c "";
+        },
+    };
+    if (stderr_contents.len > 0)
+        log.warn("unexpected stderr from {s} command:\n{s}", .{ options.argv[0], stderr_contents });
+
+    // Send EOF to stdin.
+    child.stdin.?.close(io);
+    child.stdin = null;
+
+    const term = child.wait(io) catch |err| switch (err) {
+        error.Canceled => |e| return e,
+        else => |e| {
+            log.err("{t} waiting for command: {f}", .{ e, cmd });
+            return error.AlreadyReported;
+        },
+    };
+
+    if (!term.success()) {
+        log.err("command {f}: {f}", .{ term, cmd });
+        if (received_fs_inputs) return error.FailedButCacheIntact;
+        return error.AlreadyReported;
+    }
+
+    if (result_error_bundle.errorMessageCount() > 0) {
+        result_error_bundle.renderToStderr(io, .{}, .auto) catch |err| switch (err) {
+            error.Canceled => |e| return e,
+            else => |e| {
+                log.err("failed rendering error bundle: {t}", .{e});
+                return error.AlreadyReported;
+            },
+        };
+        log.err("{s} command reported {d} compilation errors: {f}", .{
+            options.argv[0], result_error_bundle.errorMessageCount(), cmd,
+        });
+        if (received_fs_inputs) return error.FailedButCacheIntact;
+        return error.AlreadyReported;
+    }
+
+    const base_path = result orelse {
+        log.err("command failed to report result: {f}", .{cmd});
+        return error.AlreadyReported;
+    };
+    const parsed_target = system.resolveTargetQuery(io, std.Build.parseTargetQuery(.{
+        .arch_os_abi = options.arch_os_abi orelse "native",
+        .cpu_features = options.cpu_features,
+    }) catch unreachable) catch unreachable;
+    const bin_name = try binNameAlloc(gpa, .{
+        .root_name = options.root_name,
+        .cpu_arch = parsed_target.cpu.arch,
+        .os_tag = parsed_target.os.tag,
+        .ofmt = parsed_target.ofmt,
+        .abi = parsed_target.abi,
+        .output_mode = .Exe,
+    });
+    defer gpa.free(bin_name);
+    return base_path.join(gpa, bin_name);
+}
+
+fn readStreamAlloc(gpa: Allocator, io: Io, file: Io.File, limit: Io.Limit) ![]u8 {
+    var file_reader: Io.File.Reader = .initStreaming(file, io, &.{});
+    return file_reader.interface.allocRemaining(gpa, limit) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        else => |e| return e,
+    };
 }
 
 test {

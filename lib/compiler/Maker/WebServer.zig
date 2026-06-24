@@ -582,8 +582,8 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     const cpu_features = "baseline+atomics+bulk_memory+multivalue+mutable_globals+nontrapping_fptoint+reference_types+sign_ext";
 
     const maker = ws.maker;
-    const gpa = maker.gpa;
     const graph = maker.graph;
+    const gpa = maker.gpa;
     const io = graph.io;
 
     const main_src_path: Cache.Path = .{
@@ -622,151 +622,13 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         "--listen=-",
     });
 
-    var child = try std.process.spawn(io, .{
+    return std.zig.buildExeSubprocess(gpa, io, .{
         .argv = argv.items,
-        .environ_map = &graph.environ_map,
-        .stdin = .pipe,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    });
-    defer child.kill(io);
-
-    var stderr_task = try io.concurrent(readStreamAlloc, .{ gpa, io, child.stderr.?, .unlimited });
-    defer if (stderr_task.cancel(io)) |slice| gpa.free(slice) else |_| {};
-
-    var stdout_buffer: [512]u8 = undefined;
-    var stdout_reader: Io.File.Reader = .initStreaming(child.stdout.?, io, &stdout_buffer);
-    const stdout = &stdout_reader.interface;
-
-    {
-        var w = child.stdin.?.writer(io, &.{});
-        w.interface.writeStruct(std.zig.Client.Message.Header{ .tag = .update, .bytes_len = 0 }, .little) catch |err| switch (err) {
-            error.WriteFailed => return w.err.?,
-        };
-        w.interface.writeStruct(std.zig.Client.Message.Header{ .tag = .exit, .bytes_len = 0 }, .little) catch |err| switch (err) {
-            error.WriteFailed => return w.err.?,
-        };
-    }
-
-    const Header = std.zig.Server.Message.Header;
-
-    var result: ?Cache.Path = null;
-    var result_error_bundle = std.zig.ErrorBundle.empty;
-    var body_buffer: std.ArrayList(u8) = .empty;
-    defer body_buffer.deinit(gpa);
-
-    while (true) {
-        const header = stdout.takeStruct(Header, .little) catch |err| switch (err) {
-            error.ReadFailed => |e| return e,
-            error.EndOfStream => break,
-        };
-        body_buffer.clearRetainingCapacity();
-        try stdout.appendExact(gpa, &body_buffer, header.bytes_len);
-        const body = body_buffer.items;
-
-        switch (header.tag) {
-            .zig_version => {
-                if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
-                    return error.ZigProtocolVersionMismatch;
-                }
-            },
-            .error_bundle => {
-                result_error_bundle = try std.zig.Server.allocErrorBundle(arena, body);
-            },
-            .emit_digest => {
-                const EmitDigest = std.zig.Server.Message.EmitDigest;
-                const ebp_hdr: *align(1) const EmitDigest = @ptrCast(body);
-                if (!ebp_hdr.flags.cache_hit) {
-                    log.info("source changes detected; rebuilt wasm component", .{});
-                }
-                const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
-                result = .{
-                    .root_dir = graph.global_cache_root,
-                    .sub_path = try arena.dupe(u8, "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*)),
-                };
-            },
-            else => {}, // ignore other messages
-        }
-    }
-
-    const stderr_contents = try stderr_task.await(io);
-    if (stderr_contents.len > 0) {
-        std.debug.print("{s}", .{stderr_contents});
-    }
-
-    // Send EOF to stdin.
-    child.stdin.?.close(io);
-    child.stdin = null;
-
-    switch (try child.wait(io)) {
-        .exited => |code| {
-            if (code != 0) {
-                log.err(
-                    "the following command exited with error code {d}:\n{s}",
-                    .{ code, try std.zig.allocPrintCmd(arena, argv.items, .{}) },
-                );
-                return error.WasmCompilationFailed;
-            }
-        },
-        .signal => |sig| {
-            log.err(
-                "the following command terminated with signal {t}:\n{s}",
-                .{ sig, try std.zig.allocPrintCmd(arena, argv.items, .{}) },
-            );
-            return error.WasmCompilationFailed;
-        },
-        .stopped => |sig| {
-            log.err(
-                "the following command stopped unexpectedly with signal {t}:\n{s}",
-                .{ sig, try std.zig.allocPrintCmd(arena, argv.items, .{}) },
-            );
-            return error.WasmCompilationFailed;
-        },
-        .unknown => {
-            log.err(
-                "the following command terminated unexpectedly:\n{s}",
-                .{try std.zig.allocPrintCmd(arena, argv.items, .{})},
-            );
-            return error.WasmCompilationFailed;
-        },
-    }
-
-    if (result_error_bundle.errorMessageCount() > 0) {
-        try result_error_bundle.renderToStderr(io, .{}, .auto);
-        log.err("the following command failed with {d} compilation errors:\n{s}", .{
-            result_error_bundle.errorMessageCount(),
-            try std.zig.allocPrintCmd(arena, argv.items, .{}),
-        });
-        return error.WasmCompilationFailed;
-    }
-
-    const base_path = result orelse {
-        log.err("child process failed to report result\n{s}", .{
-            try std.zig.allocPrintCmd(arena, argv.items, .{}),
-        });
-        return error.WasmCompilationFailed;
-    };
-    const target = std.zig.system.resolveTargetQuery(io, std.Build.parseTargetQuery(.{
+        .cache_root = graph.global_cache_root,
+        .root_name = root_name,
         .arch_os_abi = arch_os_abi,
         .cpu_features = cpu_features,
-    }) catch unreachable) catch unreachable;
-    const bin_name = try std.zig.binNameAlloc(arena, .{
-        .root_name = root_name,
-        .cpu_arch = target.cpu.arch,
-        .os_tag = target.os.tag,
-        .ofmt = target.ofmt,
-        .abi = target.abi,
-        .output_mode = .Exe,
     });
-    return base_path.join(arena, bin_name);
-}
-
-fn readStreamAlloc(gpa: Allocator, io: Io, file: Io.File, limit: Io.Limit) ![]u8 {
-    var file_reader: Io.File.Reader = .initStreaming(file, io, &.{});
-    return file_reader.interface.allocRemaining(gpa, limit) catch |err| switch (err) {
-        error.ReadFailed => return file_reader.err.?,
-        else => |e| return e,
-    };
 }
 
 pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {

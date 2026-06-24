@@ -584,7 +584,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
                     return s.fail(
                         maker,
-                        "zig version mismatch build runner vs compiler: '{s}' vs '{s}'",
+                        "zig version mismatch build runner vs compiler: {q} vs {q}",
                         .{ builtin.zig_version_string, body },
                     );
                 }

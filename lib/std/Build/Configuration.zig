@@ -1881,7 +1881,7 @@ pub const PathDep = extern struct {
         _ = c;
         _ = arena;
         _ = path;
-        std.log.err("TODO Configuration.PathDep.toCachePath", .{});
+        if (true) @panic("TODO Configuration.PathDep.toCachePath");
     }
 };
 

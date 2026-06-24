@@ -9,7 +9,7 @@ const Graph = @import("Graph.zig");
 
 configuration: Configuration,
 top_level_steps: std.array_hash_map.String(Configuration.Step.Index),
-path: []const u8,
+path: std.Build.Cache.Path,
 
 pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
     std.log.err("TODO also print paths", .{});

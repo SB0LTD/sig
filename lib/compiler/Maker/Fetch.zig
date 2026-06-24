@@ -46,7 +46,7 @@ const ascii = std.ascii;
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const git = @import("Fetch/git.zig");
-const Package = @import("../Package.zig");
+const Package = @import("Package.zig");
 const Manifest = Package.Manifest;
 const ErrorBundle = std.zig.ErrorBundle;
 
@@ -341,10 +341,10 @@ pub const JobQueue = struct {
                 .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
             );
         }
-        try w.appendSlice("};\n");
+        try w.writeAll("};\n");
     }
 
-    pub fn createEmptyDependenciesSource(w: *Io.Writer) Io.Writer!void {
+    pub fn createEmptyDependenciesSource(w: *Io.Writer) Io.Writer.Error!void {
         try w.writeAll(
             \\pub const packages = struct {};
             \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{};
@@ -858,14 +858,14 @@ pub fn computedPackageHash(f: *const Fetch) Package.Hash {
 fn checkBuildFileExistence(f: *Fetch) RunError!void {
     const io = f.job_queue.io;
     const eb = &f.error_bundle;
-    if (f.package_root.access(io, Package.build_zig_basename, .{})) |_| {
+    if (f.package_root.access(io, std.zig.build_zig_basename, .{})) |_| {
         f.has_build_zig = true;
     } else |err| switch (err) {
         error.FileNotFound => {},
         else => |e| {
             try eb.addRootErrorMessage(.{
-                .msg = try eb.printString("unable to access '{f}{s}': {t}", .{
-                    f.package_root, Package.build_zig_basename, e,
+                .msg = try eb.printString("unable to access {f}/{s}: {t}", .{
+                    f.package_root, std.zig.build_zig_basename, e,
                 }),
             });
             return error.FetchFailed;
@@ -1781,7 +1781,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
                 )),
             };
 
-            if (std.mem.eql(u8, entry_pkg_path, Package.build_zig_basename))
+            if (std.mem.eql(u8, entry_pkg_path, std.zig.build_zig_basename))
                 f.has_build_zig = true;
 
             const fs_path = try arena.dupe(u8, entry.path);
