@@ -121,6 +121,18 @@ test "array init with concat" {
     try expect(std.mem.eql(u8, &i, "abcd"));
 }
 
+test "array init with multiplication" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+
+    const a = 'a';
+    var i: [8]u8 = [2]u8{ a, 'b' } ** 4;
+    try expect(std.mem.eql(u8, &i, "abababab"));
+
+    var j: [4]u8 = [1]u8{'a'} ** 4;
+    try expect(std.mem.eql(u8, &j, "aaaa"));
+}
+
 test "array literal with explicit type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 

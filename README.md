@@ -92,14 +92,15 @@ The result: sig never drifts. You get upstream bug fixes, optimizations, and new
 ## Getting started
 
 ```bash
-# Download the latest release
+# Linux x86_64
 curl -sL https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz | tar -xJ
 export PATH="$PWD/sig/bin:$PATH"
-
-# Or build from source (requires a sig or zig binary)
-git clone https://github.com/SB0LTD/sig.git && cd sig
-sig build -OReleaseFast
 ```
+
+Latest native packages are also published as
+[`sig-aarch64-macos.tar.xz`](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-macos.tar.xz)
+and
+[`sig-x86_64-windows.zip`](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-windows.zip).
 
 It's a drop-in replacement. Every `.zig` file compiles unchanged. Rename to `.sig` when you're ready to go strict.
 
@@ -107,7 +108,7 @@ It's a drop-in replacement. Every `.zig` file compiles unchanged. Rename to `.si
 
 ```
 build-llvm (one-time)  →  build-bootstrap (one-time)  →  release (every version)
-     LLVM 22 .a files        v28 bootstrap binary            sig builds sig
+     LLVM 22 .a files        v31 bootstrap binary            sig builds sig
 ```
 
 The bootstrap is a previous sig release. It compiles the current source with LLVM 22 linked in. The output is a static musl binary that cross-compiles for all targets. No external dependencies at runtime.

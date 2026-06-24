@@ -1,11 +1,15 @@
 # [sig] Self-sustained release pipeline — sig builds sig
 #
-# Two-stage build: first produce a native x86_64-linux binary using the v28 bootstrap,
+# Two-stage build: first produce a native x86_64-linux binary using the v31 bootstrap,
 # then use that freshly-built binary to cross-compile for all other targets.
 # This mirrors upstream zig-bootstrap's approach.
 #
 # Chain: build-llvm (one-time) → build-bootstrap (one-time) → release (every release)
 name: release
+
+concurrency:
+  group: sig-release
+  cancel-in-progress: false
 
 on:
   repository_dispatch:
@@ -24,25 +28,33 @@ on:
       bootstrap_tag:
         description: 'Bootstrap release tag to use'
         required: false
-        default: 'bootstrap-sig-v30'
+        default: 'bootstrap-sig-v31'
         type: string
 
 permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v30' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v31' }}
 
 jobs:
-  # Stage 1: Build native x86_64-linux binary using v28 bootstrap
+  # Stage 1: Build native x86_64-linux binary using the current bootstrap.
   build-native:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          sudo rm -rf /usr/local/graalvm /usr/local/.ghcup /usr/local/share/powershell
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go
+          sudo apt-get clean
 
       - name: Resolve version
         id: version
@@ -54,20 +66,17 @@ jobs:
             VER_FILE="build.zig"
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
-            SIG_VER="${{ inputs.version }}"
-          else
-            SIG_MAJOR=$(sed -n 's/^const sig_version.*major = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
-            SIG_MINOR=$(sed -n 's/^const sig_version.*minor = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
-            SIG_PATCH=$(sed -n 's/^const sig_version.*patch = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
-            SIG_PRE=$(sed -n 's/^const sig_version.*pre = "\([^"]*\)".*/\1/p' "$VER_FILE" | head -1)
-            if [ -z "$SIG_MAJOR" ]; then
-              SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' "$VER_FILE" | head -1)
-            else
-              [ -n "$SIG_PRE" ] && SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}-${SIG_PRE}" \
-                                || SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}"
-            fi
+          SOURCE_SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' "$VER_FILE" | head -1)
+          if [ -z "$SOURCE_SIG_VER" ]; then
+            echo "ERROR: failed to extract sig_version_string from ${VER_FILE}"
+            exit 1
           fi
+          REQUESTED_VERSION="${{ github.event.client_payload.version || inputs.version }}"
+          if [ -n "$REQUESTED_VERSION" ] && [ "$REQUESTED_VERSION" != "$SOURCE_SIG_VER" ]; then
+            echo "ERROR: requested release ${REQUESTED_VERSION} does not match source version ${SOURCE_SIG_VER}"
+            exit 1
+          fi
+          SIG_VER="$SOURCE_SIG_VER"
           ZIG_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' build.zig | head -1)
           ZIG_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' build.zig | head -1)
           ZIG_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' build.zig | head -1)
@@ -97,7 +106,7 @@ jobs:
           chmod +x "$BIN"
           echo "SIG=${BIN}" >> "$GITHUB_ENV"
           ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"
-          "${BIN}" version || true
+          "${BIN}" version
 
       - name: Download LLVM 22 (x86_64-linux)
         env:
@@ -169,18 +178,41 @@ jobs:
         run: |
           chmod +x stage3-out/bin/sig
           ./stage3-out/bin/sig version
+          rm -rf /tmp/sig-release-cache /tmp/sig-release-global
+          ./stage3-out/bin/sig test test/release/nexus_compat.sig \
+            --zig-lib-dir lib \
+            --cache-dir /tmp/sig-release-cache \
+            --global-cache-dir /tmp/sig-release-global
+          ./stage3-out/bin/sig build-obj test/release/nexus_compat.sig \
+            -target aarch64-freestanding-none \
+            -OReleaseSmall \
+            -fllvm \
+            --zig-lib-dir lib \
+            --cache-dir /tmp/sig-release-cache \
+            --global-cache-dir /tmp/sig-release-global \
+            -femit-bin=/tmp/nexus-compat-aarch64.o
+          file /tmp/nexus-compat-aarch64.o | grep -q "ARM aarch64"
 
       - name: Package native binary
         run: |
           OUT="sig-${VERSION}-x86_64-linux"
           mkdir -p "${OUT}/bin"
           cp stage3-out/bin/sig "${OUT}/bin/sig"
-          cp stage3-out/bin/sig "${OUT}/bin/zig"
+          ln "${OUT}/bin/sig" "${OUT}/bin/zig"
           cp -r lib "${OUT}/lib"
           echo "Size: $(du -h "${OUT}/bin/sig" | cut -f1)"
           ARCHIVE="sig-${VERSION}-x86_64-linux.tar.xz"
           tar -cJf "${ARCHIVE}" "${OUT}"
           sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
+          sha256sum -c "${ARCHIVE}.sha256"
+
+          mkdir -p /tmp/sig-release-check
+          tar -xJf "${ARCHIVE}" -C /tmp/sig-release-check
+          PACKAGED="/tmp/sig-release-check/${OUT}/bin/sig"
+          "${PACKAGED}" version
+          "${PACKAGED}" test test/release/nexus_compat.sig \
+            --cache-dir /tmp/sig-package-cache \
+            --global-cache-dir /tmp/sig-package-global
 
       - uses: actions/upload-artifact@v4
         with:
@@ -194,6 +226,7 @@ jobs:
   # sig builds sig — bootstrap is sig, output is sig.
   build-platform:
     needs: build-native
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -226,7 +259,7 @@ jobs:
             cp .bootstrap/bin/sig ./bootstrap-sig
             chmod +x ./bootstrap-sig
           fi
-          ./bootstrap-sig* version || echo "WARNING: bootstrap binary failed"
+          ./bootstrap-sig* version
 
       - name: Generate build options
         shell: bash
@@ -276,9 +309,13 @@ jobs:
       - name: Verify binary
         shell: bash
         run: |
-          chmod +x stage3-out/bin/${{ matrix.bin }} 2>/dev/null || true
-          file stage3-out/bin/${{ matrix.bin }} || true
-          stage3-out/bin/${{ matrix.bin }} version || ./stage3-out/bin/${{ matrix.bin }} version || true
+          chmod +x stage3-out/bin/${{ matrix.bin }}
+          file stage3-out/bin/${{ matrix.bin }} | grep -q "Mach-O"
+          stage3-out/bin/${{ matrix.bin }} version
+          stage3-out/bin/${{ matrix.bin }} test test/release/nexus_compat.sig \
+            --zig-lib-dir lib \
+            --cache-dir /tmp/sig-nexus-cache \
+            --global-cache-dir /tmp/sig-nexus-global
 
       - name: Package
         shell: bash
@@ -287,8 +324,8 @@ jobs:
           mkdir -p "${OUT}/bin"
           cp "stage3-out/bin/${{ matrix.bin }}" "${OUT}/bin/${{ matrix.bin }}"
           case "${{ matrix.bin }}" in
-            sig)     cp "${OUT}/bin/sig" "${OUT}/bin/zig" ;;
-            sig.exe) cp "${OUT}/bin/sig.exe" "${OUT}/bin/zig.exe" ;;
+            sig)     ln "${OUT}/bin/sig" "${OUT}/bin/zig" ;;
+            sig.exe) ln "${OUT}/bin/sig.exe" "${OUT}/bin/zig.exe" ;;
           esac
           cp -r lib "${OUT}/lib"
 
@@ -299,6 +336,14 @@ jobs:
           ARCHIVE="sig-${VERSION}-${{ matrix.target }}.tar.xz"
           tar -cJf "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
           shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
+          shasum -a 256 -c "${ARCHIVE}.sha256"
+          mkdir -p /tmp/sig-platform-package-check
+          tar -xJf "${ARCHIVE}" -C /tmp/sig-platform-package-check
+          PACKAGED="/tmp/sig-platform-package-check/sig-${VERSION}-${{ matrix.target }}/bin/${{ matrix.bin }}"
+          "${PACKAGED}" version
+          "${PACKAGED}" test test/release/nexus_compat.sig \
+            --cache-dir /tmp/sig-platform-package-cache \
+            --global-cache-dir /tmp/sig-platform-package-global
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
       - name: Archive (zip)
@@ -317,12 +362,11 @@ jobs:
             ${{ env.ARCHIVE }}
             ${{ env.ARCHIVE }}.sha256
 
-  # Cross-compile Windows from Linux using official zig.
-  # The C-backend bootstrap has broken LLVM codegen (produces ELF not PE).
-  # Use setup-zig with official zig 0.14.1 which has working cross-compilation.
+  # Cross-compile Windows from the freshly-built Linux Sig compiler with LLVM.
   build-windows-cross:
     needs: build-native
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     env:
       VERSION: ${{ needs.build-native.outputs.version }}
     steps:
@@ -337,10 +381,20 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go
           sudo apt-get clean
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+      - uses: actions/download-artifact@v4
         with:
-          version: "0.14.1"
+          name: sig-x86_64-linux
+          path: .native-release
+
+      - name: Extract native Sig compiler
+        run: |
+          ARCHIVE=$(find .native-release -maxdepth 1 -name 'sig-*-x86_64-linux.tar.xz' | head -1)
+          test -n "${ARCHIVE}"
+          mkdir -p .native-sig
+          tar -xJf "${ARCHIVE}" -C .native-sig --strip-components=1
+          chmod +x .native-sig/bin/sig
+          .native-sig/bin/sig version
+          echo "SIG=$PWD/.native-sig/bin/sig" >> "$GITHUB_ENV"
 
       - name: Cross-compile for Windows
         run: |
@@ -372,7 +426,7 @@ jobs:
           pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
           EOF
 
-          zig build-exe \
+          "${SIG}" build-exe \
             --dep build_options --dep aro \
             -Mroot=src/main.zig \
             -Mbuild_options=.build-gen/build_options.zig \
@@ -382,6 +436,8 @@ jobs:
             -fstrip \
             --zig-lib-dir lib \
             -target x86_64-windows \
+            -fllvm \
+            -flld \
             --cache-dir .zig-cache \
             -femit-bin=stage3-out/bin/sig.exe
 
@@ -397,11 +453,20 @@ jobs:
           OUT="sig-${VERSION}-x86_64-windows"
           mkdir -p "${OUT}/bin"
           cp stage3-out/bin/sig.exe "${OUT}/bin/sig.exe"
-          cp stage3-out/bin/sig.exe "${OUT}/bin/zig.exe"
+          ln "${OUT}/bin/sig.exe" "${OUT}/bin/zig.exe"
           cp -r lib "${OUT}/lib"
           ARCHIVE="sig-${VERSION}-x86_64-windows.zip"
           7z a -r "${ARCHIVE}" "${OUT}"
           sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
+          sha256sum -c "${ARCHIVE}.sha256"
+          7z t "${ARCHIVE}"
+          rm -rf /tmp/sig-windows-package-check
+          7z x -o/tmp/sig-windows-package-check "${ARCHIVE}" >/dev/null
+          PACKAGED="/tmp/sig-windows-package-check/${OUT}/bin"
+          test -f "${PACKAGED}/sig.exe"
+          test -f "${PACKAGED}/zig.exe"
+          cmp "${PACKAGED}/sig.exe" "${PACKAGED}/zig.exe"
+          head -c 2 "${PACKAGED}/sig.exe" | xxd | grep -q "4d5a"
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
@@ -411,9 +476,59 @@ jobs:
             ${{ env.ARCHIVE }}
             ${{ env.ARCHIVE }}.sha256
 
+  verify-windows:
+    needs: [build-native, build-windows-cross]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.build-native.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sig-x86_64-windows
+          path: .windows-release
+
+      - name: Verify packaged Windows compiler
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem .windows-release -Filter 'sig-*-x86_64-windows.zip' | Select-Object -First 1
+          if (-not $archive) {
+            throw 'Windows release archive was not downloaded'
+          }
+
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath .windows-package
+          $package = Join-Path $PWD "windows-package\sig-${env:VERSION}-x86_64-windows"
+          $sig = Join-Path $package 'bin\sig.exe'
+          $zig = Join-Path $package 'bin\zig.exe'
+          if (-not (Test-Path -LiteralPath $sig) -or -not (Test-Path -LiteralPath $zig)) {
+            throw 'Packaged sig.exe or zig.exe is missing'
+          }
+          if ((Get-FileHash $sig).Hash -ne (Get-FileHash $zig).Hash) {
+            throw 'Packaged sig.exe and zig.exe differ'
+          }
+
+          & $sig version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged sig.exe version failed with exit code $LASTEXITCODE"
+          }
+
+          New-Item -ItemType Directory -Force .windows-cache, .windows-global-cache | Out-Null
+          & $sig test test\release\nexus_compat.sig `
+            --cache-dir .windows-cache `
+            --global-cache-dir .windows-global-cache
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged sig.exe compatibility test failed with exit code $LASTEXITCODE"
+          }
+
   publish:
-    needs: [build-native, build-platform, build-windows-cross]
-    if: always() && needs.build-native.result == 'success'
+    needs: [build-native, build-platform, build-windows-cross, verify-windows]
+    if: >-
+      needs.build-native.result == 'success' &&
+      needs.build-platform.result == 'success' &&
+      needs.build-windows-cross.result == 'success' &&
+      needs.verify-windows.result == 'success'
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.build-native.outputs.version }}
@@ -429,17 +544,26 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd artifacts
-          rm -f sig
-          cat *.sha256 > sha256sums.txt 2>/dev/null || true
+          test -f "sig-${VERSION}-x86_64-linux.tar.xz"
+          test -f "sig-${VERSION}-aarch64-macos.tar.xz"
+          test -f "sig-${VERSION}-x86_64-windows.zip"
+
+          cp "sig-${VERSION}-x86_64-linux.tar.xz" sig-x86_64-linux.tar.xz
+          cp "sig-${VERSION}-aarch64-macos.tar.xz" sig-aarch64-macos.tar.xz
+          cp "sig-${VERSION}-x86_64-windows.zip" sig-x86_64-windows.zip
+
+          sha256sum sig-*.tar.xz sig-*.zip > sha256sums.txt
+          sha256sum -c sha256sums.txt
           PRERELEASE=""
           LATEST_FLAG="--latest"
           [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.prerelease }}" = "true" ] && PRERELEASE="--prerelease" && LATEST_FLAG=""
-          ARCHIVES=""
-          for f in sig-*.tar.xz sig-*.zip; do [ -f "$f" ] && ARCHIVES="$ARCHIVES $f"; done
+          shopt -s nullglob
+          ARCHIVES=(sig-*.tar.xz sig-*.zip)
           gh release delete "sig-${VERSION}" --yes --cleanup-tag 2>/dev/null || true
           sleep 2
           gh release create "sig-${VERSION}" \
+            --target "${GITHUB_SHA}" \
             --title "Sig ${VERSION}" \
-            --notes "Sig ${VERSION} — self-sustained release (sig builds sig). x86_64-linux with full LLVM 22." \
+            --notes "Sig ${VERSION} — self-sustained release. Linux is built by Sig with LLVM 22, Windows is cross-compiled by that Linux Sig, and all platform jobs must pass before publication." \
             ${LATEST_FLAG} ${PRERELEASE} \
-            $ARCHIVES sha256sums.txt
+            "${ARCHIVES[@]}" sha256sums.txt

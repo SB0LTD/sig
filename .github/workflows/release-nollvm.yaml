@@ -11,14 +11,14 @@ on:
       bootstrap_tag:
         description: 'Bootstrap release tag'
         required: false
-        default: 'bootstrap-sig-v28'
+        default: 'bootstrap-sig-v31'
         type: string
 
 permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag || 'bootstrap-sig-v28' }}
+  BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag || 'bootstrap-sig-v31' }}
 
 jobs:
   build:
@@ -57,7 +57,7 @@ jobs:
           chmod +x "$BIN"
           echo "SIG=${BIN}" >> "$GITHUB_ENV"
           ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"
-          "${BIN}" version || true
+          "${BIN}" version
 
       - name: Build (no-LLVM, direct build-exe)
         run: |
@@ -101,6 +101,15 @@ jobs:
             --cache-dir .zig-cache \
             -femit-bin=stage3-out/bin/sig
 
+      - name: Verify compiler compatibility
+        run: |
+          chmod +x stage3-out/bin/sig
+          stage3-out/bin/sig version
+          stage3-out/bin/sig test test/release/nexus_compat.sig \
+            --zig-lib-dir lib \
+            --cache-dir /tmp/sig-nexus-cache \
+            --global-cache-dir /tmp/sig-nexus-global
+
       - name: Package and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -108,13 +117,25 @@ jobs:
           # Create bootstrap archive
           mkdir -p bootstrap-out/bin
           cp stage3-out/bin/sig bootstrap-out/bin/sig
-          cp stage3-out/bin/sig bootstrap-out/bin/zig
+          ln bootstrap-out/bin/sig bootstrap-out/bin/zig
           tar -czf bootstrap-sig-x86_64-linux.tar.gz -C bootstrap-out .
+          sha256sum bootstrap-sig-x86_64-linux.tar.gz > bootstrap-sig-x86_64-linux.tar.gz.sha256
+          sha256sum -c bootstrap-sig-x86_64-linux.tar.gz.sha256
+          mkdir -p /tmp/sig-bootstrap-package-check
+          tar -xzf bootstrap-sig-x86_64-linux.tar.gz -C /tmp/sig-bootstrap-package-check
+          /tmp/sig-bootstrap-package-check/bin/sig version
+          /tmp/sig-bootstrap-package-check/bin/sig test test/release/nexus_compat.sig \
+            --cache-dir /tmp/sig-bootstrap-package-cache \
+            --global-cache-dir /tmp/sig-bootstrap-package-global
 
           # Create or update release
           gh release view "${VERSION}" >/dev/null 2>&1 || \
             gh release create "${VERSION}" \
+              --target "${GITHUB_SHA}" \
               --title "Bootstrap ${VERSION}" \
               --notes "No-LLVM transitional bootstrap with compiler module wiring." \
               --prerelease
-          gh release upload "${VERSION}" bootstrap-sig-x86_64-linux.tar.gz --clobber
+          gh release upload "${VERSION}" \
+            bootstrap-sig-x86_64-linux.tar.gz \
+            bootstrap-sig-x86_64-linux.tar.gz.sha256 \
+            --clobber
