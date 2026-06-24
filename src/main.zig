@@ -353,7 +353,7 @@ fn mainArgs(
             return process.exit(try llvmArMain(arena, args));
         },
         .build, .fetch, .init => {
-            return jitCmd(gpa, arena, io, args, environ_map, .{
+            return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
                 .cmd_name = "maker",
                 .root_src_path = "Maker.zig",
                 .prepend_cmd = cmd,
@@ -5070,8 +5070,10 @@ fn jitCmdInner(
     child_argv.appendSliceAssumeCapacity(args);
 
     if (EnvVar.ZIG_DEBUG_CMD.isSet(environ_map)) {
-        const cmd = try std.mem.join(arena, " ", child_argv.items);
-        std.debug.print("{s}\n", .{cmd});
+        const cmd: std.zig.SubprocessCommand = .{
+            .argv = child_argv.items,
+        };
+        std.log.info("{f}", .{cmd});
     }
 
     if (process.can_replace and options.capture == null) {
