@@ -1,4 +1,5 @@
 const Maker = @This();
+
 const builtin = @import("builtin");
 const native_os = builtin.os.tag;
 
@@ -263,10 +264,17 @@ pub fn main(init: process.Init.Minimal) !void {
                 configure_argv.appendAssumeCapacity(arg); // Intentionally "--system" only; not the path.
             } else if (mem.cutPrefix(u8, arg, "--color=")) |rest| {
                 color = stringToEnum(Color, rest) orelse
-                    fatal("expected --color=[auto|on|off]; found {q}", .{arg});
+                    fatalWithHint("expected --color=[auto|on|off]; found {q}", .{arg});
 
                 try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
                 configure_argv.appendAssumeCapacity(arg);
+            } else if (mem.eql(u8, arg, "--color")) {
+                const next_arg = nextArgOrFatal(args, &arg_i);
+                color = stringToEnum(Color, next_arg) orelse
+                    fatalWithHint("expected [auto|on|off] found {q}", .{next_arg});
+
+                try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
+                configure_argv.appendAssumeCapacity(try allocPrint(arena, "--color={t}", .{color}));
             } else if (mem.eql(u8, arg, "--cache-poison")) {
                 cache_poison = .poisoned;
                 configure_argv.appendAssumeCapacity("--cache-poison=poisoned");
@@ -280,12 +288,16 @@ pub fn main(init: process.Init.Minimal) !void {
                 // Intentionally is added both to make and configure but
                 // does not go into the cache hash.
                 configure_argv.appendAssumeCapacity(arg);
+                graph.verbose = true;
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const prefix = nextArgOrFatal(args, &arg_i);
+
                 // This argument is cache poisonous: it does not go into
                 // the cache and configurer must set the poison bit when
                 // choosing to observe it.
                 configure_argv.addManyAsArrayAssumeCapacity(2).* = .{ arg, prefix };
+
+                try graph.search_prefixes.append(arena, prefix);
             } else if (mem.eql(u8, arg, "--cache-dir")) {
                 override_local_cache_dir = nextArgOrFatal(args, &arg_i);
             } else if (mem.eql(u8, arg, "--pkg-dir")) {
@@ -361,18 +373,8 @@ pub fn main(init: process.Init.Minimal) !void {
                     .{ timeout_str, num_str, err },
                 );
                 test_timeout_ns = std.math.lossyCast(u64, unit_factor * num_parsed);
-            } else if (mem.eql(u8, arg, "--search-prefix")) {
-                try graph.search_prefixes.append(arena, nextArgOrFatal(args, &arg_i));
             } else if (mem.eql(u8, arg, "--libc")) {
                 graph.libc_file = nextArgOrFatal(args, &arg_i);
-            } else if (mem.eql(u8, arg, "--color")) {
-                const next_arg = nextArg(args, &arg_i) orelse
-                    fatalWithHint("expected [auto|on|off] after {q}", .{arg});
-                color = stringToEnum(Color, next_arg) orelse {
-                    fatalWithHint("expected [auto|on|off] after {q}, found {q}", .{
-                        arg, next_arg,
-                    });
-                };
             } else if (mem.eql(u8, arg, "--error-style")) {
                 const next_arg = nextArg(args, &arg_i) orelse
                     fatalWithHint("expected style after {q}", .{arg});
@@ -429,15 +431,13 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.eql(u8, arg, "--debug-rt")) {
                 graph.debug_compiler_runtime_libs = .Debug;
             } else if (mem.cutPrefix(u8, arg, "--debug-rt=")) |rest| {
-                graph.debug_compiler_runtime_libs = stringToEnum(std.builtin.OptimizeMode, rest) orelse
+                graph.debug_compiler_runtime_libs = stringToEnum(std.lang.OptimizeMode, rest) orelse
                     fatal("unrecognized optimization mode: {s}", .{rest});
             } else if (is_debug_mode and mem.eql(u8, arg, "--debug-maker-leaks")) {
                 debug_maker_leaks = true;
             } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
                 // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
                 graph.libc_runtimes_dir = nextArgOrFatal(args, &arg_i);
-            } else if (mem.eql(u8, arg, "--verbose")) {
-                graph.verbose = true;
             } else if (mem.eql(u8, arg, "--verbose-air")) {
                 graph.verbose_air = true;
             } else if (mem.eql(u8, arg, "--verbose-cc")) {

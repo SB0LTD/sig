@@ -342,7 +342,6 @@ pub fn printUsage(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
         \\  --build-file [file]          Override path to build.zig
         \\  --cache-dir [path]           Override path to local Zig cache directory
         \\  --global-cache-dir [path]    Override path to global Zig cache directory
-        \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --seed [integer]             For shuffling dependency traversal order (default: random)
         \\  --cache-poison[=mode]        Override configuration caching behavior
         \\      pure                     (default) Avoid false positive cache hits
@@ -360,7 +359,6 @@ pub fn printUsage(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
         \\      none                     (default) No build ID
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
-        \\  --maker-opt=[mode]           Change maker executable optimization mode (default: ReleaseSafe)
         \\  --verbose-link               Enable compiler debug output for linking
         \\  --verbose-air                Enable compiler debug output for Zig AIR
         \\  --verbose-llvm-ir            Enable compiler debug output for LLVM IR
