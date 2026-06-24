@@ -2766,11 +2766,9 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                     .file_open, .file_stat, .file_read, .file_hash => |op| {
                         const pp = man.files.keys()[op.file_index].prefixed_path;
                         const prefix = man.cache.prefixes()[pp.prefix];
-                        return comp.setMiscFailure(
-                            .check_whole_cache,
-                            "failed to check cache: '{f}{s}' {t} {t}",
-                            .{ prefix, pp.sub_path, man.diagnostic, op.err },
-                        );
+                        return comp.setMiscFailure(.check_whole_cache, "failed to check cache: {f}{s} {t} {t}", .{
+                            prefix, pp.sub_path, man.diagnostic, op.err,
+                        });
                     },
                 },
                 error.OutOfMemory, error.Canceled => |e| return e,

@@ -1798,9 +1798,7 @@ pub fn buildExeSubprocess(gpa: Allocator, io: Io, options: BuildExeSubprocessOpt
                 return error.AlreadyReported;
             },
         };
-        log.err("{s} command reported {d} compilation errors: {f}", .{
-            options.argv[0], result_error_bundle.errorMessageCount(), cmd,
-        });
+        log.err("command reported {d} compilation errors: {f}", .{ result_error_bundle.errorMessageCount(), cmd });
         if (received_fs_inputs) return error.FailedButCacheIntact;
         return error.AlreadyReported;
     }

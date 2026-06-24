@@ -113,6 +113,15 @@ pub const CliModule = struct {
     deps: Deps = .empty,
 
     const Deps = std.array_hash_map.String(*CliModule);
+
+    fn lower(cm: *const CliModule, arena: Allocator, gpa: Allocator, argv: *std.ArrayList([]const u8)) !void {
+        try argv.ensureUnusedCapacity(gpa, 2 * cm.deps.count() + 1);
+        for (cm.deps.values()) |dep| {
+            argv.appendAssumeCapacity("--dep");
+            argv.appendAssumeCapacity(dep.name);
+        }
+        argv.appendAssumeCapacity(try allocPrint(arena, "-M{s}={s}", .{ cm.name, cm.root_path }));
+    }
 };
 
 pub fn main(init: process.Init.Minimal) !void {
@@ -691,19 +700,12 @@ pub fn main(init: process.Init.Minimal) !void {
             "--dep", "@build", //
             "--dep", "@dependencies", //
             try allocPrint(arena, "-Mroot={f}", .{configurer_root_src_path}), //
-            try allocPrint(arena, "-M@build={f}", .{root_build_src_path}), //
         });
 
         // In the loop below, after doing the fetch operation, the argv will be
         // truncated at this point, dependencies added, and then the
         // "--listen=-" arg appended at the end.
-        const argv_deps_index = build_configurer_argv.items.len - 1;
-
-        //const root_mod = try arena.create(CliModule);
-        //root_mod.* = .{
-        //    .name = "root",
-        //    .root_path = try configurer_root_src_path.toString(arena),
-        //};
+        const argv_deps_index = build_configurer_argv.items.len;
 
         const build_mod = try arena.create(CliModule);
         build_mod.* = .{
@@ -722,7 +724,6 @@ pub fn main(init: process.Init.Minimal) !void {
         // This loop is re-evaluated when the build script exits with an indication that it
         // could not continue due to missing lazy dependencies.
         const configuration_path: Path, const poisoned: bool = cp: while (true) {
-            //root_mod.deps.clearRetainingCapacity();
             build_mod.deps.clearRetainingCapacity();
             deps_mod.deps.clearRetainingCapacity();
 
@@ -923,20 +924,14 @@ pub fn main(init: process.Init.Minimal) !void {
                             dep.name, dep.root_path,
                         }));
                     }
-                    try build_configurer_argv.ensureUnusedCapacity(gpa, 2 * deps_mod.deps.count() + 1);
-                    for (deps_mod.deps.values()) |dep| {
-                        build_configurer_argv.appendAssumeCapacity("--dep");
-                        build_configurer_argv.appendAssumeCapacity(dep.name);
-                    }
-                    build_configurer_argv.appendAssumeCapacity(try allocPrint(arena, "-M@dependencies={s}", .{
-                        deps_mod.root_path,
-                    }));
+                    try deps_mod.lower(arena, gpa, &build_configurer_argv);
+                    try build_mod.lower(arena, gpa, &build_configurer_argv);
+
+                    try build_configurer_argv.append(gpa, "--listen=-");
                 }
 
                 const compile_prog_node = main_progress_node.start("Compile Configure Script", 0);
                 defer compile_prog_node.end();
-
-                try build_configurer_argv.append(gpa, "--listen=-");
 
                 const configure_exe_path: Path = if (std.zig.buildExeSubprocess(gpa, io, .{
                     .argv = build_configurer_argv.items,
