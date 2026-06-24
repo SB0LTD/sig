@@ -48,6 +48,9 @@ unset CXX
 
 ninja install
 
+# Must be done after zig cc is finished.
+export ZIG_LIB_DIR="$PWD/../lib"
+
 # Covers several things:
 # 1. building the compiler without LLVM
 # 2. 32-bit
@@ -66,7 +69,6 @@ stage3-release/bin/zig build test docs \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib" \
   -Denable-superhtml \
   --test-timeout 12m
 
@@ -120,6 +122,5 @@ stage3/bin/zig build -p stage4 \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   -Dno-lib \
-  --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib"
+  --search-prefix "$PREFIX"
 stage4/bin/zig test ../test/behavior.zig

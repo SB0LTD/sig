@@ -789,8 +789,6 @@ endif()
 
 
 set(ZIG_BUILD_ARGS
-  --zig-lib-dir "${PROJECT_SOURCE_DIR}/lib"
-
   "-Dversion-string=${RESOLVED_ZIG_VERSION}"
   "-Dtarget=${ZIG_TARGET_TRIPLE}"
   "-Dcpu=${ZIG_TARGET_MCPU}"
