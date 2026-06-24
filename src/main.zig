@@ -356,6 +356,7 @@ fn mainArgs(
             return jitCmd(gpa, arena, io, args, environ_map, .{
                 .cmd_name = "maker",
                 .root_src_path = "Maker.zig",
+                .prepend_cmd = cmd,
                 .prepend_zig_lib_dir_path = true,
                 .prepend_global_cache_path = true,
                 .prepend_zig_exe_path = true,
@@ -4871,6 +4872,7 @@ pub fn translateC(
 const JitCmdOptions = struct {
     cmd_name: []const u8,
     root_src_path: []const u8,
+    prepend_cmd: ?[]const u8 = null,
     prepend_zig_lib_dir_path: bool = false,
     prepend_global_cache_path: bool = false,
     prepend_zig_exe_path: bool = false,
@@ -4953,7 +4955,7 @@ fn jitCmdInner(
     defer dirs.deinit(io);
 
     var child_argv: std.ArrayList([]const u8) = .empty;
-    try child_argv.ensureUnusedCapacity(arena, args.len + 5);
+    try child_argv.ensureUnusedCapacity(arena, args.len + 6);
 
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
@@ -5054,6 +5056,8 @@ fn jitCmdInner(
         child_argv.appendAssumeCapacity(exe_path);
     }
 
+    if (options.prepend_cmd) |cmd|
+        child_argv.appendAssumeCapacity(cmd);
     if (options.prepend_zig_lib_dir_path)
         child_argv.appendAssumeCapacity(try allocPrint(arena, "--zig-lib={s}", .{dirs.zig_lib.path.?}));
     if (options.prepend_zig_exe_path)
