@@ -622,12 +622,16 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         "--listen=-",
     });
 
+    const compile_prog_node = ws.root_prog_node.start("Compile WebAssembly Component", 0);
+    defer compile_prog_node.end();
+
     return std.zig.buildExeSubprocess(gpa, io, .{
         .argv = argv.items,
         .cache_root = graph.global_cache_root,
         .root_name = root_name,
         .arch_os_abi = arch_os_abi,
         .cpu_features = cpu_features,
+        .progress_node = compile_prog_node,
     });
 }
 

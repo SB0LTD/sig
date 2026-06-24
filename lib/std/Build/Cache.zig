@@ -91,13 +91,13 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
         };
         // Free the resolved path since we're not going to return it
         gpa.free(resolved_path);
-        return PrefixedPath{
+        return .{
             .prefix = i,
             .sub_path = sub_path,
         };
     }
 
-    return PrefixedPath{
+    return .{
         .prefix = 0,
         .sub_path = resolved_path,
     };

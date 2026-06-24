@@ -1250,7 +1250,7 @@ pub const SubprocessCommand = struct {
             for (child_env.keys(), child_env.values()) |key, value| {
                 if (sc.parent_env) |parent_env| {
                     if (parent_env.get(key)) |process_value| {
-                        if (std.mem.eql(u8, value, process_value)) continue;
+                        if (mem.eql(u8, value, process_value)) continue;
                     }
                 }
                 try w.print("{s}=", .{key});
@@ -1364,10 +1364,10 @@ pub const Directories = struct {
 
         const local_cache = getLocalCacheDirectory(arena, io, cwd, global_cache, local_cache_strat);
 
-        if (std.mem.eql(u8, zig_lib.path orelse "", global_cache.path orelse "")) {
+        if (mem.eql(u8, zig_lib.path orelse "", global_cache.path orelse "")) {
             fatal("zig lib directory '{f}' cannot be equal to global cache directory '{f}'", .{ zig_lib, global_cache });
         }
-        if (std.mem.eql(u8, zig_lib.path orelse "", local_cache.path orelse "")) {
+        if (mem.eql(u8, zig_lib.path orelse "", local_cache.path orelse "")) {
             fatal("zig lib directory '{f}' cannot be equal to local cache directory '{f}'", .{ zig_lib, local_cache });
         }
 
@@ -1400,7 +1400,7 @@ pub const Directories = struct {
 
     fn getPreopen(preopens: std.process.Preopens, name: []const u8) Cache.Directory {
         return .{
-            .path = if (std.mem.eql(u8, name, ".")) null else name,
+            .path = if (mem.eql(u8, name, ".")) null else name,
             .handle = switch (preopens.get(name) orelse fatal("preopen not found: {q}", .{name})) {
                 .file => fatal("preopen {q} is not a directory", .{name}),
                 .dir => |d| d,
@@ -1607,7 +1607,7 @@ pub fn resolvePath(
     assert(Dir.path.isAbsolute(path_resolved));
     assert(Dir.path.isAbsolute(cwd_resolved));
 
-    if (!std.mem.startsWith(u8, path_resolved, cwd_resolved)) return path_resolved; // not in cwd
+    if (!mem.startsWith(u8, path_resolved, cwd_resolved)) return path_resolved; // not in cwd
     if (path_resolved.len == cwd_resolved.len) {
         // equal to cwd
         gpa.free(path_resolved);
@@ -1634,6 +1634,7 @@ pub const BuildExeSubprocessOptions = struct {
     cache_manifest: ?*Cache.Manifest = null,
     arch_os_abi: ?[]const u8 = null,
     cpu_features: ?[]const u8 = null,
+    progress_node: std.Progress.Node = .none,
 };
 
 pub const BuildExeSubprocessError = error{
@@ -1655,6 +1656,7 @@ pub fn buildExeSubprocess(gpa: Allocator, io: Io, options: BuildExeSubprocessOpt
         .stdin = .pipe,
         .stdout = .pipe,
         .stderr = .pipe,
+        .progress_node = options.progress_node,
     }) catch |err| {
         log.err("spawning command {t}: {f}", .{ err, cmd });
         return error.AlreadyReported;
@@ -1722,7 +1724,7 @@ pub fn buildExeSubprocess(gpa: Allocator, io: Io, options: BuildExeSubprocessOpt
 
         switch (header.tag) {
             .zig_version => {
-                if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
+                if (!mem.eql(u8, builtin.zig_version_string, body)) {
                     log.err("zig protocol version mismatch from command: {f}", .{cmd});
                     return error.AlreadyReported;
                 }
@@ -1747,16 +1749,23 @@ pub fn buildExeSubprocess(gpa: Allocator, io: Io, options: BuildExeSubprocessOpt
                     .sub_path = try Dir.path.join(gpa, &.{ "o", &Cache.binToHex(digest.*) }),
                 };
             },
-            .file_system_inputs => {
+            .file_system_inputs => if (options.cache_manifest) |man| {
                 received_fs_inputs = true;
-                @panic("TODO");
-                //var it = mem.splitScalar(u8, file_system_inputs.items, 0);
-                //while (it.next()) |input| {
-                //    _ = try config_man.addPrefixedPathPost(.{
-                //        .prefix = input[0],
-                //        .sub_path = input[1..],
-                //    });
-                //}
+                var it = mem.splitScalar(u8, body, 0);
+                while (it.next()) |prefixed_path| {
+                    const prefix: Server.Message.PathPrefix = @enumFromInt(prefixed_path[0] - 1);
+                    const sub_path = prefixed_path[1..];
+                    _ = man.addPrefixedPathPost(.{
+                        .prefix = @intFromEnum(prefix),
+                        .sub_path = sub_path,
+                    }) catch |err| switch (err) {
+                        error.Canceled, error.OutOfMemory => |e| return e,
+                        else => |e| {
+                            log.err("adding {t} {s} to cache failed: {t}", .{ prefix, sub_path, e });
+                            return error.AlreadyReported;
+                        },
+                    };
+                }
             },
             else => {}, // ignore other messages
         }

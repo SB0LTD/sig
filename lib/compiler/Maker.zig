@@ -573,11 +573,17 @@ pub fn main(init: process.Init.Minimal) !void {
         .manifest_dir = try graph.local_cache_root.handle.createDirPathOpen(io, "h", .{}),
         .cwd = cwd_path,
     };
+
     graph.cache.addPrefix(.{ .path = null, .handle = cwd });
     graph.cache.addPrefix(zig_lib_directory);
     graph.cache.addPrefix(graph.local_cache_root);
     graph.cache.addPrefix(global_cache_directory);
     graph.cache.addPrefix(graph.build_root_directory);
+    comptime assert(0 == @intFromEnum(std.zig.Server.Message.PathPrefix.cwd));
+    comptime assert(1 == @intFromEnum(std.zig.Server.Message.PathPrefix.zig_lib));
+    comptime assert(2 == @intFromEnum(std.zig.Server.Message.PathPrefix.local_cache));
+    comptime assert(3 == @intFromEnum(std.zig.Server.Message.PathPrefix.global_cache));
+
     graph.cache.hash.addBytes(builtin.zig_version_string);
 
     const NO_COLOR = EnvVar.NO_COLOR.isSet(&graph.environ_map);
@@ -940,6 +946,7 @@ pub fn main(init: process.Init.Minimal) !void {
                     .environ_map = &graph.environ_map,
                     .cache_manifest = &config_man,
                     .arch_os_abi = target_arch_os_abi,
+                    .progress_node = compile_prog_node,
                 })) |p| p else |err| switch (err) {
                     error.AlreadyReported => process.exit(1),
                     // If the file system inputs are populated, we can
