@@ -130,28 +130,28 @@ pub const CType = union(enum) {
         pub fn bits(int: Int, target: *const std.Target) u16 {
             return switch (int) {
                 // zig fmt: off
-            .char => target.cTypeBitSize(.char),
+                .char => target.cTypeBitSize(.char).?,
 
-            .@"unsigned short"     => target.cTypeBitSize(.ushort),
-            .@"unsigned int"       => target.cTypeBitSize(.uint),
-            .@"unsigned long"      => target.cTypeBitSize(.ulong),
-            .@"unsigned long long" => target.cTypeBitSize(.ulonglong),
+                .@"unsigned short"     => target.cTypeBitSize(.ushort).?,
+                .@"unsigned int"       => target.cTypeBitSize(.uint).?,
+                .@"unsigned long"      => target.cTypeBitSize(.ulong).?,
+                .@"unsigned long long" => target.cTypeBitSize(.ulonglong).?,
 
-            .@"signed short"     => target.cTypeBitSize(.short),
-            .@"signed int"       => target.cTypeBitSize(.int),
-            .@"signed long"      => target.cTypeBitSize(.long),
-            .@"signed long long" => target.cTypeBitSize(.longlong),
+                .@"signed short"     => target.cTypeBitSize(.short).?,
+                .@"signed int"       => target.cTypeBitSize(.int).?,
+                .@"signed long"      => target.cTypeBitSize(.long).?,
+                .@"signed long long" => target.cTypeBitSize(.longlong).?,
 
-            .uintptr_t, .intptr_t => target.ptrBitWidth(),
+                .uintptr_t, .intptr_t => target.ptrBitWidth(),
 
-            .uint8_t,  .int8_t   => 8,
-            .uint16_t, .int16_t  => 16,
-            .uint24_t, .int24_t  => 24,
-            .uint32_t, .int32_t  => 32,
-            .uint48_t, .int48_t  => 48,
-            .uint64_t, .int64_t  => 64,
-            .zig_u128, .zig_i128 => 128,
-            // zig fmt: on
+                .uint8_t,  .int8_t   => 8,
+                .uint16_t, .int16_t  => 16,
+                .uint24_t, .int24_t  => 24,
+                .uint32_t, .int32_t  => 32,
+                .uint48_t, .int48_t  => 48,
+                .uint64_t, .int64_t  => 64,
+                .zig_u128, .zig_i128 => 128,
+                // zig fmt: on
             };
         }
     };

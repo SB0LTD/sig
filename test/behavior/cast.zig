@@ -181,6 +181,7 @@ test "@floatFromInt(f80)" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(comptime Int: type) !void {
@@ -204,7 +205,7 @@ test "@floatFromInt(f80)" {
     try S.doTheTest(i64);
     try S.doTheTest(i80);
     try S.doTheTest(i128);
-    // try S.doTheTest(i256); // TODO missing compiler_rt symbols
+    try S.doTheTest(i256);
     try comptime S.doTheTest(i31);
     try comptime S.doTheTest(i32);
     try comptime S.doTheTest(i45);

@@ -2817,12 +2817,12 @@ pub const Allocating = struct {
     }
 
     test Allocating {
-        try testAllocating(.fromByteUnits(1));
-        try testAllocating(.fromByteUnits(4));
-        try testAllocating(.fromByteUnits(8));
-        try testAllocating(.fromByteUnits(16));
-        try testAllocating(.fromByteUnits(32));
-        try testAllocating(.fromByteUnits(64));
+        try testAllocating(.@"1");
+        try testAllocating(.@"4");
+        try testAllocating(.@"8");
+        try testAllocating(.@"16");
+        try testAllocating(.@"32");
+        try testAllocating(.@"64");
     }
 };
 

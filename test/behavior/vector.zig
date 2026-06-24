@@ -774,6 +774,8 @@ test "vector reduce operation" {
             try testReduce(.Add, [4]f16{ -1.9, 5.1, -60.3, 100.0 }, @as(f16, 42.9));
             try testReduce(.Add, [4]f32{ -1.9, 5.1, -60.3, 100.0 }, @as(f32, 42.9));
             try testReduce(.Add, [4]f64{ -1.9, 5.1, -60.3, 100.0 }, @as(f64, 42.9));
+            try testReduce(.Add, [4]f80{ -1.9, 5.1, -60.3, 100.0 }, @as(f80, 42.9));
+            try testReduce(.Add, [4]f128{ -1.9, 5.1, -60.3, 100.0 }, @as(f128, 42.9));
 
             try testReduce(.And, [4]bool{ true, false, true, true }, @as(bool, false));
             try testReduce(.And, [4]u1{ 1, 0, 1, 1 }, @as(u1, 0));
@@ -792,6 +794,8 @@ test "vector reduce operation" {
             try testReduce(.Min, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, -100.0));
             try testReduce(.Min, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, -100.0));
             try testReduce(.Min, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, -100.0));
+            try testReduce(.Min, [4]f80{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f80, -100.0));
+            try testReduce(.Min, [4]f128{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f128, -100.0));
 
             try testReduce(.Max, [4]i16{ -1, 2, 3, 4 }, @as(i16, 4));
             try testReduce(.Max, [4]u16{ 1, 2, 3, 4 }, @as(u16, 4));
@@ -804,6 +808,8 @@ test "vector reduce operation" {
             try testReduce(.Max, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, 10.0e9));
             try testReduce(.Max, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, 10.0e9));
             try testReduce(.Max, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, 10.0e9));
+            try testReduce(.Max, [4]f80{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f80, 10.0e9));
+            try testReduce(.Max, [4]f128{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f128, 10.0e9));
 
             try testReduce(.Mul, [4]i16{ -1, 2, 3, 4 }, @as(i16, -24));
             try testReduce(.Mul, [4]u16{ 1, 2, 3, 4 }, @as(u16, 24));
@@ -816,6 +822,8 @@ test "vector reduce operation" {
             try testReduce(.Mul, [4]f16{ -1.9, 5.1, -60.3, 100.0 }, @as(f16, 58430.7));
             try testReduce(.Mul, [4]f32{ -1.9, 5.1, -60.3, 100.0 }, @as(f32, 58430.7));
             try testReduce(.Mul, [4]f64{ -1.9, 5.1, -60.3, 100.0 }, @as(f64, 58430.7));
+            try testReduce(.Mul, [4]f80{ -1.9, 5.1, -60.3, 100.0 }, @as(f80, 58430.7));
+            try testReduce(.Mul, [4]f128{ -1.9, 5.1, -60.3, 100.0 }, @as(f128, 58430.7));
 
             try testReduce(.Or, [4]bool{ false, true, false, false }, @as(bool, true));
             try testReduce(.Or, [4]u1{ 0, 1, 0, 0 }, @as(u1, 1));
@@ -823,6 +831,7 @@ test "vector reduce operation" {
             try testReduce(.Or, [4]u32{ 0xffff0000, 0xff00, 0xf0, 0xf }, ~@as(u32, 0));
             try testReduce(.Or, [4]u64{ 0xffff0000, 0xff00, 0xf0, 0xf }, @as(u64, 0xffffffff));
             try testReduce(.Or, [4]u128{ 0xffff0000, 0xff00, 0xf0, 0xf }, @as(u128, 0xffffffff));
+            try testReduce(.Or, [4]u80{ 0xffff0000, 0xff00, 0xf0, 0xf }, @as(u80, 0xffffffff));
 
             try testReduce(.Xor, [4]bool{ true, true, true, false }, @as(bool, true));
             try testReduce(.Xor, [4]u1{ 1, 1, 1, 0 }, @as(u1, 1));
@@ -835,22 +844,32 @@ test "vector reduce operation" {
             const f16_nan = math.nan(f16);
             const f32_nan = math.nan(f32);
             const f64_nan = math.nan(f64);
+            const f80_nan = math.nan(f80);
+            const f128_nan = math.nan(f128);
 
             try testReduce(.Add, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
             try testReduce(.Add, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
             try testReduce(.Add, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+            try testReduce(.Add, [4]f80{ -1.9, 5.1, f80_nan, 100.0 }, f80_nan);
+            try testReduce(.Add, [4]f128{ -1.9, 5.1, f128_nan, 100.0 }, f128_nan);
 
             try testReduce(.Min, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, @as(f16, -1.9));
             try testReduce(.Min, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, @as(f32, -1.9));
             try testReduce(.Min, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, @as(f64, -1.9));
+            try testReduce(.Min, [4]f80{ -1.9, 5.1, f80_nan, 100.0 }, @as(f80, -1.9));
+            try testReduce(.Min, [4]f128{ -1.9, 5.1, f128_nan, 100.0 }, @as(f128, -1.9));
 
             try testReduce(.Max, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, @as(f16, 100.0));
             try testReduce(.Max, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, @as(f32, 100.0));
             try testReduce(.Max, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, @as(f64, 100.0));
+            try testReduce(.Max, [4]f80{ -1.9, 5.1, f80_nan, 100.0 }, @as(f80, 100.0));
+            try testReduce(.Max, [4]f128{ -1.9, 5.1, f128_nan, 100.0 }, @as(f128, 100.0));
 
             try testReduce(.Mul, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
             try testReduce(.Mul, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
             try testReduce(.Mul, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+            try testReduce(.Mul, [4]f80{ -1.9, 5.1, f80_nan, 100.0 }, f80_nan);
+            try testReduce(.Mul, [4]f128{ -1.9, 5.1, f128_nan, 100.0 }, f128_nan);
         }
     };
 
@@ -1318,11 +1337,6 @@ test "byte vector initialized in inline function" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64 and comptime builtin.cpu.has(.x86, .avx512f)) {
-        // TODO https://github.com/ziglang/zig/issues/13279
-        return error.SkipZigTest;
-    }
 
     const S = struct {
         fn boolx4(e0: bool, e1: bool, e2: bool, e3: bool) @Vector(4, bool) {

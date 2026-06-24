@@ -408,7 +408,11 @@ void c_test_longdouble(void) {
     zig_8_longdouble(0, 1, 2, 3, 4, 5, 6, 7, 10, 9);
 }
 
-#if defined(ZIG_BACKEND_STAGE2_X86_64) || defined(ZIG_PPC32) || defined(__wasm__)
+#ifndef __hexagon__
+#ifndef __loongarch__
+#ifndef __mips__
+#ifndef ZIG_PPC64
+#if !(defined(__i386__) && defined(_WIN32))
 
 typedef bool Vector_2_bool __attribute__((ext_vector_type(2)));
 
@@ -4657,6 +4661,10 @@ void c_test_vector_512_bool(void) {
     });
 }
 
+#endif
+#endif
+#endif
+#endif
 #endif
 
 typedef uint8_t Vector_1_u8 __attribute__((vector_size(1 * sizeof(uint8_t))));

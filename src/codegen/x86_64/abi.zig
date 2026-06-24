@@ -133,7 +133,7 @@ pub fn classifyWindows(init_ty: Type, zcu: *Zcu, target: *const std.Target, ctx:
         .float => switch (ty.floatBits(target)) {
             16, 32, 64 => .sse,
             80 => .memory,
-            128 => if (ctx == .arg) .memory else .sse,
+            128 => .win_i128,
             else => unreachable,
         },
         .vector => {
@@ -238,16 +238,18 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
             };
             const unaligned_size = elem_ty.abiSize(zcu) * len;
             if (unaligned_size <= 4) return Class.one_integer;
-            if (ctx == .arg and unaligned_size == 8 * 1 * 1 and len == 1 and
-                elem_ty.isRuntimeFloat()) return Class.stack; // what
+            if (unaligned_size == 8 * 1 * 1 and len == 1) {
+                if (ctx == .arg and elem_ty.isRuntimeFloat()) return Class.stack; // what?
+                if (ctx != .other and !elem_ty.isRuntimeFloat() and target.os.tag == .freebsd) return Class.one_integer; // who?
+            }
             if (unaligned_size <= 8 * 1) return .{ .sse, .none, .none, .none, .none, .none, .none, .none };
             if (unaligned_size <= 8 * 2) return .{ .sse, .sseup, .none, .none, .none, .none, .none, .none };
             if (!target.cpu.has(.x86, .avx)) {
                 if (ctx == .ret) switch (unaligned_size) {
                     else => {},
                     8 * 3 => if (len == 3) return if (elem_ty.isRuntimeFloat()) .{
-                        .sse_sse_x87_per_qword, .none, .none, .none, .none, .none, .none, .none, // how
-                    } else Class.len_integers, // why
+                        .sse_sse_x87_per_qword, .none, .none, .none, .none, .none, .none, .none, // how?
+                    } else Class.len_integers, // why?
                     8 * 2 * 2, 8 * 2 * 4 => return .{ .sse_per_xword, .none, .none, .none, .none, .none, .none, .none },
                 };
                 return Class.stack;

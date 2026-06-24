@@ -118,7 +118,6 @@ fn testMul(comptime T: type) !void {
 test "cmp f16" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.cpu.arch.isArm() and builtin.target.abi.float() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     try testCmp(f16);
     try comptime testCmp(f16);
@@ -127,7 +126,6 @@ test "cmp f16" {
 test "cmp f32" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch.isArm() and builtin.target.abi.float() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     try testCmp(f32);
     try comptime testCmp(f32);
@@ -1173,11 +1171,6 @@ test "@floor f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/12602
-        return error.SkipZigTest;
-    }
-
     try testFloor(f80);
     try comptime testFloor(f80);
     try testFloor(f128);
@@ -1261,11 +1254,6 @@ test "@ceil f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/12602
-        return error.SkipZigTest;
-    }
-
     try testCeil(f80);
     try comptime testCeil(f80);
     try testCeil(f128);
@@ -1279,11 +1267,6 @@ test "@ceil f80 maxInt(u64)" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/12602
-        return error.SkipZigTest;
-    }
 
     var x: u64 = std.math.maxInt(u64);
     x = x;
@@ -1365,11 +1348,6 @@ test "@trunc f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/12602
-        return error.SkipZigTest;
-    }
 
     try testTrunc(f80);
     try comptime testTrunc(f80);

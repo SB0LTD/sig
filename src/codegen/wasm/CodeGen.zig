@@ -24,12 +24,6 @@ const Alignment = InternPool.Alignment;
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
 
-const target_util = @import("../../target.zig");
-const libcFloatPrefix = target_util.libcFloatPrefix;
-const libcFloatSuffix = target_util.libcFloatSuffix;
-const compilerRtFloatAbbrev = target_util.compilerRtFloatAbbrev;
-const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
-
 pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
     return comptime &.initMany(&.{
         .expand_bit_cast_safe,
@@ -2515,15 +2509,15 @@ const IntType = struct {
                 .anyerror, .adhoc_inferred_error_set => .{ .is_signed = false, .bits = zcu.errorSetBits() },
                 .isize => .{ .is_signed = true, .bits = cg.target.ptrBitWidth() },
                 .usize => .{ .is_signed = false, .bits = cg.target.ptrBitWidth() },
-                .c_char => .{ .is_signed = cg.target.cCharSignedness() == .signed, .bits = cg.target.cTypeBitSize(.char) },
-                .c_short => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.short) },
-                .c_ushort => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.short) },
-                .c_int => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.int) },
-                .c_uint => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.int) },
-                .c_long => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.long) },
-                .c_ulong => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.long) },
-                .c_longlong => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.longlong) },
-                .c_ulonglong => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.longlong) },
+                .c_char => .{ .is_signed = cg.target.cCharSignedness().? == .signed, .bits = cg.target.cTypeBitSize(.char).? },
+                .c_short => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.short).? },
+                .c_ushort => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.short).? },
+                .c_int => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.int).? },
+                .c_uint => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.int).? },
+                .c_long => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.long).? },
+                .c_ulong => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.long).? },
+                .c_longlong => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.longlong).? },
+                .c_ulonglong => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.longlong).? },
                 .f16, .f32, .f64, .f80, .f128, .c_longdouble => unreachable,
                 .anyopaque, .void, .type, .comptime_int, .comptime_float, .noreturn, .null, .undefined, .enum_literal, .generic_poison => unreachable,
             },

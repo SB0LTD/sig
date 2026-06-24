@@ -8,7 +8,7 @@ const Unordered = if (builtin.cpu.arch == .avr)
     i8
 else if (builtin.cpu.arch.isAARCH64())
     i32
-else if (builtin.target.cTypeBitSize(.long) >= builtin.target.ptrBitWidth())
+else if (builtin.target.cTypeBitSize(.long).? >= builtin.target.ptrBitWidth())
     c_long
 else
     c_longlong;

@@ -2142,11 +2142,6 @@ test "remainder division" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/12602
-        return error.SkipZigTest;
-    }
-
     if (builtin.zig_backend == .stage2_x86_64 and builtin.object_format == .coff and builtin.abi != .gnu) return error.SkipZigTest;
 
     try comptime remdiv(f16);
@@ -2337,7 +2332,6 @@ test "NaN comparison" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.cpu.arch.isArm() and builtin.target.abi.float() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     try testNanEqNan(f16);
     try testNanEqNan(f32);

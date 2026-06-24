@@ -38,9 +38,11 @@ pub fn classifyType(ty: Type, context: Context, zcu: *Zcu) Class {
             1...64 => .simple,
             else => .pointer,
         },
-        .float => return switch (ty.floatBits(zcu.getTarget())) {
-            16, 32, 64 => .double_or_float,
-            else => .pointer,
+        .float => switch (ty.floatBits(zcu.getTarget())) {
+            else => unreachable,
+            16, 32, 64 => return .double_or_float,
+            80 => {},
+            128 => return .pointer,
         },
         .pointer, .optional => return .simple,
         .array => switch (ty.arrayLen(zcu)) {

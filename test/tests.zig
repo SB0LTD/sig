@@ -2015,7 +2015,6 @@ const c_abi_targets = blk: {
                 .abi = .musl,
             },
             .use_llvm = false,
-            .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
         },
         .{
             .target = .{
@@ -2026,7 +2025,6 @@ const c_abi_targets = blk: {
             },
             .use_llvm = false,
             .strip = true,
-            .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
         },
         .{
             .target = .{
@@ -2037,7 +2035,6 @@ const c_abi_targets = blk: {
             },
             .use_llvm = false,
             .pic = true,
-            .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
         },
         .{
             .target = .{
@@ -2082,7 +2079,6 @@ const c_abi_targets = blk: {
                 .abi = .gnu,
             },
             .use_llvm = false,
-            .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
         },
         .{
             .target = .{
@@ -2092,7 +2088,6 @@ const c_abi_targets = blk: {
                 .abi = .gnu,
             },
             .use_llvm = false,
-            .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
         },
         .{
             .target = .{
@@ -2102,7 +2097,6 @@ const c_abi_targets = blk: {
                 .abi = .gnu,
             },
             .use_llvm = false,
-            .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
         },
         .{
             .target = .{

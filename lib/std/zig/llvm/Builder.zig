@@ -5999,7 +5999,7 @@ pub const WipFunction = struct {
         alignment: Alignment,
         name: []const u8,
     ) Allocator.Error!Value {
-        return self.loadAtomic(access_kind, ty, ptr, .system, .none, alignment, name);
+        return self.loadAtomic(access_kind, ty, ptr, undefined, .none, alignment, name);
     }
 
     pub fn loadAtomic(
@@ -6043,7 +6043,7 @@ pub const WipFunction = struct {
         ptr: Value,
         alignment: Alignment,
     ) Allocator.Error!Instruction.Index {
-        return self.storeAtomic(kind, val, ptr, .system, .none, alignment);
+        return self.storeAtomic(kind, val, ptr, undefined, .none, alignment);
     }
 
     pub fn storeAtomic(

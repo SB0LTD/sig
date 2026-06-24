@@ -381,7 +381,7 @@ fn defineTuple(
     const overalign: bool = for (tuple.types.get(ip)) |field_ty_ip| {
         const field_ty: Type = .fromInterned(field_ty_ip);
         if (!field_ty.hasRuntimeBits(zcu)) continue;
-        const natural_align = field_ty.defaultStructFieldAlignment(.auto, zcu);
+        const natural_align = field_ty.abiAlignment(zcu);
         if (natural_align.compareStrict(.gte, tuple_align)) break false;
     } else true;
 
@@ -402,15 +402,17 @@ fn defineTuple(
         if (zig_offset == 0 and overalign) {
             // This is the first field; specify its alignment to align the tuple.
             try writeFieldAlign(field_ty, tuple_align, w, zcu);
-        } else if (zig_offset > c_offset) {
-            // This field needs to be overaligned compared to what its offset would otherwise be.
-            const need_align: Alignment = .minStrict(
-                tuple_align, // don't make the struct more aligned than it should be
-                .fromLog2Units(@ctz(zig_offset)),
-            );
-            try writeFieldAlign(field_ty, need_align, w, zcu);
-            c_offset = need_align.forward(c_offset);
+        } else switch (zig_offset - c_offset) {
+            0 => {},
+            else => |need_bytes| {
+                // This field needs to be overaligned compared to what its offset would otherwise be.
+                const need_align: Alignment = .fromLog2Units(std.math.log2_int(u64, need_bytes) + 1);
+                assert(need_align.compareStrict(.lte, tuple_align));
+                try writeFieldAlign(field_ty, need_align, w, zcu);
+                c_offset = need_align.forward(c_offset);
+            },
         }
+        assert(c_offset == zig_offset);
         const field_cty: CType = try .lower(field_ty, deps, arena, zcu);
         try w.print("{f}f{d}{f};\n", .{
             field_cty.fmtDeclaratorPrefix(zcu),
@@ -443,7 +445,7 @@ fn defineStruct(
         while (it.next()) |field_index| {
             const field_ty: Type = .fromInterned(struct_type.field_types.get(ip)[field_index]);
             if (!field_ty.hasRuntimeBits(zcu)) continue;
-            const natural_align = field_ty.defaultStructFieldAlignment(struct_type.layout, zcu);
+            const natural_align = field_ty.abiAlignment(zcu);
             const natural_offset = natural_align.forward(offset);
             const actual_offset = struct_type.field_offsets.get(ip)[field_index];
             if (actual_offset < natural_offset) break :pack true;
@@ -464,7 +466,7 @@ fn defineStruct(
             while (it.next()) |field_index| {
                 const field_ty: Type = .fromInterned(struct_type.field_types.get(ip)[field_index]);
                 if (!field_ty.hasRuntimeBits(zcu)) continue;
-                const natural_align = field_ty.defaultStructFieldAlignment(struct_type.layout, zcu);
+                const natural_align = field_ty.abiAlignment(zcu);
                 if (natural_align.compareStrict(.gte, struct_type.alignment)) break :overalign false;
             }
             break :overalign true;
@@ -481,7 +483,7 @@ fn defineStruct(
     while (it.next()) |field_index| {
         const field_ty: Type = .fromInterned(struct_type.field_types.get(ip)[field_index]);
         if (!field_ty.hasRuntimeBits(zcu)) continue;
-        const natural_align = field_ty.defaultStructFieldAlignment(struct_type.layout, zcu);
+        const natural_align = field_ty.abiAlignment(zcu);
         const natural_offset = switch (pack) {
             true => offset,
             false => natural_align.forward(offset),

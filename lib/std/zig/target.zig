@@ -499,31 +499,12 @@ pub fn intByteSize(target: *const std.Target, bits: u16) u16 {
 }
 
 pub fn intAlignment(target: *const std.Target, bits: u16) u16 {
-    return switch (target.cpu.arch) {
-        .x86 => switch (bits) {
-            0...8 => 1,
-            9...16 => 2,
-            17...32 => 4,
-            33...64 => switch (target.os.tag) {
-                .uefi, .windows => 8,
-                else => 4,
-            },
-            else => 16,
-        },
-        .x86_64 => switch (bits) {
-            0...8 => 1,
-            9...16 => 2,
-            17...32 => 4,
-            33...64 => 8,
-            else => 16,
-        },
-        else => switch (bits) {
-            0 => 1,
-            else => @min(
-                std.math.ceilPowerOfTwoPromote(u16, @intCast((@as(u17, bits) + 7) / 8)),
-                target.cMaxIntAlignment(),
-            ),
-        },
+    return switch (bits) {
+        0 => 1,
+        else => @min(
+            std.math.ceilPowerOfTwoPromote(u16, @intCast((@as(u17, bits) + 7) / 8)),
+            target.cMaxIntAlignment(),
+        ),
     };
 }
 
@@ -536,7 +517,10 @@ pub fn compilerRtFloatAbi(target: *const std.Target, bits: u16) std.Target.Abi.F
         16 => if (target.cpu.arch.isMIPS() or target.cpu.arch.isPowerPC()) return no_c_type_available,
         32, 64 => {},
         80 => if (target.cTypeBitSize(.longdouble) != 80) return no_c_type_available,
-        128 => if (target.cTypeBitSize(.longdouble) <= 64) return no_c_type_available,
+        128 => {
+            if (target.cpu.arch.isX86()) return .hard; // if (target.abi == .msvc) __m128i else __float128
+            if (target.cTypeBitSize(.longdouble) != 128) return no_c_type_available;
+        },
     }
     return .hard;
 }

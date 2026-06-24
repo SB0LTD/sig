@@ -29657,7 +29657,7 @@ fn coerceVarArgParam(
         .array => return sema.fail(block, inst_src, "arrays must be passed by reference to variadic function", .{}),
         .float => float: {
             const target = zcu.getTarget();
-            const double_bits = target.cTypeBitSize(.double);
+            const double_bits = target.cTypeBitSize(.double) orelse break :float inst;
             const inst_bits = uncasted_ty.floatBits(target);
             if (inst_bits >= double_bits) break :float inst;
             switch (double_bits) {
@@ -29673,21 +29673,21 @@ fn coerceVarArgParam(
             if (uncasted_info.bits <= target.cTypeBitSize(switch (uncasted_info.signedness) {
                 .signed => .int,
                 .unsigned => .uint,
-            })) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
+            }) orelse break :int inst) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
                 .signed => .c_int,
                 .unsigned => .c_uint,
             }, inst, inst_src);
             if (uncasted_info.bits <= target.cTypeBitSize(switch (uncasted_info.signedness) {
                 .signed => .long,
                 .unsigned => .ulong,
-            })) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
+            }).?) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
                 .signed => .c_long,
                 .unsigned => .c_ulong,
             }, inst, inst_src);
             if (uncasted_info.bits <= target.cTypeBitSize(switch (uncasted_info.signedness) {
                 .signed => .longlong,
                 .unsigned => .ulonglong,
-            })) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
+            }).?) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
                 .signed => .c_longlong,
                 .unsigned => .c_ulonglong,
             }, inst, inst_src);
