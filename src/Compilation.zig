@@ -490,7 +490,7 @@ pub const Path = struct {
 
     /// From an unresolved path (which can be made of multiple not-yet-joined strings), construct a
     /// canonical `Path`.
-    pub fn fromUnresolved(gpa: Allocator, dirs: Compilation.Directories, unresolved_parts: []const []const u8) Allocator.Error!Path {
+    pub fn fromUnresolved(gpa: Allocator, dirs: std.zig.Directories, unresolved_parts: []const []const u8) Allocator.Error!Path {
         const resolved = try std.zig.resolvePath(gpa, dirs.cwd, unresolved_parts);
         errdefer gpa.free(resolved);
 
@@ -565,7 +565,7 @@ pub const Path = struct {
     /// `.global_cache` could still end up returning a `Path` with `Path.root == .zig_lib`.
     pub fn fromRoot(
         gpa: Allocator,
-        dirs: Compilation.Directories,
+        dirs: std.zig.Directories,
         root: Path.Root,
         sub_path: []const u8,
     ) Allocator.Error!Path {
@@ -588,7 +588,7 @@ pub const Path = struct {
     pub fn join(
         p: Path,
         gpa: Allocator,
-        dirs: Compilation.Directories,
+        dirs: std.zig.Directories,
         sub_path: []const u8,
     ) Allocator.Error!Path {
         // Currently, this just wraps `fromUnresolved` for simplicity. A more efficient impl is
@@ -609,7 +609,7 @@ pub const Path = struct {
     pub fn upJoin(
         p: Path,
         gpa: Allocator,
-        dirs: Compilation.Directories,
+        dirs: std.zig.Directories,
         sub_path: []const u8,
     ) Allocator.Error!Path {
         return .fromUnresolved(gpa, dirs, &.{

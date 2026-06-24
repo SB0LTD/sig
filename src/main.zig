@@ -3218,7 +3218,7 @@ fn buildOutputType(
     const cwd_path = try std.zig.getResolvedCwd(io, arena);
 
     // This `init` calls `fatal` on error.
-    var dirs: Compilation.Directories = .init(
+    var dirs: std.zig.Directories = .init(
         arena,
         io,
         override_lib_dir,
@@ -3928,7 +3928,7 @@ fn buildOutputType(
 }
 
 const CreateModule = struct {
-    dirs: Compilation.Directories,
+    dirs: std.zig.Directories,
     modules: std.array_hash_map.String(CliModule),
     opts: Compilation.Config.Options,
     object_format: ?[]const u8,
@@ -4939,7 +4939,7 @@ fn jitCmdInner(
     const cwd_path = try std.zig.getResolvedCwd(io, arena);
 
     // This `init` calls `fatal` on error.
-    var dirs: Compilation.Directories = .init(
+    var dirs: std.zig.Directories = .init(
         arena,
         io,
         override_lib_dir,

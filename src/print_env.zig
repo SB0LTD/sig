@@ -30,7 +30,7 @@ pub fn cmdEnv(
 
     const cwd_path = try std.zig.getResolvedCwd(io, arena);
 
-    var dirs: Compilation.Directories = .init(
+    var dirs: std.zig.Directories = .init(
         arena,
         io,
         override_lib_dir,
