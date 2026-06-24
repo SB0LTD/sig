@@ -142,8 +142,8 @@ pub const String = enum(u32) {
     }
 
     fn fromIndex(index: ?usize) String {
-        return @fromBackingInt(@intCast(@as(u32, @intCast((index orelse return .none) +
-            @backingInt(String.empty)))));
+        return @fromBackingInt(@as(u32, @intCast((index orelse return .none) +
+            @backingInt(String.empty))));
     }
 
     fn toIndex(self: String) ?usize {
@@ -937,6 +937,7 @@ pub const Attribute = union(Kind) {
     // Parameter Attributes
     zeroext,
     signext,
+    noext,
     inreg,
     byval: Type,
     byref: Type,
@@ -947,6 +948,7 @@ pub const Attribute = union(Kind) {
     @"align": Alignment.Lazy,
     @"noalias",
     nocapture,
+    captures: Captures,
     nofree,
     nest,
     returned,
@@ -965,6 +967,11 @@ pub const Attribute = union(Kind) {
     readnone,
     readonly,
     writeonly,
+    writable,
+    initializes: []const [2]u64,
+    dead_on_unwind,
+    dead_on_return: ?u32,
+    range: [2]Constant,
 
     // Function Attributes
     //alignstack: Alignment.Lazy,
@@ -974,7 +981,7 @@ pub const Attribute = union(Kind) {
     builtin,
     cold,
     convergent,
-    disable_sanitizer_information,
+    disable_sanitizer_instrumentation,
     fn_ret_thunk_extern,
     hot,
     inlinehint,
@@ -984,6 +991,7 @@ pub const Attribute = union(Kind) {
     naked,
     nobuiltin,
     nocallback,
+    nodivergencesource,
     noduplicate,
     //nofree,
     noimplicitfloat,
@@ -1001,6 +1009,7 @@ pub const Attribute = union(Kind) {
     nosanitize_bounds,
     nosanitize_coverage,
     null_pointer_is_valid,
+    optdebug,
     optforfuzzing,
     optnone,
     optsize,
@@ -1012,23 +1021,23 @@ pub const Attribute = union(Kind) {
     sanitize_thread,
     sanitize_hwaddress,
     sanitize_memtag,
+    sanitize_realtime,
+    sanitize_realtime_blocking,
+    sanitize_alloc_token,
     speculative_load_hardening,
     speculatable,
     ssp,
     sspstrong,
     sspreq,
     strictfp,
+    denormal_fpenv,
     uwtable: UwTable,
     nocf_check,
     shadowcallstack,
     mustprogress,
     vscale_range: VScaleRange,
-
-    // Global Attributes
-    no_sanitize_address,
-    no_sanitize_hwaddress,
-    //sanitize_memtag,
-    sanitize_address_dyninit,
+    nooutline,
+    nocreateundeforpoison,
 
     string: struct { kind: String, value: String },
     none: noreturn,
@@ -1045,100 +1054,11 @@ pub const Attribute = union(Kind) {
             const storage = self.toStorage(builder);
             if (storage.kind.toString()) |kind| return .{ .string = .{
                 .kind = kind,
-                .value = @fromBackingInt(@intCast(storage.value)),
+                .value = @fromBackingInt(storage.value),
             } } else return switch (storage.kind) {
-                inline .zeroext,
-                .signext,
-                .inreg,
-                .byval,
-                .byref,
-                .preallocated,
-                .inalloca,
-                .sret,
-                .elementtype,
-                .@"align",
-                .@"noalias",
-                .nocapture,
-                .nofree,
-                .nest,
-                .returned,
-                .nonnull,
-                .dereferenceable,
-                .dereferenceable_or_null,
-                .swiftself,
-                .swiftasync,
-                .swifterror,
-                .immarg,
-                .noundef,
-                .nofpclass,
-                .alignstack,
-                .allocalign,
-                .allocptr,
-                .readnone,
-                .readonly,
-                .writeonly,
-                //.alignstack,
-                .allockind,
-                .allocsize,
-                .alwaysinline,
-                .builtin,
-                .cold,
-                .convergent,
-                .disable_sanitizer_information,
-                .fn_ret_thunk_extern,
-                .hot,
-                .inlinehint,
-                .jumptable,
-                .memory,
-                .minsize,
-                .naked,
-                .nobuiltin,
-                .nocallback,
-                .noduplicate,
-                //.nofree,
-                .noimplicitfloat,
-                .@"noinline",
-                .nomerge,
-                .nonlazybind,
-                .noprofile,
-                .skipprofile,
-                .noredzone,
-                .noreturn,
-                .norecurse,
-                .willreturn,
-                .nosync,
-                .nounwind,
-                .nosanitize_bounds,
-                .nosanitize_coverage,
-                .null_pointer_is_valid,
-                .optforfuzzing,
-                .optnone,
-                .optsize,
-                //.preallocated,
-                .returns_twice,
-                .safestack,
-                .sanitize_address,
-                .sanitize_memory,
-                .sanitize_thread,
-                .sanitize_hwaddress,
-                .sanitize_memtag,
-                .speculative_load_hardening,
-                .speculatable,
-                .ssp,
-                .sspstrong,
-                .sspreq,
-                .strictfp,
-                .uwtable,
-                .nocf_check,
-                .shadowcallstack,
-                .mustprogress,
-                .vscale_range,
-                .no_sanitize_address,
-                .no_sanitize_hwaddress,
-                .sanitize_address_dyninit,
-                => |kind| {
+                inline else => |kind| {
                     const field_name, const field_type = comptime blk: {
-                        @setEvalBranchQuota(10_000);
+                        @setEvalBranchQuota(12_000);
                         const info = @typeInfo(Attribute).@"union";
                         for (info.field_names, info.field_types) |field_name, field_type| {
                             if (std.mem.eql(u8, field_name, @tagName(kind))) break :blk .{ field_name, field_type };
@@ -1149,14 +1069,17 @@ pub const Attribute = union(Kind) {
                     return @unionInit(Attribute, field_name, switch (field_type) {
                         void => {},
                         u32 => storage.value,
-                        Alignment.Lazy, String, Type, UwTable => @fromBackingInt(@intCast(storage.value)),
-                        AllocKind, AllocSize, FpClass, Memory, VScaleRange => @bitCast(storage.value),
+                        Alignment.Lazy, String, Type, UwTable => @fromBackingInt(storage.value),
+                        AllocKind, AllocSize, Captures, FpClass, Memory, VScaleRange => @bitCast(storage.value),
                         else => @compileError("bad payload type: " ++ field_name ++ ": " ++
                             @typeName(field_type)),
                     });
                 },
-                .string, .none => unreachable,
-                _ => unreachable,
+                .initializes,
+                .dead_on_return,
+                .range,
+                => @panic("TODO"),
+                .string, .none, _ => unreachable,
             };
         }
 
@@ -1174,6 +1097,7 @@ pub const Attribute = union(Kind) {
             switch (attribute) {
                 .zeroext,
                 .signext,
+                .noext,
                 .inreg,
                 .@"noalias",
                 .nocapture,
@@ -1191,11 +1115,13 @@ pub const Attribute = union(Kind) {
                 .readnone,
                 .readonly,
                 .writeonly,
+                .writable,
+                .dead_on_unwind,
                 .alwaysinline,
                 .builtin,
                 .cold,
                 .convergent,
-                .disable_sanitizer_information,
+                .disable_sanitizer_instrumentation,
                 .fn_ret_thunk_extern,
                 .hot,
                 .inlinehint,
@@ -1204,6 +1130,7 @@ pub const Attribute = union(Kind) {
                 .naked,
                 .nobuiltin,
                 .nocallback,
+                .nodivergencesource,
                 .noduplicate,
                 .noimplicitfloat,
                 .@"noinline",
@@ -1220,6 +1147,7 @@ pub const Attribute = union(Kind) {
                 .nosanitize_bounds,
                 .nosanitize_coverage,
                 .null_pointer_is_valid,
+                .optdebug,
                 .optforfuzzing,
                 .optnone,
                 .optsize,
@@ -1230,18 +1158,21 @@ pub const Attribute = union(Kind) {
                 .sanitize_thread,
                 .sanitize_hwaddress,
                 .sanitize_memtag,
+                .sanitize_realtime,
+                .sanitize_realtime_blocking,
+                .sanitize_alloc_token,
                 .speculative_load_hardening,
                 .speculatable,
                 .ssp,
                 .sspstrong,
                 .sspreq,
                 .strictfp,
+                .denormal_fpenv,
                 .nocf_check,
                 .shadowcallstack,
                 .mustprogress,
-                .no_sanitize_address,
-                .no_sanitize_hwaddress,
-                .sanitize_address_dyninit,
+                .nooutline,
+                .nocreateundeforpoison,
                 => try w.print(" {s}", .{@tagName(attribute)}),
                 .byval,
                 .byref,
@@ -1254,6 +1185,45 @@ pub const Attribute = union(Kind) {
                 .dereferenceable,
                 .dereferenceable_or_null,
                 => |size| try w.print(" {s}({d})", .{ @tagName(attribute), size }),
+                .captures => |captures| {
+                    try w.print(" {s}(", .{@tagName(attribute)});
+                    var need_comma = false;
+                    if (captures == Captures.none) {
+                        if (need_comma) try w.writeAll(", ");
+                        try w.writeAll("none");
+                        need_comma = true;
+                    }
+                    inline for (@typeInfo(Captures).@"struct".field_names) |field_name| {
+                        if (comptime std.mem.eql(u8, field_name, "_")) continue;
+                        const components = @field(captures, field_name);
+                        if (components != Captures.Components.none) {
+                            if (!comptime std.mem.eql(u8, field_name, "other")) {
+                                if (need_comma) try w.writeAll(", ");
+                                try w.writeAll(field_name ++ ": ");
+                                need_comma = false;
+                            }
+                            if (components.address) {
+                                if (need_comma) try w.writeAll(", ");
+                                try w.writeAll("address");
+                                need_comma = true;
+                            } else if (components.address_is_null) {
+                                if (need_comma) try w.writeAll(", ");
+                                try w.writeAll("address_is_null");
+                                need_comma = true;
+                            }
+                            if (components.provenance) {
+                                if (need_comma) try w.writeAll(", ");
+                                try w.writeAll("provenance");
+                                need_comma = true;
+                            } else if (components.read_provenance) {
+                                if (need_comma) try w.writeAll(", ");
+                                try w.writeAll("read_provenance");
+                                need_comma = true;
+                            }
+                        }
+                    }
+                    try w.writeByte(')');
+                },
                 .nofpclass => |fpclass| {
                     const Int = @typeInfo(FpClass).@"struct".backing_integer.?;
                     try w.print(" {s}(", .{@tagName(attribute)});
@@ -1281,6 +1251,9 @@ pub const Attribute = union(Kind) {
                         try w.print("({d})", .{alignment_bytes});
                     }
                 },
+                .initializes => @panic("TODO"),
+                .dead_on_return => @panic("TODO"),
+                .range => @panic("TODO"),
                 .allockind => |allockind| {
                     try w.print(" {t}(\"", .{attribute});
                     var any = false;
@@ -1344,100 +1317,109 @@ pub const Attribute = union(Kind) {
 
     pub const Kind = enum(u32) {
         // Parameter Attributes
-        zeroext = 34,
-        signext = 24,
-        inreg = 5,
-        byval = 3,
-        byref = 69,
-        preallocated = 65,
-        inalloca = 38,
-        sret = 29, // TODO: ?
-        elementtype = 77,
-        @"align" = 1,
-        @"noalias" = 9,
-        nocapture = 11,
-        nofree = 62,
-        nest = 8,
-        returned = 22,
-        nonnull = 39,
-        dereferenceable = 41,
-        dereferenceable_or_null = 42,
-        swiftself = 46,
-        swiftasync = 75,
-        swifterror = 47,
-        immarg = 60,
-        noundef = 68,
-        nofpclass = 87,
-        alignstack = 25,
-        allocalign = 80,
-        allocptr = 81,
-        readnone = 20,
-        readonly = 21,
-        writeonly = 52,
+        zeroext = @backingInt(ATTR_KIND.Z_EXT),
+        signext = @backingInt(ATTR_KIND.S_EXT),
+        noext = @backingInt(ATTR_KIND.NO_EXT),
+        inreg = @backingInt(ATTR_KIND.IN_REG),
+        byval = @backingInt(ATTR_KIND.BY_VAL),
+        byref = @backingInt(ATTR_KIND.BYREF),
+        preallocated = @backingInt(ATTR_KIND.PREALLOCATED),
+        inalloca = @backingInt(ATTR_KIND.IN_ALLOCA),
+        sret = @backingInt(ATTR_KIND.STRUCT_RET),
+        elementtype = @backingInt(ATTR_KIND.ELEMENTTYPE),
+        @"align" = @backingInt(ATTR_KIND.ALIGNMENT),
+        @"noalias" = @backingInt(ATTR_KIND.NO_ALIAS),
+        nocapture = @backingInt(ATTR_KIND.NO_CAPTURE),
+        captures = @backingInt(ATTR_KIND.CAPTURES),
+        nofree = @backingInt(ATTR_KIND.NOFREE),
+        nest = @backingInt(ATTR_KIND.NEST),
+        returned = @backingInt(ATTR_KIND.RETURNED),
+        nonnull = @backingInt(ATTR_KIND.NON_NULL),
+        dereferenceable = @backingInt(ATTR_KIND.DEREFERENCEABLE),
+        dereferenceable_or_null = @backingInt(ATTR_KIND.DEREFERENCEABLE_OR_NULL),
+        swiftself = @backingInt(ATTR_KIND.SWIFT_SELF),
+        swiftasync = @backingInt(ATTR_KIND.SWIFT_ASYNC),
+        swifterror = @backingInt(ATTR_KIND.SWIFT_ERROR),
+        immarg = @backingInt(ATTR_KIND.IMMARG),
+        noundef = @backingInt(ATTR_KIND.NOUNDEF),
+        nofpclass = @backingInt(ATTR_KIND.NOFPCLASS),
+        alignstack = @backingInt(ATTR_KIND.STACK_ALIGNMENT),
+        allocalign = @backingInt(ATTR_KIND.ALLOC_ALIGN),
+        allocptr = @backingInt(ATTR_KIND.ALLOCATED_POINTER),
+        readnone = @backingInt(ATTR_KIND.READ_NONE),
+        readonly = @backingInt(ATTR_KIND.READ_ONLY),
+        writeonly = @backingInt(ATTR_KIND.WRITEONLY),
+        writable = @backingInt(ATTR_KIND.WRITABLE),
+        initializes = @backingInt(ATTR_KIND.INITIALIZES),
+        dead_on_unwind = @backingInt(ATTR_KIND.DEAD_ON_UNWIND),
+        dead_on_return = @backingInt(ATTR_KIND.DEAD_ON_RETURN),
+        range = @backingInt(ATTR_KIND.RANGE),
 
         // Function Attributes
-        //alignstack,
-        allockind = 82,
-        allocsize = 51,
-        alwaysinline = 2,
-        builtin = 35,
-        cold = 36,
-        convergent = 43,
-        disable_sanitizer_information = 78,
-        fn_ret_thunk_extern = 84,
-        hot = 72,
-        inlinehint = 4,
-        jumptable = 40,
-        memory = 86,
-        minsize = 6,
-        naked = 7,
-        nobuiltin = 10,
-        nocallback = 71,
-        noduplicate = 12,
-        //nofree,
-        noimplicitfloat = 13,
-        @"noinline" = 14,
-        nomerge = 66,
-        nonlazybind = 15,
-        noprofile = 73,
-        skipprofile = 85,
-        noredzone = 16,
-        noreturn = 17,
-        norecurse = 48,
-        willreturn = 61,
-        nosync = 63,
-        nounwind = 18,
-        nosanitize_bounds = 79,
-        nosanitize_coverage = 76,
-        null_pointer_is_valid = 67,
-        optforfuzzing = 57,
-        optnone = 37,
-        optsize = 19,
-        //preallocated,
-        returns_twice = 23,
-        safestack = 44,
-        sanitize_address = 30,
-        sanitize_memory = 32,
-        sanitize_thread = 31,
-        sanitize_hwaddress = 55,
-        sanitize_memtag = 64,
-        speculative_load_hardening = 59,
-        speculatable = 53,
-        ssp = 26,
-        sspstrong = 28,
-        sspreq = 27,
-        strictfp = 54,
-        uwtable = 33,
-        nocf_check = 56,
-        shadowcallstack = 58,
-        mustprogress = 70,
-        vscale_range = 74,
-
-        // Global Attributes
-        no_sanitize_address = 100,
-        no_sanitize_hwaddress = 101,
-        //sanitize_memtag,
-        sanitize_address_dyninit = 102,
+        //alignstack = @intFromEnum(ATTR_KIND.STACK_ALIGNMENT),
+        allockind = @backingInt(ATTR_KIND.ALLOC_KIND),
+        allocsize = @backingInt(ATTR_KIND.ALLOC_SIZE),
+        alwaysinline = @backingInt(ATTR_KIND.ALWAYS_INLINE),
+        builtin = @backingInt(ATTR_KIND.BUILTIN),
+        cold = @backingInt(ATTR_KIND.COLD),
+        convergent = @backingInt(ATTR_KIND.CONVERGENT),
+        disable_sanitizer_instrumentation = @backingInt(ATTR_KIND.DISABLE_SANITIZER_INSTRUMENTATION),
+        fn_ret_thunk_extern = @backingInt(ATTR_KIND.FNRETTHUNK_EXTERN),
+        hot = @backingInt(ATTR_KIND.HOT),
+        inlinehint = @backingInt(ATTR_KIND.INLINE_HINT),
+        jumptable = @backingInt(ATTR_KIND.JUMP_TABLE),
+        memory = @backingInt(ATTR_KIND.MEMORY),
+        minsize = @backingInt(ATTR_KIND.MIN_SIZE),
+        naked = @backingInt(ATTR_KIND.NAKED),
+        nobuiltin = @backingInt(ATTR_KIND.NO_BUILTIN),
+        nocallback = @backingInt(ATTR_KIND.NO_CALLBACK),
+        nodivergencesource = @backingInt(ATTR_KIND.NO_DIVERGENCE_SOURCE),
+        noduplicate = @backingInt(ATTR_KIND.NO_DUPLICATE),
+        //nofree = @intFromEnum(ATTR_KIND.NOFREE),
+        noimplicitfloat = @backingInt(ATTR_KIND.NO_IMPLICIT_FLOAT),
+        @"noinline" = @backingInt(ATTR_KIND.NO_INLINE),
+        nomerge = @backingInt(ATTR_KIND.NO_MERGE),
+        nonlazybind = @backingInt(ATTR_KIND.NON_LAZY_BIND),
+        noprofile = @backingInt(ATTR_KIND.NO_PROFILE),
+        skipprofile = @backingInt(ATTR_KIND.SKIP_PROFILE),
+        noredzone = @backingInt(ATTR_KIND.NO_RED_ZONE),
+        noreturn = @backingInt(ATTR_KIND.NO_RETURN),
+        norecurse = @backingInt(ATTR_KIND.NO_RECURSE),
+        willreturn = @backingInt(ATTR_KIND.WILLRETURN),
+        nosync = @backingInt(ATTR_KIND.NOSYNC),
+        nounwind = @backingInt(ATTR_KIND.NO_UNWIND),
+        nosanitize_bounds = @backingInt(ATTR_KIND.NO_SANITIZE_BOUNDS),
+        nosanitize_coverage = @backingInt(ATTR_KIND.NO_SANITIZE_COVERAGE),
+        null_pointer_is_valid = @backingInt(ATTR_KIND.NULL_POINTER_IS_VALID),
+        optdebug = @backingInt(ATTR_KIND.OPTIMIZE_FOR_DEBUGGING),
+        optforfuzzing = @backingInt(ATTR_KIND.OPT_FOR_FUZZING),
+        optnone = @backingInt(ATTR_KIND.OPTIMIZE_NONE),
+        optsize = @backingInt(ATTR_KIND.OPTIMIZE_FOR_SIZE),
+        //preallocated = @intFromEnum(ATTR_KIND.PREALLOCATED),
+        returns_twice = @backingInt(ATTR_KIND.RETURNS_TWICE),
+        safestack = @backingInt(ATTR_KIND.SAFESTACK),
+        sanitize_address = @backingInt(ATTR_KIND.SANITIZE_ADDRESS),
+        sanitize_memory = @backingInt(ATTR_KIND.SANITIZE_MEMORY),
+        sanitize_thread = @backingInt(ATTR_KIND.SANITIZE_THREAD),
+        sanitize_hwaddress = @backingInt(ATTR_KIND.SANITIZE_HWADDRESS),
+        sanitize_memtag = @backingInt(ATTR_KIND.SANITIZE_MEMTAG),
+        sanitize_realtime = @backingInt(ATTR_KIND.SANITIZE_REALTIME),
+        sanitize_realtime_blocking = @backingInt(ATTR_KIND.SANITIZE_REALTIME_BLOCKING),
+        sanitize_alloc_token = @backingInt(ATTR_KIND.SANITIZE_ALLOC_TOKEN),
+        speculative_load_hardening = @backingInt(ATTR_KIND.SPECULATIVE_LOAD_HARDENING),
+        speculatable = @backingInt(ATTR_KIND.SPECULATABLE),
+        ssp = @backingInt(ATTR_KIND.STACK_PROTECT),
+        sspstrong = @backingInt(ATTR_KIND.STACK_PROTECT_STRONG),
+        sspreq = @backingInt(ATTR_KIND.STACK_PROTECT_REQ),
+        strictfp = @backingInt(ATTR_KIND.STRICT_FP),
+        denormal_fpenv = @backingInt(ATTR_KIND.DENORMAL_FPENV),
+        uwtable = @backingInt(ATTR_KIND.UW_TABLE),
+        nocf_check = @backingInt(ATTR_KIND.NOCF_CHECK),
+        shadowcallstack = @backingInt(ATTR_KIND.SHADOWCALLSTACK),
+        mustprogress = @backingInt(ATTR_KIND.MUSTPROGRESS),
+        vscale_range = @backingInt(ATTR_KIND.VSCALE_RANGE),
+        nooutline = @backingInt(ATTR_KIND.NOOUTLINE),
+        nocreateundeforpoison = @backingInt(ATTR_KIND.NO_CREATE_UNDEF_OR_POISON),
 
         string = maxInt(u31),
         none = maxInt(u32),
@@ -1447,16 +1429,128 @@ pub const Attribute = union(Kind) {
 
         pub fn fromString(str: String) Kind {
             assert(!str.isAnon());
-            const kind: Kind = @fromBackingInt(@intCast(@backingInt(str)));
+            const kind: Kind = @fromBackingInt(@backingInt(str));
             assert(kind != .none);
             return kind;
         }
 
         fn toString(self: Kind) ?String {
             assert(self != .none);
-            const str: String = @fromBackingInt(@intCast(@backingInt(self)));
+            const str: String = @fromBackingInt(@backingInt(self));
             return if (str.isAnon()) null else str;
         }
+
+        /// enum AttributeKindCodes
+        const ATTR_KIND = enum(u32) {
+            ALIGNMENT = 1,
+            ALWAYS_INLINE = 2,
+            BY_VAL = 3,
+            INLINE_HINT = 4,
+            IN_REG = 5,
+            MIN_SIZE = 6,
+            NAKED = 7,
+            NEST = 8,
+            NO_ALIAS = 9,
+            NO_BUILTIN = 10,
+            NO_CAPTURE = 11,
+            NO_DUPLICATE = 12,
+            NO_IMPLICIT_FLOAT = 13,
+            NO_INLINE = 14,
+            NON_LAZY_BIND = 15,
+            NO_RED_ZONE = 16,
+            NO_RETURN = 17,
+            NO_UNWIND = 18,
+            OPTIMIZE_FOR_SIZE = 19,
+            READ_NONE = 20,
+            READ_ONLY = 21,
+            RETURNED = 22,
+            RETURNS_TWICE = 23,
+            S_EXT = 24,
+            STACK_ALIGNMENT = 25,
+            STACK_PROTECT = 26,
+            STACK_PROTECT_REQ = 27,
+            STACK_PROTECT_STRONG = 28,
+            STRUCT_RET = 29,
+            SANITIZE_ADDRESS = 30,
+            SANITIZE_THREAD = 31,
+            SANITIZE_MEMORY = 32,
+            UW_TABLE = 33,
+            Z_EXT = 34,
+            BUILTIN = 35,
+            COLD = 36,
+            OPTIMIZE_NONE = 37,
+            IN_ALLOCA = 38,
+            NON_NULL = 39,
+            JUMP_TABLE = 40,
+            DEREFERENCEABLE = 41,
+            DEREFERENCEABLE_OR_NULL = 42,
+            CONVERGENT = 43,
+            SAFESTACK = 44,
+            ARGMEMONLY = 45,
+            SWIFT_SELF = 46,
+            SWIFT_ERROR = 47,
+            NO_RECURSE = 48,
+            INACCESSIBLEMEM_ONLY = 49,
+            INACCESSIBLEMEM_OR_ARGMEMONLY = 50,
+            ALLOC_SIZE = 51,
+            WRITEONLY = 52,
+            SPECULATABLE = 53,
+            STRICT_FP = 54,
+            SANITIZE_HWADDRESS = 55,
+            NOCF_CHECK = 56,
+            OPT_FOR_FUZZING = 57,
+            SHADOWCALLSTACK = 58,
+            SPECULATIVE_LOAD_HARDENING = 59,
+            IMMARG = 60,
+            WILLRETURN = 61,
+            NOFREE = 62,
+            NOSYNC = 63,
+            SANITIZE_MEMTAG = 64,
+            PREALLOCATED = 65,
+            NO_MERGE = 66,
+            NULL_POINTER_IS_VALID = 67,
+            NOUNDEF = 68,
+            BYREF = 69,
+            MUSTPROGRESS = 70,
+            NO_CALLBACK = 71,
+            HOT = 72,
+            NO_PROFILE = 73,
+            VSCALE_RANGE = 74,
+            SWIFT_ASYNC = 75,
+            NO_SANITIZE_COVERAGE = 76,
+            ELEMENTTYPE = 77,
+            DISABLE_SANITIZER_INSTRUMENTATION = 78,
+            NO_SANITIZE_BOUNDS = 79,
+            ALLOC_ALIGN = 80,
+            ALLOCATED_POINTER = 81,
+            ALLOC_KIND = 82,
+            PRESPLIT_COROUTINE = 83,
+            FNRETTHUNK_EXTERN = 84,
+            SKIP_PROFILE = 85,
+            MEMORY = 86,
+            NOFPCLASS = 87,
+            OPTIMIZE_FOR_DEBUGGING = 88,
+            WRITABLE = 89,
+            CORO_ONLY_DESTROY_WHEN_COMPLETE = 90,
+            DEAD_ON_UNWIND = 91,
+            RANGE = 92,
+            SANITIZE_NUMERICAL_STABILITY = 93,
+            INITIALIZES = 94,
+            HYBRID_PATCHABLE = 95,
+            SANITIZE_REALTIME = 96,
+            SANITIZE_REALTIME_BLOCKING = 97,
+            CORO_ELIDE_SAFE = 98,
+            NO_EXT = 99,
+            NO_DIVERGENCE_SOURCE = 100,
+            SANITIZE_TYPE = 101,
+            CAPTURES = 102,
+            DEAD_ON_RETURN = 103,
+            SANITIZE_ALLOC_TOKEN = 104,
+            NO_CREATE_UNDEF_OR_POISON = 105,
+            DENORMAL_FPENV = 106,
+            NOOUTLINE = 107,
+            FLATTEN = 108,
+        };
     };
 
     pub const FpClass = packed struct(u32) {
@@ -1504,6 +1598,29 @@ pub const Attribute = union(Kind) {
         pub const norm = FpClass{ .positive_normal = true, .negative_normal = true };
         pub const nnorm = FpClass{ .negative_normal = true };
         pub const pnorm = FpClass{ .positive_normal = true };
+    };
+
+    pub const Captures = packed struct(u32) {
+        other: Components = .none,
+        ret: Components = .none,
+        _: u24 = 0,
+
+        pub const none: Captures = .{};
+
+        pub const Components = packed struct(u4) {
+            address_is_null: bool = false,
+            address: bool = false,
+            read_provenance: bool = false,
+            provenance: bool = false,
+
+            pub const none: Components = .{};
+            pub const all: Components = .{
+                .address_is_null = true,
+                .address = true,
+                .read_provenance = true,
+                .provenance = true,
+            };
+        };
     };
 
     pub const AllocKind = packed struct(u32) {
@@ -1582,9 +1699,13 @@ pub const Attribute = union(Kind) {
                 void => 0,
                 u32 => value,
                 Alignment.Lazy, String, Type, UwTable => @backingInt(value),
-                AllocKind, AllocSize, FpClass, Memory, VScaleRange => @bitCast(value),
-                else => @compileError("bad payload type: " ++ @tagName(tag) ++ @typeName(@TypeOf(value))),
+                AllocKind, AllocSize, Captures, FpClass, Memory, VScaleRange => @bitCast(value),
+                else => @compileError("bad payload type: " ++ @tagName(tag) ++ ": " ++ @typeName(@TypeOf(value))),
             } },
+            .initializes,
+            .dead_on_return,
+            .range,
+            => @panic("TODO"),
             .string => |string_attr| .{
                 .kind = Kind.fromString(string_attr.kind),
                 .value = @backingInt(string_attr.value),
@@ -1907,87 +2028,87 @@ pub const AddrSpace = enum(u24) {
 
     // See llvm/lib/Target/X86/X86.h
     pub const x86 = struct {
-        pub const gs: AddrSpace = @fromBackingInt(@intCast(256));
-        pub const fs: AddrSpace = @fromBackingInt(@intCast(257));
-        pub const ss: AddrSpace = @fromBackingInt(@intCast(258));
+        pub const gs: AddrSpace = @fromBackingInt(256);
+        pub const fs: AddrSpace = @fromBackingInt(257);
+        pub const ss: AddrSpace = @fromBackingInt(258);
 
-        pub const ptr32_sptr: AddrSpace = @fromBackingInt(@intCast(270));
-        pub const ptr32_uptr: AddrSpace = @fromBackingInt(@intCast(271));
-        pub const ptr64: AddrSpace = @fromBackingInt(@intCast(272));
+        pub const ptr32_sptr: AddrSpace = @fromBackingInt(270);
+        pub const ptr32_uptr: AddrSpace = @fromBackingInt(271);
+        pub const ptr64: AddrSpace = @fromBackingInt(272);
     };
     pub const x86_64 = x86;
 
     // See llvm/lib/Target/AVR/AVR.h
     pub const avr = struct {
-        pub const data: AddrSpace = @fromBackingInt(@intCast(0));
-        pub const program: AddrSpace = @fromBackingInt(@intCast(1));
-        pub const program1: AddrSpace = @fromBackingInt(@intCast(2));
-        pub const program2: AddrSpace = @fromBackingInt(@intCast(3));
-        pub const program3: AddrSpace = @fromBackingInt(@intCast(4));
-        pub const program4: AddrSpace = @fromBackingInt(@intCast(5));
-        pub const program5: AddrSpace = @fromBackingInt(@intCast(6));
+        pub const data: AddrSpace = @fromBackingInt(0);
+        pub const program: AddrSpace = @fromBackingInt(1);
+        pub const program1: AddrSpace = @fromBackingInt(2);
+        pub const program2: AddrSpace = @fromBackingInt(3);
+        pub const program3: AddrSpace = @fromBackingInt(4);
+        pub const program4: AddrSpace = @fromBackingInt(5);
+        pub const program5: AddrSpace = @fromBackingInt(6);
     };
 
     // See llvm/lib/Target/NVPTX/NVPTX.h
     pub const nvptx = struct {
-        pub const generic: AddrSpace = @fromBackingInt(@intCast(0));
-        pub const global: AddrSpace = @fromBackingInt(@intCast(1));
-        pub const constant: AddrSpace = @fromBackingInt(@intCast(2));
-        pub const shared: AddrSpace = @fromBackingInt(@intCast(3));
-        pub const param: AddrSpace = @fromBackingInt(@intCast(4));
-        pub const local: AddrSpace = @fromBackingInt(@intCast(5));
+        pub const generic: AddrSpace = @fromBackingInt(0);
+        pub const global: AddrSpace = @fromBackingInt(1);
+        pub const constant: AddrSpace = @fromBackingInt(2);
+        pub const shared: AddrSpace = @fromBackingInt(3);
+        pub const param: AddrSpace = @fromBackingInt(4);
+        pub const local: AddrSpace = @fromBackingInt(5);
     };
 
     // See llvm/lib/Target/AMDGPU/AMDGPU.h
     pub const amdgpu = struct {
-        pub const flat: AddrSpace = @fromBackingInt(@intCast(0));
-        pub const global: AddrSpace = @fromBackingInt(@intCast(1));
-        pub const region: AddrSpace = @fromBackingInt(@intCast(2));
-        pub const local: AddrSpace = @fromBackingInt(@intCast(3));
-        pub const constant: AddrSpace = @fromBackingInt(@intCast(4));
-        pub const private: AddrSpace = @fromBackingInt(@intCast(5));
-        pub const constant_32bit: AddrSpace = @fromBackingInt(@intCast(6));
-        pub const buffer_fat_pointer: AddrSpace = @fromBackingInt(@intCast(7));
-        pub const buffer_resource: AddrSpace = @fromBackingInt(@intCast(8));
-        pub const buffer_strided_pointer: AddrSpace = @fromBackingInt(@intCast(9));
-        pub const param_d: AddrSpace = @fromBackingInt(@intCast(6));
-        pub const param_i: AddrSpace = @fromBackingInt(@intCast(7));
-        pub const constant_buffer_0: AddrSpace = @fromBackingInt(@intCast(8));
-        pub const constant_buffer_1: AddrSpace = @fromBackingInt(@intCast(9));
-        pub const constant_buffer_2: AddrSpace = @fromBackingInt(@intCast(10));
-        pub const constant_buffer_3: AddrSpace = @fromBackingInt(@intCast(11));
-        pub const constant_buffer_4: AddrSpace = @fromBackingInt(@intCast(12));
-        pub const constant_buffer_5: AddrSpace = @fromBackingInt(@intCast(13));
-        pub const constant_buffer_6: AddrSpace = @fromBackingInt(@intCast(14));
-        pub const constant_buffer_7: AddrSpace = @fromBackingInt(@intCast(15));
-        pub const constant_buffer_8: AddrSpace = @fromBackingInt(@intCast(16));
-        pub const constant_buffer_9: AddrSpace = @fromBackingInt(@intCast(17));
-        pub const constant_buffer_10: AddrSpace = @fromBackingInt(@intCast(18));
-        pub const constant_buffer_11: AddrSpace = @fromBackingInt(@intCast(19));
-        pub const constant_buffer_12: AddrSpace = @fromBackingInt(@intCast(20));
-        pub const constant_buffer_13: AddrSpace = @fromBackingInt(@intCast(21));
-        pub const constant_buffer_14: AddrSpace = @fromBackingInt(@intCast(22));
-        pub const constant_buffer_15: AddrSpace = @fromBackingInt(@intCast(23));
-        pub const streamout_register: AddrSpace = @fromBackingInt(@intCast(128));
+        pub const flat: AddrSpace = @fromBackingInt(0);
+        pub const global: AddrSpace = @fromBackingInt(1);
+        pub const region: AddrSpace = @fromBackingInt(2);
+        pub const local: AddrSpace = @fromBackingInt(3);
+        pub const constant: AddrSpace = @fromBackingInt(4);
+        pub const private: AddrSpace = @fromBackingInt(5);
+        pub const constant_32bit: AddrSpace = @fromBackingInt(6);
+        pub const buffer_fat_pointer: AddrSpace = @fromBackingInt(7);
+        pub const buffer_resource: AddrSpace = @fromBackingInt(8);
+        pub const buffer_strided_pointer: AddrSpace = @fromBackingInt(9);
+        pub const param_d: AddrSpace = @fromBackingInt(6);
+        pub const param_i: AddrSpace = @fromBackingInt(7);
+        pub const constant_buffer_0: AddrSpace = @fromBackingInt(8);
+        pub const constant_buffer_1: AddrSpace = @fromBackingInt(9);
+        pub const constant_buffer_2: AddrSpace = @fromBackingInt(10);
+        pub const constant_buffer_3: AddrSpace = @fromBackingInt(11);
+        pub const constant_buffer_4: AddrSpace = @fromBackingInt(12);
+        pub const constant_buffer_5: AddrSpace = @fromBackingInt(13);
+        pub const constant_buffer_6: AddrSpace = @fromBackingInt(14);
+        pub const constant_buffer_7: AddrSpace = @fromBackingInt(15);
+        pub const constant_buffer_8: AddrSpace = @fromBackingInt(16);
+        pub const constant_buffer_9: AddrSpace = @fromBackingInt(17);
+        pub const constant_buffer_10: AddrSpace = @fromBackingInt(18);
+        pub const constant_buffer_11: AddrSpace = @fromBackingInt(19);
+        pub const constant_buffer_12: AddrSpace = @fromBackingInt(20);
+        pub const constant_buffer_13: AddrSpace = @fromBackingInt(21);
+        pub const constant_buffer_14: AddrSpace = @fromBackingInt(22);
+        pub const constant_buffer_15: AddrSpace = @fromBackingInt(23);
+        pub const streamout_register: AddrSpace = @fromBackingInt(128);
     };
 
     pub const spirv = struct {
-        pub const function: AddrSpace = @fromBackingInt(@intCast(0));
-        pub const cross_workgroup: AddrSpace = @fromBackingInt(@intCast(1));
-        pub const uniform_constant: AddrSpace = @fromBackingInt(@intCast(2));
-        pub const workgroup: AddrSpace = @fromBackingInt(@intCast(3));
-        pub const generic: AddrSpace = @fromBackingInt(@intCast(4));
-        pub const device_only_intel: AddrSpace = @fromBackingInt(@intCast(5));
-        pub const host_only_intel: AddrSpace = @fromBackingInt(@intCast(6));
-        pub const input: AddrSpace = @fromBackingInt(@intCast(7));
+        pub const function: AddrSpace = @fromBackingInt(0);
+        pub const cross_workgroup: AddrSpace = @fromBackingInt(1);
+        pub const uniform_constant: AddrSpace = @fromBackingInt(2);
+        pub const workgroup: AddrSpace = @fromBackingInt(3);
+        pub const generic: AddrSpace = @fromBackingInt(4);
+        pub const device_only_intel: AddrSpace = @fromBackingInt(5);
+        pub const host_only_intel: AddrSpace = @fromBackingInt(6);
+        pub const input: AddrSpace = @fromBackingInt(7);
     };
 
     // See llvm/include/llvm/CodeGen/WasmAddressSpaces.h
     pub const wasm = struct {
-        pub const default: AddrSpace = @fromBackingInt(@intCast(0));
-        pub const variable: AddrSpace = @fromBackingInt(@intCast(1));
-        pub const externref: AddrSpace = @fromBackingInt(@intCast(10));
-        pub const funcref: AddrSpace = @fromBackingInt(@intCast(20));
+        pub const default: AddrSpace = @fromBackingInt(0);
+        pub const variable: AddrSpace = @fromBackingInt(1);
+        pub const externref: AddrSpace = @fromBackingInt(10);
+        pub const funcref: AddrSpace = @fromBackingInt(20);
     };
 
     pub fn format(addr_space: AddrSpace, w: *Writer) Writer.Error!void {
@@ -2030,7 +2151,7 @@ pub const Alignment = enum(u6) {
         _,
 
         pub fn wrap(a: Alignment) Lazy {
-            return @fromBackingInt(@intCast(@backingInt(a)));
+            return @fromBackingInt(@backingInt(a));
         }
         pub fn resolve(l: Lazy, b: *const Builder) Alignment {
             return switch (@backingInt(l)) {
@@ -2261,8 +2382,7 @@ pub const StrtabString = enum(u32) {
     }
 
     fn fromIndex(index: ?usize) StrtabString {
-        return @fromBackingInt(@intCast(@as(u32, @intCast((index orelse return .none) +
-            @backingInt(StrtabString.empty)))));
+        return @fromBackingInt(@intCast((index orelse return .none) + @backingInt(StrtabString.empty)));
     }
 
     fn toIndex(self: StrtabString) ?usize {
@@ -2398,7 +2518,7 @@ pub const Global = struct {
         }
 
         pub fn toConst(global: Index) Constant {
-            return @fromBackingInt(@intCast(@backingInt(Constant.first_global) + @backingInt(global)));
+            return @fromBackingInt(@backingInt(Constant.first_global) + @backingInt(global));
         }
 
         pub fn toValue(global: Index) Value {
@@ -2526,7 +2646,7 @@ pub const Global = struct {
             _ = builder.addGlobalAssumeCapacity(new_name, builder.globals.values()[index]);
             builder.globals.swapRemoveAt(index);
             if (!old_name.isAnon()) return;
-            builder.next_unnamed_global = @fromBackingInt(@intCast(@backingInt(builder.next_unnamed_global) - 1));
+            builder.next_unnamed_global = @fromBackingInt(@backingInt(builder.next_unnamed_global) - 1);
             if (builder.next_unnamed_global == old_name) return;
             builder.getGlobal(builder.next_unnamed_global).?.renameAssumeCapacity(old_name, builder);
         }
@@ -2539,7 +2659,7 @@ pub const Global = struct {
 
         fn replaceAssumeCapacity(self: Index, other: Index, builder: *Builder) void {
             if (self.eql(other, builder)) return;
-            builder.next_replaced_global = @fromBackingInt(@intCast(@backingInt(builder.next_replaced_global) - 1));
+            builder.next_replaced_global = @fromBackingInt(@backingInt(builder.next_replaced_global) - 1);
             self.renameAssumeCapacity(builder.next_replaced_global, builder);
             self.ptr(builder).kind = .{ .replaced = other.unwrap(builder) };
         }
@@ -2699,6 +2819,8 @@ pub const Intrinsic = enum {
     smin,
     umax,
     umin,
+    scmp,
+    ucmp,
     memcpy,
     @"memcpy.inline",
     memmove,
@@ -2708,10 +2830,21 @@ pub const Intrinsic = enum {
     powi,
     sin,
     cos,
+    tan,
+    asin,
+    acos,
+    atan,
+    atan2,
+    sinh,
+    cosh,
+    tanh,
+    sincos,
+    sincospi,
+    modf,
     pow,
     exp,
-    exp10,
     exp2,
+    exp10,
     ldexp,
     frexp,
     log,
@@ -2723,6 +2856,8 @@ pub const Intrinsic = enum {
     maxnum,
     minimum,
     maximum,
+    minimumnum,
+    maximumnum,
     copysign,
     floor,
     ceil,
@@ -2744,6 +2879,7 @@ pub const Intrinsic = enum {
     cttz,
     fshl,
     fshr,
+    clmul,
 
     // Arithmetic with Overflow
     @"sadd.with.overflow",
@@ -2904,21 +3040,21 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .type = .ptr } },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .addressofreturnaddress = .{
             .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .sponentry = .{
             .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .frameaddress = .{
             .ret_len = 1,
@@ -2926,7 +3062,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .prefetch = .{
             .ret_len = 0,
@@ -2936,14 +3072,14 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.readwrite) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.readwrite) } },
         },
         .@"thread.pointer" = .{
             .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .ptr } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .abs = .{
@@ -2953,7 +3089,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .smax = .{
             .ret_len = 1,
@@ -2962,7 +3098,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .smin = .{
             .ret_len = 1,
@@ -2971,7 +3107,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .umax = .{
             .ret_len = 1,
@@ -2980,7 +3116,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .umin = .{
             .ret_len = 1,
@@ -2989,7 +3125,25 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .scmp = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 1 } },
+            },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .ucmp = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 1 } },
+            },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .memcpy = .{
             .ret_len = 0,
@@ -3047,7 +3201,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .powi = .{
             .ret_len = 1,
@@ -3056,7 +3210,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .sin = .{
             .ret_len = 1,
@@ -3064,7 +3218,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .cos = .{
             .ret_len = 1,
@@ -3072,7 +3226,99 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .tan = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .asin = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .acos = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .atan = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .atan2 = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .sinh = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .cosh = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .tanh = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .sincos = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .sincospi = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .modf = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .pow = .{
             .ret_len = 1,
@@ -3081,7 +3327,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .exp = .{
             .ret_len = 1,
@@ -3089,7 +3335,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .exp2 = .{
             .ret_len = 1,
@@ -3097,7 +3343,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .exp10 = .{
             .ret_len = 1,
@@ -3105,7 +3351,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .ldexp = .{
             .ret_len = 1,
@@ -3114,7 +3360,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .frexp = .{
             .ret_len = 2,
@@ -3123,7 +3369,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .log = .{
             .ret_len = 1,
@@ -3131,7 +3377,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .log10 = .{
             .ret_len = 1,
@@ -3139,7 +3385,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .log2 = .{
             .ret_len = 1,
@@ -3147,7 +3393,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .fma = .{
             .ret_len = 1,
@@ -3157,7 +3403,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .fabs = .{
             .ret_len = 1,
@@ -3165,7 +3411,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .minnum = .{
             .ret_len = 1,
@@ -3174,7 +3420,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .maxnum = .{
             .ret_len = 1,
@@ -3183,7 +3429,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .minimum = .{
             .ret_len = 1,
@@ -3192,7 +3438,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .maximum = .{
             .ret_len = 1,
@@ -3201,7 +3447,25 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .minimumnum = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .maximumnum = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .copysign = .{
             .ret_len = 1,
@@ -3210,7 +3474,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .floor = .{
             .ret_len = 1,
@@ -3218,7 +3482,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .ceil = .{
             .ret_len = 1,
@@ -3226,7 +3490,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .trunc = .{
             .ret_len = 1,
@@ -3234,7 +3498,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .rint = .{
             .ret_len = 1,
@@ -3242,7 +3506,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .nearbyint = .{
             .ret_len = 1,
@@ -3250,7 +3514,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .round = .{
             .ret_len = 1,
@@ -3258,7 +3522,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .roundeven = .{
             .ret_len = 1,
@@ -3266,7 +3530,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .lround = .{
             .ret_len = 1,
@@ -3274,7 +3538,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .llround = .{
             .ret_len = 1,
@@ -3282,7 +3546,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .lrint = .{
             .ret_len = 1,
@@ -3290,7 +3554,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .llrint = .{
             .ret_len = 1,
@@ -3298,7 +3562,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .bitreverse = .{
@@ -3307,7 +3571,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .bswap = .{
             .ret_len = 1,
@@ -3315,7 +3579,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .ctpop = .{
             .ret_len = 1,
@@ -3323,7 +3587,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .ctlz = .{
             .ret_len = 1,
@@ -3332,7 +3596,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .cttz = .{
             .ret_len = 1,
@@ -3341,7 +3605,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .fshl = .{
             .ret_len = 1,
@@ -3351,7 +3615,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .fshr = .{
             .ret_len = 1,
@@ -3361,7 +3625,16 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
+        },
+        .clmul = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .@"sadd.with.overflow" = .{
@@ -3372,7 +3645,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"uadd.with.overflow" = .{
             .ret_len = 2,
@@ -3382,7 +3655,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"ssub.with.overflow" = .{
             .ret_len = 2,
@@ -3392,7 +3665,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"usub.with.overflow" = .{
             .ret_len = 2,
@@ -3402,7 +3675,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"smul.with.overflow" = .{
             .ret_len = 2,
@@ -3412,7 +3685,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"umul.with.overflow" = .{
             .ret_len = 2,
@@ -3422,7 +3695,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .@"sadd.sat" = .{
@@ -3432,7 +3705,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"uadd.sat" = .{
             .ret_len = 1,
@@ -3441,7 +3714,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"ssub.sat" = .{
             .ret_len = 1,
@@ -3450,7 +3723,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"usub.sat" = .{
             .ret_len = 1,
@@ -3459,7 +3732,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"sshl.sat" = .{
             .ret_len = 1,
@@ -3468,7 +3741,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"ushl.sat" = .{
             .ret_len = 1,
@@ -3477,7 +3750,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .@"smul.fix" = .{
@@ -3488,7 +3761,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"umul.fix" = .{
             .ret_len = 1,
@@ -3498,7 +3771,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"smul.fix.sat" = .{
             .ret_len = 1,
@@ -3508,7 +3781,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"umul.fix.sat" = .{
             .ret_len = 1,
@@ -3518,7 +3791,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"sdiv.fix" = .{
             .ret_len = 1,
@@ -3528,7 +3801,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"udiv.fix" = .{
             .ret_len = 1,
@@ -3538,7 +3811,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"sdiv.fix.sat" = .{
             .ret_len = 1,
@@ -3548,7 +3821,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"udiv.fix.sat" = .{
             .ret_len = 1,
@@ -3558,7 +3831,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .canonicalize = .{
@@ -3567,7 +3840,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .fmuladd = .{
             .ret_len = 1,
@@ -3577,7 +3850,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .@"vector.reduce.add" = .{
@@ -3586,7 +3859,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.fadd" = .{
             .ret_len = 1,
@@ -3595,7 +3868,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 2 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.mul" = .{
             .ret_len = 1,
@@ -3603,7 +3876,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.fmul" = .{
             .ret_len = 1,
@@ -3612,7 +3885,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 2 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.and" = .{
             .ret_len = 1,
@@ -3620,7 +3893,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.or" = .{
             .ret_len = 1,
@@ -3628,7 +3901,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.xor" = .{
             .ret_len = 1,
@@ -3636,7 +3909,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.smax" = .{
             .ret_len = 1,
@@ -3644,7 +3917,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.smin" = .{
             .ret_len = 1,
@@ -3652,7 +3925,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.umax" = .{
             .ret_len = 1,
@@ -3660,7 +3933,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.umin" = .{
             .ret_len = 1,
@@ -3668,7 +3941,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.fmax" = .{
             .ret_len = 1,
@@ -3676,7 +3949,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.fmin" = .{
             .ret_len = 1,
@@ -3684,7 +3957,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.fmaximum" = .{
             .ret_len = 1,
@@ -3692,7 +3965,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.reduce.fminimum" = .{
             .ret_len = 1,
@@ -3700,7 +3973,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches_scalar = 1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.insert" = .{
             .ret_len = 1,
@@ -3710,7 +3983,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i64 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"vector.extract" = .{
             .ret_len = 1,
@@ -3719,7 +3992,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i64 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .@"is.fpclass" = .{
@@ -3729,7 +4002,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nocreateundeforpoison, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .@"var.annotation" = .{
@@ -3814,7 +4087,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
                 .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .expect = .{
             .ret_len = 1,
@@ -3823,7 +4096,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"expect.with.probability" = .{
             .ret_len = 1,
@@ -3833,7 +4106,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .type = .double }, .attrs = &.{.immarg} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .assume = .{
             .ret_len = 0,
@@ -3848,7 +4121,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 }, .attrs = &.{.returned} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"type.test" = .{
             .ret_len = 1,
@@ -3857,7 +4130,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .type = .ptr } },
                 .{ .kind = .{ .type = .metadata } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"type.checked.load" = .{
             .ret_len = 2,
@@ -3868,7 +4141,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .type = .i32 } },
                 .{ .kind = .{ .type = .metadata } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"type.checked.load.relative" = .{
             .ret_len = 2,
@@ -3879,7 +4152,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .type = .i32 } },
                 .{ .kind = .{ .type = .metadata } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"arithmetic.fence" = .{
             .ret_len = 1,
@@ -3887,12 +4160,12 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .donothing = .{
             .ret_len = 0,
             .params = &.{},
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"load.relative" = .{
             .ret_len = 1,
@@ -3914,7 +4187,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .type = .i1 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .convergent, .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .convergent, .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .ptrmask = .{
             .ret_len = 1,
@@ -3923,7 +4196,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"threadlocal.address" = .{
             .ret_len = 1,
@@ -3931,14 +4204,14 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded, .attrs = &.{.nonnull} },
                 .{ .kind = .{ .matches = 0 }, .attrs = &.{.nonnull} },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .vscale = .{
             .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .@"dbg.declare" = .{
@@ -3948,7 +4221,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .type = .metadata } },
                 .{ .kind = .{ .type = .metadata } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"dbg.value" = .{
             .ret_len = 0,
@@ -3957,7 +4230,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .type = .metadata } },
                 .{ .kind = .{ .type = .metadata } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .@"amdgcn.workitem.id.x" = .{
@@ -3965,42 +4238,42 @@ pub const Intrinsic = enum {
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"amdgcn.workitem.id.y" = .{
             .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"amdgcn.workitem.id.z" = .{
             .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"amdgcn.workgroup.id.x" = .{
             .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"amdgcn.workgroup.id.y" = .{
             .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"amdgcn.workgroup.id.z" = .{
             .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"amdgcn.dispatch.ptr" = .{
             .ret_len = 1,
@@ -4010,7 +4283,7 @@ pub const Intrinsic = enum {
                     .attrs = &.{.{ .@"align" = .wrap(.fromByteUnits(4)) }},
                 },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = .all(.none) } },
         },
 
         .@"nvvm.read.ptx.sreg.tid.x" = .{
@@ -4085,7 +4358,7 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i32 } },
             },
-            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .all(.none) } },
         },
         .@"wasm.memory.grow" = .{
             .ret_len = 1,
@@ -4164,6 +4437,10 @@ pub const Function = struct {
             builder: *Builder,
         ) void {
             self.ptr(builder).attributes = new_function_attributes;
+        }
+
+        pub fn getAttributes(self: Index, builder: *Builder) FunctionAttributes {
+            return self.ptr(builder).attributes;
         }
 
         pub fn setSection(self: Index, section: String, builder: *Builder) void {
@@ -4487,7 +4764,7 @@ pub const Function = struct {
             }
 
             pub fn toValue(self: Instruction.Index) Value {
-                return @fromBackingInt(@intCast(@backingInt(self)));
+                return @fromBackingInt(@backingInt(self));
             }
 
             pub fn isTerminatorWip(self: Instruction.Index, wip: *const WipFunction) bool {
@@ -4679,7 +4956,7 @@ pub const Function = struct {
                         .changeScalarAssumeCapacity(.i1, wip.builder),
                     .fneg,
                     .@"fneg fast",
-                    => @as(Value, @fromBackingInt(@intCast(instruction.data))).typeOfWip(wip),
+                    => @as(Value, @fromBackingInt(instruction.data)).typeOfWip(wip),
                     .getelementptr,
                     .@"getelementptr inbounds",
                     => {
@@ -4871,7 +5148,7 @@ pub const Function = struct {
                         .changeScalarAssumeCapacity(.i1, builder),
                     .fneg,
                     .@"fneg fast",
-                    => @as(Value, @fromBackingInt(@intCast(instruction.data))).typeOf(function_index, builder),
+                    => @as(Value, @fromBackingInt(instruction.data)).typeOf(function_index, builder),
                     .getelementptr,
                     .@"getelementptr inbounds",
                     => {
@@ -4963,7 +5240,7 @@ pub const Function = struct {
 
                 pub fn fromMetadata(metadata: Metadata) Weights {
                     assert(metadata.kind == .node);
-                    return @fromBackingInt(@intCast(metadata.index));
+                    return @fromBackingInt(metadata.index);
                 }
 
                 pub fn toMetadata(weights: Weights) Metadata {
@@ -5156,7 +5433,7 @@ pub const Function = struct {
         assert(argument.tag == .arg);
         assert(argument.data == index);
 
-        const argument_index: Instruction.Index = @fromBackingInt(@intCast(index));
+        const argument_index: Instruction.Index = @fromBackingInt(index);
         return argument_index.toValue();
     }
 
@@ -5202,7 +5479,7 @@ pub const Function = struct {
                 Type,
                 Value,
                 Instruction.BrCond.Weights,
-                => @fromBackingInt(@intCast(value)),
+                => @fromBackingInt(value),
                 MemoryAccessInfo,
                 Instruction.Alloca.Info,
                 Instruction.Call.Info,
@@ -5327,7 +5604,7 @@ pub const WipFunction = struct {
         assert(argument.tag == .arg);
         assert(argument.data == index);
 
-        const argument_index: Instruction.Index = @fromBackingInt(@intCast(index));
+        const argument_index: Instruction.Index = @fromBackingInt(index);
         return argument_index.toValue();
     }
 
@@ -6414,24 +6691,24 @@ pub const WipFunction = struct {
         errdefer function.instructions.shrinkRetainingCapacity(0);
 
         {
-            var final_instruction_index: Instruction.Index = @fromBackingInt(@intCast(0));
+            var final_instruction_index: Instruction.Index = @fromBackingInt(0);
             for (0..params_len) |param_index| {
                 instructions.items[param_index] = final_instruction_index;
-                final_instruction_index = @fromBackingInt(@intCast(@backingInt(final_instruction_index) + 1));
+                final_instruction_index = @fromBackingInt(@backingInt(final_instruction_index) + 1);
             }
             for (blocks, self.blocks.items) |*final_block, current_block| {
                 assert(current_block.incoming == current_block.branches);
                 final_block.instruction = final_instruction_index;
-                final_instruction_index = @fromBackingInt(@intCast(@backingInt(final_instruction_index) + 1));
+                final_instruction_index = @fromBackingInt(@backingInt(final_instruction_index) + 1);
                 for (current_block.instructions.items) |instruction| {
                     instructions.items[@backingInt(instruction)] = final_instruction_index;
-                    final_instruction_index = @fromBackingInt(@intCast(@backingInt(final_instruction_index) + 1));
+                    final_instruction_index = @fromBackingInt(@backingInt(final_instruction_index) + 1);
                 }
             }
         }
 
         var wip_name: struct {
-            next_name: String = @fromBackingInt(@intCast(0)),
+            next_name: String = @fromBackingInt(0),
             next_unique_name: std.AutoHashMap(String, String),
             builder: *Builder,
 
@@ -6440,19 +6717,19 @@ pub const WipFunction = struct {
                     .none => return .none,
                     .empty => {
                         assert(wip_name.next_name != .none);
-                        defer wip_name.next_name = @fromBackingInt(@intCast(@backingInt(wip_name.next_name) + 1));
+                        defer wip_name.next_name = @fromBackingInt(@backingInt(wip_name.next_name) + 1);
                         return wip_name.next_name;
                     },
                     _ => {
                         assert(!name.isAnon());
                         const gop = try wip_name.next_unique_name.getOrPut(name);
                         if (!gop.found_existing) {
-                            gop.value_ptr.* = @fromBackingInt(@intCast(0));
+                            gop.value_ptr.* = @fromBackingInt(0);
                             return name;
                         }
 
                         while (true) {
-                            gop.value_ptr.* = @fromBackingInt(@intCast(@backingInt(gop.value_ptr.*) + 1));
+                            gop.value_ptr.* = @fromBackingInt(@backingInt(gop.value_ptr.*) + 1);
                             const unique_name = try wip_name.builder.fmt("{f}{s}{f}", .{
                                 name.fmtRaw(wip_name.builder),
                                 sep,
@@ -6460,7 +6737,7 @@ pub const WipFunction = struct {
                             });
                             const unique_gop = try wip_name.next_unique_name.getOrPut(unique_name);
                             if (!unique_gop.found_existing) {
-                                unique_gop.value_ptr.* = @fromBackingInt(@intCast(0));
+                                unique_gop.value_ptr.* = @fromBackingInt(0);
                                 return unique_name;
                             }
                         }
@@ -6702,7 +6979,7 @@ pub const WipFunction = struct {
                     .fneg,
                     .@"fneg fast",
                     .ret,
-                    => instruction.data = @backingInt(instructions.map(@fromBackingInt(@intCast(instruction.data)))),
+                    => instruction.data = @backingInt(instructions.map(@fromBackingInt(instruction.data))),
                     .getelementptr,
                     .@"getelementptr inbounds",
                     => {
@@ -7079,7 +7356,7 @@ pub const WipFunction = struct {
                 Type,
                 Value,
                 Instruction.BrCond.Weights,
-                => @fromBackingInt(@intCast(value)),
+                => @fromBackingInt(value),
                 MemoryAccessInfo,
                 Instruction.Alloca.Info,
                 Instruction.Call.Info,
@@ -7268,7 +7545,7 @@ pub const Constant = enum(u32) {
     no_init = (1 << 30) - 1,
     _,
 
-    const first_global: Constant = @fromBackingInt(@intCast(1 << 29));
+    const first_global: Constant = @fromBackingInt(1 << 29);
 
     pub const Tag = enum(u7) {
         positive_integer,
@@ -7405,7 +7682,18 @@ pub const Constant = enum(u32) {
         val: Constant,
         type: Type,
 
-        pub const Signedness = enum { unsigned, signed, unneeded };
+        pub const Signedness = enum {
+            unsigned,
+            signed,
+            unneeded,
+
+            pub fn fromStdLang(signedness: std.lang.Signedness) Signedness {
+                return switch (signedness) {
+                    .unsigned => .unsigned,
+                    .signed => .signed,
+                };
+            }
+        };
     };
 
     pub const GetElementPtr = struct {
@@ -7444,11 +7732,11 @@ pub const Constant = enum(u32) {
         return if (@backingInt(self) < @backingInt(first_global))
             .{ .constant = @intCast(@backingInt(self)) }
         else
-            .{ .global = @fromBackingInt(@intCast(@backingInt(self) - @backingInt(first_global))) };
+            .{ .global = @fromBackingInt(@backingInt(self) - @backingInt(first_global)) };
     }
 
     pub fn toValue(self: Constant) Value {
-        return @fromBackingInt(@intCast(Value.first_constant + @backingInt(self)));
+        return @fromBackingInt(Value.first_constant + @backingInt(self));
     }
 
     pub fn typeOf(self: Constant, builder: *Builder) Type {
@@ -7474,7 +7762,7 @@ pub const Constant = enum(u32) {
                     .zeroinitializer,
                     .undef,
                     .poison,
-                    => @fromBackingInt(@intCast(item.data)),
+                    => @fromBackingInt(item.data),
                     .structure,
                     .packed_structure,
                     .array,
@@ -7482,7 +7770,7 @@ pub const Constant = enum(u32) {
                     => builder.constantExtraData(Aggregate, item.data).type,
                     .splat => builder.constantExtraData(Splat, item.data).type,
                     .string => builder.arrayTypeAssumeCapacity(
-                        @as(String, @fromBackingInt(@intCast(item.data))).slice(builder).?.len,
+                        @as(String, @fromBackingInt(item.data)).slice(builder).?.len,
                         .i8,
                     ),
                     .blockaddress => builder.ptrTypeAssumeCapacity(
@@ -7491,7 +7779,7 @@ pub const Constant = enum(u32) {
                     ),
                     .dso_local_equivalent,
                     .no_cfi,
-                    => builder.ptrTypeAssumeCapacity(@as(Function.Index, @fromBackingInt(@intCast(item.data)))
+                    => builder.ptrTypeAssumeCapacity(@as(Function.Index, @fromBackingInt(item.data))
                         .ptrConst(builder).global.ptrConst(builder).addr_space),
                     .trunc,
                     .ptrtoint,
@@ -7802,7 +8090,7 @@ pub const Constant = enum(u32) {
                         try w.writeByte('>');
                     },
                     .string => try w.print("c{f}", .{
-                        @as(String, @fromBackingInt(@intCast(item.data))).fmtQ(data.builder),
+                        @as(String, @fromBackingInt(item.data)).fmtQ(data.builder),
                     }),
                     .blockaddress => |tag| {
                         const extra = data.builder.constantExtraData(BlockAddress, item.data);
@@ -7816,7 +8104,7 @@ pub const Constant = enum(u32) {
                     .dso_local_equivalent,
                     .no_cfi,
                     => |tag| {
-                        const function: Function.Index = @fromBackingInt(@intCast(item.data));
+                        const function: Function.Index = @fromBackingInt(item.data);
                         try w.print("{s} {f}", .{
                             @tagName(tag),
                             function.ptrConst(data.builder).global.fmt(data.builder),
@@ -7920,9 +8208,9 @@ pub const Value = enum(u32) {
         metadata: Metadata,
     } {
         return if (@backingInt(self) < first_constant)
-            .{ .instruction = @fromBackingInt(@intCast(@backingInt(self))) }
+            .{ .instruction = @fromBackingInt(@backingInt(self)) }
         else if (@backingInt(self) < first_metadata)
-            .{ .constant = @fromBackingInt(@intCast(@backingInt(self) - first_constant)) }
+            .{ .constant = @fromBackingInt(@backingInt(self) - first_constant) }
         else
             .{ .metadata = @bitCast(@backingInt(self) - first_metadata) };
     }
@@ -8016,7 +8304,7 @@ pub const Metadata = packed struct(u32) {
         return .{ .index = metadata.index, .kind = metadata.kind, .is_none = false };
     }
     pub fn toValue(metadata: Metadata) Value {
-        return @fromBackingInt(@intCast(Value.first_metadata + @as(u32, @bitCast(metadata))));
+        return @fromBackingInt(Value.first_metadata + @as(u32, @bitCast(metadata)));
     }
 
     pub const String = enum(u32) {
@@ -8032,7 +8320,7 @@ pub const Metadata = packed struct(u32) {
             pub fn unwrap(metadata: Metadata.String.Optional) ?Metadata.String {
                 return switch (metadata) {
                     .none => null,
-                    else => @fromBackingInt(@intCast(@backingInt(metadata))),
+                    else => @fromBackingInt(@backingInt(metadata)),
                 };
             }
             pub fn toMetadata(metadata: Metadata.String.Optional) Metadata.Optional {
@@ -8040,7 +8328,7 @@ pub const Metadata = packed struct(u32) {
             }
         };
         pub fn toOptional(metadata: Metadata.String) Metadata.String.Optional {
-            return @fromBackingInt(@intCast(@backingInt(metadata)));
+            return @fromBackingInt(@backingInt(metadata));
         }
         pub fn toMetadata(metadata: Metadata.String) Metadata {
             return .{ .index = @intCast(@backingInt(metadata)), .kind = .string };
@@ -8077,7 +8365,7 @@ pub const Metadata = packed struct(u32) {
     };
     pub fn toString(metadata: Metadata) Metadata.String {
         assert(metadata.kind == .string);
-        return @fromBackingInt(@intCast(metadata.index));
+        return @fromBackingInt(metadata.index);
     }
 
     pub const Tag = enum(u6) {
@@ -8542,7 +8830,7 @@ pub const Metadata = packed struct(u32) {
                             try w.writeByte(')');
                         },
                         .constant => try Constant.format(.{
-                            .constant = @fromBackingInt(@intCast(node_item.data)),
+                            .constant = @fromBackingInt(node_item.data),
                             .builder = builder,
                             .flags = data.specialized orelse .{},
                         }, w),
@@ -8744,7 +9032,7 @@ pub fn init(options: Options) Allocator.Error!Builder {
         .string_bytes = .empty,
 
         .types = .empty,
-        .next_unnamed_type = @fromBackingInt(@intCast(0)),
+        .next_unnamed_type = @fromBackingInt(0),
         .next_unique_type_id = .empty,
         .type_map = .empty,
         .type_items = .empty,
@@ -8758,7 +9046,7 @@ pub fn init(options: Options) Allocator.Error!Builder {
         .function_attributes_set = .empty,
 
         .globals = .empty,
-        .next_unnamed_global = @fromBackingInt(@intCast(0)),
+        .next_unnamed_global = @fromBackingInt(0),
         .next_replaced_global = .none,
         .next_unique_global_id = .empty,
         .aliases = .empty,
@@ -8815,7 +9103,7 @@ pub fn init(options: Options) Allocator.Error!Builder {
             assert(self.intTypeAssumeCapacity(bits) ==
                 @field(Type, std.fmt.comptimePrint("i{d}", .{bits})));
         inline for (.{ 0, 4 }) |addr_space_index| {
-            const addr_space: AddrSpace = @fromBackingInt(@intCast(addr_space_index));
+            const addr_space: AddrSpace = @fromBackingInt(addr_space_index);
             assert(self.ptrTypeAssumeCapacity(addr_space) ==
                 @field(Type, std.fmt.comptimePrint("ptr{f}", .{addr_space.fmt(" ")})));
         }
@@ -9092,17 +9380,17 @@ pub fn attrs(self: *Builder, attributes: []Attribute.Index) Allocator.Error!Attr
             return @backingInt(lhs_kind) < @backingInt(rhs_kind);
         }
     }.lessThan);
-    return @fromBackingInt(@intCast(try self.attrGeneric(@ptrCast(attributes))));
+    return @fromBackingInt(try self.attrGeneric(@ptrCast(attributes)));
 }
 
 pub fn fnAttrs(self: *Builder, fn_attributes: []const Attributes) Allocator.Error!FunctionAttributes {
     try self.function_attributes_set.ensureUnusedCapacity(self.gpa, 1);
-    const function_attributes: FunctionAttributes = @fromBackingInt(@intCast(try self.attrGeneric(@ptrCast(
+    const function_attributes: FunctionAttributes = @fromBackingInt(try self.attrGeneric(@ptrCast(
         fn_attributes[0..if (std.mem.lastIndexOfNone(Attributes, fn_attributes, &.{.none})) |last|
             last + 1
         else
             0],
-    ))));
+    )));
 
     _ = self.function_attributes_set.getOrPutAssumeCapacity(function_attributes);
     return function_attributes;
@@ -9121,7 +9409,7 @@ pub fn addGlobalAssumeCapacity(self: *Builder, name: StrtabString, global: Globa
     if (name == .empty) {
         id = self.next_unnamed_global;
         assert(id != self.next_replaced_global);
-        self.next_unnamed_global = @fromBackingInt(@intCast(@backingInt(id) + 1));
+        self.next_unnamed_global = @fromBackingInt(@backingInt(id) + 1);
     }
     while (true) {
         const global_gop = self.globals.getOrPutAssumeCapacity(id);
@@ -10058,7 +10346,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                         continue;
                     },
                     .br => |tag| {
-                        const target: Function.Block.Index = @fromBackingInt(@intCast(instruction.data));
+                        const target: Function.Block.Index = @fromBackingInt(instruction.data);
                         try w.print("  {s} {f}", .{
                             @tagName(tag), target.toInst(&function).fmt(function_index, self, .{ .percent = true }),
                         });
@@ -10187,7 +10475,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                     .fneg,
                     .@"fneg fast",
                     => |tag| {
-                        const val: Value = @fromBackingInt(@intCast(instruction.data));
+                        const val: Value = @fromBackingInt(instruction.data);
                         try w.print("  %{f} = {s} {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
@@ -10288,7 +10576,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                         }
                     },
                     .ret => |tag| {
-                        const val: Value = @fromBackingInt(@intCast(instruction.data));
+                        const val: Value = @fromBackingInt(instruction.data);
                         try w.print("  {s} {f}", .{
                             @tagName(tag),
                             val.fmt(function_index, self, .{ .percent = true }),
@@ -11020,7 +11308,7 @@ fn opaqueTypeAssumeCapacity(self: *Builder, name: String) Type {
     if (name == .empty) {
         id = self.next_unnamed_type;
         assert(id != .none);
-        self.next_unnamed_type = @fromBackingInt(@intCast(@backingInt(id) + 1));
+        self.next_unnamed_type = @fromBackingInt(@backingInt(id) + 1);
     } else assert(!name.isAnon());
     while (true) {
         const type_gop = self.types.getOrPutAssumeCapacity(id);
@@ -11135,7 +11423,7 @@ fn typeExtraDataTrail(
     ) |field_name, field_type, value|
         @field(result, field_name) = switch (field_type) {
             u32 => value,
-            String, Type => @fromBackingInt(@intCast(value)),
+            String, Type => @fromBackingInt(value),
             else => @compileError("bad field type: " ++ @typeName(field_type)),
         };
     return .{
@@ -11746,7 +12034,7 @@ fn castConstAssumeCapacity(self: *Builder, tag: Constant.Tag, val: Constant, ty:
             return std.meta.eql(lhs_key.cast, rhs_extra);
         }
     };
-    const data = Key{ .tag = tag, .cast = .{ .val = val, .type = ty } };
+    const data: Key = .{ .tag = tag, .cast = .{ .val = val, .type = ty } };
     const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
     if (!gop.found_existing) {
         gop.key_ptr.* = {};
@@ -11828,10 +12116,10 @@ fn gepConstAssumeCapacity(
                 std.mem.eql(Constant, lhs_key.indices, rhs_indices);
         }
     };
-    const data = Key{
+    const data: Key = .{
         .type = ty,
         .base = base,
-        .inrange = if (inrange) |index| @fromBackingInt(@intCast(index)) else .none,
+        .inrange = if (inrange) |index| @fromBackingInt(index) else .none,
         .indices = indices,
     };
     const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
@@ -11885,7 +12173,7 @@ fn binConstAssumeCapacity(
             return std.meta.eql(lhs_key.extra, rhs_extra);
         }
     };
-    const data = Key{ .tag = tag, .extra = .{ .lhs = lhs, .rhs = rhs } };
+    const data: Key = .{ .tag = tag, .extra = .{ .lhs = lhs, .rhs = rhs } };
     const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
     if (!gop.found_existing) {
         gop.key_ptr.* = {};
@@ -11924,8 +12212,8 @@ fn asmConstAssumeCapacity(
         }
     };
 
-    const data = Key{
-        .tag = @fromBackingInt(@intCast(@backingInt(Constant.Tag.@"asm") + @as(u4, @bitCast(info)))),
+    const data: Key = .{
+        .tag = @fromBackingInt(@backingInt(Constant.Tag.@"asm") + @as(u4, @bitCast(info))),
         .extra = .{ .type = ty, .assembly = assembly, .constraints = constraints },
     };
     const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
@@ -12073,7 +12361,7 @@ fn constantExtraDataTrail(
     ) |field_name, field_type, value|
         @field(result, field_name) = switch (field_type) {
             u32 => value,
-            String, Type, Constant, Function.Index, Function.Block.Index => @fromBackingInt(@intCast(value)),
+            String, Type, Constant, Function.Index, Function.Block.Index => @fromBackingInt(value),
             Constant.GetElementPtr.Info => @bitCast(value),
             else => @compileError("bad field type: " ++ @typeName(field_type)),
         };
@@ -12151,7 +12439,7 @@ fn metadataExtraDataTrail(
     ) |field_name, field_type, value|
         @field(result, field_name) = switch (field_type) {
             u32 => value,
-            Metadata.String, Metadata.String.Optional, Variable.Index, Value => @fromBackingInt(@intCast(value)),
+            Metadata.String, Metadata.String.Optional, Variable.Index, Value => @fromBackingInt(value),
             Metadata, Metadata.Optional, Metadata.DIFlags => @bitCast(value),
             else => @compileError("bad field type: " ++ @typeName(field_type)),
         };
@@ -12759,8 +13047,8 @@ fn debugSubprogramAssumeCapacity(
     compile_unit: ?Metadata,
 ) Metadata {
     assert(!self.strip);
-    const tag: Metadata.Tag = @fromBackingInt(@intCast(@backingInt(Metadata.Tag.subprogram) +
-        @as(u3, @truncate(@as(u32, @bitCast(options.sp_flags)) >> 2))));
+    const tag: Metadata.Tag = @fromBackingInt(@backingInt(Metadata.Tag.subprogram) +
+        @as(u3, @truncate(@as(u32, @bitCast(options.sp_flags)) >> 2)));
     return self.metadataDistinctAssumeCapacity(tag, Metadata.Subprogram{
         .file = .wrap(file),
         .name = .wrap(name),
@@ -13345,7 +13633,7 @@ fn metadataConstantAssumeCapacity(self: *Builder, constant: Constant) Metadata {
 
         pub fn eql(ctx: @This(), lhs_key: Constant, _: void, rhs_index: usize) bool {
             if (Metadata.Tag.constant != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
-            const rhs_data: Constant = @fromBackingInt(@intCast(ctx.builder.metadata_items.items(.data)[rhs_index]));
+            const rhs_data: Constant = @fromBackingInt(ctx.builder.metadata_items.items(.data)[rhs_index]);
             return rhs_data == lhs_key;
         }
     };
@@ -13577,6 +13865,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                         switch (attr_index.toAttribute(self)) {
                             .zeroext,
                             .signext,
+                            .noext,
                             .inreg,
                             .@"noalias",
                             .nocapture,
@@ -13594,11 +13883,13 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             .readnone,
                             .readonly,
                             .writeonly,
+                            .writable,
+                            .dead_on_unwind,
                             .alwaysinline,
                             .builtin,
                             .cold,
                             .convergent,
-                            .disable_sanitizer_information,
+                            .disable_sanitizer_instrumentation,
                             .fn_ret_thunk_extern,
                             .hot,
                             .inlinehint,
@@ -13607,6 +13898,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             .naked,
                             .nobuiltin,
                             .nocallback,
+                            .nodivergencesource,
                             .noduplicate,
                             .noimplicitfloat,
                             .@"noinline",
@@ -13623,6 +13915,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             .nosanitize_bounds,
                             .nosanitize_coverage,
                             .null_pointer_is_valid,
+                            .optdebug,
                             .optforfuzzing,
                             .optnone,
                             .optsize,
@@ -13633,18 +13926,21 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             .sanitize_thread,
                             .sanitize_hwaddress,
                             .sanitize_memtag,
+                            .sanitize_realtime,
+                            .sanitize_realtime_blocking,
+                            .sanitize_alloc_token,
                             .speculative_load_hardening,
                             .speculatable,
                             .ssp,
                             .sspstrong,
                             .sspreq,
                             .strictfp,
+                            .denormal_fpenv,
                             .nocf_check,
                             .shadowcallstack,
                             .mustprogress,
-                            .no_sanitize_address,
-                            .no_sanitize_hwaddress,
-                            .sanitize_address_dyninit,
+                            .nooutline,
+                            .nocreateundeforpoison,
                             => {
                                 try record.ensureUnusedCapacity(self.gpa, 2);
                                 record.appendAssumeCapacity(0);
@@ -13670,6 +13966,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                                 record.appendAssumeCapacity(@backingInt(kind));
                                 record.appendAssumeCapacity(alignment.resolve(self).toByteUnits() orelse 0);
                             },
+                            .captures => |captures| {
+                                try record.ensureUnusedCapacity(self.gpa, 3);
+                                record.appendAssumeCapacity(1);
+                                record.appendAssumeCapacity(@backingInt(kind));
+                                record.appendAssumeCapacity(@as(u32, @bitCast(captures)));
+                            },
                             .dereferenceable,
                             .dereferenceable_or_null,
                             => |size| {
@@ -13684,6 +13986,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                                 record.appendAssumeCapacity(@backingInt(kind));
                                 record.appendAssumeCapacity(@as(u32, @bitCast(fpclass)));
                             },
+                            .initializes => @panic("TODO"),
+                            .dead_on_return => @panic("TODO"),
+                            .range => @panic("TODO"),
                             .allockind => |allockind| {
                                 try record.ensureUnusedCapacity(self.gpa, 3);
                                 record.appendAssumeCapacity(1);
@@ -14099,7 +14404,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                         }
                     },
                     .string => {
-                        const str: String = @fromBackingInt(@intCast(data));
+                        const str: String = @fromBackingInt(data);
                         if (str == .none) {
                             try constants_block.writeAbbrev(ConstantsBlock.Null{});
                         } else {
@@ -14226,7 +14531,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     .dso_local_equivalent,
                     .no_cfi,
                     => |tag| {
-                        const function: Function.Index = @fromBackingInt(@intCast(data));
+                        const function: Function.Index = @fromBackingInt(data);
                         try constants_block.writeAbbrev(ConstantsBlock.DsoLocalEquivalentOrNoCfi{
                             .code = switch (tag) {
                                 .dso_local_equivalent => .DSO_LOCAL_EQUIVALENT,
@@ -14609,7 +14914,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                         }, metadata_adapter);
                     },
                     .constant => {
-                        const constant: Constant = @fromBackingInt(@intCast(data));
+                        const constant: Constant = @fromBackingInt(data);
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.Constant{
                             .ty = constant.typeOf(self),
                             .constant = constant,
@@ -14778,7 +15083,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                 var adapter: FunctionAdapter = .{
                     .metadata_adapter = metadata_adapter,
                     .func = &func,
-                    .instruction_index = @fromBackingInt(@intCast(0)),
+                    .instruction_index = @fromBackingInt(0),
                 };
 
                 // Emit function level metadata block
@@ -14789,7 +15094,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     for (func.debug_values) |value| {
                         try metadata_block.writeAbbrev(MetadataBlock.Value{
                             .ty = value.typeOf(@fromBackingInt(@intCast(func_index)), self),
-                            .value = @fromBackingInt(@intCast(adapter.getValueIndex(value.toValue()))),
+                            .value = @fromBackingInt(adapter.getValueIndex(value.toValue())),
                         });
                     }
 
@@ -15071,10 +15376,10 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             });
                         },
                         .fneg => try function_block.writeAbbrev(FunctionBlock.FNeg{
-                            .val = adapter.getOffsetValueIndex(@fromBackingInt(@intCast(data))),
+                            .val = adapter.getOffsetValueIndex(@fromBackingInt(data)),
                         }),
                         .@"fneg fast" => try function_block.writeAbbrev(FunctionBlock.FNegFast{
-                            .val = adapter.getOffsetValueIndex(@fromBackingInt(@intCast(data))),
+                            .val = adapter.getOffsetValueIndex(@fromBackingInt(data)),
                             .fast_math = FastMath.fast,
                         }),
                         .extractvalue => {
@@ -15274,7 +15579,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             try function_block.writeUnabbrev(16, record.items);
                         },
                         .ret => try function_block.writeAbbrev(FunctionBlock.Ret{
-                            .val = adapter.getOffsetValueIndex(@fromBackingInt(@intCast(data))),
+                            .val = adapter.getOffsetValueIndex(@fromBackingInt(data)),
                         }),
                         .@"ret void" => try function_block.writeAbbrev(FunctionBlock.RetVoid{}),
                         .atomicrmw => {
