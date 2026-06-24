@@ -1007,6 +1007,8 @@ pub const Manifest = struct {
         keep = try addPrefixedPathPost(self, prefixed_path);
     }
 
+    /// Low level function. `prefixed_path` references cloned memory. Returns
+    /// whether or not `prefixed_path.sub_path` should be kept.
     pub fn addPrefixedPathPost(man: *Manifest, prefixed_path: PrefixedPath) !bool {
         assert(man.manifest_file != null);
         const gpa = man.cache.gpa;

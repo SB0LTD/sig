@@ -1754,8 +1754,10 @@ pub fn buildExeSubprocess(gpa: Allocator, io: Io, options: BuildExeSubprocessOpt
                 var it = mem.splitScalar(u8, body, 0);
                 while (it.next()) |prefixed_path| {
                     const prefix: Server.Message.PathPrefix = @enumFromInt(prefixed_path[0] - 1);
-                    const sub_path = prefixed_path[1..];
-                    _ = man.addPrefixedPathPost(.{
+                    const sub_path = try gpa.dupe(u8, prefixed_path[1..]);
+                    var keep = false;
+                    defer if (!keep) gpa.free(sub_path);
+                    keep = man.addPrefixedPathPost(.{
                         .prefix = @intFromEnum(prefix),
                         .sub_path = sub_path,
                     }) catch |err| switch (err) {
