@@ -1,11 +1,12 @@
 //! The standard memory allocation interface.
+const Allocator = @This();
+
+const builtin = @import("builtin");
 
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
-const Allocator = @This();
-const builtin = @import("builtin");
 const Alignment = std.mem.Alignment;
 
 pub const Error = error{OutOfMemory};
@@ -487,6 +488,15 @@ pub fn print(a: Allocator, comptime format: []const u8, args: anytype) Error![]u
     return aw.toOwnedSlice();
 }
 
+test print {
+    const x: i32 = -1;
+    const y: []const u8 = "hi";
+    const a = std.testing.allocator;
+    const s = try print(a, "{d}={s}", .{ x, y });
+    defer free(a, s);
+    try std.testing.expectEqualStrings("-1=hi", s);
+}
+
 /// Like `print` but returned slice has the provided sentinel.
 ///
 /// Returned slice can be deallocated with `free`. If an arena-style allocator
@@ -505,6 +515,16 @@ pub fn printSentinel(
         error.WriteFailed => return error.OutOfMemory,
     };
     return aw.toOwnedSliceSentinel(sentinel);
+}
+
+test printSentinel {
+    const x: i32 = -1;
+    const y: []const u8 = "hi";
+    const a = std.testing.allocator;
+    const s = try printSentinel(a, "{d}={s}", .{ x, y }, 0);
+    defer free(a, s);
+    try std.testing.expectEqualStrings("-1=hi", s);
+    try std.testing.expectEqual(0, s[s.len]);
 }
 
 /// An allocator that always fails to allocate.
