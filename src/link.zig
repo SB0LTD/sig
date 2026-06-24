@@ -2127,7 +2127,7 @@ pub fn resolveInputs(
                 continue;
             },
         }
-        @compileError("unreachable");
+        comptime unreachable;
     }
 
     if (failed_libs.items.len > 0) {

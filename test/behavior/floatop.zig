@@ -431,9 +431,9 @@ fn testSqrt(comptime T: type) !void {
     var inf: T = math.inf(T);
     try expect(math.isPositiveInf(@sqrt(inf)));
     var zero: T = 0.0;
-    try expect(@sqrt(zero) == 0.0);
+    try expect(math.isPositiveZero(@sqrt(zero)));
     var neg_zero: T = -0.0;
-    try expect(@sqrt(neg_zero) == 0.0);
+    try expect(math.isNegativeZero(@sqrt(neg_zero)));
     var neg_one: T = -1.0;
     try expect(math.isNan(@sqrt(neg_one)));
     var nan: T = math.nan(T);
@@ -1501,9 +1501,9 @@ fn testNeg(comptime T: type) !void {
 
     // subnormals
     var zero: T = 0.0;
-    try expect(-zero == -0.0);
+    try expect(math.isNegativeZero(-zero));
     var neg_zero: T = -0.0;
-    try expect(-neg_zero == 0.0);
+    try expect(math.isPositiveZero(-neg_zero));
     var true_min: T = math.floatTrueMin(T);
     try expect(-true_min == -math.floatTrueMin(T));
     var neg_true_min: T = -math.floatTrueMin(T);

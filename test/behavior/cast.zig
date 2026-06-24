@@ -1845,7 +1845,7 @@ test "coerce between pointers of compatible differently-named floats" {
         64 => f64,
         80 => f80,
         128 => f128,
-        else => @compileError("unreachable"),
+        else => comptime unreachable,
     };
     var f1: F = 12.34;
     const f2: *c_longdouble = &f1;
