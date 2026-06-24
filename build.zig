@@ -793,12 +793,6 @@ fn addCompilerMod(b: *std.Build, options: AddCompilerModOptions) *std.Build.Modu
         .valgrind = options.valgrind,
     });
 
-    const aro_mod = b.createModule(.{
-        .root_source_file = b.path("lib/compiler/aro/aro.zig"),
-    });
-
-    compiler_mod.addImport("aro", aro_mod);
-
     return compiler_mod;
 }
 
