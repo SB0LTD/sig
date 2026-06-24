@@ -16,7 +16,6 @@ const fatal = std.process.fatal;
 const Value = @import("Value.zig");
 const Type = @import("Type.zig");
 const target_util = @import("target.zig");
-const Package = @import("Package.zig");
 const link = @import("link.zig");
 const tracy = @import("tracy.zig");
 const trace = tracy.trace;
@@ -43,6 +42,7 @@ const Air = @import("Air.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
+const Module = @import("Module.zig");
 
 pub const Config = @import("Compilation/Config.zig");
 
@@ -63,7 +63,7 @@ cache_use: CacheUse,
 /// All compilations have a root module because this is where some important
 /// settings are stored, such as target and optimization mode. This module
 /// might not have any .zig code associated with it, however.
-root_mod: *Package.Module,
+root_mod: *Module,
 
 /// User-specified settings that have all the defaults resolved into concrete values.
 config: Config,
@@ -766,7 +766,7 @@ pub const CrtFile = struct {
 /// For passing to a C compiler.
 pub const CSourceFile = struct {
     /// Many C compiler flags are determined by settings contained in the owning Module.
-    owner: *Package.Module,
+    owner: *Module,
     src_path: []const u8,
     extra_flags: []const []const u8 = &.{},
     /// Same as extra_flags except they are not added to the Cache hash.
@@ -778,7 +778,7 @@ pub const CSourceFile = struct {
 
 /// For passing to resinator.
 pub const RcSourceFile = struct {
-    owner: *Package.Module,
+    owner: *Module,
     src_path: []const u8,
     extra_flags: []const []const u8 = &.{},
 };
@@ -1216,7 +1216,7 @@ pub const MiscError = struct {
 };
 
 pub const cache_helpers = struct {
-    pub fn addModule(hh: *Cache.HashHelper, mod: *const Package.Module) void {
+    pub fn addModule(hh: *Cache.HashHelper, mod: *const Module) void {
         addResolvedTarget(hh, mod.resolved_target);
         hh.add(mod.optimize_mode);
         hh.add(mod.code_model);
@@ -1239,7 +1239,7 @@ pub const cache_helpers = struct {
 
     pub fn addResolvedTarget(
         hh: *Cache.HashHelper,
-        resolved_target: Package.Module.ResolvedTarget,
+        resolved_target: Module.ResolvedTarget,
     ) void {
         const target = &resolved_target.result;
         hh.add(target.cpu.arch);
@@ -1412,16 +1412,16 @@ pub const CreateOptions = struct {
     /// Options that have been resolved by calling `resolveDefaults`.
     config: Compilation.Config,
 
-    root_mod: *Package.Module,
+    root_mod: *Module,
     /// Normally, `main_mod` and `root_mod` are the same. The exception is `zig
     /// test`, in which `root_mod` is the test runner, and `main_mod` is the
     /// user's source file which has the tests.
-    main_mod: ?*Package.Module = null,
+    main_mod: ?*Module = null,
     /// This is provided so that the API user has a chance to tweak the
     /// per-module settings of the standard library.
     /// When this is null, a default configuration of the std lib is created
     /// based on the settings of root_mod.
-    std_mod: ?*Package.Module = null,
+    std_mod: ?*Module = null,
     root_name: []const u8,
     sysroot: ?[]const u8 = null,
     cache_mode: CacheMode,
@@ -1763,7 +1763,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
         if (compiler_rt_strat == .zcu) {
             // For objects, this mechanism relies on essentially `_ = @import("compiler-rt");`
             // injected into the object.
-            const compiler_rt_mod = Package.Module.create(arena, .{
+            const compiler_rt_mod = Module.create(arena, .{
                 .paths = .{
                     .root = .zig_lib_root,
                     .root_src_path = "compiler_rt.zig",
@@ -1825,7 +1825,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
         };
 
         if (ubsan_rt_strat == .zcu) {
-            const ubsan_rt_mod = Package.Module.create(arena, .{
+            const ubsan_rt_mod = Module.create(arena, .{
                 .paths = .{
                     .root = .zig_lib_root,
                     .root_src_path = "ubsan_rt.zig",
@@ -1866,7 +1866,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
         };
 
         if (zigc_strat == .zcu) {
-            const zigc_mod = Package.Module.create(arena, .{
+            const zigc_mod = Module.create(arena, .{
                 .paths = .{
                     .root = .zig_lib_root,
                     .root_src_path = "c.zig",
@@ -1996,7 +1996,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                 .path = try options.dirs.global_cache.join(arena, &.{zir_sub_dir}),
             };
 
-            const std_mod = options.std_mod orelse Package.Module.create(arena, .{
+            const std_mod = options.std_mod orelse Module.create(arena, .{
                 .paths = .{
                     .root = try .fromRoot(arena, options.dirs, .zig_lib, "std"),
                     .root_src_path = "std.zig",
@@ -4639,7 +4639,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     var buffer: [1024]u8 = undefined;
     var tar_file_writer = tar_file.writer(io, &buffer);
 
-    var seen_table: std.array_hash_map.Auto(*Package.Module, []const u8) = .empty;
+    var seen_table: std.array_hash_map.Auto(*Module, []const u8) = .empty;
     defer seen_table.deinit(comp.gpa);
 
     try seen_table.put(comp.gpa, zcu.main_mod, comp.root_name);
@@ -4666,7 +4666,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
 
 fn docsCopyModule(
     comp: *Compilation,
-    module: *Package.Module,
+    module: *Module,
     name: []const u8,
     tar_file_writer: *Io.File.Writer,
 ) !void {
@@ -4746,7 +4746,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubU
 
     const optimize_mode = std.lang.OptimizeMode.ReleaseSmall;
     const output_mode = std.lang.OutputMode.Exe;
-    const resolved_target: Package.Module.ResolvedTarget = .{
+    const resolved_target: Module.ResolvedTarget = .{
         .result = std.zig.system.resolveTargetQuery(io, .{
             .cpu_arch = .wasm32,
             .os_tag = .freestanding,
@@ -4786,7 +4786,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubU
 
     const dirs = comp.dirs.withoutLocalCache();
 
-    const root_mod = Package.Module.create(arena, .{
+    const root_mod = Module.create(arena, .{
         .paths = .{
             .root = try .fromRoot(arena, dirs, .zig_lib, "docs/wasm"),
             .root_src_path = src_basename,
@@ -4803,7 +4803,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubU
         comp.lockAndSetMiscFailure(.docs_wasm, "sub-compilation of docs_wasm failed: failed to create root module: {t}", .{err});
         return error.AlreadyReported;
     };
-    const walk_mod = Package.Module.create(arena, .{
+    const walk_mod = Module.create(arena, .{
         .paths = .{
             .root = try .fromRoot(arena, dirs, .zig_lib, "docs/wasm"),
             .root_src_path = "Walk.zig",
@@ -4888,7 +4888,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubU
 
 pub fn obtainCObjectCacheManifest(
     comp: *const Compilation,
-    owner_mod: *Package.Module,
+    owner_mod: *Module,
 ) Cache.Manifest {
     var man = comp.cache_parent.obtain();
 
@@ -4936,7 +4936,7 @@ pub fn translateC(
     ext: FileExt,
     source_path: []const u8,
     translated_basename: []const u8,
-    owner_mod: *Package.Module,
+    owner_mod: *Module,
     prog_node: std.Progress.Node,
     environ_map: *const std.process.Environ.Map,
 ) !TranslateCResult {
@@ -6092,7 +6092,7 @@ fn addCommonCCArgs(
     argv: *std.array_list.Managed([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
-    mod: *Package.Module,
+    mod: *Module,
     c_frontend: Config.CFrontend,
 ) !void {
     const target = &mod.resolved_target.result;
@@ -6446,7 +6446,7 @@ pub fn addCCArgs(
     argv: *std.array_list.Managed([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
-    mod: *Package.Module,
+    mod: *Module,
 ) !void {
     const target = &mod.resolved_target.result;
 
@@ -7238,7 +7238,7 @@ fn buildOutputFromZig(
         return error.AlreadyReported;
     };
 
-    const root_mod = Package.Module.create(arena, .{
+    const root_mod = Module.create(arena, .{
         .paths = .{
             .root = .zig_lib_root,
             .root_src_path = src_basename,
@@ -7385,7 +7385,7 @@ pub fn build_crt_file(
         comp.lockAndSetMiscFailure(misc_task_tag, "sub-compilation of {t} failed: failed to resolve compilation config: {t}", .{ misc_task_tag, err });
         return error.AlreadyReported;
     };
-    const root_mod = Package.Module.create(arena, .{
+    const root_mod = Module.create(arena, .{
         .paths = .{
             .root = .zig_lib_root,
             .root_src_path = "",

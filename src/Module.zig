@@ -6,10 +6,10 @@ const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const assert = std.debug.assert;
 
-const target_util = @import("../target.zig");
-const Builtin = @import("../Builtin.zig");
-const Compilation = @import("../Compilation.zig");
-const File = @import("../Zcu.zig").File;
+const target_util = @import("target.zig");
+const Builtin = @import("Builtin.zig");
+const Compilation = @import("Compilation.zig");
+const File = @import("Zcu.zig").File;
 
 /// The root directory of the module. Only files inside this directory can be imported.
 root: Compilation.Path,

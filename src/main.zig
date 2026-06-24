@@ -26,7 +26,6 @@ const allocPrint = std.fmt.allocPrint;
 pub const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
 const link = @import("link.zig");
-const Package = @import("Package.zig");
 const build_options = @import("build_options");
 const wasi_libc = @import("libs/wasi_libc.zig");
 const target_util = @import("target.zig");
@@ -34,9 +33,9 @@ const crash_report = @import("crash_report.zig");
 const Zcu = @import("Zcu.zig");
 const mingw = @import("libs/mingw.zig");
 const dev = @import("dev.zig");
+const Module = @import("Module.zig");
 
 test {
-    _ = Package;
     _ = @import("codegen.zig");
 }
 
@@ -878,13 +877,13 @@ const CliModule = struct {
     root_path: []const u8,
     root_src_path: []const u8,
     cc_argv: []const []const u8,
-    inherited: Package.Module.CreateOptions.Inherited,
+    inherited: Module.CreateOptions.Inherited,
     target_arch_os_abi: ?[]const u8,
     target_mcpu: ?[]const u8,
     dynamic_linker: ?[]const u8,
 
     deps: []const Dep,
-    resolved: ?*Package.Module,
+    resolved: ?*Module,
 
     c_source_files_start: usize,
     c_source_files_end: usize,
@@ -1035,7 +1034,7 @@ fn buildOutputType(
 
     // These get set by CLI flags and then snapshotted when a `-M` flag is
     // encountered.
-    var mod_opts: Package.Module.CreateOptions.Inherited = .{};
+    var mod_opts: Module.CreateOptions.Inherited = .{};
 
     // These get appended to by CLI flags and then slurped when a `-M` flag
     // is encountered.
@@ -3266,7 +3265,7 @@ fn buildOutputType(
     const root_mod = switch (arg_mode) {
         .zig_test, .zig_test_obj => root_mod: {
             const test_mod = if (test_runner_path) |test_runner| test_mod: {
-                const test_mod = try Package.Module.create(arena, .{
+                const test_mod = try Module.create(arena, .{
                     .paths = .{
                         .root = try .fromUnresolved(arena, dirs, &.{fs.path.dirname(test_runner) orelse "."}),
                         .root_src_path = fs.path.basename(test_runner),
@@ -3279,7 +3278,7 @@ fn buildOutputType(
                 });
                 test_mod.deps = try main_mod.deps.clone(arena);
                 break :test_mod test_mod;
-            } else try Package.Module.create(arena, .{
+            } else try Module.create(arena, .{
                 .paths = .{
                     .root = try .fromRoot(arena, dirs, .zig_lib, "compiler"),
                     .root_src_path = "test_runner.zig",
@@ -3973,10 +3972,10 @@ fn createModule(
     io: Io,
     create_module: *CreateModule,
     index: usize,
-    parent: ?*Package.Module,
+    parent: ?*Module,
     color: std.zig.Color,
     environ_map: *process.Environ.Map,
-) Allocator.Error!*Package.Module {
+) Allocator.Error!*Module {
     const cli_mod = &create_module.modules.values()[index];
     if (cli_mod.resolved) |m| return m;
 
@@ -4252,7 +4251,7 @@ fn createModule(
 
     const root: Compilation.Path = try .fromUnresolved(arena, create_module.dirs, &.{cli_mod.root_path});
 
-    const mod = Package.Module.create(arena, .{
+    const mod = Module.create(arena, .{
         .paths = .{
             .root = root,
             .root_src_path = cli_mod.root_src_path,
@@ -4919,7 +4918,7 @@ fn jitCmdInner(
     options: JitCmdOptions,
 ) !void {
     const target_query: std.Target.Query = .{};
-    const resolved_target: Package.Module.ResolvedTarget = .{
+    const resolved_target: Module.ResolvedTarget = .{
         .result = std.zig.resolveTargetQueryOrFatal(io, target_query),
         .is_native_os = true,
         .is_native_abi = true,
@@ -4959,7 +4958,7 @@ fn jitCmdInner(
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
     {
-        const main_mod_paths: Package.Module.CreateOptions.Paths = .{
+        const main_mod_paths: Module.CreateOptions.Paths = .{
             .root = try .fromRoot(arena, dirs, .zig_lib, "compiler"),
             .root_src_path = options.root_src_path,
         };
@@ -4974,7 +4973,7 @@ fn jitCmdInner(
             .is_test = false,
         });
 
-        const root_mod = try Package.Module.create(arena, .{
+        const root_mod = try Module.create(arena, .{
             .paths = main_mod_paths,
             .fully_qualified_name = "root",
             .cc_argv = &.{},
@@ -4988,7 +4987,7 @@ fn jitCmdInner(
         });
 
         if (options.depend_on_aro) {
-            const aro_mod = try Package.Module.create(arena, .{
+            const aro_mod = try Module.create(arena, .{
                 .paths = .{
                     .root = try .fromRoot(arena, dirs, .zig_lib, "compiler/aro"),
                     .root_src_path = "aro.zig",
@@ -6023,7 +6022,7 @@ fn handleModArg(
     mod_name: []const u8,
     opt_root_src_orig: ?[]const u8,
     create_module: *CreateModule,
-    mod_opts: *Package.Module.CreateOptions.Inherited,
+    mod_opts: *Module.CreateOptions.Inherited,
     cc_argv: *std.ArrayList([]const u8),
     target_arch_os_abi: *?[]const u8,
     target_mcpu: *?[]const u8,
