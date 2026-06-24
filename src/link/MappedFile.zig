@@ -1314,11 +1314,12 @@ pub fn unmap(mf: *MappedFile) void {
 }
 
 pub fn flush(mf: *MappedFile) (Io.Cancelable || error{MappedFileIo})!void {
-    mf.memory_map.write(mf.io) catch |err| switch (err) {
+    mf.flushInner() catch |err| switch (err) {
         error.Canceled => |e| return e,
 
         error.WouldBlock, // file was not opened as non-blocking
         error.NotOpenForWriting, // we definitely opened the file for writing
+        error.ReadOnlyFileSystem,
         => {
             mf.io_err = error.Unexpected;
             return error.MappedFileIo;
@@ -1329,6 +1330,11 @@ pub fn flush(mf: *MappedFile) (Io.Cancelable || error{MappedFileIo})!void {
             return error.MappedFileIo;
         },
     };
+}
+
+fn flushInner(mf: *MappedFile) (Io.File.WritePositionalError || Io.File.SetTimestampsError)!void {
+    try mf.memory_map.write(mf.io);
+    if (is_windows) try mf.memory_map.file.setTimestampsNow(mf.io);
 }
 
 fn verify(mf: *MappedFile) void {
