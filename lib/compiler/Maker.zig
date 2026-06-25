@@ -724,7 +724,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 .unit_test_timeout_ns = test_timeout_ns,
 
                 .watch = watch,
-                .web_server = undefined, // set after `prepare`
+                .web_server = web_server,
                 .memory_blocked_steps = .empty,
                 .step_stack = .empty,
                 .pkg_config = .{ .debug = debug_pkg_config },
@@ -745,6 +745,8 @@ pub fn main(init: process.Init.Minimal) !void {
 
             maker.prepare(step_names.items) catch |err| switch (err) {
                 error.DependencyLoopDetected, error.InsufficientMemory => {
+                    // TODO handle DependencyLoopDetected as error.FailedButCacheIntact
+                    // and handle InsufficientMemory as error.AlreadyReported
                     _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
                     process.exit(1);
                 },
@@ -838,7 +840,10 @@ pub fn main(init: process.Init.Minimal) !void {
                     break :w false;
                 },
             };
-            if (!server_mode) process.exit(1);
+            if (!server_mode) {
+                _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
+                process.exit(1);
+            }
             if (can_fs_watch) {
                 @panic("TODO set up fs watching");
             } else {
