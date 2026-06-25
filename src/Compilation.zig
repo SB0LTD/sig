@@ -1729,7 +1729,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
         const libc_dirs = std.zig.LibCDirs.detect(
             arena,
             io,
-            options.dirs.zig_lib.path.?,
+            .{ .root_dir = options.dirs.zig_lib },
             target,
             options.root_mod.resolved_target.is_native_abi,
             link_libc,

@@ -352,7 +352,7 @@ fn mainArgs(
             dev.check(.ar_command);
             return process.exit(try llvmArMain(arena, args));
         },
-        .build, .fetch, .init => {
+        .build, .fetch, .init, .libc => {
             return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
                 .cmd_name = "maker",
                 .root_src_path = "Maker.zig",
@@ -407,13 +407,6 @@ fn mainArgs(
             return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
                 .cmd_name = "objdump",
                 .root_src_path = "objdump.zig",
-            });
-        },
-        .libc => {
-            return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
-                .cmd_name = "libc",
-                .root_src_path = "libc.zig",
-                .prepend_zig_lib_dir_path = true,
             });
         },
         .std => {
