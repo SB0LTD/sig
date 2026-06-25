@@ -908,7 +908,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
         try group.await(io);
 
         for (options.forks) |*fork| {
-            if (fork.failed) process.exit(1);
+            if (fork.failed) return error.AlreadyReported;
             try fork_set.put(arena, .{
                 .path = fork.path,
                 .manifest_ast = fork.manifest_ast,
@@ -1086,7 +1086,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                             });
                         }
                     }
-                    if (any_unused) process.exit(1);
+                    if (any_unused) return error.FailedButCacheIntact;
                 }
 
                 try job_queue.consolidateErrors();
@@ -1293,7 +1293,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                 }
                 try unlazy_set.put(arena, .fromSlice(hash), {});
             }
-            if (any_errors) process.exit(1);
+            if (any_errors) return error.FailedButCacheIntact;
             if (options.system_pkg_dir_path) |p| {
                 // In this mode, the system needs to provide these packages; they
                 // cannot be fetched by Zig.
@@ -1303,7 +1303,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                 }
                 log.info("remote package fetching disabled due to --system mode", .{});
                 log.info("dependencies might be avoidable depending on build configuration", .{});
-                process.exit(1);
+                return error.FailedButCacheIntact;
             }
             continue :cp;
         }
