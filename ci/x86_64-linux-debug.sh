@@ -44,6 +44,7 @@ ninja install
 
 # Must be done after zig cc is finished.
 export ZIG_LIB_DIR="$PWD/../lib"
+export ZIG_DEBUG_CMD=1
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
 stage3-debug/bin/zig build \
@@ -51,7 +52,6 @@ stage3-debug/bin/zig build \
   -Dno-lib
 
 stage3-debug/bin/zig build test docs \
-  --maker-opt=Debug \
   --maxrss ${ZSF_MAX_RSS:-0} \
   -Dlldb=$HOME/deps/lldb-zig/Debug-7c1090fd46/bin/lldb \
   -fqemu \
