@@ -625,7 +625,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     const compile_prog_node = ws.root_prog_node.start("Compile WebAssembly Component", 0);
     defer compile_prog_node.end();
 
-    return std.zig.buildExeSubprocess(gpa, io, .{
+    const result = try std.zig.buildExeSubprocess(gpa, io, .{
         .argv = argv.items,
         .cache_root = graph.global_cache_root,
         .root_name = root_name,
@@ -633,6 +633,8 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         .cpu_features = cpu_features,
         .progress_node = compile_prog_node,
     });
+    if (!result.cache_hit) log.info("source changes detected; rebuilt wasm component", .{});
+    return result.path;
 }
 
 pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {

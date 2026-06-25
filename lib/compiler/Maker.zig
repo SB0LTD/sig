@@ -965,7 +965,7 @@ pub fn main(init: process.Init.Minimal) !void {
                     .cache_manifest = &config_man,
                     .arch_os_abi = target_arch_os_abi,
                     .progress_node = compile_prog_node,
-                })) |p| p else |err| switch (err) {
+                })) |r| r.path else |err| switch (err) {
                     error.AlreadyReported => process.exit(1),
                     // If the file system inputs are populated, we can
                     // still watch for changes and try again.

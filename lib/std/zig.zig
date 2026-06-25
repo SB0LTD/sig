@@ -1644,10 +1644,20 @@ pub const BuildExeSubprocessError = error{
     FailedButCacheIntact,
 } || Io.Cancelable || Allocator.Error;
 
+pub const BuildExeSubprocessResult = struct {
+    received_fs_inputs: bool,
+    cache_hit: bool,
+    path: Cache.Path,
+};
+
 /// Assumes `argv` has `--listen=-` in it and the child process is `zig build-exe`.
 ///
 /// Result path is allocated via gpa.
-pub fn buildExeSubprocess(gpa: Allocator, io: Io, options: BuildExeSubprocessOptions) BuildExeSubprocessError!Cache.Path {
+pub fn buildExeSubprocess(
+    gpa: Allocator,
+    io: Io,
+    options: BuildExeSubprocessOptions,
+) BuildExeSubprocessError!BuildExeSubprocessResult {
     const cmd: SubprocessCommand = .{ .argv = options.argv };
 
     var child = std.process.spawn(io, .{
@@ -1699,6 +1709,7 @@ pub fn buildExeSubprocess(gpa: Allocator, io: Io, options: BuildExeSubprocessOpt
     defer body_buffer.deinit(gpa);
 
     var received_fs_inputs = false;
+    var cache_hit = false;
 
     while (true) {
         const header = stdout.takeStruct(Header, .little) catch |err| switch (err) {
@@ -1739,9 +1750,7 @@ pub fn buildExeSubprocess(gpa: Allocator, io: Io, options: BuildExeSubprocessOpt
             .emit_digest => {
                 const EmitDigest = Server.Message.EmitDigest;
                 const ebp_hdr: *align(1) const EmitDigest = @ptrCast(body);
-                if (!ebp_hdr.flags.cache_hit) {
-                    log.info("source changes detected; rebuilt {s}", .{options.root_name});
-                }
+                cache_hit = ebp_hdr.flags.cache_hit;
                 const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
                 if (result) |r| gpa.free(r.sub_path);
                 result = .{
@@ -1831,7 +1840,11 @@ pub fn buildExeSubprocess(gpa: Allocator, io: Io, options: BuildExeSubprocessOpt
         .output_mode = .Exe,
     });
     defer gpa.free(bin_name);
-    return base_path.join(gpa, bin_name);
+    return .{
+        .received_fs_inputs = received_fs_inputs,
+        .cache_hit = cache_hit,
+        .path = try base_path.join(gpa, bin_name),
+    };
 }
 
 fn readStreamAlloc(gpa: Allocator, io: Io, file: Io.File, limit: Io.Limit) ![]u8 {
