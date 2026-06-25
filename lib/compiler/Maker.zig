@@ -1791,7 +1791,7 @@ fn cmdInit(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
 
     switch (template) {
         .example => {
-            var templates = findTemplates(gpa, arena, io);
+            var templates = Templates.find(gpa, io, graph.zig_lib_directory);
             defer templates.deinit(io);
 
             const s = Dir.path.sep_str;
@@ -3640,6 +3640,20 @@ const Templates = struct {
             .flags = .{ .exclusive = true },
         });
     }
+
+    fn find(gpa: Allocator, io: Io, zig_lib_directory: Cache.Directory) Templates {
+        const template_path: Path = .{
+            .root_dir = zig_lib_directory,
+            .sub_path = "init",
+        };
+        const template_dir = template_path.root_dir.handle.openDir(io, template_path.sub_path, .{}) catch |err|
+            fatal("unable to open zig project template directory {f}: {t}", .{ template_path, err });
+        return .{
+            .zig_lib_directory = zig_lib_directory,
+            .dir = template_dir,
+            .buffer = std.array_list.Managed(u8).init(gpa),
+        };
+    }
 };
 fn writeSimpleTemplateFile(io: Io, file_name: []const u8, comptime format: []const u8, args: anytype) !void {
     const f = try Io.Dir.cwd().createFile(io, file_name, .{ .exclusive = true });
@@ -3648,31 +3662,4 @@ fn writeSimpleTemplateFile(io: Io, file_name: []const u8, comptime format: []con
     var fw = f.writer(io, &buf);
     try fw.interface.print(format, args);
     try fw.interface.flush();
-}
-
-fn findTemplates(gpa: Allocator, arena: Allocator, io: Io) Templates {
-    const cwd_path = std.zig.getResolvedCwd(io, arena) catch |err| {
-        fatal("unable to get cwd: {t}", .{err});
-    };
-    const self_exe_path = process.executablePathAlloc(io, arena) catch |err| {
-        fatal("unable to find self exe path: {t}", .{err});
-    };
-    var zig_lib_directory = std.zig.findZigLibDirFromSelfExe(arena, io, cwd_path, self_exe_path) catch |err| {
-        fatal("unable to find zig installation directory {q}: {t}", .{ self_exe_path, err });
-    };
-
-    const s = Dir.path.sep_str;
-    const template_sub_path = "init";
-    const template_dir = zig_lib_directory.handle.openDir(io, template_sub_path, .{}) catch |err| {
-        const path = zig_lib_directory.path orelse ".";
-        fatal("unable to open zig project template directory '{s}{s}{s}': {t}", .{
-            path, s, template_sub_path, err,
-        });
-    };
-
-    return .{
-        .zig_lib_directory = zig_lib_directory,
-        .dir = template_dir,
-        .buffer = std.array_list.Managed(u8).init(gpa),
-    };
 }
