@@ -1437,7 +1437,6 @@ test "coerce enum literal to union in result loc" {
 }
 
 test "defined-layout union field pointer has correct alignment" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -1472,7 +1471,6 @@ test "defined-layout union field pointer has correct alignment" {
 }
 
 test "undefined-layout union field pointer has correct alignment" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -1758,8 +1756,6 @@ test "reinterpret packed union" {
     };
 
     try comptime S.doTheTest();
-
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     try S.doTheTest();
 }
 
@@ -1800,8 +1796,6 @@ test "reinterpret packed union inside packed struct" {
     };
 
     try comptime S.doTheTest();
-
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     try S.doTheTest();
 }
 

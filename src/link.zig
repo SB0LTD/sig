@@ -1238,7 +1238,7 @@ pub const File = struct {
         }
 
         switch (base.tag) {
-            inline .elf2, .coff2, .wasm => |tag| {
+            inline .elf2, .coff2, .wasm, .c => |tag| {
                 dev.check(tag.devFeature());
                 try @as(*tag.Type(), @fieldParentPtr("base", base)).prelink(base.comp.link_prog_node);
             },

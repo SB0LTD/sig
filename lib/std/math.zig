@@ -1385,7 +1385,8 @@ pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
 }
 
 test lerp {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/17884
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isX86()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and !comptime builtin.cpu.has(.x86, .fma)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/17884
 
     try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));

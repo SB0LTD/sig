@@ -134,7 +134,6 @@ test "@intFromFloat > 128 bits" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     try testIntFromFloat(f16, 1024, u140, 1024);
     try testIntFromFloat(f16, -1024, i140, -1024);
@@ -160,7 +159,6 @@ test "@floatFromInt > 128 bits" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     try testFloatFromInt(u140, 1024, f16, 1024);
     try testFloatFromInt(i140, -1024, f16, -1024);
@@ -182,7 +180,6 @@ test "@floatFromInt(f80)" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -281,6 +278,7 @@ test "type coercion from int to float" {
 test "@intFromFloat" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     try testIntFromFloats();
     try comptime testIntFromFloats();
 }
@@ -1473,11 +1471,6 @@ fn foobar(func: PFN_void) !void {
 test "cast function with an opaque parameter" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_c) {
-        // https://github.com/ziglang/zig/issues/16845
-        return error.SkipZigTest;
-    }
-
     const Container = struct {
         const Ctx = opaque {};
         ctx: *Ctx,
@@ -1724,7 +1717,6 @@ test "cast f16 to wider types" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag == .macos) return error.SkipZigTest;
 
@@ -1831,7 +1823,6 @@ test "pointer to empty struct literal to mutable slice" {
 
 test "coerce between pointers of compatible differently-named floats" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows and !builtin.link_libc) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;

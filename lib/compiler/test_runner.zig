@@ -377,6 +377,7 @@ pub fn mainSimple() anyerror!void {
         else => false,
     };
 
+    testing.allocator_instance = .init(std.heap.page_allocator, .{});
     testing.io_instance = .init(testing.allocator, .{});
 
     var passed: u64 = 0;

@@ -21,16 +21,21 @@ pub fn defineAligned(
     if (complete and alignment.compareStrict(.lt, ty.abiAlignment(zcu))) {
         try w.print("zig_under_align({d}) ", .{alignment.toByteUnits().?});
     }
-    try w.print("{f}{f}{f}; /* align({d}) {f} */\n", .{
+    try w.print("{f}{f}{f};", .{
         cty.fmtDeclaratorPrefix(zcu),
         name_cty.fmtTypeName(zcu),
         cty.fmtDeclaratorSuffix(zcu),
+    });
+    if (!zcu.comp.config.root_strip) try w.print(" /* align({d}) {f} */", .{
         alignment.toByteUnits().?,
         ty.fmt(pt),
     });
+    try w.writeByte('\n');
 }
 /// Renders the definition of a big-int `struct`.
 pub fn defineBigInt(big: CType.BigInt, w: *Writer, zcu: *const Zcu) Writer.Error!void {
+    const target = zcu.getTarget();
+    const bits = big.limb_size.bits() *| big.limbs_len;
     const name_cty: CType = .{ .bigint = .{
         .limb_size = big.limb_size,
         .limbs_len = big.limbs_len,
@@ -41,12 +46,20 @@ pub fn defineBigInt(big: CType.BigInt, w: *Writer, zcu: *const Zcu) Writer.Error
         .elem_ty = &limb_cty,
         .nonstring = limb_cty.isStringElem(),
     } };
-    try w.print("{f} {{ {f}limbs{f}; }}; /* {d} bits */\n", .{
+    try w.print("{f} {{ {f}limbs{f}; }};", .{
         name_cty.fmtTypeName(zcu),
         array_cty.fmtDeclaratorPrefix(zcu),
         array_cty.fmtDeclaratorSuffix(zcu),
-        big.limb_size.bits() * @as(u17, big.limbs_len),
     });
+    if (!zcu.comp.config.root_strip) try w.print(" /* u{d}, i{d} */", .{ bits, bits });
+    try w.writeByte('\n');
+    try writeStaticAssertCTypeLayout(
+        name_cty,
+        std.zig.target.intByteSize(target, bits),
+        .fromByteUnits(std.zig.target.intAlignment(target, bits)),
+        w,
+        zcu,
+    );
 }
 
 /// Renders a forward declaration of the `struct` which represents an error union whose payload type
@@ -81,27 +94,28 @@ pub fn errunionDefineComplete(
     if (payload_ty.hasRuntimeBits(zcu)) {
         const payload_cty: CType = try .lower(payload_ty, deps, arena, zcu);
         try w.print(
-            \\{f} {{ /* anyerror!{f} */
+            \\{f} {{
             \\ {f}payload{f};
             \\ {f}error{f};
             \\}};
-            \\
         , .{
             name_cty.fmtTypeName(zcu),
-            payload_ty.fmt(pt),
             payload_cty.fmtDeclaratorPrefix(zcu),
             payload_cty.fmtDeclaratorSuffix(zcu),
             error_cty.fmtDeclaratorPrefix(zcu),
             error_cty.fmtDeclaratorSuffix(zcu),
         });
     } else {
-        try w.print("{f} {{ {f}error{f}; }}; /* anyerror!{f} */\n", .{
+        try w.print("{f} {{ {f}error{f}; }};", .{
             name_cty.fmtTypeName(zcu),
             error_cty.fmtDeclaratorPrefix(zcu),
             error_cty.fmtDeclaratorSuffix(zcu),
-            payload_ty.fmt(pt),
         });
     }
+    if (!zcu.comp.config.root_strip) try w.print(" /* anyerror!{f} */", .{
+        payload_ty.fmt(pt),
+    });
+    try w.writeByte('\n');
 }
 
 /// If the Zig type `ty` lowers to a `struct` or `union` type, renders a forward declaration of that
@@ -141,10 +155,13 @@ pub fn defineIncomplete(ty: Type, w: *Writer, pt: Zcu.PerThread) Writer.Error!vo
         },
         else => return,
     };
-    try w.print("typedef void {f}; /* {f} */\n", .{
+    try w.print("typedef void {f};", .{
         name_cty.fmtTypeName(zcu),
+    });
+    if (!zcu.comp.config.root_strip) try w.print(" /* {f} */", .{
         ty.fmt(pt),
     });
+    try w.writeByte('\n');
 }
 
 /// If the Zig type `ty` lowers to a `struct` or `union` type, or to a `typedef`, renders the
@@ -163,13 +180,13 @@ pub fn defineComplete(
 
     ty.assertHasLayout(zcu);
 
-    switch (ty.zigTypeTag(zcu)) {
+    const check_cty = check_cty: switch (ty.zigTypeTag(zcu)) {
         .@"fn" => if (!ty.fnHasRuntimeBits(zcu)) {
             const name_cty: CType = .{ .@"fn" = ty };
-            try w.print("typedef void {f}; /* {f} */\n", .{
+            try w.print("typedef void {f};", .{
                 name_cty.fmtTypeName(zcu),
-                ty.fmt(pt),
             });
+            break :check_cty null;
         } else {
             const ip = &zcu.intern_pool;
             const func_type = ip.indexToKey(ty.toIntern()).func_type;
@@ -205,82 +222,82 @@ pub fn defineComplete(
             } else if (!any_params) {
                 try w.writeAll("void");
             }
-            try w.print("){f}; /* {f} */\n", .{
+            try w.print("){f};", .{
                 ret_cty.fmtDeclaratorSuffixIgnoreNonstring(zcu),
-                ty.fmt(pt),
             });
+            break :check_cty null;
         },
         .@"enum" => {
             const name_cty: CType = .{ .@"enum" = ty };
             const cty: CType = try .lower(ty.backingIntType(zcu), deps, arena, zcu);
-            try w.print("typedef {f}{f}{f}; /* {f} */\n", .{
+            try w.print("typedef {f}{f}{f};", .{
                 cty.fmtDeclaratorPrefix(zcu),
                 name_cty.fmtTypeName(zcu),
                 cty.fmtDeclaratorSuffix(zcu),
-                ty.fmt(pt),
             });
+            break :check_cty null;
         },
-        .@"struct" => if (ty.isTuple(zcu)) {
-            try defineTuple(ty, deps, arena, w, pt);
-        } else switch (ty.containerLayout(zcu)) {
-            .auto, .@"extern" => try defineStruct(ty, deps, arena, w, pt),
+        .@"struct" => if (ty.isTuple(zcu))
+            if (ty.hasRuntimeBits(zcu)) try defineTuple(ty, deps, arena, w, pt) else return
+        else switch (ty.containerLayout(zcu)) {
+            .auto, .@"extern" => if (ty.hasRuntimeBits(zcu)) try defineStruct(ty, deps, arena, w, pt) else return,
             .@"packed" => try defineBitpack(ty, deps, arena, w, pt),
         },
         .@"union" => switch (ty.containerLayout(zcu)) {
-            .auto => try defineUnionAuto(ty, deps, arena, w, pt),
-            .@"extern" => try defineUnionExtern(ty, deps, arena, w, pt),
+            .auto => if (ty.hasRuntimeBits(zcu)) try defineUnionAuto(ty, deps, arena, w, pt) else return,
+            .@"extern" => if (ty.hasRuntimeBits(zcu)) try defineUnionExtern(ty, deps, arena, w, pt) else return,
             .@"packed" => try defineBitpack(ty, deps, arena, w, pt),
         },
         .pointer => if (ty.isSlice(zcu)) {
             const name_cty: CType = .{ .slice = ty };
             const ptr_cty: CType = try .lower(ty.slicePtrFieldType(zcu), deps, arena, zcu);
             try w.print(
-                \\{f} {{ /* {f} */
+                \\{f} {{
                 \\ {f}ptr{f};
                 \\ size_t len;
                 \\}};
-                \\
             , .{
                 name_cty.fmtTypeName(zcu),
-                ty.fmt(pt),
                 ptr_cty.fmtDeclaratorPrefix(zcu),
                 ptr_cty.fmtDeclaratorSuffix(zcu),
             });
-            // Don't bother with `writeStaticAssertLayout`---there's not really any way we could mess
-            // slices up, and they're all obviously the same layout.
-        },
+            break :check_cty switch (ty.toIntern()) {
+                .slice_const_u8_sentinel_0_type => name_cty,
+                else => null,
+            };
+        } else return,
         .optional => switch (CType.classifyOptional(ty, zcu)) {
             .error_set,
             .ptr_like,
             .slice_like,
             .npv_payload,
-            => {},
+            => return,
 
             .opv_payload => {
                 const name_cty: CType = .{ .opt = ty };
-                try w.print("{f} {{ bool is_null; }}; /* {f} */\n", .{
+                try w.print("{f} {{ bool is_null; }};", .{
                     name_cty.fmtTypeName(zcu),
-                    ty.fmt(pt),
                 });
-                try writeStaticAssertLayout(ty, name_cty, w, zcu);
+                break :check_cty switch (ty.toIntern()) {
+                    .optional_noreturn_type => name_cty,
+                    else => null,
+                };
             },
 
             .@"struct" => {
                 const name_cty: CType = .{ .opt = ty };
                 const payload_cty: CType = try .lower(ty.optionalChild(zcu), deps, arena, zcu);
                 try w.print(
-                    \\{f} {{ /* {f} */
+                    \\{f} {{
                     \\ {f}payload{f};
                     \\ bool is_null;
                     \\}};
-                    \\
                 , .{
                     name_cty.fmtTypeName(zcu),
-                    ty.fmt(pt),
                     payload_cty.fmtDeclaratorPrefix(zcu),
                     payload_cty.fmtDeclaratorSuffix(zcu),
                 });
-                try writeStaticAssertLayout(ty, name_cty, w, zcu);
+                break :check_cty name_cty;
             },
         },
         .array => if (ty.hasRuntimeBits(zcu)) {
@@ -295,14 +312,13 @@ pub fn defineComplete(
                     break :nonstring Value.compareHetero(s, .neq, .zero_comptime_int, zcu);
                 },
             } };
-            try w.print("{f} {{ {f}array{f}; }}; /* {f} */\n", .{
+            try w.print("{f} {{ {f}array{f}; }};", .{
                 name_cty.fmtTypeName(zcu),
                 array_cty.fmtDeclaratorPrefix(zcu),
                 array_cty.fmtDeclaratorSuffix(zcu),
-                ty.fmt(pt),
             });
-            try writeStaticAssertLayout(ty, name_cty, w, zcu);
-        },
+            break :check_cty name_cty;
+        } else return,
         .vector => if (ty.hasRuntimeBits(zcu)) {
             const name_cty: CType = .{ .vec = ty };
             const elem_cty: CType = try .lower(ty.childType(zcu), deps, arena, zcu);
@@ -311,16 +327,20 @@ pub fn defineComplete(
                 .elem_ty = &elem_cty,
                 .nonstring = elem_cty.isStringElem(),
             } };
-            try w.print("{f} {{ {f}array{f}; }}; /* {f} */\n", .{
+            try w.print("{f} {{ {f}array{f}; }};", .{
                 name_cty.fmtTypeName(zcu),
                 array_cty.fmtDeclaratorPrefix(zcu),
                 array_cty.fmtDeclaratorSuffix(zcu),
-                ty.fmt(pt),
             });
-            try writeStaticAssertLayout(ty, name_cty, w, zcu);
-        },
-        else => {},
-    }
+            break :check_cty name_cty;
+        } else return,
+        else => return,
+    };
+    if (!zcu.comp.config.root_strip) try w.print(" /* {f} */", .{
+        ty.fmt(pt),
+    });
+    try w.writeByte('\n');
+    if (check_cty) |cty| try writeStaticAssertTypeLayout(ty, cty, w, zcu);
 }
 fn defineBitpack(
     ty: Type,
@@ -328,16 +348,16 @@ fn defineBitpack(
     arena: Allocator,
     w: *Writer,
     pt: Zcu.PerThread,
-) (Allocator.Error || Writer.Error)!void {
+) (Allocator.Error || Writer.Error)!?CType {
     const zcu = pt.zcu;
     const name_cty: CType = .{ .bitpack = ty };
     const cty: CType = try .lower(ty.backingIntType(zcu), deps, arena, zcu);
-    try w.print("typedef {f}{f}{f}; /* {f} */\n", .{
+    try w.print("typedef {f}{f}{f};", .{
         cty.fmtDeclaratorPrefix(zcu),
         name_cty.fmtTypeName(zcu),
         cty.fmtDeclaratorSuffix(zcu),
-        ty.fmt(pt),
     });
+    return null;
 }
 fn defineTuple(
     ty: Type,
@@ -345,9 +365,8 @@ fn defineTuple(
     arena: Allocator,
     w: *Writer,
     pt: Zcu.PerThread,
-) (Allocator.Error || Writer.Error)!void {
+) (Allocator.Error || Writer.Error)!CType {
     const zcu = pt.zcu;
-    if (!ty.hasRuntimeBits(zcu)) return;
     const ip = &zcu.intern_pool;
     const tuple = ip.indexToKey(ty.toIntern()).tuple_type;
 
@@ -367,9 +386,8 @@ fn defineTuple(
     } else true;
 
     const name_cty: CType = .{ .@"struct" = ty };
-    try w.print("{f} {{ /* {f} */\n", .{
+    try w.print("{f} {{\n", .{
         name_cty.fmtTypeName(zcu),
-        ty.fmt(pt),
     });
     var zig_offset: u64 = 0;
     var c_offset: u64 = 0;
@@ -403,9 +421,8 @@ fn defineTuple(
         zig_offset += field_size;
         c_offset += field_size;
     }
-    try w.writeAll("};\n");
-
-    try writeStaticAssertLayout(ty, name_cty, w, zcu);
+    try w.writeAll("};");
+    return name_cty;
 }
 fn defineStruct(
     ty: Type,
@@ -413,9 +430,8 @@ fn defineStruct(
     arena: Allocator,
     w: *Writer,
     pt: Zcu.PerThread,
-) (Allocator.Error || Writer.Error)!void {
+) (Allocator.Error || Writer.Error)!CType {
     const zcu = pt.zcu;
-    if (!ty.hasRuntimeBits(zcu)) return;
     const ip = &zcu.intern_pool;
 
     const struct_type = ip.loadStructType(ty.toIntern());
@@ -457,9 +473,8 @@ fn defineStruct(
 
     if (pack) try w.writeAll("zig_packed(");
     const name_cty: CType = .{ .@"struct" = ty };
-    try w.print("{f} {{ /* {f} */\n", .{
+    try w.print("{f} {{\n", .{
         name_cty.fmtTypeName(zcu),
-        ty.fmt(pt),
     });
     var it = struct_type.iterateRuntimeOrder(ip);
     var offset: u64 = 0;
@@ -497,9 +512,8 @@ fn defineStruct(
     assert(struct_type.alignment.forward(offset) == struct_type.size);
     try w.writeByte('}');
     if (pack) try w.writeByte(')');
-    try w.writeAll(";\n");
-
-    try writeStaticAssertLayout(ty, name_cty, w, zcu);
+    try w.writeByte(';');
+    return name_cty;
 }
 fn defineUnionAuto(
     ty: Type,
@@ -507,9 +521,8 @@ fn defineUnionAuto(
     arena: Allocator,
     w: *Writer,
     pt: Zcu.PerThread,
-) (Allocator.Error || Writer.Error)!void {
+) (Allocator.Error || Writer.Error)!CType {
     const zcu = pt.zcu;
-    if (!ty.hasRuntimeBits(zcu)) return;
     const ip = &zcu.intern_pool;
 
     const union_type = ip.loadUnionType(ty.toIntern());
@@ -553,9 +566,8 @@ fn defineUnionAuto(
     const payload_has_bits = !union_type.has_runtime_tag or union_type.size > enum_tag_ty.abiSize(zcu);
 
     const name_cty: CType = .{ .union_auto = ty };
-    try w.print("{f} {{ /* {f} */\n", .{
+    try w.print("{f} {{\n", .{
         name_cty.fmtTypeName(zcu),
-        ty.fmt(pt),
     });
     if (payload_has_bits) {
         try w.writeByte(' ');
@@ -587,9 +599,8 @@ fn defineUnionAuto(
             tag_cty.fmtDeclaratorSuffix(zcu),
         });
     }
-    try w.writeAll("};\n");
-
-    try writeStaticAssertLayout(ty, name_cty, w, zcu);
+    try w.writeAll("};");
+    return name_cty;
 }
 fn defineUnionExtern(
     ty: Type,
@@ -597,9 +608,8 @@ fn defineUnionExtern(
     arena: Allocator,
     w: *Writer,
     pt: Zcu.PerThread,
-) (Allocator.Error || Writer.Error)!void {
+) (Allocator.Error || Writer.Error)!CType {
     const zcu = pt.zcu;
-    if (!ty.hasRuntimeBits(zcu)) return;
     const ip = &zcu.intern_pool;
 
     const union_type = ip.loadUnionType(ty.toIntern());
@@ -636,9 +646,8 @@ fn defineUnionExtern(
     if (pack) try w.writeAll("zig_packed(");
 
     const name_cty: CType = .{ .union_extern = ty };
-    try w.print("{f} {{ /* {f} */\n", .{
+    try w.print("{f} {{\n", .{
         name_cty.fmtTypeName(zcu),
-        ty.fmt(pt),
     });
 
     for (0..enum_tag_ty.enumFieldCount(zcu)) |field_index| {
@@ -659,9 +668,8 @@ fn defineUnionExtern(
     }
     try w.writeByte('}');
     if (pack) try w.writeByte(')');
-    try w.writeAll(";\n");
-
-    try writeStaticAssertLayout(ty, name_cty, w, zcu);
+    try w.writeByte(';');
+    return name_cty;
 }
 
 /// Writes an annotation which, placed before a struct/union field declaration with field type `ty`,
@@ -680,19 +688,29 @@ fn writeFieldAlign(
 }
 
 /// Emits static assertions that the size and alignment of `cty` match those of the Zig type `ty`.
-fn writeStaticAssertLayout(
+pub fn writeStaticAssertTypeLayout(
     ty: Type,
     cty: CType,
     w: *Writer,
     zcu: *const Zcu,
 ) Writer.Error!void {
+    try writeStaticAssertCTypeLayout(cty, ty.abiSize(zcu), ty.abiAlignment(zcu), w, zcu);
+}
+
+/// Emits static assertions that the size and alignment of `cty` match the provided values.
+pub fn writeStaticAssertCTypeLayout(
+    cty: CType,
+    expected_size: u64,
+    expected_alignment: Alignment,
+    w: *Writer,
+    zcu: *const Zcu,
+) Writer.Error!void {
     try w.print(
-        \\zig_static_assert(sizeof ({f}) == {d}, "incorrect size");
-        \\zig_static_assert(_Alignof ({f}) == {d}, "incorrect alignment");
+        \\zig_static_assert(sizeof({f}) == {d} && zig_alignOf({f}) == {d}, "abi mismatch");
         \\
     , .{
-        cty.fmtTypeName(zcu), ty.abiSize(zcu),
-        cty.fmtTypeName(zcu), ty.abiAlignment(zcu).toByteUnits().?,
+        cty.fmtTypeName(zcu), expected_size,
+        cty.fmtTypeName(zcu), expected_alignment.toByteUnits().?,
     });
 }
 
