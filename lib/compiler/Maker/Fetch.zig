@@ -551,9 +551,6 @@ pub fn run(f: *Fetch) RunError!void {
             // will already have been resolved to no longer have extra ".." or
             // "." components.
             assert(job_queue.local_storage != null);
-            log.debug("checking pkg root \"{s}\" against parent package root \"{s}\"", .{
-                pkg_root.sub_path, f.remote_package_root.sub_path,
-            });
             assert(pkg_root.root_dir.eql(f.remote_package_root.root_dir));
             if (!std.mem.startsWith(u8, pkg_root.sub_path, f.remote_package_root.sub_path)) return f.fail(
                 f.location_tok,
