@@ -52,7 +52,7 @@ max_rss_mutex: Io.Mutex,
 skip_oom_steps: bool,
 unit_test_timeout_ns: ?u64,
 watch: bool,
-web_server: if (!builtin.single_threaded) ?WebServer else ?noreturn,
+web_server: ?*AvoidableWebServer,
 /// Allocated into `gpa`.
 memory_blocked_steps: std.ArrayList(Configuration.Step.Index),
 /// Allocated into `gpa`.
@@ -67,6 +67,8 @@ var safe_allocator_instance: std.heap.SafeAllocator = .init(std.heap.page_alloca
 var stdio_buffer_allocation: [256]u8 = undefined;
 var stdout_writer_allocation: Io.File.Writer = undefined;
 var debug_maker_leaks: bool = false;
+
+const AvoidableWebServer = if (builtin.single_threaded) void else WebServer;
 
 const is_debug_mode = builtin.mode == .Debug;
 const use_safe_allocator = switch (builtin.mode) {
@@ -106,6 +108,7 @@ const ErrorStyle = enum {
 };
 const MultilineErrors = enum { indent, newline, none };
 const Summary = enum { all, new, failures, line, none };
+const PrintConfiguration = enum { none, zon, path };
 
 /// Used to build the -M flags to pass to build-exe.
 pub const CliModule = struct {
@@ -195,7 +198,7 @@ pub fn main(init: process.Init.Minimal) !void {
     var step_names: std.ArrayList([]const u8) = .empty;
     var help_menu = false;
     var steps_menu = false;
-    var print_configuration: enum { none, zon, path } = .none;
+    var print_configuration: PrintConfiguration = .none;
     var override_install_prefix: ?[]const u8 = null;
     var override_lib_dir: ?[]const u8 = null;
     var override_bin_dir: ?[]const u8 = null;
@@ -546,6 +549,9 @@ pub fn main(init: process.Init.Minimal) !void {
         }
     }
 
+    const early_exit_mode = fetch_only or help_menu or steps_menu or print_configuration != .none;
+    const server_mode = !early_exit_mode and (watch or webui_listen != null or fuzz != null);
+
     const cwd_path = std.zig.getResolvedCwd(io, arena) catch |err|
         fatal("resolving current directory path failed: {t}", .{err});
 
@@ -593,584 +599,20 @@ pub fn main(init: process.Init.Minimal) !void {
         .off => .no_color,
     };
 
+    const pkg_root: Path = if (override_pkg_dir) |p|
+        .initCwd(p)
+    else if (system_pkg_dir_path) |p|
+        .initCwd(p)
+    else
+        .{
+            .root_dir = build_root.directory,
+            .sub_path = "zig-pkg",
+        };
+
     const main_progress_node = std.Progress.start(io, .{
         .disable_printing = (graph.stderr_mode.? == .no_color),
     });
     defer main_progress_node.end();
-
-    const scanned_config: ScannedConfig = sc: {
-        // Cache lookup for configure options. If we get a match, we can skip
-        // execution of the configure script. If not, we get the file path to pass
-        // to the configure process.
-        //
-        // In the hot path, we only check this cache, which means that also
-        // configure source files need to go in here.
-        var config_man = graph.cache.obtain();
-        defer config_man.deinit();
-
-        for (cached_passthru_configure.items) |i|
-            config_man.hash.addBytes(configure_argv.items[i]);
-
-        // Prevents a `zig build` from getting a false positive cache hit following
-        // a `zig build --cache-poison=ignored`.
-        config_man.hash.add(cache_poison == .ignored);
-
-        const pkg_root: Path = if (override_pkg_dir) |p|
-            .initCwd(p)
-        else if (system_pkg_dir_path) |p|
-            .initCwd(p)
-        else
-            .{
-                .root_dir = build_root.directory,
-                .sub_path = "zig-pkg",
-            };
-
-        configure_argv.items[conf_argv_index_build_root] = build_root.directory.path orelse cwd_path;
-
-        var http_client: std.http.Client = .{ .allocator = gpa, .io = io };
-        defer http_client.deinit();
-
-        var unlazy_set: Package.Fetch.JobQueue.UnlazySet = .{};
-        var fork_set: Package.Fetch.JobQueue.ForkSet = .{};
-
-        {
-            // Populate fork_set.
-            var group: Io.Group = .init;
-            defer group.cancel(io);
-
-            for (forks.items) |*fork|
-                group.async(io, Fork.load, .{ io, gpa, fork, color });
-
-            try group.await(io);
-
-            for (forks.items) |*fork| {
-                if (fork.failed) process.exit(1);
-                try fork_set.put(arena, .{
-                    .path = fork.path,
-                    .manifest_ast = fork.manifest_ast,
-                    .manifest = fork.manifest,
-                    .uses = 0,
-                }, {});
-            }
-        }
-        defer Fork.deinitList(forks.items);
-
-        var build_configurer_argv: std.ArrayList([]const u8) = .empty;
-        defer build_configurer_argv.deinit(gpa);
-
-        var dependencies_source: std.ArrayList(u8) = .empty;
-        defer dependencies_source.deinit(gpa);
-
-        const configurer_root_src_path: Cache.Path = .{
-            .root_dir = graph.zig_lib_directory,
-            .sub_path = "compiler/configurer.zig",
-        };
-
-        const root_build_src_path: Cache.Path = .{
-            .root_dir = build_root.directory,
-            .sub_path = build_root.build_zig_basename,
-        };
-
-        const configurer_exe_name = "configurer";
-
-        try build_configurer_argv.appendSlice(gpa, &.{
-            graph.zig_exe, "build-exe", //
-            "--cache-dir", graph.local_cache_root.path orelse ".", //
-            "--global-cache-dir", graph.global_cache_root.path orelse ".", //
-            "--zig-lib-dir", graph.zig_lib_directory.path orelse ".", //
-            "--name", configurer_exe_name, //
-            "-fsingle-threaded", //
-        });
-
-        // Normally the build runner is compiled for the host target but here is
-        // some code to help when debugging edits to the build runner so that you
-        // can make sure it compiles successfully on other targets.
-        const target_arch_os_abi: ?[]const u8 = if (debug_target) |triple| t: {
-            config_man.hash.addBytes(triple);
-            try build_configurer_argv.appendSlice(gpa, &.{ "-target", triple });
-            break :t triple;
-        } else null;
-
-        if (graph.libc_file) |libc_file| {
-            try build_configurer_argv.appendSlice(gpa, &.{ "--libc", libc_file });
-        }
-        if (graph.reference_trace) |n| {
-            try build_configurer_argv.append(gpa, try allocPrint(arena, "-freference-trace={d}", .{n}));
-        }
-        if (graph.debug_compile_errors) {
-            try build_configurer_argv.append(gpa, "--debug-compile-errors");
-        }
-        try build_configurer_argv.appendSlice(gpa, &.{
-            "--dep", "@build", //
-            "--dep", "@dependencies", //
-            try allocPrint(arena, "-Mroot={f}", .{configurer_root_src_path}), //
-        });
-
-        // In the loop below, after doing the fetch operation, the argv will be
-        // truncated at this point, dependencies added, and then the
-        // "--listen=-" arg appended at the end.
-        const argv_deps_index = build_configurer_argv.items.len;
-
-        const build_mod = try arena.create(CliModule);
-        build_mod.* = .{
-            .name = "@build",
-            .root_path = try root_build_src_path.toString(arena),
-        };
-
-        const deps_mod = try arena.create(CliModule);
-        deps_mod.* = .{
-            .name = "@dependencies",
-            .root_path = undefined,
-        };
-
-        // This loop is re-evaluated when the build script exits with an indication that it
-        // could not continue due to missing lazy dependencies.
-        const configuration_path: Path, const poisoned: bool = cp: while (true) {
-            build_mod.deps.clearRetainingCapacity();
-            deps_mod.deps.clearRetainingCapacity();
-
-            // We want to release all the locks before executing the child process, so we make a nice
-            // big block here to ensure the cleanup gets run when we extract out our argv.
-            {
-                {
-                    const fetch_prog_node = main_progress_node.start("Fetch Packages", 0);
-                    defer fetch_prog_node.end();
-
-                    // Reset fork match counts.
-                    for (fork_set.keys()) |*fork| fork.uses = 0;
-
-                    var job_queue: Package.Fetch.JobQueue = .{
-                        .io = io,
-                        .http_client = &http_client,
-                        .global_cache = graph.global_cache_root,
-                        .local_storage = &.{
-                            .cache_root = .{ .root_dir = graph.local_cache_root },
-                            .pkg_root = pkg_root,
-                        },
-                        .recursive = true,
-                        .debug_hash = false,
-                        .unlazy_set = unlazy_set,
-                        .fork_set = fork_set,
-                        .mode = fetch_mode,
-                        .prog_node = fetch_prog_node,
-                        .read_only = system_pkg_dir_path != null,
-                    };
-                    defer job_queue.deinit();
-
-                    if (system_pkg_dir_path == null) {
-                        try http_client.initDefaultProxies(arena, &graph.environ_map);
-                    }
-
-                    try job_queue.all_fetches.ensureUnusedCapacity(gpa, 1);
-                    try job_queue.table.ensureUnusedCapacity(gpa, 1);
-
-                    const phantom_package_root: Cache.Path = .{ .root_dir = build_root.directory };
-
-                    var fetch: Package.Fetch = .{
-                        .arena = std.heap.ArenaAllocator.init(gpa),
-                        .location = .{ .relative_path = phantom_package_root },
-                        .location_tok = 0,
-                        .hash_tok = .none,
-                        .name_tok = 0,
-                        .lazy_status = .eager,
-                        .remote_package_root = phantom_package_root,
-                        .parent_package_root = phantom_package_root,
-                        .parent_manifest_ast = null,
-                        .prog_node = fetch_prog_node,
-                        .job_queue = &job_queue,
-                        .omit_missing_hash_error = true,
-                        .allow_missing_paths_field = false,
-                        .use_latest_commit = false,
-
-                        .package_root = undefined,
-                        .error_bundle = undefined,
-                        .manifest = undefined,
-                        .manifest_ast = undefined,
-                        .have_manifest = false,
-                        .computed_hash = undefined,
-                        .has_build_zig = true,
-                        .oom_flag = false,
-                        .latest_commit = null,
-
-                        .cli_module = build_mod,
-                    };
-
-                    job_queue.all_fetches.appendAssumeCapacity(&fetch);
-
-                    job_queue.table.putAssumeCapacityNoClobber(
-                        Package.Fetch.relativePathDigest(phantom_package_root, graph.global_cache_root),
-                        &fetch,
-                    );
-
-                    job_queue.group.async(io, Package.Fetch.workerRun, .{ &fetch, "root" });
-                    try job_queue.group.await(io);
-
-                    {
-                        // Ensure that forks were actually used. This is done
-                        // before printing manifest errors because using a fork can
-                        // prevent them.
-                        var any_unused = false;
-                        for (fork_set.keys()) |*fork| {
-                            if (fork.uses == 0) {
-                                log.err("fork {f} matched no {s} packages", .{
-                                    fork.path, fork.manifest.name,
-                                });
-                                any_unused = true;
-                            } else {
-                                log.info("fork {f} matched {d} {s} packages", .{
-                                    fork.path, fork.uses, fork.manifest.name,
-                                });
-                            }
-                        }
-                        if (any_unused) process.exit(1);
-                    }
-
-                    try job_queue.consolidateErrors();
-
-                    if (fetch.error_bundle.root_list.items.len > 0) {
-                        var errors = try fetch.error_bundle.toOwnedBundle("");
-                        // TODO when watching, watch and rebuild configure script rather than exit here
-                        errors.renderToStderr(io, .{}, color) catch {};
-                        process.exit(1);
-                    }
-
-                    if (fetch_only) return process.cleanExit(io);
-
-                    // Create the dependencies.zig file for configurer to
-                    // obtain via `@import("@dependencies")`.
-                    {
-                        {
-                            dependencies_source.clearRetainingCapacity();
-                            var source_writer: Io.Writer.Allocating = .fromArrayList(gpa, &dependencies_source);
-                            defer dependencies_source = source_writer.toArrayList();
-                            job_queue.createDependenciesSource(&source_writer.writer) catch |err| switch (err) {
-                                error.WriteFailed => return error.OutOfMemory,
-                            };
-                        }
-                        // Atomically create the file in a directory named after the hash of its contents.
-                        var hh: Cache.HashHelper = .{};
-                        hh.addBytes(builtin.zig_version_string);
-                        hh.addBytes(dependencies_source.items);
-                        const hex_digest = hh.final();
-                        const dependencies_zig_path: Path = .{
-                            .root_dir = graph.local_cache_root,
-                            .sub_path = try allocPrint(arena, "o/{s}/dependencies.zig", .{&hex_digest}),
-                        };
-                        var atomic_file = try dependencies_zig_path.root_dir.handle.createFileAtomic(
-                            io,
-                            dependencies_zig_path.sub_path,
-                            .{ .make_path = true, .replace = true },
-                        );
-                        defer atomic_file.deinit(io);
-                        atomic_file.file.writeStreamingAll(io, dependencies_source.items) catch |err|
-                            fatal("writing dependencies.zig contents: {t}", .{err});
-                        atomic_file.replace(io) catch |err|
-                            fatal("replacing {f}: {t}", .{ dependencies_zig_path, err });
-
-                        deps_mod.root_path = try dependencies_zig_path.toString(arena);
-                    }
-
-                    {
-                        // Add a CliModule for each package's build.zig.
-                        const hashes = job_queue.table.keys();
-                        const fetches = job_queue.table.values();
-                        try deps_mod.deps.ensureUnusedCapacity(arena, @intCast(hashes.len));
-                        for (hashes, fetches) |*hash, f| {
-                            if (f == &fetch) {
-                                // The first one is a dummy package for the current project.
-                                continue;
-                            }
-                            if (!f.has_build_zig)
-                                continue;
-                            const hash_slice = try arena.dupe(u8, hash.toSlice());
-
-                            const m = try arena.create(CliModule);
-                            m.* = .{
-                                .root_path = try f.package_root.toString(arena),
-                                .name = hash_slice,
-                            };
-                            deps_mod.deps.putAssumeCapacityNoClobber(hash_slice, m);
-                            f.cli_module = m;
-                        }
-
-                        // Each build.zig module needs access to each of its
-                        // dependencies' build.zig modules by name.
-                        for (fetches) |f| {
-                            const mod = f.cli_module orelse continue;
-                            if (!f.have_manifest) continue;
-                            const man = &f.manifest;
-                            const dep_names = man.dependencies.keys();
-                            try mod.deps.ensureUnusedCapacity(arena, @intCast(dep_names.len));
-                            for (dep_names, man.dependencies.values()) |name, dep| {
-                                const dep_digest = Package.Fetch.depDigest(
-                                    f.package_root,
-                                    global_cache_directory,
-                                    dep,
-                                ) orelse continue;
-                                const dep_mod = job_queue.table.get(dep_digest).?.cli_module orelse continue;
-                                const name_cloned = try arena.dupe(u8, name);
-                                mod.deps.putAssumeCapacityNoClobber(name_cloned, dep_mod);
-                            }
-                        }
-                    }
-
-                    // Lower module dependencies to CLI argv.
-                    build_configurer_argv.shrinkRetainingCapacity(argv_deps_index);
-                    for (deps_mod.deps.values()) |dep| {
-                        try build_configurer_argv.ensureUnusedCapacity(gpa, 2 * dep.deps.count() + 1);
-                        for (dep.deps.keys(), dep.deps.values()) |name, sub| {
-                            build_configurer_argv.appendAssumeCapacity("--dep");
-                            if (mem.eql(u8, name, sub.name)) {
-                                build_configurer_argv.appendAssumeCapacity(sub.name);
-                            } else {
-                                build_configurer_argv.appendAssumeCapacity(try allocPrint(arena, "{s}={s}", .{
-                                    name, sub.name,
-                                }));
-                            }
-                        }
-                        build_configurer_argv.appendAssumeCapacity(try allocPrint(arena, "-M{s}={s}/{s}", .{
-                            dep.name, dep.root_path, std.zig.build_zig_basename,
-                        }));
-                    }
-                    try deps_mod.lower(arena, gpa, &build_configurer_argv);
-                    try build_mod.lower(arena, gpa, &build_configurer_argv);
-
-                    try build_configurer_argv.append(gpa, "--listen=-");
-                }
-
-                const compile_prog_node = main_progress_node.start("Compile Configure Script", 0);
-                defer compile_prog_node.end();
-
-                switch (cache_poison) {
-                    .pure, .disallowed, .ignored => if (try config_man.hit()) {
-                        const digest = config_man.final();
-                        break :cp .{
-                            .{
-                                .root_dir = graph.local_cache_root,
-                                .sub_path = try allocPrint(arena, "c/{s}", .{&digest}),
-                            },
-                            false,
-                        };
-                    },
-                    .poisoned => {}, // Don't bother checking for cache hit.
-                }
-
-                const configure_exe_path: Path = if (std.zig.buildExeSubprocess(gpa, io, .{
-                    .argv = build_configurer_argv.items,
-                    .cache_root = graph.local_cache_root,
-                    .root_name = configurer_exe_name,
-                    .environ_map = &graph.environ_map,
-                    .cache_manifest = &config_man,
-                    .arch_os_abi = target_arch_os_abi,
-                    .progress_node = compile_prog_node,
-                })) |r| r.path else |err| switch (err) {
-                    error.AlreadyReported => process.exit(1),
-                    // If the file system inputs are populated, we can
-                    // still watch for changes and try again.
-                    error.FailedButCacheIntact => @panic("TODO"),
-                    error.Canceled, error.OutOfMemory => |e| return e,
-                };
-                defer gpa.free(configure_exe_path.sub_path);
-
-                configure_argv.items[0] = try configure_exe_path.toString(arena);
-            }
-
-            if (!process.can_spawn) {
-                fatal("cannot spawn command on {t}: {f}", .{ native_os, @as(std.zig.SubprocessCommand, .{
-                    .argv = configure_argv.items,
-                }) });
-            }
-
-            const rand_int = randInt(io, u64);
-            const tmp_dir_sub_path = "tmp" ++ Dir.path.sep_str ++ std.fmt.hex(rand_int);
-            const config_tmp_path: Path = .{
-                .root_dir = graph.local_cache_root,
-                .sub_path = tmp_dir_sub_path,
-            };
-            const config_tmp_file: Io.File = try config_tmp_path.root_dir.handle.createFile(
-                io,
-                config_tmp_path.sub_path,
-                .{ .read = true, .exclusive = true },
-            );
-            defer config_tmp_file.close(io);
-
-            const term = term: {
-                const child_node = main_progress_node.start("Run Configure Script", 0);
-                defer child_node.end();
-                var child = process.spawn(io, .{
-                    .argv = configure_argv.items,
-                    .stdout = .{ .file = config_tmp_file },
-                    .progress_node = child_node,
-                }) catch |err| fatal("failed to spawn configure script {q}: {t}", .{ configure_argv.items[0], err });
-                defer child.kill(io);
-                break :term child.wait(io) catch |err|
-                    fatal("failed to wait configure script {q}: {t}", .{ configure_argv.items[0], err });
-            };
-            if (!term.success()) {
-                // Failure to produce the configuration file.
-                fatal("configure command {f}: {f}", .{ term, @as(std.zig.SubprocessCommand, .{
-                    .argv = configure_argv.items,
-                }) });
-            }
-            // Even though the file is designed to be sent directly to make
-            // runner, we must load it now because:
-            // * If it contains additional file dependencies, we need to
-            //   add them to `config_man` before obtaining the final digest.
-            // * If it contains a set of lazy packages that need to be
-            //   fetched, we need to fetch those now and re-run configure.
-            var configuration = Configuration.loadFile(arena, io, config_tmp_file) catch |err|
-                fatal("failed to load configuration file {f}: {t}", .{ config_tmp_path, err });
-
-            if (configuration.unlazy_deps.len != 0) {
-                var any_errors = false;
-                for (configuration.unlazy_deps) |hash_string| {
-                    const hash = hash_string.slice(&configuration);
-                    assert(hash.len != 0);
-                    if (hash.len > Package.Hash.max_len) {
-                        log.err("invalid digest (length {d} exceeds maximum): {q}", .{ hash.len, hash });
-                        any_errors = true;
-                        continue;
-                    }
-                    try unlazy_set.put(arena, .fromSlice(hash), {});
-                }
-                if (any_errors) process.exit(1);
-                if (system_pkg_dir_path) |p| {
-                    // In this mode, the system needs to provide these packages; they
-                    // cannot be fetched by Zig.
-                    const s = Dir.path.sep_str;
-                    for (unlazy_set.keys()) |*hash| {
-                        log.err("lazy dependency package not found: {s}" ++ s ++ "{s}", .{ p, hash.toSlice() });
-                    }
-                    log.info("remote package fetching disabled due to --system mode", .{});
-                    log.info("dependencies might be avoidable depending on build configuration", .{});
-                    process.exit(1);
-                }
-                continue :cp;
-            }
-
-            for (configuration.path_deps) |path_dep| {
-                try config_man.addPathPost(path_dep.toCachePath(&configuration, arena));
-            }
-
-            // If it is poisoned, there is no point in moving it to cached
-            // location. Just leave it in the tmp directory.
-            if (configuration.poisoned) {
-                break :cp .{ config_tmp_path, true };
-            } else {
-                const digest = config_man.final();
-                const final_path: Path = .{
-                    .root_dir = graph.local_cache_root,
-                    .sub_path = try allocPrint(arena, "c/{s}", .{&digest}),
-                };
-                Io.Dir.rename(
-                    config_tmp_path.root_dir.handle,
-                    config_tmp_path.sub_path,
-                    final_path.root_dir.handle,
-                    final_path.sub_path,
-                    io,
-                ) catch |err| retry: {
-                    const e = switch (err) {
-                        error.FileNotFound => e: {
-                            const dir_path = final_path.dirname().?;
-                            dir_path.root_dir.handle.createDirPath(io, dir_path.sub_path) catch |e|
-                                fatal("failed to create directory {f}: {t}", .{ dir_path, e });
-                            if (Io.Dir.rename(
-                                config_tmp_path.root_dir.handle,
-                                config_tmp_path.sub_path,
-                                final_path.root_dir.handle,
-                                final_path.sub_path,
-                                io,
-                            )) |_| break :retry else |e| break :e e;
-                        },
-                        else => |e| e,
-                    };
-                    fatal("failed to rename configuration file from {f} into {f}: {t}", .{
-                        config_tmp_path, final_path, e,
-                    });
-                };
-                config_man.writeManifest() catch |err| log.warn("failed to write cache manifest: {t}", .{err});
-                break :cp .{ final_path, false };
-            }
-        };
-
-        // Hang on to the configuration file lock until we finish loading the configuration file.
-        var configuration_lock = if (!poisoned) config_man.toOwnedLock() else null;
-        defer if (configuration_lock) |*l| l.release(io);
-
-        switch (print_configuration) {
-            .path => {
-                initStdoutWriter(io).print("{f}\n", .{configuration_path}) catch
-                    fatal("failed printing cache file path: {t}", .{stdout_writer_allocation.err.?});
-                stdout_writer_allocation.flush() catch |err|
-                    fatal("failed printing cache file path: {t}", .{err});
-                return process.cleanExit(io);
-            },
-            .none, .zon => {},
-        }
-
-        const configuration = c: {
-            var file = configuration_path.root_dir.handle.openFile(io, configuration_path.sub_path, .{}) catch |err|
-                fatal("failed to open configuration file {f}: {t}", .{ configuration_path, err });
-            defer file.close(io);
-            break :c Configuration.loadFile(arena, io, file) catch |err|
-                fatal("failed to load configuration file {f}: {t}", .{ configuration_path, err });
-        };
-        // Technically if the configuration is marked as poisoned, we could
-        // already delete the file now, but we leave it around in case the
-        // maker process fails or crashes and it's helpful to be able to repeat
-        // execution of the command line or otherwise inspect the configuration file.
-        const c = &configuration;
-        var top_level_steps: std.array_hash_map.String(Configuration.Step.Index) = .empty;
-        for (configuration.steps, 0..) |*conf_step, step_index_usize| {
-            if (conf_step.owner != .root) continue;
-            const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
-            const flags = conf_step.flags(c);
-            switch (flags.tag) {
-                .top_level => {
-                    const name = step_index.ptr(c).name.slice(c);
-                    try top_level_steps.put(arena, name, step_index);
-                },
-                else => {},
-            }
-        }
-        for (c.search_prefixes) |search_prefix| {
-            try graph.search_prefixes.append(arena, search_prefix.slice(c));
-        }
-        break :sc .{
-            .configuration = configuration,
-            .top_level_steps = top_level_steps,
-            .path = configuration_path,
-        };
-    };
-
-    if (help_menu) {
-        scanned_config.printUsage(&graph, initStdoutWriter(io)) catch |err| switch (err) {
-            error.WriteFailed => return stdout_writer_allocation.err.?,
-            else => |e| return e,
-        };
-        try stdout_writer_allocation.flush();
-        return cleanExit(io, &scanned_config);
-    } else if (steps_menu) {
-        scanned_config.printSteps(&graph, initStdoutWriter(io)) catch |err| switch (err) {
-            error.WriteFailed => return stdout_writer_allocation.err.?,
-            else => |e| return e,
-        };
-        try stdout_writer_allocation.flush();
-        return cleanExit(io, &scanned_config);
-    } else switch (print_configuration) {
-        .none => {},
-        .zon => {
-            scanned_config.print(initStdoutWriter(io)) catch return stdout_writer_allocation.err.?;
-            try stdout_writer_allocation.flush();
-            return cleanExit(io, &scanned_config);
-        },
-        .path => unreachable,
-    }
-
-    if (webui_listen != null) {
-        if (watch) fatal("using '--webui' and '--watch' together is not yet supported; consider omitting '--watch' in favour of the web UI \"Rebuild\" button", .{});
-        if (builtin.single_threaded) fatal("'--webui' is not yet supported on single-threaded hosts", .{});
-    }
 
     const install_prefix_path: Path = if (graph.environ_map.get("DESTDIR")) |dest_dir| .{
         .root_dir = .cwd(),
@@ -1198,147 +640,768 @@ pub fn main(init: process.Init.Minimal) !void {
         .sub_path = cwd_relative,
     } else try install_prefix_path.join(arena, "include");
 
-    var maker: Maker = .{
-        .gpa = gpa,
-        .graph = &graph,
-        .scanned_config = &scanned_config,
-        .install_paths = .{
-            .prefix = install_prefix_path,
-            .lib = install_lib_path,
-            .bin = install_bin_path,
-            .include = install_include_path,
-        },
-
-        .steps = try arena.alloc(Step, scanned_config.configuration.steps.len),
-        .generated_files = try arena.alloc(Path, scanned_config.configuration.generated_files_len),
-        .run_args = run_args,
-
-        .available_rss = max_rss,
-        .max_rss_is_default = false,
-        .max_rss_mutex = .init,
-        .skip_oom_steps = skip_oom_steps,
-        .unit_test_timeout_ns = test_timeout_ns,
-
-        .watch = watch,
-        .web_server = undefined, // set after `prepare`
-        .memory_blocked_steps = .empty,
-        .step_stack = .empty,
-        .pkg_config = .{ .debug = debug_pkg_config },
-
-        .error_style = error_style,
-        .multiline_errors = multiline_errors,
-        .summary = summary orelse if (watch or webui_listen != null) .new else .failures,
-    };
-    defer {
-        maker.memory_blocked_steps.deinit(gpa);
-        maker.step_stack.deinit(gpa);
-    }
-
-    if (maker.available_rss == 0) {
-        maker.available_rss = process.totalSystemMemory() catch std.math.maxInt(u64);
-        maker.max_rss_is_default = true;
-    }
-
-    maker.prepare(step_names.items) catch |err| switch (err) {
-        error.DependencyLoopDetected, error.InsufficientMemory => {
-            _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
-            process.exit(1);
-        },
-        else => |e| return e,
-    };
-
-    var w: Watch = w: {
-        if (!watch) break :w undefined;
-        if (!Watch.have_impl) fatal("--watch not yet implemented for {t}", .{native_os});
-        break :w try .init(&maker);
-    };
-
     const now = Io.Clock.Timestamp.now(io, .awake);
 
-    maker.web_server = if (webui_listen) |listen_address| ws: {
-        if (builtin.single_threaded) unreachable; // `fatal` above
-        break :ws .init(.{
-            .maker = &maker,
+    var web_server_allocation: AvoidableWebServer = undefined;
+    const web_server: ?*AvoidableWebServer = if (webui_listen) |listen_address| ws: {
+        if (builtin.single_threaded) fatal("--webui is not yet supported on single-threaded hosts", .{});
+        web_server_allocation = .init(.{
+            .graph = &graph,
             .root_prog_node = main_progress_node,
             .listen_address = listen_address,
             .base_timestamp = now,
         });
+        web_server_allocation.start() catch |err| fatal("failed to start web server: {t}", .{err});
+        break :ws &web_server_allocation;
     } else null;
 
-    if (maker.web_server) |*ws| {
-        ws.start() catch |err| fatal("failed to start web server: {t}", .{err});
-    }
+    while (true) {
+        // If this fails, we can still start the server and wait for user
+        // to request a rebuild. If it returns error.FailedButCacheIntact
+        // we can even still do file system watching and automatically
+        // rebuild on source changes.
+        if (configure(&graph, .{
+            .configure_argv = configure_argv.items,
+            .conf_argv_index_build_root = conf_argv_index_build_root,
+            .cached_passthru_configure = cached_passthru_configure.items,
 
-    rebuild: while (true) : (if (maker.error_style.clearOnUpdate()) {
-        const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
-        defer io.unlockStderr();
-        stderr.file_writer.interface.writeAll("\x1B[2J\x1B[3J\x1B[H") catch |err| switch (err) {
-            error.WriteFailed => return stderr.file_writer.err.?,
-        };
-    }) {
-        if (maker.web_server) |*ws| ws.startBuild();
+            .cache_poison = cache_poison,
+            .pkg_root = pkg_root,
+            .build_root = build_root,
+            .cwd_path = cwd_path,
+            .color = color,
+            .debug_target = debug_target,
+            .parent_progress_node = main_progress_node,
+            .fetch_mode = fetch_mode,
+            .system_pkg_dir_path = system_pkg_dir_path,
+            .fetch_only = fetch_only,
+            .print_configuration = print_configuration,
+            .forks = forks.items,
+        })) |scanned_config| {
+            if (help_menu) {
+                scanned_config.printUsage(&graph, initStdoutWriter(io)) catch |err| switch (err) {
+                    error.WriteFailed => return stdout_writer_allocation.err.?,
+                    else => |e| return e,
+                };
+                try stdout_writer_allocation.flush();
+                return cleanExit(io, &scanned_config);
+            } else if (steps_menu) {
+                scanned_config.printSteps(&graph, initStdoutWriter(io)) catch |err| switch (err) {
+                    error.WriteFailed => return stdout_writer_allocation.err.?,
+                    else => |e| return e,
+                };
+                try stdout_writer_allocation.flush();
+                return cleanExit(io, &scanned_config);
+            } else switch (print_configuration) {
+                .none => {},
+                .zon => {
+                    scanned_config.print(initStdoutWriter(io)) catch return stdout_writer_allocation.err.?;
+                    try stdout_writer_allocation.flush();
+                    return cleanExit(io, &scanned_config);
+                },
+                .path => unreachable,
+            }
 
-        try maker.makeStepNames(step_names.items, main_progress_node, fuzz);
+            var maker: Maker = .{
+                .gpa = gpa,
+                .graph = &graph,
+                .scanned_config = &scanned_config,
+                .install_paths = .{
+                    .prefix = install_prefix_path,
+                    .lib = install_lib_path,
+                    .bin = install_bin_path,
+                    .include = install_include_path,
+                },
 
-        if (maker.web_server) |*web_server| {
-            if (fuzz) |mode| if (mode != .forever) fatal(
-                "error: limited fuzzing is not implemented yet for --webui",
-                .{},
-            );
+                .steps = try arena.alloc(Step, scanned_config.configuration.steps.len),
+                .generated_files = try arena.alloc(Path, scanned_config.configuration.generated_files_len),
+                .run_args = run_args,
 
-            web_server.finishBuild(.{ .fuzz = fuzz != null });
-        }
+                .available_rss = max_rss,
+                .max_rss_is_default = false,
+                .max_rss_mutex = .init,
+                .skip_oom_steps = skip_oom_steps,
+                .unit_test_timeout_ns = test_timeout_ns,
 
-        if (maker.web_server) |*web_server| {
-            const c = &scanned_config.configuration;
-            assert(!watch); // fatal error after CLI parsing
-            while (true) switch (try web_server.wait()) {
-                .rebuild => {
-                    for (maker.step_stack.keys()) |step_index| {
-                        const step = maker.stepByIndex(step_index);
-                        step.state = .precheck_done;
-                        const deps = step_index.ptr(c).deps.slice(c);
-                        step.pending_deps = @intCast(deps.len);
-                        step.reset(&maker);
-                    }
-                    continue :rebuild;
+                .watch = watch,
+                .web_server = undefined, // set after `prepare`
+                .memory_blocked_steps = .empty,
+                .step_stack = .empty,
+                .pkg_config = .{ .debug = debug_pkg_config },
+
+                .error_style = error_style,
+                .multiline_errors = multiline_errors,
+                .summary = summary orelse if (watch or webui_listen != null) .new else .failures,
+            };
+            defer {
+                maker.memory_blocked_steps.deinit(gpa);
+                maker.step_stack.deinit(gpa);
+            }
+
+            if (maker.available_rss == 0) {
+                maker.available_rss = process.totalSystemMemory() catch std.math.maxInt(u64);
+                maker.max_rss_is_default = true;
+            }
+
+            maker.prepare(step_names.items) catch |err| switch (err) {
+                error.DependencyLoopDetected, error.InsufficientMemory => {
+                    _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
+                    process.exit(1);
+                },
+                else => |e| return e,
+            };
+
+            var w: Watch = w: {
+                if (!watch) break :w undefined;
+                if (!Watch.have_impl) fatal("--watch not yet implemented for {t}", .{native_os});
+                break :w try .init(&maker);
+            };
+
+            if (web_server) |ws| try ws.updateConfiguration(&maker);
+
+            rebuild: while (true) : (if (maker.error_style.clearOnUpdate()) {
+                const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
+                defer io.unlockStderr();
+                stderr.file_writer.interface.writeAll("\x1B[2J\x1B[3J\x1B[H") catch |err| switch (err) {
+                    error.WriteFailed => return stderr.file_writer.err.?,
+                };
+            }) {
+                if (web_server) |ws| ws.startBuild();
+
+                try maker.makeStepNames(step_names.items, main_progress_node, fuzz);
+
+                if (web_server) |ws| {
+                    if (fuzz) |mode| if (mode != .forever) fatal(
+                        "error: limited fuzzing is not implemented yet for --webui",
+                        .{},
+                    );
+
+                    ws.finishBuild(.{ .fuzz = fuzz != null });
+                }
+
+                if (web_server) |ws| {
+                    const c = &scanned_config.configuration;
+                    assert(!watch); // fatal error after CLI parsing
+                    while (true) switch (try ws.wait()) {
+                        .rebuild => {
+                            for (maker.step_stack.keys()) |step_index| {
+                                const step = maker.stepByIndex(step_index);
+                                step.state = .precheck_done;
+                                const deps = step_index.ptr(c).deps.slice(c);
+                                step.pending_deps = @intCast(deps.len);
+                                step.reset(&maker);
+                            }
+                            continue :rebuild;
+                        },
+                    };
+                }
+
+                if (!maker.watch) return;
+
+                // Comptime-known guard to prevent including the logic below when `!Watch.have_impl`.
+                if (!Watch.have_impl) unreachable;
+
+                try w.update(maker.step_stack.keys());
+
+                // Wait until a file system notification arrives. Read all such events
+                // until the buffer is empty. Then wait for a debounce interval, resetting
+                // if any more events come in. After the debounce interval has passed,
+                // trigger a rebuild on all steps with modified inputs, as well as their
+                // recursive dependants.
+                var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
+                const caption = std.fmt.bufPrint(&caption_buf, "watching {d} directories, {d} processes", .{
+                    w.dir_count, countSubProcesses(&maker),
+                }) catch &caption_buf;
+                var debouncing_node = main_progress_node.start(caption, 0);
+                var in_debounce = false;
+                while (true) switch (try w.wait(if (in_debounce) .{ .ms = debounce_interval_ms } else .none)) {
+                    .timeout => {
+                        assert(in_debounce);
+                        debouncing_node.end();
+                        markFailedStepsDirty(&maker);
+                        continue :rebuild;
+                    },
+                    .dirty => if (!in_debounce) {
+                        in_debounce = true;
+                        debouncing_node.end();
+                        debouncing_node = main_progress_node.start("Debouncing (Change Detected)", 0);
+                    },
+                    .clean => {},
+                };
+            }
+        } else |err| {
+            const can_fs_watch = switch (err) {
+                error.AlreadyReported => false,
+                error.FailedButCacheIntact => true,
+                else => |e| w: {
+                    log.err("configuration failed: {t}", .{e});
+                    break :w false;
                 },
             };
+            if (!server_mode) process.exit(1);
+            if (can_fs_watch) {
+                @panic("TODO set up fs watching");
+            } else {
+                @panic("TODO wait for user to request rebuild");
+            }
+        }
+    }
+}
+
+const ConfigureOptions = struct {
+    configure_argv: [][]const u8,
+    conf_argv_index_build_root: usize,
+    cached_passthru_configure: []const u32,
+
+    cache_poison: std.Build.Graph.CachePoison,
+    pkg_root: Path,
+    build_root: BuildRoot,
+    cwd_path: []const u8,
+    color: Color,
+    debug_target: ?[]const u8,
+    parent_progress_node: std.Progress.Node,
+    fetch_mode: Fetch.JobQueue.Mode,
+    system_pkg_dir_path: ?[]const u8,
+    fetch_only: bool,
+    print_configuration: PrintConfiguration,
+    forks: []Fork,
+};
+
+fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
+    const configure_argv = options.configure_argv;
+    const gpa = graph.cache.gpa;
+    const io = graph.io;
+    const arena = graph.arena;
+
+    // Cache lookup for configure options. If we get a match, we can skip
+    // execution of the configure script. If not, we get the file path to pass
+    // to the configure process.
+    //
+    // In the hot path, we only check this cache, which means that also
+    // configure source files need to go in here.
+    var config_man = graph.cache.obtain();
+    defer config_man.deinit();
+
+    for (options.cached_passthru_configure) |i|
+        config_man.hash.addBytes(configure_argv[i]);
+
+    // Prevents a `zig build` from getting a false positive cache hit following
+    // a `zig build --cache-poison=ignored`.
+    config_man.hash.add(options.cache_poison == .ignored);
+
+    configure_argv[options.conf_argv_index_build_root] = options.build_root.directory.path orelse options.cwd_path;
+
+    var http_client: std.http.Client = .{ .allocator = gpa, .io = io };
+    defer http_client.deinit();
+
+    var unlazy_set: Package.Fetch.JobQueue.UnlazySet = .{};
+    var fork_set: Package.Fetch.JobQueue.ForkSet = .{};
+
+    {
+        // Populate fork_set.
+        var group: Io.Group = .init;
+        defer group.cancel(io);
+
+        for (options.forks) |*fork|
+            group.async(io, Fork.load, .{ io, gpa, fork, options.color });
+
+        try group.await(io);
+
+        for (options.forks) |*fork| {
+            if (fork.failed) process.exit(1);
+            try fork_set.put(arena, .{
+                .path = fork.path,
+                .manifest_ast = fork.manifest_ast,
+                .manifest = fork.manifest,
+                .uses = 0,
+            }, {});
+        }
+    }
+    defer Fork.deinitList(options.forks);
+
+    var build_configurer_argv: std.ArrayList([]const u8) = .empty;
+    defer build_configurer_argv.deinit(gpa);
+
+    var dependencies_source: std.ArrayList(u8) = .empty;
+    defer dependencies_source.deinit(gpa);
+
+    const configurer_root_src_path: Cache.Path = .{
+        .root_dir = graph.zig_lib_directory,
+        .sub_path = "compiler/configurer.zig",
+    };
+
+    const root_build_src_path: Cache.Path = .{
+        .root_dir = options.build_root.directory,
+        .sub_path = options.build_root.build_zig_basename,
+    };
+
+    const configurer_exe_name = "configurer";
+
+    try build_configurer_argv.appendSlice(gpa, &.{
+        graph.zig_exe, "build-exe", //
+        "--cache-dir", graph.local_cache_root.path orelse ".", //
+        "--global-cache-dir", graph.global_cache_root.path orelse ".", //
+        "--zig-lib-dir", graph.zig_lib_directory.path orelse ".", //
+        "--name", configurer_exe_name, //
+        "-fsingle-threaded", //
+    });
+
+    // Normally the build runner is compiled for the host target but here is
+    // some code to help when debugging edits to the build runner so that you
+    // can make sure it compiles successfully on other targets.
+    const target_arch_os_abi: ?[]const u8 = if (options.debug_target) |triple| t: {
+        config_man.hash.addBytes(triple);
+        try build_configurer_argv.appendSlice(gpa, &.{ "-target", triple });
+        break :t triple;
+    } else null;
+
+    if (graph.libc_file) |libc_file| {
+        try build_configurer_argv.appendSlice(gpa, &.{ "--libc", libc_file });
+    }
+    if (graph.reference_trace) |n| {
+        try build_configurer_argv.append(gpa, try allocPrint(arena, "-freference-trace={d}", .{n}));
+    }
+    if (graph.debug_compile_errors) {
+        try build_configurer_argv.append(gpa, "--debug-compile-errors");
+    }
+    try build_configurer_argv.appendSlice(gpa, &.{
+        "--dep", "@build", //
+        "--dep", "@dependencies", //
+        try allocPrint(arena, "-Mroot={f}", .{configurer_root_src_path}), //
+    });
+
+    // In the loop below, after doing the fetch operation, the argv will be
+    // truncated at this point, dependencies added, and then the
+    // "--listen=-" arg appended at the end.
+    const argv_deps_index = build_configurer_argv.items.len;
+
+    const build_mod = try arena.create(CliModule);
+    build_mod.* = .{
+        .name = "@build",
+        .root_path = try root_build_src_path.toString(arena),
+    };
+
+    const deps_mod = try arena.create(CliModule);
+    deps_mod.* = .{
+        .name = "@dependencies",
+        .root_path = undefined,
+    };
+
+    // This loop is re-evaluated when the build script exits with an indication that it
+    // could not continue due to missing lazy dependencies.
+    const configuration_path: Path, const poisoned: bool = cp: while (true) {
+        build_mod.deps.clearRetainingCapacity();
+        deps_mod.deps.clearRetainingCapacity();
+
+        // We want to release all the locks before executing the child process, so we make a nice
+        // big block here to ensure the cleanup gets run when we extract out our argv.
+        {
+            {
+                const fetch_prog_node = options.parent_progress_node.start("Fetch Packages", 0);
+                defer fetch_prog_node.end();
+
+                // Reset fork match counts.
+                for (fork_set.keys()) |*fork| fork.uses = 0;
+
+                var job_queue: Package.Fetch.JobQueue = .{
+                    .io = io,
+                    .http_client = &http_client,
+                    .global_cache = graph.global_cache_root,
+                    .local_storage = &.{
+                        .cache_root = .{ .root_dir = graph.local_cache_root },
+                        .pkg_root = options.pkg_root,
+                    },
+                    .recursive = true,
+                    .debug_hash = false,
+                    .unlazy_set = unlazy_set,
+                    .fork_set = fork_set,
+                    .mode = options.fetch_mode,
+                    .prog_node = fetch_prog_node,
+                    .read_only = options.system_pkg_dir_path != null,
+                };
+                defer job_queue.deinit();
+
+                if (options.system_pkg_dir_path == null) {
+                    try http_client.initDefaultProxies(arena, &graph.environ_map);
+                }
+
+                try job_queue.all_fetches.ensureUnusedCapacity(gpa, 1);
+                try job_queue.table.ensureUnusedCapacity(gpa, 1);
+
+                const phantom_package_root: Cache.Path = .{ .root_dir = options.build_root.directory };
+
+                var fetch: Package.Fetch = .{
+                    .arena = std.heap.ArenaAllocator.init(gpa),
+                    .location = .{ .relative_path = phantom_package_root },
+                    .location_tok = 0,
+                    .hash_tok = .none,
+                    .name_tok = 0,
+                    .lazy_status = .eager,
+                    .remote_package_root = phantom_package_root,
+                    .parent_package_root = phantom_package_root,
+                    .parent_manifest_ast = null,
+                    .prog_node = fetch_prog_node,
+                    .job_queue = &job_queue,
+                    .omit_missing_hash_error = true,
+                    .allow_missing_paths_field = false,
+                    .use_latest_commit = false,
+
+                    .package_root = undefined,
+                    .error_bundle = undefined,
+                    .manifest = undefined,
+                    .manifest_ast = undefined,
+                    .have_manifest = false,
+                    .computed_hash = undefined,
+                    .has_build_zig = true,
+                    .oom_flag = false,
+                    .latest_commit = null,
+
+                    .cli_module = build_mod,
+                };
+
+                job_queue.all_fetches.appendAssumeCapacity(&fetch);
+
+                job_queue.table.putAssumeCapacityNoClobber(
+                    Package.Fetch.relativePathDigest(phantom_package_root, graph.global_cache_root),
+                    &fetch,
+                );
+
+                job_queue.group.async(io, Package.Fetch.workerRun, .{ &fetch, "root" });
+                try job_queue.group.await(io);
+
+                {
+                    // Ensure that forks were actually used. This is done
+                    // before printing manifest errors because using a fork can
+                    // prevent them.
+                    var any_unused = false;
+                    for (fork_set.keys()) |*fork| {
+                        if (fork.uses == 0) {
+                            log.err("fork {f} matched no {s} packages", .{
+                                fork.path, fork.manifest.name,
+                            });
+                            any_unused = true;
+                        } else {
+                            log.info("fork {f} matched {d} {s} packages", .{
+                                fork.path, fork.uses, fork.manifest.name,
+                            });
+                        }
+                    }
+                    if (any_unused) process.exit(1);
+                }
+
+                try job_queue.consolidateErrors();
+
+                if (fetch.error_bundle.root_list.items.len > 0) {
+                    var errors = try fetch.error_bundle.toOwnedBundle("");
+                    errors.renderToStderr(io, .{}, options.color) catch process.exit(1);
+                    return error.FailedButCacheIntact;
+                }
+
+                if (options.fetch_only) {
+                    _ = io.lockStderr(&.{}, .no_color) catch {};
+                    process.exit(0);
+                }
+
+                // Create the dependencies.zig file for configurer to
+                // obtain via `@import("@dependencies")`.
+                {
+                    {
+                        dependencies_source.clearRetainingCapacity();
+                        var source_writer: Io.Writer.Allocating = .fromArrayList(gpa, &dependencies_source);
+                        defer dependencies_source = source_writer.toArrayList();
+                        job_queue.createDependenciesSource(&source_writer.writer) catch |err| switch (err) {
+                            error.WriteFailed => return error.OutOfMemory,
+                        };
+                    }
+                    // Atomically create the file in a directory named after the hash of its contents.
+                    var hh: Cache.HashHelper = .{};
+                    hh.addBytes(builtin.zig_version_string);
+                    hh.addBytes(dependencies_source.items);
+                    const hex_digest = hh.final();
+                    const dependencies_zig_path: Path = .{
+                        .root_dir = graph.local_cache_root,
+                        .sub_path = try allocPrint(arena, "o/{s}/dependencies.zig", .{&hex_digest}),
+                    };
+                    var atomic_file = try dependencies_zig_path.root_dir.handle.createFileAtomic(
+                        io,
+                        dependencies_zig_path.sub_path,
+                        .{ .make_path = true, .replace = true },
+                    );
+                    defer atomic_file.deinit(io);
+                    atomic_file.file.writeStreamingAll(io, dependencies_source.items) catch |err|
+                        fatal("writing dependencies.zig contents: {t}", .{err});
+                    atomic_file.replace(io) catch |err|
+                        fatal("replacing {f}: {t}", .{ dependencies_zig_path, err });
+
+                    deps_mod.root_path = try dependencies_zig_path.toString(arena);
+                }
+
+                {
+                    // Add a CliModule for each package's build.zig.
+                    const hashes = job_queue.table.keys();
+                    const fetches = job_queue.table.values();
+                    try deps_mod.deps.ensureUnusedCapacity(arena, @intCast(hashes.len));
+                    for (hashes, fetches) |*hash, f| {
+                        if (f == &fetch) {
+                            // The first one is a dummy package for the current project.
+                            continue;
+                        }
+                        if (!f.has_build_zig)
+                            continue;
+                        const hash_slice = try arena.dupe(u8, hash.toSlice());
+
+                        const m = try arena.create(CliModule);
+                        m.* = .{
+                            .root_path = try f.package_root.toString(arena),
+                            .name = hash_slice,
+                        };
+                        deps_mod.deps.putAssumeCapacityNoClobber(hash_slice, m);
+                        f.cli_module = m;
+                    }
+
+                    // Each build.zig module needs access to each of its
+                    // dependencies' build.zig modules by name.
+                    for (fetches) |f| {
+                        const mod = f.cli_module orelse continue;
+                        if (!f.have_manifest) continue;
+                        const man = &f.manifest;
+                        const dep_names = man.dependencies.keys();
+                        try mod.deps.ensureUnusedCapacity(arena, @intCast(dep_names.len));
+                        for (dep_names, man.dependencies.values()) |name, dep| {
+                            const dep_digest = Package.Fetch.depDigest(
+                                f.package_root,
+                                graph.global_cache_root,
+                                dep,
+                            ) orelse continue;
+                            const dep_mod = job_queue.table.get(dep_digest).?.cli_module orelse continue;
+                            const name_cloned = try arena.dupe(u8, name);
+                            mod.deps.putAssumeCapacityNoClobber(name_cloned, dep_mod);
+                        }
+                    }
+                }
+
+                // Lower module dependencies to CLI argv.
+                build_configurer_argv.shrinkRetainingCapacity(argv_deps_index);
+                for (deps_mod.deps.values()) |dep| {
+                    try build_configurer_argv.ensureUnusedCapacity(gpa, 2 * dep.deps.count() + 1);
+                    for (dep.deps.keys(), dep.deps.values()) |name, sub| {
+                        build_configurer_argv.appendAssumeCapacity("--dep");
+                        if (mem.eql(u8, name, sub.name)) {
+                            build_configurer_argv.appendAssumeCapacity(sub.name);
+                        } else {
+                            build_configurer_argv.appendAssumeCapacity(try allocPrint(arena, "{s}={s}", .{
+                                name, sub.name,
+                            }));
+                        }
+                    }
+                    build_configurer_argv.appendAssumeCapacity(try allocPrint(arena, "-M{s}={s}/{s}", .{
+                        dep.name, dep.root_path, std.zig.build_zig_basename,
+                    }));
+                }
+                try deps_mod.lower(arena, gpa, &build_configurer_argv);
+                try build_mod.lower(arena, gpa, &build_configurer_argv);
+
+                try build_configurer_argv.append(gpa, "--listen=-");
+            }
+
+            const compile_prog_node = options.parent_progress_node.start("Compile Configure Script", 0);
+            defer compile_prog_node.end();
+
+            switch (options.cache_poison) {
+                .pure, .disallowed, .ignored => if (try config_man.hit()) {
+                    const digest = config_man.final();
+                    break :cp .{
+                        .{
+                            .root_dir = graph.local_cache_root,
+                            .sub_path = try allocPrint(arena, "c/{s}", .{&digest}),
+                        },
+                        false,
+                    };
+                },
+                .poisoned => {}, // Don't bother checking for cache hit.
+            }
+
+            const configure_exe_path: Path = if (std.zig.buildExeSubprocess(gpa, io, .{
+                .argv = build_configurer_argv.items,
+                .cache_root = graph.local_cache_root,
+                .root_name = configurer_exe_name,
+                .environ_map = &graph.environ_map,
+                .cache_manifest = &config_man,
+                .arch_os_abi = target_arch_os_abi,
+                .progress_node = compile_prog_node,
+            })) |r| r.path else |err| return err;
+            defer gpa.free(configure_exe_path.sub_path);
+
+            configure_argv[0] = try configure_exe_path.toString(arena);
         }
 
-        if (!maker.watch) return;
+        if (!process.can_spawn) {
+            fatal("cannot spawn command on {t}: {f}", .{ native_os, @as(std.zig.SubprocessCommand, .{
+                .argv = configure_argv,
+            }) });
+        }
 
-        // Comptime-known guard to prevent including the logic below when `!Watch.have_impl`.
-        if (!Watch.have_impl) unreachable;
-
-        try w.update(maker.step_stack.keys());
-
-        // Wait until a file system notification arrives. Read all such events
-        // until the buffer is empty. Then wait for a debounce interval, resetting
-        // if any more events come in. After the debounce interval has passed,
-        // trigger a rebuild on all steps with modified inputs, as well as their
-        // recursive dependants.
-        var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
-        const caption = std.fmt.bufPrint(&caption_buf, "watching {d} directories, {d} processes", .{
-            w.dir_count, countSubProcesses(&maker),
-        }) catch &caption_buf;
-        var debouncing_node = main_progress_node.start(caption, 0);
-        var in_debounce = false;
-        while (true) switch (try w.wait(if (in_debounce) .{ .ms = debounce_interval_ms } else .none)) {
-            .timeout => {
-                assert(in_debounce);
-                debouncing_node.end();
-                markFailedStepsDirty(&maker);
-                continue :rebuild;
-            },
-            .dirty => if (!in_debounce) {
-                in_debounce = true;
-                debouncing_node.end();
-                debouncing_node = main_progress_node.start("Debouncing (Change Detected)", 0);
-            },
-            .clean => {},
+        const rand_int = randInt(io, u64);
+        const tmp_dir_sub_path = "tmp" ++ Dir.path.sep_str ++ std.fmt.hex(rand_int);
+        const config_tmp_path: Path = .{
+            .root_dir = graph.local_cache_root,
+            .sub_path = tmp_dir_sub_path,
         };
+        const config_tmp_file: Io.File = try config_tmp_path.root_dir.handle.createFile(
+            io,
+            config_tmp_path.sub_path,
+            .{ .read = true, .exclusive = true },
+        );
+        defer config_tmp_file.close(io);
+
+        const term = term: {
+            const child_node = options.parent_progress_node.start("Run Configure Script", 0);
+            defer child_node.end();
+            var child = process.spawn(io, .{
+                .argv = configure_argv,
+                .stdout = .{ .file = config_tmp_file },
+                .progress_node = child_node,
+            }) catch |err| fatal("failed to spawn configure script {q}: {t}", .{ configure_argv[0], err });
+            defer child.kill(io);
+            break :term child.wait(io) catch |err|
+                fatal("failed to wait configure script {q}: {t}", .{ configure_argv[0], err });
+        };
+        if (!term.success()) {
+            // Failure to produce the configuration file.
+            fatal("configure command {f}: {f}", .{ term, @as(std.zig.SubprocessCommand, .{
+                .argv = configure_argv,
+            }) });
+        }
+        // Even though the file is designed to be sent directly to make
+        // runner, we must load it now because:
+        // * If it contains additional file dependencies, we need to
+        //   add them to `config_man` before obtaining the final digest.
+        // * If it contains a set of lazy packages that need to be
+        //   fetched, we need to fetch those now and re-run configure.
+        var configuration = Configuration.loadFile(arena, io, config_tmp_file) catch |err|
+            fatal("failed to load configuration file {f}: {t}", .{ config_tmp_path, err });
+
+        if (configuration.unlazy_deps.len != 0) {
+            var any_errors = false;
+            for (configuration.unlazy_deps) |hash_string| {
+                const hash = hash_string.slice(&configuration);
+                assert(hash.len != 0);
+                if (hash.len > Package.Hash.max_len) {
+                    log.err("invalid digest (length {d} exceeds maximum): {q}", .{ hash.len, hash });
+                    any_errors = true;
+                    continue;
+                }
+                try unlazy_set.put(arena, .fromSlice(hash), {});
+            }
+            if (any_errors) process.exit(1);
+            if (options.system_pkg_dir_path) |p| {
+                // In this mode, the system needs to provide these packages; they
+                // cannot be fetched by Zig.
+                const s = Dir.path.sep_str;
+                for (unlazy_set.keys()) |*hash| {
+                    log.err("lazy dependency package not found: {s}" ++ s ++ "{s}", .{ p, hash.toSlice() });
+                }
+                log.info("remote package fetching disabled due to --system mode", .{});
+                log.info("dependencies might be avoidable depending on build configuration", .{});
+                process.exit(1);
+            }
+            continue :cp;
+        }
+
+        for (configuration.path_deps) |path_dep| {
+            try config_man.addPathPost(path_dep.toCachePath(&configuration, arena));
+        }
+
+        // If it is poisoned, there is no point in moving it to cached
+        // location. Just leave it in the tmp directory.
+        if (configuration.poisoned) {
+            break :cp .{ config_tmp_path, true };
+        } else {
+            const digest = config_man.final();
+            const final_path: Path = .{
+                .root_dir = graph.local_cache_root,
+                .sub_path = try allocPrint(arena, "c/{s}", .{&digest}),
+            };
+            Io.Dir.rename(
+                config_tmp_path.root_dir.handle,
+                config_tmp_path.sub_path,
+                final_path.root_dir.handle,
+                final_path.sub_path,
+                io,
+            ) catch |err| retry: {
+                const e = switch (err) {
+                    error.FileNotFound => e: {
+                        const dir_path = final_path.dirname().?;
+                        dir_path.root_dir.handle.createDirPath(io, dir_path.sub_path) catch |e|
+                            fatal("failed to create directory {f}: {t}", .{ dir_path, e });
+                        if (Io.Dir.rename(
+                            config_tmp_path.root_dir.handle,
+                            config_tmp_path.sub_path,
+                            final_path.root_dir.handle,
+                            final_path.sub_path,
+                            io,
+                        )) |_| break :retry else |e| break :e e;
+                    },
+                    else => |e| e,
+                };
+                fatal("failed to rename configuration file from {f} into {f}: {t}", .{
+                    config_tmp_path, final_path, e,
+                });
+            };
+            config_man.writeManifest() catch |err| log.warn("failed to write cache manifest: {t}", .{err});
+            break :cp .{ final_path, false };
+        }
+    };
+
+    // Hang on to the configuration file lock until we finish loading the configuration file.
+    var configuration_lock = if (!poisoned) config_man.toOwnedLock() else null;
+    defer if (configuration_lock) |*l| l.release(io);
+
+    switch (options.print_configuration) {
+        .path => {
+            initStdoutWriter(io).print("{f}\n", .{configuration_path}) catch
+                fatal("failed printing cache file path: {t}", .{stdout_writer_allocation.err.?});
+            stdout_writer_allocation.flush() catch |err|
+                fatal("failed printing cache file path: {t}", .{err});
+            _ = io.lockStderr(&.{}, .no_color) catch {};
+            process.exit(0);
+        },
+        .none, .zon => {},
     }
+
+    const configuration = c: {
+        var file = configuration_path.root_dir.handle.openFile(io, configuration_path.sub_path, .{}) catch |err|
+            fatal("failed to open configuration file {f}: {t}", .{ configuration_path, err });
+        defer file.close(io);
+        break :c Configuration.loadFile(arena, io, file) catch |err|
+            fatal("failed to load configuration file {f}: {t}", .{ configuration_path, err });
+    };
+    // Technically if the configuration is marked as poisoned, we could
+    // already delete the file now, but we leave it around in case the
+    // maker process fails or crashes and it's helpful to be able to repeat
+    // execution of the command line or otherwise inspect the configuration file.
+    const c = &configuration;
+    var top_level_steps: std.array_hash_map.String(Configuration.Step.Index) = .empty;
+    for (configuration.steps, 0..) |*conf_step, step_index_usize| {
+        if (conf_step.owner != .root) continue;
+        const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
+        const flags = conf_step.flags(c);
+        switch (flags.tag) {
+            .top_level => {
+                const name = step_index.ptr(c).name.slice(c);
+                try top_level_steps.put(arena, name, step_index);
+            },
+            else => {},
+        }
+    }
+    for (c.search_prefixes) |search_prefix| {
+        try graph.search_prefixes.append(arena, search_prefix.slice(c));
+    }
+    return .{
+        .configuration = configuration,
+        .top_level_steps = top_level_steps,
+        .path = configuration_path,
+    };
 }
 
 fn cmdFetch(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
@@ -1894,7 +1957,7 @@ fn prepare(maker: *Maker, step_names: []const []const u8) !void {
 fn makeStepNames(
     maker: *Maker,
     step_names: []const []const u8,
-    parent_prog_node: std.Progress.Node,
+    parent_progress_node: std.Progress.Node,
     fuzz: ?Fuzz.Mode,
 ) !void {
     const graph = maker.graph;
@@ -1918,7 +1981,7 @@ fn makeStepNames(
             }
         }
 
-        const step_prog = parent_prog_node.start("steps", step_stack.count());
+        const step_prog = parent_progress_node.start("steps", step_stack.count());
         defer step_prog.end();
 
         var group: Io.Group = .init;
@@ -1998,7 +2061,7 @@ fn makeStepNames(
         }
 
         assert(mode == .limit);
-        var f = Fuzz.init(maker, step_stack.keys(), parent_prog_node, mode) catch |err|
+        var f = Fuzz.init(maker, step_stack.keys(), parent_progress_node, mode) catch |err|
             fatal("failed to start fuzzer: {t}", .{err});
         defer f.deinit();
 
@@ -2189,7 +2252,7 @@ fn makeStep(
         const step_prog_node = root_prog_node.start(step_name, 0);
         defer step_prog_node.end();
 
-        if (maker.web_server) |*ws| ws.updateStepStatus(step_index, .wip);
+        if (maker.web_server) |ws| ws.updateStepStatus(step_index, .wip);
 
         const new_state: Step.State = for (deps) |dep_index| {
             const dep_make_step = maker.stepByIndex(dep_index);
@@ -2224,14 +2287,14 @@ fn makeStep(
             .dependency_failure,
             .skipped_oom,
             => {
-                if (maker.web_server) |*ws| ws.updateStepStatus(step_index, .failure);
+                if (maker.web_server) |ws| ws.updateStepStatus(step_index, .failure);
                 std.Progress.setStatus(.failure_working);
             },
 
             .success,
             .skipped,
             => {
-                if (maker.web_server) |*ws| ws.updateStepStatus(step_index, .success);
+                if (maker.web_server) |ws| ws.updateStepStatus(step_index, .success);
             },
         }
     }

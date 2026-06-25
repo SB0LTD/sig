@@ -1242,7 +1242,7 @@ fn evalZigTest(
                 step.test_results = test_results;
                 if (test_metadata) |tm| {
                     run.cached_test_metadata = tm.toCachedTestMetadata();
-                    if (maker.web_server) |*ws| {
+                    if (maker.web_server) |ws| {
                         if (graph.time_report) {
                             ws.updateTimeReportRunTest(
                                 run_index,

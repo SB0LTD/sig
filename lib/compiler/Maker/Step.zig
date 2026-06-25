@@ -654,7 +654,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                     }
                 }
             },
-            .time_report => if (maker.web_server) |*ws| {
+            .time_report => if (maker.web_server) |ws| {
                 const TimeReport = std.zig.Server.Message.TimeReport;
                 const tr: *align(1) const TimeReport = @ptrCast(body[0..@sizeOf(TimeReport)]);
                 ws.updateTimeReportCompile(.{
