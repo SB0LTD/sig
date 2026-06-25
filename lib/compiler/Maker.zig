@@ -716,14 +716,12 @@ pub fn main(init: process.Init.Minimal) !void {
             .name = "@build",
             .root_path = try root_build_src_path.toString(arena),
         };
-        defer build_mod.deps.deinit(gpa);
 
         const deps_mod = try arena.create(CliModule);
         deps_mod.* = .{
             .name = "@dependencies",
             .root_path = undefined,
         };
-        defer deps_mod.deps.deinit(gpa);
 
         // This loop is re-evaluated when the build script exits with an indication that it
         // could not continue due to missing lazy dependencies.
@@ -876,7 +874,7 @@ pub fn main(init: process.Init.Minimal) !void {
                         // Add a CliModule for each package's build.zig.
                         const hashes = job_queue.table.keys();
                         const fetches = job_queue.table.values();
-                        try deps_mod.deps.ensureUnusedCapacity(gpa, @intCast(hashes.len));
+                        try deps_mod.deps.ensureUnusedCapacity(arena, @intCast(hashes.len));
                         for (hashes, fetches) |*hash, f| {
                             if (f == &fetch) {
                                 // The first one is a dummy package for the current project.
@@ -902,7 +900,7 @@ pub fn main(init: process.Init.Minimal) !void {
                             if (!f.have_manifest) continue;
                             const man = &f.manifest;
                             const dep_names = man.dependencies.keys();
-                            try mod.deps.ensureUnusedCapacity(gpa, @intCast(dep_names.len));
+                            try mod.deps.ensureUnusedCapacity(arena, @intCast(dep_names.len));
                             for (dep_names, man.dependencies.values()) |name, dep| {
                                 const dep_digest = Package.Fetch.depDigest(
                                     f.package_root,
