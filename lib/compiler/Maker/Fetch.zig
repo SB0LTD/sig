@@ -44,7 +44,8 @@ const log = std.log.scoped(.fetch);
 const assert = std.debug.assert;
 const ascii = std.ascii;
 const Allocator = std.mem.Allocator;
-const Cache = std.Build.Cache;
+const Path = std.Build.Cache.Path;
+const Directory = std.Build.Cache.Directory;
 const git = @import("Fetch/git.zig");
 const Package = @import("Package.zig");
 const Manifest = Package.Manifest;
@@ -58,8 +59,8 @@ name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
 /// Same as `parent_packge_root` except it is unchanged when recursing into
 /// relative file paths (as opposed to URL).
-remote_package_root: Cache.Path,
-parent_package_root: Cache.Path,
+remote_package_root: Path,
+parent_package_root: Path,
 parent_manifest_ast: ?*const std.zig.Ast,
 prog_node: std.Progress.Node,
 job_queue: *JobQueue,
@@ -77,7 +78,7 @@ use_latest_commit: bool,
 // Below this are fields populated by `run`.
 
 /// Relative to the build root of the root package.
-package_root: Cache.Path,
+package_root: Path,
 error_bundle: ErrorBundle.Wip,
 manifest: Manifest,
 manifest_ast: std.zig.Ast,
@@ -111,9 +112,9 @@ pub const LazyStatus = enum {
 };
 
 pub const LocalStorage = struct {
-    cache_root: Cache.Path,
+    cache_root: Path,
     /// Path to "zig-pkg" inside the package in which the user ran `zig build`.
-    pkg_root: Cache.Path,
+    pkg_root: Path,
 };
 
 /// Contains shared state among all `Fetch` tasks.
@@ -133,7 +134,7 @@ pub const JobQueue = struct {
     http_client: *std.http.Client,
     /// This tracks `Fetch` tasks as well as recompression tasks.
     group: Io.Group = .init,
-    global_cache: Cache.Directory,
+    global_cache: Directory,
     /// If `null`, indicates fetch globally only.
     local_storage: ?*const LocalStorage,
     /// If true then, no fetching occurs, and:
@@ -170,7 +171,7 @@ pub const JobQueue = struct {
     pub const ForkSet = std.array_hash_map.Custom(Fork, void, Fork.Context, false);
 
     pub const Fork = struct {
-        path: Cache.Path,
+        path: Path,
         manifest_ast: std.zig.Ast,
         manifest: Package.Manifest,
         uses: usize,
@@ -352,14 +353,14 @@ pub const JobQueue = struct {
         );
     }
 
-    fn recompress(jq: *JobQueue, package_hash: Package.Hash, package_root: Cache.Path) Io.Cancelable!void {
+    fn recompress(jq: *JobQueue, package_hash: Package.Hash, package_root: Path) Io.Cancelable!void {
         const pkg_hash_slice = package_hash.toSlice();
 
         const prog_node = jq.prog_node.startFmt(0, "recompress {s}", .{pkg_hash_slice});
         defer prog_node.end();
 
         var dest_sub_path_buf: ["p/".len + Package.Hash.max_len + ".tar.gz".len]u8 = undefined;
-        const dest_path: Cache.Path = .{
+        const dest_path: Path = .{
             .root_dir = jq.global_cache,
             .sub_path = std.fmt.bufPrint(&dest_sub_path_buf, "p/{s}.tar.gz", .{pkg_hash_slice}) catch unreachable,
         };
@@ -381,9 +382,9 @@ pub const JobQueue = struct {
     fn recompressFallible(
         jq: *JobQueue,
         arena: Allocator,
-        dest_path: Cache.Path,
+        dest_path: Path,
         pkg_hash_slice: []const u8,
-        package_root: Cache.Path,
+        package_root: Path,
         prog_node: std.Progress.Node,
     ) !void {
         const gpa = jq.http_client.allocator;
@@ -493,7 +494,7 @@ fn stringCmp(_: void, lhs: ScannedFile, rhs: ScannedFile) bool {
 pub const Location = union(enum) {
     remote: Remote,
     /// A directory found inside the parent package.
-    relative_path: Cache.Path,
+    relative_path: Path,
     /// Recursive Fetch tasks will never use this Location, but it may be
     /// passed in by the CLI. Indicates the file contents here should be copied
     /// into the global package cache. It may be a file relative to the cwd or
@@ -641,7 +642,7 @@ pub fn run(f: *Fetch) RunError!void {
 
         // Check global cache before remote fetch.
         const cached_tarball_sub_path = try std.fmt.allocPrint(arena, "p/{s}.tar.gz", .{expected_hash.toSlice()});
-        const cached_tarball_path: Cache.Path = .{
+        const cached_tarball_path: Path = .{
             .root_dir = job_queue.global_cache,
             .sub_path = cached_tarball_sub_path,
         };
@@ -716,7 +717,7 @@ fn runResource(
     };
     const tmp_dir_sub_path = ".tmp-" ++ std.fmt.hex(rand_int);
     const tmp_tmp_dir_sub_path = "tmp/" ++ tmp_dir_sub_path;
-    const tmp_directory_path: Cache.Path = if (job_queue.local_storage) |ls|
+    const tmp_directory_path: Path = if (job_queue.local_storage) |ls|
         try ls.pkg_root.join(arena, tmp_dir_sub_path)
     else
         .{
@@ -725,7 +726,7 @@ fn runResource(
         };
 
     const package_sub_path = blk: {
-        var tmp_directory: Cache.Directory = .{
+        var tmp_directory: Directory = .{
             .path = tmp_directory_path.sub_path,
             .handle = handle: {
                 const dir = tmp_directory_path.root_dir.handle.createDirPathOpen(io, tmp_directory_path.sub_path, .{
@@ -746,7 +747,7 @@ fn runResource(
         // Fetch and unpack a resource into a temporary directory.
         var unpack_result = try unpackResource(f, resource, uri_path, tmp_directory);
 
-        const pkg_path: Cache.Path = .{ .root_dir = tmp_directory, .sub_path = unpack_result.root_dir };
+        const pkg_path: Path = .{ .root_dir = tmp_directory, .sub_path = unpack_result.root_dir };
 
         // Load, parse, and validate the unpacked build.zig.zon file. It is allowed
         // for the file to be missing, in which case this fetched package is
@@ -874,7 +875,7 @@ fn checkBuildFileExistence(f: *Fetch) RunError!void {
 }
 
 /// This function populates `f.manifest` or leaves it `null`.
-fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
+fn loadManifest(f: *Fetch, pkg_root: Path) RunError!void {
     const io = f.job_queue.io;
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
@@ -1038,7 +1039,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
     }
 }
 
-pub fn relativePathDigest(pkg_root: Cache.Path, cache_root: Cache.Directory) Package.Hash {
+pub fn relativePathDigest(pkg_root: Path, cache_root: Directory) Package.Hash {
     return .initPath(pkg_root.sub_path, pkg_root.root_dir.eql(cache_root));
 }
 
@@ -1331,7 +1332,7 @@ fn unpackResource(
     f: *Fetch,
     resource: *Resource,
     uri_path: []const u8,
-    tmp_directory: Cache.Directory,
+    tmp_directory: Directory,
 ) RunError!UnpackResult {
     const eb = &f.error_bundle;
     const file_type = switch (resource.*) {
@@ -1667,7 +1668,7 @@ fn recursiveDirectoryCopy(f: *Fetch, dir: Io.Dir, tmp_dir: Io.Dir) anyerror!void
     }
 }
 
-pub fn renameTmpIntoCache(io: Io, tmp_path: Cache.Path, dest_path: Cache.Path) !void {
+pub fn renameTmpIntoCache(io: Io, tmp_path: Path, dest_path: Path) !void {
     var handled_missing_dir = false;
     while (true) {
         Io.Dir.rename(
@@ -1711,7 +1712,7 @@ const ComputedHash = struct {
 /// the hash are not present on the file system. Empty directories are *not
 /// hashed* and must not be present on the file system when calling this
 /// function.
-fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!ComputedHash {
+fn computeHash(f: *Fetch, pkg_path: Path, filter: Filter) RunError!ComputedHash {
     const io = f.job_queue.io;
     // All the path name strings need to be in memory for sorting.
     const arena = f.arena.allocator();
@@ -2035,7 +2036,7 @@ const Filter = struct {
     }
 };
 
-pub fn depDigest(pkg_root: Cache.Path, cache_root: Cache.Directory, dep: Manifest.Dependency) ?Package.Hash {
+pub fn depDigest(pkg_root: Path, cache_root: Directory, dep: Manifest.Dependency) ?Package.Hash {
     if (dep.hash) |h| return .fromSlice(h);
 
     switch (dep.location) {
