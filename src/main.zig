@@ -361,6 +361,7 @@ fn mainArgs(
                 .prepend_zig_exe_path = true,
                 .prepend_seed = true,
                 .debug_env_var = .ZIG_DEBUG_MAKER,
+                .release_mode = .ReleaseSafe,
             });
         },
         .clang, .@"-cc1", .@"-cc1as" => {
@@ -4875,6 +4876,7 @@ const JitCmdOptions = struct {
     /// Send error bundles via std.zig.Server over stdout
     server: bool = false,
     debug_env_var: EnvVar = .ZIG_DEBUG_CMD,
+    release_mode: std.lang.OptimizeMode = .ReleaseFast,
 };
 
 fn jitCmd(
@@ -4928,7 +4930,7 @@ fn jitCmdInner(
     const optimize_mode: std.lang.OptimizeMode = if (options.debug_env_var.isSet(environ_map))
         .Debug
     else
-        .ReleaseFast;
+        options.release_mode;
     const strip = optimize_mode != .Debug;
     const override_lib_dir: ?[]const u8 = EnvVar.ZIG_LIB_DIR.get(environ_map);
     const override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
@@ -5064,7 +5066,7 @@ fn jitCmdInner(
 
     child_argv.appendSliceAssumeCapacity(args);
 
-    if (options.debug_env_var.isSet(environ_map)) {
+    if (EnvVar.ZIG_VERBOSE_CMD.isSet(environ_map)) {
         const cmd: std.zig.SubprocessCommand = .{
             .argv = child_argv.items,
         };
