@@ -21,7 +21,6 @@ const process = std.process;
 const Color = std.zig.Color;
 const EnvVar = std.zig.EnvVar;
 const default_local_zig_cache_basename = std.zig.default_local_zig_cache_basename;
-const allocPrint = std.fmt.allocPrint;
 const stringToEnum = std.meta.stringToEnum;
 
 const Fuzz = @import("Maker/Fuzz.zig");
@@ -125,10 +124,10 @@ pub const CliModule = struct {
             if (mem.eql(u8, name, dep.name)) {
                 argv.appendAssumeCapacity(dep.name);
             } else {
-                argv.appendAssumeCapacity(try allocPrint(arena, "{s}={s}", .{ name, dep.name }));
+                argv.appendAssumeCapacity(try arena.print("{s}={s}", .{ name, dep.name }));
             }
         }
-        argv.appendAssumeCapacity(try allocPrint(arena, "-M{s}={s}", .{ cm.name, cm.root_path }));
+        argv.appendAssumeCapacity(try arena.print("-M{s}={s}", .{ cm.name, cm.root_path }));
     }
 };
 
@@ -278,7 +277,7 @@ pub fn main(init: process.Init.Minimal) !void {
                     fatalWithHint("expected [auto|on|off] found {q}", .{next_arg});
 
                 try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
-                configure_argv.appendAssumeCapacity(try allocPrint(arena, "--color={t}", .{color}));
+                configure_argv.appendAssumeCapacity(try arena.print("--color={t}", .{color}));
             } else if (mem.eql(u8, arg, "--cache-poison")) {
                 cache_poison = .poisoned;
                 configure_argv.appendAssumeCapacity("--cache-poison=poisoned");
@@ -965,7 +964,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
         try build_configurer_argv.appendSlice(gpa, &.{ "--libc", libc_file });
     }
     if (graph.reference_trace) |n| {
-        try build_configurer_argv.append(gpa, try allocPrint(arena, "-freference-trace={d}", .{n}));
+        try build_configurer_argv.append(gpa, try arena.print("-freference-trace={d}", .{n}));
     }
     if (graph.debug_compile_errors) {
         try build_configurer_argv.append(gpa, "--debug-compile-errors");
@@ -973,7 +972,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
     try build_configurer_argv.appendSlice(gpa, &.{
         "--dep", "@build", //
         "--dep", "@dependencies", //
-        try allocPrint(arena, "-Mroot={f}", .{configurer_root_src_path}), //
+        try arena.print("-Mroot={f}", .{configurer_root_src_path}), //
     });
 
     // In the loop below, after doing the fetch operation, the argv will be
@@ -1126,7 +1125,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                     const hex_digest = hh.final();
                     const dependencies_zig_path: Path = .{
                         .root_dir = graph.local_cache_root,
-                        .sub_path = try allocPrint(arena, "o/{s}/dependencies.zig", .{&hex_digest}),
+                        .sub_path = try arena.print("o/{s}/dependencies.zig", .{&hex_digest}),
                     };
                     var atomic_file = try dependencies_zig_path.root_dir.handle.createFileAtomic(
                         io,
@@ -1195,12 +1194,12 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                         if (mem.eql(u8, name, sub.name)) {
                             build_configurer_argv.appendAssumeCapacity(sub.name);
                         } else {
-                            build_configurer_argv.appendAssumeCapacity(try allocPrint(arena, "{s}={s}", .{
+                            build_configurer_argv.appendAssumeCapacity(try arena.print("{s}={s}", .{
                                 name, sub.name,
                             }));
                         }
                     }
-                    build_configurer_argv.appendAssumeCapacity(try allocPrint(arena, "-M{s}={s}/{s}", .{
+                    build_configurer_argv.appendAssumeCapacity(try arena.print("-M{s}={s}/{s}", .{
                         dep.name, dep.root_path, std.zig.build_zig_basename,
                     }));
                 }
@@ -1219,7 +1218,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                     break :cp .{
                         .{
                             .root_dir = graph.local_cache_root,
-                            .sub_path = try allocPrint(arena, "c/{s}", .{&digest}),
+                            .sub_path = try arena.print("c/{s}", .{&digest}),
                         },
                         false,
                     };
@@ -1326,7 +1325,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
             const digest = config_man.final();
             const final_path: Path = .{
                 .root_dir = graph.local_cache_root,
-                .sub_path = try allocPrint(arena, "c/{s}", .{&digest}),
+                .sub_path = try arena.print("c/{s}", .{&digest}),
             };
             Io.Dir.rename(
                 config_tmp_path.root_dir.handle,
@@ -1597,7 +1596,7 @@ fn cmdFetch(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
     var saved_path_or_url = path_or_url;
 
     if (fetch.latest_commit) |latest_commit| resolved: {
-        const latest_commit_hex = try allocPrint(arena, "{f}", .{latest_commit});
+        const latest_commit_hex = try arena.print("{f}", .{latest_commit});
 
         var uri = try std.Uri.parse(path_or_url);
 
@@ -1610,7 +1609,7 @@ fn cmdFetch(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
             log.info("resolved ref {q} to commit {s}", .{ target_ref, latest_commit_hex });
 
             // include the original refspec in a query parameter, could be used to check for updates
-            uri.query = .{ .percent_encoded = try allocPrint(arena, "ref={f}", .{
+            uri.query = .{ .percent_encoded = try arena.print("ref={f}", .{
                 std.fmt.alt(fragment, .formatEscaped),
             }) };
         } else {
@@ -1621,12 +1620,12 @@ fn cmdFetch(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
         uri.fragment = .{ .raw = latest_commit_hex };
 
         switch (save) {
-            .yes => saved_path_or_url = try allocPrint(arena, "{f}", .{uri}),
+            .yes => saved_path_or_url = try arena.print("{f}", .{uri}),
             .no, .exact => {}, // keep the original URL
         }
     }
 
-    const new_node_init = try allocPrint(arena,
+    const new_node_init = try arena.print(
         \\.{{
         \\            .url = "{f}",
         \\            .hash = "{f}",
@@ -1636,15 +1635,15 @@ fn cmdFetch(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
         std.zig.fmtString(package_hash_slice),
     });
 
-    const new_node_text = try allocPrint(arena, ".{f} = {s},\n", .{
+    const new_node_text = try arena.print(".{f} = {s},\n", .{
         std.zig.fmtIdPU(name), new_node_init,
     });
 
-    const dependencies_init = try allocPrint(arena, ".{{\n        {s}    }}", .{
+    const dependencies_init = try arena.print(".{{\n        {s}    }}", .{
         new_node_text,
     });
 
-    const dependencies_text = try allocPrint(arena, ".dependencies = {s},\n", .{
+    const dependencies_text = try arena.print(".dependencies = {s},\n", .{
         dependencies_init,
     });
 
@@ -1661,16 +1660,8 @@ fn cmdFetch(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
             }
         }
 
-        const location_replace = try allocPrint(
-            arena,
-            "\"{f}\"",
-            .{std.zig.fmtString(saved_path_or_url)},
-        );
-        const hash_replace = try allocPrint(
-            arena,
-            "\"{f}\"",
-            .{std.zig.fmtString(package_hash_slice)},
-        );
+        const location_replace = try arena.print("{q}", .{saved_path_or_url});
+        const hash_replace = try arena.print("{q}", .{package_hash_slice});
 
         log.warn("overwriting existing dependency named {q}", .{name});
         try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
@@ -3272,11 +3263,11 @@ pub fn installSymLinks(
     const name = conf_comp.root_name.slice(c);
 
     const filename_major_only, const filename_name_only = if (os_tag.isDarwin()) .{
-        try allocPrint(arena, "lib{s}.{d}.dylib", .{ name, version.major }),
-        try allocPrint(arena, "lib{s}.dylib", .{name}),
+        try arena.print("lib{s}.{d}.dylib", .{ name, version.major }),
+        try arena.print("lib{s}.dylib", .{name}),
     } else .{
-        try allocPrint(arena, "lib{s}.so.{d}", .{ name, version.major }),
-        try allocPrint(arena, "lib{s}.so", .{name}),
+        try arena.print("lib{s}.so.{d}", .{ name, version.major }),
+        try arena.print("lib{s}.so", .{name}),
     };
 
     return installSymLinksInner(maker, arena, output_path, asking_step_index, filename_major_only, filename_name_only);

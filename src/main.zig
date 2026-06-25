@@ -21,7 +21,6 @@ const AstGen = std.zig.AstGen;
 const ZonGen = std.zig.ZonGen;
 const Server = std.zig.Server;
 const stringToEnum = std.meta.stringToEnum;
-const allocPrint = std.fmt.allocPrint;
 
 pub const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
@@ -2964,7 +2963,7 @@ fn buildOutputType(
             while (preprocessor_args_it.next()) |arg| {
                 if (mem.eql(u8, arg, "-MD") or mem.eql(u8, arg, "-MMD") or mem.eql(u8, arg, "-MT")) {
                     disable_c_depfile = true;
-                    const cc_arg = try allocPrint(arena, "-Wp,{s},{s}", .{ arg, preprocessor_args_it.nextOrFatal() });
+                    const cc_arg = try arena.print("-Wp,{s},{s}", .{ arg, preprocessor_args_it.nextOrFatal() });
                     try cc_argv.append(arena, cc_arg);
                 } else {
                     fatal("unsupported preprocessor arg: {s}", .{arg});
@@ -3408,9 +3407,9 @@ fn buildOutputType(
         .yes_default_value => if (create_module.resolved_options.output_mode == .Lib and
             create_module.resolved_options.link_mode == .dynamic and target.ofmt == .elf)
             if (have_version)
-                try allocPrint(arena, "lib{s}.so.{d}", .{ root_name, version.major })
+                try arena.print("lib{s}.so.{d}", .{ root_name, version.major })
             else
-                try allocPrint(arena, "lib{s}.so", .{root_name})
+                try arena.print("lib{s}.so", .{root_name})
         else
             null,
     };
@@ -3420,7 +3419,7 @@ fn buildOutputType(
         .yes_default_path => emit: {
             if (output_to_cache != null) break :emit .yes_cache;
             const name = switch (clang_preprocessor_mode) {
-                .pch => try allocPrint(arena, "{s}.pch", .{root_name}),
+                .pch => try arena.print("{s}.pch", .{root_name}),
                 else => try std.zig.binNameAlloc(arena, .{
                     .root_name = root_name,
                     .cpu_arch = target.cpu.arch,
@@ -3456,16 +3455,16 @@ fn buildOutputType(
         },
     };
 
-    const default_h_basename = try allocPrint(arena, "{s}.h", .{root_name});
+    const default_h_basename = try arena.print("{s}.h", .{root_name});
     const emit_h_resolved = emit_h.resolve(io, default_h_basename, output_to_cache);
 
-    const default_asm_basename = try allocPrint(arena, "{s}.s", .{root_name});
+    const default_asm_basename = try arena.print("{s}.s", .{root_name});
     const emit_asm_resolved = emit_asm.resolve(io, default_asm_basename, output_to_cache);
 
-    const default_llvm_ir_basename = try allocPrint(arena, "{s}.ll", .{root_name});
+    const default_llvm_ir_basename = try arena.print("{s}.ll", .{root_name});
     const emit_llvm_ir_resolved = emit_llvm_ir.resolve(io, default_llvm_ir_basename, output_to_cache);
 
-    const default_llvm_bc_basename = try allocPrint(arena, "{s}.bc", .{root_name});
+    const default_llvm_bc_basename = try arena.print("{s}.bc", .{root_name});
     const emit_llvm_bc_resolved = emit_llvm_bc.resolve(io, default_llvm_bc_basename, output_to_cache);
 
     const emit_docs_resolved = emit_docs.resolve(io, "docs", output_to_cache);
@@ -3486,7 +3485,7 @@ fn buildOutputType(
             fatal("the argument -femit-implib is allowed only when building a Windows DLL", .{});
         }
     }
-    const default_implib_basename = try allocPrint(arena, "{s}.lib", .{root_name});
+    const default_implib_basename = try arena.print("{s}.lib", .{root_name});
     const emit_implib_resolved: Compilation.CreateOptions.Emit = switch (emit_implib) {
         .no => .no,
         .yes => emit_implib.resolve(io, default_implib_basename, output_to_cache),
@@ -3515,7 +3514,7 @@ fn buildOutputType(
 
         // "-" is stdin. Dump it to a real file.
         const sep = fs.path.sep_str;
-        const dump_path = try allocPrint(arena, "tmp" ++ sep ++ "{x}-dump-stdin{s}", .{
+        const dump_path = try arena.print("tmp" ++ sep ++ "{x}-dump-stdin{s}", .{
             randInt(io, u64), ext.canonicalName(target),
         });
         try dirs.local_cache.handle.createDirPath(io, "tmp");
@@ -3544,7 +3543,7 @@ fn buildOutputType(
 
         const bin_digest: Cache.BinDigest = hasher.hasher.finalResult();
 
-        const sub_path = try allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
+        const sub_path = try arena.print("tmp" ++ sep ++ "{x}-stdin{s}", .{
             &bin_digest, ext.canonicalName(target),
         });
         try dirs.local_cache.handle.rename(dump_path, dirs.local_cache.handle, sub_path, io);
@@ -3876,9 +3875,9 @@ fn buildOutputType(
                 for (mod.cc_argv) |cc_arg| test_exec_args.appendAssumeCapacity(cc_arg);
                 for (mod.deps) |dep| try test_exec_args.appendSlice(arena, &.{
                     "--dep",
-                    if (std.mem.eql(u8, dep.key, dep.value)) dep.value else try std.fmt.allocPrint(arena, "{s}={s}", .{ dep.key, dep.value }),
+                    if (std.mem.eql(u8, dep.key, dep.value)) dep.value else try arena.print("{s}={s}", .{ dep.key, dep.value }),
                 });
-                try test_exec_args.append(arena, try std.fmt.allocPrint(arena, "-M{s}", .{mod_name}));
+                try test_exec_args.append(arena, try arena.print("-M{s}", .{mod_name}));
             }
 
             try test_exec_args.ensureUnusedCapacity(arena, comp.global_cc_argv.len);
@@ -4573,7 +4572,7 @@ fn runOrTest(
         try argv.append(exe_path);
         if (arg_mode == .zig_test) {
             try argv.append(
-                try allocPrint(arena, "--seed=0x{x}", .{randInt(io, u32)}),
+                try arena.print("--seed=0x{x}", .{randInt(io, u32)}),
             );
         }
     } else {
@@ -4781,7 +4780,7 @@ fn cmdTranslateC(
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
-    const translated_basename = try allocPrint(arena, "{s}.zig", .{comp.root_name});
+    const translated_basename = try arena.print("{s}.zig", .{comp.root_name});
 
     var man: Cache.Manifest = comp.obtainCObjectCacheManifest(comp.root_mod);
     man.want_shared_lock = false;
@@ -4890,7 +4889,7 @@ fn jitCmd(
 
     const root_prog_node = std.Progress.start(io, .{
         .disable_printing = (color == .off),
-        .root_name = try allocPrint(arena, "Compiling {s} (first time setup)", .{options.cmd_name}),
+        .root_name = try arena.print("Compiling {s} (first time setup)", .{options.cmd_name}),
     });
     defer root_prog_node.end();
 
@@ -5053,13 +5052,13 @@ fn jitCmdInner(
     if (options.prepend_cmd) |cmd|
         child_argv.appendAssumeCapacity(cmd);
     if (options.prepend_zig_lib_dir_path)
-        child_argv.appendAssumeCapacity(try allocPrint(arena, "--zig-lib={s}", .{dirs.zig_lib.path.?}));
+        child_argv.appendAssumeCapacity(try arena.print("--zig-lib={s}", .{dirs.zig_lib.path.?}));
     if (options.prepend_zig_exe_path)
-        child_argv.appendAssumeCapacity(try allocPrint(arena, "--zig={s}", .{self_exe_path}));
+        child_argv.appendAssumeCapacity(try arena.print("--zig={s}", .{self_exe_path}));
     if (options.prepend_global_cache_path)
-        child_argv.appendAssumeCapacity(try allocPrint(arena, "--global-cache={s}", .{dirs.global_cache.path.?}));
+        child_argv.appendAssumeCapacity(try arena.print("--global-cache={s}", .{dirs.global_cache.path.?}));
     if (options.prepend_seed)
-        child_argv.appendAssumeCapacity(try allocPrint(arena, "--seed=0x{x}", .{randInt(io, u32)}));
+        child_argv.appendAssumeCapacity(try arena.print("--seed=0x{x}", .{randInt(io, u32)}));
 
     child_argv.appendSliceAssumeCapacity(args);
 
