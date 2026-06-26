@@ -2848,7 +2848,7 @@ pub const Object = struct {
     pub const TypeRepr = enum {
         /// The representation of the type when it is being manipulated as a value in a function.
         /// e.g. Zig `u5` -> LLVM `i5`
-        by_value,
+        as_value,
         /// The representation of the type when it is stored in memory.
         /// e.g. Zig `u5` -> LLVM `i8`
         in_memory,
@@ -2856,7 +2856,7 @@ pub const Object = struct {
 
     pub fn errorIntType(o: *Object, repr: TypeRepr) Allocator.Error!Builder.Type {
         return o.builder.intType(switch (repr) {
-            .by_value => o.zcu.errorSetBits(),
+            .as_value => o.zcu.errorSetBits(),
             .in_memory => @intCast(Type.anyerror.abiSize(o.zcu) * 8),
         });
     }
@@ -2866,7 +2866,7 @@ pub const Object = struct {
         const target = zcu.getTarget();
         const ip = &zcu.intern_pool;
 
-        if (repr == .by_value) {
+        if (repr == .as_value) {
             assert(!isByRef(t, zcu)); // by-ref types must only be manipulated in memory
         }
 
@@ -2886,7 +2886,7 @@ pub const Object = struct {
             .u128_type,
             .i128_type,
             => |tag| switch (repr) {
-                .by_value => @field(Builder.Type, "i" ++ @tagName(tag)[1 .. @tagName(tag).len - "_type".len]),
+                .as_value => @field(Builder.Type, "i" ++ @tagName(tag)[1 .. @tagName(tag).len - "_type".len]),
                 .in_memory => try o.builder.intType(@intCast(t.abiSize(zcu) * 8)),
             },
             .usize_type, .isize_type => try o.builder.intType(target.ptrBitWidth()),
@@ -2973,7 +2973,7 @@ pub const Object = struct {
             => unreachable,
             else => switch (ip.indexToKey(t.toIntern())) {
                 .int_type => |int_type| switch (repr) {
-                    .by_value => try o.builder.intType(int_type.bits),
+                    .as_value => try o.builder.intType(int_type.bits),
                     .in_memory => try o.builder.intType(@intCast(t.abiSize(zcu) * 8)),
                 },
                 .ptr_type => |ptr_type| type: {
@@ -2995,7 +2995,7 @@ pub const Object = struct {
                 .vector_type => |vector_type| o.builder.vectorType(
                     .normal,
                     vector_type.len,
-                    try o.lowerType(.fromInterned(vector_type.child), .by_value),
+                    try o.lowerType(.fromInterned(vector_type.child), .as_value),
                 ),
                 .opt_type => |child_ty| {
                     // Must stay in sync with `opt_payload` logic in `lowerPtr`.
@@ -3310,7 +3310,7 @@ pub const Object = struct {
             .no_bits => continue,
             .byval => {
                 const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
-                try llvm_params.append(o.gpa, try o.lowerType(param_ty, if (isByRef(param_ty, zcu)) .in_memory else .by_value));
+                try llvm_params.append(o.gpa, try o.lowerType(param_ty, if (isByRef(param_ty, zcu)) .in_memory else .as_value));
             },
             .byref, .byref_mut => {
                 try llvm_params.append(o.gpa, .ptr);
@@ -3325,7 +3325,7 @@ pub const Object = struct {
                 const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                 try llvm_params.appendSlice(o.gpa, &.{
                     try o.builder.ptrType(toLlvmAddressSpace(param_ty.ptrAddressSpace(zcu), target)),
-                    try o.lowerType(.usize, .by_value),
+                    try o.lowerType(.usize, .as_value),
                 });
             },
             .multiple_llvm_types => {
@@ -3347,7 +3347,7 @@ pub const Object = struct {
 
         const llvm_ret_ty: Builder.Type = switch (ret_strat) {
             .void, .sret => .void,
-            .by_val => try o.lowerType(.fromInterned(fn_info.return_type), .by_value),
+            .by_val => try o.lowerType(.fromInterned(fn_info.return_type), .as_value),
             .mem_cast => |llvm_ret_ty| llvm_ret_ty,
         };
         const llvm_fn_kind: Builder.Type.Function.Kind = switch (fn_info.is_var_args) {
@@ -3604,7 +3604,7 @@ pub const Object = struct {
                                     result_val.* = try o.builder.intConst(.i8, byte);
                                 },
                                 .elems => |elems| for (vals, elems) |*result_val, elem| {
-                                    result_val.* = try o.lowerValue(elem, .by_value);
+                                    result_val.* = try o.lowerValue(elem, .as_value);
                                 },
                                 .repeated_elem => unreachable,
                             }
@@ -3612,7 +3612,7 @@ pub const Object = struct {
                         },
                         .repeated_elem => |elem| return o.builder.splatConst(
                             vector_ty,
-                            try o.lowerValue(elem, .by_value),
+                            try o.lowerValue(elem, .as_value),
                         ),
                     }
                 },
@@ -3869,8 +3869,8 @@ pub const Object = struct {
             },
             .int => try o.builder.castConst(
                 .inttoptr,
-                try o.builder.intConst(try o.lowerType(.usize, .by_value), offset),
-                try o.lowerType(.fromInterned(ptr.ty), .by_value),
+                try o.builder.intConst(try o.lowerType(.usize, .as_value), offset),
+                try o.lowerType(.fromInterned(ptr.ty), .as_value),
             ),
             .eu_payload => |eu_ptr| try o.lowerPtr(
                 eu_ptr,
@@ -3917,7 +3917,7 @@ pub const Object = struct {
         @"addrspace": std.lang.AddressSpace,
     ) Allocator.Error!Builder.Constant {
         const addr: u64 = @"align".toByteUnits().?;
-        const llvm_usize = try o.lowerType(.usize, .by_value);
+        const llvm_usize = try o.lowerType(.usize, .as_value);
         const llvm_addr = try o.builder.intConst(llvm_usize, addr);
         const llvm_ptr_ty = try o.builder.ptrType(toLlvmAddressSpace(@"addrspace", o.zcu.getTarget()));
         return o.builder.castConst(.inttoptr, llvm_addr, llvm_ptr_ty);
@@ -4132,9 +4132,9 @@ pub const Object = struct {
         const ip = &zcu.intern_pool;
         const loaded_enum = ip.loadEnumType(enum_ty.toIntern());
 
-        const llvm_usize_ty = try o.lowerType(.usize, .by_value);
-        const llvm_ret_ty = try o.lowerType(.slice_const_u8_sentinel_0, .by_value);
-        const llvm_int_ty = try o.lowerType(.fromInterned(loaded_enum.int_tag_type), .by_value);
+        const llvm_usize_ty = try o.lowerType(.usize, .as_value);
+        const llvm_ret_ty = try o.lowerType(.slice_const_u8_sentinel_0, .as_value);
+        const llvm_int_ty = try o.lowerType(.fromInterned(loaded_enum.int_tag_type), .as_value);
 
         function_index.ptrConst(&o.builder).global.ptr(&o.builder).type =
             try o.builder.fnType(llvm_ret_ty, &.{llvm_int_ty}, .normal);
@@ -4183,7 +4183,7 @@ pub const Object = struct {
             const return_block = try wip.block(1, "Name");
             const llvm_tag_val = switch (loaded_enum.field_values.getOrNone(ip, field_index)) {
                 .none => try o.builder.intConst(llvm_int_ty, field_index), // auto-numbered
-                else => |tag_val_ip| try o.lowerValue(tag_val_ip, .by_value),
+                else => |tag_val_ip| try o.lowerValue(tag_val_ip, .as_value),
             };
             try wip_switch.addCase(llvm_tag_val, return_block, &wip);
 
@@ -4229,7 +4229,7 @@ pub const Object = struct {
         const ip = &zcu.intern_pool;
         const loaded_enum = ip.loadEnumType(enum_ty.toIntern());
 
-        const llvm_int_ty = try o.lowerType(.fromInterned(loaded_enum.int_tag_type), .by_value);
+        const llvm_int_ty = try o.lowerType(.fromInterned(loaded_enum.int_tag_type), .as_value);
         function_index.ptrConst(&o.builder).global.ptr(&o.builder).type =
             try o.builder.fnType(.i1, &.{llvm_int_ty}, .normal);
 
@@ -4256,7 +4256,7 @@ pub const Object = struct {
 
         if (loaded_enum.field_values.len > 0) {
             for (loaded_enum.field_values.get(ip)) |tag_val_ip| {
-                const llvm_tag_val = try o.lowerValue(tag_val_ip, .by_value);
+                const llvm_tag_val = try o.lowerValue(tag_val_ip, .as_value);
                 try wip_switch.addCase(llvm_tag_val, named_block, &wip);
             }
         } else {
