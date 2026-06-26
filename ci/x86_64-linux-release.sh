@@ -48,7 +48,7 @@ unset CXX
 
 ninja install
 
-# Must be done after zig cc is finished.
+# Must not be set while using the other `zig cc` which has its own zig lib dir.
 export ZIG_LIB_DIR="$PWD/../lib"
 
 # Covers several things:
@@ -99,6 +99,7 @@ cd ../build-new
 
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+unset ZIG_LIB_DIR
 
 cmake .. \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
@@ -116,6 +117,8 @@ unset CC
 unset CXX
 
 ninja install
+
+export ZIG_LIB_DIR="$PWD/../lib"
 
 stage3/bin/zig test ../test/behavior.zig
 stage3/bin/zig build -p stage4 \
