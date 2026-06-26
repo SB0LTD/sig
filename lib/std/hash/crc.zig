@@ -2,17 +2,6 @@
 
 const builtin = @import("builtin");
 
-pub const @"CRC-32/ISCSI" = if (builtin.cpu.hasAll(.x86, &.{ .@"64bit", .crc32 }))
-    @import("crc/Crc32c.zig")
-else
-    Generic(u32, .{
-        .polynomial = 0x1edc6f41,
-        .initial = 0xffffffff,
-        .reflect_input = true,
-        .reflect_output = true,
-        .xor_output = 0xffffffff,
-    });
-
 pub const @"CRC-3/GSM" = Generic(u3, .{
     .polynomial = 0x3,
     .initial = 0x0,
@@ -796,6 +785,17 @@ pub const @"CRC-32/CKSUM" = Generic(u32, .{
     .reflect_output = false,
     .xor_output = 0xffffffff,
 });
+
+pub const @"CRC-32/ISCSI" = if (builtin.cpu.hasAll(.x86, &.{ .@"64bit", .crc32 }))
+    @import("crc/Crc32c.zig")
+else
+    Generic(u32, .{
+        .polynomial = 0x1edc6f41,
+        .initial = 0xffffffff,
+        .reflect_input = true,
+        .reflect_output = true,
+        .xor_output = 0xffffffff,
+    });
 
 pub const @"CRC-32/ISO-HDLC" = Generic(u32, .{
     .polynomial = 0x04c11db7,

@@ -41,17 +41,6 @@ fn @"i like cheese"(arena: std.mem.Allocator, io: Io, args: []const []const u8) 
         \\
         \\const builtin = @import("builtin");
         \\
-        \\pub const Crc32Iscsi = if (builtin.cpu.hasAll(.x86, &.{ .@"64bit", .crc32 }))
-        \\    @import("crc/Crc32c.zig")
-        \\else
-        \\    Generic(u32, .{
-        \\        .polynomial = 0x1edc6f41,
-        \\        .initial = 0xffffffff,
-        \\        .reflect_input = true,
-        \\        .reflect_output = true,
-        \\        .xor_output = 0xffffffff,
-        \\    });
-        \\
     );
 
     var zig_test_file = try crc_target_dir.createFile(io, "test.zig", .{});
@@ -70,35 +59,24 @@ fn @"i like cheese"(arena: std.mem.Allocator, io: Io, args: []const []const u8) 
         \\const crc = @import("../crc.zig");
         \\
         \\test "crc32 ieee regression" {
-        \\    const crc32 = crc.Crc32IsoHdlc;
-        \\    try testing.expectEqual(crc32.hash(""), 0x00000000);
-        \\    try testing.expectEqual(crc32.hash("a"), 0xe8b7be43);
-        \\    try testing.expectEqual(crc32.hash("abc"), 0x352441c2);
+        \\    const Crc = crc.@"CRC-32/ISO-HDLC";
+        \\    try testing.expectEqual(Crc.hash(""), 0x00000000);
+        \\    try testing.expectEqual(Crc.hash("a"), 0xe8b7be43);
+        \\    try testing.expectEqual(Crc.hash("abc"), 0x352441c2);
         \\}
         \\
         \\test "crc32 castagnoli regression" {
-        \\    const crc32 = crc.Crc32Iscsi;
-        \\    try testing.expectEqual(crc32.hash(""), 0x00000000);
-        \\    try testing.expectEqual(crc32.hash("a"), 0xc1d04330);
-        \\    try testing.expectEqual(crc32.hash("abc"), 0x364b3fb7);
+        \\    const Crc = crc.@"CRC-32/ISCSI";
+        \\    try testing.expectEqual(Crc.hash(""), 0x00000000);
+        \\    try testing.expectEqual(Crc.hash("a"), 0xc1d04330);
+        \\    try testing.expectEqual(Crc.hash("abc"), 0x364b3fb7);
         \\}
         \\
         \\test "crc32 koopman regression" {
-        \\    const crc32 = crc.Crc32Koopman;
-        \\    try testing.expectEqual(crc32.hash(""), 0x00000000);
-        \\    try testing.expectEqual(crc32.hash("a"), 0x0da2aa8a);
-        \\    try testing.expectEqual(crc32.hash("abc"), 0xba2322ac);
-        \\}
-        \\
-        \\test "CRC-32/ISCSI" {
-        \\    const Crc32Iscsi = crc.Crc32Iscsi;
-        \\
-        \\    try testing.expectEqual(@as(u32, 0xe3069283), Crc32Iscsi.hash("123456789"));
-        \\
-        \\    var c = Crc32Iscsi.init();
-        \\    c.update("1234");
-        \\    c.update("56789");
-        \\    try testing.expectEqual(@as(u32, 0xe3069283), c.final());
+        \\    const Crc = crc.@"CRC-32/KOOPMAN";
+        \\    try testing.expectEqual(Crc.hash(""), 0x00000000);
+        \\    try testing.expectEqual(Crc.hash("a"), 0x0da2aa8a);
+        \\    try testing.expectEqual(Crc.hash("abc"), 0xba2322ac);
         \\}
         \\
     );
@@ -147,17 +125,34 @@ fn @"i like cheese"(arena: std.mem.Allocator, io: Io, args: []const []const u8) 
             }
         }
 
-        try code_writer.print(
-            \\
-            \\pub const {f} = Generic(u{s}, .{{
-            \\    .polynomial = {s},
-            \\    .initial = {s},
-            \\    .reflect_input = {s},
-            \\    .reflect_output = {s},
-            \\    .xor_output = {s},
-            \\}});
-            \\
-        , .{ std.zig.fmtId(name), width, poly, init, refin, refout, xorout });
+        if (mem.eql(u8, name, "CRC-32/ISCSI")) {
+            try code_writer.print(
+                \\
+                \\pub const {f} = if (builtin.cpu.hasAll(.x86, &.{{ .@"64bit", .crc32 }}))
+                \\    @import("crc/Crc32c.zig")
+                \\else
+                \\    Generic(u{s}, .{{
+                \\        .polynomial = {s},
+                \\        .initial = {s},
+                \\        .reflect_input = {s},
+                \\        .reflect_output = {s},
+                \\        .xor_output = {s},
+                \\    }});
+                \\
+            , .{ std.zig.fmtId(name), width, poly, init, refin, refout, xorout });
+        } else {
+            try code_writer.print(
+                \\
+                \\pub const {f} = Generic(u{s}, .{{
+                \\    .polynomial = {s},
+                \\    .initial = {s},
+                \\    .reflect_input = {s},
+                \\    .reflect_output = {s},
+                \\    .xor_output = {s},
+                \\}});
+                \\
+            , .{ std.zig.fmtId(name), width, poly, init, refin, refout, xorout });
+        }
 
         try test_writer.print(
             \\
