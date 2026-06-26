@@ -1,4 +1,4 @@
-const assert = @import("std").debug.assert;
+const assert = std.debug.assert;
 const std = @import("std");
 const InternPool = @import("../../InternPool.zig");
 const Type = @import("../../Type.zig");

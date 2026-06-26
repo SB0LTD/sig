@@ -6808,6 +6808,24 @@ const ParamTypeIterator = struct {
                     },
                 }
             },
+            .s390x_sysv, .s390x_sysv_vx => {
+                it.zig_index += 1;
+                switch (s390x_c_abi.classifyType(ty, .arg, zcu)) {
+                    .none => return .no_bits,
+                    .double_or_float, .vector, .simple => {
+                        it.llvm_index += 1;
+                        return .byval;
+                    },
+                    .simple_aggregate => {
+                        it.llvm_index += 1;
+                        return .abi_sized_int;
+                    },
+                    .pointer => {
+                        it.llvm_index += 1;
+                        return .byref_mut;
+                    },
+                }
+            },
             .wasm_mvp => switch (wasm_c_abi.classifyType(ty, zcu)) {
                 .direct => |scalar_ty| {
                     if (isScalar(zcu, ty)) {
@@ -7085,6 +7103,12 @@ pub fn fnReturnStrat(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Err
                 }
                 return .{ .mem_cast = try o.builder.structType(.normal, types[0..types_len]) };
             },
+        },
+        .s390x_sysv, .s390x_sysv_vx => return switch (s390x_c_abi.classifyType(ret_ty, .ret, zcu)) {
+            .none => .void,
+            .double_or_float, .vector, .simple => .by_val,
+            .simple_aggregate => unreachable,
+            .pointer => .sret,
         },
         .wasm_mvp => switch (wasm_c_abi.classifyType(ret_ty, zcu)) {
             .direct => |scalar_ty| if (scalar_ty.toIntern() == ret_ty.toIntern()) {
@@ -7823,12 +7847,13 @@ const Builder = std.zig.llvm.Builder;
 const assert = std.debug.assert;
 const math = std.math;
 
-const x86_64_abi = @import("../x86_64/abi.zig");
-const wasm_c_abi = @import("../wasm/abi.zig");
 const aarch64_c_abi = @import("../aarch64/abi.zig");
 const arm_c_abi = @import("../arm/abi.zig");
-const riscv_c_abi = @import("../riscv64/abi.zig");
 const mips_c_abi = @import("../mips/abi.zig");
+const riscv_c_abi = @import("../riscv64/abi.zig");
+const s390x_c_abi = @import("../s390x/abi.zig");
+const wasm_c_abi = @import("../wasm/abi.zig");
+const x86_64_abi = @import("../x86_64/abi.zig");
 
 const Zcu = @import("../../Zcu.zig");
 const Air = @import("../../Air.zig");

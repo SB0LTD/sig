@@ -15564,12 +15564,10 @@ void run_c_tests(void) {
 #ifndef __loongarch__
 #ifndef ZIG_MIPS64
 #ifndef __powerpc__
-#ifndef __s390x__
     {
         struct Struct_i32_i32 s = {1, 2};
         zig_struct_i32_i32(s);
     }
-#endif
 #endif
 #endif
 #endif
@@ -15579,12 +15577,10 @@ void run_c_tests(void) {
 #ifndef __loongarch__
 #ifndef ZIG_MIPS64
 #ifndef __powerpc__
-#ifndef __s390x__
     {
         struct BigStruct s = {1, 2, 3, 4, 5};
         zig_big_struct(s);
     }
-#endif
 #endif
 #endif
 #endif
@@ -15613,12 +15609,10 @@ void run_c_tests(void) {
 #ifndef __loongarch__
 #ifndef ZIG_MIPS64
 #ifndef __powerpc__
-#ifndef __s390x__
     {
         struct SplitStructInts s = {1234, 100, 1337};
         zig_split_struct_ints(s);
     }
-#endif
 #endif
 #endif
 #endif
@@ -15629,12 +15623,10 @@ void run_c_tests(void) {
 #ifndef __loongarch__
 #ifndef ZIG_MIPS64
 #ifndef __powerpc__
-#ifndef __s390x__
     {
         struct MedStructMixed s = {1234, 100.0f, 1337.0f};
         zig_med_struct_mixed(s);
     }
-#endif
 #endif
 #endif
 #endif
@@ -15645,12 +15637,10 @@ void run_c_tests(void) {
 #ifndef __loongarch__
 #ifndef ZIG_MIPS64
 #ifndef __powerpc__
-#ifndef __s390x__
     {
         struct SplitStructMixed s = {1234, 100, 1337.0f};
         zig_split_struct_mixed(s);
     }
-#endif
 #endif
 #endif
 #endif
@@ -15661,7 +15651,6 @@ void run_c_tests(void) {
 #ifndef __loongarch__
 #ifndef ZIG_MIPS64
 #ifndef __powerpc__
-#ifndef __s390x__
     {
         struct BigStruct s = {30, 31, 32, 33, 34};
         struct BigStruct res = zig_big_struct_both(s);
@@ -15671,7 +15660,6 @@ void run_c_tests(void) {
         assert_or_panic(res.d == 23);
         assert_or_panic(res.e == 24);
     }
-#endif
 #endif
 #endif
 #endif

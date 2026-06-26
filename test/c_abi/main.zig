@@ -13,7 +13,7 @@ const expectEqual = std.testing.expectEqual;
 const have_i128 = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isArm() and
     !builtin.cpu.arch.isMIPS() and !builtin.cpu.arch.isPowerPC32() and builtin.cpu.arch != .riscv32 and
     builtin.cpu.arch != .hexagon and
-    builtin.cpu.arch != .s390x; // https://github.com/llvm/llvm-project/issues/168460
+    builtin.cpu.arch != .s390x;
 
 const have_f128 = builtin.cpu.arch.isWasm() or (builtin.cpu.arch.isX86() and !builtin.os.tag.isDarwin() and builtin.abi != .msvc);
 const have_f80 = builtin.cpu.arch.isX86() and builtin.abi != .msvc;
@@ -5136,7 +5136,6 @@ test "@Vector(24, u8)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_24_u8();
     try expect(v[0] == 57);
@@ -5220,7 +5219,6 @@ test "@Vector(32, u8)" {
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_32_u8();
     try expect(v[0] == 69);
@@ -5330,7 +5328,6 @@ test "@Vector(48, u8)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_48_u8();
     try expect(v[0] == 29);
@@ -5473,7 +5470,6 @@ test "@Vector(64, u8)" {
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_64_u8();
     try expect(v[0] == 53);
@@ -5668,7 +5664,6 @@ test "@Vector(96, u8)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_96_u8();
     try expect(v[0] == 82);
@@ -5931,7 +5926,6 @@ test "@Vector(128, u8)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_128_u8();
     try expect(v[0] == 30);
@@ -6296,7 +6290,6 @@ test "@Vector(192, u8)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_192_u8();
     try expect(v[0] == 70);
@@ -6797,7 +6790,6 @@ test "@Vector(256, u8)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_256_u8();
     try expect(v[0] == 66);
@@ -7502,7 +7494,6 @@ test "@Vector(384, u8)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_384_u8();
     try expect(v[0] == 46);
@@ -8479,7 +8470,6 @@ test "@Vector(512, u8)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_512_u8();
     try expect(v[0] == 38);
@@ -9250,7 +9240,6 @@ test "@Vector(12, u16)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_12_u16();
     try expect(v[0] == 121);
@@ -9300,7 +9289,6 @@ test "@Vector(16, u16)" {
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_16_u16();
     try expect(v[0] == 177);
@@ -9366,7 +9354,6 @@ test "@Vector(24, u16)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_24_u16();
     try expect(v[0] == 257);
@@ -9450,7 +9437,6 @@ test "@Vector(32, u16)" {
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_32_u16();
     try expect(v[0] == 369);
@@ -9560,7 +9546,6 @@ test "@Vector(48, u16)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_48_u16();
     try expect(v[0] == 529);
@@ -9704,7 +9689,6 @@ test "@Vector(64, u16)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_64_u16();
     try expect(v[0] == 753);
@@ -9899,7 +9883,6 @@ test "@Vector(96, u16)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_96_u16();
     try expect(v[0] == 1082);
@@ -10162,7 +10145,6 @@ test "@Vector(128, u16)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_128_u16();
     try expect(v[0] == 1530);
@@ -10527,7 +10509,6 @@ test "@Vector(192, u16)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_192_u16();
     try expect(v[0] == 2170);
@@ -11028,7 +11009,6 @@ test "@Vector(256, u16)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_256_u16();
     try expect(v[0] == 3066);
@@ -11445,7 +11425,6 @@ test "@Vector(6, u32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_6_u32();
     try expect(v[0] == 53);
@@ -11481,7 +11460,6 @@ test "@Vector(8, u32)" {
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_8_u32();
     try expect(v[0] == 81);
@@ -11524,7 +11502,6 @@ test "@Vector(12, u32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_12_u32();
     try expect(v[0] == 121);
@@ -11574,7 +11551,6 @@ test "@Vector(16, u32)" {
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_16_u32();
     try expect(v[0] == 177);
@@ -11640,7 +11616,6 @@ test "@Vector(24, u32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_24_u32();
     try expect(v[0] == 257);
@@ -11725,7 +11700,6 @@ test "@Vector(32, u32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_32_u32();
     try expect(v[0] == 369);
@@ -11835,7 +11809,6 @@ test "@Vector(48, u32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_48_u32();
     try expect(v[0] == 529);
@@ -11979,7 +11952,6 @@ test "@Vector(64, u32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_64_u32();
     try expect(v[0] == 753);
@@ -12174,7 +12146,6 @@ test "@Vector(96, u32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_96_u32();
     try expect(v[0] == 1082);
@@ -12437,7 +12408,6 @@ test "@Vector(128, u32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_128_u32();
     try expect(v[0] == 1530);
@@ -12644,7 +12614,6 @@ test "@Vector(3, u64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_3_u64();
     try expect(v[0] == 19);
@@ -12673,7 +12642,6 @@ test "@Vector(4, u64)" {
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_4_u64();
     try expect(v[0] == 33);
@@ -12740,7 +12708,6 @@ test "@Vector(8, u64)" {
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_8_u64();
     try expect(v[0] == 81);
@@ -12832,7 +12799,6 @@ test "@Vector(16, u64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_16_u64();
     try expect(v[0] == 177);
@@ -12981,7 +12947,6 @@ test "@Vector(32, u64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_32_u64();
     try expect(v[0] == 369);
@@ -13233,7 +13198,6 @@ test "@Vector(64, u64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_64_u64();
     try expect(v[0] == 753);
@@ -13449,7 +13413,6 @@ test "@Vector(6, f32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_6_f32();
     try expect(v[0] == 53);
@@ -13486,7 +13449,6 @@ test "@Vector(8, f32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_8_f32();
     try expect(v[0] == 81);
@@ -13529,7 +13491,6 @@ test "@Vector(12, f32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_12_f32();
     try expect(v[0] == 121);
@@ -13580,7 +13541,6 @@ test "@Vector(16, f32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_16_f32();
     try expect(v[0] == 177);
@@ -13646,7 +13606,6 @@ test "@Vector(24, f32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_24_f32();
     try expect(v[0] == 257);
@@ -13731,7 +13690,6 @@ test "@Vector(32, f32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_32_f32();
     try expect(v[0] == 369);
@@ -13841,7 +13799,6 @@ test "@Vector(48, f32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_48_f32();
     try expect(v[0] == 529);
@@ -13985,7 +13942,6 @@ test "@Vector(64, f32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_64_f32();
     try expect(v[0] == 753);
@@ -14180,7 +14136,6 @@ test "@Vector(96, f32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_96_f32();
     try expect(v[0] == 1082);
@@ -14443,7 +14398,6 @@ test "@Vector(128, f32)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_128_f32();
     try expect(v[0] == 1530);
@@ -14651,7 +14605,6 @@ test "@Vector(3, f64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_3_f64();
     try expect(v[0] == 19);
@@ -14680,7 +14633,6 @@ test "@Vector(4, f64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/35899
 
     const v = c_ret_vector_4_f64();
@@ -14714,7 +14666,6 @@ test "@Vector(6, f64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_6_f64();
     try expect(v[0] == 53);
@@ -14750,7 +14701,6 @@ test "@Vector(8, f64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/35899
 
     const v = c_ret_vector_8_f64();
@@ -14794,7 +14744,6 @@ test "@Vector(12, f64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_12_f64();
     try expect(v[0] == 121);
@@ -14845,7 +14794,6 @@ test "@Vector(16, f64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_16_f64();
     try expect(v[0] == 177);
@@ -14911,7 +14859,6 @@ test "@Vector(24, f64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_24_f64();
     try expect(v[0] == 257);
@@ -14996,7 +14943,6 @@ test "@Vector(32, f64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_32_f64();
     try expect(v[0] == 369);
@@ -15106,7 +15052,6 @@ test "@Vector(48, f64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_48_f64();
     try expect(v[0] == 529);
@@ -15250,7 +15195,6 @@ test "@Vector(64, f64)" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const v = c_ret_vector_64_f64();
     try expect(v[0] == 753);
@@ -15345,7 +15289,6 @@ extern fn c_test_struct_u8() void;
 test "struct u8" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const s = c_ret_struct_u8();
@@ -15377,7 +15320,6 @@ test "struct u8, u8" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
 
     const s = c_ret_struct_u8_u8();
@@ -15412,7 +15354,6 @@ test "struct u8, u8, u8" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
 
     const s = c_ret_struct_u8_u8_u8();
@@ -15450,7 +15391,6 @@ test "struct u8, u8, u8, u8" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
 
     const s = c_ret_struct_u8_u8_u8_u8();
@@ -15481,7 +15421,6 @@ extern fn c_test_struct_u16() void;
 test "struct u16" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const s = c_ret_struct_u16();
@@ -15513,7 +15452,6 @@ test "struct u16, u16" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
 
     const s = c_ret_struct_u16_u16();
@@ -15549,7 +15487,6 @@ test "struct u16, u16, u16" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRiscv32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
 
     const s = c_ret_struct_u16_u16_u16();
@@ -15588,7 +15525,6 @@ test "struct u16, u16, u16, u16" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRiscv32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
 
     const s = c_ret_struct_u16_u16_u16_u16();
@@ -15619,7 +15555,6 @@ extern fn c_test_struct_u32() void;
 test "struct u32" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const s = c_ret_struct_u32();
@@ -15651,7 +15586,6 @@ test "struct u32, u32" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRiscv32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const s = c_ret_struct_u32_u32();
@@ -15686,7 +15620,6 @@ test "struct u32, u32, u32" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_u32_u32_u32();
     try expect(s.a == 8);
@@ -15723,7 +15656,6 @@ test "struct u32, u32, u32, u32" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_u32_u32_u32_u32();
     try expect(s.a == 10);
@@ -15753,7 +15685,6 @@ extern fn c_test_struct_u64() void;
 test "struct u64" {
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRiscv32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const s = c_ret_struct_u64();
@@ -15831,7 +15762,6 @@ extern fn c_test_struct_u64_u64() void;
 test "struct u64, u64" {
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_u64_u64();
     try expect(s.a == 21);
@@ -15872,7 +15802,6 @@ test "struct u64, u64, u64" {
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_u64_u64_u64();
     try expect(s.a == 8);
@@ -15908,7 +15837,6 @@ test "struct u64, u64, u64, u64" {
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_u64_u64_u64_u64();
     try expect(s.a == 10);
@@ -15938,7 +15866,6 @@ extern fn c_test_struct_f32() void;
 test "struct f32" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const s = c_ret_struct_f32();
@@ -15971,7 +15898,6 @@ test "struct f32, f32" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRiscv32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const s = c_ret_struct_f32_f32();
@@ -16007,7 +15933,6 @@ test "struct f32, f32, f32" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_f32_f32_f32();
     try expect(s.a == 8);
@@ -16045,7 +15970,6 @@ test "struct f32, f32, f32, f32" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_f32_f32_f32_f32();
     try expect(s.a == 10);
@@ -16085,7 +16009,6 @@ test "struct f32, f32, f32, f32, f32" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_f32_f32_f32_f32_f32();
     try expect(s.a == 12);
@@ -16120,7 +16043,6 @@ test "struct f32 align(8)" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRiscv32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
 
     const s = c_ret_struct_f32a8();
@@ -16154,7 +16076,6 @@ test "struct f32 align(8), f32 align(8)" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
 
     const s = c_ret_struct_f32a8_f32a8();
@@ -16188,7 +16109,6 @@ test "struct {f32, f32}, f32" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_f32f32_f32();
     try expect(s.a.b == 1.0);
@@ -16222,7 +16142,6 @@ test "struct f32, {f32, f32}" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_f32_f32f32();
     try expect(s.a == 1.0);
@@ -16252,7 +16171,6 @@ test "struct f64" {
     if (builtin.cpu.arch.isArm() and builtin.abi.float() == .soft) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRiscv32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const s = c_ret_struct_f64();
@@ -16283,7 +16201,6 @@ test "struct f64, f64" {
     if (builtin.cpu.arch.isArm() and builtin.abi.float() == .soft) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_f64_f64();
     try expect(s.a == 6);
@@ -16316,7 +16233,6 @@ test "struct f64, f64, f64" {
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_f64_f64_f64();
     try expect(s.a == 8);
@@ -16352,7 +16268,6 @@ test "struct f64, f64, f64, f64" {
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_f64_f64_f64_f64();
     try expect(s.a == 10);
@@ -16391,7 +16306,6 @@ test "struct f64, f64, f64, f64, f64" {
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_f64_f64_f64_f64_f64();
     try expect(s.a == 12);
@@ -16431,7 +16345,6 @@ test "struct{u32,union{u32,struct{u32,u32}}}" {
     if (builtin.cpu.arch == .loongarch64) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_u32_union_u32_u32u32();
     try expect(s.a == 1);
@@ -16453,7 +16366,6 @@ test "struct i32 i32" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRiscv32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const s: Struct_i32_i32 = .{
@@ -16487,7 +16399,6 @@ test "big struct" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = BigStruct{
         .a = 1,
@@ -16516,7 +16427,6 @@ test "big union" {
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const x = BigUnion{
         .a = BigStruct{
@@ -16552,7 +16462,6 @@ test "medium struct of ints and floats" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = MedStructMixed{
         .a = 1234,
@@ -16633,7 +16542,6 @@ test "split struct of ints" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = SplitStructInt{
         .a = 1234,
@@ -16663,7 +16571,6 @@ test "split struct of ints and floats" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = SplitStructMixed{
         .a = 1234,
@@ -16690,7 +16597,6 @@ test "sret and byval together" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = BigStruct{
         .a = 1,
@@ -16805,7 +16711,6 @@ test "Struct with array as padding." {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     c_struct_with_array(.{ .a = 1, .padding = undefined, .b = 2 });
 
@@ -16833,7 +16738,6 @@ test "Float array like struct" {
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     c_float_array_struct(.{
         .origin = .{
@@ -16869,7 +16773,6 @@ test "DC: Zig passes to C" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     try expectOk(c_assert_DC(.{ .v1 = -0.25, .v2 = 15 }));
 }
 test "DC: Zig returns to C" {
@@ -16877,7 +16780,6 @@ test "DC: Zig returns to C" {
     if (builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     try expectOk(c_assert_ret_DC());
 }
 test "DC: C passes to Zig" {
@@ -16886,7 +16788,6 @@ test "DC: C passes to Zig" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     try expectOk(c_send_DC());
 }
 test "DC: C returns to Zig" {
@@ -16894,7 +16795,6 @@ test "DC: C returns to Zig" {
     if (builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     try expectEqual(DC{ .v1 = -0.25, .v2 = 15 }, c_ret_DC());
 }
 
@@ -16922,14 +16822,12 @@ test "CFF: Zig passes to C" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     try expectOk(c_assert_CFF(.{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 }));
 }
 test "CFF: Zig returns to C" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     try expectOk(c_assert_ret_CFF());
 }
 test "CFF: C passes to Zig" {
@@ -16939,7 +16837,6 @@ test "CFF: C passes to Zig" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     try expectOk(c_send_CFF());
 }
@@ -16948,7 +16845,6 @@ test "CFF: C returns to Zig" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     try expectEqual(CFF{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 }, c_ret_CFF());
 }
 pub extern fn c_assert_CFF(lv: CFF) c_int;
@@ -16975,7 +16871,6 @@ test "PD: Zig passes to C" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
     try expectOk(c_assert_PD(.{ .v1 = null, .v2 = 0.5 }));
 }
@@ -16983,7 +16878,6 @@ test "PD: Zig returns to C" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     try expectOk(c_assert_ret_PD());
 }
 test "PD: C passes to Zig" {
@@ -16991,7 +16885,6 @@ test "PD: C passes to Zig" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
     try expectOk(c_send_PD());
 }
@@ -16999,7 +16892,6 @@ test "PD: C returns to Zig" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     try expectEqual(PD{ .v1 = null, .v2 = 0.5 }, c_ret_PD());
 }
 pub extern fn c_assert_PD(lv: PD) c_int;
@@ -17033,7 +16925,6 @@ extern fn c_modify_by_ref_param(ByRef) ByRef;
 test "C function modifies by ref param" {
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const res = c_modify_by_ref_param(.{ .val = 1, .arr = undefined });
     try expect(res.val == 42);
@@ -17058,7 +16949,6 @@ test "C function that takes byval struct called via function pointer" {
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     var fn_ptr = &c_func_ptr_byval;
     _ = &fn_ptr;
@@ -17211,7 +17101,6 @@ test "Stdcall ABI structs" {
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const res = stdcall_coord2(
@@ -17228,7 +17117,6 @@ test "Stdcall ABI big union" {
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const x = BigUnion{
         .a = BigStruct{
@@ -17304,7 +17192,6 @@ test "byval tail callsite attribute" {
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest;
     if (builtin.cpu.arch.isLoongArch()) return error.SkipZigTest;
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     // Originally reported at https://github.com/ziglang/zig/issues/16290
     // the bug was that the extern function had the byval attribute, but
