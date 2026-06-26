@@ -135,6 +135,7 @@ pub fn main(init: process.Init.Minimal) !void {
     // The build runner is long-lived in the following use cases:
     // * `--watch` mode
     // * `--webui` mode
+    // * `--fuzz` mode
     // * A project that has a large, complex build graph.
     const gpa = if (use_safe_allocator) safe_allocator_instance.allocator() else std.heap.smp_allocator;
     defer if (use_safe_allocator) {
@@ -551,6 +552,8 @@ pub fn main(init: process.Init.Minimal) !void {
 
     const early_exit_mode = fetch_only or help_menu or steps_menu or print_configuration != .none;
     const server_mode = !early_exit_mode and (watch or webui_listen != null or fuzz != null);
+
+    process.raiseFileDescriptorLimit();
 
     const cwd_path = std.zig.getResolvedCwd(io, arena) catch |err|
         fatal("resolving current directory path failed: {t}", .{err});
