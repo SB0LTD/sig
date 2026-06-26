@@ -6,7 +6,7 @@ pub const autoHashStrat = auto_hash.hash;
 pub const Strategy = auto_hash.HashStrategy;
 
 pub const crc = @import("hash/crc.zig");
-pub const Crc32 = crc.Crc32IsoHdlc;
+pub const Crc32 = crc.@"CRC-32/ISO-HDLC";
 
 const fnv = @import("hash/fnv.zig");
 pub const Fnv1a_32 = fnv.Fnv1a_32;

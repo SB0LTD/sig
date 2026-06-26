@@ -2,7 +2,7 @@
 
 const builtin = @import("builtin");
 
-pub const Crc32Iscsi = if (builtin.cpu.hasAll(.x86, &.{ .@"64bit", .crc32 }))
+pub const @"CRC-32/ISCSI" = if (builtin.cpu.hasAll(.x86, &.{ .@"64bit", .crc32 }))
     @import("crc/Crc32c.zig")
 else
     Generic(u32, .{
@@ -13,7 +13,7 @@ else
         .xor_output = 0xffffffff,
     });
 
-pub const Crc3Gsm = Generic(u3, .{
+pub const @"CRC-3/GSM" = Generic(u3, .{
     .polynomial = 0x3,
     .initial = 0x0,
     .reflect_input = false,
@@ -21,7 +21,7 @@ pub const Crc3Gsm = Generic(u3, .{
     .xor_output = 0x7,
 });
 
-pub const Crc3Rohc = Generic(u3, .{
+pub const @"CRC-3/ROHC" = Generic(u3, .{
     .polynomial = 0x3,
     .initial = 0x7,
     .reflect_input = true,
@@ -29,7 +29,7 @@ pub const Crc3Rohc = Generic(u3, .{
     .xor_output = 0x0,
 });
 
-pub const Crc4G704 = Generic(u4, .{
+pub const @"CRC-4/G-704" = Generic(u4, .{
     .polynomial = 0x3,
     .initial = 0x0,
     .reflect_input = true,
@@ -37,7 +37,7 @@ pub const Crc4G704 = Generic(u4, .{
     .xor_output = 0x0,
 });
 
-pub const Crc4Interlaken = Generic(u4, .{
+pub const @"CRC-4/INTERLAKEN" = Generic(u4, .{
     .polynomial = 0x3,
     .initial = 0xf,
     .reflect_input = false,
@@ -45,7 +45,7 @@ pub const Crc4Interlaken = Generic(u4, .{
     .xor_output = 0xf,
 });
 
-pub const Crc5EpcC1g2 = Generic(u5, .{
+pub const @"CRC-5/EPC-C1G2" = Generic(u5, .{
     .polynomial = 0x09,
     .initial = 0x09,
     .reflect_input = false,
@@ -53,7 +53,7 @@ pub const Crc5EpcC1g2 = Generic(u5, .{
     .xor_output = 0x00,
 });
 
-pub const Crc5G704 = Generic(u5, .{
+pub const @"CRC-5/G-704" = Generic(u5, .{
     .polynomial = 0x15,
     .initial = 0x00,
     .reflect_input = true,
@@ -61,7 +61,7 @@ pub const Crc5G704 = Generic(u5, .{
     .xor_output = 0x00,
 });
 
-pub const Crc5Usb = Generic(u5, .{
+pub const @"CRC-5/USB" = Generic(u5, .{
     .polynomial = 0x05,
     .initial = 0x1f,
     .reflect_input = true,
@@ -69,7 +69,7 @@ pub const Crc5Usb = Generic(u5, .{
     .xor_output = 0x1f,
 });
 
-pub const Crc6Cdma2000A = Generic(u6, .{
+pub const @"CRC-6/CDMA2000-A" = Generic(u6, .{
     .polynomial = 0x27,
     .initial = 0x3f,
     .reflect_input = false,
@@ -77,7 +77,7 @@ pub const Crc6Cdma2000A = Generic(u6, .{
     .xor_output = 0x00,
 });
 
-pub const Crc6Cdma2000B = Generic(u6, .{
+pub const @"CRC-6/CDMA2000-B" = Generic(u6, .{
     .polynomial = 0x07,
     .initial = 0x3f,
     .reflect_input = false,
@@ -85,7 +85,7 @@ pub const Crc6Cdma2000B = Generic(u6, .{
     .xor_output = 0x00,
 });
 
-pub const Crc6Darc = Generic(u6, .{
+pub const @"CRC-6/DARC" = Generic(u6, .{
     .polynomial = 0x19,
     .initial = 0x00,
     .reflect_input = true,
@@ -93,7 +93,7 @@ pub const Crc6Darc = Generic(u6, .{
     .xor_output = 0x00,
 });
 
-pub const Crc6G704 = Generic(u6, .{
+pub const @"CRC-6/G-704" = Generic(u6, .{
     .polynomial = 0x03,
     .initial = 0x00,
     .reflect_input = true,
@@ -101,7 +101,7 @@ pub const Crc6G704 = Generic(u6, .{
     .xor_output = 0x00,
 });
 
-pub const Crc6Gsm = Generic(u6, .{
+pub const @"CRC-6/GSM" = Generic(u6, .{
     .polynomial = 0x2f,
     .initial = 0x00,
     .reflect_input = false,
@@ -109,7 +109,7 @@ pub const Crc6Gsm = Generic(u6, .{
     .xor_output = 0x3f,
 });
 
-pub const Crc7Mmc = Generic(u7, .{
+pub const @"CRC-7/MMC" = Generic(u7, .{
     .polynomial = 0x09,
     .initial = 0x00,
     .reflect_input = false,
@@ -117,7 +117,7 @@ pub const Crc7Mmc = Generic(u7, .{
     .xor_output = 0x00,
 });
 
-pub const Crc7Rohc = Generic(u7, .{
+pub const @"CRC-7/ROHC" = Generic(u7, .{
     .polynomial = 0x4f,
     .initial = 0x7f,
     .reflect_input = true,
@@ -125,7 +125,7 @@ pub const Crc7Rohc = Generic(u7, .{
     .xor_output = 0x00,
 });
 
-pub const Crc7Umts = Generic(u7, .{
+pub const @"CRC-7/UMTS" = Generic(u7, .{
     .polynomial = 0x45,
     .initial = 0x00,
     .reflect_input = false,
@@ -133,7 +133,7 @@ pub const Crc7Umts = Generic(u7, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8Autosar = Generic(u8, .{
+pub const @"CRC-8/AUTOSAR" = Generic(u8, .{
     .polynomial = 0x2f,
     .initial = 0xff,
     .reflect_input = false,
@@ -141,7 +141,7 @@ pub const Crc8Autosar = Generic(u8, .{
     .xor_output = 0xff,
 });
 
-pub const Crc8Bluetooth = Generic(u8, .{
+pub const @"CRC-8/BLUETOOTH" = Generic(u8, .{
     .polynomial = 0xa7,
     .initial = 0x00,
     .reflect_input = true,
@@ -149,7 +149,7 @@ pub const Crc8Bluetooth = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8Cdma2000 = Generic(u8, .{
+pub const @"CRC-8/CDMA2000" = Generic(u8, .{
     .polynomial = 0x9b,
     .initial = 0xff,
     .reflect_input = false,
@@ -157,7 +157,7 @@ pub const Crc8Cdma2000 = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8Darc = Generic(u8, .{
+pub const @"CRC-8/DARC" = Generic(u8, .{
     .polynomial = 0x39,
     .initial = 0x00,
     .reflect_input = true,
@@ -165,7 +165,7 @@ pub const Crc8Darc = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8DvbS2 = Generic(u8, .{
+pub const @"CRC-8/DVB-S2" = Generic(u8, .{
     .polynomial = 0xd5,
     .initial = 0x00,
     .reflect_input = false,
@@ -173,7 +173,7 @@ pub const Crc8DvbS2 = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8GsmA = Generic(u8, .{
+pub const @"CRC-8/GSM-A" = Generic(u8, .{
     .polynomial = 0x1d,
     .initial = 0x00,
     .reflect_input = false,
@@ -181,7 +181,7 @@ pub const Crc8GsmA = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8GsmB = Generic(u8, .{
+pub const @"CRC-8/GSM-B" = Generic(u8, .{
     .polynomial = 0x49,
     .initial = 0x00,
     .reflect_input = false,
@@ -189,7 +189,7 @@ pub const Crc8GsmB = Generic(u8, .{
     .xor_output = 0xff,
 });
 
-pub const Crc8Hitag = Generic(u8, .{
+pub const @"CRC-8/HITAG" = Generic(u8, .{
     .polynomial = 0x1d,
     .initial = 0xff,
     .reflect_input = false,
@@ -197,7 +197,7 @@ pub const Crc8Hitag = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8I4321 = Generic(u8, .{
+pub const @"CRC-8/I-432-1" = Generic(u8, .{
     .polynomial = 0x07,
     .initial = 0x00,
     .reflect_input = false,
@@ -205,7 +205,7 @@ pub const Crc8I4321 = Generic(u8, .{
     .xor_output = 0x55,
 });
 
-pub const Crc8ICode = Generic(u8, .{
+pub const @"CRC-8/I-CODE" = Generic(u8, .{
     .polynomial = 0x1d,
     .initial = 0xfd,
     .reflect_input = false,
@@ -213,7 +213,7 @@ pub const Crc8ICode = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8Lte = Generic(u8, .{
+pub const @"CRC-8/LTE" = Generic(u8, .{
     .polynomial = 0x9b,
     .initial = 0x00,
     .reflect_input = false,
@@ -221,7 +221,7 @@ pub const Crc8Lte = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8MaximDow = Generic(u8, .{
+pub const @"CRC-8/MAXIM-DOW" = Generic(u8, .{
     .polynomial = 0x31,
     .initial = 0x00,
     .reflect_input = true,
@@ -229,7 +229,7 @@ pub const Crc8MaximDow = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8MifareMad = Generic(u8, .{
+pub const @"CRC-8/MIFARE-MAD" = Generic(u8, .{
     .polynomial = 0x1d,
     .initial = 0xc7,
     .reflect_input = false,
@@ -237,7 +237,7 @@ pub const Crc8MifareMad = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8Nrsc5 = Generic(u8, .{
+pub const @"CRC-8/NRSC-5" = Generic(u8, .{
     .polynomial = 0x31,
     .initial = 0xff,
     .reflect_input = false,
@@ -245,7 +245,7 @@ pub const Crc8Nrsc5 = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8Opensafety = Generic(u8, .{
+pub const @"CRC-8/OPENSAFETY" = Generic(u8, .{
     .polynomial = 0x2f,
     .initial = 0x00,
     .reflect_input = false,
@@ -253,7 +253,7 @@ pub const Crc8Opensafety = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8Rohc = Generic(u8, .{
+pub const @"CRC-8/ROHC" = Generic(u8, .{
     .polynomial = 0x07,
     .initial = 0xff,
     .reflect_input = true,
@@ -261,7 +261,7 @@ pub const Crc8Rohc = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8SaeJ1850 = Generic(u8, .{
+pub const @"CRC-8/SAE-J1850" = Generic(u8, .{
     .polynomial = 0x1d,
     .initial = 0xff,
     .reflect_input = false,
@@ -269,7 +269,7 @@ pub const Crc8SaeJ1850 = Generic(u8, .{
     .xor_output = 0xff,
 });
 
-pub const Crc8Smbus = Generic(u8, .{
+pub const @"CRC-8/SMBUS" = Generic(u8, .{
     .polynomial = 0x07,
     .initial = 0x00,
     .reflect_input = false,
@@ -277,7 +277,7 @@ pub const Crc8Smbus = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8Tech3250 = Generic(u8, .{
+pub const @"CRC-8/TECH-3250" = Generic(u8, .{
     .polynomial = 0x1d,
     .initial = 0xff,
     .reflect_input = true,
@@ -285,7 +285,7 @@ pub const Crc8Tech3250 = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc8Wcdma = Generic(u8, .{
+pub const @"CRC-8/WCDMA" = Generic(u8, .{
     .polynomial = 0x9b,
     .initial = 0x00,
     .reflect_input = true,
@@ -293,7 +293,7 @@ pub const Crc8Wcdma = Generic(u8, .{
     .xor_output = 0x00,
 });
 
-pub const Crc10Atm = Generic(u10, .{
+pub const @"CRC-10/ATM" = Generic(u10, .{
     .polynomial = 0x233,
     .initial = 0x000,
     .reflect_input = false,
@@ -301,7 +301,7 @@ pub const Crc10Atm = Generic(u10, .{
     .xor_output = 0x000,
 });
 
-pub const Crc10Cdma2000 = Generic(u10, .{
+pub const @"CRC-10/CDMA2000" = Generic(u10, .{
     .polynomial = 0x3d9,
     .initial = 0x3ff,
     .reflect_input = false,
@@ -309,7 +309,7 @@ pub const Crc10Cdma2000 = Generic(u10, .{
     .xor_output = 0x000,
 });
 
-pub const Crc10Gsm = Generic(u10, .{
+pub const @"CRC-10/GSM" = Generic(u10, .{
     .polynomial = 0x175,
     .initial = 0x000,
     .reflect_input = false,
@@ -317,7 +317,7 @@ pub const Crc10Gsm = Generic(u10, .{
     .xor_output = 0x3ff,
 });
 
-pub const Crc11Flexray = Generic(u11, .{
+pub const @"CRC-11/FLEXRAY" = Generic(u11, .{
     .polynomial = 0x385,
     .initial = 0x01a,
     .reflect_input = false,
@@ -325,7 +325,7 @@ pub const Crc11Flexray = Generic(u11, .{
     .xor_output = 0x000,
 });
 
-pub const Crc11Umts = Generic(u11, .{
+pub const @"CRC-11/UMTS" = Generic(u11, .{
     .polynomial = 0x307,
     .initial = 0x000,
     .reflect_input = false,
@@ -333,7 +333,7 @@ pub const Crc11Umts = Generic(u11, .{
     .xor_output = 0x000,
 });
 
-pub const Crc12Cdma2000 = Generic(u12, .{
+pub const @"CRC-12/CDMA2000" = Generic(u12, .{
     .polynomial = 0xf13,
     .initial = 0xfff,
     .reflect_input = false,
@@ -341,7 +341,7 @@ pub const Crc12Cdma2000 = Generic(u12, .{
     .xor_output = 0x000,
 });
 
-pub const Crc12Dect = Generic(u12, .{
+pub const @"CRC-12/DECT" = Generic(u12, .{
     .polynomial = 0x80f,
     .initial = 0x000,
     .reflect_input = false,
@@ -349,7 +349,7 @@ pub const Crc12Dect = Generic(u12, .{
     .xor_output = 0x000,
 });
 
-pub const Crc12Gsm = Generic(u12, .{
+pub const @"CRC-12/GSM" = Generic(u12, .{
     .polynomial = 0xd31,
     .initial = 0x000,
     .reflect_input = false,
@@ -357,7 +357,7 @@ pub const Crc12Gsm = Generic(u12, .{
     .xor_output = 0xfff,
 });
 
-pub const Crc12Umts = Generic(u12, .{
+pub const @"CRC-12/UMTS" = Generic(u12, .{
     .polynomial = 0x80f,
     .initial = 0x000,
     .reflect_input = false,
@@ -365,7 +365,7 @@ pub const Crc12Umts = Generic(u12, .{
     .xor_output = 0x000,
 });
 
-pub const Crc13Bbc = Generic(u13, .{
+pub const @"CRC-13/BBC" = Generic(u13, .{
     .polynomial = 0x1cf5,
     .initial = 0x0000,
     .reflect_input = false,
@@ -373,7 +373,7 @@ pub const Crc13Bbc = Generic(u13, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc14Darc = Generic(u14, .{
+pub const @"CRC-14/DARC" = Generic(u14, .{
     .polynomial = 0x0805,
     .initial = 0x0000,
     .reflect_input = true,
@@ -381,7 +381,7 @@ pub const Crc14Darc = Generic(u14, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc14Gsm = Generic(u14, .{
+pub const @"CRC-14/GSM" = Generic(u14, .{
     .polynomial = 0x202d,
     .initial = 0x0000,
     .reflect_input = false,
@@ -389,7 +389,7 @@ pub const Crc14Gsm = Generic(u14, .{
     .xor_output = 0x3fff,
 });
 
-pub const Crc15Can = Generic(u15, .{
+pub const @"CRC-15/CAN" = Generic(u15, .{
     .polynomial = 0x4599,
     .initial = 0x0000,
     .reflect_input = false,
@@ -397,7 +397,7 @@ pub const Crc15Can = Generic(u15, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc15Mpt1327 = Generic(u15, .{
+pub const @"CRC-15/MPT1327" = Generic(u15, .{
     .polynomial = 0x6815,
     .initial = 0x0000,
     .reflect_input = false,
@@ -405,7 +405,7 @@ pub const Crc15Mpt1327 = Generic(u15, .{
     .xor_output = 0x0001,
 });
 
-pub const Crc16Arc = Generic(u16, .{
+pub const @"CRC-16/ARC" = Generic(u16, .{
     .polynomial = 0x8005,
     .initial = 0x0000,
     .reflect_input = true,
@@ -413,7 +413,7 @@ pub const Crc16Arc = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Cdma2000 = Generic(u16, .{
+pub const @"CRC-16/CDMA2000" = Generic(u16, .{
     .polynomial = 0xc867,
     .initial = 0xffff,
     .reflect_input = false,
@@ -421,7 +421,7 @@ pub const Crc16Cdma2000 = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Cms = Generic(u16, .{
+pub const @"CRC-16/CMS" = Generic(u16, .{
     .polynomial = 0x8005,
     .initial = 0xffff,
     .reflect_input = false,
@@ -429,7 +429,7 @@ pub const Crc16Cms = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Dds110 = Generic(u16, .{
+pub const @"CRC-16/DDS-110" = Generic(u16, .{
     .polynomial = 0x8005,
     .initial = 0x800d,
     .reflect_input = false,
@@ -437,7 +437,7 @@ pub const Crc16Dds110 = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16DectR = Generic(u16, .{
+pub const @"CRC-16/DECT-R" = Generic(u16, .{
     .polynomial = 0x0589,
     .initial = 0x0000,
     .reflect_input = false,
@@ -445,7 +445,7 @@ pub const Crc16DectR = Generic(u16, .{
     .xor_output = 0x0001,
 });
 
-pub const Crc16DectX = Generic(u16, .{
+pub const @"CRC-16/DECT-X" = Generic(u16, .{
     .polynomial = 0x0589,
     .initial = 0x0000,
     .reflect_input = false,
@@ -453,7 +453,7 @@ pub const Crc16DectX = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Dnp = Generic(u16, .{
+pub const @"CRC-16/DNP" = Generic(u16, .{
     .polynomial = 0x3d65,
     .initial = 0x0000,
     .reflect_input = true,
@@ -461,7 +461,7 @@ pub const Crc16Dnp = Generic(u16, .{
     .xor_output = 0xffff,
 });
 
-pub const Crc16En13757 = Generic(u16, .{
+pub const @"CRC-16/EN-13757" = Generic(u16, .{
     .polynomial = 0x3d65,
     .initial = 0x0000,
     .reflect_input = false,
@@ -469,7 +469,7 @@ pub const Crc16En13757 = Generic(u16, .{
     .xor_output = 0xffff,
 });
 
-pub const Crc16Genibus = Generic(u16, .{
+pub const @"CRC-16/GENIBUS" = Generic(u16, .{
     .polynomial = 0x1021,
     .initial = 0xffff,
     .reflect_input = false,
@@ -477,7 +477,7 @@ pub const Crc16Genibus = Generic(u16, .{
     .xor_output = 0xffff,
 });
 
-pub const Crc16Gsm = Generic(u16, .{
+pub const @"CRC-16/GSM" = Generic(u16, .{
     .polynomial = 0x1021,
     .initial = 0x0000,
     .reflect_input = false,
@@ -485,7 +485,7 @@ pub const Crc16Gsm = Generic(u16, .{
     .xor_output = 0xffff,
 });
 
-pub const Crc16Ibm3740 = Generic(u16, .{
+pub const @"CRC-16/IBM-3740" = Generic(u16, .{
     .polynomial = 0x1021,
     .initial = 0xffff,
     .reflect_input = false,
@@ -493,7 +493,7 @@ pub const Crc16Ibm3740 = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16IbmSdlc = Generic(u16, .{
+pub const @"CRC-16/IBM-SDLC" = Generic(u16, .{
     .polynomial = 0x1021,
     .initial = 0xffff,
     .reflect_input = true,
@@ -501,7 +501,7 @@ pub const Crc16IbmSdlc = Generic(u16, .{
     .xor_output = 0xffff,
 });
 
-pub const Crc16IsoIec144433A = Generic(u16, .{
+pub const @"CRC-16/ISO-IEC-14443-3-A" = Generic(u16, .{
     .polynomial = 0x1021,
     .initial = 0xc6c6,
     .reflect_input = true,
@@ -509,7 +509,7 @@ pub const Crc16IsoIec144433A = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Kermit = Generic(u16, .{
+pub const @"CRC-16/KERMIT" = Generic(u16, .{
     .polynomial = 0x1021,
     .initial = 0x0000,
     .reflect_input = true,
@@ -517,7 +517,7 @@ pub const Crc16Kermit = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Lj1200 = Generic(u16, .{
+pub const @"CRC-16/LJ1200" = Generic(u16, .{
     .polynomial = 0x6f63,
     .initial = 0x0000,
     .reflect_input = false,
@@ -525,7 +525,7 @@ pub const Crc16Lj1200 = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16M17 = Generic(u16, .{
+pub const @"CRC-16/M17" = Generic(u16, .{
     .polynomial = 0x5935,
     .initial = 0xffff,
     .reflect_input = false,
@@ -533,7 +533,7 @@ pub const Crc16M17 = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16MaximDow = Generic(u16, .{
+pub const @"CRC-16/MAXIM-DOW" = Generic(u16, .{
     .polynomial = 0x8005,
     .initial = 0x0000,
     .reflect_input = true,
@@ -541,7 +541,7 @@ pub const Crc16MaximDow = Generic(u16, .{
     .xor_output = 0xffff,
 });
 
-pub const Crc16Mcrf4xx = Generic(u16, .{
+pub const @"CRC-16/MCRF4XX" = Generic(u16, .{
     .polynomial = 0x1021,
     .initial = 0xffff,
     .reflect_input = true,
@@ -549,7 +549,7 @@ pub const Crc16Mcrf4xx = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Modbus = Generic(u16, .{
+pub const @"CRC-16/MODBUS" = Generic(u16, .{
     .polynomial = 0x8005,
     .initial = 0xffff,
     .reflect_input = true,
@@ -557,7 +557,7 @@ pub const Crc16Modbus = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Nrsc5 = Generic(u16, .{
+pub const @"CRC-16/NRSC-5" = Generic(u16, .{
     .polynomial = 0x080b,
     .initial = 0xffff,
     .reflect_input = true,
@@ -565,7 +565,7 @@ pub const Crc16Nrsc5 = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16OpensafetyA = Generic(u16, .{
+pub const @"CRC-16/OPENSAFETY-A" = Generic(u16, .{
     .polynomial = 0x5935,
     .initial = 0x0000,
     .reflect_input = false,
@@ -573,7 +573,7 @@ pub const Crc16OpensafetyA = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16OpensafetyB = Generic(u16, .{
+pub const @"CRC-16/OPENSAFETY-B" = Generic(u16, .{
     .polynomial = 0x755b,
     .initial = 0x0000,
     .reflect_input = false,
@@ -581,7 +581,7 @@ pub const Crc16OpensafetyB = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Profibus = Generic(u16, .{
+pub const @"CRC-16/PROFIBUS" = Generic(u16, .{
     .polynomial = 0x1dcf,
     .initial = 0xffff,
     .reflect_input = false,
@@ -589,7 +589,7 @@ pub const Crc16Profibus = Generic(u16, .{
     .xor_output = 0xffff,
 });
 
-pub const Crc16Riello = Generic(u16, .{
+pub const @"CRC-16/RIELLO" = Generic(u16, .{
     .polynomial = 0x1021,
     .initial = 0xb2aa,
     .reflect_input = true,
@@ -597,7 +597,7 @@ pub const Crc16Riello = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16SpiFujitsu = Generic(u16, .{
+pub const @"CRC-16/SPI-FUJITSU" = Generic(u16, .{
     .polynomial = 0x1021,
     .initial = 0x1d0f,
     .reflect_input = false,
@@ -605,7 +605,7 @@ pub const Crc16SpiFujitsu = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16T10Dif = Generic(u16, .{
+pub const @"CRC-16/T10-DIF" = Generic(u16, .{
     .polynomial = 0x8bb7,
     .initial = 0x0000,
     .reflect_input = false,
@@ -613,7 +613,7 @@ pub const Crc16T10Dif = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Teledisk = Generic(u16, .{
+pub const @"CRC-16/TELEDISK" = Generic(u16, .{
     .polynomial = 0xa097,
     .initial = 0x0000,
     .reflect_input = false,
@@ -621,7 +621,7 @@ pub const Crc16Teledisk = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Tms37157 = Generic(u16, .{
+pub const @"CRC-16/TMS37157" = Generic(u16, .{
     .polynomial = 0x1021,
     .initial = 0x89ec,
     .reflect_input = true,
@@ -629,7 +629,7 @@ pub const Crc16Tms37157 = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Umts = Generic(u16, .{
+pub const @"CRC-16/UMTS" = Generic(u16, .{
     .polynomial = 0x8005,
     .initial = 0x0000,
     .reflect_input = false,
@@ -637,7 +637,7 @@ pub const Crc16Umts = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc16Usb = Generic(u16, .{
+pub const @"CRC-16/USB" = Generic(u16, .{
     .polynomial = 0x8005,
     .initial = 0xffff,
     .reflect_input = true,
@@ -645,7 +645,7 @@ pub const Crc16Usb = Generic(u16, .{
     .xor_output = 0xffff,
 });
 
-pub const Crc16Xmodem = Generic(u16, .{
+pub const @"CRC-16/XMODEM" = Generic(u16, .{
     .polynomial = 0x1021,
     .initial = 0x0000,
     .reflect_input = false,
@@ -653,7 +653,7 @@ pub const Crc16Xmodem = Generic(u16, .{
     .xor_output = 0x0000,
 });
 
-pub const Crc17CanFd = Generic(u17, .{
+pub const @"CRC-17/CAN-FD" = Generic(u17, .{
     .polynomial = 0x1685b,
     .initial = 0x00000,
     .reflect_input = false,
@@ -661,7 +661,7 @@ pub const Crc17CanFd = Generic(u17, .{
     .xor_output = 0x00000,
 });
 
-pub const Crc21CanFd = Generic(u21, .{
+pub const @"CRC-21/CAN-FD" = Generic(u21, .{
     .polynomial = 0x102899,
     .initial = 0x000000,
     .reflect_input = false,
@@ -669,7 +669,7 @@ pub const Crc21CanFd = Generic(u21, .{
     .xor_output = 0x000000,
 });
 
-pub const Crc24Ble = Generic(u24, .{
+pub const @"CRC-24/BLE" = Generic(u24, .{
     .polynomial = 0x00065b,
     .initial = 0x555555,
     .reflect_input = true,
@@ -677,7 +677,7 @@ pub const Crc24Ble = Generic(u24, .{
     .xor_output = 0x000000,
 });
 
-pub const Crc24FlexrayA = Generic(u24, .{
+pub const @"CRC-24/FLEXRAY-A" = Generic(u24, .{
     .polynomial = 0x5d6dcb,
     .initial = 0xfedcba,
     .reflect_input = false,
@@ -685,7 +685,7 @@ pub const Crc24FlexrayA = Generic(u24, .{
     .xor_output = 0x000000,
 });
 
-pub const Crc24FlexrayB = Generic(u24, .{
+pub const @"CRC-24/FLEXRAY-B" = Generic(u24, .{
     .polynomial = 0x5d6dcb,
     .initial = 0xabcdef,
     .reflect_input = false,
@@ -693,7 +693,7 @@ pub const Crc24FlexrayB = Generic(u24, .{
     .xor_output = 0x000000,
 });
 
-pub const Crc24Interlaken = Generic(u24, .{
+pub const @"CRC-24/INTERLAKEN" = Generic(u24, .{
     .polynomial = 0x328b63,
     .initial = 0xffffff,
     .reflect_input = false,
@@ -701,7 +701,7 @@ pub const Crc24Interlaken = Generic(u24, .{
     .xor_output = 0xffffff,
 });
 
-pub const Crc24LteA = Generic(u24, .{
+pub const @"CRC-24/LTE-A" = Generic(u24, .{
     .polynomial = 0x864cfb,
     .initial = 0x000000,
     .reflect_input = false,
@@ -709,7 +709,7 @@ pub const Crc24LteA = Generic(u24, .{
     .xor_output = 0x000000,
 });
 
-pub const Crc24LteB = Generic(u24, .{
+pub const @"CRC-24/LTE-B" = Generic(u24, .{
     .polynomial = 0x800063,
     .initial = 0x000000,
     .reflect_input = false,
@@ -717,7 +717,7 @@ pub const Crc24LteB = Generic(u24, .{
     .xor_output = 0x000000,
 });
 
-pub const Crc24Openpgp = Generic(u24, .{
+pub const @"CRC-24/OPENPGP" = Generic(u24, .{
     .polynomial = 0x864cfb,
     .initial = 0xb704ce,
     .reflect_input = false,
@@ -725,7 +725,7 @@ pub const Crc24Openpgp = Generic(u24, .{
     .xor_output = 0x000000,
 });
 
-pub const Crc24Os9 = Generic(u24, .{
+pub const @"CRC-24/OS-9" = Generic(u24, .{
     .polynomial = 0x800063,
     .initial = 0xffffff,
     .reflect_input = false,
@@ -733,7 +733,7 @@ pub const Crc24Os9 = Generic(u24, .{
     .xor_output = 0xffffff,
 });
 
-pub const Crc30Cdma = Generic(u30, .{
+pub const @"CRC-30/CDMA" = Generic(u30, .{
     .polynomial = 0x2030b9c7,
     .initial = 0x3fffffff,
     .reflect_input = false,
@@ -741,7 +741,7 @@ pub const Crc30Cdma = Generic(u30, .{
     .xor_output = 0x3fffffff,
 });
 
-pub const Crc31Philips = Generic(u31, .{
+pub const @"CRC-31/PHILIPS" = Generic(u31, .{
     .polynomial = 0x04c11db7,
     .initial = 0x7fffffff,
     .reflect_input = false,
@@ -749,7 +749,7 @@ pub const Crc31Philips = Generic(u31, .{
     .xor_output = 0x7fffffff,
 });
 
-pub const Crc32Aixm = Generic(u32, .{
+pub const @"CRC-32/AIXM" = Generic(u32, .{
     .polynomial = 0x814141ab,
     .initial = 0x00000000,
     .reflect_input = false,
@@ -757,7 +757,7 @@ pub const Crc32Aixm = Generic(u32, .{
     .xor_output = 0x00000000,
 });
 
-pub const Crc32Autosar = Generic(u32, .{
+pub const @"CRC-32/AUTOSAR" = Generic(u32, .{
     .polynomial = 0xf4acfb13,
     .initial = 0xffffffff,
     .reflect_input = true,
@@ -765,7 +765,7 @@ pub const Crc32Autosar = Generic(u32, .{
     .xor_output = 0xffffffff,
 });
 
-pub const Crc32Base91D = Generic(u32, .{
+pub const @"CRC-32/BASE91-D" = Generic(u32, .{
     .polynomial = 0xa833982b,
     .initial = 0xffffffff,
     .reflect_input = true,
@@ -773,7 +773,7 @@ pub const Crc32Base91D = Generic(u32, .{
     .xor_output = 0xffffffff,
 });
 
-pub const Crc32Bzip2 = Generic(u32, .{
+pub const @"CRC-32/BZIP2" = Generic(u32, .{
     .polynomial = 0x04c11db7,
     .initial = 0xffffffff,
     .reflect_input = false,
@@ -781,7 +781,7 @@ pub const Crc32Bzip2 = Generic(u32, .{
     .xor_output = 0xffffffff,
 });
 
-pub const Crc32CdRomEdc = Generic(u32, .{
+pub const @"CRC-32/CD-ROM-EDC" = Generic(u32, .{
     .polynomial = 0x8001801b,
     .initial = 0x00000000,
     .reflect_input = true,
@@ -789,7 +789,7 @@ pub const Crc32CdRomEdc = Generic(u32, .{
     .xor_output = 0x00000000,
 });
 
-pub const Crc32Cksum = Generic(u32, .{
+pub const @"CRC-32/CKSUM" = Generic(u32, .{
     .polynomial = 0x04c11db7,
     .initial = 0x00000000,
     .reflect_input = false,
@@ -797,7 +797,7 @@ pub const Crc32Cksum = Generic(u32, .{
     .xor_output = 0xffffffff,
 });
 
-pub const Crc32IsoHdlc = Generic(u32, .{
+pub const @"CRC-32/ISO-HDLC" = Generic(u32, .{
     .polynomial = 0x04c11db7,
     .initial = 0xffffffff,
     .reflect_input = true,
@@ -805,7 +805,7 @@ pub const Crc32IsoHdlc = Generic(u32, .{
     .xor_output = 0xffffffff,
 });
 
-pub const Crc32Jamcrc = Generic(u32, .{
+pub const @"CRC-32/JAMCRC" = Generic(u32, .{
     .polynomial = 0x04c11db7,
     .initial = 0xffffffff,
     .reflect_input = true,
@@ -813,7 +813,7 @@ pub const Crc32Jamcrc = Generic(u32, .{
     .xor_output = 0x00000000,
 });
 
-pub const Crc32Koopman = Generic(u32, .{
+pub const @"CRC-32/KOOPMAN" = Generic(u32, .{
     .polynomial = 0x741b8cd7,
     .initial = 0xffffffff,
     .reflect_input = true,
@@ -821,7 +821,7 @@ pub const Crc32Koopman = Generic(u32, .{
     .xor_output = 0xffffffff,
 });
 
-pub const Crc32Mef = Generic(u32, .{
+pub const @"CRC-32/MEF" = Generic(u32, .{
     .polynomial = 0x741b8cd7,
     .initial = 0xffffffff,
     .reflect_input = true,
@@ -829,7 +829,7 @@ pub const Crc32Mef = Generic(u32, .{
     .xor_output = 0x00000000,
 });
 
-pub const Crc32Mpeg2 = Generic(u32, .{
+pub const @"CRC-32/MPEG-2" = Generic(u32, .{
     .polynomial = 0x04c11db7,
     .initial = 0xffffffff,
     .reflect_input = false,
@@ -837,7 +837,7 @@ pub const Crc32Mpeg2 = Generic(u32, .{
     .xor_output = 0x00000000,
 });
 
-pub const Crc32Xfer = Generic(u32, .{
+pub const @"CRC-32/XFER" = Generic(u32, .{
     .polynomial = 0x000000af,
     .initial = 0x00000000,
     .reflect_input = false,
@@ -845,7 +845,7 @@ pub const Crc32Xfer = Generic(u32, .{
     .xor_output = 0x00000000,
 });
 
-pub const Crc40Gsm = Generic(u40, .{
+pub const @"CRC-40/GSM" = Generic(u40, .{
     .polynomial = 0x0004820009,
     .initial = 0x0000000000,
     .reflect_input = false,
@@ -853,7 +853,7 @@ pub const Crc40Gsm = Generic(u40, .{
     .xor_output = 0xffffffffff,
 });
 
-pub const Crc64Ecma182 = Generic(u64, .{
+pub const @"CRC-64/ECMA-182" = Generic(u64, .{
     .polynomial = 0x42f0e1eba9ea3693,
     .initial = 0x0000000000000000,
     .reflect_input = false,
@@ -861,7 +861,7 @@ pub const Crc64Ecma182 = Generic(u64, .{
     .xor_output = 0x0000000000000000,
 });
 
-pub const Crc64GoIso = Generic(u64, .{
+pub const @"CRC-64/GO-ISO" = Generic(u64, .{
     .polynomial = 0x000000000000001b,
     .initial = 0xffffffffffffffff,
     .reflect_input = true,
@@ -869,7 +869,7 @@ pub const Crc64GoIso = Generic(u64, .{
     .xor_output = 0xffffffffffffffff,
 });
 
-pub const Crc64Ms = Generic(u64, .{
+pub const @"CRC-64/MS" = Generic(u64, .{
     .polynomial = 0x259c84cba6426349,
     .initial = 0xffffffffffffffff,
     .reflect_input = true,
@@ -877,7 +877,7 @@ pub const Crc64Ms = Generic(u64, .{
     .xor_output = 0x0000000000000000,
 });
 
-pub const Crc64Redis = Generic(u64, .{
+pub const @"CRC-64/REDIS" = Generic(u64, .{
     .polynomial = 0xad93d23594c935a9,
     .initial = 0x0000000000000000,
     .reflect_input = true,
@@ -885,7 +885,7 @@ pub const Crc64Redis = Generic(u64, .{
     .xor_output = 0x0000000000000000,
 });
 
-pub const Crc64We = Generic(u64, .{
+pub const @"CRC-64/WE" = Generic(u64, .{
     .polynomial = 0x42f0e1eba9ea3693,
     .initial = 0xffffffffffffffff,
     .reflect_input = false,
@@ -893,7 +893,7 @@ pub const Crc64We = Generic(u64, .{
     .xor_output = 0xffffffffffffffff,
 });
 
-pub const Crc64Xz = Generic(u64, .{
+pub const @"CRC-64/XZ" = Generic(u64, .{
     .polynomial = 0x42f0e1eba9ea3693,
     .initial = 0xffffffffffffffff,
     .reflect_input = true,
@@ -901,7 +901,7 @@ pub const Crc64Xz = Generic(u64, .{
     .xor_output = 0xffffffffffffffff,
 });
 
-pub const Crc82Darc = Generic(u82, .{
+pub const @"CRC-82/DARC" = Generic(u82, .{
     .polynomial = 0x0308c0111011401440411,
     .initial = 0x000000000000000000000,
     .reflect_input = true,

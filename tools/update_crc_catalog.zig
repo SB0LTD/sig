@@ -2,7 +2,6 @@ const std = @import("std");
 const Io = std.Io;
 const Dir = std.Io.Dir;
 const mem = std.mem;
-const ascii = std.ascii;
 
 const catalog_txt = @embedFile("crc/catalog.txt");
 
@@ -148,34 +147,9 @@ fn @"i like cheese"(arena: std.mem.Allocator, io: Io, args: []const []const u8) 
             }
         }
 
-        const snakecase = try ascii.allocLowerString(arena, name);
-        defer arena.free(snakecase);
-
-        _ = mem.replace(u8, snakecase, "-", "_", snakecase);
-        _ = mem.replace(u8, snakecase, "/", "_", snakecase);
-
-        var buf = try std.array_list.Managed(u8).initCapacity(arena, snakecase.len);
-        defer buf.deinit();
-
-        var prev: u8 = 0;
-        for (snakecase, 0..) |c, i| {
-            if (c == '_') {
-                // do nothing
-            } else if (i == 0) {
-                buf.appendAssumeCapacity(ascii.toUpper(c));
-            } else if (prev == '_') {
-                buf.appendAssumeCapacity(ascii.toUpper(c));
-            } else {
-                buf.appendAssumeCapacity(c);
-            }
-            prev = c;
-        }
-
-        const camelcase = buf.items;
-
         try code_writer.print(
             \\
-            \\pub const {s} = Generic(u{s}, .{{
+            \\pub const {f} = Generic(u{s}, .{{
             \\    .polynomial = {s},
             \\    .initial = {s},
             \\    .reflect_input = {s},
@@ -183,22 +157,22 @@ fn @"i like cheese"(arena: std.mem.Allocator, io: Io, args: []const []const u8) 
             \\    .xor_output = {s},
             \\}});
             \\
-        , .{ camelcase, width, poly, init, refin, refout, xorout });
+        , .{ std.zig.fmtId(name), width, poly, init, refin, refout, xorout });
 
         try test_writer.print(
             \\
             \\test "{0s}" {{
-            \\    const {1s} = crc.{1s};
+            \\    const Crc = crc.{1f};
             \\
-            \\    try testing.expectEqual(@as(u{2s}, {3s}), {1s}.hash("123456789"));
+            \\    try testing.expectEqual(@as(u{2s}, {3s}), Crc.hash("123456789"));
             \\
-            \\    var c = {1s}.init();
+            \\    var c = Crc.init();
             \\    c.update("1234");
             \\    c.update("56789");
             \\    try testing.expectEqual(@as(u{2s}, {3s}), c.final());
             \\}}
             \\
-        , .{ name, camelcase, width, check });
+        , .{ name, std.zig.fmtId(name), width, check });
     }
 
     try code_writer.writeAll(
