@@ -163,12 +163,8 @@ fn ensureAllValuesUsed(
 }
 
 fn detectNewline(contents: []const u8) []const u8 {
-    return if (std.mem.endsWith(u8, contents, "\r\n"))
-        "\r\n"
-    else if (std.mem.endsWith(u8, contents, "\n"))
-        "\n"
-    else
-        os_newline;
+    const lf_index = std.mem.findScalar(u8, contents, '\n') orelse return os_newline;
+    return if (lf_index > 0 and contents[lf_index - 1] == '\r') "\r\n" else "\n";
 }
 
 fn renderAutoConfUndef(
