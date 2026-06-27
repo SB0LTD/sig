@@ -2825,6 +2825,11 @@ pub const CompileError = error{
 
 pub fn init(zcu: *Zcu, gpa: Allocator, io: Io, thread_count: usize) !void {
     try zcu.intern_pool.init(gpa, io, thread_count);
+}
+
+/// It is valid to not call this function before `deinit` in error paths.
+/// Requires the fields on `zcu.comp` to already be initialized.
+pub fn initAfterCompilation(zcu: *Zcu) void {
     zcu.initTracyPlots();
 }
 
