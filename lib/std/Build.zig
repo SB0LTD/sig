@@ -852,10 +852,7 @@ pub fn addModule(b: *Build, name: []const u8, options: Module.CreateOptions) *Mo
         module,
     ) catch @panic("OOM");
     if (gop.found_existing) {
-        panic(
-            "A module with the name '{s}' has already been added to the package. Consider creating a private module with std.Build.createModule",
-            .{name},
-        );
+        panic("A module with the name {q} has already been added to the package. Consider creating a private module with std.Build.createModule", .{name});
     }
     return module;
 }
@@ -1016,7 +1013,7 @@ pub fn addNamedWriteFiles(b: *Build, name: []const u8) *Step.WriteFile {
     ) catch @panic("OOM");
     if (gop.found_existing) {
         panic(
-            "A WriteFile step with the name '{s}' has already been added to the package. Consider creating a private WriteFile step with std.Build.addWriteFiles",
+            "A WriteFile step with the name {q} has already been added to the package. Consider creating a private WriteFile step with std.Build.addWriteFiles",
             .{name},
         );
     }
@@ -1031,10 +1028,7 @@ pub fn addNamedLazyPath(b: *Build, name: []const u8, lp: LazyPath) void {
         lp.dupe(graph),
     ) catch @panic("OOM");
     if (gop.found_existing) {
-        panic(
-            "A LazyPath with the name '{s}' has already been added to the package.",
-            .{name},
-        );
+        panic("A LazyPath with the name {q} has already been added to the package.", .{name});
     }
 }
 
@@ -1137,7 +1131,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
         .enum_options = enum_options,
     };
     if ((b.available_options_map.fetchPut(arena, name, available_option) catch @panic("OOM")) != null) {
-        panic("option '{s}' declared twice", .{name});
+        panic("option {q} declared twice", .{name});
     }
 
     const option_ptr = b.user_input_options.getPtr(name) orelse return null;
@@ -1389,7 +1383,7 @@ pub fn parseTargetQuery(options: std.Target.Query.ParseOptions) error{ParseFaile
     opts_copy.diagnostics = &diags;
     return std.Target.Query.parse(opts_copy) catch |err| switch (err) {
         error.UnknownCpuModel => {
-            std.debug.print("unknown CPU: '{s}'\navailable CPUs for architecture '{t}':\n", .{
+            std.debug.print("unknown CPU: {q}\navailable CPUs for architecture {t}:\n", .{
                 diags.cpu_name.?, diags.arch.?,
             });
             for (diags.arch.?.allCpuModels()) |cpu| {
@@ -1399,7 +1393,7 @@ pub fn parseTargetQuery(options: std.Target.Query.ParseOptions) error{ParseFaile
         },
         error.UnknownCpuFeature => {
             std.debug.print(
-                \\unknown CPU feature: '{s}'
+                \\unknown CPU feature: {q}
                 \\available CPU features for architecture '{t}':
                 \\
             , .{
@@ -1412,7 +1406,7 @@ pub fn parseTargetQuery(options: std.Target.Query.ParseOptions) error{ParseFaile
         },
         error.UnknownOperatingSystem => {
             std.debug.print(
-                \\unknown OS: '{s}'
+                \\unknown OS: {q}
                 \\available operating systems:
                 \\
             , .{diags.os_name.?});
@@ -1422,9 +1416,7 @@ pub fn parseTargetQuery(options: std.Target.Query.ParseOptions) error{ParseFaile
             return error.ParseFailed;
         },
         else => |e| {
-            std.debug.print("unable to parse target '{s}': {s}\n", .{
-                options.arch_os_abi, @errorName(e),
-            });
+            std.debug.print("unable to parse target {q}: {t}\n", .{ options.arch_os_abi, e });
             return error.ParseFailed;
         },
     };
@@ -1487,7 +1479,7 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
             q.serializeCpuAlloc(arena) catch @panic("OOM"),
         });
     }
-    log.err("chosen target '{s}' does not match one of the allowed targets", .{
+    log.err("chosen target {q} does not match one of the allowed targets", .{
         selected_target.zigTriple(arena) catch @panic("OOM"),
     });
     b.markInvalidUserInput();
@@ -1542,7 +1534,7 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
             return true;
         },
         .lazy_path, .lazy_path_list => {
-            log.warn("the lazy path value type isn't added from the CLI, but somehow '{s}' is a .{f}", .{
+            log.warn("the lazy path value type isn't added from the CLI, but somehow {q} is a .{f}", .{
                 name, std.zig.fmtId(@tagName(gop.value_ptr.value)),
             });
             return true;
@@ -1710,9 +1702,7 @@ pub fn addCheckFile(
 /// References a file or directory relative to the source root.
 pub fn path(b: *Build, sub_path: []const u8) LazyPath {
     if (fs.path.isAbsolute(sub_path)) {
-        panic("sub_path is expected to be relative to the build root, but was this absolute path: '{s}'. Absolute paths can cause problems but can be created via Graph.cwdRelativePath", .{
-            sub_path,
-        });
+        panic("sub_path is expected to be relative to the build root, but was this absolute path: {q}. Absolute paths can cause problems but can be created via Graph.cwdRelativePath", .{sub_path});
     }
     return .{ .src_path = .{
         .owner = b,
@@ -2033,34 +2023,34 @@ pub const Dependency = struct {
         for (d.builder.install_tls.step.dependencies.items) |dep_step| {
             const inst = dep_step.cast(Step.InstallArtifact) orelse continue;
             if (mem.eql(u8, inst.artifact.name, name)) {
-                if (found != null) panic("artifact name '{s}' is ambiguous", .{name});
+                if (found != null) panic("artifact name {q} is ambiguous", .{name});
                 found = inst.artifact;
             }
         }
         return found orelse {
             for (d.builder.install_tls.step.dependencies.items) |dep_step| {
                 const inst = dep_step.cast(Step.InstallArtifact) orelse continue;
-                log.info("available artifact: '{s}'", .{inst.artifact.name});
+                log.info("available artifact: {q}", .{inst.artifact.name});
             }
-            panic("unable to find artifact '{s}'", .{name});
+            panic("unable to find artifact {q}", .{name});
         };
     }
 
     pub fn module(d: *Dependency, name: []const u8) *Module {
         return d.builder.modules.get(name) orelse {
-            panic("unable to find module '{s}'", .{name});
+            panic("unable to find module {q}", .{name});
         };
     }
 
     pub fn namedWriteFiles(d: *Dependency, name: []const u8) *Step.WriteFile {
         return d.builder.named_writefiles.get(name) orelse {
-            panic("unable to find named writefiles '{s}'", .{name});
+            panic("unable to find named writefiles {q}", .{name});
         };
     }
 
     pub fn namedLazyPath(d: *Dependency, name: []const u8) LazyPath {
         return d.builder.named_lazy_paths.get(name) orelse {
-            panic("unable to find named lazypath '{s}'", .{name});
+            panic("unable to find named lazypath {q}", .{name});
         };
     }
 
@@ -2628,7 +2618,7 @@ fn dumpBadDirnameHelp(
 
     if (asking_step) |as| {
         stderr.setColor(.red) catch {};
-        try w.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        try w.print("    The step {q} that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         stderr.setColor(.reset) catch {};
 
         as.dump(stderr);
