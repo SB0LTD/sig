@@ -6987,25 +6987,12 @@ const ParamTypeIterator = struct {
             .async => {
                 @panic("TODO implement async function lowering in the LLVM backend");
             },
-            .x86_64_sysv, .x86_64_x32 => return try it.next_x86_64_sysv(ty),
-            .x86_64_win => return it.next_x86_64_win(ty),
-            .x86_stdcall => {
-                it.zig_index += 1;
-                it.llvm_index += 1;
-
-                if (isScalar(zcu, ty)) {
-                    return .byval;
-                } else {
-                    it.byval_attr = true;
-                    return .byref;
-                }
-            },
             .aarch64_aapcs, .aarch64_aapcs_darwin, .aarch64_aapcs_win => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 switch (aarch64_c_abi.classifyType(ty, zcu)) {
                     .memory => return .byref_mut,
-                    .float_array => |len| return Lowering{ .float_array = len },
+                    .float_array => |len| return .{ .float_array = len },
                     .byval => return .byval,
                     .integer => {
                         it.types_buffer[0..1].* = .{.i64};
@@ -7013,7 +7000,7 @@ const ParamTypeIterator = struct {
                         it.types_len = 1;
                         return .multiple_llvm_types;
                     },
-                    .double_integer => return Lowering{ .i64_array = 2 },
+                    .double_integer => return .{ .i64_array = 2 },
                 }
             },
             .arm_aapcs, .arm_aapcs_vfp => {
@@ -7025,8 +7012,8 @@ const ParamTypeIterator = struct {
                         return .byref;
                     },
                     .byval => return .byval,
-                    .i32_array => |size| return Lowering{ .i32_array = size },
-                    .i64_array => |size| return Lowering{ .i64_array = size },
+                    .i32_array => |size| return .{ .i32_array = size },
+                    .i64_array => |size| return .{ .i64_array = size },
                 }
             },
             .mips_o32 => {
@@ -7038,8 +7025,18 @@ const ParamTypeIterator = struct {
                         return .byref;
                     },
                     .byval => return .byval,
-                    .i32_array => |size| return Lowering{ .i32_array = size },
+                    .i32_array => |size| return .{ .i32_array = size },
                 }
+            },
+            .powerpc64_elf_v2 => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                if (isByRef(ty, zcu)) return switch (ty.abiSize(zcu)) {
+                    1...8 => .abi_sized_int,
+                    9...64 => |abi_size| .{ .i64_array = @intCast(@divCeil(abi_size, 8)) },
+                    else => .byref,
+                };
+                return .byval; // TODO
             },
             .riscv64_lp64, .riscv32_ilp32 => {
                 it.zig_index += 1;
@@ -7048,7 +7045,7 @@ const ParamTypeIterator = struct {
                     .memory => return .byref_mut,
                     .byval => return .byval,
                     .integer => return .abi_sized_int,
-                    .double_integer => return Lowering{ .i64_array = 2 },
+                    .double_integer => return .{ .i64_array = 2 },
                     .fields => {
                         it.types_len = 0;
                         var field_it: InternPool.LoadedStructType.RuntimeOrderIterator = if (zcu.typeToStruct(ty)) |loaded_struct|
@@ -7108,6 +7105,19 @@ const ParamTypeIterator = struct {
                     return .byref;
                 },
             },
+            .x86_stdcall => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+
+                if (isScalar(zcu, ty)) {
+                    return .byval;
+                } else {
+                    it.byval_attr = true;
+                    return .byref;
+                }
+            },
+            .x86_64_sysv, .x86_64_x32 => return try it.next_x86_64_sysv(ty),
+            .x86_64_win => return it.next_x86_64_win(ty),
             // TODO investigate other callconvs
             else => {
                 it.zig_index += 1;
@@ -7294,7 +7304,7 @@ pub fn fnReturnStrat(o: *Object, cc: std.lang.CallingConvention, ret_ty: Type) A
     const zcu = o.zcu;
     ret_ty.assertHasLayout(zcu);
     if (!ret_ty.hasRuntimeBits(zcu)) return .void;
-    switch (cc) {
+    return switch (cc) {
         .@"inline" => unreachable,
         .auto => {
             // Match the c calling convention in some cases to avoid llvm bugs.
@@ -7307,36 +7317,31 @@ pub fn fnReturnStrat(o: *Object, cc: std.lang.CallingConvention, ret_ty: Type) A
                 33...64 => .{ .mem_cast = .double },
                 else => .by_val,
             };
-
-            if (isByRef(ret_ty, zcu)) return .sret;
-            return .by_val;
+            return if (isByRef(ret_ty, zcu)) .sret else .by_val;
         },
-        .x86_64_sysv, .x86_64_x32 => return fnReturnStrat_x86_64_sysv(o, ret_ty),
-        .x86_64_win => return fnReturnStrat_x86_64_win(o, ret_ty),
-        .x86_stdcall => if (isScalar(zcu, ret_ty)) {
-            assert(!isByRef(ret_ty, zcu));
-            return .by_val;
-        } else return .sret,
-        .x86_fastcall => return fnReturnStrat_x86_fastcall(o, zcu, ret_ty),
-        .x86_sysv, .x86_win => return if (isByRef(ret_ty, zcu)) .sret else .by_val,
         .aarch64_aapcs, .aarch64_aapcs_darwin, .aarch64_aapcs_win => switch (aarch64_c_abi.classifyType(ret_ty, zcu)) {
-            .memory => return .sret,
-            .float_array, .byval => return .forceByVal(o, ret_ty),
-            .integer => return .{ .mem_cast = .i64 },
-            .double_integer => return .{ .mem_cast = try o.builder.arrayType(2, .i64) },
+            .memory => .sret,
+            .float_array, .byval => .forceByVal(o, ret_ty),
+            .integer => .{ .mem_cast = .i64 },
+            .double_integer => .{ .mem_cast = try o.builder.arrayType(2, .i64) },
         },
         .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(ret_ty, zcu, .ret)) {
-            .memory, .i64_array => return .sret,
-            .i32_array => |len| return if (len == 1) .{ .mem_cast = .i32 } else .sret,
-            .byval => return .forceByVal(o, ret_ty),
+            .memory, .i64_array => .sret,
+            .i32_array => |len| if (len == 1) .{ .mem_cast = .i32 } else .sret,
+            .byval => .forceByVal(o, ret_ty),
         },
         .mips_o32 => switch (mips_c_abi.classifyType(ret_ty, zcu, .ret)) {
-            .memory, .i32_array => return .sret,
-            .byval => return .forceByVal(o, ret_ty),
+            .memory, .i32_array => .sret,
+            .byval => .forceByVal(o, ret_ty),
         },
+        .powerpc64_elf_v2 => if (isByRef(ret_ty, zcu)) switch (ret_ty.abiSize(zcu)) {
+            1...8 => .{ .mem_cast = try o.builder.intType(@intCast(ret_ty.abiSize(zcu) * 8)) },
+            9...16 => .{ .mem_cast = try o.builder.structType(.normal, &.{ .i64, .i64 }) },
+            else => .sret,
+        } else .by_val, // TODO
         .riscv64_lp64, .riscv32_ilp32 => switch (riscv_c_abi.classifyType(ret_ty, zcu)) {
-            .memory => return .sret,
-            .integer => return .{ .mem_cast = try o.builder.intType(@intCast(ret_ty.abiSize(zcu) * 8)) },
+            .memory => .sret,
+            .integer => .{ .mem_cast = try o.builder.intType(@intCast(ret_ty.abiSize(zcu) * 8)) },
             .double_integer => {
                 const integer: Builder.Type = switch (zcu.getTarget().cpu.arch) {
                     .riscv64, .riscv64be => .i64,
@@ -7345,7 +7350,7 @@ pub fn fnReturnStrat(o: *Object, cc: std.lang.CallingConvention, ret_ty: Type) A
                 };
                 return .{ .mem_cast = try o.builder.structType(.normal, &.{ integer, integer }) };
             },
-            .byval => return .forceByVal(o, ret_ty),
+            .byval => .forceByVal(o, ret_ty),
             .fields => {
                 var types_len: usize = 0;
                 var types: [8]Builder.Type = undefined;
@@ -7358,7 +7363,7 @@ pub fn fnReturnStrat(o: *Object, cc: std.lang.CallingConvention, ret_ty: Type) A
                 return .{ .mem_cast = try o.builder.structType(.normal, types[0..types_len]) };
             },
         },
-        .s390x_sysv, .s390x_sysv_vx => return switch (s390x_c_abi.classifyType(ret_ty, .ret, zcu)) {
+        .s390x_sysv, .s390x_sysv_vx => switch (s390x_c_abi.classifyType(ret_ty, .ret, zcu)) {
             .none => .void,
             .double_or_float, .vector, .simple => .by_val,
             .simple_aggregate => unreachable,
@@ -7368,14 +7373,20 @@ pub fn fnReturnStrat(o: *Object, cc: std.lang.CallingConvention, ret_ty: Type) A
             .direct => |scalar_ty| if (scalar_ty.toIntern() == ret_ty.toIntern()) {
                 assert(!isByRef(ret_ty, zcu));
                 return .by_val;
-            } else {
-                return .{ .mem_cast = try o.lowerType(scalar_ty, .as_value) };
-            },
-            .indirect => return .sret,
+            } else .{ .mem_cast = try o.lowerType(scalar_ty, .as_value) },
+            .indirect => .sret,
         },
+        .x86_stdcall => if (isScalar(zcu, ret_ty)) {
+            assert(!isByRef(ret_ty, zcu));
+            return .by_val;
+        } else .sret,
+        .x86_fastcall => fnReturnStrat_x86_fastcall(o, zcu, ret_ty),
+        .x86_sysv, .x86_win => if (isByRef(ret_ty, zcu)) .sret else .by_val,
+        .x86_64_sysv, .x86_64_x32 => fnReturnStrat_x86_64_sysv(o, ret_ty),
+        .x86_64_win => fnReturnStrat_x86_64_win(o, ret_ty),
         // TODO investigate other callconvs
-        else => return .forceByVal(o, ret_ty),
-    }
+        else => .forceByVal(o, ret_ty),
+    };
 }
 
 fn fnReturnStrat_x86_fastcall(o: *Object, zcu: *Zcu, ty: Type) Allocator.Error!FnReturnStrat {
