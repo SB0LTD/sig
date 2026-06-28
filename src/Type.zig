@@ -962,7 +962,7 @@ pub fn abiAlignment(ty: Type, zcu: *const Zcu) Alignment {
                     const bytes = ((elem_bits * vector_type.len) + 7) / 8;
                     return .fromByteUnits(std.math.ceilPowerOfTwoAssert(u32, bytes));
                 },
-                .stage2_c, .stage2_wasm => return Type.fromInterned(vector_type.child).defaultStructFieldAlignment(.auto, zcu),
+                .stage2_c, .stage2_wasm => return Type.fromInterned(vector_type.child).abiAlignment(zcu),
                 .stage2_x86_64 => {
                     if (vector_type.child == .bool_type) {
                         if (vector_type.len > 256 and target.cpu.has(.x86, .avx512f)) return .@"64";
