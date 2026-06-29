@@ -16,10 +16,7 @@ comptime {
     symbol(&fmaf, "fmaf");
     symbol(&fma, "fma");
     symbol(&__fmax, "__fmax");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&fmaq, "fmaf128");
-    }
-    symbol(&fmaq, "fmaq");
+    symbol(&fmaq, "fmaf128");
     symbol(&fmal, "fmal");
 }
 

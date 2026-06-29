@@ -10,10 +10,7 @@ comptime {
     symbol(&fminf, "fminf");
     symbol(&fmin, "fmin");
     symbol(&__fminx, "__fminx");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&fminq, "fminf128");
-    }
-    symbol(&fminq, "fminq");
+    symbol(&fminq, "fminf128");
     symbol(&fminl, "fminl");
 }
 

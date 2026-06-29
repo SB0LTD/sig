@@ -24,8 +24,7 @@ comptime {
     symbol(&cosf, "cosf");
     symbol(&cos, "cos");
     symbol(&__cosx, "__cosx");
-    if (compiler_rt.want_ppc_abi) symbol(&cosq, "cosf128");
-    symbol(&cosq, "cosq");
+    symbol(&cosq, "cosf128");
     symbol(&cosl, "cosl");
     symbol(&cosl, "__cosl"); // required by musl
 }

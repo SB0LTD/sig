@@ -9,10 +9,7 @@ comptime {
     symbol(&fabsf, "fabsf");
     symbol(&fabs, "fabs");
     symbol(&__fabsx, "__fabsx");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&fabsq, "fabsf128");
-    }
-    symbol(&fabsq, "fabsq");
+    symbol(&fabsq, "fabsf128");
     symbol(&fabsl, "fabsl");
 }
 

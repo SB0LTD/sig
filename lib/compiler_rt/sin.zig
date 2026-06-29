@@ -24,10 +24,7 @@ comptime {
     symbol(&sinf, "sinf");
     symbol(&sin, "sin");
     symbol(&__sinx, "__sinx");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&sinq, "sinf128");
-    }
-    symbol(&sinq, "sinq");
+    symbol(&sinq, "sinf128");
     symbol(&sinl, "sinl");
     symbol(&sinl, "__sinl"); // required by musl
 }

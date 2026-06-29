@@ -21,10 +21,7 @@ comptime {
     symbol(&expf, "expf");
     symbol(&exp, "exp");
     symbol(&__expx, "__expx");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&expq, "expf128");
-    }
-    symbol(&expq, "expq");
+    symbol(&expq, "expf128");
     symbol(&expl, "expl");
 }
 

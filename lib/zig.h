@@ -3845,7 +3845,7 @@ typedef zig_u128 zig_f80;
 #endif
 
 #define zig_has_f128 1
-#define zig_libc_name_f128(name) name##q
+#define zig_libc_name_f128(name) name##f128
 #define zig_init_special_f128(sign, name, arg, repr) zig_make_special_f128(sign, name, arg, repr)
 #if !zig_f128_has_miscompilations && FLT_MANT_DIG == 113
 typedef float zig_f128;

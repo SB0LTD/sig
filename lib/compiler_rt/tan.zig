@@ -28,10 +28,7 @@ comptime {
     symbol(&tanf, "tanf");
     symbol(&tan, "tan");
     symbol(&__tanx, "__tanx");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&tanq, "tanf128");
-    }
-    symbol(&tanq, "tanq");
+    symbol(&tanq, "tanf128");
     symbol(&tanl, "tanl");
 }
 

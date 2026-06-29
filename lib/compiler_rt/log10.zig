@@ -18,10 +18,7 @@ comptime {
     symbol(&log10f, "log10f");
     symbol(&log10, "log10");
     symbol(&__log10x, "__log10x");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&log10q, "log10f128");
-    }
-    symbol(&log10q, "log10q");
+    symbol(&log10q, "log10f128");
     symbol(&log10l, "log10l");
 }
 

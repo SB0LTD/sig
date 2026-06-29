@@ -18,8 +18,7 @@ comptime {
     symbol(&roundf, "roundf");
     symbol(&round, "round");
     symbol(&__roundx, "__roundx");
-    if (compiler_rt.want_ppc_abi) symbol(&roundq, "roundf128");
-    symbol(&roundq, "roundq");
+    symbol(&roundq, "roundf128");
     symbol(&roundl, "roundl");
 }
 

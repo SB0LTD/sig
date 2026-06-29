@@ -381,6 +381,7 @@ test "@sqrt f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     if (builtin.os.tag == .freebsd) {
         // TODO https://github.com/ziglang/zig/issues/10875

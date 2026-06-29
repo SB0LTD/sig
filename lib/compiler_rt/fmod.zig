@@ -12,10 +12,7 @@ comptime {
     symbol(&fmodf, "fmodf");
     symbol(&fmod, "fmod");
     symbol(&__fmodx, "__fmodx");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&fmodq, "fmodf128");
-    }
-    symbol(&fmodq, "fmodq");
+    symbol(&fmodq, "fmodf128");
     symbol(&fmodl, "fmodl");
 }
 

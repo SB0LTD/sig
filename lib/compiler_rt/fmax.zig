@@ -10,10 +10,7 @@ comptime {
     symbol(&fmaxf, "fmaxf");
     symbol(&fmax, "fmax");
     symbol(&__fmaxx, "__fmaxx");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&fmaxq, "fmaxf128");
-    }
-    symbol(&fmaxq, "fmaxq");
+    symbol(&fmaxq, "fmaxf128");
     symbol(&fmaxl, "fmaxl");
 }
 

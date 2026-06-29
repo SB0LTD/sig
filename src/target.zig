@@ -876,7 +876,7 @@ pub fn libcFloatSuffix(float_bits: u16) []const u8 {
         32 => "f",
         64 => "",
         80 => "x", // Non-standard
-        128 => "q", // Non-standard (mimics convention in GCC libquadmath)
+        128 => "f128",
         else => unreachable,
     };
 }

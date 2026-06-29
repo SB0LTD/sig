@@ -18,10 +18,7 @@ comptime {
     symbol(&sincosf, "sincosf");
     symbol(&sincos, "sincos");
     symbol(&sincosx, "__sincosx");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&sincosq, "sincosf128");
-    }
-    symbol(&sincosq, "sincosq");
+    symbol(&sincosq, "sincosf128");
     symbol(&sincosl, "sincosl");
 }
 

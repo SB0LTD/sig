@@ -17,10 +17,7 @@ comptime {
     symbol(&truncf, "truncf");
     symbol(&trunc, "trunc");
     symbol(&__truncx, "__truncx");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&truncq, "truncf128");
-    }
-    symbol(&truncq, "truncq");
+    symbol(&truncq, "truncf128");
     symbol(&truncl, "truncl");
 }
 

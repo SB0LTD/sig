@@ -23,10 +23,7 @@ comptime {
     symbol(&floorf, "floorf");
     symbol(&floor, "floor");
     symbol(&__floorx, "__floorx");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&floorq, "floorf128");
-    }
-    symbol(&floorq, "floorq");
+    symbol(&floorq, "floorf128");
     symbol(&floorl, "floorl");
 
     // ceil
@@ -34,10 +31,7 @@ comptime {
     symbol(&ceilf, "ceilf");
     symbol(&ceil, "ceil");
     symbol(&__ceilx, "__ceilx");
-    if (compiler_rt.want_ppc_abi) {
-        symbol(&ceilq, "ceilf128");
-    }
-    symbol(&ceilq, "ceilq");
+    symbol(&ceilq, "ceilf128");
     symbol(&ceill, "ceill");
 }
 
