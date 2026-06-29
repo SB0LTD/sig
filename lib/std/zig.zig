@@ -1637,6 +1637,7 @@ pub const BuildExeSubprocessOptions = struct {
     arch_os_abi: ?[]const u8 = null,
     cpu_features: ?[]const u8 = null,
     progress_node: std.Progress.Node = .none,
+    skip_log_cmdline_on_compile_errors: bool = false,
 };
 
 pub const BuildExeSubprocessError = error{
@@ -1820,7 +1821,9 @@ pub fn buildExeSubprocess(
                 return error.AlreadyReported;
             },
         };
-        log.err("command reported {d} compilation errors: {f}", .{ result_error_bundle.errorMessageCount(), cmd });
+        if (!options.skip_log_cmdline_on_compile_errors) log.err("command reported {d} compilation errors: {f}", .{
+            result_error_bundle.errorMessageCount(), cmd,
+        });
         if (received_fs_inputs) return error.FailedButCacheIntact;
         return error.AlreadyReported;
     }

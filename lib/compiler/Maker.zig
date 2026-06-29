@@ -1237,6 +1237,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                 .cache_manifest = &config_man,
                 .arch_os_abi = target_arch_os_abi,
                 .progress_node = compile_prog_node,
+                .skip_log_cmdline_on_compile_errors = !graph.verbose,
             })) |r| r.path else |err| return err;
             defer gpa.free(configure_exe_path.sub_path);
 
