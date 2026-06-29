@@ -40,7 +40,6 @@ unset CXX
 
 ninja install
 
-# https://codeberg.org/ziglang/zig/issues/35986
 stage3-release/bin/zig build test docs \
   --maxrss ${ZSF_MAX_RSS:-0} \
   -Dstatic-llvm \
@@ -51,7 +50,6 @@ stage3-release/bin/zig build test docs \
   -Dskip-openbsd \
   -Dskip-windows \
   -Dskip-darwin \
-  -Dskip-test-incremental \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
   --test-timeout 2m
