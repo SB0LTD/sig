@@ -24966,8 +24966,9 @@ fn zirBuiltinExtern(
     }
 
     if (options.decoration) |decoration| switch (decoration) {
-        .flat => if (ptr_info.flags.address_space != .input) {
-            return sema.fail(block, options_src, "'flat' decoration requires 'input' address space", .{});
+        .flat => switch (ptr_info.flags.address_space) {
+            .input, .output => {},
+            else => return sema.fail(block, options_src, "\"flat\" decoration requires \"input\" or \"output\" address space", .{}),
         },
         .location, .descriptor => {},
     };
