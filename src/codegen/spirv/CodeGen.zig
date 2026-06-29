@@ -5503,6 +5503,8 @@ fn ptrAccessChain(
             });
         },
         .vulkan, .opengl => {
+            assert(target.cpu.has(.spirv, .variable_pointers) or
+                target.cpu.has(.spirv, .variable_pointers_storage_buffer));
             try cg.body.emit(gpa, .OpPtrAccessChain, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,

@@ -24973,6 +24973,21 @@ fn zirBuiltinExtern(
         .location, .descriptor => {},
     };
 
+    switch (zcu.getTarget().os.tag) {
+        .vulkan, .opengl => switch (ptr_info.flags.address_space) {
+            .storage_buffer, .uniform, .push_constant => if (ptr_info.flags.size != .one) {
+                return sema.failWithOwnedErrorMsg(block, msg: {
+                    const msg = try sema.errMsg(ty_src, "extern in '{s}' address space must be a single-item pointer to a struct", .{@tagName(ptr_info.flags.address_space)});
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.errNote(ty_src, msg, "wrap the element type in a struct containing a runtime-sized array", .{});
+                    break :msg msg;
+                });
+            },
+            else => {},
+        },
+        else => {},
+    }
+
     // TODO: error for threadlocal functions, non-const functions, etc
 
     const extern_val = try pt.getExtern(.{
