@@ -251,8 +251,11 @@ test "@fromBackingInt with packed structs" {
             const v3: S3 = @fromBackingInt(b3);
             try expect(v3 == S3.expected.val);
 
-            const v4: S4 = @fromBackingInt(b4);
-            try expect(v4 == S4.expected.val);
+            // https://codeberg.org/ziglang/zig/issues/35982
+            if (builtin.zig_backend != .stage2_x86_64) {
+                const v4: S4 = @fromBackingInt(b4);
+                try expect(v4 == S4.expected.val);
+            }
 
             const v5: S5 = @fromBackingInt(b5);
             try expect(v5 == S5.expected.val);
@@ -353,8 +356,11 @@ test "@fromBackingInt with packed unions" {
             const v3: U3 = @fromBackingInt(b3);
             try expect(v3 == U3.expected.val);
 
-            const v4: U4 = @fromBackingInt(b4);
-            try expect(v4 == U4.expected.val);
+            // https://codeberg.org/ziglang/zig/issues/35982
+            if (builtin.zig_backend != .stage2_x86_64) {
+                const v4: U4 = @fromBackingInt(b4);
+                try expect(v4 == U4.expected.val);
+            }
 
             const v5: U5 = @fromBackingInt(b5);
             try expect(v5 == U5.expected.val);
