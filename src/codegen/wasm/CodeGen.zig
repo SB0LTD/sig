@@ -2527,18 +2527,10 @@ const IntType = struct {
                 .f16, .f32, .f64, .f80, .f128, .c_longdouble => unreachable,
                 .anyopaque, .void, .type, .comptime_int, .comptime_float, .noreturn, .null, .undefined, .enum_literal, .generic_poison => unreachable,
             },
-            .struct_type => {
-                const loaded_struct = ip.loadStructType(ty_index);
-                switch (loaded_struct.layout) {
-                    .auto, .@"extern" => unreachable,
-                    .@"packed" => ty_index = loaded_struct.packed_backing_int_type,
-                }
-            },
-            .union_type => return switch (ip.loadUnionType(ty_index).layout) {
-                .auto, .@"extern" => unreachable,
-                .@"packed" => .{ .is_signed = false, .bits = @intCast(ty.bitSize(zcu)) },
-            },
-            .enum_type => ty_index = ip.loadEnumType(ty_index).int_tag_type,
+            .enum_type,
+            .struct_type,
+            .union_type,
+            => ty_index = Type.fromInterned(ty_index).backingIntType(zcu).toIntern(),
             .error_set_type, .inferred_error_set_type => return .{ .is_signed = false, .bits = zcu.errorSetBits() },
             else => unreachable,
         };

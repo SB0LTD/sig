@@ -1261,3 +1261,16 @@ test "convert from/to backing int" {
     try S.doTheTest(.{ .a = 123, .b = .y, .c = 0.23 });
     try comptime S.doTheTest(.{ .a = 123, .b = .y, .c = 0.23 });
 }
+
+test "equality with wide backing integer" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/35982
+
+    const S = packed struct(i200) {
+        x: u200,
+        fn doTheTest(s: @This(), int: i200) !void {
+            try expect(s == @as(@This(), @bitCast(int)));
+        }
+    };
+    try S.doTheTest(.{ .x = (1 << 200) - 1 }, -1);
+    try comptime S.doTheTest(.{ .x = (1 << 200) - 1 }, -1);
+}
