@@ -1895,13 +1895,17 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
                         depth += 1;
                     } else break;
                 }
-                if (depth > 0 and cur.toIntern() == dst_child.toIntern()) {
-                    const scratch_top = cg.id_scratch.items.len;
-                    defer cg.id_scratch.shrinkRetainingCapacity(scratch_top);
-                    const zero = try cg.constInt(.u32, 0);
-                    const ids = try cg.id_scratch.addManyAsSlice(gpa, depth);
-                    @memset(ids, zero);
-                    return cg.accessChainId(result_ty_id, parent_ptr_id, ids);
+                if (cur.toIntern() == dst_child.toIntern()) {
+                    if (depth != 0) {
+                        const scratch_top = cg.id_scratch.items.len;
+                        defer cg.id_scratch.shrinkRetainingCapacity(scratch_top);
+                        const zero = try cg.constInt(.u32, 0);
+                        const ids = try cg.id_scratch.addManyAsSlice(gpa, depth);
+                        @memset(ids, zero);
+                        return cg.accessChainId(result_ty_id, parent_ptr_id, ids);
+                    } else {
+                        return parent_ptr_id;
+                    }
                 }
                 if (target.os.tag == .opencl) {
                     const result_ptr_id = cg.allocId();
