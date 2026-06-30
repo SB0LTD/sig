@@ -847,10 +847,10 @@ pub fn main(init: process.Init.Minimal) !void {
                 _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
                 process.exit(1);
             }
-            if (can_fs_watch) {
-                @panic("TODO set up fs watching");
+            if (watch and can_fs_watch) {
+                fatal("(zig build system) TODO set up fs watching even when build.zig compilation fails", .{});
             } else {
-                @panic("TODO wait for user to request rebuild");
+                fatal("(zig build system) TODO stay running and wait for user to request rebuild even when build.zig compilation fails", .{});
             }
         }
     }
