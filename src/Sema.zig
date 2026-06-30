@@ -8629,6 +8629,20 @@ fn checkParamType(
     if (param_is_noalias and !param_ty.isGenericPoison() and !param_ty.isPtrAtRuntime(zcu) and !param_ty.isSliceAtRuntime(zcu)) {
         return sema.fail(block, param_src, "non-pointer parameter declared noalias", .{});
     }
+    switch (target.os.tag) {
+        .vulkan, .opengl => if (cc != .@"inline" and param_ty.isPtrAtRuntime(zcu)) {
+            switch (param_ty.ptrAddressSpace(zcu)) {
+                .input, .output => |as| return sema.failWithOwnedErrorMsg(block, msg: {
+                    const msg = try sema.errMsg(param_src, "function parameter cannot be a pointer in '{s}' address space", .{@tagName(as)});
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.errNote(param_src, msg, "mark the function as 'inline' so the parameter is substituted at call sites", .{});
+                    break :msg msg;
+                }),
+                else => {},
+            }
+        },
+        else => {},
+    }
 }
 
 fn checkReturnTypeAndCallConv(
@@ -20530,10 +20544,6 @@ fn zirReifySpirvType(
         return sema.failWithUseOfUndef(block, operand_src, null);
     }
 
-    // TODO: use a longer hash!
-    var hasher = std.hash.Wyhash.init(0);
-    std.hash.autoHash(&hasher, union_val.tag);
-
     const name = try ip.getOrPutStringFmt(
         gpa,
         io,
@@ -20640,20 +20650,11 @@ fn zirReifySpirvType(
                 else => {},
             }
 
-            std.hash.autoHash(&hasher, usage_tag);
-            std.hash.autoHash(&hasher, format);
-            std.hash.autoHash(&hasher, dim);
-            std.hash.autoHash(&hasher, depth);
-            std.hash.autoHash(&hasher, access);
-            std.hash.autoHash(&hasher, arrayed);
-            std.hash.autoHash(&hasher, multisampled);
-
             break :ip_data .{
                 .name = name,
                 .zir_index = tracked_inst,
                 .ty = blk: {
                     const sampled_type = usage_val.unionPayload(zcu).toType();
-                    std.hash.autoHash(&hasher, sampled_type.toIntern());
 
                     if (target.os.tag != .opencl and sampled_type.toIntern() == .void_type) {
                         return sema.fail(block, operand_src, "'void' type for '{t}' field is only valid under the 'opencl' os", .{usage_tag});
@@ -20726,7 +20727,6 @@ fn zirReifySpirvType(
             if (image_info.usage != .sampled) {
                 return sema.fail(block, operand_src, "'sampled_image' element must be an image with 'usage = .sampled'", .{});
             }
-            std.hash.autoHash(&hasher, union_val.val);
             break :blk .{
                 .name = name,
                 .zir_index = tracked_inst,
@@ -20754,7 +20754,6 @@ fn zirReifySpirvType(
             {
                 return sema.fail(block, operand_src, "'runtime_array' of 'runtime_array' is not allowed under the 'vulkan' os", .{});
             }
-            std.hash.autoHash(&hasher, union_val.val);
             break :blk .{
                 .name = name,
                 .zir_index = tracked_inst,
@@ -20773,11 +20772,7 @@ fn zirReifySpirvType(
         },
     };
 
-    return .fromIntern(try ip.getReifiedSpirvType(gpa, io, pt.tid, .{
-        .zir_index = tracked_inst,
-        .type_hash = hasher.final(),
-        .type_spirv = ip_data,
-    }));
+    return .fromIntern(try ip.getReifiedSpirvType(gpa, io, pt.tid, ip_data));
 }
 
 fn resolveVaListRef(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Inst.Ref) CompileError!Air.Inst.Ref {
