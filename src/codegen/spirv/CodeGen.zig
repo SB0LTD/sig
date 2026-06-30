@@ -894,6 +894,9 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
                                 });
                                 if (!cg.needsLayout(as, ty)) try cg.decorateLayout(ty, ty_id);
                             }
+                            if (key.is_const and storage_class == .storage_buffer) {
+                                try cg.decorate(result_id, .non_writable);
+                            }
                         },
                         else => {},
                     }
