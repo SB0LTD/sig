@@ -20544,19 +20544,9 @@ fn zirReifySpirvType(
         return sema.failWithUseOfUndef(block, operand_src, null);
     }
 
-    const name = try ip.getOrPutStringFmt(
-        gpa,
-        io,
-        pt.tid,
-        "{f}__SpirvType_{d}",
-        .{ block.type_name_ctx.fmt(ip), @intFromEnum(inst) },
-        .no_embedded_nulls,
-    );
     const tag = try sema.interpretStdLangType(block, src, .fromInterned(union_val.tag), @typeInfo(std.lang.Type.Spirv).@"union".tag_type.?);
-    const ip_data: InternPool.Tag.TypeSpirv = switch (tag) {
+    const ip_data: InternPool.Key.SpirvType = switch (tag) {
         .sampler => .{
-            .name = name,
-            .zir_index = tracked_inst,
             .ty = .none,
             .flags = .{
                 .tag = .sampler,
@@ -20651,8 +20641,6 @@ fn zirReifySpirvType(
             }
 
             break :ip_data .{
-                .name = name,
-                .zir_index = tracked_inst,
                 .ty = blk: {
                     const sampled_type = usage_val.unionPayload(zcu).toType();
 
@@ -20728,8 +20716,6 @@ fn zirReifySpirvType(
                 return sema.fail(block, operand_src, "'sampled_image' element must be an image with 'usage = .sampled'", .{});
             }
             break :blk .{
-                .name = name,
-                .zir_index = tracked_inst,
                 .ty = union_val.val,
                 .flags = .{
                     .tag = tag,
@@ -20755,8 +20741,6 @@ fn zirReifySpirvType(
                 return sema.fail(block, operand_src, "'runtime_array' of 'runtime_array' is not allowed under the 'vulkan' os", .{});
             }
             break :blk .{
-                .name = name,
-                .zir_index = tracked_inst,
                 .ty = union_val.val,
                 .flags = .{
                     .tag = tag,
