@@ -70,6 +70,15 @@ pub const PrefixedPath = struct {
     }
 };
 
+fn findPrefixPath(cache: *const Cache, path: Path) !PrefixedPath {
+    const gpa = cache.gpa;
+    const resolved_path = try std.fs.path.resolve(gpa, &.{
+        cache.cwd, path.root_dir.path orelse ".", path.subPathOrDot(),
+    });
+    errdefer gpa.free(resolved_path);
+    return findPrefixResolved(cache, resolved_path);
+}
+
 fn findPrefix(cache: *const Cache, file_path: []const u8) !PrefixedPath {
     const gpa = cache.gpa;
     const resolved_path = try std.fs.path.resolve(gpa, &.{file_path});
@@ -998,13 +1007,22 @@ pub const Manifest = struct {
     /// This is useful for processes that don't know the all the files that are
     /// depended on ahead of time. For example, a source file that can import
     /// other files will need to be recompiled if the imported file is changed.
-    pub fn addFilePost(self: *Manifest, file_path: []const u8) !void {
-        assert(self.manifest_file != null);
-        const gpa = self.cache.gpa;
-        const prefixed_path = try self.cache.findPrefix(file_path);
+    pub fn addFilePost(man: *Manifest, file_path: []const u8) !void {
+        assert(man.manifest_file != null);
+        const gpa = man.cache.gpa;
+        const prefixed_path = try man.cache.findPrefix(file_path);
         var keep = false;
         defer if (!keep) gpa.free(prefixed_path.sub_path);
-        keep = try addPrefixedPathPost(self, prefixed_path);
+        keep = try addPrefixedPathPost(man, prefixed_path);
+    }
+
+    pub fn addPathPost(man: *Manifest, path: Path) !void {
+        assert(man.manifest_file != null);
+        const gpa = man.cache.gpa;
+        const prefixed_path: PrefixedPath = try man.cache.findPrefixPath(path);
+        var keep = false;
+        defer if (!keep) gpa.free(prefixed_path.sub_path);
+        keep = try addPrefixedPathPost(man, prefixed_path);
     }
 
     /// Low level function. `prefixed_path` references cloned memory. Returns
@@ -1032,12 +1050,6 @@ pub const Manifest = struct {
 
         try man.populateFileHash(gop.key_ptr);
         return true;
-    }
-
-    pub fn addPathPost(man: *Manifest, path: Path) !void {
-        _ = man;
-        _ = path;
-        std.log.err("TODO Build.Cache.addPathPost", .{});
     }
 
     /// Like `addFilePost` but when the file contents have already been loaded from disk.

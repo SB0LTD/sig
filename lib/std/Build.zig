@@ -177,6 +177,7 @@ pub const Graph = struct {
     /// A path whose components and contents are known at some point during
     /// `Step` resolution, relative to the provided base directory.
     pub fn path(graph: *Graph, base: Configuration.LazyPath.Relative.Base, sub_path: []const u8) LazyPath {
+        assert(base != .build_root);
         return .{ .relative = .{
             .base = base,
             .sub_path = @This().dupePath(graph, sub_path),

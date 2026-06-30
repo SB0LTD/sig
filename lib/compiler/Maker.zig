@@ -1318,7 +1318,11 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
         }
 
         for (configuration.path_deps) |path_dep| {
-            try config_man.addPathPost(path_dep.toCachePath(&configuration, arena));
+            switch (path_dep.flags.mode) {
+                .directory => {}, // TODO
+                .contents => try config_man.addPathPost(confPathDepToCachePath(graph, &configuration, path_dep)),
+                .metadata => {}, // TODO
+            }
         }
 
         // If it is poisoned, there is no point in moving it to cached
@@ -1825,7 +1829,7 @@ fn cmdInit(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
             return process.cleanExit(io);
         },
         .minimal => {
-            writeSimpleTemplateFile(io, Package.Manifest.basename,
+            Templates.writeSimpleFile(io, Package.Manifest.basename,
                 \\.{{
                 \\    .name = .{s},
                 \\    .version = "0.0.1",
@@ -1842,7 +1846,7 @@ fn cmdInit(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
                 else => fatal("failed to create {q}: {t}", .{ Package.Manifest.basename, err }),
                 error.PathAlreadyExists => fatal("refusing to overwrite {q}", .{Package.Manifest.basename}),
             };
-            writeSimpleTemplateFile(io, default_build_zig_basename,
+            Templates.writeSimpleFile(io, default_build_zig_basename,
                 \\const std = @import("std");
                 \\
                 \\pub fn build(b: *std.Build) void {{
@@ -3498,7 +3502,7 @@ fn loadManifest(
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
-                writeSimpleTemplateFile(io, Package.Manifest.basename,
+                Templates.writeSimpleFile(io, Package.Manifest.basename,
                     \\.{{
                     \\    .name = .{s},
                     \\    .version = "{s}",
@@ -3658,12 +3662,47 @@ const Templates = struct {
             .buffer = std.array_list.Managed(u8).init(gpa),
         };
     }
+
+    fn writeSimpleFile(io: Io, file_name: []const u8, comptime format: []const u8, args: anytype) !void {
+        const f = try Io.Dir.cwd().createFile(io, file_name, .{ .exclusive = true });
+        defer f.close(io);
+        var buf: [4096]u8 = undefined;
+        var fw = f.writer(io, &buf);
+        try fw.interface.print(format, args);
+        try fw.interface.flush();
+    }
 };
-fn writeSimpleTemplateFile(io: Io, file_name: []const u8, comptime format: []const u8, args: anytype) !void {
-    const f = try Io.Dir.cwd().createFile(io, file_name, .{ .exclusive = true });
-    defer f.close(io);
-    var buf: [4096]u8 = undefined;
-    var fw = f.writer(io, &buf);
-    try fw.interface.print(format, args);
-    try fw.interface.flush();
+
+fn confPathDepToCachePath(graph: *const Graph, c: *const Configuration, path_dep: Configuration.PathDep) Path {
+    const sub_path = path_dep.sub.slice(c);
+    return switch (path_dep.flags.base) {
+        .cwd => .{
+            .root_dir = .cwd(),
+            .sub_path = sub_path,
+        },
+        .local_cache => .{
+            .root_dir = graph.local_cache_root,
+            .sub_path = sub_path,
+        },
+        .global_cache => .{
+            .root_dir = graph.global_cache_root,
+            .sub_path = sub_path,
+        },
+        .build_root => .{
+            .root_dir = switch (path_dep.pkg.unwrap().?) {
+                .root => graph.build_root_directory,
+                _ => @panic("TODO"),
+            },
+            .sub_path = sub_path,
+        },
+        .zig_lib => .{
+            .root_dir = graph.zig_lib_directory,
+            .sub_path = sub_path,
+        },
+        .zig_exe => @panic("TODO"),
+        .install_prefix => @panic("TODO"),
+        .install_lib => @panic("TODO"),
+        .install_bin => @panic("TODO"),
+        .install_include => @panic("TODO"),
+    };
 }

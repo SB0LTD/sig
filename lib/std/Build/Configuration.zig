@@ -1557,6 +1557,7 @@ pub const LazyPath = union(@This().Tag) {
             cwd,
             local_cache,
             global_cache,
+            /// Must not be used with Relative since package index is missing.
             build_root,
             zig_exe,
             zig_lib,
@@ -1876,13 +1877,6 @@ pub const PathDep = extern struct {
     };
 
     pub const Mode = enum(u8) { directory, contents, metadata };
-
-    pub fn toCachePath(path: PathDep, c: *const Configuration, arena: Allocator) std.Build.Cache.Path {
-        _ = c;
-        _ = arena;
-        _ = path;
-        if (true) @panic("TODO Configuration.PathDep.toCachePath");
-    }
 };
 
 pub const InstallDestDir = enum(u32) {

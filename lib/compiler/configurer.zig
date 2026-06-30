@@ -633,8 +633,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
     var s: Serialize = .{ .wc = wc, .arena = arena };
 
     try wc.path_deps.ensureTotalCapacityPrecise(gpa, graph.configure_dependencies.items.len);
-    // TODO remove this
-    if (false) for (
+    for (
         graph.configure_dependencies.items,
         wc.path_deps.addManyAsSliceAssumeCapacity(graph.configure_dependencies.items.len),
     ) |src, *dest| {
@@ -662,7 +661,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                 .dependency => |d| .init(try s.builderToPackage(d.dependency.builder)),
             },
         };
-    };
+    }
 
     // Starting from all top-level steps in `b`, traverse the entire step graph
     // and add all step dependencies implied by module graphs.

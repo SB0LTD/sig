@@ -269,7 +269,7 @@ pub fn build(b: *std.Build) !void {
         }
 
         // Ensure git version changes get picked up.
-        b.dependOnFileContents(b.graph.path(.build_root, ".git/HEAD"));
+        b.dependOnFileContents(b.path(".git/HEAD"));
 
         const version_string = b.fmt("{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
 
