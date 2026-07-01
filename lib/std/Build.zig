@@ -23,6 +23,8 @@ pub const Module = @import("Build/Module.zig");
 pub const abi = @import("Build/abi.zig");
 /// The serialized output of configure phase ingested by make phase.
 pub const Configuration = @import("Build/Configuration.zig");
+/// Logic that transforms `Build` into `Configuration`.
+pub const Serialize = @import("Build/Serialize.zig");
 
 /// Shared state among all Build instances.
 graph: *Graph,
