@@ -2927,6 +2927,7 @@ fn initHeaders(
         tls: u32,
         dynamic: u32,
         relro: u32,
+        gnu_stack: u32,
     }, const phnum: u32 = ph: {
         switch (@"type") {
             .NONE, .CORE, _ => unreachable,
@@ -2967,12 +2968,16 @@ fn initHeaders(
                 defer phnum += 1;
                 break :phndx phnum;
             },
+            .gnu_stack = phndx: {
+                defer phnum += 1;
+                break :phndx phnum;
+            },
         }, phnum };
     };
 
     const expected_nodes_len = 3 + // `.file`, `.ehdr`, and `.shdr` nodes
         (shnum - 1) + // -1 because the null shdr does not have a `.section` node
-        phnum;
+        (phnum -| 1); // -1 because the GNU_STACK phdr does not have a `.segment` node
 
     try elf.nodes.ensureTotalCapacity(gpa, expected_nodes_len);
     try elf.shdrs.ensureTotalCapacity(gpa, shnum);
@@ -3084,6 +3089,8 @@ fn initHeaders(
         }));
         elf.nodes.appendAssumeCapacity(.{ .segment = phndx.relro });
         elf.phdrs.items[phndx.relro] = elf.ni.data_rel_ro;
+
+        elf.phdrs.items[phndx.gnu_stack] = .none;
 
         break :ph_vaddr switch (elf.ehdrField(.type)) {
             .NONE, .CORE, _ => unreachable,
@@ -3221,6 +3228,19 @@ fn initHeaders(
                     .@"align" = @intCast(elf.mf.flags.block_size.toByteUnits()),
                 };
                 if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_relro);
+
+                const ph_gnu_stack = &phdr[phndx.gnu_stack];
+                ph_gnu_stack.* = .{
+                    .type = .GNU_STACK,
+                    .offset = 0,
+                    .vaddr = 0,
+                    .paddr = 0,
+                    .filesz = 0,
+                    .memsz = @intCast(elf.options.stack_size orelse 0),
+                    .flags = .{ .R = true, .W = true },
+                    .@"align" = 1,
+                };
+                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_gnu_stack);
             }
 
             const sh_undef: *ElfN.Shdr = @ptrCast(@alignCast(elf.ni.shdr.slice(&elf.mf)));
@@ -6896,7 +6916,7 @@ fn flushResized(elf: *Elf, ni: MappedFile.Node.Index) std.mem.Allocator.Error!vo
                         switch (elf.targetLoad(&next_ph.type)) {
                             else => unreachable,
                             .NULL, .LOAD => {},
-                            .DYNAMIC, .INTERP, .PHDR, .TLS, std.elf.PT.GNU_RELRO => break,
+                            .DYNAMIC, .INTERP, .PHDR, .TLS, .GNU_RELRO, .GNU_STACK => break,
                         }
                         const next_vaddr = elf.targetLoad(&next_ph.vaddr);
                         if (vaddr + memsz <= next_vaddr) break;
