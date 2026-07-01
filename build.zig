@@ -269,7 +269,29 @@ pub fn build(b: *std.Build) !void {
         }
 
         // Ensure git version changes get picked up.
-        b.dependOnFileContents(b.path(".git/HEAD"));
+        git: {
+            const io = b.graph.io;
+            const git_file = b.root.openFile(io, ".git", .{ .allow_directory = false }) catch |err| switch (err) {
+                error.IsDir => {
+                    b.dependOnFileContents(b.path(".git/logs/HEAD"));
+                    break :git;
+                },
+                else => |e| return e,
+            };
+            defer git_file.close(io);
+            var line_buffer: ["gitdir: ".len + std.Io.Dir.max_path_bytes + 1]u8 = undefined;
+            var git_file_reader = git_file.reader(io, &line_buffer);
+            if (std.mem.cutPrefix(u8, std.mem.trimEnd(u8, try git_file_reader.interface.allocRemaining(
+                arena,
+                .limited("gitdir: ".len + std.Io.Dir.max_path_bytes + "\r\n".len),
+            ), "\r\n"), "gitdir: ")) |git_dir| {
+                const head_file = b.pathJoin(&.{ git_dir, "logs", "HEAD" });
+                b.dependOnFileContents(if (std.Io.Dir.path.isAbsolute(head_file))
+                    b.graph.cwdRelativePath(head_file)
+                else
+                    b.path(head_file));
+            }
+        }
 
         const version_string = b.fmt("{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
 
