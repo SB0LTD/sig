@@ -140,19 +140,7 @@ pub fn main(init: process.Init.Minimal) !void {
     try Serialize.packageOptions(builder, &graph.wip_configuration);
     try Serialize.systemIntegrationOptions(&graph, &graph.wip_configuration);
 
-    var stdout_buffer: [1024]u8 = undefined;
-    var file_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
-    Serialize.write(builder, &graph.wip_configuration, &file_writer.interface) catch |err| switch (err) {
-        error.WriteFailed => fatal("failed to write configuration output: {t}", .{file_writer.err.?}),
-        error.OutOfMemory => |e| return e,
-    };
-    file_writer.flush() catch |err| fatal("failed to write configuration output: {t}", .{err});
-
-    // This executable is short-lived and run in Debug mode, so we'd rather
-    // have `zig build` run faster than catch resource leaks in the user's
-    // build.zig script (or, frankly, this configure runner), therefore we call
-    // exit directly here rather than cleanExit.
-    process.exit(0);
+    builder.serializeConfigurationExiting();
 }
 
 fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {

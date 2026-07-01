@@ -16,6 +16,7 @@ const process = std.process;
 const File = std.Io.File;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const ArrayList = std.ArrayList;
+const fatal = std.process.fatal;
 
 pub const Cache = @import("Build/Cache.zig");
 pub const Step = @import("Build/Step.zig");
@@ -1989,13 +1990,13 @@ pub fn run(b: *Build, argv: []const []const u8) []u8 {
         .stderr_behavior = .inherit,
     })) {
         .success => |stdout| return stdout,
-        .spawn_failed => |err| process.fatal("the following command failed with {t}:\n{s}", .{
+        .spawn_failed => |err| fatal("the following command failed with {t}:\n{s}", .{
             err, std.zig.allocPrintCmd(arena, argv, .{}) catch @panic("OOM"),
         }),
-        .bad_exit_code => |code| process.fatal("the following command exited with code {d}:\n{s}", .{
+        .bad_exit_code => |code| fatal("the following command exited with code {d}:\n{s}", .{
             code, std.zig.allocPrintCmd(arena, argv, .{}) catch @panic("OOM"),
         }),
-        .crashed => process.fatal("the following command crashed:\n{s}", .{
+        .crashed => fatal("the following command crashed:\n{s}", .{
             std.zig.allocPrintCmd(arena, argv, .{}) catch @panic("OOM"),
         }),
     }
@@ -2341,7 +2342,7 @@ fn dependencyInner(
         .root_dir = .{
             .path = build_root_string,
             .handle = Io.Dir.cwd().openDir(io, build_root_string, .{}) catch |err|
-                process.fatal("failed to open {q}: {t}", .{ build_root_string, err }),
+                fatal("failed to open {q}: {t}", .{ build_root_string, err }),
         },
     };
 
@@ -2836,6 +2837,26 @@ fn validateConfigureDependency(lazy_path: LazyPath) void {
             => @panic("configure phase cannot depend on files installed during make phase"),
         },
     }
+}
+
+/// Build system implementation detail.
+pub fn serializeConfigurationExiting(b: *Build) void {
+    const graph = b.graph;
+    const io = graph.io;
+
+    var stdout_buffer: [1024]u8 = undefined;
+    var file_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
+    Serialize.write(b, &graph.wip_configuration, &file_writer.interface) catch |err| switch (err) {
+        error.WriteFailed => fatal("failed to write configuration output: {t}", .{file_writer.err.?}),
+        error.OutOfMemory => @panic("OOM"),
+    };
+    file_writer.flush() catch |err| fatal("failed to write configuration output: {t}", .{err});
+
+    // This executable is short-lived and run in Debug mode, so we'd rather
+    // have `zig build` run faster than catch resource leaks in the user's
+    // build.zig script (or, frankly, this configure runner), therefore we call
+    // exit directly here rather than cleanExit.
+    process.exit(0);
 }
 
 test {
