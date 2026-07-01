@@ -1298,6 +1298,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                     any_errors = true;
                     continue;
                 }
+                log.info("fetching lazy dependency {s}", .{hash});
                 try unlazy_set.put(arena, .fromSlice(hash), {});
             }
             if (any_errors) return error.FailedButCacheIntact;
