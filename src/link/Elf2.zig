@@ -5885,6 +5885,7 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
         reloc: struct {
             type: MachineRelocType,
             dynsym_index: u32,
+            addend: i64,
         },
     } = switch (elf.got.keys()[got_index]) {
         .reserved => .{ .unsigned = 0 },
@@ -5918,20 +5919,25 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
                 const sym_value = sym_id.value(elf);
                 break :val .{ .signed = @bitCast(sym_value -% tls_size) };
             }
-            break :val .{
-                .reloc = .{
-                    .type = switch (elf.ehdrField(.machine)) {
-                        else => |machine| @panic(@tagName(machine)),
-                        .X86_64 => .{ .X86_64 = .TPOFF64 },
-                        .LOONGARCH => .{ .LOONGARCH = if (elf.identClass() == .@"64") .TLS_TPREL64 else .TLS_TPREL32 },
-                    },
-                    .dynsym_index = switch (sym_id.unwrap()) {
-                        .global => |name| elf.globalByName(name).?.dynsym_index,
-                        // TODO: I have no idea if compilers are even allowed to emit this, but if they
-                        // are then I guess we need to add this local symbol to `.dynsym`?
-                        .local => @panic("TODO(Elf2): GOT tpoff entry referencing local symbol"),
-                    },
-                },
+            const reloc_type: MachineRelocType = switch (elf.ehdrField(.machine)) {
+                else => |machine| @panic(@tagName(machine)),
+                .X86_64 => .{ .X86_64 = .TPOFF64 },
+                .LOONGARCH => .{ .LOONGARCH = if (elf.identClass() == .@"64") .TLS_TPREL64 else .TLS_TPREL32 },
+            };
+            break :val switch (sym_id.unwrap()) {
+                // For global symbols, just target the right dynsym with no addend.
+                .global => |name| .{ .reloc = .{
+                    .type = reloc_type,
+                    .dynsym_index = elf.globalByName(name).?.dynsym_index,
+                    .addend = 0,
+                } },
+                // For local symbols, target the null symbol (index 0) so we get the offset to the
+                // base of our TLS block, and then use `addend` to offset to the right symbol.
+                .local => .{ .reloc = .{
+                    .type = reloc_type,
+                    .dynsym_index = 0,
+                    .addend = @intCast(sym_id.value(elf)),
+                } },
             };
         },
         .symbol, .tlsgd1 => |sym_id, tag| val: {
@@ -5974,6 +5980,7 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
             break :val .{ .reloc = .{
                 .type = if (tag == .symbol) .globDat(elf) else .dtpOffAddr(elf),
                 .dynsym_index = elf.globalByName(name).?.dynsym_index,
+                .addend = 0,
             } };
         },
         .tlsgd0 => |sym| switch (elf.shndx.dynamic) {
@@ -6010,6 +6017,7 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
                             break :dsi elf.globalByName(name).?.dynsym_index;
                         },
                     },
+                    .addend = 0,
                 },
             },
         },
@@ -6022,6 +6030,7 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
                     .LOONGARCH => .{ .LOONGARCH = if (elf.identClass() == .@"64") .TLS_DTPMOD64 else .TLS_DTPMOD32 },
                 },
                 .dynsym_index = 0,
+                .addend = 0,
             } },
         },
         .tlsld1 => .{ .unsigned = 0 },
@@ -6065,7 +6074,7 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
             .type = reloc.type,
             .offset = got_entry_addr,
             .raw_sym_index = reloc.dynsym_index,
-            .addend = 0,
+            .addend = reloc.addend,
         }).toOptional(),
     };
 }
