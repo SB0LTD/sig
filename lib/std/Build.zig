@@ -2109,21 +2109,29 @@ fn markNeededLazyDep(b: *Build, pkg_hash: []const u8) void {
     b.graph.needed_lazy_dependencies.put(b.graph.arena, pkg_hash, {}) catch @panic("OOM");
 }
 
+/// Deprecated in favor of `dependencyLazy`.
+pub fn lazyDependency(b: *Build, name: []const u8, args: anytype) ?*Dependency {
+    return dependencyLazy(b, name, args) catch |err| switch (err) {
+        error.LazyDependencyNeeded => null,
+    };
+}
+
 /// When this function is called, it means that the current build does, in
 /// fact, require this dependency. If the dependency is already fetched, it is
 /// returned. However if the dependency is not yet fetched, then when the build
-/// script is finished running, the build will not proceed to the make phase.
+/// script is finished running, the toolchain will not proceed to the make phase.
 /// Instead, the parent process will additionally fetch all the lazy
 /// dependencies that were actually required by running the build script,
-/// rebuild the build script, and then run it again. In other words, if this
-/// function returns `null` it means that the only purpose of completing the
-/// configure phase is to find out all the other lazy dependencies that are
-/// also required.
+/// recompile the build script, and then run it again. In other words, if this
+/// function returns `error.LazyDependencyNeeded` it means that the only
+/// purpose of completing the configure phase is to find out all the other lazy
+/// dependencies that are also required. In this case, one must propagate the
+/// error all the way up and return it from the main build function.
 ///
-/// It is allowed to use this function for non-lazy dependencies, in which case
-/// it will never return `null`. This allows toggling laziness via
-/// build.zig.zon without changing build.zig logic.
-pub fn lazyDependency(b: *Build, name: []const u8, args: anytype) ?*Dependency {
+/// For non-lazy dependencies, this always succeeds.
+///
+/// This function will be eventually renamed to `dependency`.
+pub fn dependencyLazy(b: *Build, name: []const u8, args: anytype) error{LazyDependencyNeeded}!*Dependency {
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
     const pkg_hash = findPkgHashOrFatal(b, name);
@@ -2134,15 +2142,17 @@ pub fn lazyDependency(b: *Build, name: []const u8, args: anytype) ?*Dependency {
             const available = !@hasDecl(pkg, "available") or pkg.available;
             if (!available) {
                 markNeededLazyDep(b, pkg_hash);
-                return null;
+                return error.LazyDependencyNeeded;
             }
             return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg_hash, pkg.deps, args);
         }
     }
 
-    unreachable; // Bad @dependencies source
+    unreachable; // bad @dependencies source
 }
 
+/// Deprecated in favor of `dependencyLazy`. To get the same behavior as before, use `try` to propagate
+/// the potential `error.LazyDependencyNeeded` all the way out of your main build function.
 pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
