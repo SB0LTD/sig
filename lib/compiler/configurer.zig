@@ -133,7 +133,7 @@ pub fn main(init: process.Init.Minimal) !void {
         .off => .no_color,
     };
 
-    builder.runBuild(root);
+    builder.runPackageScript(root);
 
     if (builder.validateUserInputDidItFail()) {
         fatal("  access the help menu with 'zig build -h'", .{});

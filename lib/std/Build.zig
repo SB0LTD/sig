@@ -2075,7 +2075,7 @@ fn findPkgHashOrFatal(b: *Build, name: []const u8) []const u8 {
     for (b.available_deps) |dep| {
         if (mem.eql(u8, dep[0], name)) return dep[1];
     }
-    std.log.info("all dependencies used by build.zig must be declared in corresponding build.zig.zon", .{});
+    log.info("all dependencies used by build.zig must be declared in corresponding build.zig.zon", .{});
     if (b.pkg_hash.len == 0) panic("no dependency named {s}", .{name});
     panic("no dependency named {s} in {s} ({s})", .{ name, b.dep_prefix, b.pkg_hash });
 }
@@ -2335,7 +2335,7 @@ fn dependencyInner(
 
     const sub_builder = b.createChild(name, dep_root, pkg_hash, pkg_deps, user_input_options) catch @panic("OOM");
     if (build_zig) |bz| {
-        sub_builder.runBuild(bz);
+        sub_builder.runPackageScript(bz);
 
         if (sub_builder.validateUserInputDidItFail()) {
             std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
@@ -2353,11 +2353,19 @@ fn dependencyInner(
 }
 
 /// Build system implementation detail.
-pub fn runBuild(b: *Build, build_zig: anytype) void {
-    switch (@typeInfo(@typeInfo(@TypeOf(build_zig.build)).@"fn".return_type.?)) {
-        .error_union => return build_zig.build(b) catch unreachable,
-        else => return build_zig.build(b),
-    }
+pub inline fn runPackageScript(b: *Build, comptime build_zig: anytype) void {
+    const result: anyerror!void = build_zig.build(b);
+    result catch |err| switch (err) {
+        error.LazyDependencyNeeded => assert(b.graph.needed_lazy_dependencies.count() != 0),
+        else => {
+            if (@errorReturnTrace()) |trace| std.debug.dumpErrorReturnTrace(trace);
+            if (b.dep_prefix.len == 0) {
+                process.fatal("package {q} configuration failed: {t}", .{ b.dep_prefix, err });
+            } else {
+                process.fatal("configuration failed: {t}", .{err});
+            }
+        },
+    };
 }
 
 // dirnameAllowEmpty is a variant of fs.path.dirname
