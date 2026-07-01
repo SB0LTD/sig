@@ -2110,15 +2110,15 @@ fn markNeededLazyDep(b: *Build, pkg_hash: []const u8) void {
 }
 
 /// When this function is called, it means that the current build does, in
-/// fact, require this dependency. If the dependency is already fetched, it
-/// proceeds in the same manner as `dependency`. However if the dependency was
-/// not fetched, then when the build script is finished running, the build will
-/// not proceed to the make phase. Instead, the parent process will
-/// additionally fetch all the lazy dependencies that were actually required by
-/// running the build script, rebuild the build script, and then run it again.
-/// In other words, if this function returns `null` it means that the only
-/// purpose of completing the configure phase is to find out all the other lazy
-/// dependencies that are also required.
+/// fact, require this dependency. If the dependency is already fetched, it is
+/// returned. However if the dependency is not yet fetched, then when the build
+/// script is finished running, the build will not proceed to the make phase.
+/// Instead, the parent process will additionally fetch all the lazy
+/// dependencies that were actually required by running the build script,
+/// rebuild the build script, and then run it again. In other words, if this
+/// function returns `null` it means that the only purpose of completing the
+/// configure phase is to find out all the other lazy dependencies that are
+/// also required.
 ///
 /// It is allowed to use this function for non-lazy dependencies, in which case
 /// it will never return `null`. This allows toggling laziness via
@@ -2358,12 +2358,15 @@ pub inline fn runPackageScript(b: *Build, comptime build_zig: anytype) void {
     result catch |err| switch (err) {
         error.LazyDependencyNeeded => assert(b.graph.needed_lazy_dependencies.count() != 0),
         else => {
-            if (@errorReturnTrace()) |trace| std.debug.dumpErrorReturnTrace(trace);
             if (b.dep_prefix.len == 0) {
-                process.fatal("package {q} configuration failed: {t}", .{ b.dep_prefix, err });
+                log.err("package {q} configuration failed: {t}", .{ b.dep_prefix, err });
             } else {
-                process.fatal("configuration failed: {t}", .{err});
+                log.err("configuration failed: {t}", .{err});
             }
+            if (@errorReturnTrace()) |trace| std.debug.dumpErrorReturnTrace(trace);
+            const lazy_count = b.graph.needed_lazy_dependencies.count();
+            if (lazy_count == 0) process.exit(1);
+            log.info("{d} lazy dependencies detected; fetching and retrying configuration", .{lazy_count});
         },
     };
 }
