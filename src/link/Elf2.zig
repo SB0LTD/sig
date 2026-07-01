@@ -2884,51 +2884,99 @@ fn initHeaders(
         .@"64" => .@"8",
     };
 
-    const shnum: u32 = 1;
-    var phnum: u32 = 0;
-    const phdr_phndx = phnum;
-    phnum += 1;
-    const interp_phndx = if (maybe_interp) |_| phndx: {
-        defer phnum += 1;
-        break :phndx phnum;
-    } else undefined;
-    const rodata_phndx = phnum;
-    phnum += 1;
-    const text_phndx = phnum;
-    phnum += 1;
-    const data_phndx = phnum;
-    phnum += 1;
-    const tls_phndx = if (comp.config.any_non_single_threaded) phndx: {
-        defer phnum += 1;
-        break :phndx phnum;
-    } else undefined;
-    const dynamic_phndx = if (have_dynamic_section) phndx: {
-        defer phnum += 1;
-        break :phndx phnum;
-    } else undefined;
-    const relro_phndx = phnum;
-    phnum += 1;
-
     const init_plt_size: std.elf.Xword, const plt_align: std.mem.Alignment, const plt_sec =
         switch (machine) {
             else => @panic(@tagName(machine)),
             .X86_64 => .{ 16, .@"16", true },
             .LOONGARCH => .{ 32, .@"4", false },
         };
-    const expected_nodes_len = expected_nodes_len: switch (@"type") {
-        .NONE, .CORE, _ => unreachable,
-        .REL => {
-            // Each phdr is actually going to be an shdr.
-            defer phnum = 0;
-            break :expected_nodes_len 5 + phnum;
-        },
-        .EXEC, .DYN => break :expected_nodes_len 9 +
-            phnum * 2 - 1 + // each phdr also has a matching shdr, except for the PT_PHDR phdr
-            @as(usize, 4) * @intFromBool(have_dynamic_section) + // .dynstr, .dynsym, .rela.dyn, .rela.plt
-            @intFromBool(plt_sec),
+
+    const shnum: u32 = shnum: {
+        var shnum: u32 = 1; // reserved ("null") shdr
+        shnum += 1; // .symtab
+        shnum += 1; // .shstrtab
+        shnum += 1; // .strtab
+        shnum += @intFromBool(maybe_interp != null); // .interp
+        shnum += 1; // .rodata
+        shnum += 1; // .text
+        shnum += 1; // .data
+        shnum += @intFromBool(comp.config.any_non_single_threaded); // .tdata
+        shnum += 1; // .data.rel.ro
+        if (have_dynamic_section) {
+            shnum += 1; // .dynamic
+            shnum += 1; // .dynstr
+            shnum += 1; // .dynsym
+            shnum += 1; // .rela.dyn
+            shnum += 1; // .rela.plt
+        }
+        if (@"type" != .REL) {
+            shnum += 1; // .got
+            shnum += 1; // .got.plt
+            shnum += 1; // .plt
+            shnum += @intFromBool(plt_sec); // .plt_sec
+        }
+        break :shnum shnum;
     };
+
+    const phndx: struct {
+        phdr: u32,
+        interp: u32,
+        rodata: u32,
+        text: u32,
+        data: u32,
+        tls: u32,
+        dynamic: u32,
+        relro: u32,
+    }, const phnum: u32 = ph: {
+        switch (@"type") {
+            .NONE, .CORE, _ => unreachable,
+            .REL => break :ph .{ undefined, 0 },
+            .EXEC, .DYN => {},
+        }
+        var phnum: u32 = 0;
+        break :ph .{ .{
+            .phdr = phndx: {
+                defer phnum += 1;
+                break :phndx phnum;
+            },
+            .interp = if (maybe_interp) |_| phndx: {
+                defer phnum += 1;
+                break :phndx phnum;
+            } else undefined,
+            .rodata = phndx: {
+                defer phnum += 1;
+                break :phndx phnum;
+            },
+            .text = phndx: {
+                defer phnum += 1;
+                break :phndx phnum;
+            },
+            .data = phndx: {
+                defer phnum += 1;
+                break :phndx phnum;
+            },
+            .tls = if (comp.config.any_non_single_threaded) phndx: {
+                defer phnum += 1;
+                break :phndx phnum;
+            } else undefined,
+            .dynamic = if (have_dynamic_section) phndx: {
+                defer phnum += 1;
+                break :phndx phnum;
+            } else undefined,
+            .relro = phndx: {
+                defer phnum += 1;
+                break :phndx phnum;
+            },
+        }, phnum };
+    };
+
+    const expected_nodes_len = 3 + // `.file`, `.ehdr`, and `.shdr` nodes
+        (shnum - 1) + // -1 because the null shdr does not have a `.section` node
+        phnum;
+
     try elf.nodes.ensureTotalCapacity(gpa, expected_nodes_len);
     try elf.shdrs.ensureTotalCapacity(gpa, shnum);
+    try elf.section_by_name.ensureUnusedCapacity(gpa, shnum);
     try elf.phdrs.resize(gpa, phnum);
     try elf.symtab.ensureTotalCapacity(gpa, 1);
     elf.nodes.appendAssumeCapacity(.file);
@@ -2980,7 +3028,7 @@ fn initHeaders(
             ehdr.phentsize = @sizeOf(ElfN.Phdr);
             ehdr.phnum = @min(phnum, std.elf.PN_XNUM);
             ehdr.shentsize = @sizeOf(ElfN.Shdr);
-            ehdr.shnum = if (shnum < std.elf.SHN_LORESERVE) shnum else 0;
+            ehdr.shnum = 1; // Only the null shdr initially---will be incremented by `addSection`
             ehdr.shstrndx = std.elf.SHN_UNDEF;
             if (elf.targetEndian() != native_endian) std.mem.byteSwapAllFields(ElfN.Ehdr, ehdr);
         },
@@ -3000,8 +3048,8 @@ fn initHeaders(
             .moved = true,
             .bubbles_moved = false,
         }));
-        elf.nodes.appendAssumeCapacity(.{ .segment = rodata_phndx });
-        elf.phdrs.items[rodata_phndx] = elf.ni.rodata;
+        elf.nodes.appendAssumeCapacity(.{ .segment = phndx.rodata });
+        elf.phdrs.items[phndx.rodata] = elf.ni.rodata;
 
         assert(elf.ni.phdr == try elf.mf.addOnlyChildNode(gpa, elf.ni.rodata, .{
             .size = elf.ehdrField(.phentsize) * elf.ehdrField(.phnum),
@@ -3010,32 +3058,32 @@ fn initHeaders(
             .resized = true,
             .bubbles_moved = false,
         }));
-        elf.nodes.appendAssumeCapacity(.{ .segment = phdr_phndx });
-        elf.phdrs.items[phdr_phndx] = elf.ni.phdr;
+        elf.nodes.appendAssumeCapacity(.{ .segment = phndx.phdr });
+        elf.phdrs.items[phndx.phdr] = elf.ni.phdr;
 
         assert(elf.ni.text == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
             .alignment = elf.mf.flags.block_size,
             .moved = true,
             .bubbles_moved = false,
         }));
-        elf.nodes.appendAssumeCapacity(.{ .segment = text_phndx });
-        elf.phdrs.items[text_phndx] = elf.ni.text;
+        elf.nodes.appendAssumeCapacity(.{ .segment = phndx.text });
+        elf.phdrs.items[phndx.text] = elf.ni.text;
 
         assert(elf.ni.data == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
             .alignment = elf.mf.flags.block_size,
             .moved = true,
             .bubbles_moved = false,
         }));
-        elf.nodes.appendAssumeCapacity(.{ .segment = data_phndx });
-        elf.phdrs.items[data_phndx] = elf.ni.data;
+        elf.nodes.appendAssumeCapacity(.{ .segment = phndx.data });
+        elf.phdrs.items[phndx.data] = elf.ni.data;
 
         assert(elf.ni.data_rel_ro == try elf.mf.addOnlyChildNode(gpa, elf.ni.data, .{
             .alignment = elf.mf.flags.block_size,
             .moved = true,
             .bubbles_moved = false,
         }));
-        elf.nodes.appendAssumeCapacity(.{ .segment = relro_phndx });
-        elf.phdrs.items[relro_phndx] = elf.ni.data_rel_ro;
+        elf.nodes.appendAssumeCapacity(.{ .segment = phndx.relro });
+        elf.phdrs.items[phndx.relro] = elf.ni.data_rel_ro;
 
         break :ph_vaddr switch (elf.ehdrField(.type)) {
             .NONE, .CORE, _ => unreachable,
@@ -3058,7 +3106,7 @@ fn initHeaders(
 
             if (@"type" != .REL) {
                 const phdr: []ElfN.Phdr = @ptrCast(@alignCast(elf.ni.phdr.slice(&elf.mf)));
-                const ph_phdr = &phdr[phdr_phndx];
+                const ph_phdr = &phdr[phndx.phdr];
                 ph_phdr.* = .{
                     .type = .PHDR,
                     .offset = 0,
@@ -3072,7 +3120,7 @@ fn initHeaders(
                 if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_phdr);
 
                 if (maybe_interp) |_| {
-                    const ph_interp = &phdr[interp_phndx];
+                    const ph_interp = &phdr[phndx.interp];
                     ph_interp.* = .{
                         .type = .INTERP,
                         .offset = 0,
@@ -3087,7 +3135,7 @@ fn initHeaders(
                 }
 
                 _, const rodata_size = elf.ni.rodata.location(&elf.mf).resolve(&elf.mf);
-                const ph_rodata = &phdr[rodata_phndx];
+                const ph_rodata = &phdr[phndx.rodata];
                 ph_rodata.* = .{
                     .type = if (rodata_size == 0) .NULL else .LOAD,
                     .offset = 0,
@@ -3102,7 +3150,7 @@ fn initHeaders(
                 ph_vaddr += @intCast(rodata_size);
 
                 _, const text_size = elf.ni.text.location(&elf.mf).resolve(&elf.mf);
-                const ph_text = &phdr[text_phndx];
+                const ph_text = &phdr[phndx.text];
                 ph_text.* = .{
                     .type = if (text_size == 0) .NULL else .LOAD,
                     .offset = 0,
@@ -3117,7 +3165,7 @@ fn initHeaders(
                 ph_vaddr += @intCast(text_size);
 
                 _, const data_size = elf.ni.data.location(&elf.mf).resolve(&elf.mf);
-                const ph_data = &phdr[data_phndx];
+                const ph_data = &phdr[phndx.data];
                 ph_data.* = .{
                     .type = if (data_size == 0) .NULL else .LOAD,
                     .offset = 0,
@@ -3132,7 +3180,7 @@ fn initHeaders(
                 ph_vaddr += @intCast(data_size);
 
                 if (comp.config.any_non_single_threaded) {
-                    const ph_tls = &phdr[tls_phndx];
+                    const ph_tls = &phdr[phndx.tls];
                     ph_tls.* = .{
                         .type = .TLS,
                         .offset = 0,
@@ -3147,7 +3195,7 @@ fn initHeaders(
                 }
 
                 if (have_dynamic_section) {
-                    const ph_dynamic = &phdr[dynamic_phndx];
+                    const ph_dynamic = &phdr[phndx.dynamic];
                     ph_dynamic.* = .{
                         .type = .DYNAMIC,
                         .offset = 0,
@@ -3161,7 +3209,7 @@ fn initHeaders(
                     if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_dynamic);
                 }
 
-                const ph_relro = &phdr[relro_phndx];
+                const ph_relro = &phdr[phndx.relro];
                 ph_relro.* = .{
                     .type = .GNU_RELRO,
                     .offset = 0,
@@ -3312,8 +3360,8 @@ fn initHeaders(
                 .resized = true,
                 .bubbles_moved = false,
             });
-            elf.nodes.appendAssumeCapacity(.{ .segment = interp_phndx });
-            elf.phdrs.items[interp_phndx] = interp_ni;
+            elf.nodes.appendAssumeCapacity(.{ .segment = phndx.interp });
+            elf.phdrs.items[phndx.interp] = interp_ni;
 
             const sec_interp_shndx = try elf.addSection(interp_ni, .{
                 .name = ".interp",
@@ -3331,8 +3379,8 @@ fn initHeaders(
                 .moved = true,
                 .bubbles_moved = false,
             });
-            elf.nodes.appendAssumeCapacity(.{ .segment = dynamic_phndx });
-            elf.phdrs.items[dynamic_phndx] = dynamic_ni;
+            elf.nodes.appendAssumeCapacity(.{ .segment = phndx.dynamic });
+            elf.phdrs.items[phndx.dynamic] = dynamic_ni;
 
             const dynstr_shndx = try elf.addSection(elf.ni.rodata, .{
                 .name = ".dynstr",
@@ -3473,8 +3521,8 @@ fn initHeaders(
                 .moved = true,
                 .bubbles_moved = false,
             });
-            elf.nodes.appendAssumeCapacity(.{ .segment = tls_phndx });
-            elf.phdrs.items[tls_phndx] = elf.ni.tls;
+            elf.nodes.appendAssumeCapacity(.{ .segment = phndx.tls });
+            elf.phdrs.items[phndx.tls] = elf.ni.tls;
         }
 
         // Populate reserved GOT words.
@@ -3641,10 +3689,11 @@ fn initHeaders(
         .flags = .{ .WRITE = true, .ALLOC = true, .TLS = true },
         .addralign = elf.mf.flags.block_size,
     });
-    assert(elf.nodes.len == expected_nodes_len);
 
-    try elf.section_by_name.ensureUnusedCapacity(gpa, elf.shdrs.items.len);
-    for (0..elf.shdrs.items.len) |shndx_raw| {
+    assert(elf.nodes.len == expected_nodes_len);
+    assert(elf.shdrs.items.len == shnum);
+
+    for (0..shnum) |shndx_raw| {
         const shndx: Section.Index = @enumFromInt(shndx_raw);
         elf.section_by_name.putAssumeCapacityNoClobber(shndx.name(elf), {});
     }
