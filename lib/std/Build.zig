@@ -2119,21 +2119,21 @@ pub fn lazyDependency(b: *Build, name: []const u8, args: anytype) ?*Dependency {
     };
 }
 
-/// When this function is called, it means that the current build does, in
-/// fact, require this dependency. If the dependency is already fetched, it is
-/// returned. However if the dependency is not yet fetched, then when the build
-/// script is finished running, the toolchain will not proceed to the make phase.
-/// Instead, the parent process will additionally fetch all the lazy
-/// dependencies that were actually required by running the build script,
-/// recompile the build script, and then run it again. In other words, if this
-/// function returns `error.LazyDependencyNeeded` it means that the only
-/// purpose of completing the configure phase is to find out all the other lazy
-/// dependencies that are also required. In this case, one must propagate the
-/// error all the way up and return it from the main build function.
+/// Declares that the current configuration does in fact require a potentially
+/// lazy dependency.
+///
+/// If the dependency is already fetched, it is returned. However if the
+/// dependency is not yet fetched, then when the build script is finished
+/// running, the toolchain will not proceed to the make phase. Instead, the
+/// parent process will additionally fetch all the lazy dependencies that were
+/// actually required by running the build script, recompile the build script,
+/// and then run it again. In other words, if this function returns
+/// `error.LazyDependencyNeeded` it means that the only purpose of completing
+/// the configure phase is to find out all the other lazy dependencies that are
+/// also required. In this case, one must propagate the error all the way up
+/// and return it from the main build function.
 ///
 /// For non-lazy dependencies, this always succeeds.
-///
-/// This function will be eventually renamed to `dependency`.
 pub fn dependencyLazy(b: *Build, name: []const u8, args: anytype) error{LazyDependencyNeeded}!*Dependency {
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
@@ -2154,24 +2154,25 @@ pub fn dependencyLazy(b: *Build, name: []const u8, args: anytype) error{LazyDepe
     unreachable; // bad @dependencies source
 }
 
-/// Deprecated in favor of `dependencyLazy`. To get the same behavior as before, use `try` to propagate
-/// the potential `error.LazyDependencyNeeded` all the way out of your main build function.
+/// Declares that the current configuration does in fact require a potentially
+/// lazy dependency.
+///
+/// If the dependency is already fetched, it is returned. Otherwise, exits the
+/// configuration phase with intent to fetch the lazy dependency and rerun the
+/// configuration script.
+///
+/// If it is known to the caller at this point that additional lazy
+/// dependencies are also required, it would save time to call `dependencyLazy`
+/// instead, handling `error.LazyDependencyNeeded` in a way that marks multiple
+/// potentially lazy dependencies as required before eventually returning
+/// that error from the top level build function.
 pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
-    const build_runner = @import("root");
-    const deps = build_runner.dependencies;
-    const pkg_hash = findPkgHashOrFatal(b, name);
-
-    inline for (@typeInfo(deps.packages).@"struct".decl_names) |decl_name| {
-        if (mem.eql(u8, decl_name, pkg_hash)) {
-            const pkg = @field(deps.packages, decl_name);
-            if (@hasDecl(pkg, "available")) {
-                panic("dependency '{s}{s}' is marked as lazy in build.zig.zon which means it must use the lazyDependency function instead", .{ b.dep_prefix, name });
-            }
-            return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg_hash, pkg.deps, args);
-        }
-    }
-
-    unreachable; // Bad @dependencies source
+    return dependencyLazy(b, name, args) catch |err| switch (err) {
+        error.LazyDependencyNeeded => {
+            assert(b.graph.needed_lazy_dependencies.count() != 0);
+            serializeConfigurationExiting(b);
+        },
+    };
 }
 
 /// In a build.zig file, this function is to `@import` what `lazyDependency` is to `dependency`.
@@ -2840,7 +2841,7 @@ fn validateConfigureDependency(lazy_path: LazyPath) void {
 }
 
 /// Build system implementation detail.
-pub fn serializeConfigurationExiting(b: *Build) void {
+pub fn serializeConfigurationExiting(b: *Build) noreturn {
     const graph = b.graph;
     const io = graph.io;
 
