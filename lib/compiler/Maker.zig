@@ -1254,7 +1254,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
         const tmp_dir_sub_path = "tmp" ++ Dir.path.sep_str ++ std.fmt.hex(rand_int);
         const config_tmp_path: Path = .{
             .root_dir = graph.local_cache_root,
-            .sub_path = tmp_dir_sub_path,
+            .sub_path = try arena.dupe(u8, tmp_dir_sub_path),
         };
         const config_tmp_file: Io.File = try config_tmp_path.root_dir.handle.createFile(
             io,
