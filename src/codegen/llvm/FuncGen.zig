@@ -7016,6 +7016,71 @@ const ParamTypeIterator = struct {
                     .i64_array => |size| return .{ .i64_array = size },
                 }
             },
+            .loongarch32_ilp32, .loongarch64_lp64 => switch (loongarch_c_abi.classifyType(ty, zcu)) {
+                .ignored => {
+                    it.zig_index += 1;
+                    return .no_bits;
+                },
+                .gar, .far => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    return .byval;
+                },
+                .member => |member_ty| {
+                    it.types_buffer[0..1].* = .{
+                        try it.object.lowerType(member_ty, .as_value),
+                    };
+                    it.offsets_buffer[0..2].* = .{ 0, member_ty.abiSize(zcu) };
+                    it.types_len = 1;
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    return .multiple_llvm_types;
+                },
+                .member_pair => |member_tys| {
+                    it.types_buffer[0..2].* = .{
+                        try it.object.lowerType(member_tys[0], .as_value),
+                        try it.object.lowerType(member_tys[1], .as_value),
+                    };
+                    const first_size = member_tys[0].abiSize(zcu);
+                    const second_size = member_tys[0].abiSize(zcu);
+                    it.offsets_buffer[0..3].* = .{ 0, first_size, first_size + second_size };
+                    it.types_len = 2;
+                    it.zig_index += 1;
+                    it.llvm_index += 2;
+                    return .multiple_llvm_types;
+                },
+                .memory_gar => {
+                    switch (it.cc) {
+                        else => unreachable,
+                        .loongarch32_ilp32 => {
+                            it.types_buffer[0..1].* = .{.i32};
+                            it.offsets_buffer[0..2].* = .{ 0, 4 };
+                        },
+                        .loongarch64_lp64 => {
+                            it.types_buffer[0..1].* = .{.i64};
+                            it.offsets_buffer[0..2].* = .{ 0, 8 };
+                        },
+                    }
+                    it.types_len = 1;
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    return .multiple_llvm_types;
+                },
+                .memory_gar_pair => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    return switch (it.cc) {
+                        else => unreachable,
+                        .loongarch32_ilp32 => .{ .i32_array = 2 },
+                        .loongarch64_lp64 => .{ .i64_array = 2 },
+                    };
+                },
+                .address => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    return .byref;
+                },
+            },
             .mips_o32 => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
@@ -7329,6 +7394,26 @@ pub fn fnReturnStrat(o: *Object, cc: std.lang.CallingConvention, ret_ty: Type) A
             .memory, .i64_array => .sret,
             .i32_array => |len| if (len == 1) .{ .mem_cast = .i32 } else .sret,
             .byval => .forceByVal(o, ret_ty),
+        },
+        .loongarch32_ilp32, .loongarch64_lp64 => switch (loongarch_c_abi.classifyType(ret_ty, zcu)) {
+            .ignored => .void,
+            .gar, .far => .by_val,
+            .member => |member_ty| .{ .mem_cast = try o.lowerType(member_ty, .as_value) },
+            .member_pair => |member_tys| .{ .mem_cast = try o.builder.structType(.normal, &.{
+                try o.lowerType(member_tys[0], .as_value),
+                try o.lowerType(member_tys[1], .as_value),
+            }) },
+            .memory_gar => .{ .mem_cast = switch (cc) {
+                else => unreachable,
+                .loongarch32_ilp32 => .i32,
+                .loongarch64_lp64 => .i64,
+            } },
+            .memory_gar_pair => .{ .mem_cast = try o.builder.arrayType(2, switch (cc) {
+                else => unreachable,
+                .loongarch32_ilp32 => .i32,
+                .loongarch64_lp64 => .i64,
+            }) },
+            .address => .sret,
         },
         .mips_o32 => switch (mips_c_abi.classifyType(ret_ty, zcu, .ret)) {
             .memory, .i32_array => .sret,
@@ -8124,6 +8209,7 @@ const math = std.math;
 
 const aarch64_c_abi = @import("../aarch64/abi.zig");
 const arm_c_abi = @import("../arm/abi.zig");
+const loongarch_c_abi = @import("../loongarch/abi.zig");
 const mips_c_abi = @import("../mips/abi.zig");
 const riscv_c_abi = @import("../riscv64/abi.zig");
 const s390x_c_abi = @import("../s390x/abi.zig");
