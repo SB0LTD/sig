@@ -154,6 +154,9 @@ tls_size_symbol_relocs: std.array_hash_map.Auto(SymbolReloc.Index, void),
 section_by_name: std.array_hash_map.Auto(String(.shstrtab), void),
 /// Key is the name of a global symbol which has been moved to a new symtab index. Any relocation
 /// entries which target that symbol must be updated to reference the correct symbol index.
+///
+/// When emitting a relocatable (`ET_REL`), this refers to the index in `.symtab`. Otherwise, it
+/// refers to the index in `.dynsym`.
 changed_symtab_index: std.array_hash_map.Auto(String(.strtab), void),
 /// Counts how many relocations are currently in `.rela.dyn` which would require a `DT_TEXTREL`
 /// entry in the `.dynamic` section. This allows adding `DT_TEXTREL` to the output `.dynamic`
@@ -1331,12 +1334,9 @@ fn ensureUnusedSymbolCapacity(elf: *Elf, len: u32, kind: enum { all_local, maybe
     try elf.symtab.ensureUnusedCapacity(gpa, len);
 
     // If adding locals, we may need to move one global out of the way for each local. If adding
-    // globals, they could all get demoted to STB_LOCAL, which would mean we move those N globals
-    // *and* we move up to N other globals out of their way.
-    try elf.changed_symtab_index.ensureUnusedCapacity(gpa, switch (kind) {
-        .all_local => len,
-        .maybe_global => len * 2,
-    });
+    // globals, they could all get demoted to STB_LOCAL, meaning we have to move N other globals
+    // around to keep `.dynsym` compact. Either way, the maximum is N.
+    try elf.changed_symtab_index.ensureUnusedCapacity(gpa, len);
 
     {
         // Ensure the symtab section's node is big enough
@@ -1468,7 +1468,7 @@ fn addLocalSymbolAssumeCapacity(elf: *Elf, opts: AddLocalSymbolOptions) Symbol.L
                 const global_name: String(.strtab) = @enumFromInt(elf.targetLoad(&new_sym.name));
                 elf.globalByName(global_name).?.symtab_index = new_index;
 
-                if (target_index.ptr(elf).first_target_reloc != .none) {
+                if (elf.ehdrField(.type) == .REL and target_index.ptr(elf).first_target_reloc != .none) {
                     // This symbol's index is changing, so queue an update of relocs targeting it.
                     elf.changed_symtab_index.putAssumeCapacity(global_name, {});
                 }
@@ -1950,61 +1950,68 @@ fn moveDemotedGlobal(elf: *Elf, global_ptr: *Symbol.Global) void {
 
             elf.targetStore(&shdr.info, @intFromEnum(dest_index) + 1);
 
-            if (src_index == dest_index) {
-                // The demoted global was already the first global, so we don't need to do any swap.
-                return;
+            if (src_index != dest_index) {
+                // The demoted global was not the first global in the symtab, so we need to swap it
+                // to its new location.
+
+                const src_sym_ptr = @field(elf.symPtr(src_index), @tagName(class));
+                const dest_sym_ptr = @field(elf.symPtr(dest_index), @tagName(class));
+
+                const this_name: String(.strtab) = @enumFromInt(elf.targetLoad(&src_sym_ptr.name));
+                assert(elf.globalByName(this_name).? == global_ptr);
+
+                const other_name: String(.strtab) = @enumFromInt(elf.targetLoad(&dest_sym_ptr.name));
+                const other_global_ptr = elf.globalByName(other_name).?;
+                assert(other_global_ptr.symtab_index == dest_index);
+
+                // First swap the symtab entries...
+                std.mem.swap(class.ElfN().Sym, src_sym_ptr, dest_sym_ptr);
+                // ...then the `elf.symtab` metadata...
+                std.mem.swap(Symbol, src_index.ptr(elf), dest_index.ptr(elf));
+                // ...then update the `elf.globals` tracking.
+                global_ptr.symtab_index = dest_index;
+                other_global_ptr.symtab_index = src_index;
             }
 
-            const src_sym_ptr = @field(elf.symPtr(src_index), @tagName(class));
-            const dest_sym_ptr = @field(elf.symPtr(dest_index), @tagName(class));
-
-            const this_name: String(.strtab) = @enumFromInt(elf.targetLoad(&src_sym_ptr.name));
-            assert(elf.globalByName(this_name).? == global_ptr);
-            if (global_ptr.symtab_index.ptr(elf).first_target_reloc != .none) {
-                // This symbol's index is changing, so queue an update of relocs targeting it.
-                elf.changed_symtab_index.putAssumeCapacity(this_name, {});
-            }
-
-            const other_name: String(.strtab) = @enumFromInt(elf.targetLoad(&dest_sym_ptr.name));
-            const other_global_ptr = elf.globalByName(other_name).?;
-            assert(other_global_ptr.symtab_index == dest_index);
-            if (other_global_ptr.symtab_index.ptr(elf).first_target_reloc != .none) {
-                // This other symbol's index is changing, so queue an update of relocs targeting it.
-                elf.changed_symtab_index.putAssumeCapacity(other_name, {});
-            }
-
-            // First swap the symtab entries...
-            std.mem.swap(class.ElfN().Sym, src_sym_ptr, dest_sym_ptr);
-            // ...then the `elf.symtab` metadata...
-            std.mem.swap(Symbol, src_index.ptr(elf), dest_index.ptr(elf));
-            // ...then update the `elf.globals` tracking.
-            global_ptr.symtab_index = dest_index;
-            other_global_ptr.symtab_index = src_index;
-
-            // We also need to get rid of the dynsym entry if there is one. For simplicity, just
-            // replace it with a dummy entry which will never be used and will not cause problems.
-            // TODO: we should have a free-list of dynsym slots so that other symbols can go here.
-            // TODO: it would also be best to just avoid having gaps in the dynsym altogether.
+            // We also need to get rid of the dynsym entry if there is one. To keep dynsym compact,
+            // we'll move another symbol into its place just like we did above.
             if (global_ptr.dynsym_index != 0) {
-                const dynsym = @field(elf.dynsymPtr(global_ptr.dynsym_index), @tagName(class));
-                dynsym.* = .{
-                    .name = @intFromEnum(String(.dynstr).empty),
-                    .value = 0,
-                    .size = 0,
-                    .info = .{
-                        .type = .NOTYPE,
-                        // STB_WEAK is important: we mustn't cause a dynamic linker error if the
-                        // symbol can't be resolved.
-                        .bind = .WEAK,
-                    },
-                    // SHN_UNDEF is important: we mustn't define this symbol for other DSOs.
-                    .shndx = std.elf.SHN_UNDEF,
-                    .other = .{ .visibility = .DEFAULT },
-                };
-                if (elf.targetEndian() != native_endian) {
-                    std.mem.byteSwapAllFields(class.ElfN().Sym, dynsym);
-                }
+                const dynsym_shdr = @field(elf.shdrPtr(elf.shndx.dynsym), @tagName(class));
+
+                const ent_size = @sizeOf(class.ElfN().Sym);
+                assert(elf.targetLoad(&dynsym_shdr.entsize) == ent_size);
+
+                // We're going to decrease the size of `.dynsym`, thereby removing its last index.
+                const old_size = elf.targetLoad(&dynsym_shdr.size);
+                const new_size = old_size - ent_size;
+                const remove_dynsym_index: u32 = @intCast(@divExact(new_size, ent_size));
+
+                const free_dynsym_index = global_ptr.dynsym_index;
                 global_ptr.dynsym_index = 0;
+
+                if (free_dynsym_index != remove_dynsym_index) {
+                    // The demoted global wasn't the last entry, so move whatever entry we just
+                    // truncated out of dynsym into its place.
+
+                    const src_dynsym_ptr = @field(elf.dynsymPtr(remove_dynsym_index), @tagName(class));
+                    const dest_dynsym_ptr = @field(elf.dynsymPtr(free_dynsym_index), @tagName(class));
+
+                    const moved_name_dynstr: String(.dynstr) = @enumFromInt(elf.targetLoad(&src_dynsym_ptr.name));
+                    const moved_name = elf.stringExisting(.strtab, moved_name_dynstr.slice(elf));
+                    const moved_global_ptr = elf.globalByName(moved_name).?;
+
+                    dest_dynsym_ptr.* = src_dynsym_ptr.*;
+
+                    assert(moved_global_ptr.dynsym_index == remove_dynsym_index);
+                    moved_global_ptr.dynsym_index = free_dynsym_index;
+
+                    // Since that symbol's dynsym index has changed, we'll have to update any
+                    // relocation entries targeting it.
+                    elf.changed_symtab_index.putAssumeCapacity(moved_name, {});
+                }
+
+                // Now that we've given that symbol a new home, actually decrease the section size.
+                elf.targetStore(&dynsym_shdr.size, new_size);
             }
         },
     }
@@ -2596,6 +2603,11 @@ fn string(elf: *Elf, comptime section: StringSection, key: []const u8) Error!Str
     const st: *StringTable = &@field(elf, @tagName(section));
     return @enumFromInt(try st.get(elf, section.shndx(elf), key));
 }
+/// Like `string`, but asserts that the string is already in `section`.
+fn stringExisting(elf: *Elf, comptime section: StringSection, key: []const u8) String(section) {
+    const st: *StringTable = &@field(elf, @tagName(section));
+    return @enumFromInt(st.getExisting(elf, section.shndx(elf), key));
+}
 
 const StringTable = struct {
     map: std.HashMapUnmanaged(u32, void, StringTable.Context, std.hash_map.default_max_load_percentage),
@@ -2626,7 +2638,14 @@ const StringTable = struct {
         }
     };
 
-    pub fn get(st: *StringTable, elf: *Elf, shndx: Section.Index, key: []const u8) Error!u32 {
+    fn getExisting(st: *StringTable, elf: *Elf, shndx: Section.Index, key: []const u8) u32 {
+        if (key.len == 0) return 0;
+        const slice_const = shndx.get(elf).ni.sliceConst(&elf.mf);
+        const adapter: StringTable.Adapter = .{ .slice = slice_const };
+        return st.map.getKeyAdapted(key, adapter).?;
+    }
+
+    fn get(st: *StringTable, elf: *Elf, shndx: Section.Index, key: []const u8) Error!u32 {
         // If we are in `initHeaders` the strtab might not be initalized yet, so we need to special
         // case the empty string.
         if (key.len == 0) return 0;
@@ -5201,7 +5220,7 @@ fn updateInitFiniArraySectionSize(
     const end_vaddr: u64 = switch (elf.shdrPtr(shndx)) {
         inline else => |shdr| shndx.vaddr(elf) + elf.targetLoad(&shdr.size),
     };
-    const end_sym_name = elf.string(.strtab, "__" ++ name ++ "_end") catch unreachable; // string definitely already exists
+    const end_sym_name = elf.stringExisting(.strtab, "__" ++ name ++ "_end");
     Symbol.Id.global(end_sym_name).flushMoved(elf, end_vaddr);
 }
 
@@ -6491,26 +6510,72 @@ pub fn idle(elf: *Elf, tid: Zcu.PerThread.Id) link.Error!bool {
             };
             break :task;
         }
-        while (elf.changed_symtab_index.pop()) |kv| {
-            // We only need to do work in relocatables, because in ELF modules (non-relocatables)
-            // our `ElfN.Rela` entries use `.dynsym` indices rather than `.symtab` indices, and
-            // `.dynsym` indices are (at the time of writing) always immutable.
-            if (elf.ehdrField(.type) == .REL) {
-                const sub_prog_node = elf.mf.update_prog_node.start(kv.key.slice(elf), 0);
-                defer sub_prog_node.end();
-                const sym = elf.globalByName(kv.key).?.symtab_index.ptr(elf);
-                var ri = sym.first_target_reloc;
-                while (ri != .none) {
-                    const reloc = ri.get(elf);
-                    reloc.relaSection(elf).relaUpdateSym(
-                        elf,
-                        reloc.rela_index.unwrap().?,
-                        @intFromEnum(reloc.target.index(elf)),
-                    );
-                    ri = reloc.next;
-                }
-                break :task;
+        if (elf.changed_symtab_index.pop()) |kv| {
+            const sub_prog_node = elf.mf.update_prog_node.start(kv.key.slice(elf), 0);
+            defer sub_prog_node.end();
+
+            const global_name = kv.key;
+            const global = elf.globalByName(global_name).?;
+            const sym_id: Symbol.Id = .global(global_name);
+            const sym = global.symtab_index.ptr(elf);
+
+            switch (elf.ehdrField(.type)) {
+                .REL => {
+                    // Index in `.symtab` has changed. Relocatables are easy, we just need to update
+                    // all of the output relocations.
+                    const symtab_index = @intFromEnum(global.symtab_index);
+                    var ri = sym.first_target_reloc;
+                    while (ri != .none) {
+                        const reloc = ri.get(elf);
+                        assert(reloc.target == sym_id);
+                        // In relocatables, every symbol relocation has an output relocation.
+                        const rela_index = reloc.rela_index.unwrap().?;
+                        reloc.relaSection(elf).relaUpdateSym(elf, rela_index, symtab_index);
+                        ri = reloc.next;
+                    }
+                },
+                else => {
+                    // Index in `.dynsym` has changed. This case is slightly trickier because there
+                    // are a few things which may have emitted runtime relocations, including symbol
+                    // relocs...
+                    const dynsym_index = global.dynsym_index;
+                    var ri = sym.first_target_reloc;
+                    while (ri != .none) {
+                        const reloc = ri.get(elf);
+                        assert(reloc.target == sym_id);
+                        // There may or may not be a runtime relocation for this symbol reloc.
+                        if (reloc.rela_index.unwrap()) |rela_index| {
+                            reloc.relaSection(elf).relaUpdateSym(elf, rela_index, dynsym_index);
+                        }
+                        ri = reloc.next;
+                    }
+
+                    // ...a copy relocation...
+                    if (elf.copied_globals.get(global_name)) |copied| {
+                        elf.shndx.rela_dyn.relaUpdateSym(elf, copied.rela_index, dynsym_index);
+                    }
+
+                    // ...a PLT entry...
+                    if (elf.plt.getIndex(global_name)) |plt_index| {
+                        // PLT indices exactly match `.rela.plt` relocation indices.
+                        elf.shndx.rela_plt.relaUpdateSym(elf, @enumFromInt(plt_index), dynsym_index);
+                    }
+
+                    // ...and any relevant GOT entries.
+                    if (elf.got.getIndex(.{ .symbol = sym_id })) |got_index| {
+                        elf.updateGotEntry(got_index);
+                    }
+                    if (elf.got.getIndex(.{ .tpoff = sym_id })) |got_index| {
+                        elf.updateGotEntry(got_index);
+                    }
+                    if (elf.got.getIndex(.{ .tlsgd0 = sym_id })) |got_index| {
+                        elf.updateGotEntry(got_index);
+                        elf.updateGotEntry(got_index + 1); // tlsgd1
+                    }
+                },
             }
+
+            break :task;
         }
         while (elf.mf.updates.pop()) |ni| {
             const clean_moved = ni.cleanMoved(&elf.mf);
