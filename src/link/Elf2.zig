@@ -100,13 +100,15 @@ dynstr: StringTable,
 ///
 /// Value is the output relocation in `.rela.dyn` for the GOT entry.
 got: std.array_hash_map.Auto(GotKey, Section.RelaIndex.Optional),
+/// Key is the name of a global.
+///
 /// Indices map 1--1 to indices into the actual `.got.plt` section. These also equal indices into
 /// the relocations in `.rela.plt`, because every PLT entry has one output relocation (if a runtime
 /// relocation is no longer necessary, then neither is the corresponding PLT entry!).
 ///
 /// PLT entries in this map may be "dead", meaning the PLT entry has been deemed unnecessary so is
 /// available for reuse---see `Elf.pltEntryIsDead`. Such entries must not be targeted by relocs.
-plt: std.array_hash_map.Auto(Symbol.Id, void),
+plt: std.array_hash_map.Auto(String(.strtab), void),
 /// The `.plt` section contains zero or more symbol relocations starting at this index.
 plt_first_symbol_reloc: SymbolReloc.Index,
 /// The `.dynamic` section contains zero or more symbol relocations starting at this index.
@@ -1126,7 +1128,10 @@ const SymbolReloc = struct {
                 target_endian,
             ),
             .pltrel64 => {
-                const plt_index = elf.plt.getIndex(reloc.target) orelse continue :type .rel64;
+                const plt_index = switch (reloc.target.unwrap()) {
+                    .local => continue :type .rel64,
+                    .global => |name| elf.plt.getIndex(name) orelse continue :type .rel64,
+                };
                 if (elf.pltEntryIsDead(plt_index)) continue :type .rel64;
                 const plt_shndx: Section.Index, const plt_entry_size: u64 = switch (elf.ehdrField(.machine)) {
                     else => |machine| @panic(@tagName(machine)),
@@ -1141,7 +1146,10 @@ const SymbolReloc = struct {
                 );
             },
             .pltrel32 => {
-                const plt_index = elf.plt.getIndex(reloc.target) orelse continue :type .rel32;
+                const plt_index = switch (reloc.target.unwrap()) {
+                    .local => continue :type .rel32,
+                    .global => |name| elf.plt.getIndex(name) orelse continue :type .rel32,
+                };
                 if (elf.pltEntryIsDead(plt_index)) continue :type .rel32;
                 const plt_shndx: Section.Index, const plt_entry_size: u64 = switch (elf.ehdrField(.machine)) {
                     else => |machine| @panic(@tagName(machine)),
@@ -1843,7 +1851,7 @@ fn setGlobalSymbolValue(
     // If this symbol was previously undefined, it may have had a PLT entry. If so, we now need to
     // delete its newly-unnecessary runtime relocation to avoid a runtime dynamic linker error.
     // This also allows the PLT entry to be reused---see `pltEntryIsDead`.
-    if (elf.plt.getIndex(.global(global_name))) |plt_index| {
+    if (elf.plt.getIndex(global_name)) |plt_index| {
         // TODO: we might still need the PLT entry if the symbol could be preempted/interposed! See
         // matching comment at the end of `addGlobalSymbolAssumeCapacity`.
         if (!elf.pltEntryIsDead(plt_index)) {
@@ -2033,13 +2041,13 @@ fn addPltEntry(elf: *Elf, global_name: String(.strtab), dynsym_index: u32) void 
 
     if (plt_index < elf.plt.count()) {
         // We reused a free entry, so we're already done!
-        elf.plt.setKey(plt_index, .global(global_name));
+        elf.plt.setKey(plt_index, global_name);
         return;
     }
 
     // We added a new entry, so we now need to extend the PLT sections.
     assert(plt_index == elf.plt.count());
-    elf.plt.putAssumeCapacityNoClobber(.global(global_name), {});
+    elf.plt.putAssumeCapacityNoClobber(global_name, {});
 
     switch (elf.ehdrField(.machine)) {
         else => |machine| @panic(@tagName(machine)),
@@ -6995,8 +7003,8 @@ fn flushMovedPltSection(elf: *Elf, which: enum { plt, plt_sec, got_plt }, old_ad
                     // its relocations are probably going through the PLT, so we don't bother with
                     // specific tracking for PLT relocations---instead just re-apply all relocations
                     // targeting symbols with PLT entries.
-                    for (elf.plt.keys()) |sym| {
-                        sym.applyTargetRelocs(elf);
+                    for (elf.plt.keys()) |name| {
+                        Symbol.Id.global(name).applyTargetRelocs(elf);
                     }
                     // We also need to update all of the references from `.plt.sec` to `.got.plt`.
                     // However, if there's also a flush pending for `.got.plt`, don't bother doing
