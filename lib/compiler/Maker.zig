@@ -316,6 +316,8 @@ pub fn main(init: process.Init.Minimal) !void {
                 try forks.append(arena, .init(rest));
             } else if (mem.eql(u8, arg, "--fork")) {
                 try forks.append(arena, .init(nextArgOrFatal(args, &arg_i)));
+            } else if (mem.startsWith(u8, arg, "--zig-lib=")) {
+                fatal("--zig-lib= argument is special and must be first", .{});
             } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                 help_menu = true;
             } else if (mem.eql(u8, arg, "-l") or mem.eql(u8, arg, "--list-steps")) {
