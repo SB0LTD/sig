@@ -283,11 +283,11 @@ pub fn main(init: process.Init.Minimal) !void {
                 cache_poison = .poisoned;
                 configure_argv.appendAssumeCapacity("--cache-poison=poisoned");
             } else if (mem.cutPrefix(u8, arg, "--cache-poison=")) |rest| {
-                // Allow the configurer process to report parse failure.
-                if (stringToEnum(std.Build.Graph.CachePoison, rest)) |poison| {
-                    cache_poison = poison;
-                }
-                configure_argv.appendAssumeCapacity(arg);
+                // We have to report parse failure here otherwise we would
+                // potentially get false positive cache hits for misspellings.
+                cache_poison = stringToEnum(std.Build.Graph.CachePoison, rest) orelse
+                    fatalWithHint("expected --cache-poison=[pure|poisoned|disallowed|ignored]; found: {s}", .{arg});
+                if (cache_poison != .pure) configure_argv.appendAssumeCapacity(arg);
             } else if (mem.eql(u8, arg, "--verbose")) {
                 // Intentionally is added both to make and configure but
                 // does not go into the cache hash.
