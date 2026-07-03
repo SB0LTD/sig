@@ -1665,6 +1665,20 @@ const Parser = struct {
                 break :blk_1 !match_1;
             }) break :blk_0 true;
             p.i = pos_0;
+            if (try p.parsepre_op_white() and try p.parseKEYWORD_catch() and try p.parsepost_op_white() and (try p.parsePayload() or true)) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
+                const pos_1 = p.i;
+                const match_1 = try p.parsepre_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and try p.parseKEYWORD_catch() and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = try p.parsepost_op_white();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and (try p.parsePayload() or true)) break :blk_0 true;
+            p.i = pos_0;
             break :blk_0 false;
         };
     }
@@ -1690,8 +1704,6 @@ const Parser = struct {
             if (try p.parsePIPE()) break :blk_0 true;
             p.i = pos_0;
             if (try p.parseKEYWORD_orelse()) break :blk_0 true;
-            p.i = pos_0;
-            if (try p.parseKEYWORD_catch() and (try p.parsePayload() or true)) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };

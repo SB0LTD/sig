@@ -318,12 +318,13 @@ CompareOpTok
 
 BitwiseOp <- pre_op_white BitwiseOpTok post_op_white
            / !pre_op_white BitwiseOpTok !post_op_white
+           / pre_op_white KEYWORD_catch post_op_white Payload?
+           / !pre_op_white KEYWORD_catch !post_op_white Payload?
 BitwiseOpTok
     <- AMPERSAND ![&]
      / CARET
      / PIPE
      / KEYWORD_orelse
-     / KEYWORD_catch Payload?
 
 BitShiftOp <- pre_op_white BitShiftOpTok post_op_white
            / !pre_op_white BitShiftOpTok !post_op_white
