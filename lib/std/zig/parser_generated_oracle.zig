@@ -2327,10 +2327,24 @@ const Parser = struct {
             break :blk_0 false;
         };
     }
+    pub fn parsebyte_order_mark(p: *Parser) Error!bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (blk_1: {
+                if (std.mem.startsWith(u8, p.source[p.i..], "\xef\xbb\xbf")) {
+                    p.i += 3;
+                    break :blk_1 true;
+                }
+                break :blk_1 false;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
     pub fn parsesof(p: *Parser) Error!bool {
         return blk_0: {
             const pos_0 = p.i;
-            if ((p.i == 0)) break :blk_0 true;
+            if ((p.i == 0) and (try p.parsebyte_order_mark() or true)) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2854,7 +2868,7 @@ const Parser = struct {
     pub fn parseskip(p: *Parser) Error!bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
+            if ((try p.parsesof() or true) and blk_1: {
                 var i_1: usize = 0;
                 while (blk_3: {
                     const pos_3 = p.i;

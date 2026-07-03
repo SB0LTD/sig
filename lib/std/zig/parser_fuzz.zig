@@ -119,6 +119,14 @@ test "catch capture whitespace" {
     try checkAgainstOracle("test{0 catch |h|0;}");
 }
 
+// Found using AFL++
+test "byte order mark" {
+    // https://en.wikipedia.org/wiki/Byte_order_mark
+    try checkAgainstOracle("\xef\xbb\xbf");
+    try checkAgainstOracle("\xef\xbb\xbf///\n0");
+}
+
+>>>>>>> bc46a69fba (grammar: handle byte order mark)
 fn checkAgainstOracle(source: [:0]const u8) !void {
     var fba_buf: [1 << 18]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);
