@@ -98,6 +98,11 @@ test "dot question" {
     try checkAgainstOracle("0. ?");
 }
 
+// Found using AFL++
+test "volatile const" {
+    try checkAgainstOracle("*volatile\nconst\n0");
+}
+
 fn checkAgainstOracle(source: [:0]const u8) !void {
     var fba_buf: [1 << 18]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);

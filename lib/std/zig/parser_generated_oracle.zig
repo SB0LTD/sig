@@ -1751,11 +1751,79 @@ const Parser = struct {
                 if (p.parseSliceTypeStart()) break :blk_2 true;
                 p.i = pos_2;
                 break :blk_2 false;
-            } and (p.parseKEYWORD_allowzero() or true) and (p.parseByteAlign() or true) and (p.parseAddrSpace() or true) and (p.parseKEYWORD_const() or true) and (p.parseKEYWORD_volatile() or true)) break :blk_0 true;
+            } and p.parsePtrMods()) break :blk_0 true;
             p.i = pos_0;
-            if (p.parseSinglePtrTypeStart() and (p.parseKEYWORD_allowzero() or true) and (p.parseBitAlign() or true) and (p.parseAddrSpace() or true) and (p.parseKEYWORD_const() or true) and (p.parseKEYWORD_volatile() or true)) break :blk_0 true;
+            if (p.parseSinglePtrTypeStart() and p.parseSinglePtrMods()) break :blk_0 true;
             p.i = pos_0;
             if (p.parseArrayTypeStart()) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parsePtrMods(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            } and (p.parseByteAlign() or true) and blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            } and (p.parseAddrSpace() or true) and blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            } and (p.parseAddrSpace() or true) and blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            } and (p.parseByteAlign() or true) and blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseSinglePtrMods(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            } and (p.parseBitAlign() or true) and blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            } and (p.parseAddrSpace() or true) and blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            } and (p.parseAddrSpace() or true) and blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            } and (p.parseBitAlign() or true) and blk_1: {
+                while (p.parsePtrMod()) {}
+                break :blk_1 true;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parsePtrMod(p: *Parser) bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (p.parseKEYWORD_allowzero()) break :blk_0 true;
+            p.i = pos_0;
+            if (p.parseKEYWORD_const()) break :blk_0 true;
+            p.i = pos_0;
+            if (p.parseKEYWORD_volatile()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };

@@ -364,9 +364,28 @@ PrefixOp
 PrefixTypeOp
     <- QUESTIONMARK
      / KEYWORD_anyframe MINUSRARROW
-     / (ManyPtrTypeStart / SliceTypeStart) KEYWORD_allowzero? ByteAlign? AddrSpace? KEYWORD_const? KEYWORD_volatile?
-     / SinglePtrTypeStart KEYWORD_allowzero? BitAlign? AddrSpace? KEYWORD_const? KEYWORD_volatile?
+     / (ManyPtrTypeStart / SliceTypeStart) PtrMods
+     / SinglePtrTypeStart SinglePtrMods
      / ArrayTypeStart
+
+# Forbid more than one align or addrspace pointer modifier since these
+# modifiers contain sub-expressions. This allows for a simpler AST data layout.
+# Allow duplicate single-token modifiers (allowzero/const/volatile) in the grammar
+# to avoid the combinatorial explosion of grammar rules necessary to forbid duplicates
+# while permitting arbitrary order. A compile error for duplicates single-token modifiers
+# is emitted during "AstGen" after parsing is complete.
+PtrMods
+   <- PtrMod* ByteAlign? PtrMod* AddrSpace? PtrMod*
+    / PtrMod* AddrSpace? PtrMod* ByteAlign? PtrMod*
+
+SinglePtrMods
+   <- PtrMod* BitAlign? PtrMod* AddrSpace? PtrMod*
+    / PtrMod* AddrSpace? PtrMod* BitAlign? PtrMod*
+
+PtrMod
+    <- KEYWORD_allowzero
+     / KEYWORD_const
+     / KEYWORD_volatile
 
 PrefixTypeOpPrefix
     <- QUESTIONMARK

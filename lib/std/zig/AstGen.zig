@@ -3746,6 +3746,9 @@ fn ptrType(
     if (ptr_info.size == .c and ptr_info.allowzero_token != null) {
         return gz.astgen.failTok(ptr_info.allowzero_token.?, "C pointers always allow address zero", .{});
     }
+    if (ptr_info.duplicate_token) |duplicate| {
+        return gz.astgen.failTok(duplicate, "Extra pointer qualifier", .{});
+    }
 
     const source_offset = gz.astgen.source_offset;
     const source_line = gz.astgen.source_line;

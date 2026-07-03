@@ -6992,10 +6992,10 @@ test "recovery: non-associative operators" {
 
 test "recovery: extra qualifier" {
     try testError(
-        \\const a: *const const u8;
+        \\const a: *align(4) align(8) u8;
         \\test ""
     , &[_]Error{
-        .extra_const_qualifier,
+        .extra_align_qualifier,
         .expected_block,
     });
 }

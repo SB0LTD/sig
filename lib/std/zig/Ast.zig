@@ -465,15 +465,6 @@ pub fn renderError(tree: Ast, parse_error: Error, w: *Writer) Writer.Error!void 
         .extra_align_qualifier => {
             return w.writeAll("extra align qualifier");
         },
-        .extra_allowzero_qualifier => {
-            return w.writeAll("extra allowzero qualifier");
-        },
-        .extra_const_qualifier => {
-            return w.writeAll("extra const qualifier");
-        },
-        .extra_volatile_qualifier => {
-            return w.writeAll("extra volatile qualifier");
-        },
         .ptr_mod_on_array_child_type => {
             return w.print("pointer modifier '{s}' not allowed on array child type", .{
                 tree.tokenTag(parse_error.token).symbol(),
@@ -2110,6 +2101,7 @@ fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType 
         .allowzero_token = null,
         .const_token = null,
         .volatile_token = null,
+        .duplicate_token = null,
         .ast = info,
     };
     // We need to be careful that we don't iterate over any sub-expressions
@@ -2125,9 +2117,24 @@ fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType 
     const end = tree.firstToken(info.child_type);
     while (i < end) : (i += 1) {
         switch (tree.tokenTag(i)) {
-            .keyword_allowzero => result.allowzero_token = i,
-            .keyword_const => result.const_token = i,
-            .keyword_volatile => result.volatile_token = i,
+            .keyword_allowzero => {
+                if (result.allowzero_token != null) {
+                    result.duplicate_token = i;
+                }
+                result.allowzero_token = i;
+            },
+            .keyword_const => {
+                if (result.const_token != null) {
+                    result.duplicate_token = i;
+                }
+                result.const_token = i;
+            },
+            .keyword_volatile => {
+                if (result.volatile_token != null) {
+                    result.duplicate_token = i;
+                }
+                result.volatile_token = i;
+            },
             .keyword_align => {
                 if (info.bit_range_end.unwrap()) |bit_range_end| {
                     assert(info.bit_range_start != .none);
@@ -2724,6 +2731,7 @@ pub const full = struct {
         allowzero_token: ?TokenIndex,
         const_token: ?TokenIndex,
         volatile_token: ?TokenIndex,
+        duplicate_token: ?TokenIndex,
         ast: Components,
 
         pub const Components = struct {
@@ -2857,9 +2865,6 @@ pub const Error = struct {
         extern_fn_body,
         extra_addrspace_qualifier,
         extra_align_qualifier,
-        extra_allowzero_qualifier,
-        extra_const_qualifier,
-        extra_volatile_qualifier,
         ptr_mod_on_array_child_type,
         invalid_bit_range,
         same_line_doc_comment,

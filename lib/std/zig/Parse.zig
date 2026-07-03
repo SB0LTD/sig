@@ -1691,8 +1691,8 @@ fn expectPrefixExpr(p: *Parse) Error!Node.Index {
 /// PrefixTypeOp
 ///     <- QUESTIONMARK
 ///      / KEYWORD_anyframe MINUSRARROW
-///      / (ManyPtrTypeStart / SliceTypeStart) KEYWORD_allowzero? ByteAlign? AddrSpace? KEYWORD_const? KEYWORD_volatile?
-///      / SinglePtrTypeStart KEYWORD_allowzero? BitAlign? AddrSpace? KEYWORD_const? KEYWORD_volatile?
+///      / (ManyPtrTypeStart / SliceTypeStart) PtrMods
+///      / SinglePtrTypeStart SinglePtrMods
 ///      / ArrayTypeStart
 ///
 /// PrefixTypeOpPrefix
@@ -1708,8 +1708,6 @@ fn expectPrefixExpr(p: *Parse) Error!Node.Index {
 /// ManyPtrTypeStart <- LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
 ///
 /// ArrayTypeStart <- LBRACKET !ASTERISK Expr (COLON Expr)? RBRACKET
-///
-/// BitAlign <- KEYWORD_align LPAREN Expr (COLON Expr COLON Expr)? RPAREN
 fn parseTypeExpr(p: *Parse) Error!?Node.Index {
     switch (p.tokenTag(p.tok_i)) {
         .question_mark => return try p.addNode(.{
@@ -3005,6 +3003,22 @@ const PtrModifiers = struct {
     bit_range_end: Node.OptionalIndex,
 };
 
+/// PtrMods
+///    <- PtrMod* ByteAlign? PtrMod* AddrSpace? PtrMod*
+///     / PtrMod* AddrSpace? PtrMod* ByteAlign? PtrMod*
+///
+/// SinglePtrMods
+///    <- PtrMod* BitAlign? PtrMod* AddrSpace? PtrMod*
+///     / PtrMod* AddrSpace? PtrMod* BitAlign? PtrMod*
+///
+/// PtrMod
+///     <- KEYWORD_allowzero
+///      / KEYWORD_const
+///      / KEYWORD_volatile
+///
+/// AddrSpace <- KEYWORD_addrspace LPAREN Expr RPAREN
+/// ByteAlign <- KEYWORD_align LPAREN Expr RPAREN
+/// BitAlign <- KEYWORD_align LPAREN Expr (COLON Expr COLON Expr)? RPAREN
 fn parsePtrModifiers(p: *Parse) !PtrModifiers {
     var result: PtrModifiers = .{
         .align_node = .none,
@@ -3012,9 +3026,6 @@ fn parsePtrModifiers(p: *Parse) !PtrModifiers {
         .bit_range_start = .none,
         .bit_range_end = .none,
     };
-    var saw_const = false;
-    var saw_volatile = false;
-    var saw_allowzero = false;
     while (true) {
         switch (p.tokenTag(p.tok_i)) {
             .keyword_align => {
@@ -3033,33 +3044,16 @@ fn parsePtrModifiers(p: *Parse) !PtrModifiers {
 
                 _ = try p.expectToken(.r_paren);
             },
-            .keyword_const => {
-                if (saw_const) {
-                    try p.warn(.extra_const_qualifier);
-                }
-                p.tok_i += 1;
-                saw_const = true;
-            },
-            .keyword_volatile => {
-                if (saw_volatile) {
-                    try p.warn(.extra_volatile_qualifier);
-                }
-                p.tok_i += 1;
-                saw_volatile = true;
-            },
-            .keyword_allowzero => {
-                if (saw_allowzero) {
-                    try p.warn(.extra_allowzero_qualifier);
-                }
-                p.tok_i += 1;
-                saw_allowzero = true;
-            },
             .keyword_addrspace => {
                 if (result.addrspace_node != .none) {
                     try p.warn(.extra_addrspace_qualifier);
                 }
                 result.addrspace_node = .fromOptional(try p.parseAddrSpace());
             },
+            .keyword_allowzero,
+            .keyword_const,
+            .keyword_volatile,
+            => p.tok_i += 1,
             else => return result,
         }
     }
