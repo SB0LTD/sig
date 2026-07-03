@@ -23,6 +23,7 @@ errors: std.ArrayList(AstError),
 nodes: Ast.NodeList,
 extra_data: std.ArrayList(u32),
 scratch: std.ArrayList(Node.Index),
+recover: bool,
 
 fn tokenTag(p: *const Parse, token_index: TokenIndex) Token.Tag {
     return p.tokens.items(.tag)[token_index];
@@ -497,6 +498,12 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
 
 /// Attempts to find next container member by searching for certain tokens
 fn findNextContainerMember(p: *Parse) void {
+    if (!p.recover) {
+        while (p.tokenTag(p.tok_i) != .eof) {
+            p.tok_i += 1;
+        }
+        return;
+    }
     var level: u32 = 0;
     while (true) {
         const tok = p.nextToken();
@@ -554,6 +561,12 @@ fn findNextContainerMember(p: *Parse) void {
 
 /// Attempts to find the next statement by searching for a semicolon
 fn findNextStmt(p: *Parse) void {
+    if (!p.recover) {
+        while (p.tokenTag(p.tok_i) != .eof) {
+            p.tok_i += 1;
+        }
+        return;
+    }
     var level: u32 = 0;
     while (true) {
         const tok = p.nextToken();
@@ -3615,7 +3628,7 @@ fn expectSemicolon(p: *Parse, error_tag: AstError.Tag, recoverable: bool) Error!
         return;
     }
     try p.warn(error_tag);
-    if (!recoverable) return error.ParseError;
+    if (!recoverable or !p.recover) return error.ParseError;
 }
 
 fn nextToken(p: *Parse) TokenIndex {

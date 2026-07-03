@@ -123,9 +123,16 @@ fn checkAgainstOracle(source: [:0]const u8) !void {
     var fba_buf: [1 << 18]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);
 
-    const ast = try std.zig.Ast.parse(fba.allocator(), source, .zig);
-
     const expected = try oracle.parse(source);
+
+    // It is important to disable recovery for fuzz testing.
+    // Consider the case where there is a parse error right at the beginning of the file,
+    // followed by a valid declaration with a million nested parens. The oracle will not
+    // skip this input due to the max depth being exceeded since the oracle hits a parse
+    // error right away and does no recovery. However, std.zig.Ast.parse() does recovery
+    // by default and will hit a stack overflow rather than returning after the parser error.
+    // Stack overflows are not interesting and we do not want the fuzzer to be able to find them.
+    const ast = try std.zig.Ast.parse(fba.allocator(), source, .zig_no_recover);
 
     errdefer logBadSource(source, ast);
     try std.testing.expectEqual(expected, ast.errors.len == 0);

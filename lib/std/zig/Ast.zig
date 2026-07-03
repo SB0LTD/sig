@@ -138,7 +138,7 @@ pub fn deinit(tree: *Ast, gpa: Allocator) void {
     tree.* = undefined;
 }
 
-pub const Mode = enum { zig, zon };
+pub const Mode = enum { zig, zon, zig_no_recover };
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
@@ -180,6 +180,7 @@ pub fn parseTokens(
         .extra_data = .empty,
         .scratch = .empty,
         .tok_i = 0,
+        .recover = true,
     };
     defer parser.errors.deinit(gpa);
     defer parser.nodes.deinit(gpa);
@@ -193,6 +194,10 @@ pub fn parseTokens(
 
     switch (mode) {
         .zig => try parser.parseRoot(),
+        .zig_no_recover => {
+            parser.recover = false;
+            try parser.parseRoot();
+        },
         .zon => try parser.parseZon(),
     }
 
