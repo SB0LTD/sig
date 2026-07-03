@@ -126,7 +126,11 @@ test "byte order mark" {
     try checkAgainstOracle("\xef\xbb\xbf///\n0");
 }
 
->>>>>>> bc46a69fba (grammar: handle byte order mark)
+// Found using AFL++
+test "nosuspend multi assign" {
+    try checkAgainstOracle("test{nosuspend*0,var _=0;}");
+}
+
 fn checkAgainstOracle(source: [:0]const u8) !void {
     var fba_buf: [1 << 18]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);
