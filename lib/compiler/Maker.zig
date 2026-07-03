@@ -164,12 +164,12 @@ pub fn main(init: process.Init.Minimal) !void {
 
     const cwd: Dir = .cwd();
 
-    const zig_lib_directory: Cache.Directory = .{
+    const zig_lib_directory: Cache.Directory = if (std.mem.eql(u8, zig_lib_arg, ".")) .cwd() else .{
         .path = zig_lib_arg,
         .handle = try cwd.openDir(io, zig_lib_arg, .{}),
     };
 
-    const global_cache_directory: Cache.Directory = .{
+    const global_cache_directory: Cache.Directory = if (std.mem.eql(u8, global_cache_arg, ".")) .cwd() else .{
         .path = global_cache_arg,
         .handle = try cwd.createDirPathOpen(io, global_cache_arg, .{}),
     };
@@ -573,7 +573,7 @@ pub fn main(init: process.Init.Minimal) !void {
         unresolved_path,
         .@"local cache",
     ) else .{
-        .path = try Dir.path.join(arena, &.{ build_root.directory.path orelse ".", default_local_zig_cache_basename }),
+        .path = try build_root.directory.join(arena, &.{default_local_zig_cache_basename}),
         .handle = try build_root.directory.handle.createDirPathOpen(io, default_local_zig_cache_basename, .{}),
     };
     graph.cache = .{
