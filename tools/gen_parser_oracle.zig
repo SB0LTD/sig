@@ -82,16 +82,21 @@ const Generator = struct {
             \\
             \\const std = @import("std");
             \\
+            \\const Error = error{MaxDepth};
+            \\const max_depth = 5;
+            \\
             \\/// Returns true if the input source is in the language defined by
             \\/// the grammar.
-            \\pub fn parse(source: []const u8) bool {
-            \\    var p: Parser = .{ .source = source, .i = 0 };
+            \\/// Returns error.MaxDepth if more than `max_depth` levels of recursion/iteration are reached.
+            \\pub fn parse(source: []const u8) Error!bool {
+            \\    var p: Parser = .{ .source = source, .i = 0, .expr_depth = 1 };
             \\    return p.parseRoot();
             \\}
             \\
             \\const Parser = struct {
             \\    source: []const u8,
             \\    i: usize,
+            \\    expr_depth: usize,
             \\
         );
         for (g.p.getExtra(node.get(g.p).root)) |def| {
@@ -104,7 +109,15 @@ const Generator = struct {
         const def = node.get(g.p).def;
         const id = def.id.get(g.p).id;
         assert(g.suffix == 0);
-        try g.w.print("pub fn parse{s}(p: *Parser) bool {{ return ", .{id});
+        try g.w.print("pub fn parse{s}(p: *Parser) Error!bool {{", .{id});
+        if (mem.eql(u8, "Expr", id)) {
+            try g.w.print(
+                \\if (p.expr_depth >= max_depth) return error.MaxDepth;
+                \\p.expr_depth += 1;
+                \\defer p.expr_depth -= 1;
+            , .{});
+        }
+        try g.w.writeAll("return ");
         try g.genExpr(def.expr);
         try g.w.writeAll(";}");
     }
@@ -139,7 +152,7 @@ const Generator = struct {
         g.suffix += 1;
         defer g.suffix -= 1;
         switch (node.get(g.p)) {
-            .id => |id| try g.w.print("p.parse{s}()", .{id}),
+            .id => |id| try g.w.print("try p.parse{s}()", .{id}),
             .expr => try g.genExpr(node),
             .@"&" => |child| {
                 // XXX forbid unbounded lookahead
@@ -179,25 +192,34 @@ const Generator = struct {
             .@"*" => |child| {
                 try g.w.print(
                     \\blk_{d}: {{
+                    \\var i_{d}: usize = 0;
                     \\while (
-                , .{suffix});
+                , .{ suffix, suffix });
                 try g.genNode(child);
                 try g.w.print(
-                    \\) {{}}
+                    \\) {{
+                    \\  if (i_{d} > max_depth) return error.MaxDepth;
+                    \\  i_{d} += 1;
+                    \\}}
                     \\break :blk_{d} true; }}
-                , .{suffix});
+                , .{ suffix, suffix, suffix });
             },
             .@"+" => |child| {
                 try g.w.print(
                     \\blk_{d}: {{
                     \\var match_{d} = false;
+                    \\var i_{d}: usize = 0;
                     \\while (
-                , .{ suffix, suffix });
+                , .{ suffix, suffix, suffix });
                 try g.genNode(child);
                 try g.w.print(
-                    \\) {{ match_{d} = true; }}
+                    \\) {{
+                    \\  match_{d} = true;
+                    \\  if (i_{d} > max_depth) return error.MaxDepth;
+                    \\  i_{d} += 1;
+                    \\}}
                     \\break :blk_{d} match_{d}; }}
-                , .{ suffix, suffix, suffix });
+                , .{ suffix, suffix, suffix, suffix, suffix });
             },
             .@"." => {
                 try g.w.print(

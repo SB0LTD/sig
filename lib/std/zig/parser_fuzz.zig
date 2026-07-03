@@ -14,7 +14,18 @@ fn fuzzAgainstOracle(_: void, smith: *Smith) !void {
     buffer[len] = 0;
     const source = buffer[0..len :0];
 
-    try checkAgainstOracle(source);
+    checkAgainstOracle(source) catch |err| switch (err) {
+        error.MaxDepth => return error.SkipZigTest,
+        else => |e| return e,
+    };
+}
+
+test "max depth" {
+    try std.testing.expectError(error.MaxDepth, checkAgainstOracle("((((("));
+    _ = checkAgainstOracle("((((") catch |err| switch (err) {
+        error.MaxDepth => try std.testing.expect(false),
+        else => |e| return e,
+    };
 }
 
 // Found using AFL++
@@ -109,8 +120,10 @@ fn checkAgainstOracle(source: [:0]const u8) !void {
 
     const ast = try std.zig.Ast.parse(fba.allocator(), source, .zig);
 
+    const expected = try oracle.parse(source);
+
     errdefer logBadSource(source, ast);
-    try std.testing.expectEqual(oracle.parse(source), ast.errors.len == 0);
+    try std.testing.expectEqual(expected, ast.errors.len == 0);
 }
 
 fn logBadSource(source: []const u8, ast: std.zig.Ast) void {
