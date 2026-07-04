@@ -479,9 +479,8 @@ const Section = struct {
         }
 
         fn vaddr(s: Index, elf: *Elf) u64 {
-            return switch (s.get(elf).lsi) {
-                .null => 0,
-                else => |lsi| Symbol.Id.local(lsi).value(elf),
+            return switch (elf.shdrPtr(s)) {
+                inline else => |shdr| elf.targetLoad(&shdr.addr),
             };
         }
 
@@ -1730,16 +1729,12 @@ fn addGlobalSymbolAssumeCapacity(elf: *Elf, opts: AddGlobalSymbolOptions) error{
         elf.moveDemotedGlobal(new_global_ptr);
     }
 
-    if (new_global_ptr.dynsym_index != 0 and
-        opts.visibility == .DEFAULT and
-        opts.shndx == .UNDEF and
-        (@"type" == .FUNC or @"type" == std.elf.STT.GNU_IFUNC))
-    {
-        // We're adding an undefined global STT_FUNC symbol which could be resolved by another DSO.
-        // We therefore might need a PLT entry, so let's add one now.
-        elf.addPltEntry(opts.name.strtab, new_global_ptr.dynsym_index);
-        // TODO: we also need to emit a PLT entry if the symbol could be preempted/interposed! By
-        // not doing that we're basically implementing the behavior of `-Bsymbolic-functions`.
+    switch (@"type") {
+        .FUNC, .GNU_IFUNC => if (!elf.haveCanonicalSymbolDefinition(.global(opts.name.strtab))) {
+            // This STT_FUNC symbol might be defined externally, so it needs a PLT entry.
+            elf.addPltEntry(opts.name.strtab, new_global_ptr.dynsym_index);
+        },
+        else => {},
     }
 
     return .global(opts.name.strtab);
@@ -1852,9 +1847,7 @@ fn setGlobalSymbolValue(
     // delete its newly-unnecessary runtime relocation to avoid a runtime dynamic linker error.
     // This also allows the PLT entry to be reused---see `pltEntryIsDead`.
     if (elf.plt.getIndex(global_name)) |plt_index| {
-        // TODO: we might still need the PLT entry if the symbol could be preempted/interposed! See
-        // matching comment at the end of `addGlobalSymbolAssumeCapacity`.
-        if (!elf.pltEntryIsDead(plt_index)) {
+        if (elf.haveCanonicalSymbolDefinition(.global(global_name)) and !elf.pltEntryIsDead(plt_index)) {
             elf.shndx.rela_plt.relaDeleteOne(elf, @enumFromInt(plt_index));
             assert(elf.pltEntryIsDead(plt_index));
         }
@@ -2370,6 +2363,32 @@ fn globalByName(elf: *const Elf, name: String(.strtab)) ?*Symbol.Global {
     if (elf.globals.strong_undef.getPtr(name)) |ptr| return ptr;
     if (elf.globals.weak_undef.getPtr(name)) |ptr| return ptr;
     return null;
+}
+
+fn haveCanonicalSymbolDefinition(elf: *Elf, sym: Symbol.Id) bool {
+    const global_name = switch (sym.unwrap()) {
+        .local => return true,
+        .global => |name| name,
+    };
+
+    if (elf.shndx.dynamic == .UNDEF) return true;
+
+    const global_ptr = elf.globals.strong_def.getPtr(global_name) orelse
+        elf.globals.weak_def.getPtr(global_name) orelse
+        return false; // no definition at all
+
+    if (elf.base.comp.config.output_mode == .Exe) {
+        // Symbols defined in executables cannot be preempted
+        return true;
+    }
+
+    const visibility: std.elf.STV = switch (elf.symPtr(global_ptr.symtab_index)) {
+        inline else => |sym_ptr| elf.targetLoad(&sym_ptr.other).visibility,
+    };
+    return switch (visibility) {
+        .INTERNAL, .HIDDEN, .PROTECTED => true, // protection prevents preemption
+        .DEFAULT => false,
+    };
 }
 
 pub fn symbolForAtom(elf: *Elf, atom: link.File.AtomId) link.File.SymbolId {
@@ -5785,11 +5804,9 @@ fn addSymbolRelocAssumeCapacity(
     assert(elf.ehdrField(.type) != .REL);
 
     const rela_index: Section.RelaIndex.Optional = r: {
-        if (elf.shndx.dynamic == .UNDEF) break :r .none;
-        const global_name = switch (target.unwrap()) {
-            .local => break :r .none,
-            .global => |name| name,
-        };
+        if (elf.haveCanonicalSymbolDefinition(target)) break :r .none;
+        // If the definition is (potentially) external, `target` must be global.
+        const global_name = target.unwrap().global;
 
         const rela_type: MachineRelocType = switch (elf.ehdrField(.machine)) {
             else => |machine| @panic(@tagName(machine)),
@@ -5850,16 +5867,9 @@ fn addSymbolRelocAssumeCapacity(
                 },
             },
         };
-        // TODO: even if the symbol is locally defined, preemption/interposition is a
-        // possibility, which this condition does not currently consider!
-        if (elf.globals.strong_def.contains(global_name) or
-            elf.globals.weak_def.contains(global_name))
-        {
-            break :r .none;
-        }
 
         const dynsym_index = elf.globalByName(global_name).?.dynsym_index;
-        if (dynsym_index == 0) break :r .none;
+        assert(dynsym_index != 0);
 
         switch (elf.nodeWantsDsoRelocation(node)) {
             .no => break :r .none,
@@ -5986,25 +5996,8 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
     } = switch (elf.got.keys()[got_index]) {
         .reserved => .{ .unsigned = 0 },
         .tpoff => |sym_id| val: {
-            // We will break from this block if we require a relocation.
-            known: {
-                if (elf.base.comp.config.output_mode != .Exe) {
-                    // Only the executable's per-module TLS block is at a known offset from the
-                    // general TLS pointer.
-                    break :known;
-                }
-                switch (sym_id.unwrap()) {
-                    .local => {},
-                    .global => |name| if (elf.globals.strong_undef.contains(name) or
-                        elf.globals.weak_undef.contains(name))
-                    {
-                        // This is an external TLS symbol, so we don't know its offset.
-                        break :known;
-                    },
-                }
-                // It's a symbol which we define, the symbol is not interposable because we're the
-                // executable, and we know our per-module TLS block's offset because we're the
-                // executable. We therefore know this value!
+            // Only the executable's per-module TLS block is at a known offset from the TLS pointer.
+            if (elf.base.comp.config.output_mode == .Exe and elf.haveCanonicalSymbolDefinition(sym_id)) {
                 const tls_phndx = elf.getNode(elf.ni.tls).segment;
                 const tls_size: u64 = switch (elf.phdrSlice()) {
                     inline else => |phdr| tls_size: {
@@ -6036,46 +6029,13 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
                 } },
             };
         },
-        .symbol, .tlsgd1 => |sym_id, tag| val: {
-            const name = switch (sym_id.unwrap()) {
-                .local => break :val .{ .unsigned = sym_id.value(elf) },
-                .global => |name| name,
-            };
-            // If the symbol is *defined* in this module, we might be able to avoid the relocation.
-            const need_reloc: bool = need_reloc: {
-                const global = g: {
-                    if (elf.globals.strong_def.getPtr(name)) |g| break :g g;
-                    if (elf.globals.weak_def.getPtr(name)) |g| break :g g;
-                    // The global is undefined, which probably means we need a relocation---unless
-                    // we have created a copy relocation for it, in which case we own the canonical
-                    // address of this symbol in this DSO!
-                    break :need_reloc !elf.copied_globals.contains(name);
-                };
-
-                // We have a definition, but it might be interposable (aka preemptible). There
-                // are two cases where it is not and so we can (and, in fact, must) elide the
-                // runtime relocation:
-                // * We are the executable. Symbols from executables cannot be interposed.
-                // * The symbol's visibility disallows interposition.
-                if (elf.base.comp.config.output_mode == .Exe) {
-                    break :need_reloc false;
-                }
-                const visibility: std.elf.STV = switch (elf.symPtr(global.symtab_index)) {
-                    inline else => |sym| elf.targetLoad(&sym.other).visibility,
-                };
-                break :need_reloc switch (visibility) {
-                    .DEFAULT => true,
-                    .INTERNAL, .HIDDEN, .PROTECTED => false,
-                };
-            };
-
-            if (!need_reloc) {
-                break :val .{ .unsigned = sym_id.value(elf) };
+        .symbol, .tlsgd1 => |sym, tag| val: {
+            if (elf.haveCanonicalSymbolDefinition(sym)) {
+                break :val .{ .unsigned = sym.value(elf) };
             }
-
             break :val .{ .reloc = .{
                 .type = if (tag == .symbol) .globDat(elf) else .dtpOffAddr(elf),
-                .dynsym_index = elf.globalByName(name).?.dynsym_index,
+                .dynsym_index = elf.globalByName(sym.unwrap().global).?.dynsym_index,
                 .addend = 0,
             } };
         },
@@ -6088,31 +6048,7 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
                         .X86_64 => .{ .X86_64 = .DTPMOD64 },
                         .LOONGARCH => .{ .LOONGARCH = if (elf.identClass() == .@"64") .TLS_DTPMOD64 else .TLS_DTPMOD32 },
                     },
-                    .dynsym_index = switch (sym.unwrap()) {
-                        .local => 0,
-                        .global => |name| dsi: {
-                            // Like in the `.tlsgd1` case, we need to check for a non-interposable definition.
-                            if (elf.globals.strong_def.getPtr(name) orelse
-                                elf.globals.weak_def.getPtr(name)) |global|
-                            {
-                                if (elf.base.comp.config.output_mode == .Exe) {
-                                    break :dsi 0; // non-interposable definition
-                                }
-                                const visibility: std.elf.STV = switch (elf.symPtr(global.symtab_index)) {
-                                    inline else => |sym_ptr| elf.targetLoad(&sym_ptr.other).visibility,
-                                };
-                                switch (visibility) {
-                                    .DEFAULT => {},
-                                    .INTERNAL, .HIDDEN, .PROTECTED => {
-                                        break :dsi 0; // non-interposable definition
-                                    },
-                                }
-                            }
-                            // `sym` is either undefined or an interposable definition, so use its
-                            // actual dynsym index.
-                            break :dsi elf.globalByName(name).?.dynsym_index;
-                        },
-                    },
+                    .dynsym_index = if (elf.haveCanonicalSymbolDefinition(sym)) 0 else elf.globalByName(sym.unwrap().global).?.dynsym_index,
                     .addend = 0,
                 },
             },
