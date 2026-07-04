@@ -131,6 +131,15 @@ test "nosuspend multi assign" {
     try checkAgainstOracle("test{nosuspend*0,var _=0;}");
 }
 
+// Found using AFL++
+test "bin op at end of file" {
+    try checkAgainstOracle(
+        \\test {
+        \\    _ = 00
+        \\|
+    );
+}
+
 fn checkAgainstOracle(source: [:0]const u8) !void {
     var fba_buf: [1 << 18]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);

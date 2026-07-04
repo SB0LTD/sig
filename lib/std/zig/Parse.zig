@@ -1637,13 +1637,17 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!?Node.Index {
         if (tok_tag == .keyword_catch) {
             _ = try p.parsePayload();
         }
-        const rhs = try p.parseExprPrecedence(info.prec + 1) orelse {
-            try p.warn(.expected_expr);
-            return node;
-        };
 
+        // Check for whitespace error before parsing the rhs to facilitate fuzzing.
+        // Consider the case where there is a mismatched whitespace error but the rhs
+        // expression triggers stack overflow when parsing is attempted. In this case
+        // we want to return with an error rather than crashing on stack overflow.
         {
             const tok_len = tok_tag.lexeme().?.len;
+            if (p.tokenStart(oper_token) + tok_len >= p.source.len) {
+                try p.warn(.expected_expr);
+                return node;
+            }
             const char_before = p.source[p.tokenStart(oper_token) - 1];
             const char_after = p.source[p.tokenStart(oper_token) + tok_len];
             if (tok_tag == .ampersand and char_after == '&') {
@@ -1654,6 +1658,11 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!?Node.Index {
                 try p.warnMsg(.{ .tag = .mismatched_binary_op_whitespace, .token = oper_token });
             }
         }
+
+        const rhs = try p.parseExprPrecedence(info.prec + 1) orelse {
+            try p.warn(.expected_expr);
+            return node;
+        };
 
         node = try p.addNode(.{
             .tag = info.tag,

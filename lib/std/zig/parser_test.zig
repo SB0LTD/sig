@@ -6976,6 +6976,7 @@ test "recovery: missing comma" {
     , &[_]Error{
         .expected_comma_after_switch_prong,
         .expected_comma_after_switch_prong,
+        .mismatched_binary_op_whitespace,
         .expected_expr,
     });
 }
