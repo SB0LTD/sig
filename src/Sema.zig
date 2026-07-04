@@ -8501,6 +8501,7 @@ const calling_conventions_supporting_var_args = [_]std.lang.CallingConvention.Ta
     .x86_64_win,
     .x86_sysv,
     .x86_win,
+    .x86_mingw,
     .aarch64_aapcs,
     .aarch64_aapcs_darwin,
     .aarch64_aapcs_win,

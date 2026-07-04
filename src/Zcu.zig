@@ -4644,6 +4644,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
 
                 .x86_sysv,
                 .x86_win,
+                .x86_mingw,
                 .x86_stdcall,
                 => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
 
@@ -4678,6 +4679,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
         .stage2_x86 => switch (cc) {
             .x86_sysv,
             .x86_win,
+            .x86_mingw,
             => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
             .naked => true,
             else => false,

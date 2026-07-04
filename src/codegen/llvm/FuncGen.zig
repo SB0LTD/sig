@@ -218,7 +218,7 @@ pub fn genMainBody(fg: *FuncGen) TodoError!void {
         switch (lowering) {
             .no_bits => continue,
             .byval => {
-                assert(!it.byval_attr);
+                assert(it.byval_attr == null);
                 const param_index = it.zig_index - 1;
                 const param_ty: Type = .fromInterned(param_types[param_index]);
                 const param = fg.wip.arg(it.llvm_index - 1);
@@ -237,15 +237,16 @@ pub fn genMainBody(fg: *FuncGen) TodoError!void {
             .byref, .byref_mut => {
                 const param_ty: Type = .fromInterned(param_types[it.zig_index - 1]);
                 const param = fg.wip.arg(it.llvm_index - 1);
+                const alignment = if (it.byval_attr) |byval_attr| byval_attr.alignment else .none;
 
-                if (isByRef(param_ty, zcu)) {
+                if (alignment == .none and isByRef(param_ty, zcu)) {
                     args.appendAssumeCapacity(param);
                 } else {
-                    args.appendAssumeCapacity(try fg.load(param, .none, param_ty, .normal));
+                    args.appendAssumeCapacity(try fg.load(param, alignment, param_ty, .normal));
                 }
             },
             .abi_sized_int => {
-                assert(!it.byval_attr);
+                assert(it.byval_attr == null);
                 const param_ty: Type = .fromInterned(param_types[it.zig_index - 1]);
                 const param = fg.wip.arg(it.llvm_index - 1);
 
@@ -260,7 +261,7 @@ pub fn genMainBody(fg: *FuncGen) TodoError!void {
                 }
             },
             .slice => {
-                assert(!it.byval_attr);
+                assert(it.byval_attr == null);
                 const param_ty: Type = .fromInterned(param_types[it.zig_index - 1]);
                 assert(!isByRef(param_ty, zcu));
                 const slice_val = try fg.wip.buildAggregate(
@@ -271,7 +272,7 @@ pub fn genMainBody(fg: *FuncGen) TodoError!void {
                 args.appendAssumeCapacity(slice_val);
             },
             .multiple_llvm_types => {
-                assert(!it.byval_attr);
+                assert(it.byval_attr == null);
                 const param_ty: Type = .fromInterned(param_types[it.zig_index - 1]);
                 const param_alignment = param_ty.abiAlignment(zcu);
                 const llvm_ty = try o.builder.arrayType(it.offsets_buffer[it.types_len], .i8);
@@ -963,7 +964,7 @@ fn buildCall(
             => continue,
 
             .slice => {
-                assert(!it.byval_attr);
+                assert(it.byval_attr == null);
                 const param_ty = Type.fromInterned(fn_info.param_types[it.zig_index - 1]);
                 const ptr_info = param_ty.ptrInfo(zcu);
                 const llvm_arg_i = it.llvm_index - 2;
@@ -6913,7 +6914,7 @@ const ParamTypeIterator = struct {
     types_len: u32,
     types_buffer: [8]Builder.Type,
     offsets_buffer: [9]u64,
-    byval_attr: bool,
+    byval_attr: ?Object.Byval,
 
     const Lowering = union(enum) {
         no_bits,
@@ -6931,7 +6932,7 @@ const ParamTypeIterator = struct {
     pub fn next(it: *ParamTypeIterator) Allocator.Error!?Lowering {
         if (it.zig_index >= it.param_types.len) return null;
         const ty = it.param_types[it.zig_index];
-        it.byval_attr = false;
+        it.byval_attr = null;
         return nextInner(it, Type.fromInterned(ty));
     }
 
@@ -7008,7 +7009,7 @@ const ParamTypeIterator = struct {
                 it.llvm_index += 1;
                 switch (arm_c_abi.classifyType(ty, zcu, .arg)) {
                     .memory => {
-                        it.byval_attr = true;
+                        it.byval_attr = .{};
                         return .byref;
                     },
                     .byval => return .byval,
@@ -7086,7 +7087,7 @@ const ParamTypeIterator = struct {
                 it.llvm_index += 1;
                 switch (mips_c_abi.classifyType(ty, zcu, .arg)) {
                     .memory => {
-                        it.byval_attr = true;
+                        it.byval_attr = .{};
                         return .byref;
                     },
                     .byval => return .byval,
@@ -7158,15 +7159,15 @@ const ParamTypeIterator = struct {
                         it.types_buffer[0..1].* = .{try it.object.lowerType(scalar_ty, .as_value)};
                         it.offsets_buffer[0..2].* = .{ 0, scalar_ty.abiSize(zcu) };
                         it.types_len = 1;
-                        it.llvm_index += 1;
                         it.zig_index += 1;
+                        it.llvm_index += 1;
                         return .multiple_llvm_types;
                     }
                 },
                 .indirect => {
                     it.zig_index += 1;
                     it.llvm_index += 1;
-                    it.byval_attr = true;
+                    it.byval_attr = .{};
                     return .byref;
                 },
             },
@@ -7177,9 +7178,55 @@ const ParamTypeIterator = struct {
                 if (isScalar(zcu, ty)) {
                     return .byval;
                 } else {
-                    it.byval_attr = true;
+                    it.byval_attr = .{};
                     return .byref;
                 }
+            },
+            .x86_sysv, .x86_win, .x86_mingw => {
+                if (isByRef(ty, zcu)) {
+                    var items_buf: [1]codegen.FlattenedItem = undefined;
+                    if (codegen.flattenType(&items_buf, ty, zcu, .{
+                        .allow_arrays = false,
+                    })) |items| one_float: {
+                        if (items.len != 1 or items[0].offset != 0) break :one_float;
+                        const item_ty = items[0].type orelse break :one_float;
+                        if (!item_ty.isRuntimeFloat()) break :one_float;
+                        it.types_buffer[0..1].*, it.offsets_buffer[0..2].* =
+                            switch (item_ty.floatBits(zcu.getTarget())) {
+                                else => unreachable,
+                                32 => .{ .{.float}, .{ 0, 4 } },
+                                64 => .{ .{.double}, .{ 0, 8 } },
+                                16, 80, 128 => break :one_float,
+                            };
+                        it.types_len = 1;
+                        it.zig_index += 1;
+                        it.llvm_index += 1;
+                        return .multiple_llvm_types;
+                    }
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    it.byval_attr = .{ .alignment = .@"4" };
+                    return .byref;
+                }
+                if (ty.isAbiInt(zcu)) switch (ty.intInfo(zcu).bits) {
+                    else => unreachable,
+                    8, 16, 32, 64 => {
+                        it.zig_index += 1;
+                        it.llvm_index += 1;
+                        return .byval;
+                    },
+                    128 => {
+                        it.types_buffer[0..2].* = .{ .i64, .i64 };
+                        it.offsets_buffer[0..3].* = .{ 0, 8, 16 };
+                        it.types_len = 2;
+                        it.zig_index += 1;
+                        it.llvm_index += 2;
+                        return .multiple_llvm_types;
+                    },
+                };
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                return .byval;
             },
             .x86_64_sysv, .x86_64_x32 => return try it.next_x86_64_sysv(ty),
             .x86_64_win => return it.next_x86_64_win(ty),
@@ -7277,7 +7324,7 @@ const ParamTypeIterator = struct {
             .x87 => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
-                it.byval_attr = true;
+                it.byval_attr = .{};
                 return .byref;
             },
             .x87up => unreachable,
@@ -7285,7 +7332,7 @@ const ParamTypeIterator = struct {
             .memory => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
-                it.byval_attr = true;
+                it.byval_attr = .{};
                 return .byref;
             },
             .win_i128 => unreachable, // windows only
@@ -7306,7 +7353,7 @@ const ParamTypeIterator = struct {
             if (it.llvm_index + classes_len > 6) {
                 it.zig_index += 1;
                 it.llvm_index += 1;
-                it.byval_attr = true;
+                it.byval_attr = .{};
                 return .byref;
             }
         } else if (!isByRef(ty, zcu)) {
@@ -7340,7 +7387,7 @@ pub fn iterateParamTypes(
         .types_len = undefined,
         .types_buffer = undefined,
         .offsets_buffer = undefined,
-        .byval_attr = false,
+        .byval_attr = null,
     };
 }
 
@@ -7466,7 +7513,39 @@ pub fn fnReturnStrat(o: *Object, cc: std.lang.CallingConvention, ret_ty: Type) A
             return .by_val;
         } else .sret,
         .x86_fastcall => fnReturnStrat_x86_fastcall(o, zcu, ret_ty),
-        .x86_sysv, .x86_win => if (isByRef(ret_ty, zcu)) .sret else .by_val,
+        .x86_sysv, .x86_win, .x86_mingw => if (isByRef(ret_ty, zcu)) {
+            switch (cc) {
+                else => unreachable,
+                .x86_sysv => return .sret,
+                .x86_win => {},
+                .x86_mingw => {
+                    var items_buf: [1]codegen.FlattenedItem = undefined;
+                    if (codegen.flattenType(&items_buf, ret_ty, zcu, .{})) |items| one_float: {
+                        if (items.len != 1 or items[0].offset != 0) break :one_float;
+                        const item_ty = items[0].type orelse break :one_float;
+                        if (!item_ty.isRuntimeFloat()) break :one_float;
+                        return .{ .mem_cast = switch (item_ty.floatBits(zcu.getTarget())) {
+                            else => unreachable,
+                            16 => .half,
+                            32 => .float,
+                            64 => .double,
+                            80, 128 => break :one_float,
+                        } };
+                    }
+                },
+            }
+            return switch (ret_ty.abiSize(zcu)) {
+                0 => .void,
+                1 => .{ .mem_cast = .i8 },
+                2 => .{ .mem_cast = .i16 },
+                4 => .{ .mem_cast = .i32 },
+                8 => .{ .mem_cast = .i64 },
+                else => .sret,
+            };
+        } else if (ret_ty.isAbiInt(zcu) and ret_ty.intInfo(zcu).bits > 64)
+            .sret
+        else
+            .by_val,
         .x86_64_sysv, .x86_64_x32 => fnReturnStrat_x86_64_sysv(o, ret_ty),
         .x86_64_win => fnReturnStrat_x86_64_win(o, ret_ty),
         // TODO investigate other callconvs

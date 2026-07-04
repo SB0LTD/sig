@@ -7289,7 +7289,7 @@ fn toCallingConvention(cc: std.lang.CallingConvention, zcu: *Zcu) ?[]const u8 {
         .x86_16_cdecl => "cdecl",
         .x86_16_regparmcall => "regparmcall",
         .x86_64_sysv, .x86_sysv => "sysv_abi",
-        .x86_64_win, .x86_win => "ms_abi",
+        .x86_64_win, .x86_win, .x86_mingw => "ms_abi",
         .x86_16_stdcall, .x86_stdcall => "stdcall",
         .x86_fastcall => "fastcall",
         .x86_thiscall => "thiscall",

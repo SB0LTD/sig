@@ -4235,19 +4235,26 @@ pub const Object = struct {
         };
     }
 
+    pub const Byval = struct { alignment: InternPool.Alignment = .none };
     pub fn addByRefParamAttrs(
         o: *Object,
         attributes: *Builder.FunctionAttributes.Wip,
         llvm_arg_i: u32,
-        byval: bool,
+        maybe_byval: ?Byval,
         param_ty: Type,
     ) Allocator.Error!void {
         const llvm_param_ty = try o.lowerType(param_ty, .in_memory);
-        const alignment = param_ty.abiAlignment(o.zcu).toLlvm();
-        try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
         try attributes.addParamAttr(llvm_arg_i, .readonly, &o.builder);
-        try attributes.addParamAttr(llvm_arg_i, .{ .@"align" = .wrap(alignment) }, &o.builder);
-        if (byval) try attributes.addParamAttr(llvm_arg_i, .{ .byval = llvm_param_ty }, &o.builder);
+        try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
+        try attributes.addParamAttr(llvm_arg_i, .noundef, &o.builder);
+        const alignment = if (maybe_byval) |byval| alignment: {
+            try attributes.addParamAttr(llvm_arg_i, .{ .byval = llvm_param_ty }, &o.builder);
+            break :alignment byval.alignment;
+        } else .none;
+        try attributes.addParamAttr(llvm_arg_i, .{ .@"align" = .wrap(switch (alignment) {
+            .none => param_ty.abiAlignment(o.zcu),
+            else => alignment,
+        }.toLlvm()) }, &o.builder);
     }
 
     pub fn getErrorNameTable(o: *Object) Allocator.Error!Builder.Variable.Index {
@@ -4598,6 +4605,7 @@ pub fn toLlvmCallConvTag(cc_tag: std.lang.CallingConvention.Tag, target: *const 
         .x86_16_interrupt,
         .x86_sysv,
         .x86_win,
+        .x86_mingw,
         .x86_thiscall_mingw,
         .x86_64_x32,
         .aarch64_aapcs,
