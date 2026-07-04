@@ -126,7 +126,7 @@ BoolOrExpr <- BoolAndExpr (OrOp BoolAndExpr)* !OrOp
 
 BoolAndExpr <- CompareExpr (AndOp CompareExpr)* !AndOp
 
-CompareExpr <- BitwiseExpr (CompareOp BitwiseExpr / !CompareOp)
+CompareExpr <- BitwiseExpr (CompareOp BitwiseExpr)? !CompareOp
 
 BitwiseExpr <- BitShiftExpr (BitwiseOp BitShiftExpr)* !BitwiseOp
 

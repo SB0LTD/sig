@@ -639,18 +639,16 @@ const Parser = struct {
     pub fn parseCompareExpr(p: *Parser) Error!bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (try p.parseBitwiseExpr() and blk_2: {
-                const pos_2 = p.i;
-                if (try p.parseCompareOp() and try p.parseBitwiseExpr()) break :blk_2 true;
-                p.i = pos_2;
-                if (blk_3: {
-                    const pos_3 = p.i;
-                    const match_3 = try p.parseCompareOp();
-                    p.i = pos_3;
-                    break :blk_3 !match_3;
-                }) break :blk_2 true;
-                p.i = pos_2;
-                break :blk_2 false;
+            if (try p.parseBitwiseExpr() and (blk_3: {
+                const pos_3 = p.i;
+                if (try p.parseCompareOp() and try p.parseBitwiseExpr()) break :blk_3 true;
+                p.i = pos_3;
+                break :blk_3 false;
+            } or true) and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = try p.parseCompareOp();
+                p.i = pos_1;
+                break :blk_1 !match_1;
             }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;

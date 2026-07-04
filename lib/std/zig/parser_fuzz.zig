@@ -140,6 +140,11 @@ test "bin op at end of file" {
     );
 }
 
+// Found using AFL++
+test "resume block chained compare ops" {
+    try checkAgainstOracle("test{resume{0 > 0;} > 0 > 0;}");
+}
+
 fn checkAgainstOracle(source: [:0]const u8) !void {
     var fba_buf: [1 << 18]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&fba_buf);
