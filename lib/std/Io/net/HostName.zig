@@ -19,6 +19,18 @@ bytes: []const u8,
 
 pub const max_len = 255;
 
+pub const FromUriError = error{UriMissingHost} || ValidateError;
+
+/// Returned `HostName.bytes` may point into `buffer` or `uri.host`.
+pub fn fromUri(uri: std.Uri, buffer: *[HostName.max_len]u8) FromUriError!HostName {
+    const component = uri.host orelse return error.UriMissingHost;
+    const bytes = component.toRaw(buffer) catch |err| switch (err) {
+        error.NoSpaceLeft => return error.NameTooLong,
+    };
+    try validate(bytes);
+    return .{ .bytes = bytes };
+}
+
 pub const ValidateError = error{
     NameTooLong,
     InvalidHostName,
