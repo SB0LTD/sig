@@ -3374,3 +3374,35 @@ pub const loongarch = struct {
         pub const AbiExtension = enum(u3) { base = 0, _ };
     };
 };
+
+pub const sparc = struct {
+    pub const EFlags = packed struct(Word) {
+        mm: MemoryModel,
+        _reserved1: u6 = 0,
+        ext: Extensions,
+        _reserved2: u8 = 0,
+
+        pub const MemoryModel = enum(u2) {
+            /// Total Store Ordering
+            tso = 0,
+            /// Partial Store Ordering
+            pso = 1,
+            /// Relaxed Memory Ordering
+            rmo = 2,
+        };
+
+        pub const Extensions = packed struct(u16) {
+            /// Uses SPARC v8 ABI (w/ 32-bit pointers) on SPARC v9. Also known as v8+.
+            @"32plus": bool,
+            /// Uses Sun UltraSPARC extensions.
+            sun_us1: bool,
+            /// Uses HaL R1 extensions.
+            hal_r1: bool,
+            /// Uses Sun UltraSPARC III extensions.
+            sun_us3: bool,
+            _reserved: u11 = 0,
+            /// Uses little endian data (SPARC v9+).
+            le_data: bool,
+        };
+    };
+};
