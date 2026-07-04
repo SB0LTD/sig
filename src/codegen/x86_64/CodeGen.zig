@@ -70,6 +70,9 @@ pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
         .expand_sub_safe,
         .expand_mul_safe,
 
+        .expand_div_ceil,
+        .expand_div_ceil_optimized,
+
         .expand_packed_load,
         .expand_packed_store,
         .expand_packed_agg_field_val,
@@ -173872,6 +173875,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 };
                 for (ops) |op| try op.die(cg);
             },
+
+            .div_ceil, .div_ceil_optimized => unreachable,
 
             // No soft-float `Legalize` features are enabled, so this instruction never appears.
             .legalize_compiler_rt_call => unreachable,

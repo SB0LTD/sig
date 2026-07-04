@@ -62,6 +62,8 @@ pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
         .scalarize_div_trunc_optimized,
         .scalarize_div_floor,
         .scalarize_div_floor_optimized,
+        .scalarize_div_ceil,
+        .scalarize_div_ceil_optimized,
         .scalarize_div_exact,
         .scalarize_div_exact_optimized,
         .scalarize_rem,
@@ -1340,6 +1342,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .div_exact,
         .div_trunc,
         .div_floor,
+        .div_ceil,
         => |tag| {
             const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
             const lhs = try cg.resolveInst(bin_op.lhs);
@@ -1366,6 +1369,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     .div_exact => try cg.floatDiv(float_ty, lhs, rhs),
                     .div_trunc => try cg.floatDivTrunc(float_ty, lhs, rhs),
                     .div_floor => try cg.floatDivFloor(float_ty, lhs, rhs),
+                    .div_ceil => try cg.floatDivCeil(float_ty, lhs, rhs),
                     else => unreachable,
                 };
 
@@ -1384,6 +1388,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     .div_exact => try cg.intDiv(int_ty, lhs, rhs),
                     .div_trunc => try cg.intDiv(int_ty, lhs, rhs),
                     .div_floor => try cg.intDivFloor(int_ty, lhs, rhs),
+                    .div_ceil => try cg.intDivCeil(int_ty, lhs, rhs),
                     else => unreachable,
                 };
 
@@ -1881,6 +1886,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .div_float_optimized,
         .div_trunc_optimized,
         .div_floor_optimized,
+        .div_ceil_optimized,
         .div_exact_optimized,
         .rem_optimized,
         .mod_optimized,
@@ -2795,6 +2801,97 @@ fn intDivFloor(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!W
             const adjust_bigint = try cg.intCast(ty, .u32, adjust);
             adjust.free(cg);
             return try cg.intSub(ty, q, adjust_bigint);
+        },
+    }
+}
+
+fn intDivCeil(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            var q = try (try cg.intDiv(ty, lhs, rhs)).toLocal(cg, Type.i32);
+            defer q.free(cg);
+
+            const zero: WValue = .{ .imm32 = 0 };
+
+            const r = try cg.intRem(ty, lhs, rhs);
+            var r_nonzero = try (try cg.intCmp(ty, .neq, r, zero)).toLocal(cg, Type.i32);
+            defer r_nonzero.free(cg);
+
+            if (!ty.is_signed) {
+                try cg.emitWValue(q);
+                try cg.emitWValue(r_nonzero);
+                try cg.addTag(.i32_add);
+                return .stack;
+            }
+
+            const sign_xor = try cg.intXor(ty, lhs, rhs);
+            var same_sign = try (try cg.intCmp(ty, .gte, sign_xor, zero)).toLocal(cg, Type.i32);
+            defer same_sign.free(cg);
+
+            try cg.emitWValue(q);
+            const need_adjust = try cg.intAnd(.u32, r_nonzero, same_sign);
+            try cg.emitWValue(need_adjust);
+            try cg.addTag(.i32_add);
+            return .stack;
+        },
+        33...64 => {
+            var q = try (try cg.intDiv(ty, lhs, rhs)).toLocal(cg, Type.i64);
+            defer q.free(cg);
+
+            const zero: WValue = .{ .imm64 = 0 };
+
+            const r = try cg.intRem(ty, lhs, rhs);
+            var r_nonzero = try (try cg.intCmp(ty, .neq, r, zero)).toLocal(cg, Type.i32);
+            defer r_nonzero.free(cg);
+
+            if (!ty.is_signed) {
+                try cg.emitWValue(q);
+                try cg.emitWValue(r_nonzero);
+                try cg.addTag(.i64_extend_i32_u);
+                try cg.addTag(.i64_add);
+                return .stack;
+            }
+
+            const sign_xor = try cg.intXor(ty, lhs, rhs);
+            var same_sign = try (try cg.intCmp(ty, .gte, sign_xor, zero)).toLocal(cg, Type.i32);
+            defer same_sign.free(cg);
+
+            try cg.emitWValue(q);
+            const need_adjust = try cg.intAnd(.u32, r_nonzero, same_sign);
+            try cg.emitWValue(need_adjust);
+            try cg.addTag(.i64_extend_i32_u);
+            try cg.addTag(.i64_add);
+            return .stack;
+        },
+        else => {
+            var q = try (try cg.intDiv(ty, lhs, rhs)).toLocal(cg, Type.usize);
+            defer q.free(cg);
+
+            const zero = try cg.intZeroValue(ty);
+
+            const r = try cg.intRem(ty, lhs, rhs);
+            var r_nonzero = try (try cg.intCmp(ty, .neq, r, zero)).toLocal(cg, Type.u32);
+            defer r_nonzero.free(cg);
+
+            if (!ty.is_signed) {
+                var adjust_bigint = try (try cg.intCast(ty, .u32, r_nonzero)).toLocal(cg, Type.usize);
+                defer adjust_bigint.free(cg);
+
+                return try cg.intAdd(ty, q, adjust_bigint);
+            }
+
+            const sign_xor = try cg.intXor(ty, lhs, rhs);
+            var same_sign = try (try cg.intCmp(ty, .gte, sign_xor, zero)).toLocal(cg, Type.u32);
+            defer same_sign.free(cg);
+
+            var adjust = try (try cg.intAnd(.u32, r_nonzero, same_sign)).toLocal(cg, Type.u32);
+            defer adjust.free(cg);
+
+            var adjust_bigint = try (try cg.intCast(ty, .u32, adjust)).toLocal(cg, Type.usize);
+            defer adjust_bigint.free(cg);
+
+            return try cg.intAdd(ty, q, adjust_bigint);
         },
     }
 }
@@ -4263,6 +4360,12 @@ fn floatDivTrunc(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerErr
 fn floatDivFloor(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
     const div_result = try cg.floatDiv(ty, lhs, rhs);
     return cg.floatFloor(ty, div_result);
+}
+
+// div_ceil(a, b) = ceil(a / b)
+fn floatDivCeil(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    const div_result = try cg.floatDiv(ty, lhs, rhs);
+    return cg.floatCeil(ty, div_result);
 }
 
 // mod(a, b) = fmod(fmod(a, b) + b, b)

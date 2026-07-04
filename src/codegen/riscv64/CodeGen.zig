@@ -1422,6 +1422,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .mod,
             .div_float,
             .div_floor,
+            .div_ceil,
             => return func.fail("TODO: {s}", .{@tagName(tag)}),
 
             .sqrt,
@@ -1621,6 +1622,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .div_trunc_optimized,
             .div_floor_optimized,
             .div_exact_optimized,
+            .div_ceil_optimized,
             .rem_optimized,
             .mod_optimized,
             .neg_optimized,

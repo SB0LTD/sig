@@ -143,6 +143,13 @@ pub const Inst = struct {
         div_floor,
         /// Same as `div_floor` with optimized float mode.
         div_floor_optimized,
+        /// Ceiling integer or float division. For integers, wrapping is illegal behavior.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        div_ceil,
+        /// Same as `div_ceil` with optimized float mode.
+        div_ceil_optimized,
         /// Integer or float division.
         /// If a remainder would be produced, illegal behavior occurs.
         /// For integers, overflow is illegal behavior.
@@ -1605,6 +1612,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .div_float,
         .div_trunc,
         .div_floor,
+        .div_ceil,
         .div_exact,
         .rem,
         .mod,
@@ -1624,6 +1632,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .div_float_optimized,
         .div_trunc_optimized,
         .div_floor_optimized,
+        .div_ceil_optimized,
         .div_exact_optimized,
         .rem_optimized,
         .mod_optimized,
@@ -1985,6 +1994,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .div_trunc_optimized,
         .div_floor,
         .div_floor_optimized,
+        .div_ceil,
+        .div_ceil_optimized,
         .div_exact,
         .div_exact_optimized,
         .rem,
