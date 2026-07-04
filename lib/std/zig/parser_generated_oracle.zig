@@ -267,7 +267,12 @@ const Parser = struct {
             p.i = pos_0;
             if (try p.parseKEYWORD_errdefer() and try p.parseBlockExprStatement()) break :blk_0 true;
             p.i = pos_0;
-            if ((blk_3: {
+            if (blk_1: {
+                const pos_1 = p.i;
+                const match_1 = try p.parseKEYWORD_nosuspend();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and (blk_3: {
                 const pos_3 = p.i;
                 if (try p.parseKEYWORD_comptime() and blk_4: {
                     const pos_4 = p.i;

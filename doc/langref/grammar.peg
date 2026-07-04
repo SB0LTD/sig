@@ -77,7 +77,7 @@ BlockStatement
     <- Statement
      / KEYWORD_defer BlockExprStatement
      / KEYWORD_errdefer BlockExprStatement
-     / (KEYWORD_comptime !BlockExprPrefix)? VarAssignStatement
+     / !KEYWORD_nosuspend (KEYWORD_comptime !BlockExprPrefix)? VarAssignStatement
 
 Statement
     <- IfStatement
