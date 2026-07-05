@@ -4222,6 +4222,8 @@ fn load(cg: *CodeGen, value_ty: Type, ptr_id: Id, options: MemoryOptions) !Id {
 }
 
 fn store(cg: *CodeGen, value_ty: Type, ptr_id: Id, value_id: Id, options: MemoryOptions) !void {
+    const zcu = cg.zcu;
+    const alignment: u32 = @intCast(value_ty.abiAlignment(zcu).toByteUnits().?);
     const bare_value_id = try cg.convertToIndirect(value_ty, value_id);
     const bare_ty_id = try cg.resolveType(value_ty, .indirect);
     const store_ty_id = if (cg.needsLayout(options.ptr_address_space, value_ty))
@@ -4232,7 +4234,10 @@ fn store(cg: *CodeGen, value_ty: Type, ptr_id: Id, value_id: Id, options: Memory
     try cg.body.emit(cg.gpa, .OpStore, .{
         .pointer = ptr_id,
         .object = object_id,
-        .memory_access = .{ .@"volatile" = options.is_volatile },
+        .memory_access = .{
+            .@"volatile" = options.is_volatile,
+            .aligned = .{ .literal_integer = alignment },
+        },
     });
 }
 
