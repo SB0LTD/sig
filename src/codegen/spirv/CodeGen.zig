@@ -625,6 +625,49 @@ pub fn layoutType(cg: *CodeGen, ty: Type, is_block_root: bool) Error!Id {
             });
             break :id id;
         },
+        .@"union" => id: {
+            const union_obj = zcu.typeToUnion(ty).?;
+            if (union_obj.layout == .@"packed") return cg.resolveType(ty, .indirect);
+
+            const layout = cg.unionLayout(ty);
+            if (!layout.has_payload) return cg.resolveType(ty, .indirect);
+
+            const id = cg.allocId();
+            if (is_block_root) try cg.decorate(id, .block);
+
+            var member_types: [4]Id = undefined;
+            const u8_id = try cg.resolveType(.u8, .direct);
+            if (layout.tag_size != 0) {
+                const tag_ty: Type = .fromInterned(union_obj.enum_tag_type);
+                try cg.decorateMember(id, layout.tag_index, .{ .offset = .{
+                    .byte_offset = @intCast(ty.unionGetLayout(zcu).tagOffset()),
+                } });
+                member_types[layout.tag_index] = try cg.layoutType(tag_ty, false);
+            }
+            if (layout.payload_size != 0) {
+                try cg.decorateMember(id, layout.payload_index, .{ .offset = .{
+                    .byte_offset = @intCast(ty.unionGetLayout(zcu).payloadOffset()),
+                } });
+                member_types[layout.payload_index] = try cg.layoutType(layout.payload_ty, false);
+            }
+            if (layout.payload_padding_size != 0) {
+                const len_id = try cg.constInt(.u32, layout.payload_padding_size);
+                const arr_id = try cg.arrayType(len_id, u8_id);
+                try cg.decorate(arr_id, .{ .array_stride = .{ .array_stride = 1 } });
+                member_types[layout.payload_padding_index] = arr_id;
+            }
+            if (layout.padding_size != 0) {
+                const len_id = try cg.constInt(.u32, layout.padding_size);
+                const arr_id = try cg.arrayType(len_id, u8_id);
+                try cg.decorate(arr_id, .{ .array_stride = .{ .array_stride = 1 } });
+                member_types[layout.padding_index] = arr_id;
+            }
+            try cg.sections.globals.emit(gpa, .OpTypeStruct, .{
+                .id_result = id,
+                .id_ref = member_types[0..layout.total_fields],
+            });
+            break :id id;
+        },
         .array => id: {
             const elem_ty = ty.childType(zcu);
             const elem_ty_id = try cg.layoutType(elem_ty, false);
@@ -1883,8 +1926,13 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
 
             const nav_ty_id = try cg.resolveType(nav_ty, .indirect);
             const decl_ptr_ty_id = try cg.ptrType(nav_ty_id, storage_class);
-            if (nav_ty.zigTypeTag(zcu) == .@"struct" and cg.needsLayout(nav.resolved.?.@"addrspace", nav_ty)) {
-                try cg.block_var_ids.put(gpa, spv_decl.result_id, {});
+            switch (nav_ty.zigTypeTag(zcu)) {
+                .@"struct", .@"union" => {
+                    if (cg.needsLayout(nav.resolved.?.@"addrspace", nav_ty)) {
+                        try cg.block_var_ids.put(gpa, spv_decl.result_id, {});
+                    }
+                },
+                else => {},
             }
             if (decl_ptr_ty_id == ty_id) return spv_decl.result_id;
             switch (target.os.tag) {
@@ -4175,7 +4223,7 @@ fn needsLayout(cg: *CodeGen, as: std.lang.AddressSpace, pointee_ty: Type) bool {
         else => return false,
     }
     return switch (pointee_ty.zigTypeTag(cg.zcu)) {
-        .@"struct", .array => true,
+        .@"struct", .@"union", .array => true,
         .spirv => pointee_ty.isSpirvRuntimeArray(cg.zcu),
         else => false,
     };
@@ -6905,6 +6953,16 @@ fn airAggFieldVal(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                     return try cg.load(field_ty, pl_ptr_id, .{});
                 }
 
+                switch (zcu.getTarget().os.tag) {
+                    .vulkan, .opengl => {
+                        // Logical addressing forbids OpBitcast on pointers. Load the
+                        // payload as its type and bitcast the value instead.
+                        const payload_id = try cg.load(layout.payload_ty, pl_ptr_id, .{});
+                        return try cg.bitCast(field_ty, layout.payload_ty, payload_id);
+                    },
+                    else => {},
+                }
+
                 const field_ty_id = try cg.resolveType(field_ty, .indirect);
                 const active_pl_ptr_ty_id = try cg.ptrType(field_ty_id, .function);
                 const active_pl_ptr_id = cg.allocId();
@@ -7021,6 +7079,17 @@ fn structFieldPtr(
                 if (field_ty.toIntern() == layout.payload_ty.toIntern()) {
                     if (object_ty.containerLayout(zcu) == .@"packed") return object_ptr;
                     return try cg.accessChain(result_ty_id, object_ptr, &.{layout.payload_index});
+                }
+
+                switch (zcu.getTarget().os.tag) {
+                    .vulkan, .opengl => {
+                        // Logical addressing forbids OpBitcast on pointers. If the field
+                        // type is structurally identical to the payload type (dedup will
+                        // unify them) the access chain typed as the field type is valid.
+                        if (object_ty.containerLayout(zcu) == .@"packed") return object_ptr;
+                        return try cg.accessChain(result_ty_id, object_ptr, &.{layout.payload_index});
+                    },
+                    else => {},
                 }
 
                 const layout_payload_ty_id = try cg.resolveType(layout.payload_ty, .indirect);
