@@ -6901,6 +6901,10 @@ fn airAggFieldVal(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 const pl_ptr_ty_id = try cg.ptrType(layout_payload_ty_id, .function);
                 const pl_ptr_id = try cg.accessChain(pl_ptr_ty_id, tmp_id, &.{layout.payload_index});
 
+                if (field_ty.toIntern() == layout.payload_ty.toIntern()) {
+                    return try cg.load(field_ty, pl_ptr_id, .{});
+                }
+
                 const field_ty_id = try cg.resolveType(field_ty, .indirect);
                 const active_pl_ptr_ty_id = try cg.ptrType(field_ty_id, .function);
                 const active_pl_ptr_id = cg.allocId();
@@ -7013,6 +7017,12 @@ fn structFieldPtr(
                 }
 
                 const storage_class = cg.storageClass(object_ptr_ty.ptrAddressSpace(zcu));
+                const field_ty = result_ptr_ty.childType(zcu);
+                if (field_ty.toIntern() == layout.payload_ty.toIntern()) {
+                    if (object_ty.containerLayout(zcu) == .@"packed") return object_ptr;
+                    return try cg.accessChain(result_ty_id, object_ptr, &.{layout.payload_index});
+                }
+
                 const layout_payload_ty_id = try cg.resolveType(layout.payload_ty, .indirect);
                 const pl_ptr_ty_id = try cg.ptrType(layout_payload_ty_id, storage_class);
                 const pl_ptr_id = blk: {
