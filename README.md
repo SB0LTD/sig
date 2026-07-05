@@ -81,7 +81,7 @@ The result: sig never drifts. You get upstream bug fixes, optimizations, and new
 
 | | |
 |---|---|
-| **Latest upstream commit** | [`16c4ed27`](https://codeberg.org/ziglang/zig/commit/16c4ed275d0254ce7ba0bd1daa60f9ec4b39e316) |
+| **Latest upstream commit** | [`de1adf89`](https://codeberg.org/ziglang/zig/commit/de1adf89ef1a50d9ac6e8fcbab258c257c9a32e4) |
 | **Last sync** | 2026-07-05 |
 | **Upstream** | [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) |
 | **Base version** | zig 0.17.0-dev · LLVM 22.1.3 |
