@@ -28,8 +28,10 @@ shdrs: std.ArrayList(Section),
 phdrs: std.ArrayList(MappedFile.Node.Index),
 shndx: struct {
     got: Section.Index,
+    /// Always `.UNDEF` on some targets (e.g. SPARC).
     got_plt: Section.Index,
     plt: Section.Index,
+    /// Only created for x86 targets; `.UNDEF` everywhere else.
     plt_sec: Section.Index,
     dynsym: Section.Index,
     dynstr: Section.Index,
@@ -897,11 +899,12 @@ const GotReloc = struct {
 };
 
 pub const MachineRelocType = union {
-    X86_64: std.elf.R_X86_64,
     AARCH64: std.elf.R_AARCH64,
     LOONGARCH: std.elf.R_LARCH,
-    RISCV: std.elf.R_RISCV,
     PPC64: std.elf.R_PPC64,
+    RISCV: std.elf.R_RISCV,
+    SPARC: std.elf.R_SPARC,
+    X86_64: std.elf.R_X86_64,
 
     pub fn none(elf: *Elf) MachineRelocType {
         return switch (elf.ehdrField(.machine)) {
@@ -910,6 +913,7 @@ pub const MachineRelocType = union {
             .LOONGARCH => .{ .LOONGARCH = .NONE },
             .PPC64 => .{ .PPC64 = .NONE },
             .RISCV => .{ .RISCV = .NONE },
+            .SPARCV9 => .{ .SPARC = .NONE },
             .X86_64 => .{ .X86_64 = .NONE },
         };
     }
@@ -920,6 +924,7 @@ pub const MachineRelocType = union {
             .LOONGARCH => .{ .LOONGARCH = .COPY },
             .PPC64 => .{ .PPC64 = .COPY },
             .RISCV => .{ .RISCV = .COPY },
+            .SPARCV9 => .{ .SPARC = .COPY },
             .X86_64 => .{ .X86_64 = .COPY },
         };
     }
@@ -930,43 +935,57 @@ pub const MachineRelocType = union {
             .LOONGARCH => .{ .LOONGARCH = .RELATIVE },
             .PPC64 => .{ .PPC64 = .RELATIVE },
             .RISCV => .{ .RISCV = .RELATIVE },
+            .SPARCV9 => .{ .SPARC = .RELATIVE },
             .X86_64 => .{ .X86_64 = .RELATIVE },
         };
     }
     pub fn jumpSlot(elf: *Elf) MachineRelocType {
         return switch (elf.ehdrField(.machine)) {
             else => unreachable,
-            .X86_64 => .{ .X86_64 = .JUMP_SLOT },
+            .AARCH64 => .{ .AARCH64 = .JUMP_SLOT },
             .LOONGARCH => .{ .LOONGARCH = .JUMP_SLOT },
+            .PPC64 => .{ .PPC64 = .JMP_SLOT },
+            .RISCV => .{ .RISCV = .JUMP_SLOT },
+            .SPARCV9 => .{ .SPARC = .JMP_SLOT },
+            .X86_64 => .{ .X86_64 = .JUMP_SLOT },
         };
     }
     pub fn globDat(elf: *Elf) MachineRelocType {
         return switch (elf.ehdrField(.machine)) {
             else => unreachable,
-            .X86_64 => .{ .X86_64 = .GLOB_DAT },
+            .AARCH64 => .{ .AARCH64 = .GLOB_DAT },
             .LOONGARCH => .{ .LOONGARCH = if (elf.identClass() == .@"64") .@"64" else .@"32" },
+            .PPC64 => .{ .PPC64 = .GLOB_DAT },
+            .RISCV => .{ .RISCV = if (elf.identClass() == .@"64") .@"64" else .@"32" },
+            .SPARCV9 => .{ .SPARC = .GLOB_DAT },
+            .X86_64 => .{ .X86_64 = .GLOB_DAT },
         };
     }
     pub fn dtpOffAddr(elf: *Elf) MachineRelocType {
         return switch (elf.ehdrField(.machine)) {
             else => unreachable,
-            .X86_64 => .{ .X86_64 = .DTPOFF64 },
             .LOONGARCH => .{ .LOONGARCH = if (elf.identClass() == .@"64") .TLS_DTPREL64 else .TLS_DTPREL32 },
+            .PPC64 => .{ .PPC64 = .DTPREL64 },
+            .RISCV => .{ .RISCV = if (elf.identClass() == .@"64") .TLS_DTPREL64 else .TLS_DTPREL32 },
+            .SPARCV9 => .{ .SPARC = if (elf.identClass() == .@"64") .TLS_DTPOFF64 else .TLS_DTPOFF32 },
+            .X86_64 => .{ .X86_64 = if (elf.identClass() == .@"64") .DTPOFF64 else .DTPOFF32 },
         };
     }
     pub fn absAddr(elf: *Elf) MachineRelocType {
         return switch (elf.ehdrField(.machine)) {
             else => unreachable,
-            .AARCH64 => .{ .AARCH64 = .ABS64 },
+            .AARCH64 => .{ .AARCH64 = if (elf.identClass() == .@"64") .ABS64 else .P32_ABS32 },
             .LOONGARCH => .{ .LOONGARCH = if (elf.identClass() == .@"64") .@"64" else .@"32" },
             .PPC64 => .{ .PPC64 = .ADDR64 },
-            .RISCV => .{ .RISCV = .@"64" },
-            .X86_64 => .{ .X86_64 = .@"64" },
+            .RISCV => .{ .RISCV = if (elf.identClass() == .@"64") .@"64" else .@"32" },
+            .SPARCV9 => .{ .SPARC = if (elf.identClass() == .@"64") .@"64" else .@"32" },
+            .X86_64 => .{ .X86_64 = if (elf.identClass() == .@"64") .@"64" else .@"32" },
         };
     }
     pub fn sizeAddr(elf: *Elf) MachineRelocType {
         return switch (elf.ehdrField(.machine)) {
             else => unreachable,
+            .SPARCV9 => .{ .SPARC = if (elf.identClass() == .@"64") .SIZE64 else .SIZE32 },
             .X86_64 => .{ .X86_64 = .SIZE64 },
         };
     }
@@ -974,6 +993,7 @@ pub const MachineRelocType = union {
     pub fn wrap(int: u32, elf: *Elf) MachineRelocType {
         return switch (elf.ehdrField(.machine)) {
             else => unreachable,
+            .SPARCV9 => .{ .SPARC = @enumFromInt(int) },
             inline .AARCH64,
             .LOONGARCH,
             .PPC64,
@@ -985,6 +1005,7 @@ pub const MachineRelocType = union {
     pub fn unwrap(rt: MachineRelocType, elf: *Elf) u32 {
         return switch (elf.ehdrField(.machine)) {
             else => unreachable,
+            .SPARCV9 => @intFromEnum(rt.SPARC),
             inline .AARCH64,
             .LOONGARCH,
             .PPC64,
@@ -1448,10 +1469,7 @@ fn ensureUnusedPltCapacity(elf: *Elf, len: u32) Error!void {
             try elf.ensureNodeSize(elf.shndx.plt.get(elf).ni, plt_need_size);
 
             // Ensure the `.got.plt` section's node is big enough
-            const got_plt_need_size: usize = switch (elf.identClass()) {
-                .NONE, _ => unreachable,
-                inline else => |class| @sizeOf(class.ElfN().Addr) * (3 + need_plt_capacity),
-            };
+            const got_plt_need_size: usize = elf.targetPtrSize() * (3 + need_plt_capacity);
             try elf.ensureNodeSize(elf.shndx.got_plt.get(elf).ni, got_plt_need_size);
 
             // Ensure the `.plt.sec` section's node is big enough
@@ -1460,15 +1478,17 @@ fn ensureUnusedPltCapacity(elf: *Elf, len: u32) Error!void {
         },
         .LOONGARCH => {
             // Ensure the `.plt` section's node is big enough
-            const plt_need_size: usize = 32 + 16 * need_plt_capacity;
+            const plt_need_size: usize = 16 * (2 + need_plt_capacity);
             try elf.ensureNodeSize(elf.shndx.plt.get(elf).ni, plt_need_size);
 
             // Ensure the `.got.plt` section's node is big enough
-            const got_plt_need_size: usize = switch (elf.identClass()) {
-                .NONE, _ => unreachable,
-                inline else => |class| @sizeOf(class.ElfN().Addr) * (2 + need_plt_capacity),
-            };
+            const got_plt_need_size: usize = elf.targetPtrSize() * (2 + need_plt_capacity);
             try elf.ensureNodeSize(elf.shndx.got_plt.get(elf).ni, got_plt_need_size);
+        },
+        .SPARCV9 => {
+            // Ensure the `.plt` section's node is big enough
+            const plt_need_size: usize = 32 * (4 + need_plt_capacity);
+            try elf.ensureNodeSize(elf.shndx.plt.get(elf).ni, plt_need_size);
         },
     }
 }
@@ -2090,23 +2110,17 @@ fn addPltEntry(elf: *Elf, global_name: String(.strtab), dynsym_index: u32) void 
         .addend = 0,
     }));
 
-    const reserved_got_plt_entries: u32 = switch (elf.ehdrField(.machine)) {
+    // Note that some architectures don't have .got.plt (e.g. SPARC), and so
+    // these values actually refer to .plt.
+    const got_plt_section, const got_plt_offset = switch (elf.ehdrField(.machine)) {
         else => |machine| @panic(@tagName(machine)),
-        .X86_64 => 3,
-        .LOONGARCH => 2,
+        .LOONGARCH => .{ elf.shndx.got_plt, elf.targetPtrSize() * (2 + plt_index) },
+        .SPARCV9 => .{ elf.shndx.plt, 32 * (4 + plt_index) },
+        .X86_64 => .{ elf.shndx.got_plt, elf.targetPtrSize() * (3 + plt_index) },
     };
 
     // Now that we know the index, we can set the relocation's offset.
-    const got_plt_addr = switch (elf.shdrPtr(elf.shndx.got_plt)) {
-        inline else => |shdr, class| got_plt_addr: {
-            const ent_size = @sizeOf(class.ElfN().Addr);
-            assert(elf.targetLoad(&shdr.entsize) == ent_size);
-            const offset = ent_size * @as(u64, reserved_got_plt_entries + plt_index);
-            assert(offset <= elf.targetLoad(&shdr.size));
-            break :got_plt_addr elf.targetLoad(&shdr.addr) + offset;
-        },
-    };
-    elf.shndx.rela_plt.relaSetOffset(elf, @enumFromInt(plt_index), got_plt_addr);
+    elf.shndx.rela_plt.relaSetOffset(elf, @enumFromInt(plt_index), got_plt_section.vaddr(elf) + got_plt_offset);
 
     if (plt_index < elf.plt.count()) {
         // We reused a free entry, so we're already done!
@@ -2148,13 +2162,11 @@ fn addPltEntry(elf: *Elf, global_name: String(.strtab), dynsym_index: u32) void 
             const got_plt_ni = elf.shndx.got_plt.get(elf).ni;
             switch (elf.shdrPtr(elf.shndx.got_plt)) {
                 inline else => |shdr, class| {
-                    const ent_size = @sizeOf(class.ElfN().Addr);
-                    const old_size = ent_size * (3 + plt_index);
-                    assert(elf.targetLoad(&shdr.size) == old_size);
-                    elf.targetStore(&shdr.size, old_size + ent_size);
+                    assert(elf.targetLoad(&shdr.size) == got_plt_offset);
+                    elf.targetStore(&shdr.size, got_plt_offset + @sizeOf(shdr.ElfN().Addr));
                     std.mem.writeInt(
                         class.ElfN().Addr,
-                        got_plt_ni.slice(&elf.mf)[old_size..][0..ent_size],
+                        got_plt_ni.slice(&elf.mf)[got_plt_offset..][0..@sizeOf(shdr.ElfN().Addr)],
                         @intCast(plt_addr),
                         target_endian,
                     );
@@ -2176,7 +2188,7 @@ fn addPltEntry(elf: *Elf, global_name: String(.strtab), dynsym_index: u32) void 
                         i32,
                         plt_sec_slice[6..][0..4],
                         @intCast(@as(i64, @bitCast(
-                            got_plt_addr -% (elf.targetLoad(&shdr.addr) + old_size + 10),
+                            (got_plt_section.vaddr(elf) + got_plt_offset) -% (elf.targetLoad(&shdr.addr) + old_size + 10),
                         ))),
                         target_endian,
                     );
@@ -2212,25 +2224,53 @@ fn addPltEntry(elf: *Elf, global_name: String(.strtab), dynsym_index: u32) void 
             const got_plt_ni = elf.shndx.got_plt.get(elf).ni;
             switch (elf.shdrPtr(elf.shndx.got_plt)) {
                 inline else => |shdr, class| {
-                    const ent_size = @sizeOf(class.ElfN().Addr);
-                    const old_size = ent_size * (2 + plt_index);
-                    assert(elf.targetLoad(&shdr.size) == old_size);
-                    elf.targetStore(&shdr.size, old_size + ent_size);
+                    assert(elf.targetLoad(&shdr.size) == got_plt_offset);
+                    elf.targetStore(&shdr.size, got_plt_offset + @sizeOf(shdr.ElfN().Addr));
                     std.mem.writeInt(
                         class.ElfN().Addr,
-                        got_plt_ni.slice(&elf.mf)[old_size..][0..ent_size],
+                        got_plt_ni.slice(&elf.mf)[got_plt_offset..][0..@sizeOf(shdr.ElfN().Addr)],
                         @intCast(plt_addr),
                         target_endian,
                     );
-                    assert(got_plt_addr == (elf.targetLoad(&shdr.addr) + old_size));
                 },
             }
 
             // relocate the PLT entry to point to the .GOT.PLT entry
-            const got_plt_abs: u64 = @as(u64, got_plt_addr);
+            const got_plt_abs = got_plt_section.vaddr(elf) + got_plt_offset;
             // TODO: handle overflow gracefully
             link.loongarch.writeJ20(plt_slice[0..4], link.loongarch.toPcalaHi20(got_plt_abs, plt_addr));
             link.loongarch.writeK12(plt_slice[4..8], @truncate(got_plt_abs));
+        },
+        .SPARCV9 => {
+            // add a .PLT entry, writing the template
+            const plt_ni = elf.shndx.plt.get(elf).ni;
+            switch (elf.shdrPtr(elf.shndx.plt)) {
+                inline else => |shdr| {
+                    assert(elf.targetLoad(&shdr.size) == got_plt_offset);
+                    elf.targetStore(&shdr.size, got_plt_offset + 32);
+                    const plt_slice: []u32 = @ptrCast(@alignCast(plt_ni.slice(&elf.mf)[got_plt_offset..][0..32]));
+                    // sethi (. - .plt[0]), %g1
+                    // ba,a %xcc, .plt[1]
+                    // nop
+                    // nop
+                    // nop
+                    // nop
+                    // nop
+                    // nop
+                    @memcpy(plt_slice, &([2]u32{
+                        // TODO: handle overflow gracefully
+                        @bitCast(link.sparc.reloc.Imm22{
+                            .imm22 = @truncate(got_plt_offset),
+                            .b22_31 = 0b0000000011,
+                        }),
+                        @bitCast(link.sparc.reloc.Disp19{
+                            .disp19 = @truncate((got_plt_offset + 4 - 32) >> 2),
+                            .b19_31 = 0b1100001101000,
+                        }),
+                    } ++ @as([6]u32, @splat(0x01000000))));
+                    if (elf.targetEndian() != native_endian) std.mem.byteSwapAllElements(u32, plt_slice);
+                },
+            }
         },
     }
 }
@@ -3084,11 +3124,12 @@ fn initHeaders(
         .@"64" => .@"8",
     };
 
-    const init_plt_size: std.elf.Xword, const plt_align: std.mem.Alignment, const plt_sec =
+    const init_plt_size: std.elf.Xword, const plt_align: std.mem.Alignment, const got_plt, const plt_sec =
         switch (machine) {
             else => @panic(@tagName(machine)),
-            .X86_64 => .{ 16, .@"16", true },
-            .LOONGARCH => .{ 32, .@"4", false },
+            .LOONGARCH => .{ 16 * 2, .@"4", true, false },
+            .SPARCV9 => .{ 32 * 4, .fromByteUnits(256), false, false },
+            .X86_64 => .{ 16, .@"16", true, true },
         };
 
     const shnum: u32 = shnum: {
@@ -3111,7 +3152,7 @@ fn initHeaders(
         }
         if (@"type" != .REL) {
             shnum += 1; // .got
-            shnum += 1; // .got.plt
+            shnum += @intFromBool(got_plt); // .got.plt
             shnum += 1; // .plt
             shnum += @intFromBool(plt_sec); // .plt_sec
         }
@@ -3212,7 +3253,6 @@ fn initHeaders(
             ehdr.phoff = 0;
             ehdr.shoff = 0;
             ehdr.flags = switch (machine) {
-                .X86_64 => 0,
                 .LOONGARCH => e_flags: {
                     const target_cpu = &elf.base.comp.getTarget().cpu;
                     const e_flags: std.elf.loongarch.EFlags = .{
@@ -3227,6 +3267,20 @@ fn initHeaders(
                     };
                     break :e_flags @bitCast(e_flags);
                 },
+                .SPARCV9 => e_flags: {
+                    const e_flags: std.elf.sparc.EFlags = .{
+                        .mm = .rmo,
+                        .ext = .{
+                            .@"32plus" = false,
+                            .sun_us1 = false,
+                            .hal_r1 = false,
+                            .sun_us3 = false,
+                            .le_data = false,
+                        },
+                    };
+                    break :e_flags @bitCast(e_flags);
+                },
+                .X86_64 => 0,
                 else => @panic(@tagName(machine)),
             };
             ehdr.ehsize = @sizeOf(ElfN.Ehdr);
@@ -3324,8 +3378,8 @@ fn initHeaders(
                 .@"386" => 0x400000,
                 .AARCH64, .X86_64 => 0x200000,
                 .PPC, .PPC64 => 0x10000000,
-                .S390, .S390_OLD => 0x1000000,
-                .OLD_SPARCV9, .SPARCV9 => 0x100000,
+                .S390 => 0x1000000,
+                .SPARCV9 => 0x100000,
                 else => 0x10000,
             },
         };
@@ -3561,14 +3615,16 @@ fn initHeaders(
             // Reserve space for the reserved words, populated later.
             .size = switch (machine) {
                 else => @panic(@tagName(machine)),
-                .X86_64 => 3 * 8,
-                .LOONGARCH => if (elf.identClass() == .@"64") 8 else 4,
+                .X86_64 => 3 * elf.targetPtrSize(),
+                .LOONGARCH,
+                .SPARCV9,
+                => elf.targetPtrSize(),
             },
             .flags = .{ .WRITE = true, .ALLOC = true },
             .addralign = addr_align,
             .entsize = @intCast(addr_align.toByteUnits()),
         });
-        elf.shndx.got_plt = try elf.addSection(
+        if (got_plt) elf.shndx.got_plt = try elf.addSection(
             if (elf.options.z_now) elf.ni.data_rel_ro else elf.ni.data,
             .{
                 .name = ".got.plt",
@@ -3578,7 +3634,7 @@ fn initHeaders(
                     else => @panic(@tagName(machine)),
                     .@"386" => 3 * 4,
                     .X86_64 => 3 * 8,
-                    .LOONGARCH => if (elf.identClass() == .@"64") 2 * 8 else 2 * 4,
+                    .LOONGARCH => 2 * elf.targetPtrSize(),
                 },
                 .addralign = addr_align,
                 .entsize = @intCast(addr_align.toByteUnits()),
@@ -3587,7 +3643,14 @@ fn initHeaders(
         elf.shndx.plt = try elf.addSection(elf.ni.text, .{
             .name = ".plt",
             .type = .PROGBITS,
-            .flags = .{ .ALLOC = true, .EXECINSTR = true },
+            .flags = .{
+                .ALLOC = true,
+                .EXECINSTR = true,
+                .WRITE = switch (machine) {
+                    .SPARCV9 => true,
+                    else => false,
+                },
+            },
             .size = init_plt_size,
             .addralign = plt_align,
             .node_align = elf.mf.flags.block_size,
@@ -3686,7 +3749,7 @@ fn initHeaders(
                 .type = .RELA,
                 .flags = .{ .ALLOC = true, .INFO_LINK = true },
                 .link = elf.shndx.dynsym.toSection().?,
-                .info = elf.shndx.got_plt.toSection().?,
+                .info = (if (got_plt) elf.shndx.got_plt else elf.shndx.plt).toSection().?,
                 .addralign = addr_align,
                 .entsize = rela_size,
                 .node_align = elf.mf.flags.block_size,
@@ -3758,6 +3821,7 @@ fn initHeaders(
                     try elf.addSymbolRelocAssumeCapacity(plt_ni, 8, got_plt_sym, 0, .abs32_lo12);
                     try elf.addSymbolRelocAssumeCapacity(plt_ni, 16, got_plt_sym, 0, .abs32_lo12);
                 },
+                .SPARCV9 => {},
             }
         }
         if (comp.config.any_non_single_threaded) {
@@ -3782,7 +3846,9 @@ fn initHeaders(
                 elf.got.putAssumeCapacityNoClobber(.{ .reserved = 1 }, .none);
                 elf.got.putAssumeCapacityNoClobber(.{ .reserved = 2 }, .none);
             },
-            .LOONGARCH => {
+            .LOONGARCH,
+            .SPARCV9,
+            => {
                 try elf.got.ensureUnusedCapacity(gpa, 1);
                 elf.got.putAssumeCapacityNoClobber(switch (have_dynamic_section) {
                     true => .{ .symbol = .local(elf.shndx.dynamic.get(elf).lsi) },
@@ -4100,12 +4166,11 @@ fn identData(elf: *const Elf) std.elf.DATA {
     return @enumFromInt(elf.mf.memory_map.memory[std.elf.EI.DATA]);
 }
 
+fn targetPtrSize(elf: *const Elf) u32 {
+    return elf.identClass().size();
+}
 fn targetEndian(elf: *const Elf) std.lang.Endian {
-    return switch (elf.identData()) {
-        .NONE, _ => unreachable,
-        .@"2LSB" => .little,
-        .@"2MSB" => .big,
-    };
+    return elf.identData().endian();
 }
 fn targetLoad(elf: *const Elf, ptr: anytype) @typeInfo(@TypeOf(ptr)).pointer.child {
     const pointer_ty = @typeInfo(@TypeOf(ptr)).pointer;
@@ -5462,6 +5527,11 @@ fn prelinkInner(elf: *Elf) Error!void {
         };
     }
 
+    const got_plt = switch (elf.ehdrField(.machine)) {
+        .SPARCV9 => false,
+        else => true,
+    };
+
     if (elf.shndx.dynamic != .UNDEF) switch (elf.identClass()) {
         .NONE, _ => unreachable,
         inline else => |ct_class| {
@@ -5645,7 +5715,7 @@ fn prelinkInner(elf: *Elf) Error!void {
             if (dynamic_indices.pltgot) |index| try elf.addSymbolRelocAssumeCapacity(
                 dynamic_ni,
                 @sizeOf(ElfN.Addr) * (2 * index + 1),
-                .local(elf.shndx.got_plt.get(elf).lsi),
+                .local((if (got_plt) elf.shndx.got_plt else elf.shndx.plt).get(elf).lsi),
                 0,
                 dsorel,
             );
@@ -7369,6 +7439,17 @@ fn flushMovedPltSection(elf: *Elf, which: enum { plt, plt_sec, got_plt }, old_ad
                     }
                 },
             }
+        },
+        .SPARCV9 => switch (which) {
+            .plt => {
+                // Update the offsets of the relocation entries in `.rela.plt`.
+                const rela_plt_shndx = elf.shndx.rela_plt;
+                for (0..elf.plt.count()) |plt_index| {
+                    if (elf.pltEntryIsDead(plt_index)) continue;
+                    rela_plt_shndx.relaAdjustOffset(elf, @enumFromInt(plt_index), old_addr, addr);
+                }
+            },
+            .plt_sec, .got_plt => unreachable,
         },
     }
 }
