@@ -89,7 +89,7 @@ const Generator = struct {
             \\/// the grammar.
             \\/// Returns error.MaxDepth if more than `max_depth` levels of recursion/iteration are reached.
             \\pub fn parse(source: []const u8) Error!bool {
-            \\    var p: Parser = .{ .source = source, .i = 0, .expr_depth = 1 };
+            \\    var p: Parser = .{ .source = source, .i = 0, .expr_depth = 1, .block_depth = 1 };
             \\    return p.parseRoot();
             \\}
             \\
@@ -97,6 +97,7 @@ const Generator = struct {
             \\    source: []const u8,
             \\    i: usize,
             \\    expr_depth: usize,
+            \\    block_depth: usize,
             \\
         );
         for (g.p.getExtra(node.get(g.p).root)) |def| {
@@ -110,11 +111,20 @@ const Generator = struct {
         const id = def.id.get(g.p).id;
         assert(g.suffix == 0);
         try g.w.print("pub fn parse{s}(p: *Parser) Error!bool {{", .{id});
+        // The grammar can infinitely recurse through the Expr rule
         if (mem.eql(u8, "Expr", id)) {
             try g.w.print(
                 \\if (p.expr_depth >= max_depth) return error.MaxDepth;
                 \\p.expr_depth += 1;
                 \\defer p.expr_depth -= 1;
+            , .{});
+        }
+        // The grammar can infinitely recurse through the Block rule
+        if (mem.eql(u8, "Block", id)) {
+            try g.w.print(
+                \\if (p.block_depth >= max_depth) return error.MaxDepth;
+                \\p.block_depth += 1;
+                \\defer p.block_depth -= 1;
             , .{});
         }
         try g.w.writeAll("return ");

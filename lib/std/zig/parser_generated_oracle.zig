@@ -10,7 +10,7 @@ const max_depth = 5;
 /// the grammar.
 /// Returns error.MaxDepth if more than `max_depth` levels of recursion/iteration are reached.
 pub fn parse(source: []const u8) Error!bool {
-    var p: Parser = .{ .source = source, .i = 0, .expr_depth = 1 };
+    var p: Parser = .{ .source = source, .i = 0, .expr_depth = 1, .block_depth = 1 };
     return p.parseRoot();
 }
 
@@ -18,6 +18,7 @@ const Parser = struct {
     source: []const u8,
     i: usize,
     expr_depth: usize,
+    block_depth: usize,
     pub fn parseRoot(p: *Parser) Error!bool {
         return blk_0: {
             const pos_0 = p.i;
@@ -859,6 +860,9 @@ const Parser = struct {
         };
     }
     pub fn parseBlock(p: *Parser) Error!bool {
+        if (p.block_depth >= max_depth) return error.MaxDepth;
+        p.block_depth += 1;
+        defer p.block_depth -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLBRACE() and blk_1: {
