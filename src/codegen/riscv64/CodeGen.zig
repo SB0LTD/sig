@@ -2217,8 +2217,7 @@ fn airIntCast(func: *Func, inst: Air.Inst.Index) !void {
         };
 
         const dst_mcv = if (dst_int_info.bits <= src_storage_bits and
-            math.divCeil(u16, dst_int_info.bits, 64) catch unreachable ==
-                math.divCeil(u32, src_storage_bits, 64) catch unreachable and
+            @divCeil(dst_int_info.bits, 64) == @divCeil(src_storage_bits, 64) and
             func.reuseOperand(inst, ty_op.operand, 0, src_mcv)) src_mcv else dst: {
             const dst_mcv = try func.allocRegOrMem(dst_ty, inst, true);
             try func.genCopy(min_ty, dst_mcv, src_mcv);

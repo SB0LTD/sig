@@ -746,7 +746,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .switch_br, .loop_switch_br => {
                 const pl_op = l.air_instructions.items(.data)[@intFromEnum(inst)].pl_op;
                 const extra = l.extraData(Air.SwitchBr, pl_op.payload);
-                const hint_bag_count = std.math.divCeil(usize, extra.data.cases_len + 1, 10) catch unreachable;
+                const hint_bag_count = @divCeil(extra.data.cases_len + 1, 10);
                 var extra_index = extra.end + hint_bag_count;
                 for (0..extra.data.cases_len) |_| {
                     const case_extra = l.extraData(Air.SwitchBr.Case, extra_index);

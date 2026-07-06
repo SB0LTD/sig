@@ -1517,7 +1517,7 @@ pub const ShuffleTwoMask = enum(u32) {
 /// Trailing:
 /// 0. `Inst.Ref` for every outputs_len
 /// 1. `Inst.Ref` for every inputs_len
-/// 2. A number of u32 elements follow according to the equation `(source_len + 3) / 4`.
+/// 2. A number of u32 elements follow according to the equation `@divCeil(source_len, 4)`.
 ///    Memory starting at this position is reinterpreted as the source bytes.
 /// 3. for every outputs_len
 ///    - constraint: memory at this position is reinterpreted as a null
@@ -2225,7 +2225,7 @@ pub fn unwrapSwitch(air: *const Air, switch_inst: Inst.Index) UnwrappedSwitch {
     }
     const pl_op = inst.data.pl_op;
     const extra = air.extraData(SwitchBr, pl_op.payload);
-    const hint_bag_count = std.math.divCeil(usize, extra.data.cases_len + 1, 10) catch unreachable;
+    const hint_bag_count = @divCeil(extra.data.cases_len + 1, 10);
     return .{
         .air = air,
         .operand = pl_op.operand,
@@ -2394,7 +2394,7 @@ pub const UnwrappedAsm = struct {
             const name = std.mem.sliceTo(constraint_name[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
-            const next_offset = std.math.divCeil(usize, constraint.len + 1 + name.len + 1, @sizeOf(u32)) catch unreachable;
+            const next_offset = @divCeil(constraint.len + 1 + name.len + 1, @sizeOf(u32));
             self.constraint_names = self.constraint_names[next_offset..];
 
             return .{

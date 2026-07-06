@@ -3678,7 +3678,7 @@ fn intWrap(cg: *CodeGen, ty: IntType, operand: WValue) InnerError!WValue {
 
             const result = try cg.allocInt(ty);
 
-            const used_len = (math.divCeil(u16, ty.bits, 64) catch unreachable) * 8;
+            const used_len = @divCeil(ty.bits, 64) * 8;
 
             if (ty.bits % 64 != 0) {
                 try cg.memcpy(result, operand, .{ .imm32 = used_len - 8 });
@@ -3744,7 +3744,7 @@ fn intMaxValue(cg: *CodeGen, int_ty: IntType) InnerError!WValue {
     } else {
         const result = try cg.allocInt(int_ty);
         const full_len = @divExact(cg.intBackingBits(int_ty.bits), 8);
-        const used_len = (math.divCeil(u16, int_ty.bits, 64) catch unreachable) * 8;
+        const used_len = @divCeil(int_ty.bits, 64) * 8;
 
         try cg.memset(Type.u8, result, .{ .imm32 = used_len - 8 }, .{ .imm32 = 0xFF });
 
@@ -3778,7 +3778,7 @@ fn intMinValue(cg: *CodeGen, int_ty: IntType) InnerError!WValue {
     } else {
         const result = try cg.allocInt(int_ty);
         const full_len = @divExact(cg.intBackingBits(int_ty.bits), 8);
-        const used_len = (math.divCeil(u16, int_ty.bits, 64) catch unreachable) * 8;
+        const used_len = @divCeil(int_ty.bits, 64) * 8;
 
         try cg.memset(Type.u8, result, .{ .imm32 = used_len - 8 }, .{ .imm32 = 0 });
         try cg.store(result, .{ .imm64 = ~@as(u64, 0) << @intCast(int_ty.bits - (used_len - 8) * 8 - 1) }, Type.u64, used_len - 8);

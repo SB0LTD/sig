@@ -2193,12 +2193,12 @@ fn floatDivCeil(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const target = zcu.getTarget();
-    const storage: InternPool.Key.Float.Storage = switch (ty.floatBits(target)) { // TODO
-        16 => .{ .f16 = @ceil(lhs.toFloat(f16, zcu) / rhs.toFloat(f16, zcu)) },
-        32 => .{ .f32 = @ceil(lhs.toFloat(f32, zcu) / rhs.toFloat(f32, zcu)) },
-        64 => .{ .f64 = @ceil(lhs.toFloat(f64, zcu) / rhs.toFloat(f64, zcu)) },
-        80 => .{ .f80 = @ceil(lhs.toFloat(f80, zcu) / rhs.toFloat(f80, zcu)) },
-        128 => .{ .f128 = @ceil(lhs.toFloat(f128, zcu) / rhs.toFloat(f128, zcu)) },
+    const storage: InternPool.Key.Float.Storage = switch (ty.floatBits(target)) {
+        16 => .{ .f16 = @divCeil(lhs.toFloat(f16, zcu), rhs.toFloat(f16, zcu)) },
+        32 => .{ .f32 = @divCeil(lhs.toFloat(f32, zcu), rhs.toFloat(f32, zcu)) },
+        64 => .{ .f64 = @divCeil(lhs.toFloat(f64, zcu), rhs.toFloat(f64, zcu)) },
+        80 => .{ .f80 = @divCeil(lhs.toFloat(f80, zcu), rhs.toFloat(f80, zcu)) },
+        128 => .{ .f128 = @divCeil(lhs.toFloat(f128, zcu), rhs.toFloat(f128, zcu)) },
         else => unreachable,
     };
     return .fromInterned(try pt.intern(.{ .float = .{
@@ -2304,7 +2304,7 @@ fn intValueAa(sema: *Sema, ty: Type) !Value {
     if (ty.toIntern() == .u0_type) return pt.intValue(ty, 0);
     const info = ty.intInfo(zcu);
 
-    const buf = try sema.arena.alloc(u8, (info.bits + 7) / 8);
+    const buf = try sema.arena.alloc(u8, @divCeil(info.bits, 8));
     @memset(buf, 0xAA);
 
     const limbs = try sema.arena.alloc(

@@ -10305,7 +10305,7 @@ fn finishSwitchBr(
         fn ensureUnusedCapacity(hints: *@This(), gpa_inner: Allocator, additional_count: u32) Allocator.Error!void {
             const unused_hints = hints.bags.capacity * hints_per_bag - hints.count;
             if (unused_hints >= additional_count) return;
-            const bags_required = std.math.divCeil(u32, hints.count + additional_count, hints_per_bag) catch unreachable;
+            const bags_required = @divCeil(hints.count + additional_count, hints_per_bag);
             return hints.bags.ensureUnusedCapacity(gpa_inner, bags_required);
         }
         fn appendAssumeCapacity(hints: *@This(), hint: std.lang.BranchHint) void {
@@ -10321,7 +10321,7 @@ fn finishSwitchBr(
         }
     };
     var branch_hints: BranchHints = hints: {
-        const num_bags = std.math.divCeil(u32, estimated_cases_len, BranchHints.hints_per_bag) catch unreachable;
+        const num_bags = @divCeil(estimated_cases_len, BranchHints.hints_per_bag);
         break :hints .{ .bags = try .initCapacity(gpa, num_bags), .count = 0 };
     };
     defer branch_hints.bags.deinit(gpa);
@@ -12212,7 +12212,7 @@ fn analyzeSwitchPayloadCaptureTaggedUnion(
     {
         // All branch hints are `.none`, so just add zero elems.
         comptime assert(@intFromEnum(std.lang.BranchHint.none) == 0);
-        const need_elems = std.math.divCeil(usize, field_indices.len + 1, 10) catch unreachable;
+        const need_elems = @divCeil(field_indices.len + 1, 10);
         try cases_extra.appendNTimes(gpa, 0, need_elems);
     }
 
@@ -18698,7 +18698,7 @@ fn finishStructInit(
             return sema.addConstantMaybeRef(sema.resolveValue(final_val_ref).?, is_ref);
         },
         .@"packed" => {
-            const buf = try sema.arena.alloc(u8, @intCast((struct_ty.bitSize(zcu) + 7) / 8));
+            const buf = try sema.arena.alloc(u8, @intCast(@divCeil(struct_ty.bitSize(zcu), 8)));
             @memset(buf, 0);
             var bit_offset: u16 = 0;
             for (field_inits) |field_init| {
@@ -29745,7 +29745,7 @@ pub fn bitCastVal(
     if (val.isUndef(zcu)) {
         return pt.undefValue(dest_ty);
     } else {
-        const buf = try sema.arena.alloc(u8, @intCast((bit_size + 7) / 8));
+        const buf = try sema.arena.alloc(u8, @intCast(@divCeil(bit_size, 8)));
         @memset(buf, 0);
         val.writeToPackedMemory(zcu, buf, 0);
         return .readFromPackedMemory(dest_ty, pt, buf, 0);

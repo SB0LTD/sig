@@ -6948,7 +6948,7 @@ const ParamTypeIterator = struct {
             switch (ip.indexToKey(ty.toIntern())) {
                 .struct_type => {
                     const size = ty.abiSize(zcu);
-                    assert((std.math.divCeil(u64, size, 8) catch unreachable) == types_index);
+                    assert(@divCeil(size, 8) == types_index);
                     if (size % 8 > 0) {
                         it.types_buffer[types_index - 1] =
                             try it.object.builder.intType(@intCast(size % 8 * 8));
@@ -7193,7 +7193,7 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
         switch (ip.indexToKey(ret_ty.toIntern())) {
             .struct_type => {
                 const size = ret_ty.abiSize(zcu);
-                assert((std.math.divCeil(u64, size, 8) catch unreachable) == types_index);
+                assert(@divCeil(size, 8) == types_index);
                 if (size % 8 > 0) {
                     types_buffer[types_index - 1] = try o.builder.intType(@intCast(size % 8 * 8));
                 }
