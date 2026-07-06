@@ -1644,6 +1644,14 @@ pub const CLASS = enum(u8) {
 
     pub const NUM = @typeInfo(CLASS).@"enum".field_names.len;
 
+    pub inline fn size(class: CLASS) u32 {
+        return switch (class) {
+            .NONE, _ => unreachable,
+            .@"32" => 4,
+            .@"64" => 8,
+        };
+    }
+
     pub fn ElfN(comptime class: CLASS) type {
         return switch (class) {
             .NONE, _ => comptime unreachable,
@@ -1668,6 +1676,14 @@ pub const DATA = enum(u8) {
     _,
 
     pub const NUM = @typeInfo(DATA).@"enum".field_names.len;
+
+    pub inline fn endian(data: DATA) std.lang.Endian {
+        return switch (data) {
+            .NONE, _ => unreachable,
+            .@"2LSB" => .little,
+            .@"2MSB" => .big,
+        };
+    }
 };
 
 pub const OSABI = enum(u8) {
