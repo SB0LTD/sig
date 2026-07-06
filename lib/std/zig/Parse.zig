@@ -1774,7 +1774,7 @@ fn parseTypeExpr(p: *Parse) Error!?Node.Index {
         },
         .asterisk => {
             const asterisk = p.nextToken();
-            const mods = try p.parsePtrModifiers();
+            const mods = try p.parsePtrModifiers(.bit_align);
             const elem_type = try p.expectTypeExpr();
             if (mods.bit_range_start != .none) {
                 return try p.addNode(.{
@@ -1829,14 +1829,8 @@ fn parseTypeExpr(p: *Parse) Error!?Node.Index {
                     sentinel = try p.expectExpr();
                 }
                 _ = try p.expectToken(.r_bracket);
-                const mods = try p.parsePtrModifiers();
+                const mods = try p.parsePtrModifiers(.byte_align);
                 const elem_type = try p.expectTypeExpr();
-                if (mods.bit_range_start.unwrap()) |bit_range_start| {
-                    try p.warnMsg(.{
-                        .tag = .invalid_bit_range,
-                        .token = p.nodeMainToken(bit_range_start),
-                    });
-                }
                 if (sentinel == null and mods.addrspace_node == .none) {
                     return try p.addNode(.{
                         .tag = .ptr_type_aligned,
@@ -1879,14 +1873,8 @@ fn parseTypeExpr(p: *Parse) Error!?Node.Index {
                     null;
                 _ = try p.expectToken(.r_bracket);
                 if (len_expr == null) {
-                    const mods = try p.parsePtrModifiers();
+                    const mods = try p.parsePtrModifiers(.byte_align);
                     const elem_type = try p.expectTypeExpr();
-                    if (mods.bit_range_start.unwrap()) |bit_range_start| {
-                        try p.warnMsg(.{
-                            .tag = .invalid_bit_range,
-                            .token = p.nodeMainToken(bit_range_start),
-                        });
-                    }
                     if (sentinel == null and mods.addrspace_node == .none) {
                         return try p.addNode(.{
                             .tag = .ptr_type_aligned,
@@ -3065,7 +3053,7 @@ const PtrModifiers = struct {
 /// AddrSpace <- KEYWORD_addrspace LPAREN Expr RPAREN
 /// ByteAlign <- KEYWORD_align LPAREN Expr RPAREN
 /// BitAlign <- KEYWORD_align LPAREN Expr (COLON Expr COLON Expr)? RPAREN
-fn parsePtrModifiers(p: *Parse) !PtrModifiers {
+fn parsePtrModifiers(p: *Parse, align_type: enum { bit_align, byte_align }) !PtrModifiers {
     var result: PtrModifiers = .{
         .align_node = .none,
         .addrspace_node = .none,
@@ -3082,7 +3070,10 @@ fn parsePtrModifiers(p: *Parse) !PtrModifiers {
                 _ = try p.expectToken(.l_paren);
                 result.align_node = (try p.expectExpr()).toOptional();
 
-                if (p.eatToken(.colon)) |_| {
+                if (p.eatToken(.colon)) |colon| {
+                    if (align_type == .byte_align) {
+                        try p.warnMsg(.{ .tag = .invalid_bit_range, .token = colon });
+                    }
                     result.bit_range_start = (try p.expectExpr()).toOptional();
                     _ = try p.expectToken(.colon);
                     result.bit_range_end = (try p.expectExpr()).toOptional();
