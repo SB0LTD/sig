@@ -122,7 +122,7 @@ fn addExtra(p: *Parse, extra: anytype) Allocator.Error!ExtraIndex {
     return result;
 }
 
-fn warnExpected(p: *Parse, expected_token: Token.Tag) error{OutOfMemory}!void {
+fn warnExpected(p: *Parse, expected_token: Token.Tag) Error!void {
     @branchHint(.cold);
     try p.warnMsg(.{
         .tag = .expected_token,
@@ -131,12 +131,12 @@ fn warnExpected(p: *Parse, expected_token: Token.Tag) error{OutOfMemory}!void {
     });
 }
 
-fn warn(p: *Parse, error_tag: AstError.Tag) error{OutOfMemory}!void {
+fn warn(p: *Parse, error_tag: AstError.Tag) Error!void {
     @branchHint(.cold);
     try p.warnMsg(.{ .tag = error_tag, .token = p.tok_i });
 }
 
-fn warnMsg(p: *Parse, msg: Ast.Error) error{OutOfMemory}!void {
+fn warnMsg(p: *Parse, msg: Ast.Error) Error!void {
     @branchHint(.cold);
     switch (msg.tag) {
         .expected_semi_after_decl,
@@ -175,11 +175,13 @@ fn warnMsg(p: *Parse, msg: Ast.Error) error{OutOfMemory}!void {
             var copy = msg;
             copy.token_is_prev = true;
             copy.token -= 1;
-            return p.errors.append(p.gpa, copy);
+            try p.errors.append(p.gpa, copy);
+        } else {
+            try p.errors.append(p.gpa, msg);
         },
-        else => {},
+        else => try p.errors.append(p.gpa, msg),
     }
-    try p.errors.append(p.gpa, msg);
+    if (!p.recover) return error.ParseError;
 }
 
 fn fail(p: *Parse, tag: Ast.Error.Tag) error{ ParseError, OutOfMemory } {
@@ -203,17 +205,29 @@ fn failMsg(p: *Parse, msg: Ast.Error) error{ ParseError, OutOfMemory } {
 }
 
 /// Root <- skip ContainerMembers eof
-pub fn parseRoot(p: *Parse) !void {
+pub fn parseRoot(p: *Parse) Allocator.Error!void {
     // Root node must be index 0.
     p.nodes.appendAssumeCapacity(.{
         .tag = .root,
         .main_token = 0,
         .data = undefined,
     });
-    const root_members = try p.parseContainerMembers();
+    const root_members = p.parseContainerMembers() catch |err| switch (err) {
+        error.OutOfMemory => |e| return e,
+        error.ParseError => {
+            assert(p.errors.items.len > 0);
+            return;
+        },
+    };
     const root_decls = try root_members.toSpan(p);
     if (p.tokenTag(p.tok_i) != .eof) {
-        try p.warnExpected(.eof);
+        p.warnExpected(.eof) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            error.ParseError => {
+                assert(p.errors.items.len > 0);
+                return;
+            },
+        };
     }
     p.nodes.items(.data)[0] = .{ .extra_range = root_decls };
 }
@@ -221,7 +235,7 @@ pub fn parseRoot(p: *Parse) !void {
 /// Parse in ZON mode. Subset of the language.
 /// TODO: set a flag in Parse struct, and honor that flag
 /// by emitting compilation errors when non-zon nodes are encountered.
-pub fn parseZon(p: *Parse) !void {
+pub fn parseZon(p: *Parse) Allocator.Error!void {
     // We must use index 0 so that 0 can be used as null elsewhere.
     p.nodes.appendAssumeCapacity(.{
         .tag = .root,
@@ -236,7 +250,13 @@ pub fn parseZon(p: *Parse) !void {
         else => |e| return e,
     };
     if (p.tokenTag(p.tok_i) != .eof) {
-        try p.warnExpected(.eof);
+        p.warnExpected(.eof) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            error.ParseError => {
+                assert(p.errors.items.len > 0);
+                return;
+            },
+        };
     }
     p.nodes.items(.data)[0] = .{ .node = node_index };
 }
@@ -246,7 +266,7 @@ pub fn parseZon(p: *Parse) !void {
 /// ContainerDeclaration <- TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl
 ///
 /// ComptimeDecl <- KEYWORD_comptime Block
-fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
+fn parseContainerMembers(p: *Parse) Error!Members {
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
@@ -3582,7 +3602,7 @@ fn expectFor(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !
 }
 
 /// Skips over doc comment tokens. Returns the first one, if any.
-fn eatDocComments(p: *Parse) Allocator.Error!?TokenIndex {
+fn eatDocComments(p: *Parse) Error!?TokenIndex {
     if (p.eatToken(.doc_comment)) |tok| {
         var first_line = tok;
         if (tok > 0 and tokensOnSameLine(p, tok - 1, tok)) {
