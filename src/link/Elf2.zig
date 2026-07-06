@@ -4108,27 +4108,31 @@ fn targetEndian(elf: *const Elf) std.lang.Endian {
     };
 }
 fn targetLoad(elf: *const Elf, ptr: anytype) @typeInfo(@TypeOf(ptr)).pointer.child {
-    const Child = @typeInfo(@TypeOf(ptr)).pointer.child;
+    const pointer_ty = @typeInfo(@TypeOf(ptr)).pointer;
+    const Child = pointer_ty.child;
+    const alignment = pointer_ty.attrs.@"align" orelse @alignOf(Child);
     return switch (@typeInfo(Child)) {
         else => @compileError(@typeName(Child)),
         .int => std.mem.toNative(Child, ptr.*, elf.targetEndian()),
-        .@"enum" => |@"enum"| @enumFromInt(elf.targetLoad(@as(*@"enum".tag_type, @ptrCast(ptr)))),
+        .@"enum" => |@"enum"| @enumFromInt(elf.targetLoad(@as(*align(alignment) @"enum".tag_type, @ptrCast(ptr)))),
         .@"struct" => |@"struct"| @bitCast(
-            elf.targetLoad(@as(*@"struct".backing_integer.?, @ptrCast(ptr))),
+            elf.targetLoad(@as(*align(alignment) @"struct".backing_integer.?, @ptrCast(ptr))),
         ),
     };
 }
 fn targetStore(elf: *const Elf, ptr: anytype, val: @typeInfo(@TypeOf(ptr)).pointer.child) void {
-    const Child = @typeInfo(@TypeOf(ptr)).pointer.child;
+    const pointer_ty = @typeInfo(@TypeOf(ptr)).pointer;
+    const Child = pointer_ty.child;
+    const alignment = pointer_ty.attrs.@"align" orelse @alignOf(Child);
     return switch (@typeInfo(Child)) {
         else => @compileError(@typeName(Child)),
         .int => ptr.* = std.mem.nativeTo(Child, val, elf.targetEndian()),
         .@"enum" => |@"enum"| elf.targetStore(
-            @as(*@"enum".tag_type, @ptrCast(ptr)),
+            @as(*align(alignment) @"enum".tag_type, @ptrCast(ptr)),
             @intFromEnum(val),
         ),
         .@"struct" => |@"struct"| elf.targetStore(
-            @as(*@"struct".backing_integer.?, @ptrCast(ptr)),
+            @as(*align(alignment) @"struct".backing_integer.?, @ptrCast(ptr)),
             @bitCast(val),
         ),
     };
