@@ -2918,12 +2918,12 @@ pub const ExternSymbolOpts = struct {
 };
 pub fn externSymbol(elf: *Elf, opts: ExternSymbolOpts) link.Error!link.File.SymbolId {
     const diags = &elf.base.comp.link_diags;
-    return elf.externSymbolInner(opts) catch |err| switch (err) {
+    return (elf.externSymbolInner(opts) catch |err| switch (err) {
         error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
         else => |e| return e,
-    };
+    }).toTypeErased();
 }
-fn externSymbolInner(elf: *Elf, opts: ExternSymbolOpts) Error!link.File.SymbolId {
+fn externSymbolInner(elf: *Elf, opts: ExternSymbolOpts) Error!Symbol.Id {
     try elf.ensureUnusedSymbolCapacity(1, .maybe_global);
     const symbol = elf.addGlobalSymbolAssumeCapacity(.{
         .node = .none,
@@ -2947,7 +2947,7 @@ fn externSymbolInner(elf: *Elf, opts: ExternSymbolOpts) Error!link.File.SymbolId
     }) catch |err| switch (err) {
         error.MultipleDefinitions => unreachable, // shndx is undef
     };
-    return symbol.toTypeErased();
+    return symbol;
 }
 pub fn addReloc(
     elf: *Elf,
@@ -6359,8 +6359,6 @@ fn addRelocAssumeCapacity(
                 .REGISTER,
                 .TLS_GD_HI22,
                 .TLS_GD_LO10,
-                .TLS_GD_CALL,
-                .TLS_LDM_CALL,
                 .TLS_IE_HI22,
                 .TLS_IE_LO10,
                 .TLS_DTPMOD32,
@@ -6391,6 +6389,11 @@ fn addRelocAssumeCapacity(
                 .L44 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_l44),
                 .UA64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs64),
                 .UA16 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs16),
+                .TLS_GD_CALL, .TLS_LDM_CALL => try elf.addSymbolRelocAssumeCapacity(node, offset, try elf.externSymbolInner(.{
+                    .lib_name = null,
+                    .name = "__tls_get_addr",
+                    .type = .FUNC,
+                }), addend, .sparc_wplt30),
                 .SIZE32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .size32),
                 .SIZE64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .size64),
 
