@@ -1249,13 +1249,17 @@ fn parseLabeledStatement(p: *Parse) !?Node.Index {
     const label_token = opt_label_token orelse return null;
 
     const after_colon = p.tok_i;
-    if (try p.parseTypeExpr()) |_| {
-        const a = try p.parseByteAlign();
-        const b = try p.parseAddrSpace();
-        const c = try p.parseLinkSection();
-        const d = if (p.eatToken(.equal) == null) null else try p.expectExpr();
-        if (a != null or b != null or c != null or d != null) {
-            return p.failMsg(.{ .tag = .expected_var_const, .token = label_token });
+    // Don't bother trying to give a better error message if recovery is disabled.
+    // This avoids a possible stack overflow in e.g. parseTypeExpr() when fuzzing.
+    if (p.recover) {
+        if (try p.parseTypeExpr()) |_| {
+            const a = try p.parseByteAlign();
+            const b = try p.parseAddrSpace();
+            const c = try p.parseLinkSection();
+            const d = if (p.eatToken(.equal) == null) null else try p.expectExpr();
+            if (a != null or b != null or c != null or d != null) {
+                return p.failMsg(.{ .tag = .expected_var_const, .token = label_token });
+            }
         }
     }
     return p.failMsg(.{ .tag = .expected_labelable, .token = after_colon });
