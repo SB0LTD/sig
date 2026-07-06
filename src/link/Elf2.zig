@@ -1165,6 +1165,14 @@ const SymbolReloc = struct {
         larch_tpoff64_lo20,
         larch_tpoff64_hi12,
 
+        sparc_wdisp30,
+        sparc_pc10,
+        sparc_pc22,
+        sparc_wplt30,
+        sparc_h44,
+        sparc_m44,
+        sparc_l44,
+
         fn dependsOnTlsSize(t: SymbolReloc.Type) bool {
             return switch (t) {
                 .tpoff32, .tpoff64 => true,
@@ -1498,6 +1506,55 @@ const SymbolReloc = struct {
             .larch_tpoff64_hi12 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 link.loongarch.writeK12(dest_slice[0..4], @truncate(target_value >> 52));
+            },
+
+            .sparc_wdisp30 => {
+                const dest_ptr: *link.sparc.reloc.Disp30 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.disp30 = @truncate((target_value -% dest_vaddr) >> 2);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_pc10 => {
+                const dest_ptr: *link.sparc.reloc.Simm13 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.simm13 = @as(u10, @truncate(target_value -% dest_vaddr));
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_pc22 => {
+                const dest_ptr: *link.sparc.reloc.Disp22 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.disp22 = @truncate((target_value -% dest_vaddr) >> 10);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_wplt30 => {
+                const plt_index = switch (reloc.target.unwrap()) {
+                    .local => continue :type .sparc_wdisp30,
+                    .global => |name| elf.plt.getIndex(name) orelse continue :type .sparc_wdisp30,
+                };
+                if (elf.pltEntryIsDead(plt_index)) continue :type .sparc_wdisp30;
+                const plt_entry = elf.shndx.plt.vaddr(elf) +% (4 + plt_index) * 32;
+                const dest_ptr: *link.sparc.reloc.Disp30 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.disp30 = @truncate((plt_entry +% @as(u64, @bitCast(reloc.addend)) -% dest_vaddr) >> 2);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_h44 => {
+                const dest_ptr: *link.sparc.reloc.Imm22 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.imm22 = @truncate(target_value >> 22);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_m44 => {
+                const dest_ptr: *link.sparc.reloc.Imm10 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.imm10 = @truncate(target_value >> 12);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_l44 => {
+                const dest_ptr: *link.sparc.reloc.Imm13 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.imm13 = @as(u12, @truncate(target_value));
+                elf.targetStore(dest_ptr, result);
             },
         }
     }
@@ -6206,15 +6263,11 @@ fn addRelocAssumeCapacity(
                 .IRELATIVE,
                 => std.debug.panic("TODO: error for illegal or unsupported input relocation, {t}", .{@"type".SPARC}),
 
-                inline .WDISP30,
-                .WDISP22,
+                inline .WDISP22,
                 .HI22,
                 .@"22",
                 .@"13",
                 .LO10,
-                .PC10,
-                .PC22,
-                .WPLT30,
                 .HIPLT22,
                 .LOPLT10,
                 .PCPLT22,
@@ -6235,9 +6288,6 @@ fn addRelocAssumeCapacity(
                 .@"6",
                 .HIX22,
                 .LOX10,
-                .H44,
-                .M44,
-                .L44,
                 .REGISTER,
                 .TLS_GD_HI22,
                 .TLS_GD_LO10,
@@ -6264,12 +6314,19 @@ fn addRelocAssumeCapacity(
                 .DISP8 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel8),
                 .DISP16 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel16),
                 .DISP32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel32),
+                .WDISP30 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_wdisp30),
+                .PC10 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_pc10),
+                .PC22 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_pc22),
+                .WPLT30 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_wplt30),
                 .UA32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs32),
                 .PLT32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .pltabs32),
                 .PCPLT32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .pltrel32),
                 .@"64" => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs64),
                 .DISP64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel64),
                 .PLT64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .pltabs64),
+                .H44 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_h44),
+                .M44 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_m44),
+                .L44 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_l44),
                 .UA64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs64),
                 .UA16 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs16),
                 .SIZE32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .size32),
@@ -6371,6 +6428,15 @@ fn addSymbolRelocAssumeCapacity(
                 .larch_tpoff64_lo20,
                 .larch_tpoff64_hi12,
                 => unreachable,
+
+                .sparc_wdisp30,
+                .sparc_pc10,
+                .sparc_pc22,
+                .sparc_wplt30,
+                .sparc_h44,
+                .sparc_m44,
+                .sparc_l44,
+                => unreachable,
             } },
             .LOONGARCH => .{ .LOONGARCH = switch (@"type") {
                 .write_rela => unreachable,
@@ -6407,6 +6473,15 @@ fn addSymbolRelocAssumeCapacity(
                 .larch_tpoff32_hi20 => .TLS_LE_HI20,
                 .larch_tpoff64_lo20 => .TLS_LE64_LO20,
                 .larch_tpoff64_hi12 => .TLS_LE64_HI12,
+
+                .sparc_wdisp30,
+                .sparc_pc10,
+                .sparc_pc22,
+                .sparc_wplt30,
+                .sparc_h44,
+                .sparc_m44,
+                .sparc_l44,
+                => unreachable,
             } },
             .SPARCV9 => .{ .SPARC = switch (@"type") {
                 .write_rela => unreachable,
@@ -6444,6 +6519,14 @@ fn addSymbolRelocAssumeCapacity(
                 .larch_tpoff64_lo20,
                 .larch_tpoff64_hi12,
                 => unreachable,
+
+                .sparc_wdisp30 => .WDISP30,
+                .sparc_pc10 => .PC10,
+                .sparc_pc22 => .PC22,
+                .sparc_wplt30 => .WPLT30,
+                .sparc_h44 => .H44,
+                .sparc_m44 => .M44,
+                .sparc_l44 => .L44,
             } },
         };
 
