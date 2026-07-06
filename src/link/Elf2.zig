@@ -1132,19 +1132,25 @@ const SymbolReloc = struct {
         /// This is only used targeting local symbols so can always be statically resolved.
         dsorel32,
 
-        abs64,
+        abs8,
+        abs16,
         abs32,
         abs32s,
-        rel64,
+        abs64,
+        rel8,
+        rel16,
         rel32,
-        pltrel64,
+        rel64,
+        pltabs32,
+        pltabs64,
         pltrel32,
-        dtpoff64,
+        pltrel64,
         dtpoff32,
-        tpoff64,
+        dtpoff64,
         tpoff32,
-        size64,
+        tpoff64,
         size32,
+        size64,
 
         larch_abs32_lo12,
         larch_rel32_hi20,
@@ -1170,8 +1176,18 @@ const SymbolReloc = struct {
         fn isAbsAddr(t: SymbolReloc.Type, elf: *const Elf) bool {
             return switch (elf.identClass()) {
                 .NONE, _ => unreachable,
-                .@"32" => t == .abs32,
-                .@"64" => t == .abs64,
+                .@"32" => switch (t) {
+                    .abs32,
+                    .pltabs32,
+                    => true,
+                    else => false,
+                },
+                .@"64" => switch (t) {
+                    .abs64,
+                    .pltabs64,
+                    => true,
+                    else => false,
+                },
             };
         }
     };
@@ -1190,11 +1206,31 @@ const SymbolReloc = struct {
             .static => unreachable,
             .dynamic => return, // the relocation happens at runtime
             .static_relative => {
-                assert(reloc.type.isAbsAddr(elf));
                 // We have emitted an R_*_RELATIVE relocation to help lower an abs32/abs64 reloc.
                 // This is a simplified version of the general relocation handling logic, where we
                 // know we're using '.abs64' or '.abs32' (matching the ELF ident class).
-                const value = reloc.target.value(elf) +% @as(u64, @bitCast(reloc.addend));
+                const value = type: switch (reloc.type) {
+                    .abs32,
+                    .abs64,
+                    => reloc.target.value(elf) +% @as(u64, @bitCast(reloc.addend)),
+                    .pltabs32,
+                    .pltabs64,
+                    => value: {
+                        const plt_index = switch (reloc.target.unwrap()) {
+                            .local => continue :type .abs32,
+                            .global => |name| elf.plt.getIndex(name) orelse continue :type .abs32,
+                        };
+                        if (elf.pltEntryIsDead(plt_index)) continue :type .abs32;
+                        const plt_shndx: Section.Index, const plt_header_entries: u64, const plt_entry_size: u64 = switch (elf.ehdrField(.machine)) {
+                            else => |machine| @panic(@tagName(machine)),
+                            .SPARCV9 => .{ elf.shndx.plt, 4, 32 },
+                            .X86_64 => .{ elf.shndx.plt_sec, 0, 16 },
+                        };
+                        const plt_entry = plt_shndx.vaddr(elf) +% (plt_header_entries + plt_index) * plt_entry_size;
+                        break :value plt_entry +% @as(u64, @bitCast(reloc.addend));
+                    },
+                    else => unreachable,
+                };
                 elf.shndx.rela_dyn.relaSetRelativeOffset(elf, rela_index, value);
                 return;
             },
@@ -1241,6 +1277,13 @@ const SymbolReloc = struct {
                 @intCast(@as(i64, @bitCast(target_value))),
                 target_endian,
             ),
+            .abs16 => std.mem.writeInt(
+                u16,
+                dest_slice[0..2],
+                @intCast(target_value),
+                target_endian,
+            ),
+            .abs8 => dest_slice[0] = @intCast(target_value),
             .rel64 => std.mem.writeInt(
                 i64,
                 dest_slice[0..8],
@@ -1253,17 +1296,65 @@ const SymbolReloc = struct {
                 @intCast(@as(i64, @bitCast(target_value -% dest_vaddr))),
                 target_endian,
             ),
+            .rel16 => std.mem.writeInt(
+                i16,
+                dest_slice[0..2],
+                @intCast(@as(i64, @bitCast(target_value -% dest_vaddr))),
+                target_endian,
+            ),
+            .rel8 => dest_slice[0] = @bitCast(@as(i8, @intCast(@as(i64, @bitCast(target_value -% dest_vaddr))))),
+            .pltabs64 => {
+                const plt_index = switch (reloc.target.unwrap()) {
+                    .local => continue :type .abs64,
+                    .global => |name| elf.plt.getIndex(name) orelse continue :type .abs64,
+                };
+                if (elf.pltEntryIsDead(plt_index)) continue :type .abs64;
+                const plt_shndx: Section.Index, const plt_header_entries: u64, const plt_entry_size: u64 = switch (elf.ehdrField(.machine)) {
+                    else => |machine| @panic(@tagName(machine)),
+                    .SPARCV9 => .{ elf.shndx.plt, 4, 32 },
+                    .X86_64 => .{ elf.shndx.plt_sec, 0, 16 },
+                };
+                const plt_entry = plt_shndx.vaddr(elf) +% (plt_header_entries + plt_index) * plt_entry_size;
+                std.mem.writeInt(
+                    i64,
+                    dest_slice[0..8],
+                    @bitCast(plt_entry +% @as(u64, @bitCast(reloc.addend))),
+                    target_endian,
+                );
+            },
+            .pltabs32 => {
+                const plt_index = switch (reloc.target.unwrap()) {
+                    .local => continue :type .abs32,
+                    .global => |name| elf.plt.getIndex(name) orelse continue :type .abs32,
+                };
+                if (elf.pltEntryIsDead(plt_index)) continue :type .abs32;
+                const plt_shndx: Section.Index, const plt_header_entries: u64, const plt_entry_size: u64 = switch (elf.ehdrField(.machine)) {
+                    else => |machine| @panic(@tagName(machine)),
+                    .SPARCV9 => .{ elf.shndx.plt, 4, 32 },
+                    .X86_64 => .{ elf.shndx.plt_sec, 0, 16 },
+                };
+                const plt_entry = plt_shndx.vaddr(elf) +% (plt_header_entries + plt_index) * plt_entry_size;
+                std.mem.writeInt(
+                    i32,
+                    dest_slice[0..4],
+                    @intCast(@as(i64, @bitCast(
+                        plt_entry +% @as(u64, @bitCast(reloc.addend)),
+                    ))),
+                    target_endian,
+                );
+            },
             .pltrel64 => {
                 const plt_index = switch (reloc.target.unwrap()) {
                     .local => continue :type .rel64,
                     .global => |name| elf.plt.getIndex(name) orelse continue :type .rel64,
                 };
                 if (elf.pltEntryIsDead(plt_index)) continue :type .rel64;
-                const plt_shndx: Section.Index, const plt_entry_size: u64 = switch (elf.ehdrField(.machine)) {
+                const plt_shndx: Section.Index, const plt_header_entries: u64, const plt_entry_size: u64 = switch (elf.ehdrField(.machine)) {
                     else => |machine| @panic(@tagName(machine)),
-                    .X86_64 => .{ elf.shndx.plt_sec, 16 },
+                    .SPARCV9 => .{ elf.shndx.plt, 4, 32 },
+                    .X86_64 => .{ elf.shndx.plt_sec, 0, 16 },
                 };
-                const plt_entry = plt_shndx.vaddr(elf) +% plt_index * plt_entry_size;
+                const plt_entry = plt_shndx.vaddr(elf) +% (plt_header_entries + plt_index) * plt_entry_size;
                 std.mem.writeInt(
                     i64,
                     dest_slice[0..8],
@@ -1277,11 +1368,12 @@ const SymbolReloc = struct {
                     .global => |name| elf.plt.getIndex(name) orelse continue :type .rel32,
                 };
                 if (elf.pltEntryIsDead(plt_index)) continue :type .rel32;
-                const plt_shndx: Section.Index, const plt_entry_size: u64 = switch (elf.ehdrField(.machine)) {
+                const plt_shndx: Section.Index, const plt_header_entries: u64, const plt_entry_size: u64 = switch (elf.ehdrField(.machine)) {
                     else => |machine| @panic(@tagName(machine)),
-                    .X86_64 => .{ elf.shndx.plt_sec, 16 },
+                    .SPARCV9 => .{ elf.shndx.plt, 4, 32 },
+                    .X86_64 => .{ elf.shndx.plt_sec, 0, 16 },
                 };
-                const plt_entry = plt_shndx.vaddr(elf) +% plt_index * plt_entry_size;
+                const plt_entry = plt_shndx.vaddr(elf) +% (plt_header_entries + plt_index) * plt_entry_size;
                 std.mem.writeInt(
                     i32,
                     dest_slice[0..4],
@@ -6110,10 +6202,68 @@ fn addRelocAssumeCapacity(
                 _,
                 .NONE,
                 .COPY,
+                .GLOB_DAT,
                 .JMP_SLOT,
                 .RELATIVE,
                 .IRELATIVE,
                 => std.debug.panic("TODO: error for illegal or unsupported input relocation, {t}", .{@"type".SPARC}),
+
+                inline .WDISP30,
+                .WDISP22,
+                .HI22,
+                .@"22",
+                .@"13",
+                .LO10,
+                .PC10,
+                .PC22,
+                .WPLT30,
+                .HIPLT22,
+                .LOPLT10,
+                .PCPLT22,
+                .PCPLT10,
+                .@"10",
+                .@"11",
+                .OLO10,
+                .HH22,
+                .HM10,
+                .LM22,
+                .PC_HH22,
+                .PC_HM10,
+                .PC_LM22,
+                .WDISP16,
+                .WDISP19,
+                .@"7",
+                .@"5",
+                .@"6",
+                .HIX22,
+                .LOX10,
+                .H44,
+                .M44,
+                .L44,
+                .REGISTER,
+                .H34,
+                .WDISP10,
+                => |t| @panic("TODO: " ++ @tagName(t)),
+
+                // Relocations targeting a symbol
+                .@"8" => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs8),
+                .@"16" => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs16),
+                .@"32" => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs32),
+                .DISP8 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel8),
+                .DISP16 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel16),
+                .DISP32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel32),
+                .UA32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs32),
+                .PLT32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .pltabs32),
+                .PCPLT32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .pltrel32),
+                .@"64" => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs64),
+                .DISP64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel64),
+                .PLT64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .pltabs64),
+                .UA64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs64),
+                .UA16 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs16),
+                .SIZE32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .size32),
+                .SIZE64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .size64),
+
+                // Relocations targeting a TLS symbol
 
                 // Relocations targeting a GOT entry
                 .GOT10 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .sparc_10),
@@ -6169,11 +6319,14 @@ fn addSymbolRelocAssumeCapacity(
                 },
                 .abs64 => .@"64",
                 .abs32 => .@"32",
+                .abs16 => unreachable,
+                .abs8 => unreachable,
                 .abs32s => .@"32S",
                 .rel64 => .PC64,
                 .rel32 => .PC32,
-                .pltrel64 => break :r .none,
-                .pltrel32 => break :r .none,
+                .rel16 => unreachable,
+                .rel8 => unreachable,
+                .pltabs64, .pltabs32, .pltrel64, .pltrel32 => break :r .none,
                 .dtpoff64 => .DTPOFF64,
                 .dtpoff32 => .DTPOFF32,
                 .tpoff64 => .TPOFF64,
@@ -6203,14 +6356,20 @@ fn addSymbolRelocAssumeCapacity(
                 },
                 .abs64 => .@"64",
                 .abs32 => .@"32",
-                .abs32s, .size64, .size32 => unreachable,
+                .abs32s => unreachable,
+                .abs16 => unreachable,
+                .abs8 => unreachable,
                 .rel64 => .@"64_PCREL",
                 .rel32 => .@"32_PCREL",
-                .pltrel64, .pltrel32 => break :r .none,
+                .rel16 => unreachable,
+                .rel8 => unreachable,
+                .pltabs64, .pltabs32, .pltrel64, .pltrel32 => break :r .none,
                 .dtpoff64 => .TLS_DTPREL64,
                 .dtpoff32 => .TLS_DTPREL32,
                 .tpoff64 => .TLS_TPREL64,
                 .tpoff32 => .TLS_TPREL32,
+                .size64 => unreachable,
+                .size32 => unreachable,
 
                 .larch_abs32_lo12 => .PCALA_LO12,
                 .larch_rel32_hi20 => .PCALA_HI20,
@@ -6224,6 +6383,43 @@ fn addSymbolRelocAssumeCapacity(
                 .larch_tpoff32_hi20 => .TLS_LE_HI20,
                 .larch_tpoff64_lo20 => .TLS_LE64_LO20,
                 .larch_tpoff64_hi12 => .TLS_LE64_HI12,
+            } },
+            .SPARCV9 => .{ .SPARC = switch (@"type") {
+                .write_rela => unreachable,
+                .dsorel64, .dsorel32 => {
+                    assert(target.unwrap() == .local);
+                    break :r .none;
+                },
+                .abs64 => .@"64",
+                .abs32 => .@"32",
+                .abs32s => unreachable,
+                .abs16 => .@"16",
+                .abs8 => .@"8",
+                .rel64 => .DISP64,
+                .rel32 => .DISP32,
+                .rel16 => .DISP16,
+                .rel8 => .DISP8,
+                .pltabs64, .pltabs32, .pltrel64, .pltrel32 => break :r .none,
+                .dtpoff64 => @panic("TODO: dtpoff64"),
+                .dtpoff32 => @panic("TODO: dtpoff32"),
+                .tpoff64 => @panic("TODO: tpoff64"),
+                .tpoff32 => @panic("TODO: tpoff32"),
+                .size64 => .SIZE64,
+                .size32 => .SIZE32,
+
+                .larch_abs32_lo12,
+                .larch_rel32_hi20,
+                .larch_rel64_lo20,
+                .larch_rel64_hi12,
+                .larch_branch_rel18,
+                .larch_branch_rel23,
+                .larch_branch_rel28,
+                .larch_call_rel38,
+                .larch_tpoff32_lo12,
+                .larch_tpoff32_hi20,
+                .larch_tpoff64_lo20,
+                .larch_tpoff64_hi12,
+                => unreachable,
             } },
         };
 
