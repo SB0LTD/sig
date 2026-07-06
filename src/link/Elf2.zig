@@ -784,13 +784,13 @@ const GotReloc = struct {
         rel64,
         rel32,
 
-        rel32_hi20,
-        rel64_lo20,
-        rel64_hi12,
-        abs32_lo12,
-        abs32_hi20,
-        abs64_lo20,
-        abs64_hi12,
+        larch_rel32_hi20,
+        larch_rel64_lo20,
+        larch_rel64_hi12,
+        larch_abs32_lo12,
+        larch_abs32_hi20,
+        larch_abs64_lo20,
+        larch_abs64_hi12,
     };
 
     const Index = enum(u32) {
@@ -859,37 +859,38 @@ const GotReloc = struct {
                 @intCast(@as(i64, @bitCast(got_vaddr +% got_offset +% addend -% dest_vaddr))),
                 target_endian,
             ),
-            .rel32_hi20 => {
+
+            .larch_rel32_hi20 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_value = got_vaddr +% got_offset +% addend;
                 link.loongarch.writeJ20(dest_slice[0..4], link.loongarch.toPcalaHi20(target_value, dest_vaddr));
             },
-            .rel64_lo20 => {
+            .larch_rel64_lo20 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_value = got_vaddr +% got_offset +% addend;
                 link.loongarch.writeJ20(dest_slice[0..4], link.loongarch.toPcala64Lo20(target_value, dest_vaddr));
             },
-            .rel64_hi12 => {
+            .larch_rel64_hi12 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_value = got_vaddr +% got_offset +% addend;
                 link.loongarch.writeK12(dest_slice[0..4], link.loongarch.toPcala64Hi12(target_value, dest_vaddr));
             },
-            .abs32_lo12 => {
+            .larch_abs32_lo12 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_value = got_vaddr +% got_offset +% addend;
                 link.loongarch.writeK12(dest_slice[0..4], @truncate(target_value));
             },
-            .abs32_hi20 => {
+            .larch_abs32_hi20 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_value = got_vaddr +% got_offset +% addend;
                 link.loongarch.writeJ20(dest_slice[0..4], @truncate(target_value >> 12));
             },
-            .abs64_lo20 => {
+            .larch_abs64_lo20 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_value = got_vaddr +% got_offset +% addend;
                 link.loongarch.writeJ20(dest_slice[0..4], @truncate(target_value >> 32));
             },
-            .abs64_hi12 => {
+            .larch_abs64_hi12 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_value = got_vaddr +% got_offset +% addend;
                 link.loongarch.writeK12(dest_slice[0..4], @truncate(target_value >> 52));
@@ -1108,23 +1109,23 @@ const SymbolReloc = struct {
         size64,
         size32,
 
-        abs32_lo12,
-        rel32_hi20,
-        rel64_lo20,
-        rel64_hi12,
-        branch_rel18,
-        branch_rel23,
-        branch_rel28,
-        call_rel38,
-        tpoff32_lo12,
-        tpoff32_hi20,
-        tpoff64_lo20,
-        tpoff64_hi12,
+        larch_abs32_lo12,
+        larch_rel32_hi20,
+        larch_rel64_lo20,
+        larch_rel64_hi12,
+        larch_branch_rel18,
+        larch_branch_rel23,
+        larch_branch_rel28,
+        larch_call_rel38,
+        larch_tpoff32_lo12,
+        larch_tpoff32_hi20,
+        larch_tpoff64_lo20,
+        larch_tpoff64_hi12,
 
         fn dependsOnTlsSize(t: SymbolReloc.Type) bool {
             return switch (t) {
                 .tpoff32, .tpoff64 => true,
-                .tpoff32_lo12, .tpoff32_hi20, .tpoff64_lo20, .tpoff64_hi12 => true,
+                .larch_tpoff32_lo12, .larch_tpoff32_hi20, .larch_tpoff64_lo20, .larch_tpoff64_hi12 => true,
                 else => false,
             };
         }
@@ -1307,42 +1308,43 @@ const SymbolReloc = struct {
                     target_endian,
                 );
             },
-            .abs32_lo12 => {
+
+            .larch_abs32_lo12 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 link.loongarch.writeK12(dest_slice[0..4], @truncate(target_value));
             },
-            .rel32_hi20 => {
+            .larch_rel32_hi20 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 link.loongarch.writeJ20(dest_slice[0..4], link.loongarch.toPcalaHi20(target_value, dest_vaddr));
             },
-            .rel64_lo20 => {
+            .larch_rel64_lo20 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 link.loongarch.writeJ20(dest_slice[0..4], link.loongarch.toPcala64Lo20(target_value, dest_vaddr));
             },
-            .rel64_hi12 => {
+            .larch_rel64_hi12 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 link.loongarch.writeK12(dest_slice[0..4], link.loongarch.toPcala64Hi12(target_value, dest_vaddr));
             },
             // TODO: handle bad alignment and overflow gracefully
-            .branch_rel18 => {
+            .larch_branch_rel18 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_rel: i64 = @bitCast(target_value -% dest_vaddr);
                 const slot_target: i16 = @intCast(@shrExact(target_rel, 2));
                 link.loongarch.writeK16(dest_slice[0..4], @bitCast(slot_target));
             },
-            .branch_rel23 => {
+            .larch_branch_rel23 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_rel: i64 = @bitCast(target_value -% dest_vaddr);
                 const slot_target: i21 = @intCast(@shrExact(target_rel, 2));
                 link.loongarch.writeD5K16(dest_slice[0..4], @bitCast(slot_target));
             },
-            .branch_rel28 => {
+            .larch_branch_rel28 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_rel: i64 = @bitCast(target_value -% dest_vaddr);
                 const slot_target: i26 = @intCast(@shrExact(target_rel, 2));
                 link.loongarch.writeD10K16(dest_slice[0..4], @bitCast(slot_target));
             },
-            .call_rel38 => {
+            .larch_call_rel38 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_rel: i64 = @bitCast(target_value -% dest_vaddr);
                 // We use i64 instead of i36 here because the allowed range is
@@ -1352,19 +1354,19 @@ const SymbolReloc = struct {
                 link.loongarch.writeJ20(dest_slice[0..4], @bitCast(@as(i20, @intCast((slot_target +% 0x8000) >> 16))));
                 link.loongarch.writeK16(dest_slice[4..8], @bitCast(@as(i16, @truncate(slot_target))));
             },
-            .tpoff32_lo12 => {
+            .larch_tpoff32_lo12 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 link.loongarch.writeK12(dest_slice[0..4], @truncate(target_value));
             },
-            .tpoff32_hi20 => {
+            .larch_tpoff32_hi20 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 link.loongarch.writeJ20(dest_slice[0..4], @truncate(target_value >> 12));
             },
-            .tpoff64_lo20 => {
+            .larch_tpoff64_lo20 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 link.loongarch.writeJ20(dest_slice[0..4], @truncate(target_value >> 32));
             },
-            .tpoff64_hi12 => {
+            .larch_tpoff64_hi12 => {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 link.loongarch.writeK12(dest_slice[0..4], @truncate(target_value >> 52));
             },
@@ -2163,10 +2165,10 @@ fn addPltEntry(elf: *Elf, global_name: String(.strtab), dynsym_index: u32) void 
             switch (elf.shdrPtr(elf.shndx.got_plt)) {
                 inline else => |shdr, class| {
                     assert(elf.targetLoad(&shdr.size) == got_plt_offset);
-                    elf.targetStore(&shdr.size, got_plt_offset + @sizeOf(shdr.ElfN().Addr));
+                    elf.targetStore(&shdr.size, got_plt_offset + @sizeOf(class.ElfN().Addr));
                     std.mem.writeInt(
                         class.ElfN().Addr,
-                        got_plt_ni.slice(&elf.mf)[got_plt_offset..][0..@sizeOf(shdr.ElfN().Addr)],
+                        got_plt_ni.slice(&elf.mf)[got_plt_offset..][0..@sizeOf(class.ElfN().Addr)],
                         @intCast(plt_addr),
                         target_endian,
                     );
@@ -2225,10 +2227,10 @@ fn addPltEntry(elf: *Elf, global_name: String(.strtab), dynsym_index: u32) void 
             switch (elf.shdrPtr(elf.shndx.got_plt)) {
                 inline else => |shdr, class| {
                     assert(elf.targetLoad(&shdr.size) == got_plt_offset);
-                    elf.targetStore(&shdr.size, got_plt_offset + @sizeOf(shdr.ElfN().Addr));
+                    elf.targetStore(&shdr.size, got_plt_offset + @sizeOf(class.ElfN().Addr));
                     std.mem.writeInt(
                         class.ElfN().Addr,
-                        got_plt_ni.slice(&elf.mf)[got_plt_offset..][0..@sizeOf(shdr.ElfN().Addr)],
+                        got_plt_ni.slice(&elf.mf)[got_plt_offset..][0..@sizeOf(class.ElfN().Addr)],
                         @intCast(plt_addr),
                         target_endian,
                     );
@@ -3817,9 +3819,9 @@ fn initHeaders(
                     });
                     elf.plt_first_symbol_reloc = @enumFromInt(elf.symbol_relocs.items.len);
                     try elf.ensureUnusedRelocCapacity(plt_ni, 3);
-                    try elf.addSymbolRelocAssumeCapacity(plt_ni, 0, got_plt_sym, 0, .rel32_hi20);
-                    try elf.addSymbolRelocAssumeCapacity(plt_ni, 8, got_plt_sym, 0, .abs32_lo12);
-                    try elf.addSymbolRelocAssumeCapacity(plt_ni, 16, got_plt_sym, 0, .abs32_lo12);
+                    try elf.addSymbolRelocAssumeCapacity(plt_ni, 0, got_plt_sym, 0, .larch_rel32_hi20);
+                    try elf.addSymbolRelocAssumeCapacity(plt_ni, 8, got_plt_sym, 0, .larch_abs32_lo12);
+                    try elf.addSymbolRelocAssumeCapacity(plt_ni, 16, got_plt_sym, 0, .larch_abs32_lo12);
                 },
                 .SPARCV9 => {},
             }
@@ -6037,33 +6039,33 @@ fn addRelocAssumeCapacity(
                 .@"64_PCREL" => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel64),
                 .@"32_PCREL" => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel32),
 
-                .PCALA_LO12 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .abs32_lo12),
-                .PCALA_HI20 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel32_hi20),
-                .PCALA64_HI12 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel64_hi12),
-                .PCALA64_LO20 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .rel64_lo20),
+                .PCALA_LO12 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_abs32_lo12),
+                .PCALA_HI20 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_rel32_hi20),
+                .PCALA64_HI12 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_rel64_hi12),
+                .PCALA64_LO20 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_rel64_lo20),
 
-                .B16 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .branch_rel18),
-                .B21 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .branch_rel23),
-                .B26 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .branch_rel28),
-                .CALL36 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .call_rel38),
+                .B16 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_branch_rel18),
+                .B21 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_branch_rel23),
+                .B26 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_branch_rel28),
+                .CALL36 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_call_rel38),
 
                 // Relocations targeting a TLS symbol
-                .TLS_LE_LO12, .TLS_LE_LO12_R => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .tpoff32_lo12),
-                .TLS_LE_HI20, .TLS_LE_HI20_R => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .tpoff32_hi20),
-                .TLS_LE64_LO20 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .tpoff64_lo20),
-                .TLS_LE64_HI12 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .tpoff64_hi12),
+                .TLS_LE_LO12, .TLS_LE_LO12_R => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_tpoff32_lo12),
+                .TLS_LE_HI20, .TLS_LE_HI20_R => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_tpoff32_hi20),
+                .TLS_LE64_LO20 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_tpoff64_lo20),
+                .TLS_LE64_HI12 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .larch_tpoff64_hi12),
                 .TLS_LE_ADD_R => {}, // TODO: relaxation is not yet implemented
 
                 // Relocations targeting a GOT entry
-                .GOT_PC_LO12 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .abs32_lo12),
-                .GOT_PC_HI20 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .rel32_hi20),
-                .GOT64_PC_LO20 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .rel64_lo20),
-                .GOT64_PC_HI12 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .rel64_hi12),
+                .GOT_PC_LO12 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_abs32_lo12),
+                .GOT_PC_HI20 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_rel32_hi20),
+                .GOT64_PC_LO20 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_rel64_lo20),
+                .GOT64_PC_HI12 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_rel64_hi12),
 
-                .GOT_LO12 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .abs32_lo12),
-                .GOT_HI20 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .abs32_hi20),
-                .GOT64_LO20 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .abs64_lo20),
-                .GOT64_HI12 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .abs64_hi12),
+                .GOT_LO12 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_abs32_lo12),
+                .GOT_HI20 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_abs32_hi20),
+                .GOT64_LO20 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_abs64_lo20),
+                .GOT64_HI12 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_abs64_hi12),
             },
         },
     }
@@ -6118,18 +6120,19 @@ fn addSymbolRelocAssumeCapacity(
                 .tpoff32 => .TPOFF32,
                 .size64 => .SIZE64,
                 .size32 => .SIZE32,
-                .abs32_lo12,
-                .rel32_hi20,
-                .rel64_lo20,
-                .rel64_hi12,
-                .branch_rel18,
-                .branch_rel23,
-                .branch_rel28,
-                .call_rel38,
-                .tpoff32_lo12,
-                .tpoff32_hi20,
-                .tpoff64_lo20,
-                .tpoff64_hi12,
+
+                .larch_abs32_lo12,
+                .larch_rel32_hi20,
+                .larch_rel64_lo20,
+                .larch_rel64_hi12,
+                .larch_branch_rel18,
+                .larch_branch_rel23,
+                .larch_branch_rel28,
+                .larch_call_rel38,
+                .larch_tpoff32_lo12,
+                .larch_tpoff32_hi20,
+                .larch_tpoff64_lo20,
+                .larch_tpoff64_hi12,
                 => unreachable,
             } },
             .LOONGARCH => .{ .LOONGARCH = switch (@"type") {
@@ -6148,18 +6151,19 @@ fn addSymbolRelocAssumeCapacity(
                 .dtpoff32 => .TLS_DTPREL32,
                 .tpoff64 => .TLS_TPREL64,
                 .tpoff32 => .TLS_TPREL32,
-                .abs32_lo12 => .PCALA_LO12,
-                .rel32_hi20 => .PCALA_HI20,
-                .rel64_lo20 => .PCALA64_LO20,
-                .rel64_hi12 => .PCALA64_HI12,
-                .branch_rel18 => .B16,
-                .branch_rel23 => .B21,
-                .branch_rel28 => .B26,
-                .call_rel38 => .CALL36,
-                .tpoff32_lo12 => .TLS_LE_LO12,
-                .tpoff32_hi20 => .TLS_LE_HI20,
-                .tpoff64_lo20 => .TLS_LE64_LO20,
-                .tpoff64_hi12 => .TLS_LE64_HI12,
+
+                .larch_abs32_lo12 => .PCALA_LO12,
+                .larch_rel32_hi20 => .PCALA_HI20,
+                .larch_rel64_lo20 => .PCALA64_LO20,
+                .larch_rel64_hi12 => .PCALA64_HI12,
+                .larch_branch_rel18 => .B16,
+                .larch_branch_rel23 => .B21,
+                .larch_branch_rel28 => .B26,
+                .larch_call_rel38 => .CALL36,
+                .larch_tpoff32_lo12 => .TLS_LE_LO12,
+                .larch_tpoff32_hi20 => .TLS_LE_HI20,
+                .larch_tpoff64_lo20 => .TLS_LE64_LO20,
+                .larch_tpoff64_hi12 => .TLS_LE64_HI12,
             } },
         };
 
