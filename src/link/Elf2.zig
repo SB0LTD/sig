@@ -1186,11 +1186,27 @@ const SymbolReloc = struct {
         sparc_h44,
         sparc_m44,
         sparc_l44,
+        sparc_ldo_hix22,
+        sparc_ldo_lox10,
+        sparc_le_hix22,
+        sparc_le_lox10,
 
         fn dependsOnTlsSize(t: SymbolReloc.Type) bool {
             return switch (t) {
-                .tpoff32, .tpoff64 => true,
-                .larch_tpoff32_lo12, .larch_tpoff32_hi20, .larch_tpoff64_lo20, .larch_tpoff64_hi12 => true,
+                .tpoff32,
+                .tpoff64,
+                => true,
+
+                .larch_tpoff32_lo12,
+                .larch_tpoff32_hi20,
+                .larch_tpoff64_lo20,
+                .larch_tpoff64_hi12,
+                => true,
+
+                .sparc_le_hix22,
+                .sparc_le_lox10,
+                => true,
+
                 else => false,
             };
         }
@@ -1568,6 +1584,44 @@ const SymbolReloc = struct {
                 const dest_ptr: *link.sparc.reloc.Imm13 = @ptrCast(@alignCast(dest_slice));
                 var result = elf.targetLoad(dest_ptr);
                 result.imm13 = @as(u12, @truncate(target_value));
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_ldo_hix22 => {
+                const dest_ptr: *link.sparc.reloc.Simm22 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.simm22 = @truncate(target_value >> 10);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_ldo_lox10 => {
+                const dest_ptr: *link.sparc.reloc.Simm13 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.simm13 = @as(u10, @truncate(target_value));
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_le_hix22 => {
+                const tls_phndx = elf.getNode(elf.ni.tls).segment;
+                const tls_size: u64 = switch (elf.phdrSlice()) {
+                    inline else => |phdr| tls_size: {
+                        assert(elf.targetLoad(&phdr[tls_phndx].type) == .TLS);
+                        break :tls_size elf.targetLoad(&phdr[tls_phndx].memsz);
+                    },
+                };
+                const dest_ptr: *link.sparc.reloc.Imm22 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.imm22 = @truncate(~(target_value -% tls_size) >> 10);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_le_lox10 => {
+                const tls_phndx = elf.getNode(elf.ni.tls).segment;
+                const tls_size: u64 = switch (elf.phdrSlice()) {
+                    inline else => |phdr| tls_size: {
+                        assert(elf.targetLoad(&phdr[tls_phndx].type) == .TLS);
+                        break :tls_size elf.targetLoad(&phdr[tls_phndx].memsz);
+                    },
+                };
+                const dest_ptr: *link.sparc.reloc.Simm13 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.simm13 = @as(u13, 0b1110000000000) | @as(u10, @truncate(target_value -% tls_size));
                 elf.targetStore(dest_ptr, result);
             },
         }
@@ -6307,12 +6361,8 @@ fn addRelocAssumeCapacity(
                 .TLS_GD_LO10,
                 .TLS_GD_CALL,
                 .TLS_LDM_CALL,
-                .TLS_LDO_HIX22,
-                .TLS_LDO_LOX10,
                 .TLS_IE_HI22,
                 .TLS_IE_LO10,
-                .TLS_LE_HIX22,
-                .TLS_LE_LOX10,
                 .TLS_DTPMOD32,
                 .TLS_DTPMOD64,
                 .H34,
@@ -6345,6 +6395,10 @@ fn addRelocAssumeCapacity(
                 .SIZE64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .size64),
 
                 // Relocations targeting a TLS symbol
+                .TLS_LDO_HIX22 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_ldo_hix22),
+                .TLS_LDO_LOX10 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_ldo_lox10),
+                .TLS_LE_HIX22 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_le_hix22),
+                .TLS_LE_LOX10 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .sparc_le_lox10),
                 .TLS_DTPOFF32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .dtpoff32),
                 .TLS_DTPOFF64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .dtpoff64),
                 .TLS_TPOFF32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .tpoff32),
@@ -6450,6 +6504,10 @@ fn addSymbolRelocAssumeCapacity(
                 .sparc_h44,
                 .sparc_m44,
                 .sparc_l44,
+                .sparc_ldo_hix22,
+                .sparc_ldo_lox10,
+                .sparc_le_hix22,
+                .sparc_le_lox10,
                 => unreachable,
             } },
             .LOONGARCH => .{ .LOONGARCH = switch (@"type") {
@@ -6495,6 +6553,10 @@ fn addSymbolRelocAssumeCapacity(
                 .sparc_h44,
                 .sparc_m44,
                 .sparc_l44,
+                .sparc_ldo_hix22,
+                .sparc_ldo_lox10,
+                .sparc_le_hix22,
+                .sparc_le_lox10,
                 => unreachable,
             } },
             .SPARCV9 => .{ .SPARC = switch (@"type") {
@@ -6541,6 +6603,10 @@ fn addSymbolRelocAssumeCapacity(
                 .sparc_h44 => .H44,
                 .sparc_m44 => .M44,
                 .sparc_l44 => .L44,
+                .sparc_ldo_hix22 => .TLS_LDO_HIX22,
+                .sparc_ldo_lox10 => .TLS_LDO_LOX10,
+                .sparc_le_hix22 => .TLS_LE_HIX22,
+                .sparc_le_lox10 => .TLS_LE_LOX10,
             } },
         };
 
