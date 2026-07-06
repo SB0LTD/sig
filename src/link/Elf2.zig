@@ -6197,8 +6197,6 @@ fn addRelocAssumeCapacity(
                 .GOT64_HI12 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_abs64_hi12),
             },
             .SPARCV9 => switch (@"type".SPARC) {
-                else => std.debug.panic("TODO: unsupported input relocation, {t}", .{@"type".SPARC}),
-
                 _,
                 .NONE,
                 .COPY,
@@ -6241,6 +6239,20 @@ fn addRelocAssumeCapacity(
                 .M44,
                 .L44,
                 .REGISTER,
+                .TLS_GD_HI22,
+                .TLS_GD_LO10,
+                .TLS_GD_CALL,
+                .TLS_LDM_HI22,
+                .TLS_LDM_LO10,
+                .TLS_LDM_CALL,
+                .TLS_LDO_HIX22,
+                .TLS_LDO_LOX10,
+                .TLS_IE_HI22,
+                .TLS_IE_LO10,
+                .TLS_LE_HIX22,
+                .TLS_LE_LOX10,
+                .TLS_DTPMOD32,
+                .TLS_DTPMOD64,
                 .H34,
                 .WDISP10,
                 => |t| @panic("TODO: " ++ @tagName(t)),
@@ -6264,6 +6276,18 @@ fn addRelocAssumeCapacity(
                 .SIZE64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .size64),
 
                 // Relocations targeting a TLS symbol
+                .TLS_DTPOFF32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .dtpoff32),
+                .TLS_DTPOFF64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .dtpoff64),
+                .TLS_TPOFF32 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .tpoff32),
+                .TLS_TPOFF64 => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .tpoff64),
+                // We currently do no relaxation, so nothing to do for these.
+                .TLS_GD_ADD,
+                .TLS_LDM_ADD,
+                .TLS_LDO_ADD,
+                .TLS_IE_LD,
+                .TLS_IE_LDX,
+                .TLS_IE_ADD,
+                => {},
 
                 // Relocations targeting a GOT entry
                 .GOT10 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .sparc_10),
@@ -6400,10 +6424,10 @@ fn addSymbolRelocAssumeCapacity(
                 .rel16 => .DISP16,
                 .rel8 => .DISP8,
                 .pltabs64, .pltabs32, .pltrel64, .pltrel32 => break :r .none,
-                .dtpoff64 => @panic("TODO: dtpoff64"),
-                .dtpoff32 => @panic("TODO: dtpoff32"),
-                .tpoff64 => @panic("TODO: tpoff64"),
-                .tpoff32 => @panic("TODO: tpoff32"),
+                .dtpoff64 => .TLS_DTPOFF64,
+                .dtpoff32 => .TLS_DTPOFF32,
+                .tpoff64 => .TLS_TPOFF64,
+                .tpoff32 => .TLS_TPOFF32,
                 .size64 => .SIZE64,
                 .size32 => .SIZE32,
 
@@ -6580,8 +6604,9 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
             }
             const reloc_type: MachineRelocType = switch (elf.ehdrField(.machine)) {
                 else => |machine| @panic(@tagName(machine)),
-                .X86_64 => .{ .X86_64 = .TPOFF64 },
                 .LOONGARCH => .{ .LOONGARCH = if (elf.identClass() == .@"64") .TLS_TPREL64 else .TLS_TPREL32 },
+                .SPARCV9 => .{ .SPARC = if (elf.identClass() == .@"64") .TLS_TPOFF64 else .TLS_TPOFF32 },
+                .X86_64 => .{ .X86_64 = .TPOFF64 },
             };
             break :val switch (sym_id.unwrap()) {
                 // For global symbols, just target the right dynsym with no addend.
@@ -6629,8 +6654,9 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
             .dynamic => .{ .reloc = .{
                 .type = switch (elf.ehdrField(.machine)) {
                     else => |machine| @panic(@tagName(machine)),
-                    .X86_64 => .{ .X86_64 = .DTPMOD64 },
                     .LOONGARCH => .{ .LOONGARCH = if (elf.identClass() == .@"64") .TLS_DTPMOD64 else .TLS_DTPMOD32 },
+                    .SPARCV9 => .{ .SPARC = if (elf.identClass() == .@"64") .TLS_DTPMOD64 else .TLS_DTPMOD32 },
+                    .X86_64 => .{ .X86_64 = .DTPMOD64 },
                 },
                 .dynsym_index = switch (elf.classifySymbolValue(sym)) {
                     .static, .static_relative => 0,
@@ -6647,8 +6673,9 @@ fn updateGotEntry(elf: *Elf, got_index: usize) void {
             .dynamic => .{ .reloc = .{
                 .type = switch (elf.ehdrField(.machine)) {
                     else => |machine| @panic(@tagName(machine)),
-                    .X86_64 => .{ .X86_64 = .DTPMOD64 },
                     .LOONGARCH => .{ .LOONGARCH = if (elf.identClass() == .@"64") .TLS_DTPMOD64 else .TLS_DTPMOD32 },
+                    .SPARCV9 => .{ .SPARC = if (elf.identClass() == .@"64") .TLS_DTPMOD64 else .TLS_DTPMOD32 },
+                    .X86_64 => .{ .X86_64 = .DTPMOD64 },
                 },
                 .dynsym_index = 0,
                 .addend = 0,
