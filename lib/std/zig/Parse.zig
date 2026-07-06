@@ -334,13 +334,6 @@ fn parseContainerMembers(p: *Parse) Error!Members {
                 else => {
                     const identifier = p.tok_i;
                     defer last_field = identifier;
-                    const container_field = p.expectContainerField() catch |err| switch (err) {
-                        error.OutOfMemory => |e| return e,
-                        error.ParseError => {
-                            p.findNextContainerMember();
-                            continue;
-                        },
-                    };
                     switch (field_state) {
                         .none => field_state = .seen,
                         .err, .seen => {},
@@ -363,6 +356,13 @@ fn parseContainerMembers(p: *Parse) Error!Members {
                             field_state = .err;
                         },
                     }
+                    const container_field = p.expectContainerField() catch |err| switch (err) {
+                        error.OutOfMemory => |e| return e,
+                        error.ParseError => {
+                            p.findNextContainerMember();
+                            continue;
+                        },
+                    };
                     try p.scratch.append(p.gpa, container_field);
                     switch (p.tokenTag(p.tok_i)) {
                         .comma => {
@@ -439,13 +439,6 @@ fn parseContainerMembers(p: *Parse) Error!Members {
 
                 const identifier = p.tok_i;
                 defer last_field = identifier;
-                const container_field = p.expectContainerField() catch |err| switch (err) {
-                    error.OutOfMemory => |e| return e,
-                    error.ParseError => {
-                        p.findNextContainerMember();
-                        continue;
-                    },
-                };
                 switch (field_state) {
                     .none => field_state = .seen,
                     .err, .seen => {},
@@ -468,6 +461,13 @@ fn parseContainerMembers(p: *Parse) Error!Members {
                         field_state = .err;
                     },
                 }
+                const container_field = p.expectContainerField() catch |err| switch (err) {
+                    error.OutOfMemory => |e| return e,
+                    error.ParseError => {
+                        p.findNextContainerMember();
+                        continue;
+                    },
+                };
                 try p.scratch.append(p.gpa, container_field);
                 switch (p.tokenTag(p.tok_i)) {
                     .comma => {
