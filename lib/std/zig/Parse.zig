@@ -3371,6 +3371,7 @@ fn expectContainerDeclAuto(p: *Parse) !Node.Index {
 /// Give a helpful error message for those transitioning from
 /// C's 'struct Foo {};' to Zig's 'const Foo = struct {};'.
 fn parseCStyleContainer(p: *Parse) Error!bool {
+    if (!p.recover) return false;
     const main_token = p.tok_i;
     switch (p.tokenTag(p.tok_i)) {
         .keyword_enum, .keyword_union, .keyword_struct => {},
@@ -3436,10 +3437,13 @@ fn parseParamDeclList(p: *Parse) !SmallSpan {
     _ = try p.expectToken(.l_paren);
     const scratch_top = p.scratch.items.len;
     defer p.scratch.shrinkRetainingCapacity(scratch_top);
-    var varargs: union(enum) { none, seen, nonfinal: TokenIndex } = .none;
+    var varargs: enum { none, seen, err } = .none;
     while (true) {
         if (p.eatToken(.r_paren)) |_| break;
-        if (varargs == .seen) varargs = .{ .nonfinal = p.tok_i };
+        if (varargs == .seen) {
+            try p.warnMsg(.{ .tag = .varargs_nonfinal, .token = p.tok_i });
+            varargs = .err;
+        }
         const opt_param = try p.expectParamDecl();
         if (opt_param) |param| {
             try p.scratch.append(p.gpa, param);
@@ -3456,9 +3460,6 @@ fn parseParamDeclList(p: *Parse) !SmallSpan {
             // Likely just a missing comma; give error but continue parsing.
             else => try p.warn(.expected_comma_after_param),
         }
-    }
-    if (varargs == .nonfinal) {
-        try p.warnMsg(.{ .tag = .varargs_nonfinal, .token = varargs.nonfinal });
     }
     const params = p.scratch.items[scratch_top..];
     return switch (params.len) {
