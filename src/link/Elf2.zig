@@ -779,10 +779,10 @@ const GotReloc = struct {
     };
 
     const Type = enum(u8) {
-        offset64,
         offset32,
-        rel64,
+        offset64,
         rel32,
+        rel64,
 
         larch_rel32_hi20,
         larch_rel64_lo20,
@@ -791,6 +791,12 @@ const GotReloc = struct {
         larch_abs32_hi20,
         larch_abs64_lo20,
         larch_abs64_hi12,
+
+        sparc_10,
+        sparc_13,
+        sparc_22,
+        sparc_op_hix22,
+        sparc_op_lox10,
     };
 
     const Index = enum(u32) {
@@ -894,6 +900,37 @@ const GotReloc = struct {
                 assert(elf.ehdrField(.machine) == .LOONGARCH);
                 const target_value = got_vaddr +% got_offset +% addend;
                 link.loongarch.writeK12(dest_slice[0..4], @truncate(target_value >> 52));
+            },
+
+            .sparc_10 => {
+                const dest_ptr: *link.sparc.reloc.Simm13 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.simm13 = @as(u10, @truncate(got_offset));
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_13 => {
+                const dest_ptr: *link.sparc.reloc.Simm13 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.simm13 = @truncate(got_offset);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_22 => {
+                const dest_ptr: *link.sparc.reloc.Simm22 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.simm22 = @truncate(got_offset >> 10);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_op_hix22 => {
+                const dest_ptr: *link.sparc.reloc.Imm22 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.imm22 = @truncate(got_offset >> 10);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_op_lox10 => {
+                const dest_ptr: *link.sparc.reloc.Imm13 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.imm13 = @as(u10, @truncate(got_offset));
+                elf.targetStore(dest_ptr, result);
             },
         }
     }
@@ -6066,6 +6103,29 @@ fn addRelocAssumeCapacity(
                 .GOT_HI20 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_abs32_hi20),
                 .GOT64_LO20 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_abs64_lo20),
                 .GOT64_HI12 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .larch_abs64_hi12),
+            },
+            .SPARCV9 => switch (@"type".SPARC) {
+                else => std.debug.panic("TODO: unsupported input relocation, {t}", .{@"type".SPARC}),
+
+                _,
+                .NONE,
+                .COPY,
+                .JMP_SLOT,
+                .RELATIVE,
+                .IRELATIVE,
+                => std.debug.panic("TODO: error for illegal or unsupported input relocation, {t}", .{@"type".SPARC}),
+
+                // Relocations targeting a GOT entry
+                .GOT10 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .sparc_10),
+                .GOT13 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .sparc_13),
+                .GOT22 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .sparc_22),
+                // These need similar handling to `R_X86_64_GOTOFF64`. No compiler seems to emit them though.
+                .GOTDATA_HIX22 => @panic("TODO: R_SPARC_GOTDATA_HIX22"),
+                .GOTDATA_LOX10 => @panic("TODO: R_SPARC_GOTDATA_LOX10"),
+                .GOTDATA_OP_HIX22 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .sparc_op_hix22),
+                .GOTDATA_OP_LOX10 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .sparc_op_lox10),
+                // We currently do no relaxation, so nothing to do for this one.
+                .GOTDATA_OP => {},
             },
         },
     }
