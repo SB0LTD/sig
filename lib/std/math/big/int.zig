@@ -122,7 +122,7 @@ pub fn calcNonZeroTwosCompLimbCount(bit_count: usize) usize {
 /// Special cases `bit_count == 0` to return 1. Zero-bit integers can only store the value zero
 /// and this big integer implementation stores zero using one limb.
 pub fn calcTwosCompLimbCount(bit_count: usize) usize {
-    return @max(std.math.divCeil(usize, bit_count, @bitSizeOf(Limb)) catch unreachable, 1);
+    return @max(@divCeil(bit_count, @bitSizeOf(Limb)), 1);
 }
 
 /// a + b * c + *carry, sets carry to the overflow bits

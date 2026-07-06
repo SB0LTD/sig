@@ -5279,7 +5279,7 @@ pub fn getStructDecl(zir: *const Zir, struct_decl: Inst.Index) UnwrappedStructDe
         break :lens @ptrCast(lens);
     } else null;
     const field_comptime_bits: ?[]const u32 = if (small.any_comptime_fields) bits: {
-        const bits_len = std.math.divCeil(u32, fields_len, 32) catch unreachable;
+        const bits_len = @divCeil(fields_len, 32);
         const bits = zir.extra[extra_index..][0..bits_len];
         extra_index += bits_len;
         break :bits bits;

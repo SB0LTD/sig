@@ -4896,7 +4896,7 @@ fn structDeclInner(
     const field_default_body_lens = try scratch.addOptionalSlice(scan_result.any_field_values, scan_result.fields_len);
     const field_comptime_bits = try scratch.addOptionalSlice(
         scan_result.any_comptime_fields,
-        std.math.divCeil(u32, scan_result.fields_len, 32) catch unreachable,
+        @divCeil(scan_result.fields_len, 32),
     );
     if (field_comptime_bits) |bits| @memset(bits.get(astgen), 0);
 
