@@ -795,6 +795,8 @@ const GotReloc = struct {
         sparc_10,
         sparc_13,
         sparc_22,
+        sparc_ldm_hi22,
+        sparc_ldm_lo10,
         sparc_op_hix22,
         sparc_op_lox10,
     };
@@ -918,6 +920,18 @@ const GotReloc = struct {
                 const dest_ptr: *link.sparc.reloc.Simm22 = @ptrCast(@alignCast(dest_slice));
                 var result = elf.targetLoad(dest_ptr);
                 result.simm22 = @truncate(got_offset >> 10);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_ldm_hi22 => {
+                const dest_ptr: *link.sparc.reloc.Simm22 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.simm22 = @truncate((got_offset +% addend) >> 10);
+                elf.targetStore(dest_ptr, result);
+            },
+            .sparc_ldm_lo10 => {
+                const dest_ptr: *link.sparc.reloc.Simm13 = @ptrCast(@alignCast(dest_slice));
+                var result = elf.targetLoad(dest_ptr);
+                result.simm13 = @as(u10, @truncate(got_offset +% addend));
                 elf.targetStore(dest_ptr, result);
             },
             .sparc_op_hix22 => {
@@ -6292,8 +6306,6 @@ fn addRelocAssumeCapacity(
                 .TLS_GD_HI22,
                 .TLS_GD_LO10,
                 .TLS_GD_CALL,
-                .TLS_LDM_HI22,
-                .TLS_LDM_LO10,
                 .TLS_LDM_CALL,
                 .TLS_LDO_HIX22,
                 .TLS_LDO_LOX10,
@@ -6350,6 +6362,8 @@ fn addRelocAssumeCapacity(
                 .GOT10 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .sparc_10),
                 .GOT13 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .sparc_13),
                 .GOT22 => elf.addGotRelocAssumeCapacity(node, offset, .{ .symbol = target }, addend, .sparc_22),
+                .TLS_LDM_HI22 => elf.addGotRelocAssumeCapacity(node, offset, .tlsld0, addend, .sparc_ldm_hi22),
+                .TLS_LDM_LO10 => elf.addGotRelocAssumeCapacity(node, offset, .tlsld0, addend, .sparc_ldm_lo10),
                 // These need similar handling to `R_X86_64_GOTOFF64`. No compiler seems to emit them though.
                 .GOTDATA_HIX22 => @panic("TODO: R_SPARC_GOTDATA_HIX22"),
                 .GOTDATA_LOX10 => @panic("TODO: R_SPARC_GOTDATA_LOX10"),
