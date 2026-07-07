@@ -441,13 +441,13 @@ ByteAlign <- KEYWORD_align LPAREN Expr RPAREN
 BitAlign <- KEYWORD_align LPAREN Expr (COLON Expr COLON Expr)? RPAREN
 
 # Lists
-IdentifierList <- (doc_comment? IDENTIFIER COMMA)* (doc_comment? IDENTIFIER)?
+IdentifierList <- (doc_comment? IDENTIFIER (COMMA IdentifierList)?)?
 
-SwitchProngList <- (SwitchProng COMMA)* SwitchProng?
+SwitchProngList <- (SwitchProng (COMMA SwitchProngList)?)?
 
-AsmOutputList <- (AsmOutputItem COMMA)* AsmOutputItem?
+AsmOutputList <- (AsmOutputItem (COMMA AsmOutputList)?)?
 
-AsmInputList <- (AsmInputItem COMMA)* AsmInputItem?
+AsmInputList <- (AsmInputItem (COMMA AsmInputList)?)?
 
 ParamDeclList <- LPAREN ParamDeclListRest
 ParamDeclListRest
@@ -455,7 +455,7 @@ ParamDeclListRest
      / DOT3 COMMA? RPAREN
      / ParamDecl (COMMA ParamDeclListRest / RPAREN)
 
-ExprList <- (Expr COMMA)* (Expr / !ExprPrefix)
+ExprList <- Expr (COMMA ExprList)? / !ExprPrefix
 
 ExprPrefix <- ASTERISK
 

@@ -2913,21 +2913,14 @@ const Parser = struct {
         defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
-                var i_1: usize = 0;
-                while (blk_3: {
-                    const pos_3 = p.i;
-                    if ((try p.parsedoc_comment() or true) and try p.parseIDENTIFIER() and try p.parseCOMMA()) break :blk_3 true;
-                    p.i = pos_3;
-                    break :blk_3 false;
-                }) {
-                    if (i_1 > max_depth) return error.MaxDepth;
-                    i_1 += 1;
-                }
-                break :blk_1 true;
-            } and (blk_3: {
+            if ((blk_3: {
                 const pos_3 = p.i;
-                if ((try p.parsedoc_comment() or true) and try p.parseIDENTIFIER()) break :blk_3 true;
+                if ((try p.parsedoc_comment() or true) and try p.parseIDENTIFIER() and (blk_6: {
+                    const pos_6 = p.i;
+                    if (try p.parseCOMMA() and try p.parseIdentifierList()) break :blk_6 true;
+                    p.i = pos_6;
+                    break :blk_6 false;
+                } or true)) break :blk_3 true;
                 p.i = pos_3;
                 break :blk_3 false;
             } or true)) break :blk_0 true;
@@ -2942,19 +2935,17 @@ const Parser = struct {
         defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
-                var i_1: usize = 0;
-                while (blk_3: {
-                    const pos_3 = p.i;
-                    if (try p.parseSwitchProng() and try p.parseCOMMA()) break :blk_3 true;
-                    p.i = pos_3;
-                    break :blk_3 false;
-                }) {
-                    if (i_1 > max_depth) return error.MaxDepth;
-                    i_1 += 1;
-                }
-                break :blk_1 true;
-            } and (try p.parseSwitchProng() or true)) break :blk_0 true;
+            if ((blk_3: {
+                const pos_3 = p.i;
+                if (try p.parseSwitchProng() and (blk_6: {
+                    const pos_6 = p.i;
+                    if (try p.parseCOMMA() and try p.parseSwitchProngList()) break :blk_6 true;
+                    p.i = pos_6;
+                    break :blk_6 false;
+                } or true)) break :blk_3 true;
+                p.i = pos_3;
+                break :blk_3 false;
+            } or true)) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2966,19 +2957,17 @@ const Parser = struct {
         defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
-                var i_1: usize = 0;
-                while (blk_3: {
-                    const pos_3 = p.i;
-                    if (try p.parseAsmOutputItem() and try p.parseCOMMA()) break :blk_3 true;
-                    p.i = pos_3;
-                    break :blk_3 false;
-                }) {
-                    if (i_1 > max_depth) return error.MaxDepth;
-                    i_1 += 1;
-                }
-                break :blk_1 true;
-            } and (try p.parseAsmOutputItem() or true)) break :blk_0 true;
+            if ((blk_3: {
+                const pos_3 = p.i;
+                if (try p.parseAsmOutputItem() and (blk_6: {
+                    const pos_6 = p.i;
+                    if (try p.parseCOMMA() and try p.parseAsmOutputList()) break :blk_6 true;
+                    p.i = pos_6;
+                    break :blk_6 false;
+                } or true)) break :blk_3 true;
+                p.i = pos_3;
+                break :blk_3 false;
+            } or true)) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2990,19 +2979,17 @@ const Parser = struct {
         defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
-                var i_1: usize = 0;
-                while (blk_3: {
-                    const pos_3 = p.i;
-                    if (try p.parseAsmInputItem() and try p.parseCOMMA()) break :blk_3 true;
-                    p.i = pos_3;
-                    break :blk_3 false;
-                }) {
-                    if (i_1 > max_depth) return error.MaxDepth;
-                    i_1 += 1;
-                }
-                break :blk_1 true;
-            } and (try p.parseAsmInputItem() or true)) break :blk_0 true;
+            if ((blk_3: {
+                const pos_3 = p.i;
+                if (try p.parseAsmInputItem() and (blk_6: {
+                    const pos_6 = p.i;
+                    if (try p.parseCOMMA() and try p.parseAsmInputList()) break :blk_6 true;
+                    p.i = pos_6;
+                    break :blk_6 false;
+                } or true)) break :blk_3 true;
+                p.i = pos_3;
+                break :blk_3 false;
+            } or true)) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -3049,30 +3036,18 @@ const Parser = struct {
         defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
+            if (try p.parseExpr() and (blk_3: {
+                const pos_3 = p.i;
+                if (try p.parseCOMMA() and try p.parseExprList()) break :blk_3 true;
+                p.i = pos_3;
+                break :blk_3 false;
+            } or true)) break :blk_0 true;
+            p.i = pos_0;
             if (blk_1: {
-                var i_1: usize = 0;
-                while (blk_3: {
-                    const pos_3 = p.i;
-                    if (try p.parseExpr() and try p.parseCOMMA()) break :blk_3 true;
-                    p.i = pos_3;
-                    break :blk_3 false;
-                }) {
-                    if (i_1 > max_depth) return error.MaxDepth;
-                    i_1 += 1;
-                }
-                break :blk_1 true;
-            } and blk_2: {
-                const pos_2 = p.i;
-                if (try p.parseExpr()) break :blk_2 true;
-                p.i = pos_2;
-                if (blk_3: {
-                    const pos_3 = p.i;
-                    const match_3 = try p.parseExprPrefix();
-                    p.i = pos_3;
-                    break :blk_3 !match_3;
-                }) break :blk_2 true;
-                p.i = pos_2;
-                break :blk_2 false;
+                const pos_1 = p.i;
+                const match_1 = try p.parseExprPrefix();
+                p.i = pos_1;
+                break :blk_1 !match_1;
             }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
