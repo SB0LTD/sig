@@ -16,6 +16,7 @@ pub fn parse(source: []const u8) Error!bool {
 const Def = enum {
     defRoot,
     defContainerMembers,
+    defContainerMembersRest,
     defContainerDecl,
     defContainerDeclPrefix,
     defTestDecl,
@@ -289,7 +290,7 @@ const Def = enum {
 const Parser = struct {
     source: []const u8,
     i: usize,
-    depths: [271]u8,
+    depths: [272]u8,
     pub fn parseRoot(p: *Parser) Error!bool {
         const def_index = @intFromEnum(Def.defRoot);
         if (p.depths[def_index] > max_depth) return error.MaxDepth;
@@ -316,47 +317,37 @@ const Parser = struct {
                     i_1 += 1;
                 }
                 break :blk_1 true;
-            } and blk_1: {
+            } and try p.parseContainerMembersRest()) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseContainerMembersRest(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defContainerMembersRest);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
+        return blk_0: {
+            const pos_0 = p.i;
+            if (blk_1: {
                 const pos_1 = p.i;
                 const match_1 = try p.parseContainerDeclPrefix();
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and blk_1: {
+            } and try p.parseContainerField() and (blk_3: {
+                const pos_3 = p.i;
+                if (try p.parseCOMMA() and try p.parseContainerMembersRest()) break :blk_3 true;
+                p.i = pos_3;
+                break :blk_3 false;
+            } or true)) break :blk_0 true;
+            p.i = pos_0;
+            if (blk_1: {
                 var i_1: usize = 0;
-                while (blk_3: {
-                    const pos_3 = p.i;
-                    if (blk_4: {
-                        const pos_4 = p.i;
-                        const match_4 = try p.parseContainerDeclPrefix();
-                        p.i = pos_4;
-                        break :blk_4 !match_4;
-                    } and try p.parseContainerField() and try p.parseCOMMA()) break :blk_3 true;
-                    p.i = pos_3;
-                    break :blk_3 false;
-                }) {
+                while (try p.parseContainerDecl()) {
                     if (i_1 > max_depth) return error.MaxDepth;
                     i_1 += 1;
                 }
                 break :blk_1 true;
-            } and blk_2: {
-                const pos_2 = p.i;
-                if (blk_3: {
-                    const pos_3 = p.i;
-                    const match_3 = try p.parseContainerDeclPrefix();
-                    p.i = pos_3;
-                    break :blk_3 !match_3;
-                } and try p.parseContainerField()) break :blk_2 true;
-                p.i = pos_2;
-                if (blk_3: {
-                    var i_3: usize = 0;
-                    while (try p.parseContainerDecl()) {
-                        if (i_3 > max_depth) return error.MaxDepth;
-                        i_3 += 1;
-                    }
-                    break :blk_3 true;
-                }) break :blk_2 true;
-                p.i = pos_2;
-                break :blk_2 false;
             }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
