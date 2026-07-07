@@ -203,7 +203,7 @@ const Parser = struct {
     pub fn parseFnProto(p: *Parser) Error!bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (try p.parseKEYWORD_fn() and (try p.parseIDENTIFIER() or true) and try p.parseLPAREN() and try p.parseParamDeclList() and try p.parseRPAREN() and (try p.parseByteAlign() or true) and (try p.parseAddrSpace() or true) and (try p.parseLinkSection() or true) and (try p.parseCallConv() or true) and (try p.parseEXCLAMATIONMARK() or true) and try p.parseTypeExpr()) break :blk_0 true;
+            if (try p.parseKEYWORD_fn() and (try p.parseIDENTIFIER() or true) and try p.parseParamDeclList() and (try p.parseByteAlign() or true) and (try p.parseAddrSpace() or true) and (try p.parseLinkSection() or true) and (try p.parseCallConv() or true) and (try p.parseEXCLAMATIONMARK() or true) and try p.parseTypeExpr()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -2286,26 +2286,26 @@ const Parser = struct {
     pub fn parseParamDeclList(p: *Parser) Error!bool {
         return blk_0: {
             const pos_0 = p.i;
-            if (blk_1: {
-                var i_1: usize = 0;
-                while (blk_3: {
-                    const pos_3 = p.i;
-                    if (try p.parseParamDecl() and try p.parseCOMMA()) break :blk_3 true;
-                    p.i = pos_3;
-                    break :blk_3 false;
-                }) {
-                    if (i_1 > max_depth) return error.MaxDepth;
-                    i_1 += 1;
-                }
-                break :blk_1 true;
-            } and (blk_3: {
-                const pos_3 = p.i;
-                if (try p.parseParamDecl()) break :blk_3 true;
-                p.i = pos_3;
-                if (try p.parseDOT3() and (try p.parseCOMMA() or true)) break :blk_3 true;
-                p.i = pos_3;
-                break :blk_3 false;
-            } or true)) break :blk_0 true;
+            if (try p.parseLPAREN() and try p.parseParamDeclListRest()) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseParamDeclListRest(p: *Parser) Error!bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (try p.parseRPAREN()) break :blk_0 true;
+            p.i = pos_0;
+            if (try p.parseDOT3() and (try p.parseCOMMA() or true) and try p.parseRPAREN()) break :blk_0 true;
+            p.i = pos_0;
+            if (try p.parseParamDecl() and blk_2: {
+                const pos_2 = p.i;
+                if (try p.parseCOMMA() and try p.parseParamDeclListRest()) break :blk_2 true;
+                p.i = pos_2;
+                if (try p.parseRPAREN()) break :blk_2 true;
+                p.i = pos_2;
+                break :blk_2 false;
+            }) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };

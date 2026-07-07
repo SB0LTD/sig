@@ -64,7 +64,7 @@ DeclPrefix
      / KEYWORD_extern STRINGLITERALSINGLE? KEYWORD_fn
      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? (KEYWORD_const / KEYWORD_var)
 
-FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
+FnProto <- KEYWORD_fn IDENTIFIER? ParamDeclList ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
 
 VarDeclProto <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? AddrSpace? LinkSection?
 
@@ -448,7 +448,11 @@ AsmOutputList <- (AsmOutputItem COMMA)* AsmOutputItem?
 
 AsmInputList <- (AsmInputItem COMMA)* AsmInputItem?
 
-ParamDeclList <- (ParamDecl COMMA)* (ParamDecl / DOT3 COMMA?)?
+ParamDeclList <- LPAREN ParamDeclListRest
+ParamDeclListRest
+    <- RPAREN
+     / DOT3 COMMA? RPAREN
+     / ParamDecl (COMMA ParamDeclListRest / RPAREN)
 
 ExprList <- (Expr COMMA)* (Expr / !ExprPrefix)
 
