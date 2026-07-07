@@ -50,6 +50,7 @@ pub const Os = struct {
 
         @"3ds",
         wiiu,
+        @"switch",
 
         psx,
         ps3,
@@ -196,6 +197,7 @@ pub const Os = struct {
 
                 .@"3ds",
                 .wiiu,
+                .@"switch",
 
                 .psp,
                 .vita,
@@ -632,6 +634,13 @@ pub const Os = struct {
                     },
                 },
 
+                .@"switch" => .{
+                    .semver = .{
+                        .min = .{ .major = 1, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 22, .minor = 5, .patch = 0 },
+                    },
+                },
+
                 .psp => .{
                     .semver = .{
                         // https://www.psdevwiki.com/psp/Official_Firmware_(OFW)#1.XX_Kernel
@@ -944,6 +953,7 @@ pub const Abi = enum {
             .tvos,
             .visionos,
             .watchos,
+            .@"switch",
             .ps3,
             .ps4,
             .ps5,
@@ -2040,6 +2050,7 @@ pub const Cpu = struct {
                     .ios, .tvos => &aarch64.cpu.apple_a7,
                     .visionos => &aarch64.cpu.apple_m2,
                     .watchos => &aarch64.cpu.apple_s4,
+                    .@"switch" => &aarch64.cpu.cortex_a57,
                     else => generic(arch),
                 },
                 .avr => &avr.cpu.avr2,
@@ -2271,8 +2282,9 @@ pub fn requiresLibC(target: *const Target) bool {
         .plan9,
         .other,
         .@"3ds",
-        .tios,
         .wiiu,
+        .@"switch",
+        .tios,
         .ashetos,
         => false,
     };
@@ -2421,6 +2433,7 @@ pub const DynamicLinker = struct {
 
             .@"3ds",
             .wiiu,
+            .@"switch",
 
             .emscripten,
             .wasi,
@@ -2845,6 +2858,7 @@ pub const DynamicLinker = struct {
 
             .@"3ds",
             .wiiu,
+            .@"switch",
 
             .psx,
             .psp,
@@ -3408,6 +3422,14 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
             .short, .ushort => return 16,
             .int, .uint, .float, .long, .ulong => return 32,
             .longlong, .ulonglong, .double, .longdouble => return 64,
+        },
+
+        .@"switch" => switch (c_type) {
+            .char => return 8,
+            .short, .ushort => return 16,
+            .int, .uint, .float => return 32,
+            .long, .ulong, .longlong, .ulonglong, .double => return 64,
+            .longdouble => return 128,
         },
 
         .psx => switch (c_type) {
