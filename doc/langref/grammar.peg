@@ -376,12 +376,12 @@ PrefixTypeOp
 # while permitting arbitrary order. A compile error for duplicates single-token modifiers
 # is emitted during "AstGen" after parsing is complete.
 PtrMods
-   <- PtrMod* ByteAlign? PtrMod* AddrSpace? PtrMod*
-    / PtrMod* AddrSpace? PtrMod* ByteAlign? PtrMod*
+   <- PtrMod* !KEYWORD_addrspace ByteAlign? PtrMod* AddrSpace? PtrMod*
+    / PtrMod* !KEYWORD_align AddrSpace? PtrMod* ByteAlign? PtrMod*
 
 SinglePtrMods
-   <- PtrMod* BitAlign? PtrMod* AddrSpace? PtrMod*
-    / PtrMod* AddrSpace? PtrMod* BitAlign? PtrMod*
+   <- PtrMod* !KEYWORD_addrspace BitAlign? PtrMod* AddrSpace? PtrMod*
+    / PtrMod* !KEYWORD_align AddrSpace? PtrMod* BitAlign? PtrMod*
 
 PtrMod
     <- KEYWORD_allowzero

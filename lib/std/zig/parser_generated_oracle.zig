@@ -1876,6 +1876,11 @@ const Parser = struct {
                     i_1 += 1;
                 }
                 break :blk_1 true;
+            } and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = try p.parseKEYWORD_addrspace();
+                p.i = pos_1;
+                break :blk_1 !match_1;
             } and (try p.parseByteAlign() or true) and blk_1: {
                 var i_1: usize = 0;
                 while (try p.parsePtrMod()) {
@@ -1899,6 +1904,11 @@ const Parser = struct {
                     i_1 += 1;
                 }
                 break :blk_1 true;
+            } and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = try p.parseKEYWORD_align();
+                p.i = pos_1;
+                break :blk_1 !match_1;
             } and (try p.parseAddrSpace() or true) and blk_1: {
                 var i_1: usize = 0;
                 while (try p.parsePtrMod()) {
@@ -1928,6 +1938,11 @@ const Parser = struct {
                     i_1 += 1;
                 }
                 break :blk_1 true;
+            } and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = try p.parseKEYWORD_addrspace();
+                p.i = pos_1;
+                break :blk_1 !match_1;
             } and (try p.parseBitAlign() or true) and blk_1: {
                 var i_1: usize = 0;
                 while (try p.parsePtrMod()) {
@@ -1951,6 +1966,11 @@ const Parser = struct {
                     i_1 += 1;
                 }
                 break :blk_1 true;
+            } and blk_1: {
+                const pos_1 = p.i;
+                const match_1 = try p.parseKEYWORD_align();
+                p.i = pos_1;
+                break :blk_1 !match_1;
             } and (try p.parseAddrSpace() or true) and blk_1: {
                 var i_1: usize = 0;
                 while (try p.parsePtrMod()) {

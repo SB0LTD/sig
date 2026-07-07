@@ -115,6 +115,14 @@ test "volatile const" {
 }
 
 // Found using AFL++
+test "addrspace align" {
+    try checkAgainstOracle("*addrspace(0) align(0) 0");
+    try checkAgainstOracle("*align(0) addrspace(0) 0");
+    try checkAgainstOracle("[*]addrspace(0) align(0) 0");
+    try checkAgainstOracle("[*]align(0) addrspace(0) 0");
+}
+
+// Found using AFL++
 test "catch capture whitespace" {
     try checkAgainstOracle("test{0 catch |h|0;}");
 }
