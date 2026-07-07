@@ -10,16 +10,291 @@ const max_depth = 5;
 /// the grammar.
 /// Returns error.MaxDepth if more than `max_depth` levels of recursion/iteration are reached.
 pub fn parse(source: []const u8) Error!bool {
-    var p: Parser = .{ .source = source, .i = 0, .expr_depth = 1, .block_depth = 1 };
+    var p: Parser = .{ .source = source, .i = 0, .depths = @splat(1) };
     return p.parseRoot();
 }
-
+const Def = enum {
+    defRoot,
+    defContainerMembers,
+    defContainerDecl,
+    defContainerDeclPrefix,
+    defTestDecl,
+    defComptimeDecl,
+    defDecl,
+    defDeclPrefix,
+    defFnProto,
+    defVarDeclProto,
+    defGlobalVarDecl,
+    defContainerField,
+    defBlockStatement,
+    defStatement,
+    defStatementPrefix,
+    defIfStatement,
+    defLabeledStatement,
+    defLoopStatement,
+    defForStatement,
+    defWhileStatement,
+    defBlockExprStatement,
+    defBlockExprPrefix,
+    defBlockExpr,
+    defVarAssignStatement,
+    defAssignExpr,
+    defSingleAssignExpr,
+    defExpr,
+    defBoolOrExpr,
+    defBoolAndExpr,
+    defCompareExpr,
+    defBitwiseExpr,
+    defBitShiftExpr,
+    defAdditionExpr,
+    defMultiplyExpr,
+    defPrefixExpr,
+    defPrimaryExpr,
+    defIfExpr,
+    defBlock,
+    defLoopExpr,
+    defForExpr,
+    defWhileExpr,
+    defCurlySuffixExpr,
+    defInitList,
+    defTypeExpr,
+    defErrorUnionExpr,
+    defSuffixExpr,
+    defPrimaryTypeExpr,
+    defContainerType,
+    defErrorSetDecl,
+    defGroupedExpr,
+    defIfTypeExpr,
+    defLabeledTypeExpr,
+    defLoopTypeExpr,
+    defForTypeExpr,
+    defWhileTypeExpr,
+    defSwitchExpr,
+    defAsmExpr,
+    defAsmOutput,
+    defAsmOutputItem,
+    defAsmInput,
+    defAsmInputItem,
+    defAsmClobbers,
+    defBreakLabel,
+    defBlockLabel,
+    defFieldInit,
+    defWhileContinueExpr,
+    defLinkSection,
+    defAddrSpace,
+    defCallConv,
+    defParamDecl,
+    defParamType,
+    defIfPrefix,
+    defWhilePrefix,
+    defForPrefix,
+    defPayload,
+    defPtrPayload,
+    defPtrIndexPayload,
+    defPtrListPayload,
+    defSwitchProng,
+    defSwitchCase,
+    defSwitchItem,
+    defForArgumentsList,
+    defForItem,
+    defAssignOp,
+    defOrOp,
+    defAndOp,
+    defCompareOp,
+    defCompareOpTok,
+    defBitwiseOp,
+    defBitwiseOpTok,
+    defBitShiftOp,
+    defBitShiftOpTok,
+    defAdditionOp,
+    defAdditionOpTok,
+    defMultiplyOp,
+    defMultiplyOpTok,
+    defPrefixOp,
+    defPrefixTypeOp,
+    defPtrMods,
+    defSinglePtrMods,
+    defPtrMod,
+    defPrefixTypeOpPrefix,
+    defSuffixOp,
+    defSuffixOpPrefix,
+    defFnCallArguments,
+    defSliceTypeStart,
+    defSinglePtrTypeStart,
+    defManyPtrTypeStart,
+    defArrayTypeStart,
+    defContainerTypeAuto,
+    defContainerTypeKind,
+    defByteAlign,
+    defBitAlign,
+    defIdentifierList,
+    defSwitchProngList,
+    defAsmOutputList,
+    defAsmInputList,
+    defParamDeclList,
+    defParamDeclListRest,
+    defExprList,
+    defExprPrefix,
+    defbyte_order_mark,
+    defsof,
+    defeof,
+    defox80_oxBF,
+    defoxF4,
+    defox80_ox8F,
+    defoxF1_oxF3,
+    defoxF0,
+    defox90_0xBF,
+    defoxEE_oxEF,
+    defoxED,
+    defox80_ox9F,
+    defoxE1_oxEC,
+    defoxE0,
+    defoxA0_oxBF,
+    defoxC2_oxDF,
+    defmultibyte_utf8,
+    defnon_control_ascii,
+    defnon_control_utf8,
+    defchar_char,
+    defstring_char,
+    defcontainer_doc_comment,
+    defdoc_comment,
+    defline_comment,
+    defline_string,
+    defnewline,
+    defskip,
+    defskip_require_newline,
+    defpre_op_white,
+    defpost_op_white,
+    defCHAR_LITERAL,
+    defdigit,
+    defdigit_int,
+    defdigit_float,
+    defNUMBERLITERAL,
+    defstring,
+    defSTRINGLITERALSINGLE,
+    defSTRINGLITERAL,
+    defIDENTIFIER,
+    defBUILTINIDENTIFIER,
+    defAMPERSAND,
+    defAMPERSANDEQUAL,
+    defASTERISK,
+    defASTERISKEQUAL,
+    defASTERISKPERCENT,
+    defASTERISKPERCENTEQUAL,
+    defASTERISKPIPE,
+    defASTERISKPIPEEQUAL,
+    defCARET,
+    defCARETEQUAL,
+    defCOLON,
+    defCOMMA,
+    defDOT,
+    defDOT2,
+    defDOT3,
+    defDOTASTERISK,
+    defEQUAL,
+    defEQUALEQUAL,
+    defEQUALRARROW,
+    defEXCLAMATIONMARK,
+    defEXCLAMATIONMARKEQUAL,
+    defLARROW,
+    defLARROW2,
+    defLARROW2EQUAL,
+    defLARROW2PIPE,
+    defLARROW2PIPEEQUAL,
+    defLARROWEQUAL,
+    defLBRACE,
+    defLBRACKET,
+    defLPAREN,
+    defMINUS,
+    defMINUSEQUAL,
+    defMINUSPERCENT,
+    defMINUSPERCENTEQUAL,
+    defMINUSPIPE,
+    defMINUSPIPEEQUAL,
+    defMINUSRARROW,
+    defPERCENT,
+    defPERCENTEQUAL,
+    defPIPE,
+    defPIPE2,
+    defPIPEEQUAL,
+    defPLUS,
+    defPLUS2,
+    defPLUSEQUAL,
+    defPLUSPERCENT,
+    defPLUSPERCENTEQUAL,
+    defPLUSPIPE,
+    defPLUSPIPEEQUAL,
+    defLETTERC,
+    defQUESTIONMARK,
+    defRARROW,
+    defRARROW2,
+    defRARROW2EQUAL,
+    defRARROWEQUAL,
+    defRBRACE,
+    defRBRACKET,
+    defRPAREN,
+    defSEMICOLON,
+    defSLASH,
+    defSLASHEQUAL,
+    defTILDE,
+    defend_of_word,
+    defKEYWORD_addrspace,
+    defKEYWORD_align,
+    defKEYWORD_allowzero,
+    defKEYWORD_and,
+    defKEYWORD_anyframe,
+    defKEYWORD_anytype,
+    defKEYWORD_asm,
+    defKEYWORD_break,
+    defKEYWORD_callconv,
+    defKEYWORD_catch,
+    defKEYWORD_comptime,
+    defKEYWORD_const,
+    defKEYWORD_continue,
+    defKEYWORD_defer,
+    defKEYWORD_else,
+    defKEYWORD_enum,
+    defKEYWORD_errdefer,
+    defKEYWORD_error,
+    defKEYWORD_export,
+    defKEYWORD_extern,
+    defKEYWORD_fn,
+    defKEYWORD_for,
+    defKEYWORD_if,
+    defKEYWORD_inline,
+    defKEYWORD_noalias,
+    defKEYWORD_nosuspend,
+    defKEYWORD_noinline,
+    defKEYWORD_opaque,
+    defKEYWORD_or,
+    defKEYWORD_orelse,
+    defKEYWORD_packed,
+    defKEYWORD_pub,
+    defKEYWORD_resume,
+    defKEYWORD_return,
+    defKEYWORD_linksection,
+    defKEYWORD_struct,
+    defKEYWORD_suspend,
+    defKEYWORD_switch,
+    defKEYWORD_test,
+    defKEYWORD_threadlocal,
+    defKEYWORD_try,
+    defKEYWORD_union,
+    defKEYWORD_unreachable,
+    defKEYWORD_var,
+    defKEYWORD_volatile,
+    defKEYWORD_while,
+    defkeyword,
+};
 const Parser = struct {
     source: []const u8,
     i: usize,
-    expr_depth: usize,
-    block_depth: usize,
+    depths: [271]u8,
     pub fn parseRoot(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defRoot);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseContainerMembers() and try p.parseskip() and try p.parseeof()) break :blk_0 true;
@@ -28,6 +303,10 @@ const Parser = struct {
         };
     }
     pub fn parseContainerMembers(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defContainerMembers);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((try p.parsecontainer_doc_comment() or true) and blk_1: {
@@ -84,6 +363,10 @@ const Parser = struct {
         };
     }
     pub fn parseContainerDecl(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defContainerDecl);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseTestDecl()) break :blk_0 true;
@@ -96,6 +379,10 @@ const Parser = struct {
         };
     }
     pub fn parseContainerDeclPrefix(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defContainerDeclPrefix);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_test()) break :blk_0 true;
@@ -108,6 +395,10 @@ const Parser = struct {
         };
     }
     pub fn parseTestDecl(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defTestDecl);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_test() and (blk_3: {
@@ -123,6 +414,10 @@ const Parser = struct {
         };
     }
     pub fn parseComptimeDecl(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defComptimeDecl);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_comptime() and try p.parseBlock()) break :blk_0 true;
@@ -131,6 +426,10 @@ const Parser = struct {
         };
     }
     pub fn parseDecl(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defDecl);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((blk_3: {
@@ -166,6 +465,10 @@ const Parser = struct {
         };
     }
     pub fn parseDeclPrefix(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defDeclPrefix);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((blk_3: {
@@ -201,6 +504,10 @@ const Parser = struct {
         };
     }
     pub fn parseFnProto(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defFnProto);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_fn() and (try p.parseIDENTIFIER() or true) and try p.parseParamDeclList() and (try p.parseByteAlign() or true) and (try p.parseAddrSpace() or true) and (try p.parseLinkSection() or true) and (try p.parseCallConv() or true) and (try p.parseEXCLAMATIONMARK() or true) and try p.parseTypeExpr()) break :blk_0 true;
@@ -209,6 +516,10 @@ const Parser = struct {
         };
     }
     pub fn parseVarDeclProto(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defVarDeclProto);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_2: {
@@ -229,6 +540,10 @@ const Parser = struct {
         };
     }
     pub fn parseGlobalVarDecl(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defGlobalVarDecl);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseVarDeclProto() and (blk_3: {
@@ -242,6 +557,10 @@ const Parser = struct {
         };
     }
     pub fn parseContainerField(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defContainerField);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((try p.parsedoc_comment() or true) and (try p.parseKEYWORD_comptime() or true) and (blk_3: {
@@ -260,6 +579,10 @@ const Parser = struct {
         };
     }
     pub fn parseBlockStatement(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBlockStatement);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseStatement()) break :blk_0 true;
@@ -279,6 +602,10 @@ const Parser = struct {
         };
     }
     pub fn parseStatement(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defStatement);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseIfStatement()) break :blk_0 true;
@@ -302,6 +629,10 @@ const Parser = struct {
         };
     }
     pub fn parseStatementPrefix(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defStatementPrefix);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_if()) break :blk_0 true;
@@ -332,6 +663,10 @@ const Parser = struct {
         };
     }
     pub fn parseIfStatement(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defIfStatement);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseIfPrefix() and try p.parseBlockExpr() and blk_2: {
@@ -366,6 +701,10 @@ const Parser = struct {
         };
     }
     pub fn parseLabeledStatement(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLabeledStatement);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((try p.parseBlockLabel() or true) and blk_2: {
@@ -383,6 +722,10 @@ const Parser = struct {
         };
     }
     pub fn parseLoopStatement(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLoopStatement);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((try p.parseKEYWORD_inline() or true) and blk_2: {
@@ -398,6 +741,10 @@ const Parser = struct {
         };
     }
     pub fn parseForStatement(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defForStatement);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseForPrefix() and try p.parseBlockExpr() and blk_2: {
@@ -432,6 +779,10 @@ const Parser = struct {
         };
     }
     pub fn parseWhileStatement(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defWhileStatement);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseWhilePrefix() and try p.parseBlockExpr() and blk_2: {
@@ -466,6 +817,10 @@ const Parser = struct {
         };
     }
     pub fn parseBlockExprStatement(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBlockExprStatement);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseBlockExpr()) break :blk_0 true;
@@ -481,6 +836,10 @@ const Parser = struct {
         };
     }
     pub fn parseBlockExprPrefix(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBlockExprPrefix);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((try p.parseBlockLabel() or true) and try p.parseLBRACE()) break :blk_0 true;
@@ -489,6 +848,10 @@ const Parser = struct {
         };
     }
     pub fn parseBlockExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBlockExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((try p.parseBlockLabel() or true) and try p.parseBlock()) break :blk_0 true;
@@ -497,6 +860,10 @@ const Parser = struct {
         };
     }
     pub fn parseVarAssignStatement(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defVarAssignStatement);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_2: {
@@ -531,6 +898,10 @@ const Parser = struct {
         };
     }
     pub fn parseAssignExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAssignExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseExpr() and blk_2: {
@@ -572,6 +943,10 @@ const Parser = struct {
         };
     }
     pub fn parseSingleAssignExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSingleAssignExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseExpr() and blk_2: {
@@ -592,9 +967,10 @@ const Parser = struct {
         };
     }
     pub fn parseExpr(p: *Parser) Error!bool {
-        if (p.expr_depth >= max_depth) return error.MaxDepth;
-        p.expr_depth += 1;
-        defer p.expr_depth -= 1;
+        const def_index = @intFromEnum(Def.defExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseBoolOrExpr()) break :blk_0 true;
@@ -603,6 +979,10 @@ const Parser = struct {
         };
     }
     pub fn parseBoolOrExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBoolOrExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseBoolAndExpr() and blk_1: {
@@ -628,6 +1008,10 @@ const Parser = struct {
         };
     }
     pub fn parseBoolAndExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBoolAndExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseCompareExpr() and blk_1: {
@@ -653,6 +1037,10 @@ const Parser = struct {
         };
     }
     pub fn parseCompareExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defCompareExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseBitwiseExpr() and (blk_3: {
@@ -671,6 +1059,10 @@ const Parser = struct {
         };
     }
     pub fn parseBitwiseExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBitwiseExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseBitShiftExpr() and blk_1: {
@@ -696,6 +1088,10 @@ const Parser = struct {
         };
     }
     pub fn parseBitShiftExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBitShiftExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseAdditionExpr() and blk_1: {
@@ -721,6 +1117,10 @@ const Parser = struct {
         };
     }
     pub fn parseAdditionExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAdditionExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseMultiplyExpr() and blk_1: {
@@ -746,6 +1146,10 @@ const Parser = struct {
         };
     }
     pub fn parseMultiplyExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defMultiplyExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsePrefixExpr() and blk_1: {
@@ -771,6 +1175,10 @@ const Parser = struct {
         };
     }
     pub fn parsePrefixExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPrefixExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -791,6 +1199,10 @@ const Parser = struct {
         };
     }
     pub fn parsePrimaryExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPrimaryExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseAsmExpr()) break :blk_0 true;
@@ -855,6 +1267,10 @@ const Parser = struct {
         };
     }
     pub fn parseIfExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defIfExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseIfPrefix() and try p.parseExpr() and blk_2: {
@@ -875,9 +1291,10 @@ const Parser = struct {
         };
     }
     pub fn parseBlock(p: *Parser) Error!bool {
-        if (p.block_depth >= max_depth) return error.MaxDepth;
-        p.block_depth += 1;
-        defer p.block_depth -= 1;
+        const def_index = @intFromEnum(Def.defBlock);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLBRACE() and blk_1: {
@@ -893,6 +1310,10 @@ const Parser = struct {
         };
     }
     pub fn parseLoopExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLoopExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((try p.parseKEYWORD_inline() or true) and blk_2: {
@@ -908,6 +1329,10 @@ const Parser = struct {
         };
     }
     pub fn parseForExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defForExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseForPrefix() and try p.parseExpr() and blk_2: {
@@ -928,6 +1353,10 @@ const Parser = struct {
         };
     }
     pub fn parseWhileExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defWhileExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseWhilePrefix() and try p.parseExpr() and (blk_3: {
@@ -941,6 +1370,10 @@ const Parser = struct {
         };
     }
     pub fn parseCurlySuffixExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defCurlySuffixExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseTypeExpr() and blk_2: {
@@ -961,6 +1394,10 @@ const Parser = struct {
         };
     }
     pub fn parseInitList(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defInitList);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLBRACE() and try p.parseFieldInit() and blk_1: {
@@ -997,6 +1434,10 @@ const Parser = struct {
         };
     }
     pub fn parseTypeExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defTypeExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -1017,6 +1458,10 @@ const Parser = struct {
         };
     }
     pub fn parseErrorUnionExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defErrorUnionExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseSuffixExpr() and blk_2: {
@@ -1037,6 +1482,10 @@ const Parser = struct {
         };
     }
     pub fn parseSuffixExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSuffixExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsePrimaryTypeExpr() and blk_1: {
@@ -1057,6 +1506,10 @@ const Parser = struct {
         };
     }
     pub fn parsePrimaryTypeExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPrimaryTypeExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseBUILTINIDENTIFIER() and try p.parseFnCallArguments()) break :blk_0 true;
@@ -1097,6 +1550,10 @@ const Parser = struct {
         };
     }
     pub fn parseContainerType(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defContainerType);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((blk_3: {
@@ -1112,6 +1569,10 @@ const Parser = struct {
         };
     }
     pub fn parseErrorSetDecl(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defErrorSetDecl);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_error() and try p.parseLBRACE() and try p.parseIdentifierList() and try p.parseRBRACE()) break :blk_0 true;
@@ -1120,6 +1581,10 @@ const Parser = struct {
         };
     }
     pub fn parseGroupedExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defGroupedExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLPAREN() and try p.parseExpr() and try p.parseRPAREN()) break :blk_0 true;
@@ -1128,6 +1593,10 @@ const Parser = struct {
         };
     }
     pub fn parseIfTypeExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defIfTypeExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseIfPrefix() and try p.parseTypeExpr() and blk_2: {
@@ -1148,6 +1617,10 @@ const Parser = struct {
         };
     }
     pub fn parseLabeledTypeExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLabeledTypeExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseBlockLabel() and try p.parseBlock()) break :blk_0 true;
@@ -1160,6 +1633,10 @@ const Parser = struct {
         };
     }
     pub fn parseLoopTypeExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLoopTypeExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((try p.parseKEYWORD_inline() or true) and blk_2: {
@@ -1175,6 +1652,10 @@ const Parser = struct {
         };
     }
     pub fn parseForTypeExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defForTypeExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseForPrefix() and try p.parseTypeExpr() and blk_2: {
@@ -1195,6 +1676,10 @@ const Parser = struct {
         };
     }
     pub fn parseWhileTypeExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defWhileTypeExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseWhilePrefix() and try p.parseTypeExpr() and blk_2: {
@@ -1215,6 +1700,10 @@ const Parser = struct {
         };
     }
     pub fn parseSwitchExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSwitchExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_switch() and try p.parseLPAREN() and try p.parseExpr() and try p.parseRPAREN() and try p.parseLBRACE() and try p.parseSwitchProngList() and try p.parseRBRACE()) break :blk_0 true;
@@ -1223,6 +1712,10 @@ const Parser = struct {
         };
     }
     pub fn parseAsmExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAsmExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_asm() and (try p.parseKEYWORD_volatile() or true) and try p.parseLPAREN() and try p.parseExpr() and (try p.parseAsmOutput() or true) and try p.parseRPAREN()) break :blk_0 true;
@@ -1231,6 +1724,10 @@ const Parser = struct {
         };
     }
     pub fn parseAsmOutput(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAsmOutput);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseCOLON() and try p.parseAsmOutputList() and (try p.parseAsmInput() or true)) break :blk_0 true;
@@ -1239,6 +1736,10 @@ const Parser = struct {
         };
     }
     pub fn parseAsmOutputItem(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAsmOutputItem);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLBRACKET() and try p.parseIDENTIFIER() and try p.parseRBRACKET() and try p.parseSTRINGLITERALSINGLE() and try p.parseLPAREN() and blk_2: {
@@ -1254,6 +1755,10 @@ const Parser = struct {
         };
     }
     pub fn parseAsmInput(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAsmInput);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseCOLON() and try p.parseAsmInputList() and (try p.parseAsmClobbers() or true)) break :blk_0 true;
@@ -1262,6 +1767,10 @@ const Parser = struct {
         };
     }
     pub fn parseAsmInputItem(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAsmInputItem);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLBRACKET() and try p.parseIDENTIFIER() and try p.parseRBRACKET() and try p.parseSTRINGLITERALSINGLE() and try p.parseLPAREN() and try p.parseExpr() and try p.parseRPAREN()) break :blk_0 true;
@@ -1270,6 +1779,10 @@ const Parser = struct {
         };
     }
     pub fn parseAsmClobbers(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAsmClobbers);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseCOLON() and try p.parseExpr()) break :blk_0 true;
@@ -1278,6 +1791,10 @@ const Parser = struct {
         };
     }
     pub fn parseBreakLabel(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBreakLabel);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseCOLON() and try p.parseIDENTIFIER()) break :blk_0 true;
@@ -1286,6 +1803,10 @@ const Parser = struct {
         };
     }
     pub fn parseBlockLabel(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBlockLabel);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseIDENTIFIER() and try p.parseCOLON()) break :blk_0 true;
@@ -1294,6 +1815,10 @@ const Parser = struct {
         };
     }
     pub fn parseFieldInit(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defFieldInit);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseDOT() and try p.parseIDENTIFIER() and try p.parseEQUAL() and try p.parseExpr()) break :blk_0 true;
@@ -1302,6 +1827,10 @@ const Parser = struct {
         };
     }
     pub fn parseWhileContinueExpr(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defWhileContinueExpr);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseCOLON() and try p.parseLPAREN() and try p.parseAssignExpr() and try p.parseRPAREN()) break :blk_0 true;
@@ -1310,6 +1839,10 @@ const Parser = struct {
         };
     }
     pub fn parseLinkSection(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLinkSection);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_linksection() and try p.parseLPAREN() and try p.parseExpr() and try p.parseRPAREN()) break :blk_0 true;
@@ -1318,6 +1851,10 @@ const Parser = struct {
         };
     }
     pub fn parseAddrSpace(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAddrSpace);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_addrspace() and try p.parseLPAREN() and try p.parseExpr() and try p.parseRPAREN()) break :blk_0 true;
@@ -1326,6 +1863,10 @@ const Parser = struct {
         };
     }
     pub fn parseCallConv(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defCallConv);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_callconv() and try p.parseLPAREN() and try p.parseExpr() and try p.parseRPAREN()) break :blk_0 true;
@@ -1334,6 +1875,10 @@ const Parser = struct {
         };
     }
     pub fn parseParamDecl(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defParamDecl);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((try p.parsedoc_comment() or true) and blk_2: {
@@ -1354,6 +1899,10 @@ const Parser = struct {
         };
     }
     pub fn parseParamType(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defParamType);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_anytype()) break :blk_0 true;
@@ -1364,6 +1913,10 @@ const Parser = struct {
         };
     }
     pub fn parseIfPrefix(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defIfPrefix);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_if() and try p.parseLPAREN() and try p.parseExpr() and try p.parseRPAREN() and (try p.parsePtrPayload() or true)) break :blk_0 true;
@@ -1372,6 +1925,10 @@ const Parser = struct {
         };
     }
     pub fn parseWhilePrefix(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defWhilePrefix);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_while() and try p.parseLPAREN() and try p.parseExpr() and try p.parseRPAREN() and (try p.parsePtrPayload() or true) and (try p.parseWhileContinueExpr() or true)) break :blk_0 true;
@@ -1380,6 +1937,10 @@ const Parser = struct {
         };
     }
     pub fn parseForPrefix(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defForPrefix);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_for() and try p.parseLPAREN() and try p.parseForArgumentsList() and try p.parseRPAREN() and try p.parsePtrListPayload()) break :blk_0 true;
@@ -1388,6 +1949,10 @@ const Parser = struct {
         };
     }
     pub fn parsePayload(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPayload);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsePIPE() and try p.parseIDENTIFIER() and try p.parsePIPE()) break :blk_0 true;
@@ -1396,6 +1961,10 @@ const Parser = struct {
         };
     }
     pub fn parsePtrPayload(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPtrPayload);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsePIPE() and (try p.parseASTERISK() or true) and try p.parseIDENTIFIER() and try p.parsePIPE()) break :blk_0 true;
@@ -1404,6 +1973,10 @@ const Parser = struct {
         };
     }
     pub fn parsePtrIndexPayload(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPtrIndexPayload);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsePIPE() and (try p.parseASTERISK() or true) and try p.parseIDENTIFIER() and (blk_3: {
@@ -1417,6 +1990,10 @@ const Parser = struct {
         };
     }
     pub fn parsePtrListPayload(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPtrListPayload);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsePIPE() and (try p.parseASTERISK() or true) and try p.parseIDENTIFIER() and blk_1: {
@@ -1437,6 +2014,10 @@ const Parser = struct {
         };
     }
     pub fn parseSwitchProng(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSwitchProng);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((try p.parseKEYWORD_inline() or true) and try p.parseSwitchCase() and try p.parseEQUALRARROW() and (try p.parsePtrIndexPayload() or true) and try p.parseSingleAssignExpr()) break :blk_0 true;
@@ -1445,6 +2026,10 @@ const Parser = struct {
         };
     }
     pub fn parseSwitchCase(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSwitchCase);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseSwitchItem() and blk_1: {
@@ -1467,6 +2052,10 @@ const Parser = struct {
         };
     }
     pub fn parseSwitchItem(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSwitchItem);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseExpr() and (blk_3: {
@@ -1480,6 +2069,10 @@ const Parser = struct {
         };
     }
     pub fn parseForArgumentsList(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defForArgumentsList);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseForItem() and blk_1: {
@@ -1500,6 +2093,10 @@ const Parser = struct {
         };
     }
     pub fn parseForItem(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defForItem);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseExpr() and blk_2: {
@@ -1532,6 +2129,10 @@ const Parser = struct {
         };
     }
     pub fn parseAssignOp(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAssignOp);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseASTERISKEQUAL()) break :blk_0 true;
@@ -1574,6 +2175,10 @@ const Parser = struct {
         };
     }
     pub fn parseOrOp(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defOrOp);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsepre_op_white() and try p.parseKEYWORD_or() and try p.parsepost_op_white()) break :blk_0 true;
@@ -1594,6 +2199,10 @@ const Parser = struct {
         };
     }
     pub fn parseAndOp(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAndOp);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsepre_op_white() and try p.parseKEYWORD_and() and try p.parsepost_op_white()) break :blk_0 true;
@@ -1614,6 +2223,10 @@ const Parser = struct {
         };
     }
     pub fn parseCompareOp(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defCompareOp);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsepre_op_white() and try p.parseCompareOpTok() and try p.parsepost_op_white()) break :blk_0 true;
@@ -1634,6 +2247,10 @@ const Parser = struct {
         };
     }
     pub fn parseCompareOpTok(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defCompareOpTok);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseEQUALEQUAL()) break :blk_0 true;
@@ -1652,6 +2269,10 @@ const Parser = struct {
         };
     }
     pub fn parseBitwiseOp(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBitwiseOp);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsepre_op_white() and try p.parseBitwiseOpTok() and try p.parsepost_op_white()) break :blk_0 true;
@@ -1686,6 +2307,10 @@ const Parser = struct {
         };
     }
     pub fn parseBitwiseOpTok(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBitwiseOpTok);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseAMPERSAND() and blk_1: {
@@ -1712,6 +2337,10 @@ const Parser = struct {
         };
     }
     pub fn parseBitShiftOp(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBitShiftOp);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsepre_op_white() and try p.parseBitShiftOpTok() and try p.parsepost_op_white()) break :blk_0 true;
@@ -1732,6 +2361,10 @@ const Parser = struct {
         };
     }
     pub fn parseBitShiftOpTok(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBitShiftOpTok);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLARROW2()) break :blk_0 true;
@@ -1744,6 +2377,10 @@ const Parser = struct {
         };
     }
     pub fn parseAdditionOp(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAdditionOp);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsepre_op_white() and try p.parseAdditionOpTok() and try p.parsepost_op_white()) break :blk_0 true;
@@ -1764,6 +2401,10 @@ const Parser = struct {
         };
     }
     pub fn parseAdditionOpTok(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAdditionOpTok);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsePLUS()) break :blk_0 true;
@@ -1784,6 +2425,10 @@ const Parser = struct {
         };
     }
     pub fn parseMultiplyOp(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defMultiplyOp);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsepre_op_white() and try p.parseMultiplyOpTok() and try p.parsepost_op_white()) break :blk_0 true;
@@ -1804,6 +2449,10 @@ const Parser = struct {
         };
     }
     pub fn parseMultiplyOpTok(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defMultiplyOpTok);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsePIPE2()) break :blk_0 true;
@@ -1822,6 +2471,10 @@ const Parser = struct {
         };
     }
     pub fn parsePrefixOp(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPrefixOp);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseEXCLAMATIONMARK()) break :blk_0 true;
@@ -1840,6 +2493,10 @@ const Parser = struct {
         };
     }
     pub fn parsePrefixTypeOp(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPrefixTypeOp);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseQUESTIONMARK()) break :blk_0 true;
@@ -1863,6 +2520,10 @@ const Parser = struct {
         };
     }
     pub fn parsePtrMods(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPtrMods);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -1925,6 +2586,10 @@ const Parser = struct {
         };
     }
     pub fn parseSinglePtrMods(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSinglePtrMods);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -1987,6 +2652,10 @@ const Parser = struct {
         };
     }
     pub fn parsePtrMod(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPtrMod);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_allowzero()) break :blk_0 true;
@@ -1999,6 +2668,10 @@ const Parser = struct {
         };
     }
     pub fn parsePrefixTypeOpPrefix(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPrefixTypeOpPrefix);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseQUESTIONMARK()) break :blk_0 true;
@@ -2013,6 +2686,10 @@ const Parser = struct {
         };
     }
     pub fn parseSuffixOp(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSuffixOp);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLBRACKET() and try p.parseExpr() and (blk_3: {
@@ -2051,6 +2728,10 @@ const Parser = struct {
         };
     }
     pub fn parseSuffixOpPrefix(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSuffixOpPrefix);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLBRACKET()) break :blk_0 true;
@@ -2067,6 +2748,10 @@ const Parser = struct {
         };
     }
     pub fn parseFnCallArguments(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defFnCallArguments);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLPAREN() and try p.parseExprList() and try p.parseRPAREN()) break :blk_0 true;
@@ -2075,6 +2760,10 @@ const Parser = struct {
         };
     }
     pub fn parseSliceTypeStart(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSliceTypeStart);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLBRACKET() and (blk_3: {
@@ -2088,6 +2777,10 @@ const Parser = struct {
         };
     }
     pub fn parseSinglePtrTypeStart(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSinglePtrTypeStart);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseASTERISK()) break :blk_0 true;
@@ -2096,6 +2789,10 @@ const Parser = struct {
         };
     }
     pub fn parseManyPtrTypeStart(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defManyPtrTypeStart);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLBRACKET() and try p.parseASTERISK() and (blk_3: {
@@ -2111,6 +2808,10 @@ const Parser = struct {
         };
     }
     pub fn parseArrayTypeStart(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defArrayTypeStart);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLBRACKET() and blk_1: {
@@ -2129,6 +2830,10 @@ const Parser = struct {
         };
     }
     pub fn parseContainerTypeAuto(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defContainerTypeAuto);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseContainerTypeKind() and try p.parseLBRACE() and try p.parseContainerMembers() and try p.parseRBRACE()) break :blk_0 true;
@@ -2137,6 +2842,10 @@ const Parser = struct {
         };
     }
     pub fn parseContainerTypeKind(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defContainerTypeKind);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_struct() and (blk_3: {
@@ -2178,6 +2887,10 @@ const Parser = struct {
         };
     }
     pub fn parseByteAlign(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defByteAlign);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_align() and try p.parseLPAREN() and try p.parseExpr() and try p.parseRPAREN()) break :blk_0 true;
@@ -2186,6 +2899,10 @@ const Parser = struct {
         };
     }
     pub fn parseBitAlign(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBitAlign);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_align() and try p.parseLPAREN() and try p.parseExpr() and (blk_3: {
@@ -2199,6 +2916,10 @@ const Parser = struct {
         };
     }
     pub fn parseIdentifierList(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defIdentifierList);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2224,6 +2945,10 @@ const Parser = struct {
         };
     }
     pub fn parseSwitchProngList(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSwitchProngList);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2244,6 +2969,10 @@ const Parser = struct {
         };
     }
     pub fn parseAsmOutputList(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAsmOutputList);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2264,6 +2993,10 @@ const Parser = struct {
         };
     }
     pub fn parseAsmInputList(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAsmInputList);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2284,6 +3017,10 @@ const Parser = struct {
         };
     }
     pub fn parseParamDeclList(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defParamDeclList);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseLPAREN() and try p.parseParamDeclListRest()) break :blk_0 true;
@@ -2292,6 +3029,10 @@ const Parser = struct {
         };
     }
     pub fn parseParamDeclListRest(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defParamDeclListRest);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseRPAREN()) break :blk_0 true;
@@ -2311,6 +3052,10 @@ const Parser = struct {
         };
     }
     pub fn parseExprList(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defExprList);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2343,6 +3088,10 @@ const Parser = struct {
         };
     }
     pub fn parseExprPrefix(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defExprPrefix);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseASTERISK()) break :blk_0 true;
@@ -2351,6 +3100,10 @@ const Parser = struct {
         };
     }
     pub fn parsebyte_order_mark(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defbyte_order_mark);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2365,6 +3118,10 @@ const Parser = struct {
         };
     }
     pub fn parsesof(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defsof);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i == 0) and (try p.parsebyte_order_mark() or true)) break :blk_0 true;
@@ -2373,6 +3130,10 @@ const Parser = struct {
         };
     }
     pub fn parseeof(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defeof);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2392,6 +3153,10 @@ const Parser = struct {
         };
     }
     pub fn parseox80_oxBF(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defox80_oxBF);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -2407,6 +3172,10 @@ const Parser = struct {
         };
     }
     pub fn parseoxF4(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defoxF4);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2421,6 +3190,10 @@ const Parser = struct {
         };
     }
     pub fn parseox80_ox8F(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defox80_ox8F);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -2436,6 +3209,10 @@ const Parser = struct {
         };
     }
     pub fn parseoxF1_oxF3(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defoxF1_oxF3);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -2451,6 +3228,10 @@ const Parser = struct {
         };
     }
     pub fn parseoxF0(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defoxF0);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2465,6 +3246,10 @@ const Parser = struct {
         };
     }
     pub fn parseox90_0xBF(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defox90_0xBF);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -2480,6 +3265,10 @@ const Parser = struct {
         };
     }
     pub fn parseoxEE_oxEF(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defoxEE_oxEF);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -2495,6 +3284,10 @@ const Parser = struct {
         };
     }
     pub fn parseoxED(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defoxED);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2509,6 +3302,10 @@ const Parser = struct {
         };
     }
     pub fn parseox80_ox9F(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defox80_ox9F);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -2524,6 +3321,10 @@ const Parser = struct {
         };
     }
     pub fn parseoxE1_oxEC(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defoxE1_oxEC);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -2539,6 +3340,10 @@ const Parser = struct {
         };
     }
     pub fn parseoxE0(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defoxE0);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2553,6 +3358,10 @@ const Parser = struct {
         };
     }
     pub fn parseoxA0_oxBF(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defoxA0_oxBF);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -2568,6 +3377,10 @@ const Parser = struct {
         };
     }
     pub fn parseoxC2_oxDF(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defoxC2_oxDF);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -2583,6 +3396,10 @@ const Parser = struct {
         };
     }
     pub fn parsemultibyte_utf8(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defmultibyte_utf8);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseoxF4() and try p.parseox80_ox8F() and try p.parseox80_oxBF() and try p.parseox80_oxBF()) break :blk_0 true;
@@ -2605,6 +3422,10 @@ const Parser = struct {
         };
     }
     pub fn parsenon_control_ascii(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defnon_control_ascii);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -2620,6 +3441,10 @@ const Parser = struct {
         };
     }
     pub fn parsenon_control_utf8(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defnon_control_utf8);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -2636,6 +3461,10 @@ const Parser = struct {
         };
     }
     pub fn parsechar_char(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defchar_char);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2672,6 +3501,10 @@ const Parser = struct {
         };
     }
     pub fn parsestring_char(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defstring_char);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2708,6 +3541,10 @@ const Parser = struct {
         };
     }
     pub fn parsecontainer_doc_comment(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defcontainer_doc_comment);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2743,6 +3580,10 @@ const Parser = struct {
         };
     }
     pub fn parsedoc_comment(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defdoc_comment);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_2: {
@@ -2785,6 +3626,10 @@ const Parser = struct {
         };
     }
     pub fn parseline_comment(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defline_comment);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2834,6 +3679,10 @@ const Parser = struct {
         };
     }
     pub fn parseline_string(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defline_string);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2855,6 +3704,10 @@ const Parser = struct {
         };
     }
     pub fn parsenewline(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defnewline);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2889,6 +3742,10 @@ const Parser = struct {
         };
     }
     pub fn parseskip(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defskip);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((try p.parsesof() or true) and blk_1: {
@@ -2921,6 +3778,10 @@ const Parser = struct {
         };
     }
     pub fn parseskip_require_newline(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defskip_require_newline);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2959,6 +3820,10 @@ const Parser = struct {
         };
     }
     pub fn parsepre_op_white(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defpre_op_white);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -2993,6 +3858,10 @@ const Parser = struct {
         };
     }
     pub fn parsepost_op_white(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defpost_op_white);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -3011,6 +3880,10 @@ const Parser = struct {
         };
     }
     pub fn parseCHAR_LITERAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defCHAR_LITERAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and (p.i < p.source.len and switch (p.source[p.i]) {
@@ -3040,6 +3913,10 @@ const Parser = struct {
         };
     }
     pub fn parsedigit(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defdigit);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -3062,6 +3939,10 @@ const Parser = struct {
         };
     }
     pub fn parsedigit_int(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defdigit_int);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsedigit()) break :blk_0 true;
@@ -3082,6 +3963,10 @@ const Parser = struct {
         };
     }
     pub fn parsedigit_float(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defdigit_float);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parsedigit()) break :blk_0 true;
@@ -3110,6 +3995,10 @@ const Parser = struct {
         };
     }
     pub fn parseNUMBERLITERAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defNUMBERLITERAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and (p.i < p.source.len and switch (p.source[p.i]) {
@@ -3163,6 +4052,10 @@ const Parser = struct {
         };
     }
     pub fn parsestring(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defstring);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if ((p.i < p.source.len and switch (p.source[p.i]) {
@@ -3192,6 +4085,10 @@ const Parser = struct {
         };
     }
     pub fn parseSTRINGLITERALSINGLE(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSTRINGLITERALSINGLE);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and try p.parsestring()) break :blk_0 true;
@@ -3200,6 +4097,10 @@ const Parser = struct {
         };
     }
     pub fn parseSTRINGLITERAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSTRINGLITERAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and try p.parsestring()) break :blk_0 true;
@@ -3224,6 +4125,10 @@ const Parser = struct {
         };
     }
     pub fn parseIDENTIFIER(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defIDENTIFIER);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3271,6 +4176,10 @@ const Parser = struct {
         };
     }
     pub fn parseBUILTINIDENTIFIER(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defBUILTINIDENTIFIER);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3311,6 +4220,10 @@ const Parser = struct {
         };
     }
     pub fn parseAMPERSAND(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAMPERSAND);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3337,6 +4250,10 @@ const Parser = struct {
         };
     }
     pub fn parseAMPERSANDEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defAMPERSANDEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3351,6 +4268,10 @@ const Parser = struct {
         };
     }
     pub fn parseASTERISK(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defASTERISK);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3379,6 +4300,10 @@ const Parser = struct {
         };
     }
     pub fn parseASTERISKEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defASTERISKEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3393,6 +4318,10 @@ const Parser = struct {
         };
     }
     pub fn parseASTERISKPERCENT(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defASTERISKPERCENT);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3419,6 +4348,10 @@ const Parser = struct {
         };
     }
     pub fn parseASTERISKPERCENTEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defASTERISKPERCENTEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3433,6 +4366,10 @@ const Parser = struct {
         };
     }
     pub fn parseASTERISKPIPE(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defASTERISKPIPE);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3459,6 +4396,10 @@ const Parser = struct {
         };
     }
     pub fn parseASTERISKPIPEEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defASTERISKPIPEEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3473,6 +4414,10 @@ const Parser = struct {
         };
     }
     pub fn parseCARET(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defCARET);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3499,6 +4444,10 @@ const Parser = struct {
         };
     }
     pub fn parseCARETEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defCARETEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3513,6 +4462,10 @@ const Parser = struct {
         };
     }
     pub fn parseCOLON(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defCOLON);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3527,6 +4480,10 @@ const Parser = struct {
         };
     }
     pub fn parseCOMMA(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defCOMMA);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3541,6 +4498,10 @@ const Parser = struct {
         };
     }
     pub fn parseDOT(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defDOT);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3568,6 +4529,10 @@ const Parser = struct {
         };
     }
     pub fn parseDOT2(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defDOT2);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3594,6 +4559,10 @@ const Parser = struct {
         };
     }
     pub fn parseDOT3(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defDOT3);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3608,6 +4577,10 @@ const Parser = struct {
         };
     }
     pub fn parseDOTASTERISK(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defDOTASTERISK);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3622,6 +4595,10 @@ const Parser = struct {
         };
     }
     pub fn parseEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3649,6 +4626,10 @@ const Parser = struct {
         };
     }
     pub fn parseEQUALEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defEQUALEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3663,6 +4644,10 @@ const Parser = struct {
         };
     }
     pub fn parseEQUALRARROW(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defEQUALRARROW);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3677,6 +4662,10 @@ const Parser = struct {
         };
     }
     pub fn parseEXCLAMATIONMARK(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defEXCLAMATIONMARK);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3703,6 +4692,10 @@ const Parser = struct {
         };
     }
     pub fn parseEXCLAMATIONMARKEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defEXCLAMATIONMARKEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3717,6 +4710,10 @@ const Parser = struct {
         };
     }
     pub fn parseLARROW(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLARROW);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3744,6 +4741,10 @@ const Parser = struct {
         };
     }
     pub fn parseLARROW2(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLARROW2);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3771,6 +4772,10 @@ const Parser = struct {
         };
     }
     pub fn parseLARROW2EQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLARROW2EQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3785,6 +4790,10 @@ const Parser = struct {
         };
     }
     pub fn parseLARROW2PIPE(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLARROW2PIPE);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3811,6 +4820,10 @@ const Parser = struct {
         };
     }
     pub fn parseLARROW2PIPEEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLARROW2PIPEEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3825,6 +4838,10 @@ const Parser = struct {
         };
     }
     pub fn parseLARROWEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLARROWEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3839,6 +4856,10 @@ const Parser = struct {
         };
     }
     pub fn parseLBRACE(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLBRACE);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3853,6 +4874,10 @@ const Parser = struct {
         };
     }
     pub fn parseLBRACKET(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLBRACKET);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3867,6 +4892,10 @@ const Parser = struct {
         };
     }
     pub fn parseLPAREN(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLPAREN);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3881,6 +4910,10 @@ const Parser = struct {
         };
     }
     pub fn parseMINUS(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defMINUS);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3910,6 +4943,10 @@ const Parser = struct {
         };
     }
     pub fn parseMINUSEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defMINUSEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3924,6 +4961,10 @@ const Parser = struct {
         };
     }
     pub fn parseMINUSPERCENT(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defMINUSPERCENT);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3950,6 +4991,10 @@ const Parser = struct {
         };
     }
     pub fn parseMINUSPERCENTEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defMINUSPERCENTEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3964,6 +5009,10 @@ const Parser = struct {
         };
     }
     pub fn parseMINUSPIPE(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defMINUSPIPE);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -3990,6 +5039,10 @@ const Parser = struct {
         };
     }
     pub fn parseMINUSPIPEEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defMINUSPIPEEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4004,6 +5057,10 @@ const Parser = struct {
         };
     }
     pub fn parseMINUSRARROW(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defMINUSRARROW);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4018,6 +5075,10 @@ const Parser = struct {
         };
     }
     pub fn parsePERCENT(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPERCENT);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4044,6 +5105,10 @@ const Parser = struct {
         };
     }
     pub fn parsePERCENTEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPERCENTEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4058,6 +5123,10 @@ const Parser = struct {
         };
     }
     pub fn parsePIPE(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPIPE);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4085,6 +5154,10 @@ const Parser = struct {
         };
     }
     pub fn parsePIPE2(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPIPE2);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4099,6 +5172,10 @@ const Parser = struct {
         };
     }
     pub fn parsePIPEEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPIPEEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4113,6 +5190,10 @@ const Parser = struct {
         };
     }
     pub fn parsePLUS(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPLUS);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4142,6 +5223,10 @@ const Parser = struct {
         };
     }
     pub fn parsePLUS2(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPLUS2);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4156,6 +5241,10 @@ const Parser = struct {
         };
     }
     pub fn parsePLUSEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPLUSEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4170,6 +5259,10 @@ const Parser = struct {
         };
     }
     pub fn parsePLUSPERCENT(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPLUSPERCENT);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4196,6 +5289,10 @@ const Parser = struct {
         };
     }
     pub fn parsePLUSPERCENTEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPLUSPERCENTEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4210,6 +5307,10 @@ const Parser = struct {
         };
     }
     pub fn parsePLUSPIPE(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPLUSPIPE);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4236,6 +5337,10 @@ const Parser = struct {
         };
     }
     pub fn parsePLUSPIPEEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defPLUSPIPEEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4250,6 +5355,10 @@ const Parser = struct {
         };
     }
     pub fn parseLETTERC(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defLETTERC);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4264,6 +5373,10 @@ const Parser = struct {
         };
     }
     pub fn parseQUESTIONMARK(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defQUESTIONMARK);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4278,6 +5391,10 @@ const Parser = struct {
         };
     }
     pub fn parseRARROW(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defRARROW);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4305,6 +5422,10 @@ const Parser = struct {
         };
     }
     pub fn parseRARROW2(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defRARROW2);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4331,6 +5452,10 @@ const Parser = struct {
         };
     }
     pub fn parseRARROW2EQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defRARROW2EQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4345,6 +5470,10 @@ const Parser = struct {
         };
     }
     pub fn parseRARROWEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defRARROWEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4359,6 +5488,10 @@ const Parser = struct {
         };
     }
     pub fn parseRBRACE(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defRBRACE);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4373,6 +5506,10 @@ const Parser = struct {
         };
     }
     pub fn parseRBRACKET(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defRBRACKET);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4387,6 +5524,10 @@ const Parser = struct {
         };
     }
     pub fn parseRPAREN(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defRPAREN);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4401,6 +5542,10 @@ const Parser = struct {
         };
     }
     pub fn parseSEMICOLON(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSEMICOLON);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4415,6 +5560,10 @@ const Parser = struct {
         };
     }
     pub fn parseSLASH(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSLASH);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4442,6 +5591,10 @@ const Parser = struct {
         };
     }
     pub fn parseSLASHEQUAL(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defSLASHEQUAL);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4456,6 +5609,10 @@ const Parser = struct {
         };
     }
     pub fn parseTILDE(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defTILDE);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4470,6 +5627,10 @@ const Parser = struct {
         };
     }
     pub fn parseend_of_word(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defend_of_word);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (blk_1: {
@@ -4493,6 +5654,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_addrspace(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_addrspace);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4507,6 +5672,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_align(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_align);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4521,6 +5690,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_allowzero(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_allowzero);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4535,6 +5708,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_and(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_and);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4549,6 +5726,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_anyframe(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_anyframe);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4563,6 +5744,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_anytype(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_anytype);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4577,6 +5762,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_asm(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_asm);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4591,6 +5780,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_break(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_break);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4605,6 +5798,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_callconv(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_callconv);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4619,6 +5816,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_catch(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_catch);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4633,6 +5834,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_comptime(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_comptime);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4647,6 +5852,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_const(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_const);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4661,6 +5870,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_continue(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_continue);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4675,6 +5888,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_defer(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_defer);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4689,6 +5906,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_else(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_else);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4703,6 +5924,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_enum(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_enum);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4717,6 +5942,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_errdefer(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_errdefer);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4731,6 +5960,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_error(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_error);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4745,6 +5978,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_export(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_export);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4759,6 +5996,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_extern(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_extern);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4773,6 +6014,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_fn(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_fn);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4787,6 +6032,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_for(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_for);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4801,6 +6050,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_if(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_if);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4815,6 +6068,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_inline(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_inline);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4829,6 +6086,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_noalias(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_noalias);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4843,6 +6104,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_nosuspend(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_nosuspend);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4857,6 +6122,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_noinline(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_noinline);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4871,6 +6140,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_opaque(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_opaque);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4885,6 +6158,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_or(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_or);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4899,6 +6176,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_orelse(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_orelse);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4913,6 +6194,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_packed(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_packed);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4927,6 +6212,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_pub(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_pub);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4941,6 +6230,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_resume(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_resume);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4955,6 +6248,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_return(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_return);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4969,6 +6266,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_linksection(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_linksection);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4983,6 +6284,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_struct(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_struct);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -4997,6 +6302,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_suspend(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_suspend);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -5011,6 +6320,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_switch(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_switch);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -5025,6 +6338,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_test(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_test);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -5039,6 +6356,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_threadlocal(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_threadlocal);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -5053,6 +6374,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_try(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_try);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -5067,6 +6392,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_union(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_union);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -5081,6 +6410,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_unreachable(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_unreachable);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -5095,6 +6428,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_var(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_var);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -5109,6 +6446,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_volatile(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_volatile);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -5123,6 +6464,10 @@ const Parser = struct {
         };
     }
     pub fn parseKEYWORD_while(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defKEYWORD_while);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseskip() and blk_1: {
@@ -5137,6 +6482,10 @@ const Parser = struct {
         };
     }
     pub fn parsekeyword(p: *Parser) Error!bool {
+        const def_index = @intFromEnum(Def.defkeyword);
+        if (p.depths[def_index] > max_depth) return error.MaxDepth;
+        p.depths[def_index] += 1;
+        defer p.depths[def_index] -= 1;
         return blk_0: {
             const pos_0 = p.i;
             if (try p.parseKEYWORD_addrspace()) break :blk_0 true;

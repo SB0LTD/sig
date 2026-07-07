@@ -89,18 +89,31 @@ const Generator = struct {
             \\/// the grammar.
             \\/// Returns error.MaxDepth if more than `max_depth` levels of recursion/iteration are reached.
             \\pub fn parse(source: []const u8) Error!bool {
-            \\    var p: Parser = .{ .source = source, .i = 0, .expr_depth = 1, .block_depth = 1 };
+            \\    var p: Parser = .{ .source = source, .i = 0, .depths = @splat(1) };
             \\    return p.parseRoot();
             \\}
-            \\
-            \\const Parser = struct {
+        );
+
+        const defs = g.p.getExtra(node.get(g.p).root);
+
+        // This enum exists to minimize git diffs in the generated oracle when
+        // the grammar is modified. It allows mapping from def name (stable) to
+        // def index (unstable).
+        try g.w.writeAll("const Def = enum {");
+        for (defs) |n| {
+            const def = n.get(g.p).def;
+            const id = def.id.get(g.p).id;
+            try g.w.print("def{s},", .{id});
+        }
+        try g.w.writeAll("};");
+
+        try g.w.print(
+            \\const Parser = struct {{
             \\    source: []const u8,
             \\    i: usize,
-            \\    expr_depth: usize,
-            \\    block_depth: usize,
-            \\
-        );
-        for (g.p.getExtra(node.get(g.p).root)) |def| {
+            \\    depths: [{d}]u8,
+        , .{defs.len});
+        for (defs) |def| {
             try g.genDef(def);
         }
         try g.w.writeAll("};");
@@ -111,22 +124,12 @@ const Generator = struct {
         const id = def.id.get(g.p).id;
         assert(g.suffix == 0);
         try g.w.print("pub fn parse{s}(p: *Parser) Error!bool {{", .{id});
-        // The grammar can infinitely recurse through the Expr rule
-        if (mem.eql(u8, "Expr", id)) {
-            try g.w.print(
-                \\if (p.expr_depth >= max_depth) return error.MaxDepth;
-                \\p.expr_depth += 1;
-                \\defer p.expr_depth -= 1;
-            , .{});
-        }
-        // The grammar can infinitely recurse through the Block rule
-        if (mem.eql(u8, "Block", id)) {
-            try g.w.print(
-                \\if (p.block_depth >= max_depth) return error.MaxDepth;
-                \\p.block_depth += 1;
-                \\defer p.block_depth -= 1;
-            , .{});
-        }
+        try g.w.print(
+            \\const def_index = @intFromEnum(Def.def{s});
+            \\if (p.depths[def_index] > max_depth) return error.MaxDepth;
+            \\p.depths[def_index] += 1;
+            \\defer p.depths[def_index] -= 1;
+        , .{id});
         try g.w.writeAll("return ");
         try g.genExpr(def.expr);
         try g.w.writeAll(";}");
