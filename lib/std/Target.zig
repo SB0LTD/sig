@@ -74,14 +74,6 @@ pub const Os = struct {
 
         ashetos,
 
-        // LLVM tags deliberately omitted:
-        // - bridgeos
-        // - cheriotrtos
-        // - darwin
-        // - kfreebsd
-        // - nacl
-        // - shadermodel
-
         pub inline fn isDarwin(tag: Tag) bool {
             return switch (tag) {
                 .driverkit,
@@ -825,33 +817,6 @@ pub const Abi = enum {
     ohoseabi,
     call0,
 
-    // LLVM tags deliberately omitted:
-    // - amplification
-    // - anyhit
-    // - callable
-    // - closesthit
-    // - compute
-    // - coreclr
-    // - domain
-    // - geometry
-    // - gnueabit64
-    // - gnueabihft64
-    // - gnuf64
-    // - gnut64
-    // - hull
-    // - intersection
-    // - library
-    // - llvm
-    // - mesh
-    // - miss
-    // - mlibc
-    // - mtia
-    // - pauthtest
-    // - pixel
-    // - raygeneration
-    // - rootsignature
-    // - vertex
-
     pub fn default(arch: Cpu.Arch, os_tag: Os.Tag) Abi {
         return switch (os_tag) {
             .freestanding, .other => switch (arch) {
@@ -1078,9 +1043,6 @@ pub const ObjectFormat = enum {
     spirv,
     /// The WebAssembly binary format.
     wasm,
-
-    // LLVM tags deliberately omitted:
-    // - dxcontainer
 
     pub fn fileExt(of: ObjectFormat, arch: Cpu.Arch) [:0]const u8 {
         return switch (of) {
@@ -1438,24 +1400,6 @@ pub const Cpu = struct {
         xcore,
         xtensa,
         xtensaeb,
-
-        // LLVM tags deliberately omitted:
-        // - aarch64_32
-        // - amdil
-        // - amdil64
-        // - dxil
-        // - r600
-        // - hsail
-        // - hsail64
-        // - renderscript32
-        // - renderscript64
-        // - shave
-        // - sparcel
-        // - spir
-        // - spir64
-        // - spirv
-        // - tce
-        // - tcele
 
         /// An architecture family can encompass multiple architectures as represented by `Arch`.
         /// For a given family tag, it is guaranteed that an `std.Target.<tag>` namespace exists
@@ -2696,7 +2640,6 @@ pub const DynamicLinker = struct {
                     .or1k,
                     => |arch| if (abi == .gnu) initFmt("/lib/ld-linux-{s}.so.1", .{@tagName(arch)}) else none,
 
-                    // TODO: `-be` architecture support.
                     .csky => initFmt("/lib/ld-linux-cskyv2{s}.so.1", .{switch (abi) {
                         .gnueabi => "",
                         .gnueabihf => "-hf",
