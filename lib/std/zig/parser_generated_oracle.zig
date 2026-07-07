@@ -1340,34 +1340,15 @@ const Parser = struct {
                 const pos_2 = p.i;
                 if (try p.parseKEYWORD_noalias()) break :blk_2 true;
                 p.i = pos_2;
-                if (try p.parseKEYWORD_comptime()) break :blk_2 true;
-                p.i = pos_2;
-                if (blk_3: {
-                    const pos_3 = p.i;
-                    const match_3 = try p.parseKEYWORD_comptime();
-                    p.i = pos_3;
-                    break :blk_3 !match_3;
-                }) break :blk_2 true;
+                if ((try p.parseKEYWORD_comptime() or true)) break :blk_2 true;
                 p.i = pos_2;
                 break :blk_2 false;
-            } and blk_2: {
-                const pos_2 = p.i;
-                if (try p.parseIDENTIFIER() and try p.parseCOLON()) break :blk_2 true;
-                p.i = pos_2;
-                if (blk_3: {
-                    const pos_3 = p.i;
-                    const match_3 = blk_5: {
-                        const pos_5 = p.i;
-                        if (try p.parseIDENTIFIER() and try p.parseCOLON()) break :blk_5 true;
-                        p.i = pos_5;
-                        break :blk_5 false;
-                    };
-                    p.i = pos_3;
-                    break :blk_3 !match_3;
-                }) break :blk_2 true;
-                p.i = pos_2;
-                break :blk_2 false;
-            } and try p.parseParamType()) break :blk_0 true;
+            } and (blk_3: {
+                const pos_3 = p.i;
+                if (try p.parseIDENTIFIER() and try p.parseCOLON()) break :blk_3 true;
+                p.i = pos_3;
+                break :blk_3 false;
+            } or true) and try p.parseParamType()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
