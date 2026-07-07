@@ -3247,6 +3247,31 @@ fn initHeaders(
     }));
     elf.nodes.appendAssumeCapacity(.shdr);
 
+    const page_align: std.mem.Alignment = .fromByteUnits(switch (machine) {
+        .BPF,
+        .SPARCV9,
+        => 0x100000,
+        .AARCH64,
+        .AMDGPU,
+        .QDSP6,
+        .MIPS,
+        .PPC,
+        .PPC64,
+        .SPARC,
+        .SPARC32PLUS,
+        => 0x10000,
+        .LOONGARCH,
+        => 0x4000,
+        .ARC_COMPACT2,
+        .@"68K",
+        => 0x2000,
+        .MSP430,
+        => 0x4,
+        .AVR,
+        => 0x1,
+        else => 0x1000,
+    });
+
     var ph_vaddr: u32 = if (@"type" != .REL) ph_vaddr: {
         assert(elf.ni.rodata == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
             .alignment = elf.mf.flags.block_size,
@@ -3351,7 +3376,7 @@ fn initHeaders(
                     .filesz = @intCast(rodata_size),
                     .memsz = @intCast(rodata_size),
                     .flags = .{ .R = true },
-                    .@"align" = @intCast(elf.ni.rodata.alignment(&elf.mf).toByteUnits()),
+                    .@"align" = @intCast(elf.ni.rodata.alignment(&elf.mf).max(page_align).toByteUnits()),
                 };
                 if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_rodata);
                 ph_vaddr += @intCast(rodata_size);
@@ -3366,7 +3391,7 @@ fn initHeaders(
                     .filesz = @intCast(text_size),
                     .memsz = @intCast(text_size),
                     .flags = .{ .R = true, .X = true },
-                    .@"align" = @intCast(elf.ni.text.alignment(&elf.mf).toByteUnits()),
+                    .@"align" = @intCast(elf.ni.text.alignment(&elf.mf).max(page_align).toByteUnits()),
                 };
                 if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_text);
                 ph_vaddr += @intCast(text_size);
@@ -3381,7 +3406,7 @@ fn initHeaders(
                     .filesz = @intCast(data_size),
                     .memsz = @intCast(data_size),
                     .flags = .{ .R = true, .W = true },
-                    .@"align" = @intCast(elf.ni.data.alignment(&elf.mf).toByteUnits()),
+                    .@"align" = @intCast(elf.ni.data.alignment(&elf.mf).max(page_align).toByteUnits()),
                 };
                 if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_data);
                 ph_vaddr += @intCast(data_size);
