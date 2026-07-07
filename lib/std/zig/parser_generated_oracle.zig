@@ -270,20 +270,10 @@ const Parser = struct {
             p.i = pos_0;
             if (blk_1: {
                 const pos_1 = p.i;
-                const match_1 = try p.parseKEYWORD_nosuspend();
+                const match_1 = try p.parseStatementPrefix();
                 p.i = pos_1;
                 break :blk_1 !match_1;
-            } and (blk_3: {
-                const pos_3 = p.i;
-                if (try p.parseKEYWORD_comptime() and blk_4: {
-                    const pos_4 = p.i;
-                    const match_4 = try p.parseBlockExprPrefix();
-                    p.i = pos_4;
-                    break :blk_4 !match_4;
-                }) break :blk_3 true;
-                p.i = pos_3;
-                break :blk_3 false;
-            } or true) and try p.parseVarAssignStatement()) break :blk_0 true;
+            } and (try p.parseKEYWORD_comptime() or true) and try p.parseVarAssignStatement()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };
@@ -301,17 +291,42 @@ const Parser = struct {
             p.i = pos_0;
             if (try p.parseKEYWORD_suspend() and try p.parseBlockExprStatement()) break :blk_0 true;
             p.i = pos_0;
-            if ((blk_3: {
-                const pos_3 = p.i;
-                if (try p.parseKEYWORD_comptime() and blk_4: {
+            if (blk_1: {
+                const pos_1 = p.i;
+                const match_1 = try p.parseStatementPrefix();
+                p.i = pos_1;
+                break :blk_1 !match_1;
+            } and (try p.parseKEYWORD_comptime() or true) and try p.parseAssignExpr() and try p.parseSEMICOLON()) break :blk_0 true;
+            p.i = pos_0;
+            break :blk_0 false;
+        };
+    }
+    pub fn parseStatementPrefix(p: *Parser) Error!bool {
+        return blk_0: {
+            const pos_0 = p.i;
+            if (try p.parseKEYWORD_if()) break :blk_0 true;
+            p.i = pos_0;
+            if ((try p.parseBlockLabel() or true) and blk_2: {
+                const pos_2 = p.i;
+                if (try p.parseLBRACE()) break :blk_2 true;
+                p.i = pos_2;
+                if ((try p.parseKEYWORD_inline() or true) and blk_4: {
                     const pos_4 = p.i;
-                    const match_4 = try p.parseBlockExprPrefix();
+                    if (try p.parseKEYWORD_for()) break :blk_4 true;
                     p.i = pos_4;
-                    break :blk_4 !match_4;
-                }) break :blk_3 true;
-                p.i = pos_3;
-                break :blk_3 false;
-            } or true) and try p.parseAssignExpr() and try p.parseSEMICOLON()) break :blk_0 true;
+                    if (try p.parseKEYWORD_while()) break :blk_4 true;
+                    p.i = pos_4;
+                    break :blk_4 false;
+                }) break :blk_2 true;
+                p.i = pos_2;
+                if (try p.parseKEYWORD_switch()) break :blk_2 true;
+                p.i = pos_2;
+                break :blk_2 false;
+            }) break :blk_0 true;
+            p.i = pos_0;
+            if (try p.parseKEYWORD_nosuspend()) break :blk_0 true;
+            p.i = pos_0;
+            if (try p.parseKEYWORD_comptime() and try p.parseBlockExprPrefix()) break :blk_0 true;
             p.i = pos_0;
             break :blk_0 false;
         };

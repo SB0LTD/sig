@@ -77,7 +77,7 @@ BlockStatement
     <- Statement
      / KEYWORD_defer BlockExprStatement
      / KEYWORD_errdefer BlockExprStatement
-     / !KEYWORD_nosuspend (KEYWORD_comptime !BlockExprPrefix)? VarAssignStatement
+     / !StatementPrefix KEYWORD_comptime? VarAssignStatement
 
 Statement
     <- IfStatement
@@ -85,7 +85,13 @@ Statement
      / KEYWORD_nosuspend BlockExprStatement
      / KEYWORD_comptime BlockExpr
      / KEYWORD_suspend BlockExprStatement
-     / (KEYWORD_comptime !BlockExprPrefix)? AssignExpr SEMICOLON
+     / !StatementPrefix KEYWORD_comptime? AssignExpr SEMICOLON
+
+StatementPrefix
+    <- KEYWORD_if
+     / BlockLabel? (LBRACE / KEYWORD_inline? (KEYWORD_for / KEYWORD_while) / KEYWORD_switch)
+     / KEYWORD_nosuspend
+     / KEYWORD_comptime BlockExprPrefix
 
 IfStatement
     <- IfPrefix BlockExpr (KEYWORD_else Payload? Statement / !KEYWORD_else)

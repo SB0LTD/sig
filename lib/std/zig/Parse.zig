@@ -956,7 +956,7 @@ fn expectContainerField(p: *Parse) !Node.Index {
 ///     <- Statement
 ///      / KEYWORD_defer BlockExprStatement
 ///      / KEYWORD_errdefer BlockExprStatement
-///      / (KEYWORD_comptime !BlockExprPrefix)? VarAssignStatement
+///      / !StatementPrefix KEYWORD_comptime? VarAssignStatement
 ///
 /// Statement
 ///     <- IfStatement
@@ -964,7 +964,13 @@ fn expectContainerField(p: *Parse) !Node.Index {
 ///      / KEYWORD_nosuspend BlockExprStatement
 ///      / KEYWORD_comptime BlockExpr
 ///      / KEYWORD_suspend BlockExprStatement
-///      / (KEYWORD_comptime !BlockExprPrefix)? AssignExpr SEMICOLON
+///      / !StatementPrefix KEYWORD_comptime? AssignExpr SEMICOLON
+///
+/// StatementPrefix
+///     <- KEYWORD_if
+///      / BlockLabel? (LBRACE / KEYWORD_inline? (KEYWORD_for / KEYWORD_while) / KEYWORD_switch)
+///      / KEYWORD_nosuspend
+///      / KEYWORD_comptime BlockExprPrefix
 fn expectStatement(p: *Parse, is_block_level: bool) Error!Node.Index {
     if (p.eatToken(.keyword_comptime)) |comptime_token| {
         const opt_block_expr = try p.parseBlockExpr();
