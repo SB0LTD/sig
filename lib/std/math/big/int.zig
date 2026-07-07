@@ -1260,8 +1260,8 @@ pub const Mutable = struct {
             // If the result is negative then the default truncating division already rounds
             // towards positive infinity, so no adjustment is needed.
             // If the remainder is 0 then the division is exact and no adjustment is needed.
-        } else if (a.positive) {
-            // Both positive.
+        } else {
+            // Same sign.
             // We have:
             // modCeil(a, b) != 0
             // => @divCeil(a, b) = @divTrunc(a, b) + 1
@@ -1270,20 +1270,10 @@ pub const Mutable = struct {
             // b * @divCeil(a, b) + modCeil(a, b) = a
             // => b * @divTrunc(a, b) + b + modCeil(a, b) = a
             // => modCeil(a, b) = @rem(a, b) - b
+            //
+            // This works for both positive and negative b because b keeps its sign.
             q.addScalar(q.toConst(), 1);
             r.sub(r.toConst(), y.toConst());
-        } else {
-            // Both negative.
-            // We have:
-            // modCeil(-a, -b) != 0
-            // => @divCeil(-a, -b) = @divTrunc(-a, -b) + 1
-            // And:
-            // -b * @divTrunc(-a, -b) + @rem(-a, -b) = -a
-            // -b * @divCeil(-a, -b) + modCeil(-a, -b) = -a
-            // => -b * @divTrunc(-a, -b) - b + modCeil(-a, -b) = -a
-            // => modCeil(-a, -b) = @rem(-a, -b) + b
-            q.addScalar(q.toConst(), 1);
-            r.add(r.toConst(), y.toConst().abs());
         }
     }
 
@@ -3376,6 +3366,25 @@ pub const Managed = struct {
         const limbs_buffer = try q.allocator.alloc(Limb, calcDivLimbsBufferLen(a.len(), b.len()));
         defer q.allocator.free(limbs_buffer);
         mq.divFloor(&mr, a.toConst(), b.toConst(), limbs_buffer);
+        q.setMetadata(mq.positive, mq.len);
+        r.setMetadata(mr.positive, mr.len);
+    }
+
+    /// q = a / b (rem r)
+    ///
+    /// a / b are ceiled (rounded towards positive infinity).
+    ///
+    /// Returns an error if memory could not be allocated.
+    pub fn divCeil(q: *Managed, r: *Managed, a: *const Managed, b: *const Managed) !void {
+        const q_alias = limbsAliasDistinct(q, a) or limbsAliasDistinct(q, b);
+        const r_alias = limbsAliasDistinct(r, a) or limbsAliasDistinct(r, b);
+        try q.ensureAliasAwareCapacity(a.len(), q_alias);
+        try r.ensureAliasAwareCapacity(b.len(), r_alias);
+        var mq = q.toMutable();
+        var mr = r.toMutable();
+        const limbs_buffer = try q.allocator.alloc(Limb, calcDivLimbsBufferLen(a.len(), b.len()));
+        defer q.allocator.free(limbs_buffer);
+        mq.divCeil(&mr, a.toConst(), b.toConst(), limbs_buffer);
         q.setMetadata(mq.positive, mq.len);
         r.setMetadata(mr.positive, mr.len);
     }
