@@ -53,9 +53,12 @@ tracked_allocas: std.AutoHashMapUnmanaged(Id, ?Id) = .empty,
 loop_switches: std.AutoHashMapUnmanaged(Air.Inst.Index, LoopSwitch) = .empty,
 id_scratch: std.ArrayList(Id) = .empty,
 
+fn hasInt64(target: *const std.Target) bool {
+    return target.cpu.arch == .spirv64 or target.cpu.has(.spirv, .int64);
+}
+
 fn bigIntBits(cg: *const CodeGen) u16 {
-    const target = cg.zcu.getTarget();
-    return if (target.cpu.has(.spirv, .int64)) 64 else 32;
+    return if (hasInt64(cg.zcu.getTarget())) 64 else 32;
 }
 
 fn limbType(cg: *const CodeGen) Type {
@@ -487,7 +490,7 @@ pub fn backingIntBits(cg: *const CodeGen, bits: u16) struct { u16, bool } {
         .{ .bits = 8, .enabled = target.cpu.has(.spirv, .int8) },
         .{ .bits = 16, .enabled = target.cpu.has(.spirv, .int16) },
         .{ .bits = 32, .enabled = true },
-        .{ .bits = 64, .enabled = target.cpu.has(.spirv, .int64) or target.cpu.arch == .spirv64 },
+        .{ .bits = 64, .enabled = hasInt64(target) },
     };
 
     for (ints) |int| {
@@ -5274,7 +5277,7 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     //   of the result too.
 
     const target = cg.zcu.getTarget();
-    const largest_int_bits: u16 = if (target.cpu.has(.spirv, .int64) or target.cpu.arch == .spirv64) 64 else 32;
+    const largest_int_bits: u16 = if (hasInt64(target)) 64 else 32;
     // If non-null, the number of bits that the multiplication should be performed in. If
     // null, we have to use wide multiplication.
     const maybe_op_ty_bits: ?u16 = switch (info.bits) {
