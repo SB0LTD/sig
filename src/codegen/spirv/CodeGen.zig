@@ -37,6 +37,10 @@ prologue: Section = .{},
 body: Section = .{},
 args: std.ArrayList(Id) = .empty,
 next_arg_index: u32 = 0,
+/// Caches the limb extractions for composite integer values so repeated
+/// arithmetic on the same operand doesn't re-emit `OpCompositeExtract` per
+/// limb per use. Slices are owned by `cg.arena`.
+composite_limbs: std.AutoHashMapUnmanaged(Id, []const Id) = .empty,
 block_stack: std.ArrayList(*Block) = .empty,
 block_label: Id = .none,
 /// Whether the current block has been terminated by a terminator
@@ -49,7 +53,18 @@ tracked_allocas: std.AutoHashMapUnmanaged(Id, ?Id) = .empty,
 loop_switches: std.AutoHashMapUnmanaged(Air.Inst.Index, LoopSwitch) = .empty,
 id_scratch: std.ArrayList(Id) = .empty,
 
-const big_int_bits = @bitSizeOf(u32);
+fn bigIntBits(cg: *const CodeGen) u16 {
+    const target = cg.zcu.getTarget();
+    return if (target.cpu.has(.spirv, .int64)) 64 else 32;
+}
+
+fn limbType(cg: *const CodeGen) Type {
+    return if (cg.bigIntBits() == 64) .u64 else .u32;
+}
+
+fn limbTypeId(cg: *CodeGen) !Id {
+    return cg.resolveType(cg.limbType(), .direct);
+}
 
 /// Data can be lowered into in two basic representations: indirect, which is when
 /// a type is stored in memory, and direct, which is how a type is stored when its
@@ -163,6 +178,7 @@ pub fn deinit(cg: *CodeGen) void {
     cg.block_stack.deinit(gpa);
     cg.block_results.deinit(gpa);
     cg.args.deinit(gpa);
+    cg.composite_limbs.deinit(gpa);
     cg.tracked_allocas.deinit(gpa);
     cg.inst_results.deinit(gpa);
     cg.loop_switches.deinit(gpa);
@@ -478,7 +494,7 @@ pub fn backingIntBits(cg: *const CodeGen, bits: u16) struct { u16, bool } {
         if (bits <= int.bits and int.enabled) return .{ int.bits, false };
     }
 
-    return .{ std.mem.alignForward(u16, bits, big_int_bits), true };
+    return .{ std.mem.alignForward(u16, bits, cg.bigIntBits()), true };
 }
 
 pub fn intType(cg: *CodeGen, signedness: std.lang.Signedness, bits: u16) !Id {
@@ -492,14 +508,16 @@ pub fn intType(cg: *CodeGen, signedness: std.lang.Signedness, bits: u16) !Id {
     };
     const backing_bits, const big_int = cg.backingIntBits(bits);
     if (big_int) {
-        const u32_ty = try cg.intType(.unsigned, 32);
+        const limb_bits = cg.bigIntBits();
+        const limb_ty = try cg.intType(.unsigned, limb_bits);
+        const len_ty = try cg.intType(.unsigned, 32);
         const len_id = cg.allocId();
         try cg.sections.globals.emit(cg.gpa, .OpConstant, .{
-            .id_result_type = u32_ty,
+            .id_result_type = len_ty,
             .id_result = len_id,
-            .value = .{ .uint32 = backing_bits / big_int_bits },
+            .value = .{ .uint32 = backing_bits / limb_bits },
         });
-        return cg.arrayType(len_id, u32_ty);
+        return cg.arrayType(len_id, limb_ty);
     }
 
     const result_id = cg.allocId();
@@ -1443,7 +1461,7 @@ fn constInt(cg: *CodeGen, ty: Type, value: anytype) !Id {
             .signed => @bitCast(@as(i64, @intCast(value))),
             .unsigned => @as(u64, @intCast(value)),
         };
-        const n_limbs = backing_bits / big_int_bits;
+        const n_limbs = backing_bits / cg.bigIntBits();
         const fill: u32 = if (signedness == .signed and value < 0) 0xFFFFFFFF else 0;
         const scratch_top = cg.id_scratch.items.len;
         defer cg.id_scratch.shrinkRetainingCapacity(scratch_top);
@@ -1616,21 +1634,33 @@ fn constant(cg: *CodeGen, ty: Type, val: Value, repr: Repr) Error!Id {
                 const int_info = ty.intInfo(zcu);
                 const backing_bits, const is_big_int = cg.backingIntBits(int_info.bits);
                 if (is_big_int) {
-                    const n_limbs = backing_bits / big_int_bits;
+                    const limb_bits = cg.bigIntBits();
+                    const n_limbs = backing_bits / limb_bits;
                     const big_result_ty_id = try cg.resolveType(ty, .indirect);
                     var bigint_space: Value.BigIntSpace = undefined;
                     const bigint = val.toBigInt(&bigint_space, zcu);
-                    const limb_values = try gpa.alloc(u32, n_limbs);
-                    defer gpa.free(limb_values);
-                    bigint.writeTwosComplement(std.mem.sliceAsBytes(limb_values), .little);
-                    if (builtin.cpu.arch.endian() == .big) {
-                        for (limb_values) |*limb| limb.* = @byteSwap(limb.*);
-                    }
+                    const limb_bytes = try gpa.alloc(u8, backing_bits / 8);
+                    defer gpa.free(limb_bytes);
+                    bigint.writeTwosComplement(limb_bytes, .little);
                     const scratch_top = cg.id_scratch.items.len;
                     defer cg.id_scratch.shrinkRetainingCapacity(scratch_top);
                     const constituents = try cg.id_scratch.addManyAsSlice(gpa, n_limbs);
-                    for (constituents, 0..) |*c, i| {
-                        c.* = try cg.constInt(.u32, limb_values[i]);
+                    switch (limb_bits) {
+                        32 => {
+                            const limbs_u32: []u32 = @ptrCast(@alignCast(limb_bytes));
+                            for (constituents, limbs_u32) |*c, v| {
+                                const host_v = if (builtin.cpu.arch.endian() == .big) @byteSwap(v) else v;
+                                c.* = try cg.constInt(.u32, host_v);
+                            }
+                        },
+                        64 => {
+                            const limbs_u64: []u64 = @ptrCast(@alignCast(limb_bytes));
+                            for (constituents, limbs_u64) |*c, v| {
+                                const host_v = if (builtin.cpu.arch.endian() == .big) @byteSwap(v) else v;
+                                c.* = try cg.constInt(.u64, host_v);
+                            }
+                        },
+                        else => unreachable,
                     }
                     break :cache try cg.constructComposite(big_result_ty_id, constituents);
                 }
@@ -2766,20 +2796,28 @@ const CompositeInt = struct {
     info: ArithmeticTypeInfo,
 
     fn init(cg: *CodeGen, composite_id: Id, info: ArithmeticTypeInfo) !CompositeInt {
-        const n_limbs: u16 = info.backing_bits / big_int_bits;
+        const n_limbs: u16 = info.backing_bits / cg.bigIntBits();
         const gpa = cg.gpa;
-        const u32_ty_id = try cg.resolveType(.u32, .direct);
+        if (cg.composite_limbs.get(composite_id)) |cached| {
+            assert(cached.len == n_limbs);
+            const limbs = try cg.id_scratch.addManyAsSlice(gpa, n_limbs);
+            @memcpy(limbs, cached);
+            return .{ .cg = cg, .limbs = limbs, .n_limbs = n_limbs, .info = info };
+        }
+        const limb_ty_id = try cg.limbTypeId();
         const limbs = try cg.id_scratch.addManyAsSlice(gpa, n_limbs);
         for (limbs, 0..) |*limb, i| {
             const result_id = cg.allocId();
             try cg.body.emit(gpa, .OpCompositeExtract, .{
-                .id_result_type = u32_ty_id,
+                .id_result_type = limb_ty_id,
                 .id_result = result_id,
                 .composite = composite_id,
                 .indexes = &.{@as(u32, @intCast(i))},
             });
             limb.* = result_id;
         }
+        const cached = try cg.arena.dupe(Id, limbs);
+        try cg.composite_limbs.put(gpa, composite_id, cached);
         return .{ .cg = cg, .limbs = limbs, .n_limbs = n_limbs, .info = info };
     }
 
@@ -2793,9 +2831,9 @@ const CompositeInt = struct {
     }
 
     fn zero(cg: *CodeGen, info: ArithmeticTypeInfo) !CompositeInt {
-        const n_limbs: u16 = info.backing_bits / big_int_bits;
+        const n_limbs: u16 = info.backing_bits / cg.bigIntBits();
         const limbs = try cg.id_scratch.addManyAsSlice(cg.gpa, n_limbs);
-        const zero_id = try cg.constInt(.u32, @as(u32, 0));
+        const zero_id = try cg.constInt(cg.limbType(), @as(u64, 0));
         for (limbs) |*limb| limb.* = zero_id;
         return .{ .cg = cg, .limbs = limbs, .n_limbs = n_limbs, .info = info };
     }
@@ -2808,10 +2846,10 @@ const CompositeInt = struct {
     fn limbBinOp(ci: CompositeInt, opcode: Opcode, lhs: Id, rhs: Id) !Id {
         const cg = ci.cg;
         const gpa = cg.gpa;
-        const u32_ty_id = try cg.resolveType(.u32, .direct);
+        const limb_ty_id = try cg.limbTypeId();
         const result_id = cg.allocId();
         try cg.body.emitRaw(gpa, opcode, 4);
-        cg.body.writeOperand(Id, u32_ty_id);
+        cg.body.writeOperand(Id, limb_ty_id);
         cg.body.writeOperand(Id, result_id);
         cg.body.writeOperand(Id, lhs);
         cg.body.writeOperand(Id, rhs);
@@ -2821,10 +2859,10 @@ const CompositeInt = struct {
     fn limbUnOp(ci: CompositeInt, opcode: Opcode, operand: Id) !Id {
         const cg = ci.cg;
         const gpa = cg.gpa;
-        const u32_ty_id = try cg.resolveType(.u32, .direct);
+        const limb_ty_id = try cg.limbTypeId();
         const result_id = cg.allocId();
         try cg.body.emitRaw(gpa, opcode, 3);
-        cg.body.writeOperand(Id, u32_ty_id);
+        cg.body.writeOperand(Id, limb_ty_id);
         cg.body.writeOperand(Id, result_id);
         cg.body.writeOperand(Id, operand);
         return result_id;
@@ -2916,16 +2954,17 @@ const CompositeInt = struct {
                     var cmp_l = l;
                     var cmp_r = r;
                     if (use_signed) {
-                        const i32_ty_id = try cg.resolveType(.i32, .direct);
+                        const signed_limb_ty: Type = if (cg.bigIntBits() == 64) .i64 else .i32;
+                        const signed_limb_ty_id = try cg.resolveType(signed_limb_ty, .direct);
                         const sl = cg.allocId();
                         try cg.body.emit(gpa, .OpBitcast, .{
-                            .id_result_type = i32_ty_id,
+                            .id_result_type = signed_limb_ty_id,
                             .id_result = sl,
                             .operand = l,
                         });
                         const sr = cg.allocId();
                         try cg.body.emit(gpa, .OpBitcast, .{
-                            .id_result_type = i32_ty_id,
+                            .id_result_type = signed_limb_ty_id,
                             .id_result = sr,
                             .operand = r,
                         });
@@ -2969,16 +3008,17 @@ const CompositeInt = struct {
         const comp = zcu.comp;
         const io = comp.io;
 
-        const u32_zig = try pt.intType(.unsigned, 32);
-        const u32_ty_id = try cg.resolveType(.u32, .direct);
+        const limb_bits = cg.bigIntBits();
+        const limb_zig = try pt.intType(.unsigned, limb_bits);
+        const limb_ty_id = try cg.limbTypeId();
         const carry_struct_ty: Type = .fromInterned(try ip.getTupleType(gpa, io, pt.tid, .{
-            .types = &.{ u32_zig.toIntern(), u32_zig.toIntern() },
+            .types = &.{ limb_zig.toIntern(), limb_zig.toIntern() },
             .values = &.{ .none, .none },
         }));
         const carry_struct_ty_id = try cg.resolveType(carry_struct_ty, .direct);
 
         const result_limbs = try cg.id_scratch.addManyAsSlice(gpa, ci.n_limbs);
-        var carry_id = try cg.constInt(.u32, @as(u32, 0));
+        var carry_id = try cg.constInt(cg.limbType(), @as(u64, 0));
 
         const opcode: Opcode = if (is_add) .OpIAddCarry else .OpISubBorrow;
 
@@ -2992,14 +3032,14 @@ const CompositeInt = struct {
 
             const sum1 = cg.allocId();
             try cg.body.emit(gpa, .OpCompositeExtract, .{
-                .id_result_type = u32_ty_id,
+                .id_result_type = limb_ty_id,
                 .id_result = sum1,
                 .composite = op1,
                 .indexes = &.{0},
             });
             const carry1 = cg.allocId();
             try cg.body.emit(gpa, .OpCompositeExtract, .{
-                .id_result_type = u32_ty_id,
+                .id_result_type = limb_ty_id,
                 .id_result = carry1,
                 .composite = op1,
                 .indexes = &.{1},
@@ -3014,14 +3054,14 @@ const CompositeInt = struct {
 
             result_limbs[i] = cg.allocId();
             try cg.body.emit(gpa, .OpCompositeExtract, .{
-                .id_result_type = u32_ty_id,
+                .id_result_type = limb_ty_id,
                 .id_result = result_limbs[i],
                 .composite = op2,
                 .indexes = &.{0},
             });
             const carry2 = cg.allocId();
             try cg.body.emit(gpa, .OpCompositeExtract, .{
-                .id_result_type = u32_ty_id,
+                .id_result_type = limb_ty_id,
                 .id_result = carry2,
                 .composite = op2,
                 .indexes = &.{1},
@@ -3036,16 +3076,18 @@ const CompositeInt = struct {
     fn shl(ci: CompositeInt, shift_amt_id: Id) !CompositeInt {
         const cg = ci.cg;
         const gpa = cg.gpa;
-        const u32_ty_id = try cg.resolveType(.u32, .direct);
+        const limb_bits = cg.bigIntBits();
+        const limb_ty = cg.limbType();
+        const limb_ty_id = try cg.limbTypeId();
         const bool_ty_id = try cg.resolveType(.bool, .direct);
-        const zero_id = try cg.constInt(.u32, @as(u32, 0));
-        const five_id = try cg.constInt(.u32, @as(u32, 5));
-        const thirty_one_id = try cg.constInt(.u32, @as(u32, 31));
-        const thirty_two_id = try cg.constInt(.u32, @as(u32, 32));
+        const zero_id = try cg.constInt(limb_ty, @as(u64, 0));
+        const log2_bits_id = try cg.constInt(limb_ty, @as(u64, std.math.log2_int(u16, limb_bits)));
+        const bits_minus_1_id = try cg.constInt(limb_ty, @as(u64, limb_bits - 1));
+        const bits_id = try cg.constInt(limb_ty, @as(u64, limb_bits));
 
-        const whole = try ci.limbBinOp(.OpShiftRightLogical, shift_amt_id, five_id);
-        const frac = try ci.limbBinOp(.OpBitwiseAnd, shift_amt_id, thirty_one_id);
-        const comp_frac = try ci.limbBinOp(.OpISub, thirty_two_id, frac);
+        const whole = try ci.limbBinOp(.OpShiftRightLogical, shift_amt_id, log2_bits_id);
+        const frac = try ci.limbBinOp(.OpBitwiseAnd, shift_amt_id, bits_minus_1_id);
+        const comp_frac = try ci.limbBinOp(.OpISub, bits_id, frac);
         const frac_is_zero = blk: {
             const r = cg.allocId();
             try cg.body.emit(gpa, .OpIEqual, .{
@@ -3060,12 +3102,12 @@ const CompositeInt = struct {
         const result_limbs = try cg.id_scratch.addManyAsSlice(gpa, ci.n_limbs);
 
         for (0..ci.n_limbs) |i| {
-            const i_id = try cg.constInt(.u32, @as(u32, @intCast(i)));
+            const i_id = try cg.constInt(limb_ty, @as(u64, @intCast(i)));
             var main_val = zero_id;
             var carry_val = zero_id;
 
             for (0..ci.n_limbs) |j| {
-                const j_id = try cg.constInt(.u32, @as(u32, @intCast(j)));
+                const j_id = try cg.constInt(limb_ty, @as(u64, @intCast(j)));
                 const j_plus_whole = try ci.limbBinOp(.OpIAdd, j_id, whole);
 
                 const is_main = blk: {
@@ -3082,7 +3124,7 @@ const CompositeInt = struct {
                 main_val = blk: {
                     const r = cg.allocId();
                     try cg.body.emit(gpa, .OpSelect, .{
-                        .id_result_type = u32_ty_id,
+                        .id_result_type = limb_ty_id,
                         .id_result = r,
                         .condition = is_main,
                         .object_1 = shifted,
@@ -3091,7 +3133,7 @@ const CompositeInt = struct {
                     break :blk r;
                 };
 
-                const one_id = try cg.constInt(.u32, @as(u32, 1));
+                const one_id = try cg.constInt(limb_ty, @as(u64, 1));
                 const j_plus_whole_plus_1 = try ci.limbBinOp(.OpIAdd, j_plus_whole, one_id);
                 const is_carry = blk: {
                     const r = cg.allocId();
@@ -3107,7 +3149,7 @@ const CompositeInt = struct {
                 const guarded_carry = blk: {
                     const r = cg.allocId();
                     try cg.body.emit(gpa, .OpSelect, .{
-                        .id_result_type = u32_ty_id,
+                        .id_result_type = limb_ty_id,
                         .id_result = r,
                         .condition = frac_is_zero,
                         .object_1 = zero_id,
@@ -3118,7 +3160,7 @@ const CompositeInt = struct {
                 carry_val = blk: {
                     const r = cg.allocId();
                     try cg.body.emit(gpa, .OpSelect, .{
-                        .id_result_type = u32_ty_id,
+                        .id_result_type = limb_ty_id,
                         .id_result = r,
                         .condition = is_carry,
                         .object_1 = guarded_carry,
@@ -3137,16 +3179,18 @@ const CompositeInt = struct {
     fn shr(ci: CompositeInt, shift_amt_id: Id, comptime is_arithmetic: bool) !CompositeInt {
         const cg = ci.cg;
         const gpa = cg.gpa;
-        const u32_ty_id = try cg.resolveType(.u32, .direct);
+        const limb_bits = cg.bigIntBits();
+        const limb_ty = cg.limbType();
+        const limb_ty_id = try cg.limbTypeId();
         const bool_ty_id = try cg.resolveType(.bool, .direct);
-        const zero_id = try cg.constInt(.u32, @as(u32, 0));
-        const five_id = try cg.constInt(.u32, @as(u32, 5));
-        const thirty_one_id = try cg.constInt(.u32, @as(u32, 31));
-        const thirty_two_id = try cg.constInt(.u32, @as(u32, 32));
+        const zero_id = try cg.constInt(limb_ty, @as(u64, 0));
+        const log2_bits_id = try cg.constInt(limb_ty, @as(u64, std.math.log2_int(u16, limb_bits)));
+        const bits_minus_1_id = try cg.constInt(limb_ty, @as(u64, limb_bits - 1));
+        const bits_id = try cg.constInt(limb_ty, @as(u64, limb_bits));
 
-        const whole = try ci.limbBinOp(.OpShiftRightLogical, shift_amt_id, five_id);
-        const frac = try ci.limbBinOp(.OpBitwiseAnd, shift_amt_id, thirty_one_id);
-        const comp_frac = try ci.limbBinOp(.OpISub, thirty_two_id, frac);
+        const whole = try ci.limbBinOp(.OpShiftRightLogical, shift_amt_id, log2_bits_id);
+        const frac = try ci.limbBinOp(.OpBitwiseAnd, shift_amt_id, bits_minus_1_id);
+        const comp_frac = try ci.limbBinOp(.OpISub, bits_id, frac);
         const frac_is_zero = blk: {
             const r = cg.allocId();
             try cg.body.emit(gpa, .OpIEqual, .{
@@ -3159,24 +3203,25 @@ const CompositeInt = struct {
         };
 
         const fill_id = if (is_arithmetic) blk: {
-            const i32_ty_id = try cg.resolveType(.i32, .direct);
+            const signed_limb_ty: Type = if (limb_bits == 64) .i64 else .i32;
+            const signed_limb_ty_id = try cg.resolveType(signed_limb_ty, .direct);
             const msb_signed = cg.allocId();
             try cg.body.emit(gpa, .OpBitcast, .{
-                .id_result_type = i32_ty_id,
+                .id_result_type = signed_limb_ty_id,
                 .id_result = msb_signed,
                 .operand = ci.limbs[ci.n_limbs - 1],
             });
-            const shift31 = try cg.constInt(.i32, @as(i32, 31));
+            const shift_amt = try cg.constInt(signed_limb_ty, @as(u64, limb_bits - 1));
             const sign_ext = cg.allocId();
             try cg.body.emit(gpa, .OpShiftRightArithmetic, .{
-                .id_result_type = i32_ty_id,
+                .id_result_type = signed_limb_ty_id,
                 .id_result = sign_ext,
                 .base = msb_signed,
-                .shift = shift31,
+                .shift = shift_amt,
             });
             const back = cg.allocId();
             try cg.body.emit(gpa, .OpBitcast, .{
-                .id_result_type = u32_ty_id,
+                .id_result_type = limb_ty_id,
                 .id_result = back,
                 .operand = sign_ext,
             });
@@ -3189,7 +3234,7 @@ const CompositeInt = struct {
             const shifted_fill = try ci.limbBinOp(.OpShiftLeftLogical, fill_id, comp_frac);
             const guarded = cg.allocId();
             try cg.body.emit(gpa, .OpSelect, .{
-                .id_result_type = u32_ty_id,
+                .id_result_type = limb_ty_id,
                 .id_result = guarded,
                 .condition = frac_is_zero,
                 .object_1 = zero_id,
@@ -3199,12 +3244,12 @@ const CompositeInt = struct {
         } else zero_id;
 
         for (0..ci.n_limbs) |i| {
-            const i_id = try cg.constInt(.u32, @as(u32, @intCast(i)));
+            const i_id = try cg.constInt(limb_ty, @as(u64, @intCast(i)));
             var main_val = fill_id;
             var carry_val = arith_carry_init;
 
             for (0..ci.n_limbs) |j| {
-                const j_id = try cg.constInt(.u32, @as(u32, @intCast(j)));
+                const j_id = try cg.constInt(limb_ty, @as(u64, @intCast(j)));
                 const i_plus_whole = try ci.limbBinOp(.OpIAdd, i_id, whole);
                 const is_main = blk: {
                     const r = cg.allocId();
@@ -3220,7 +3265,7 @@ const CompositeInt = struct {
                 main_val = blk: {
                     const r = cg.allocId();
                     try cg.body.emit(gpa, .OpSelect, .{
-                        .id_result_type = u32_ty_id,
+                        .id_result_type = limb_ty_id,
                         .id_result = r,
                         .condition = is_main,
                         .object_1 = shifted,
@@ -3229,7 +3274,7 @@ const CompositeInt = struct {
                     break :blk r;
                 };
 
-                const one_id = try cg.constInt(.u32, @as(u32, 1));
+                const one_id = try cg.constInt(limb_ty, @as(u64, 1));
                 const i_plus_whole_plus_1 = try ci.limbBinOp(.OpIAdd, i_plus_whole, one_id);
                 const is_carry = blk: {
                     const r = cg.allocId();
@@ -3245,7 +3290,7 @@ const CompositeInt = struct {
                 const guarded_carry = blk: {
                     const r = cg.allocId();
                     try cg.body.emit(gpa, .OpSelect, .{
-                        .id_result_type = u32_ty_id,
+                        .id_result_type = limb_ty_id,
                         .id_result = r,
                         .condition = frac_is_zero,
                         .object_1 = zero_id,
@@ -3256,7 +3301,7 @@ const CompositeInt = struct {
                 carry_val = blk: {
                     const r = cg.allocId();
                     try cg.body.emit(gpa, .OpSelect, .{
-                        .id_result_type = u32_ty_id,
+                        .id_result_type = limb_ty_id,
                         .id_result = r,
                         .condition = is_carry,
                         .object_1 = guarded_carry,
@@ -3284,17 +3329,18 @@ const CompositeInt = struct {
 
         const n: usize = ci.n_limbs;
         const total: usize = if (wide) 2 * n else n;
-        const u32_zig = try pt.intType(.unsigned, 32);
-        const u32_ty_id = try cg.resolveType(.u32, .direct);
+        const limb_bits = cg.bigIntBits();
+        const limb_zig = try pt.intType(.unsigned, limb_bits);
+        const limb_ty_id = try cg.limbTypeId();
 
         const pair_struct_ty: Type = .fromInterned(try ip.getTupleType(gpa, io, pt.tid, .{
-            .types = &.{ u32_zig.toIntern(), u32_zig.toIntern() },
+            .types = &.{ limb_zig.toIntern(), limb_zig.toIntern() },
             .values = &.{ .none, .none },
         }));
         const pair_struct_ty_id = try cg.resolveType(pair_struct_ty, .direct);
 
         const result_limbs = try cg.id_scratch.addManyAsSlice(gpa, total);
-        const zero_id = try cg.constInt(.u32, @as(u32, 0));
+        const zero_id = try cg.constInt(cg.limbType(), @as(u64, 0));
         for (result_limbs) |*r| r.* = zero_id;
 
         for (0..n) |i| {
@@ -3309,7 +3355,7 @@ const CompositeInt = struct {
                     .opencl => {
                         lo = cg.allocId();
                         try cg.body.emit(gpa, .OpIMul, .{
-                            .id_result_type = u32_ty_id,
+                            .id_result_type = limb_ty_id,
                             .id_result = lo,
                             .operand_1 = ci.limbs[i],
                             .operand_2 = other.limbs[j],
@@ -3318,7 +3364,7 @@ const CompositeInt = struct {
                         const set = try cg.importExtendedSet();
                         hi = cg.allocId();
                         try cg.body.emit(gpa, .OpExtInst, .{
-                            .id_result_type = u32_ty_id,
+                            .id_result_type = limb_ty_id,
                             .id_result = hi,
                             .set = set,
                             .instruction = .{ .inst = @intFromEnum(spec.OpenClOpcode.u_mul_hi) },
@@ -3336,14 +3382,14 @@ const CompositeInt = struct {
 
                         lo = cg.allocId();
                         try cg.body.emit(gpa, .OpCompositeExtract, .{
-                            .id_result_type = u32_ty_id,
+                            .id_result_type = limb_ty_id,
                             .id_result = lo,
                             .composite = mul_result,
                             .indexes = &.{0},
                         });
                         hi = cg.allocId();
                         try cg.body.emit(gpa, .OpCompositeExtract, .{
-                            .id_result_type = u32_ty_id,
+                            .id_result_type = limb_ty_id,
                             .id_result = hi,
                             .composite = mul_result,
                             .indexes = &.{1},
@@ -3361,14 +3407,14 @@ const CompositeInt = struct {
 
                 const sum1 = cg.allocId();
                 try cg.body.emit(gpa, .OpCompositeExtract, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = sum1,
                     .composite = add1,
                     .indexes = &.{0},
                 });
                 const c1 = cg.allocId();
                 try cg.body.emit(gpa, .OpCompositeExtract, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = c1,
                     .composite = add1,
                     .indexes = &.{1},
@@ -3384,14 +3430,14 @@ const CompositeInt = struct {
 
                 result_limbs[k] = cg.allocId();
                 try cg.body.emit(gpa, .OpCompositeExtract, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = result_limbs[k],
                     .composite = add2,
                     .indexes = &.{0},
                 });
                 const c2 = cg.allocId();
                 try cg.body.emit(gpa, .OpCompositeExtract, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = c2,
                     .composite = add2,
                     .indexes = &.{1},
@@ -3412,7 +3458,8 @@ const CompositeInt = struct {
         if (ci.info.bits == ci.info.backing_bits) return ci;
         const cg = ci.cg;
         const gpa = cg.gpa;
-        const top_bits: u16 = ci.info.bits % big_int_bits;
+        const limb_bits = cg.bigIntBits();
+        const top_bits: u16 = ci.info.bits % limb_bits;
         assert(top_bits != 0);
 
         const result_limbs = try cg.id_scratch.addManyAsSlice(gpa, ci.n_limbs);
@@ -3421,41 +3468,43 @@ const CompositeInt = struct {
         }
 
         const top_limb = ci.limbs[ci.n_limbs - 1];
+        const limb_ty = cg.limbType();
+        const limb_signed_ty: Type = if (limb_bits == 64) .i64 else .i32;
         switch (ci.info.signedness) {
             .unsigned => {
-                const mask_val: u32 = (@as(u32, 1) << @as(u5, @intCast(top_bits))) - 1;
-                const mask_id = try cg.constInt(.u32, mask_val);
+                const mask_val: u64 = (@as(u64, 1) << @as(u6, @intCast(top_bits))) - 1;
+                const mask_id = try cg.constInt(limb_ty, mask_val);
                 result_limbs[ci.n_limbs - 1] = try ci.limbBinOp(.OpBitwiseAnd, top_limb, mask_id);
             },
             .signed => {
-                const u32_ty_id = try cg.resolveType(.u32, .direct);
-                const i32_ty_id = try cg.resolveType(.i32, .direct);
-                const shift_amt: u32 = 32 - top_bits;
-                const shift_id = try cg.constInt(.u32, shift_amt);
+                const limb_ty_id = try cg.limbTypeId();
+                const signed_ty_id = try cg.resolveType(limb_signed_ty, .direct);
+                const shift_amt: u32 = @intCast(limb_bits - top_bits);
+                const shift_id = try cg.constInt(limb_ty, shift_amt);
 
                 const as_signed = cg.allocId();
                 try cg.body.emit(gpa, .OpBitcast, .{
-                    .id_result_type = i32_ty_id,
+                    .id_result_type = signed_ty_id,
                     .id_result = as_signed,
                     .operand = top_limb,
                 });
                 const shifted_left = cg.allocId();
                 try cg.body.emit(gpa, .OpShiftLeftLogical, .{
-                    .id_result_type = i32_ty_id,
+                    .id_result_type = signed_ty_id,
                     .id_result = shifted_left,
                     .base = as_signed,
                     .shift = shift_id,
                 });
                 const shifted_right = cg.allocId();
                 try cg.body.emit(gpa, .OpShiftRightArithmetic, .{
-                    .id_result_type = i32_ty_id,
+                    .id_result_type = signed_ty_id,
                     .id_result = shifted_right,
                     .base = shifted_left,
                     .shift = shift_id,
                 });
                 const back = cg.allocId();
                 try cg.body.emit(gpa, .OpBitcast, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = back,
                     .operand = shifted_right,
                 });
@@ -4553,13 +4602,14 @@ fn airShift(cg: *CodeGen, inst: Air.Inst.Index, unsigned: Opcode, signed: Opcode
     switch (info.class) {
         .composite_integer => {
             const shift_info = cg.arithmeticTypeInfo(shift.ty);
+            const limb_ty = cg.limbType();
             const shift_amt_id = switch (shift_info.class) {
                 .composite_integer => blk: {
                     const shift_id = try shift.materialize(cg);
-                    const u32_ty_id = try cg.resolveType(.u32, .direct);
+                    const limb_ty_id = try cg.limbTypeId();
                     const result_id = cg.allocId();
                     try cg.body.emit(cg.gpa, .OpCompositeExtract, .{
-                        .id_result_type = u32_ty_id,
+                        .id_result_type = limb_ty_id,
                         .id_result = result_id,
                         .composite = shift_id,
                         .indexes = &.{@as(u32, 0)},
@@ -4567,7 +4617,7 @@ fn airShift(cg: *CodeGen, inst: Air.Inst.Index, unsigned: Opcode, signed: Opcode
                     break :blk result_id;
                 },
                 else => blk: {
-                    const converted = try cg.buildConvert(.u32, shift);
+                    const converted = try cg.buildConvert(limb_ty, shift);
                     break :blk try converted.materialize(cg);
                 },
             };
@@ -4888,12 +4938,12 @@ fn airAbs(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             const is_neg = try ci.cmp(ci_z, .lt);
             const ci_neg = try ci_z.addSub(ci, false);
             const result_info = cg.arithmeticTypeInfo(result_ty);
-            const u32_ty_id = try cg.resolveType(.u32, .direct);
+            const limb_ty_id = try cg.limbTypeId();
             const result_limbs = try cg.id_scratch.addManyAsSlice(cg.gpa, ci.n_limbs);
             for (0..ci.n_limbs) |i| {
                 result_limbs[i] = cg.allocId();
                 try cg.body.emit(cg.gpa, .OpSelect, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = result_limbs[i],
                     .condition = is_neg,
                     .object_1 = ci_neg.limbs[i],
@@ -5067,12 +5117,13 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             const high_limbs = wide_limbs[ci_lhs2.n_limbs..];
 
             const bool_ty_id = try cg.resolveType(.bool, .direct);
-            const u32_ty_id = try cg.resolveType(.u32, .direct);
-            const n: usize = info.backing_bits / big_int_bits;
+            const limb_ty_id = try cg.limbTypeId();
+            const limb_ty = cg.limbType();
+            const n: usize = info.backing_bits / cg.bigIntBits();
 
             const ov_bool = switch (info.signedness) {
                 .unsigned => blk: {
-                    const zero_id = try cg.constInt(.u32, @as(u32, 0));
+                    const zero_id = try cg.constInt(limb_ty, @as(u64, 0));
                     var any_nonzero = cg.allocId();
                     try cg.body.emit(gpa, .OpINotEqual, .{
                         .id_result_type = bool_ty_id,
@@ -5105,32 +5156,33 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 .signed => blk: {
                     const ci_res = try CompositeInt.init(cg, result_val_id, info);
                     const top_limb = ci_res.limbs[n - 1];
-                    const i32_ty_id = try cg.resolveType(.i32, .direct);
+                    const signed_limb_ty: Type = if (cg.bigIntBits() == 64) .i64 else .i32;
+                    const signed_limb_ty_id = try cg.resolveType(signed_limb_ty, .direct);
 
-                    const top_bits: u16 = if (info.bits % big_int_bits == 0)
-                        big_int_bits
+                    const top_bits: u16 = if (info.bits % cg.bigIntBits() == 0)
+                        cg.bigIntBits()
                     else
-                        info.bits % big_int_bits;
+                        info.bits % cg.bigIntBits();
 
-                    const shift_amt: u32 = top_bits - 1;
-                    const shift_id = try cg.constInt(.u32, shift_amt);
+                    const shift_amt: u64 = top_bits - 1;
+                    const shift_id = try cg.constInt(limb_ty, shift_amt);
 
                     const as_signed = cg.allocId();
                     try cg.body.emit(gpa, .OpBitcast, .{
-                        .id_result_type = i32_ty_id,
+                        .id_result_type = signed_limb_ty_id,
                         .id_result = as_signed,
                         .operand = top_limb,
                     });
                     const sign_ext = cg.allocId();
                     try cg.body.emit(gpa, .OpShiftRightArithmetic, .{
-                        .id_result_type = i32_ty_id,
+                        .id_result_type = signed_limb_ty_id,
                         .id_result = sign_ext,
                         .base = as_signed,
                         .shift = shift_id,
                     });
                     const expected = cg.allocId();
                     try cg.body.emit(gpa, .OpBitcast, .{
-                        .id_result_type = u32_ty_id,
+                        .id_result_type = limb_ty_id,
                         .id_result = expected,
                         .operand = sign_ext,
                     });
@@ -5163,25 +5215,25 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                     }
 
                     if (info.bits != info.backing_bits) {
-                        const top_bits_s: u16 = info.bits % big_int_bits;
-                        const s_shift_id = try cg.constInt(.u32, top_bits_s - 1);
+                        const top_bits_s: u16 = info.bits % cg.bigIntBits();
+                        const s_shift_id = try cg.constInt(limb_ty, @as(u64, top_bits_s - 1));
 
                         const top_as_signed = cg.allocId();
                         try cg.body.emit(gpa, .OpBitcast, .{
-                            .id_result_type = i32_ty_id,
+                            .id_result_type = signed_limb_ty_id,
                             .id_result = top_as_signed,
                             .operand = top_limb,
                         });
                         const top_sign_ext = cg.allocId();
                         try cg.body.emit(gpa, .OpShiftRightArithmetic, .{
-                            .id_result_type = i32_ty_id,
+                            .id_result_type = signed_limb_ty_id,
                             .id_result = top_sign_ext,
                             .base = top_as_signed,
                             .shift = s_shift_id,
                         });
                         const top_expected = cg.allocId();
                         try cg.body.emit(gpa, .OpBitcast, .{
-                            .id_result_type = u32_ty_id,
+                            .id_result_type = limb_ty_id,
                             .id_result = top_expected,
                             .operand = top_sign_ext,
                         });
@@ -6118,15 +6170,17 @@ fn airIntCast(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
 
         if (src_composite and dst_composite) {
             const src_id = try src.materialize(cg);
-            const src_n: u16 = src_info.backing_bits / big_int_bits;
-            const dst_n: u16 = dst_info.backing_bits / big_int_bits;
+            const limb_bits = cg.bigIntBits();
+            const limb_ty = cg.limbType();
+            const limb_ty_id = try cg.limbTypeId();
+            const src_n: u16 = src_info.backing_bits / limb_bits;
+            const dst_n: u16 = dst_info.backing_bits / limb_bits;
             const result_limbs = try cg.id_scratch.addManyAsSlice(gpa, dst_n);
             const min_n = @min(src_n, dst_n);
-            const u32_ty_id = try cg.resolveType(.u32, .direct);
             for (0..min_n) |i| {
                 result_limbs[i] = cg.allocId();
                 try cg.body.emit(gpa, .OpCompositeExtract, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = result_limbs[i],
                     .composite = src_id,
                     .indexes = &.{@as(u32, @intCast(i))},
@@ -6134,30 +6188,31 @@ fn airIntCast(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             }
             if (dst_n > src_n) {
                 const fill = if (src_info.signedness == .signed) blk: {
-                    const i32_ty_id = try cg.resolveType(.i32, .direct);
+                    const signed_limb_ty: Type = if (limb_bits == 64) .i64 else .i32;
+                    const signed_limb_ty_id = try cg.resolveType(signed_limb_ty, .direct);
                     const msb = result_limbs[src_n - 1];
                     const msb_signed = cg.allocId();
                     try cg.body.emit(gpa, .OpBitcast, .{
-                        .id_result_type = i32_ty_id,
+                        .id_result_type = signed_limb_ty_id,
                         .id_result = msb_signed,
                         .operand = msb,
                     });
-                    const shift31 = try cg.constInt(.i32, @as(i32, 31));
+                    const shift_amt = try cg.constInt(signed_limb_ty, @as(u64, limb_bits - 1));
                     const sign_ext = cg.allocId();
                     try cg.body.emit(gpa, .OpShiftRightArithmetic, .{
-                        .id_result_type = i32_ty_id,
+                        .id_result_type = signed_limb_ty_id,
                         .id_result = sign_ext,
                         .base = msb_signed,
-                        .shift = shift31,
+                        .shift = shift_amt,
                     });
                     const back = cg.allocId();
                     try cg.body.emit(gpa, .OpBitcast, .{
-                        .id_result_type = u32_ty_id,
+                        .id_result_type = limb_ty_id,
                         .id_result = back,
                         .operand = sign_ext,
                     });
                     break :blk back;
-                } else try cg.constInt(.u32, @as(u32, 0));
+                } else try cg.constInt(limb_ty, @as(u64, 0));
                 for (min_n..dst_n) |i| {
                     result_limbs[i] = fill;
                 }
@@ -6167,16 +6222,18 @@ fn airIntCast(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             return try normalized.materialize(dst_ty);
         } else if (src_composite and !dst_composite) {
             const src_id = try src.materialize(cg);
-            const u32_ty_id = try cg.resolveType(.u32, .direct);
-            if (dst_info.backing_bits <= 32) {
+            const limb_bits = cg.bigIntBits();
+            const limb_ty = cg.limbType();
+            const limb_ty_id = try cg.limbTypeId();
+            if (dst_info.backing_bits <= limb_bits) {
                 const limb0 = cg.allocId();
                 try cg.body.emit(gpa, .OpCompositeExtract, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = limb0,
                     .composite = src_id,
                     .indexes = &.{@as(u32, 0)},
                 });
-                const tmp: Temporary = .init(.u32, limb0);
+                const tmp: Temporary = .init(limb_ty, limb0);
                 const converted = try cg.buildConvert(dst_ty, tmp);
                 const result = if (dst_info.bits < src_info.bits)
                     try cg.normalize(converted, dst_info)
@@ -6184,16 +6241,17 @@ fn airIntCast(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                     converted;
                 return try result.materialize(cg);
             } else {
+                assert(limb_bits == 32); // dst > 64 while limbs are 64 shouldn't happen — dst fits in one 64-bit limb.
                 const limb0 = cg.allocId();
                 try cg.body.emit(gpa, .OpCompositeExtract, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = limb0,
                     .composite = src_id,
                     .indexes = &.{@as(u32, 0)},
                 });
                 const limb1 = cg.allocId();
                 try cg.body.emit(gpa, .OpCompositeExtract, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = limb1,
                     .composite = src_id,
                     .indexes = &.{@as(u32, 1)},
@@ -6235,19 +6293,21 @@ fn airIntCast(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 return try result.materialize(cg);
             }
         } else {
-            const dst_n: u16 = dst_info.backing_bits / big_int_bits;
+            const limb_bits = cg.bigIntBits();
+            const limb_ty = cg.limbType();
+            const limb_ty_id = try cg.limbTypeId();
+            const dst_n: u16 = dst_info.backing_bits / limb_bits;
             const result_limbs = try cg.id_scratch.addManyAsSlice(gpa, dst_n);
-            const u32_ty_id = try cg.resolveType(.u32, .direct);
 
-            if (src_info.backing_bits <= 32) {
-                const converted = try cg.buildConvert(.u32, src);
+            if (src_info.backing_bits <= limb_bits) {
+                const converted = try cg.buildConvert(limb_ty, src);
                 result_limbs[0] = try converted.materialize(cg);
             } else {
                 const src_as_u64 = try cg.buildConvert(.u64, src);
                 const src_id = try src_as_u64.materialize(cg);
                 result_limbs[0] = cg.allocId();
                 try cg.body.emit(gpa, .OpUConvert, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = result_limbs[0],
                     .unsigned_value = src_id,
                 });
@@ -6262,38 +6322,39 @@ fn airIntCast(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 });
                 result_limbs[1] = cg.allocId();
                 try cg.body.emit(gpa, .OpUConvert, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = result_limbs[1],
                     .unsigned_value = hi,
                 });
             }
             // Sign/zero-extend remaining limbs.
-            const fill_start: u16 = if (src_info.backing_bits <= 32) 1 else 2;
+            const fill_start: u16 = if (src_info.backing_bits <= limb_bits) 1 else 2;
             const fill = if (src_info.signedness == .signed) blk: {
-                const i32_ty_id = try cg.resolveType(.i32, .direct);
+                const signed_limb_ty: Type = if (limb_bits == 64) .i64 else .i32;
+                const signed_limb_ty_id = try cg.resolveType(signed_limb_ty, .direct);
                 const msb = result_limbs[fill_start - 1];
                 const msb_signed = cg.allocId();
                 try cg.body.emit(gpa, .OpBitcast, .{
-                    .id_result_type = i32_ty_id,
+                    .id_result_type = signed_limb_ty_id,
                     .id_result = msb_signed,
                     .operand = msb,
                 });
-                const shift31 = try cg.constInt(.i32, @as(i32, 31));
+                const shift_amt = try cg.constInt(signed_limb_ty, @as(u64, limb_bits - 1));
                 const sign_ext = cg.allocId();
                 try cg.body.emit(gpa, .OpShiftRightArithmetic, .{
-                    .id_result_type = i32_ty_id,
+                    .id_result_type = signed_limb_ty_id,
                     .id_result = sign_ext,
                     .base = msb_signed,
-                    .shift = shift31,
+                    .shift = shift_amt,
                 });
                 const back = cg.allocId();
                 try cg.body.emit(gpa, .OpBitcast, .{
-                    .id_result_type = u32_ty_id,
+                    .id_result_type = limb_ty_id,
                     .id_result = back,
                     .operand = sign_ext,
                 });
                 break :blk back;
-            } else try cg.constInt(.u32, @as(u32, 0));
+            } else try cg.constInt(limb_ty, @as(u64, 0));
             for (fill_start..dst_n) |i| {
                 result_limbs[i] = fill;
             }
