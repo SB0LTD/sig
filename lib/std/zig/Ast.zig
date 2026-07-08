@@ -138,11 +138,14 @@ pub fn deinit(tree: *Ast, gpa: Allocator) void {
     tree.* = undefined;
 }
 
-pub const Mode = enum { zig, zon, zig_no_recover };
+pub const Mode = enum { zig, zon };
+pub const ParseOptions = struct {
+    recover: bool = true,
+};
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!Ast {
+pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode, options: ParseOptions) Allocator.Error!Ast {
     var tokens = Ast.TokenList{};
     defer tokens.deinit(gpa);
 
@@ -162,7 +165,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
 
     var tokens_slice = tokens.toOwnedSlice();
     errdefer tokens_slice.deinit(gpa);
-    return parseTokens(gpa, source, tokens_slice, mode);
+    return parseTokens(gpa, source, tokens_slice, mode, options);
 }
 
 pub fn parseTokens(
@@ -170,6 +173,7 @@ pub fn parseTokens(
     source: [:0]const u8,
     tokens: Ast.TokenList.Slice,
     mode: Mode,
+    options: ParseOptions,
 ) Allocator.Error!Ast {
     var parser: Parse = .{
         .source = source,
@@ -180,7 +184,7 @@ pub fn parseTokens(
         .extra_data = .empty,
         .scratch = .empty,
         .tok_i = 0,
-        .recover = true,
+        .recover = options.recover,
     };
     defer parser.errors.deinit(gpa);
     defer parser.nodes.deinit(gpa);
@@ -194,10 +198,6 @@ pub fn parseTokens(
 
     switch (mode) {
         .zig => try parser.parseRoot(),
-        .zig_no_recover => {
-            parser.recover = false;
-            try parser.parseRoot();
-        },
         .zon => try parser.parseZon(),
     }
 

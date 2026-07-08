@@ -43,7 +43,7 @@ pub fn main(init: std.process.Init) !void {
     defer gpa.free(generated);
 
     // Parse the generated Zig code and render it in the canonical format
-    var tree = try std.zig.Ast.parse(gpa, generated, .zig);
+    var tree = try std.zig.Ast.parse(gpa, generated, .zig, .{});
     defer tree.deinit(gpa);
 
     if (tree.errors.len != 0) {
