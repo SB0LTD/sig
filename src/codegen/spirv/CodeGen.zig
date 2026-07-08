@@ -423,7 +423,7 @@ pub fn addEntryPointDeps(
     cg: *CodeGen,
     decl_index: Decl.Index,
     seen: *std.bit_set.Dynamic,
-    interface: *std.array_list.Managed(Id),
+    interface: *std.ArrayList(Id),
 ) !void {
     const decl = cg.declPtr(decl_index);
     const deps = cg.decl_deps.items[decl.begin_dep..decl.end_dep];
@@ -435,7 +435,7 @@ pub fn addEntryPointDeps(
     seen.set(@intFromEnum(decl_index));
 
     if (decl.kind == .global) {
-        try interface.append(decl.result_id);
+        try interface.append(cg.gpa, decl.result_id);
     }
 
     for (deps) |dep| {
@@ -1806,11 +1806,11 @@ fn constant(cg: *CodeGen, ty: Type, val: Value, repr: Repr) Error!Id {
                     const struct_type = zcu.typeToStruct(ty).?;
                     assert(struct_type.layout != .@"packed"); // packed structs use `bitpack`
 
-                    var types = std.array_list.Managed(Type).init(gpa);
-                    defer types.deinit();
+                    var types: std.ArrayList(Type) = .empty;
+                    defer types.deinit(gpa);
 
-                    var constituents = std.array_list.Managed(Id).init(gpa);
-                    defer constituents.deinit();
+                    var constituents: std.ArrayList(Id) = .empty;
+                    defer constituents.deinit(gpa);
 
                     var it = struct_type.iterateRuntimeOrder(ip);
                     while (it.next()) |field_index| {
@@ -1824,8 +1824,8 @@ fn constant(cg: *CodeGen, ty: Type, val: Value, repr: Repr) Error!Id {
                         const field_val = try val.fieldValue(pt, field_index);
                         const field_id = try cg.constant(field_ty, field_val, .indirect);
 
-                        try types.append(field_ty);
-                        try constituents.append(field_id);
+                        try types.append(gpa, field_ty);
+                        try constituents.append(gpa, field_id);
                     }
 
                     const comp_ty_id = try cg.resolveType(ty, .direct);
@@ -2366,11 +2366,11 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
                 return try cg.resolveType(.fromInterned(struct_type.packed_backing_int_type), .direct);
             }
 
-            var member_types = std.array_list.Managed(Id).init(gpa);
-            defer member_types.deinit();
+            var member_types: std.ArrayList(Id) = .empty;
+            defer member_types.deinit(gpa);
 
-            var member_names = std.array_list.Managed([]const u8).init(gpa);
-            defer member_names.deinit();
+            var member_names: std.ArrayList([]const u8) = .empty;
+            defer member_names.deinit(gpa);
 
             var it = struct_type.iterateRuntimeOrder(ip);
             while (it.next()) |field_index| {
@@ -2378,8 +2378,8 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
                 if (!field_ty.hasRuntimeBits(zcu)) continue;
 
                 const field_name = struct_type.field_names.get(ip)[field_index];
-                try member_types.append(try cg.resolveType(field_ty, .indirect));
-                try member_names.append(field_name.toSlice(ip));
+                try member_types.append(gpa, try cg.resolveType(field_ty, .indirect));
+                try member_names.append(gpa, field_name.toSlice(ip));
             }
 
             const result_id = try cg.structType(
@@ -8722,31 +8722,69 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             });
 
             const ip = &zcu.intern_pool;
-            switch (ip.indexToKey(val.toIntern())) {
-                .int_type,
-                .ptr_type,
-                .array_type,
-                .vector_type,
-                .opt_type,
-                .anyframe_type,
-                .error_union_type,
-                .simple_type,
-                .struct_type,
-                .union_type,
-                .opaque_type,
-                .spirv_type,
-                .enum_type,
-                .func_type,
-                .error_set_type,
-                .inferred_error_set_type,
-                => unreachable, // types, not values
-
-                .undef => return cg.fail("assembly input with 'c' constraint cannot be undefined", .{}),
-
-                .int => try ass.value_map.put(gpa, in.name, .{ .constant = @intCast(val.toUnsignedInt(zcu)) }),
-                .enum_literal => |str| try ass.value_map.put(gpa, in.name, .{ .string = str.toSlice(ip) }),
-
-                else => unreachable, // TODO
+            const target = cg.pt.zcu.getTarget();
+            if (ip.indexToKey(val.toIntern()) == .undef) {
+                return cg.fail("assembly input with 'c' constraint cannot be undefined", .{});
+            }
+            switch (input_ty.zigTypeTag(zcu)) {
+                .int => {
+                    const bits: u64 = switch (input_ty.intInfo(zcu).signedness) {
+                        .unsigned => val.toUnsignedInt(zcu),
+                        .signed => @bitCast(val.toSignedInt(zcu)),
+                    };
+                    try ass.value_map.put(gpa, in.name, .{ .constant = bits });
+                },
+                .float => {
+                    const bits: u64 = switch (input_ty.floatBits(target)) {
+                        16 => @as(u16, @bitCast(val.toFloat(f16, zcu))),
+                        32 => @as(u32, @bitCast(val.toFloat(f32, zcu))),
+                        64 => @bitCast(val.toFloat(f64, zcu)),
+                        else => return cg.fail("unsupported float width for 'c' constraint", .{}),
+                    };
+                    try ass.value_map.put(gpa, in.name, .{ .constant = bits });
+                },
+                .vector => {
+                    const child_ty = input_ty.childType(zcu);
+                    const child_kind = child_ty.zigTypeTag(zcu);
+                    const child_bit_width: u16 = switch (child_kind) {
+                        .bool => 0,
+                        .int => @intCast(child_ty.intInfo(zcu).bits),
+                        .float => child_ty.floatBits(target),
+                        else => return cg.fail("'c' constraint vector element must be bool, int, or float", .{}),
+                    };
+                    const vec_len: usize = @intCast(input_ty.vectorLen(zcu));
+                    const values = try gpa.alloc(u64, vec_len);
+                    errdefer gpa.free(values);
+                    for (values, 0..) |*out, i| {
+                        const elem: Value = try val.elemValue(cg.pt, i);
+                        out.* = switch (child_kind) {
+                            .bool => @intFromBool(elem.toBool()),
+                            .int => switch (child_ty.intInfo(zcu).signedness) {
+                                .unsigned => elem.toUnsignedInt(zcu),
+                                .signed => @bitCast(elem.toSignedInt(zcu)),
+                            },
+                            .float => switch (child_bit_width) {
+                                16 => @as(u16, @bitCast(elem.toFloat(f16, zcu))),
+                                32 => @as(u32, @bitCast(elem.toFloat(f32, zcu))),
+                                64 => @bitCast(elem.toFloat(f64, zcu)),
+                                else => unreachable,
+                            },
+                            else => unreachable,
+                        };
+                    }
+                    const child_ty_id = try cg.resolveType(child_ty, .direct);
+                    try ass.value_map.put(gpa, in.name, .{ .constant_composite = .{
+                        .child = child_ty_id,
+                        .child_kind = child_kind,
+                        .child_bit_width = child_bit_width,
+                        .values = values,
+                    } });
+                },
+                .@"enum" => switch (ip.indexToKey(val.toIntern())) {
+                    .enum_literal => |str| try ass.value_map.put(gpa, in.name, .{ .string = str.toSlice(ip) }),
+                    else => unreachable,
+                },
+                else => return cg.fail("unsupported type for 'c' constraint", .{}),
             }
         } else if (std.mem.eql(u8, in.constraint, "t")) {
             // type
@@ -8813,7 +8851,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             .just_declared, .unresolved_forward_reference => unreachable,
             .ty => return cg.fail("cannot return spir-v type as value from assembly", .{}),
             .value => |ref| return ref,
-            .constant, .string => return cg.fail("cannot return constant from assembly", .{}),
+            .constant, .constant_composite, .string => return cg.fail("cannot return constant from assembly", .{}),
         }
         // TODO: Multiple results
         // TODO: Check that the output type from assembly is the same as the type actually expected by Zig.
