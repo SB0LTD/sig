@@ -6,7 +6,7 @@ const a = @extern(*addrspace(.uniform) const A, .{
     .decoration = .{ .descriptor = .{ .set = 0, .binding = 0 } },
 });
 
-export fn main() callconv(.{ .spirv_kernel = .{ .x = 1, .y = 1, .z = 1 } }) void {
+export fn main() callconv(.kernel) void {
     const b: *addrspace(.uniform) const B = @ptrCast(a);
     _ = &b;
 }

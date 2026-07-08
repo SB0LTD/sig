@@ -6917,6 +6917,9 @@ fn analyzeCall(
     const is_inline_call = block.isComptime() or inline_requested;
 
     if (!is_inline_call) {
+        if (func_val == null and !func_is_extern and !block.is_typeof and zcu.getTarget().cpu.arch.isSpirV()) {
+            return sema.fail(block, func_src, "SPIR-V does not support calling function pointers", .{});
+        }
         if (sema.func_is_naked) return sema.failWithOwnedErrorMsg(block, msg: {
             const msg = try sema.errMsg(call_src, "runtime {s} not allowed in naked function", .{@tagName(operation)});
             errdefer msg.destroy(gpa);
@@ -15250,6 +15253,23 @@ fn zirAsm(
         }
 
         const constraint = sema.code.nullTerminatedString(input.data.constraint);
+        if (zcu.getTarget().cpu.arch.isSpirV() and std.mem.eql(u8, constraint, "c")) {
+            const val = sema.resolveValue(arg.*) orelse {
+                return sema.fail(block, input_src, "assembly input with 'c' constraint must be compile-time known", .{});
+            };
+            if (val.isUndef(zcu)) {
+                return sema.fail(block, input_src, "assembly input with 'c' constraint cannot be undefined", .{});
+            }
+            const bad_type: bool = switch (uncasted_arg_ty.zigTypeTag(zcu)) {
+                .bool, .int, .float, .comptime_int, .comptime_float, .enum_literal => false,
+                .vector => switch (uncasted_arg_ty.childType(zcu).zigTypeTag(zcu)) {
+                    .bool, .int, .float => false,
+                    else => true,
+                },
+                else => true,
+            };
+            if (bad_type) return sema.fail(block, input_src, "unsupported type '{f}' for 'c' constraint", .{uncasted_arg_ty.fmt(pt)});
+        }
         needed_capacity += (constraint.len + name.len + (2 + 3)) / 4;
         inputs[arg_i] = .{ .c = constraint, .n = name };
     }
@@ -34516,11 +34536,24 @@ pub fn resolveNavPtrModifiers(
             },
         };
         const target = zcu.getTarget();
-        const addrspace_body = zir_decl.addrspace_body orelse break :as switch (addrspace_ctx) {
-            .function => target_util.defaultAddressSpace(target, .function),
-            .variable => target_util.defaultAddressSpace(target, .global_mutable),
-            .constant => target_util.defaultAddressSpace(target, .global_constant),
-            else => unreachable,
+        const addrspace_body = zir_decl.addrspace_body orelse {
+            if (zir_decl.linkage == .@"extern" and
+                target.cpu.arch.isSpirV() and
+                nav_ty.zigTypeTag(zcu) != .@"fn")
+            {
+                return sema.fail(
+                    block,
+                    block.src(.{ .node_offset_var_decl_ty = .zero }),
+                    "SPIR-V extern variables require an explicit address space",
+                    .{},
+                );
+            }
+            break :as switch (addrspace_ctx) {
+                .function => target_util.defaultAddressSpace(target, .function),
+                .variable => target_util.defaultAddressSpace(target, .global_mutable),
+                .constant => target_util.defaultAddressSpace(target, .global_constant),
+                else => unreachable,
+            };
         };
         const addrspace_ref = try sema.resolveInlineBody(block, addrspace_body, decl_inst);
         break :as try sema.analyzeAsAddressSpace(block, addrspace_src, addrspace_ref, addrspace_ctx);

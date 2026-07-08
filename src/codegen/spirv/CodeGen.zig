@@ -2222,14 +2222,10 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
                 64 => target.cpu.has(.spirv, .float64),
                 else => false,
             };
-
-            if (!supported) {
-                return cg.fail(
-                    "floating point width of {} bits is not supported for the current SPIR-V feature set",
-                    .{bits},
-                );
-            }
-
+            if (!supported) return cg.fail(
+                "'{f}' is not supported on the current SPIR-V feature set",
+                .{ty.fmt(cg.pt)},
+            );
             return try cg.floatType(bits);
         },
         .array => {
@@ -4592,10 +4588,6 @@ fn airShift(cg: *CodeGen, inst: Air.Inst.Index, unsigned: Opcode, signed: Opcode
     const zcu = cg.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
-    if (cg.typeOf(bin_op.lhs).isVector(zcu) and !cg.typeOf(bin_op.rhs).isVector(zcu)) {
-        return cg.fail("vector shift with scalar rhs", .{});
-    }
-
     const base = try cg.temporary(bin_op.lhs);
     const shift = try cg.temporary(bin_op.rhs);
 
@@ -5425,10 +5417,6 @@ fn airShlOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
 
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.Bin, ty_pl.payload).data;
-
-    if (cg.typeOf(extra.lhs).isVector(zcu) and !cg.typeOf(extra.rhs).isVector(zcu)) {
-        return cg.fail("vector shift with scalar rhs", .{});
-    }
 
     const base = try cg.temporary(extra.lhs);
     const shift = try cg.temporary(extra.rhs);
@@ -8719,16 +8707,9 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
         const input_ty = cg.typeOf(in.operand);
 
         if (std.mem.eql(u8, in.constraint, "c")) {
-            // constant
-            const val: Value = .fromInterned(in.operand.toInterned() orelse {
-                return cg.fail("assembly inputs with 'c' constraint have to be compile-time known", .{});
-            });
-
+            const val: Value = .fromInterned(in.operand.toInterned().?);
             const ip = &zcu.intern_pool;
             const target = cg.pt.zcu.getTarget();
-            if (ip.indexToKey(val.toIntern()) == .undef) {
-                return cg.fail("assembly input with 'c' constraint cannot be undefined", .{});
-            }
             switch (input_ty.zigTypeTag(zcu)) {
                 .int => {
                     const bits: u64 = switch (input_ty.intInfo(zcu).signedness) {
@@ -8742,7 +8723,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                         16 => @as(u16, @bitCast(val.toFloat(f16, zcu))),
                         32 => @as(u32, @bitCast(val.toFloat(f32, zcu))),
                         64 => @bitCast(val.toFloat(f64, zcu)),
-                        else => return cg.fail("unsupported float width for 'c' constraint", .{}),
+                        else => unreachable, // Sema rejects unsupported float widths.
                     };
                     try ass.value_map.put(gpa, in.name, .{ .constant = bits });
                 },
@@ -8753,7 +8734,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                         .bool => 0,
                         .int => @intCast(child_ty.intInfo(zcu).bits),
                         .float => child_ty.floatBits(target),
-                        else => return cg.fail("'c' constraint vector element must be bool, int, or float", .{}),
+                        else => unreachable, // Sema rejects unsupported vector element types.
                     };
                     const vec_len: usize = @intCast(input_ty.vectorLen(zcu));
                     const values = try gpa.alloc(u64, vec_len);
@@ -8787,7 +8768,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                     .enum_literal => |str| try ass.value_map.put(gpa, in.name, .{ .string = str.toSlice(ip) }),
                     else => unreachable,
                 },
-                else => return cg.fail("unsupported type for 'c' constraint", .{}),
+                else => unreachable, // Sema rejects unsupported types.
             }
         } else if (std.mem.eql(u8, in.constraint, "t")) {
             // type
@@ -8874,8 +8855,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) 
     const callee_ty = cg.typeOf(air_call.callee);
     const zig_fn_ty = switch (callee_ty.zigTypeTag(zcu)) {
         .@"fn" => callee_ty,
-        .pointer => return cg.fail("cannot call function pointers", .{}),
-        else => unreachable,
+        else => unreachable, // rejected by Sema for SPIR-V
     };
     const fn_info = zcu.typeToFunc(zig_fn_ty).?;
     const return_type = fn_info.return_type;
