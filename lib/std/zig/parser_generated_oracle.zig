@@ -1,5 +1,5 @@
 //! This file is generated, do not edit manually! To generate, run:
-//! zig run ./tools/gen_parser_oracle.zig -- ./doc/langref/grammar.peg > ./lib/std/zig/parser_generated_oracle.zig
+//! zig build gen-parser-oracle
 
 const std = @import("std");
 

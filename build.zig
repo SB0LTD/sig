@@ -721,6 +721,21 @@ pub fn build(b: *std.Build) !void {
     check_mingw_run.addDirectoryArg(b.path("lib/libc/mingw"));
     check_mingw_step.dependOn(&check_mingw_run.step);
 
+    {
+        const gpo_step = b.step("gen-parser-oracle", "Regenerate lib/std/zig/parser_generated_oracle.zig from doc/langref/grammar.peg");
+        const gpo_exe = b.addExecutable(.{
+            .name = "gen_parser_oracle",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("tools/gen_parser_oracle.zig"),
+                .target = b.graph.host,
+            }),
+        });
+        const gpo_run = b.addRunArtifact(gpo_exe);
+        gpo_run.addFileArg(b.path("doc/langref/grammar.peg"));
+        gpo_run.addFileArg(b.path("lib/std/zig/parser_generated_oracle.zig"));
+        gpo_step.dependOn(&gpo_run.step);
+    }
+
     const test_incremental_step = b.step("test-incremental", "Run the incremental compilation test cases");
     try tests.addIncrementalTests(b, test_incremental_step, test_filters);
     if (!skip_test_incremental) test_step.dependOn(test_incremental_step);

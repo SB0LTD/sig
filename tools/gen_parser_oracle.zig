@@ -1,5 +1,5 @@
 //! Example usage:
-//! zig run ./tools/gen_parser_oracle.zig -- ./doc/langref/grammar.peg > ./lib/std/zig/parser_generated_oracle.zig
+//! zig build gen-parser-oracle
 
 // This program implements a subset of the PEG grammar definition
 // in the peg(1) man page.
@@ -21,6 +21,7 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(arena);
 
     const grammar_path = args[1];
+    const out_path = args[2];
 
     const grammar = try Io.Dir.cwd().readFileAlloc(io, grammar_path, gpa, .unlimited);
     defer gpa.free(grammar);
@@ -52,12 +53,13 @@ pub fn main(init: std.process.Init) !void {
         return error.ParseError;
     }
 
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
-    const stdout = &stdout_writer.interface;
+    var out_file = try Io.Dir.cwd().createFile(io, out_path, .{});
+    var out_buffer: [4096]u8 = undefined;
+    var out_writer = out_file.writer(io, &out_buffer);
+    const out = &out_writer.interface;
 
-    try tree.render(gpa, stdout, .{});
-    try stdout.flush();
+    try tree.render(gpa, out, .{});
+    try out.flush();
 }
 
 const Generator = struct {
@@ -78,7 +80,7 @@ const Generator = struct {
     fn genRoot(g: *Generator, node: Node.Index) Error!void {
         try g.w.writeAll(
             \\//! This file is generated, do not edit manually! To generate, run:
-            \\//! zig run ./tools/gen_parser_oracle.zig -- ./doc/langref/grammar.peg > ./lib/std/zig/parser_generated_oracle.zig
+            \\//! zig build gen-parser-oracle
             \\
             \\const std = @import("std");
             \\
