@@ -29,7 +29,6 @@ pub const primitives = @import("zig/primitives.zig");
 pub const isPrimitive = primitives.isPrimitive;
 pub const Ast = @import("zig/Ast.zig");
 pub const AstGen = @import("zig/AstGen.zig");
-pub const AstSmith = @import("zig/AstSmith.zig");
 pub const Zir = @import("zig/Zir.zig");
 pub const Zoir = @import("zig/Zoir.zig");
 pub const ZonGen = @import("zig/ZonGen.zig");
@@ -1865,7 +1864,6 @@ fn readStreamAlloc(gpa: Allocator, io: Io, file: Io.File, limit: Io.Limit) ![]u8
 test {
     _ = Ast;
     _ = AstRlAnnotate;
-    _ = AstSmith;
     _ = BuiltinFn;
     _ = Client;
     _ = ErrorBundle;
