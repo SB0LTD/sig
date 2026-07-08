@@ -1,5 +1,6 @@
 //! Example usage:
 //! zig build gen-parser-oracle
+//! zig build check-parser-oracle
 
 // This program implements a subset of the PEG grammar definition
 // in the peg(1) man page.
@@ -22,6 +23,7 @@ pub fn main(init: std.process.Init) !void {
 
     const grammar_path = args[1];
     const out_path = args[2];
+    const check = args.len > 3 and mem.eql(u8, args[3], "--check");
 
     const grammar = try Io.Dir.cwd().readFileAlloc(io, grammar_path, gpa, .unlimited);
     defer gpa.free(grammar);
@@ -53,13 +55,27 @@ pub fn main(init: std.process.Init) !void {
         return error.ParseError;
     }
 
-    var out_file = try Io.Dir.cwd().createFile(io, out_path, .{});
-    var out_buffer: [4096]u8 = undefined;
-    var out_writer = out_file.writer(io, &out_buffer);
-    const out = &out_writer.interface;
+    if (check) {
+        const current = try Io.Dir.cwd().readFileAlloc(io, out_path, gpa, .unlimited);
+        defer gpa.free(current);
+        var aw: Io.Writer.Allocating = .init(gpa);
+        defer aw.deinit();
+        try tree.render(gpa, &aw.writer, .{});
+        if (!mem.eql(u8, current, aw.written())) {
+            std.log.err("grammar.peg modified without regenerating oracle", .{});
+            std.log.info("Run zig build gen-parser-oracle to regenerate", .{});
+            std.process.exit(1);
+        }
+    } else {
+        var out_file = try Io.Dir.cwd().createFile(io, out_path, .{});
+        defer out_file.close(io);
+        var out_buffer: [4096]u8 = undefined;
+        var out_writer = out_file.writer(io, &out_buffer);
+        const out = &out_writer.interface;
 
-    try tree.render(gpa, out, .{});
-    try out.flush();
+        try tree.render(gpa, out, .{});
+        try out.flush();
+    }
 }
 
 const Generator = struct {

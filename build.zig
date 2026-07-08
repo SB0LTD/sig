@@ -722,18 +722,27 @@ pub fn build(b: *std.Build) !void {
     check_mingw_step.dependOn(&check_mingw_run.step);
 
     {
-        const gpo_step = b.step("gen-parser-oracle", "Regenerate lib/std/zig/parser_generated_oracle.zig from doc/langref/grammar.peg");
-        const gpo_exe = b.addExecutable(.{
+        const gen_oracle_exe = b.addExecutable(.{
             .name = "gen_parser_oracle",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("tools/gen_parser_oracle.zig"),
                 .target = b.graph.host,
             }),
         });
-        const gpo_run = b.addRunArtifact(gpo_exe);
-        gpo_run.addFileArg(b.path("doc/langref/grammar.peg"));
-        gpo_run.addFileArg(b.path("lib/std/zig/parser_generated_oracle.zig"));
-        gpo_step.dependOn(&gpo_run.step);
+
+        const gen_oracle_step = b.step("gen-parser-oracle", "Regenerate lib/std/zig/parser_generated_oracle.zig from doc/langref/grammar.peg");
+        const gen_oracle_run = b.addRunArtifact(gen_oracle_exe);
+        gen_oracle_run.addFileArg(b.path("doc/langref/grammar.peg"));
+        gen_oracle_run.addFileArg(b.path("lib/std/zig/parser_generated_oracle.zig"));
+        gen_oracle_step.dependOn(&gen_oracle_run.step);
+
+        const check_oracle_step = b.step("check-parser-oracle", "Check if doc/langref/grammar.peg was modified without regenerating the oracle");
+        const check_oracle_run = b.addRunArtifact(gen_oracle_exe);
+        check_oracle_run.addFileArg(b.path("doc/langref/grammar.peg"));
+        check_oracle_run.addFileArg(b.path("lib/std/zig/parser_generated_oracle.zig"));
+        check_oracle_run.addArg("--check");
+        check_oracle_step.dependOn(&check_oracle_run.step);
+        test_step.dependOn(check_oracle_step);
     }
 
     const test_incremental_step = b.step("test-incremental", "Run the incremental compilation test cases");
