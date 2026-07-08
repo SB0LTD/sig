@@ -2288,7 +2288,7 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
                     }),
                 },
             };
-            const child_ty_id = try cg.resolveType(child_ty, .indirect);
+            const child_ty_id = try cg.pointeeType(ptr_info.flags.address_space, child_ty, false);
             const storage_class = cg.storageClass(ptr_info.flags.address_space);
             const ptr_ty_id = try cg.ptrType(child_ty_id, storage_class);
 
@@ -4218,13 +4218,16 @@ const MemoryOptions = struct {
 fn needsLayout(cg: *CodeGen, as: std.lang.AddressSpace, pointee_ty: Type) bool {
     const target = cg.zcu.getTarget();
     if (target.os.tag != .vulkan and target.os.tag != .opengl) return false;
-    switch (as) {
-        .uniform, .push_constant, .storage_buffer => {},
-        else => return false,
-    }
-    return switch (pointee_ty.zigTypeTag(cg.zcu)) {
-        .@"struct", .@"union", .array => true,
-        .spirv => pointee_ty.isSpirvRuntimeArray(cg.zcu),
+    return switch (as) {
+        .uniform,
+        .push_constant,
+        .storage_buffer,
+        .physical_storage_buffer,
+        => switch (pointee_ty.zigTypeTag(cg.zcu)) {
+            .@"struct", .@"union", .array => true,
+            .spirv => pointee_ty.isSpirvRuntimeArray(cg.zcu),
+            else => false,
+        },
         else => false,
     };
 }
