@@ -21915,6 +21915,34 @@ fn ptrCastFull(
 
     try sema.validateRuntimeValue(block, operand_src, operand);
 
+    if (zcu.getTarget().cpu.arch.isSpirV() and
+        src_info.flags.address_space != .physical_storage_buffer and
+        src_info.flags.address_space == dest_info.flags.address_space and
+        src_info.child != dest_info.child and
+        Type.fromInterned(dest_info.child).hasRuntimeBits(zcu))
+    {
+        var cur: Type = .fromInterned(src_info.child);
+        while (cur.toIntern() != dest_info.child) {
+            cur = switch (cur.zigTypeTag(zcu)) {
+                .array, .vector => cur.childType(zcu),
+                .@"struct" => if (cur.structFieldOffset(0, zcu) == 0) cur.fieldType(0, zcu) else null,
+                else => null,
+            } orelse return sema.failWithOwnedErrorMsg(block, msg: {
+                const msg = try sema.errMsg(src, "cannot cast pointer '{f}' to '{f}'", .{
+                    operand_ty.fmt(pt), dest_ty.fmt(pt),
+                });
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(src, msg, "'{f}' must appear at offset 0 inside '{f}'", .{
+                    Type.fromInterned(dest_info.child).fmt(pt), Type.fromInterned(src_info.child).fmt(pt),
+                });
+                try sema.errNote(src, msg, "'{s}' pointers can only reach nested types through a first struct field or an array element", .{
+                    @tagName(src_info.flags.address_space),
+                });
+                break :msg msg;
+            });
+        }
+    }
+
     const can_cast_to_int = !target_util.shouldBlockPointerOps(zcu.getTarget(), operand_ty.ptrAddressSpace(zcu));
     const need_null_check = can_cast_to_int and block.wantSafety() and operand_ty.ptrAllowsZero(zcu) and !dest_ty.ptrAllowsZero(zcu);
     const need_align_check = can_cast_to_int and block.wantSafety() and dest_align.compare(.gt, src_align);

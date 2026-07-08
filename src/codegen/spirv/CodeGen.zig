@@ -5967,7 +5967,27 @@ fn bitCast(
 
     if (src_ty.toIntern() == dst_ty.toIntern()) return src_id;
     if (src_ty.isPtrAtRuntime(zcu) and dst_ty.isPtrAtRuntime(zcu)) switch (target.os.tag) {
-        .vulkan, .opengl => if (src_ty.ptrAddressSpace(zcu) != .physical_storage_buffer) return src_id,
+        .vulkan, .opengl => if (src_ty.ptrAddressSpace(zcu) != .physical_storage_buffer) {
+            const src_child = src_ty.childType(zcu);
+            const dst_child = dst_ty.childType(zcu);
+            if (!dst_child.hasRuntimeBits(zcu)) return src_id;
+            if (src_child.toIntern() == dst_child.toIntern()) return src_id;
+            if (src_ty.ptrInfo(zcu).packed_offset.host_size != 0 or
+                dst_ty.ptrInfo(zcu).packed_offset.host_size != 0) return src_id;
+
+            var indices: std.ArrayList(u32) = .empty;
+            defer indices.deinit(gpa);
+            var cur = src_child;
+            while (cur.toIntern() != dst_child.toIntern()) : (try indices.append(gpa, 0)) {
+                cur = switch (cur.zigTypeTag(zcu)) {
+                    .array, .vector => cur.childType(zcu),
+                    .@"struct" => cur.fieldType(0, zcu),
+                    else => unreachable,
+                };
+            }
+            const dst_ty_id = try cg.resolveType(dst_ty, .direct);
+            return try cg.accessChain(dst_ty_id, src_id, indices.items);
+        },
         else => {},
     };
 
