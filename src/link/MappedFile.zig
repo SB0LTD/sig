@@ -572,7 +572,7 @@ fn addNode(mf: *MappedFile, gpa: std.mem.Allocator, opts: struct {
             .none => {
                 _, const parent_size = opts.parent.location(mf).resolve(mf);
                 if (new_end > parent_size)
-                    try opts.parent.resize(mf, gpa, new_end);
+                    try opts.parent.resize(mf, gpa, new_end +| new_end / growth_factor);
             },
             else => |next_ni| {
                 const next_offset, _ = next_ni.location(mf).resolve(mf);
