@@ -642,7 +642,7 @@ pub fn updateFile(
 
         var timer = comp.startTimer();
         // Any potential AST errors are converted to ZIR errors when we run AstGen/ZonGen.
-        file.tree = try Ast.parse(gpa, source, file.getMode(), .{});
+        file.tree = try Ast.parse(gpa, source, .{ .mode = file.getMode() });
         if (timer.finish(io)) |ns_parse| {
             comp.mutex.lockUncancelable(io);
             defer comp.mutex.unlock(io);
