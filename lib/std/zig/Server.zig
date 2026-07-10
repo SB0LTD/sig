@@ -1,12 +1,8 @@
 const Server = @This();
 
-const builtin = @import("builtin");
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const native_endian = builtin.target.cpu.arch.endian();
-const need_bswap = native_endian != .little;
 const Cache = std.Build.Cache;
 const OutMessage = std.zig.Server.Message;
 const InMessage = std.zig.Client.Message;
@@ -139,21 +135,6 @@ pub const Message = struct {
         };
     };
 };
-
-pub const Options = struct {
-    in: *Reader,
-    out: *Writer,
-    zig_version: []const u8,
-};
-
-pub fn init(options: Options) !Server {
-    var s: Server = .{
-        .in = options.in,
-        .out = options.out,
-    };
-    try s.serveStringMessage(.zig_version, options.zig_version);
-    return s;
-}
 
 pub fn receiveMessage(s: *Server) !InMessage.Header {
     return s.in.takeStruct(InMessage.Header, .little);
