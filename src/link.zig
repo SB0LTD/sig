@@ -2239,6 +2239,63 @@ fn resolveLibInput(
         return finishResolveLibInput(io, resolved_inputs, archive_dedup, test_path, file, link_mode, name_query.query);
     }
 
+    // In the case of OpenBSD, dynamic libraries are always versioned, without
+    // unversioned symlinks, so we need to look for the highest-versioned shared
+    // library.
+    if (target.isOpenBSDLibC() and link_mode == .dynamic) versioned: {
+        const prefix = try std.fmt.allocPrint(arena, "lib{s}.so.", .{lib_name});
+
+        var dir = lib_directory.handle.openDir(io, ".", .{ .iterate = true }) catch |err| switch (err) {
+            error.NotDir, error.FileNotFound => break :versioned,
+            else => |e| fatal("unable to search for shared library '{s}.*': {s}", .{ prefix, @errorName(e) }),
+        };
+        defer dir.close(io);
+
+        var best_match_version = std.SemanticVersion{
+            .major = 0,
+            .minor = 0,
+            .patch = 0,
+        };
+        var best_match: ?[]const u8 = null;
+
+        var iter = dir.iterate();
+        while (iter.next(io) catch |err| {
+            fatal("unable to scan library directory '{s}'", .{@errorName(err)});
+        }) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.startsWith(u8, entry.name, prefix)) continue;
+
+            const rest = entry.name[prefix.len..];
+            var sit = std.mem.splitScalar(u8, rest, '.');
+            const major_str = sit.next() orelse continue;
+            const minor_str = sit.next() orelse continue;
+            if (sit.next() != null) continue;
+            const major = std.fmt.parseInt(usize, major_str, 10) catch continue;
+            const minor = std.fmt.parseInt(usize, minor_str, 10) catch continue;
+
+            if (major > best_match_version.major or (major == best_match_version.major and minor >= best_match_version.minor)) {
+                best_match_version.major = major;
+                best_match_version.minor = minor;
+                best_match = try arena.dupe(u8, entry.name);
+            }
+        }
+
+        if (best_match) |found| {
+            const test_path: Path = .{
+                .root_dir = lib_directory,
+                .sub_path = found,
+            };
+            try checked_paths.print(gpa, "\n  {f}", .{test_path});
+            switch (try resolvePathInputLib(gpa, arena, io, unresolved_inputs, resolved_inputs, ld_script_bytes, archive_dedup, target, .{
+                .path = test_path,
+                .query = name_query.query,
+            }, link_mode, color)) {
+                .no_match => {},
+                .ok => return .ok,
+            }
+        }
+    }
+
     return .no_match;
 }
 
