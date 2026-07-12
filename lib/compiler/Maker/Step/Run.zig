@@ -2201,24 +2201,34 @@ fn spawnChildAndCollect(
             assert(conf_run.flags.stdio != .inherit);
             break :s .pipe;
         } else switch (conf_run.flags.stdio) {
-            .infer_from_args => if (has_side_effects) .inherit else .ignore,
+            .infer_from_args => if (maker.protocol_server == null and has_side_effects) .inherit else .ignore,
             .inherit => .inherit,
             .check => .ignore,
             .zig_test => .pipe,
         },
         .stdout = if (conf_run.captured_stdout.value != null) .pipe else switch (conf_run.flags.stdio) {
-            .infer_from_args => if (has_side_effects) .inherit else .ignore,
+            .infer_from_args => if (maker.protocol_server == null and has_side_effects) .inherit else .ignore,
             .inherit => .inherit,
             .check => if (checksContainStdout(&conf_run)) .pipe else .ignore,
             .zig_test => .pipe,
         },
         .stderr = if (conf_run.captured_stderr.value != null) .pipe else switch (conf_run.flags.stdio) {
-            .infer_from_args => if (has_side_effects) .inherit else .pipe,
-            .inherit => .inherit,
+            .infer_from_args => if (maker.protocol_server == null and has_side_effects) .inherit else .pipe,
+            .inherit => if (maker.protocol_server == null) .inherit else .pipe,
             .check => .pipe,
             .zig_test => .pipe,
         },
     };
+
+    if (maker.protocol_server != null) {
+        if (spawn_options.stdin == .inherit) {
+            return step.fail(maker, "Cannot inherit stdin when running through over the build system protocol", .{});
+        }
+        if (spawn_options.stdout == .inherit) {
+            return step.fail(maker, "Cannot inherit stdout when running through over the build system protocol", .{});
+        }
+        assert(spawn_options.stderr != .inherit);
+    }
 
     if (conf_run.flags.stdio == .zig_test) {
         try setColorEnvironmentVariables(&conf_run, environ_map, graph.stderr_mode.?);
