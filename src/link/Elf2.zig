@@ -5812,7 +5812,9 @@ fn updateInitFiniArraySectionSize(
 }
 
 pub fn prelink(elf: *Elf, prog_node: std.Progress.Node) link.Error!void {
-    _ = prog_node;
+    const sub_prog_node = prog_node.start("ELF Prelink", 0);
+    defer sub_prog_node.end();
+
     const diags = &elf.base.comp.link_diags;
     elf.prelinkInner() catch |err| switch (err) {
         error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),

@@ -2912,12 +2912,18 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
     // we also want it around during `flush`.
     if (comp.bin_file) |lf| {
         // mirrors logic in `Compilation.flush`:
+        // Always: linker flush
+        var initial_estimated_total: usize = 1;
+        const llvm = if (comp.zcu) |zcu| zcu.llvm_object != null else false;
         // For llvm: "LLVM Emit Object" and "Parse Object" with the zcu object
-        // Always: flush of the linker
-        const initial_estimated_total: usize = if (comp.zcu) |zcu|
-            if (zcu.llvm_object) |_| 3 else 1
-        else
-            1;
+        if (llvm) {
+            initial_estimated_total += 2;
+        }
+        // Prelink
+        if (!lf.post_prelink or llvm) {
+            initial_estimated_total += 1;
+        }
+
         comp.link_prog_node = main_progress_node.start("Linking", initial_estimated_total);
         lf.startProgress(comp.link_prog_node);
     }

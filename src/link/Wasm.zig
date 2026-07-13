@@ -3398,7 +3398,6 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    prog_node.increaseEstimatedTotalItems(1);
     const sub_prog_node = prog_node.start("Wasm Prelink", 0);
     defer sub_prog_node.end();
 
