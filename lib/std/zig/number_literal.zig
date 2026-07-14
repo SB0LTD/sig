@@ -123,7 +123,7 @@ pub fn parseNumberLiteral(bytes: []const u8) Result {
             '.' => {
                 if (exponent) return .{ .failure = .{ .period_after_exponent = i } };
                 float = true;
-                if (base != 10 and base != 16) return .{ .failure = .{ .invalid_float_base = 2 } };
+                if (base != 10 and base != 16) return .{ .failure = .{ .invalid_float_base = 1 } };
                 if (period) return .{ .failure = .duplicate_period };
                 period = true;
                 if (underscore) return .{ .failure = .{ .special_after_underscore = i } };
@@ -177,6 +177,7 @@ test parseNumberLiteral {
     try std.testing.expectEqual(Result{ .failure = .{ .period_after_exponent = 3 } }, parseNumberLiteral("3E2.5"));
     try std.testing.expectEqual(Result{ .failure = .{ .period_after_exponent = 2 } }, parseNumberLiteral("3E.5"));
     try std.testing.expectEqual(Result{ .failure = .{ .period_after_exponent = 3 } }, parseNumberLiteral("3E1."));
+    try std.testing.expectEqual(Result{ .failure = .{ .invalid_float_base = 1 } }, parseNumberLiteral("0o3.1"));
     try std.testing.expectEqual(Result{ .failure = .{ .invalid_digit = .{ .i = 3, .base = .octal } } }, parseNumberLiteral("0o3e1"));
 }
 

@@ -19,6 +19,9 @@ comptime {
 comptime {
     _ = 0xP0;
 }
+comptime {
+    _ = 0o1.0;
+}
 
 // error
 //
@@ -29,3 +32,4 @@ comptime {
 // :14:13: error: unexpected period after exponent
 // :17:9: error: expected a digit after base prefix
 // :20:9: error: expected a digit after base prefix
+// :23:10: error: invalid base for float literal
