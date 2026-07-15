@@ -830,7 +830,7 @@ fn buildCall(
                     const alignment = arg_ty.abiAlignment(zcu).toLlvm();
                     // We don't need to handle non-ABI-sized integer types in memory here since they are
                     // never by-ref.
-                    const llvm_arg_ty = try o.lowerType(arg_ty, .in_memory);
+                    const llvm_arg_ty = try o.lowerType(arg_ty, .memory_access);
                     const loaded = try fg.wip.load(.normal, llvm_arg_ty, arg_val, alignment, "");
                     try llvm_args.append(fg.gpa, loaded);
                 } else {
@@ -893,7 +893,7 @@ fn buildCall(
                     break :ptr ptr;
                 } else arg_val;
 
-                const float_ty = try o.lowerType(aarch64_c_abi.getFloatArrayType(arg_ty, zcu).?, .in_memory);
+                const float_ty = try o.lowerType(aarch64_c_abi.getFloatArrayType(arg_ty, zcu).?, .memory_access);
                 const array_ty = try o.builder.arrayType(count, float_ty);
 
                 const loaded = try fg.wip.load(.normal, array_ty, arg_ptr, arg_ty.abiAlignment(zcu).toLlvm(), "");
@@ -4967,10 +4967,7 @@ fn buildZigAlloca(fg: *FuncGen, ty: Type, @"align": InternPool.Alignment) Alloca
         .none => ty.abiAlignment(o.zcu),
         else => |a| a,
     };
-    return fg.buildAlloca(
-        try o.lowerType(ty, .in_memory),
-        resolved_align.toLlvm(),
-    );
+    return fg.buildAlloca(try o.lowerType(ty, .in_memory), resolved_align.toLlvm());
 }
 
 /// Unlike `WipFunction.alloca`, this puts the alloca instruction at the top of the function.
@@ -6657,10 +6654,10 @@ fn load(
         return result_ptr;
     }
 
-    const llvm_memory_ty = try o.lowerType(load_ty, .in_memory);
+    const llvm_access_ty = try o.lowerType(load_ty, .memory_access);
     const llvm_value_ty = try o.lowerType(load_ty, .as_value);
 
-    if (llvm_memory_ty != llvm_value_ty) {
+    if (llvm_access_ty != llvm_value_ty) {
         assert(load_ty.isAbiInt(zcu));
         // `load_ty` is an integer type with padding bits. In theory, we shouldn't need any special
         // handling for these, as LLVM's documented semantics are a valid implementation of Zig's
@@ -6674,7 +6671,7 @@ fn load(
         //
         // Therefore, we handle these memory accesses specially: in this case we will actually load
         // the next-largest "natural" integer type and then truncate to `load_ty`.
-        const loaded = try fg.wip.load(access_kind, llvm_memory_ty, ptr, llvm_ptr_align, "");
+        const loaded = try fg.wip.load(access_kind, llvm_access_ty, ptr, llvm_ptr_align, "");
         // For packed structs, current Zig semantics don't really allow us to make the padding bits
         // well-defined. This should be solved once https://github.com/ziglang/zig/issues/24061 is
         // implemented, but until then, do a normal trunc for packed types.
@@ -6731,17 +6728,17 @@ fn store(
 
     assert(elem.typeOfWip(&fg.wip) == try o.lowerType(elem_ty, .as_value));
 
-    const llvm_memory_ty = try o.lowerType(elem_ty, .in_memory);
+    const llvm_access_ty = try o.lowerType(elem_ty, .memory_access);
     const llvm_value_ty = try o.lowerType(elem_ty, .as_value);
 
-    if (llvm_memory_ty != llvm_value_ty) {
+    if (llvm_access_ty != llvm_value_ty) {
         assert(elem_ty.isAbiInt(zcu));
         // `elem_ty` is an integer type with padding bits, so we need to handle it specially---see
         // the corresponding comment in `FuncGen.load` for more details.
         const extended = try fg.wip.cast(switch (elem_ty.intInfo(zcu).signedness) {
             .unsigned => .zext,
             .signed => .sext,
-        }, elem, llvm_memory_ty, "");
+        }, elem, llvm_access_ty, "");
         _ = try fg.wip.store(access_kind, extended, ptr, llvm_ptr_align);
         return;
     }

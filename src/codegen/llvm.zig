@@ -345,160 +345,6 @@ pub fn supportsTailCall(target: *const std.Target) bool {
     };
 }
 
-pub fn dataLayout(target: *const std.Target) []const u8 {
-    // These data layouts should match Clang.
-    return switch (target.cpu.arch) {
-        .arc => "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i32:32:32-f32:32:32-i64:32-f64:32-a:0:32-n32",
-        .xcore => "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i64:32-f64:32-a:0:32-n32",
-        .hexagon => "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048",
-        .lanai => "E-m:e-p:32:32-i64:64-a:0:32-n32-S64",
-        .aarch64 => if (target.ofmt == .macho)
-            if (target.os.tag == .windows or target.os.tag == .uefi)
-                "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
-            else if (target.abi == .ilp32)
-                "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
-            else
-                "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
-        else if (target.os.tag == .windows or target.os.tag == .uefi)
-            "e-m:w-p270:32:32-p271:32:32-p272:64:64-p:64:64-i32:32-i64:64-i128:128-n32:64-S128-Fn32"
-        else
-            "e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
-        .aarch64_be => "E-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
-        .arm => if (target.ofmt == .macho)
-            "e-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
-        else
-            "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
-        .armeb, .thumbeb => if (target.ofmt == .macho)
-            "E-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
-        else
-            "E-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
-        .thumb => if (target.ofmt == .macho)
-            "e-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
-        else if (target.os.tag == .windows or target.os.tag == .uefi)
-            "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
-        else
-            "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
-        .avr => "e-P1-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8:16-a:8",
-        .bpfeb => "E-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
-        .bpfel => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
-        .msp430 => "e-m:e-p:16:16-i32:16-i64:16-f32:16-f64:16-a:8-n8:16-S16",
-        .mips => "E-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
-        .mipsel => "e-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
-        .mips64 => switch (target.abi) {
-            .gnuabin32, .muslabin32, .abin32 => "E-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
-            else => "E-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
-        },
-        .mips64el => switch (target.abi) {
-            .gnuabin32, .muslabin32, .abin32 => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
-            else => "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
-        },
-        .m68k => "E-m:e-p:32:16:32-i8:8:8-i16:16:16-i32:16:32-n8:16:32-a:0:16-S16",
-        .powerpc => "E-m:e-p:32:32-Fn32-i64:64-n32",
-        .powerpcle => "e-m:e-p:32:32-Fn32-i64:64-n32",
-        .powerpc64 => switch (target.os.tag) {
-            .linux => "E-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512",
-            .ps3 => "E-m:e-p:32:32-Fi64-i64:64-i128:128-n32:64",
-            else => "E-m:e-Fn32-i64:64-i128:128-n32:64",
-        },
-        .powerpc64le => if (target.os.tag == .linux)
-            "e-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512"
-        else
-            "e-m:e-Fn32-i64:64-i128:128-n32:64",
-        .nvptx => "e-p:32:32-p6:32:32-p7:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64",
-        .nvptx64 => "e-p6:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64",
-        .amdgcn => "e-m:e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128:128:48-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
-        .riscv32 => if (target.cpu.has(.riscv, .e))
-            "e-m:e-p:32:32-i64:64-n32-S32"
-        else
-            "e-m:e-p:32:32-i64:64-n32-S128",
-        .riscv32be => if (target.cpu.has(.riscv, .e))
-            "E-m:e-p:32:32-i64:64-n32-S32"
-        else
-            "E-m:e-p:32:32-i64:64-n32-S128",
-        .riscv64 => if (target.cpu.has(.riscv, .e))
-            "e-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
-        else
-            "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
-        .riscv64be => if (target.cpu.has(.riscv, .e))
-            "E-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
-        else
-            "E-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
-        .sparc => "E-m:e-p:32:32-i64:64-i128:128-f128:64-n32-S64",
-        .sparc64 => "E-m:e-i64:64-i128:128-n32:64-S128",
-        .s390x => "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64",
-        .x86 => if (target.os.tag == .windows or target.os.tag == .uefi) switch (target.abi) {
-            .gnu => if (target.ofmt == .coff)
-                "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
-            else
-                "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
-            else => blk: {
-                const msvc = switch (target.abi) {
-                    .none, .msvc => true,
-                    else => false,
-                };
-
-                break :blk if (target.ofmt == .coff)
-                    if (msvc)
-                        "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
-                    else
-                        "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
-                else if (msvc)
-                    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
-                else
-                    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32";
-            },
-        } else if (target.ofmt == .macho)
-            "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128"
-        else
-            "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128",
-        .x86_64 => if (target.os.tag.isDarwin() or target.ofmt == .macho)
-            "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
-        else switch (target.abi) {
-            .gnux32, .muslx32, .x32 => "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
-            else => if ((target.os.tag == .windows or target.os.tag == .uefi) and target.ofmt == .coff)
-                "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
-            else
-                "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
-        },
-        .spirv32 => switch (target.os.tag) {
-            .vulkan, .opengl => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
-            else => "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
-        },
-        .spirv64 => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
-        .wasm32 => if (target.os.tag == .emscripten)
-            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20"
-        else
-            "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20",
-        .wasm64 => if (target.os.tag == .emscripten)
-            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20"
-        else
-            "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20",
-        .ve => "e-m:e-i64:64-n32:64-S128-v64:64:64-v128:64:64-v256:64:64-v512:64:64-v1024:64:64-v2048:64:64-v4096:64:64-v8192:64:64-v16384:64:64",
-        .csky => "e-m:e-S32-p:32:32-i32:32:32-i64:32:32-f32:32:32-f64:32:32-v64:32:32-v128:32:32-a:0:32-Fi32-n32",
-        .loongarch32 => "e-m:e-p:32:32-i64:64-n32-S128",
-        .loongarch64 => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
-        .xtensa => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32",
-
-        .alpha,
-        .arceb,
-        .ez80,
-        .hppa,
-        .hppa64,
-        .kalimba,
-        .kvx,
-        .m88k,
-        .microblaze,
-        .microblazeel,
-        .or1k,
-        .propeller,
-        .sh,
-        .sheb,
-        .x86_16,
-        .xtensaeb,
-        => unreachable, // Gated by hasLlvmSupport().
-    };
-}
-
 // Avoid depending on `bindings.CodeModel` in the bitcode-only case.
 const CodeModel = enum {
     default,
@@ -617,8 +463,6 @@ pub const Object = struct {
             .triple = llvm_target_triple,
         });
         errdefer builder.deinit();
-
-        builder.data_layout = try builder.string(dataLayout(target));
 
         const debug_compile_unit, const debug_enums_fwd_ref, const debug_globals_fwd_ref =
             if (!builder.strip) debug_info: {
@@ -2865,18 +2709,38 @@ pub const Object = struct {
 
     pub const TypeRepr = enum {
         /// The representation of the type when it is being manipulated as a value in a function.
-        /// e.g. Zig `u5` -> LLVM `i5`
+        /// e.g. Zig `u90` -> LLVM `i90`
         as_value,
-        /// The representation of the type when it is stored in memory.
-        /// e.g. Zig `u5` -> LLVM `i8`
+        /// The representation of the type when it is loaded from or stored to memory.
+        /// e.g. Zig `u90` -> LLVM `i96`
+        memory_access,
+        /// The representation of the type when it is in memory.
+        /// e.g. Zig `u90` -> LLVM `[12 x i8]`
         in_memory,
     };
 
+    pub fn intType(o: *Object, bits: u16, repr: TypeRepr) Allocator.Error!Builder.Type {
+        switch (repr) {
+            .as_value => return o.builder.intType(bits),
+            .memory_access, .in_memory => {},
+        }
+        const target = o.zcu.getTarget();
+        const abi_size = std.zig.target.intByteSize(target, bits);
+        const llvm_bit_width = @as(u20, 8) * abi_size;
+        switch (repr) {
+            .as_value => unreachable,
+            .memory_access => {},
+            .in_memory => {
+                const zig_align = std.zig.target.intAlignment(target, bits);
+                const llvm_align = o.builder.data_layout.getIntegerSpec(llvm_bit_width).abi_align;
+                if (zig_align < llvm_align.toByteUnits().?) return o.builder.arrayType(abi_size, .i8);
+            },
+        }
+        return o.builder.intType(llvm_bit_width);
+    }
+
     pub fn errorIntType(o: *Object, repr: TypeRepr) Allocator.Error!Builder.Type {
-        return o.builder.intType(switch (repr) {
-            .as_value => o.zcu.errorSetBits(),
-            .in_memory => @intCast(Type.anyerror.abiSize(o.zcu) * 8),
-        });
+        return o.intType(o.zcu.errorSetBits(), repr);
     }
 
     pub const SoftF80Layout = struct {
@@ -3029,42 +2893,31 @@ pub const Object = struct {
         const target = zcu.getTarget();
         const ip = &zcu.intern_pool;
 
-        if (repr == .as_value) {
-            assert(!isByRef(t, zcu)); // by-ref types must only be manipulated in memory
+        switch (repr) {
+            .as_value => assert(!isByRef(t, zcu)), // by-ref types must only be manipulated in memory
+            .memory_access, .in_memory => {},
         }
 
         return switch (t.toIntern()) {
             .u0_type => unreachable, // no runtime bits
-            inline .u1_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u29_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .u80_type,
-            .u128_type,
-            .i128_type,
-            => |tag| switch (repr) {
-                .as_value => @field(Builder.Type, "i" ++ @tagName(tag)[1 .. @tagName(tag).len - "_type".len]),
-                .in_memory => try o.builder.intType(@intCast(t.abiSize(zcu) * 8)),
-            },
-            .usize_type, .isize_type => try o.builder.intType(target.ptrBitWidth()),
-            inline .c_char_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            => |tag| try o.builder.intType(target.cTypeBitSize(
-                @field(std.Target.CType, @tagName(tag)["c_".len .. @tagName(tag).len - "_type".len]),
-            ).?),
+            .u1_type => try o.intType(1, repr),
+            .u8_type, .i8_type => try o.intType(8, repr),
+            .u16_type, .i16_type => try o.intType(16, repr),
+            .u29_type => try o.intType(29, repr),
+            .u32_type, .i32_type => try o.intType(32, repr),
+            .u64_type, .i64_type => try o.intType(64, repr),
+            .u80_type => try o.intType(80, repr),
+            .u128_type, .i128_type => try o.intType(128, repr),
+            .usize_type, .isize_type => try o.intType(target.ptrBitWidth(), repr),
+            .c_char_type => try o.intType(target.cTypeBitSize(.char).?, repr),
+            .c_short_type => try o.intType(target.cTypeBitSize(.short).?, repr),
+            .c_ushort_type => try o.intType(target.cTypeBitSize(.ushort).?, repr),
+            .c_int_type => try o.intType(target.cTypeBitSize(.int).?, repr),
+            .c_uint_type => try o.intType(target.cTypeBitSize(.uint).?, repr),
+            .c_long_type => try o.intType(target.cTypeBitSize(.long).?, repr),
+            .c_ulong_type => try o.intType(target.cTypeBitSize(.ulong).?, repr),
+            .c_longlong_type => try o.intType(target.cTypeBitSize(.longlong).?, repr),
+            .c_ulonglong_type => try o.intType(target.cTypeBitSize(.ulonglong).?, repr),
             .c_longdouble_type,
             .f16_type,
             .f32_type,
@@ -3168,10 +3021,7 @@ pub const Object = struct {
             .none,
             => unreachable,
             else => switch (ip.indexToKey(t.toIntern())) {
-                .int_type => |int_type| switch (repr) {
-                    .as_value => try o.builder.intType(int_type.bits),
-                    .in_memory => try o.builder.intType(@intCast(t.abiSize(zcu) * 8)),
-                },
+                .int_type => |int_type| o.intType(int_type.bits, repr),
                 .ptr_type => |ptr_type| type: {
                     const ptr_ty = try o.builder.ptrType(
                         toLlvmAddressSpace(ptr_type.flags.address_space, target),
@@ -3189,7 +3039,7 @@ pub const Object = struct {
                     try o.lowerType(.fromInterned(array_type.child), repr),
                 ),
                 .vector_type => |vector_type| if (isByRef(t, zcu)) {
-                    const child_llvm_ty = try o.lowerType(.fromInterned(vector_type.child), .in_memory);
+                    const child_llvm_ty = try o.lowerType(.fromInterned(vector_type.child), repr);
                     return o.builder.arrayType(vector_type.len, child_llvm_ty);
                 } else {
                     const child_llvm_ty = try o.lowerType(.fromInterned(vector_type.child), .as_value);
@@ -3454,7 +3304,7 @@ pub const Object = struct {
                     return ty;
                 },
                 .opaque_type, .spirv_type => unreachable, // no runtime bits
-                .enum_type => try o.lowerType(t.backingIntType(zcu), repr),
+                .enum_type => try o.intType(t.backingIntType(zcu).intInfo(zcu).bits, repr),
                 .func_type => |func_type| {
                     assert(t.fnHasRuntimeBits(zcu));
                     return o.lowerFnType(.fromIntern(func_type, ip));
@@ -3525,7 +3375,7 @@ pub const Object = struct {
             .no_bits => continue,
             .byval => {
                 const param_ty = Type.fromInterned(fn_info.param_types[it.zig_index - 1]);
-                try llvm_params.append(o.gpa, try o.lowerType(param_ty, if (isByRef(param_ty, zcu)) .in_memory else .as_value));
+                try llvm_params.append(o.gpa, try o.lowerType(param_ty, if (isByRef(param_ty, zcu)) .memory_access else .as_value));
             },
             .byref, .byref_mut => {
                 try llvm_params.append(o.gpa, .ptr);
@@ -3548,7 +3398,7 @@ pub const Object = struct {
             },
             .float_array => |count| {
                 const param_ty = Type.fromInterned(fn_info.param_types[it.zig_index - 1]);
-                const float_ty = try o.lowerType(aarch64_c_abi.getFloatArrayType(param_ty, zcu).?, .in_memory);
+                const float_ty = try o.lowerType(aarch64_c_abi.getFloatArrayType(param_ty, zcu).?, .memory_access);
                 try llvm_params.append(o.gpa, try o.builder.arrayType(count, float_ty));
             },
             .i32_array, .i64_array => |arr_len| {
@@ -3620,7 +3470,12 @@ pub const Object = struct {
                 var bigint_space: Value.BigIntSpace = undefined;
                 const bigint = val.toBigInt(&bigint_space, zcu);
                 const llvm_int_ty = try o.lowerType(ty, repr);
-                return o.builder.bigIntConst(llvm_int_ty, bigint);
+                if (llvm_int_ty.isInteger(&o.builder))
+                    return o.builder.bigIntConst(llvm_int_ty, bigint);
+                const buffer = try o.gpa.alloc(u8, llvm_int_ty.aggregateLen(&o.builder));
+                defer o.gpa.free(buffer);
+                bigint.writeTwosComplement(buffer, target.cpu.arch.endian());
+                return o.builder.stringConst(try o.builder.string(buffer));
             },
             .err => |err| {
                 const int = zcu.intern_pool.getErrorValueIfExists(err.name).?;
@@ -3814,7 +3669,7 @@ pub const Object = struct {
                                     result_val.* = try o.builder.intConst(.i8, byte);
                                 },
                                 .elems => |elems| for (vals, elems) |*result_val, elem| {
-                                    result_val.* = try o.lowerValue(elem, if (is_by_ref) .in_memory else .as_value);
+                                    result_val.* = try o.lowerValue(elem, if (is_by_ref) repr else .as_value);
                                 },
                                 .repeated_elem => unreachable,
                             }
@@ -3826,7 +3681,7 @@ pub const Object = struct {
                         .repeated_elem => |elem| if (is_by_ref) {
                             const vals = try allocator.alloc(Builder.Constant, vector_type.len);
                             defer allocator.free(vals);
-                            @memset(vals, try o.lowerValue(elem, .in_memory));
+                            @memset(vals, try o.lowerValue(elem, repr));
                             return o.builder.arrayConst(vector_ty, vals);
                         } else return o.builder.splatConst(vector_ty, try o.lowerValue(elem, .as_value)),
                     }
@@ -4287,9 +4142,8 @@ pub const Object = struct {
         }
         errdefer assert(o.uav_map.remove(.{ .val = uav_val, .@"addrspace" = @"addrspace" }));
 
-        const llvm_ty = try o.lowerType(uav_ty, .in_memory);
         const llvm_name = try o.builder.strtabStringFmt("__anon_{d}", .{@backingInt(uav_val)});
-        const llvm_variable = try o.builder.addVariable(llvm_name, llvm_ty, llvm_addrspace);
+        const llvm_variable = try o.builder.addVariable(llvm_name, .void, llvm_addrspace);
         gop.value_ptr.* = llvm_variable;
         try llvm_variable.setInitializer(try o.lowerValue(uav_val, .in_memory), &o.builder);
         llvm_variable.setMutability(.constant, &o.builder);

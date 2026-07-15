@@ -17,7 +17,7 @@ gpa: Allocator,
 strip: bool,
 
 source_filename: String,
-data_layout: String,
+data_layout: DataLayout,
 target_triple: String,
 module_asm: std.ArrayList(u8),
 
@@ -85,6 +85,455 @@ pub const Options = struct {
     name: []const u8 = &.{},
     target: *const std.Target = &builtin.target,
     triple: []const u8 = &.{},
+};
+
+pub const DataLayout = struct {
+    endian: ?std.lang.Endian,
+    int_specs: PrimitiveSpec.Map,
+    float_specs: PrimitiveSpec.Map,
+    vector_specs: PrimitiveSpec.Map,
+    pointer_specs: PointerSpec.Map,
+    string_repr: String,
+
+    const PrimitiveSpec = packed struct(u32) {
+        bit_width: BitWidth,
+        abi_align: Alignment,
+        pref_align: Alignment,
+
+        const BitWidth = u20;
+
+        const Map = std.array_hash_map.Custom(PrimitiveSpec, void, Context, false);
+
+        const Context = struct {
+            pub fn hash(_: Context, spec: PrimitiveSpec) u32 {
+                return std.hash.int(spec.bit_width);
+            }
+
+            pub fn eql(_: Context, lhs_spec: PrimitiveSpec, rhs_spec: PrimitiveSpec, _: usize) bool {
+                return lhs_spec.bit_width == rhs_spec.bit_width;
+            }
+        };
+    };
+
+    const PointerSpec = struct {
+        bit_width: BitWidth,
+        index_bit_width: BitWidth,
+        flags: packed struct(u32) {
+            abi_align: Alignment,
+            pref_align: Alignment,
+            has_unstable_repr: bool,
+            has_external_state: bool,
+            null_ptr_repr: NullPtrRepr,
+            unused: u17 = 0,
+        },
+        addr_space_name: String,
+
+        const BitWidth = u32;
+
+        const NullPtrRepr = enum(u1) { all_zeros, all_ones };
+
+        const Map = std.array_hash_map.Auto(AddrSpace, PointerSpec);
+    };
+
+    pub fn stringForTarget(target: *const std.Target) []const u8 {
+        // These data layouts should match Clang.
+        return switch (target.cpu.arch) {
+            .arc => "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i32:32:32-f32:32:32-i64:32-f64:32-a:0:32-n32",
+            .xcore => "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i64:32-f64:32-a:0:32-n32",
+            .hexagon => "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048",
+            .lanai => "E-m:e-p:32:32-i64:64-a:0:32-n32-S64",
+            .aarch64 => if (target.ofmt == .macho)
+                if (target.os.tag == .windows or target.os.tag == .uefi)
+                    "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
+                else if (target.abi == .ilp32)
+                    "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
+                else
+                    "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
+            else if (target.os.tag == .windows or target.os.tag == .uefi)
+                "e-m:w-p270:32:32-p271:32:32-p272:64:64-p:64:64-i32:32-i64:64-i128:128-n32:64-S128-Fn32"
+            else
+                "e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+            .aarch64_be => "E-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+            .arm => if (target.ofmt == .macho)
+                "e-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+            else
+                "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+            .armeb, .thumbeb => if (target.ofmt == .macho)
+                "E-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+            else
+                "E-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+            .thumb => if (target.ofmt == .macho)
+                "e-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+            else if (target.os.tag == .windows or target.os.tag == .uefi)
+                "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
+            else
+                "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+            .avr => "e-P1-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8:16-a:8",
+            .bpfeb => "E-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+            .bpfel => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+            .msp430 => "e-m:e-p:16:16-i32:16-i64:16-f32:16-f64:16-a:8-n8:16-S16",
+            .mips => "E-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
+            .mipsel => "e-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
+            .mips64 => switch (target.abi) {
+                .gnuabin32, .muslabin32, .abin32 => "E-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
+                else => "E-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
+            },
+            .mips64el => switch (target.abi) {
+                .gnuabin32, .muslabin32, .abin32 => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
+                else => "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
+            },
+            .m68k => "E-m:e-p:32:16:32-i8:8:8-i16:16:16-i32:16:32-n8:16:32-a:0:16-S16",
+            .powerpc => "E-m:e-p:32:32-Fn32-i64:64-n32",
+            .powerpcle => "e-m:e-p:32:32-Fn32-i64:64-n32",
+            .powerpc64 => switch (target.os.tag) {
+                .linux => "E-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512",
+                .ps3 => "E-m:e-p:32:32-Fi64-i64:64-i128:128-n32:64",
+                else => "E-m:e-Fn32-i64:64-i128:128-n32:64",
+            },
+            .powerpc64le => if (target.os.tag == .linux)
+                "e-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512"
+            else
+                "e-m:e-Fn32-i64:64-i128:128-n32:64",
+            .nvptx => "e-p:32:32-p6:32:32-p7:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64",
+            .nvptx64 => "e-p6:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64",
+            .amdgcn => "e-m:e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128:128:48-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
+            .riscv32 => if (target.cpu.has(.riscv, .e))
+                "e-m:e-p:32:32-i64:64-n32-S32"
+            else
+                "e-m:e-p:32:32-i64:64-n32-S128",
+            .riscv32be => if (target.cpu.has(.riscv, .e))
+                "E-m:e-p:32:32-i64:64-n32-S32"
+            else
+                "E-m:e-p:32:32-i64:64-n32-S128",
+            .riscv64 => if (target.cpu.has(.riscv, .e))
+                "e-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
+            else
+                "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+            .riscv64be => if (target.cpu.has(.riscv, .e))
+                "E-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
+            else
+                "E-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+            .sparc => "E-m:e-p:32:32-i64:64-i128:128-f128:64-n32-S64",
+            .sparc64 => "E-m:e-i64:64-i128:128-n32:64-S128",
+            .s390x => "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64",
+            .x86 => if (target.os.tag == .windows or target.os.tag == .uefi) switch (target.abi) {
+                .gnu => if (target.ofmt == .coff)
+                    "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
+                else
+                    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
+                else => blk: {
+                    const msvc = switch (target.abi) {
+                        .none, .msvc => true,
+                        else => false,
+                    };
+
+                    break :blk if (target.ofmt == .coff)
+                        if (msvc)
+                            "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
+                        else
+                            "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
+                    else if (msvc)
+                        "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32-a:0:32-S32"
+                    else
+                        "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32";
+                },
+            } else if (target.ofmt == .macho)
+                "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128"
+            else
+                "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128",
+            .x86_64 => if (target.os.tag.isDarwin() or target.ofmt == .macho)
+                "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+            else switch (target.abi) {
+                .gnux32, .muslx32, .x32 => "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+                else => if ((target.os.tag == .windows or target.os.tag == .uefi) and target.ofmt == .coff)
+                    "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+                else
+                    "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+            },
+            .spirv32 => switch (target.os.tag) {
+                .vulkan, .opengl => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+                else => "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+            },
+            .spirv64 => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+            .wasm32 => if (target.os.tag == .emscripten)
+                "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20"
+            else
+                "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20",
+            .wasm64 => if (target.os.tag == .emscripten)
+                "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20"
+            else
+                "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20",
+            .ve => "e-m:e-i64:64-n32:64-S128-v64:64:64-v128:64:64-v256:64:64-v512:64:64-v1024:64:64-v2048:64:64-v4096:64:64-v8192:64:64-v16384:64:64",
+            .csky => "e-m:e-S32-p:32:32-i32:32:32-i64:32:32-f32:32:32-f64:32:32-v64:32:32-v128:32:32-a:0:32-Fi32-n32",
+            .loongarch32 => "e-m:e-p:32:32-i64:64-n32-S128",
+            .loongarch64 => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+            .xtensa => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32",
+
+            .alpha,
+            .arceb,
+            .ez80,
+            .hppa,
+            .hppa64,
+            .kalimba,
+            .kvx,
+            .m88k,
+            .microblaze,
+            .microblazeel,
+            .or1k,
+            .propeller,
+            .sh,
+            .sheb,
+            .x86_16,
+            .xtensaeb,
+            => unreachable,
+        };
+    }
+
+    const default_int_specs: []const PrimitiveSpec = &.{
+        .{ .bit_width = 8, .abi_align = .fromByteUnits(1), .pref_align = .fromByteUnits(1) }, // i8:8:8
+        .{ .bit_width = 16, .abi_align = .fromByteUnits(2), .pref_align = .fromByteUnits(2) }, // i16:16:16
+        .{ .bit_width = 32, .abi_align = .fromByteUnits(4), .pref_align = .fromByteUnits(4) }, // i32:32:32
+        .{ .bit_width = 64, .abi_align = .fromByteUnits(4), .pref_align = .fromByteUnits(8) }, // i64:32:64
+    };
+    const default_float_specs: []const PrimitiveSpec = &.{
+        .{ .bit_width = 16, .abi_align = .fromByteUnits(2), .pref_align = .fromByteUnits(2) }, // f16:16:16
+        .{ .bit_width = 32, .abi_align = .fromByteUnits(4), .pref_align = .fromByteUnits(4) }, // f32:32:32
+        .{ .bit_width = 64, .abi_align = .fromByteUnits(8), .pref_align = .fromByteUnits(8) }, // f64:64:64
+        .{ .bit_width = 128, .abi_align = .fromByteUnits(16), .pref_align = .fromByteUnits(16) }, // f128:128:128
+    };
+    const default_vector_specs: []const PrimitiveSpec = &.{
+        .{ .bit_width = 64, .abi_align = .fromByteUnits(8), .pref_align = .fromByteUnits(8) }, // v64:64:64
+        .{ .bit_width = 128, .abi_align = .fromByteUnits(16), .pref_align = .fromByteUnits(16) }, // v128:128:128
+    };
+
+    pub fn parseString(string_repr: String, builder: *Builder) Allocator.Error!DataLayout {
+        const gpa = builder.gpa;
+
+        var int_specs: PrimitiveSpec.Map = .empty;
+        defer int_specs.deinit(gpa);
+        var float_specs: PrimitiveSpec.Map = .empty;
+        defer float_specs.deinit(gpa);
+        var vector_specs: PrimitiveSpec.Map = .empty;
+        defer vector_specs.deinit(gpa);
+        var pointer_specs: PointerSpec.Map = .empty;
+        defer pointer_specs.deinit(gpa);
+        var non_integral_addr_spaces: std.ArrayList(AddrSpace) = .empty;
+        defer non_integral_addr_spaces.deinit(gpa);
+
+        try int_specs.ensureTotalCapacity(gpa, default_int_specs.len);
+        for (default_int_specs) |int_spec| int_specs.putAssumeCapacityNoClobber(int_spec, {});
+        try float_specs.ensureTotalCapacity(gpa, default_float_specs.len);
+        for (default_float_specs) |float_spec| float_specs.putAssumeCapacityNoClobber(float_spec, {});
+        try vector_specs.ensureTotalCapacity(gpa, default_vector_specs.len);
+        for (default_vector_specs) |vector_spec| vector_specs.putAssumeCapacityNoClobber(vector_spec, {});
+        try pointer_specs.putNoClobber(gpa, .default, comptime .{
+            .bit_width = 64,
+            .index_bit_width = 64,
+            .flags = .{
+                .abi_align = .fromByteUnits(8),
+                .pref_align = .fromByteUnits(8),
+                .has_unstable_repr = false,
+                .has_external_state = false,
+                .null_ptr_repr = .all_zeros,
+            },
+            .addr_space_name = .none,
+        });
+
+        var endian: ?std.lang.Endian = null;
+        var spec_it = std.mem.splitScalar(u8, string_repr.slice(builder).?, '-');
+        while (spec_it.next()) |spec| switch (spec[0]) {
+            else => {},
+            'E' => {
+                assert(spec.len == 1);
+                assert(endian == null);
+                endian = .big;
+            },
+            'e' => {
+                assert(spec.len == 1);
+                assert(endian == null);
+                endian = .little;
+            },
+            'p' => {
+                var field_it = std.mem.splitScalar(u8, spec[1..], ':');
+
+                const first = field_it.first();
+                var has_unstable_repr = false;
+                var has_external_state = false;
+                var null_ptr_repr: ?PointerSpec.NullPtrRepr = null;
+                var addr_space_name: String = .none;
+                const addr_space = for (first, 0..) |flag, as_start| switch (flag) {
+                    'u' => has_unstable_repr = true,
+                    'e' => has_external_state = true,
+                    'z' => {
+                        assert(null_ptr_repr == null);
+                        null_ptr_repr = .all_zeros;
+                    },
+                    'o' => {
+                        assert(null_ptr_repr == null);
+                        null_ptr_repr = .all_ones;
+                    },
+                    else => {
+                        if (first[first.len - ")".len] != ')') break first[as_start..];
+                        const name_start = std.mem.findScalarPos(u8, first, as_start, '(').?;
+                        addr_space_name = try builder.string(first[name_start + "(".len .. first.len - ")".len]);
+                        break first[as_start..name_start];
+                    },
+                } else first[first.len..];
+                const bit_width = std.fmt.parseInt(PointerSpec.BitWidth, field_it.next().?, 10) catch unreachable;
+                const abi_align: Alignment = .fromByteUnits(std.fmt.parseInt(u64, field_it.next().?, 10) catch unreachable);
+                const pref_align: Alignment = if (field_it.next()) |pref_align|
+                    .fromByteUnits(std.fmt.parseInt(u64, pref_align, 10) catch unreachable)
+                else
+                    abi_align;
+                const index_bit_width = if (field_it.next()) |index_bit_width|
+                    std.fmt.parseInt(PointerSpec.BitWidth, index_bit_width, 10) catch unreachable
+                else
+                    bit_width;
+                assert(field_it.peek() == null);
+
+                try pointer_specs.put(gpa, switch (addr_space.len) {
+                    0 => .default,
+                    else => @fromBackingInt(std.fmt.parseInt(u24, addr_space, 10) catch unreachable),
+                }, .{
+                    .bit_width = bit_width,
+                    .index_bit_width = index_bit_width,
+                    .flags = .{
+                        .abi_align = abi_align,
+                        .pref_align = pref_align,
+                        .has_unstable_repr = has_unstable_repr,
+                        .has_external_state = has_external_state,
+                        .null_ptr_repr = null_ptr_repr orelse .all_zeros,
+                    },
+                    .addr_space_name = addr_space_name,
+                });
+            },
+            'i', 'f', 'v' => |kind| {
+                if (std.mem.eql(u8, spec, "ve")) {
+                    vector_specs.clearRetainingCapacity();
+                    continue;
+                }
+                var field_it = std.mem.splitScalar(u8, spec[1..], ':');
+                const bit_width = std.fmt.parseInt(PrimitiveSpec.BitWidth, field_it.first(), 10) catch unreachable;
+                const abi_align: Alignment = .fromByteUnits(std.fmt.parseInt(u64, field_it.next().?, 10) catch unreachable);
+                const pref_align: Alignment = if (field_it.next()) |pref_align|
+                    .fromByteUnits(std.fmt.parseInt(u64, pref_align, 10) catch unreachable)
+                else
+                    abi_align;
+                assert(field_it.peek() == null);
+                const specs = switch (kind) {
+                    else => unreachable,
+                    'i' => &int_specs,
+                    'f' => &float_specs,
+                    'v' => &vector_specs,
+                };
+                try specs.put(gpa, .{ .bit_width = bit_width, .abi_align = abi_align, .pref_align = pref_align }, {});
+            },
+            'n' => {
+                var field_it = std.mem.splitScalar(u8, spec[1..], ':');
+                if (std.mem.eql(u8, field_it.first(), "i")) {
+                    while (field_it.next()) |non_integral_addr_space| try non_integral_addr_spaces.append(
+                        gpa,
+                        @fromBackingInt(std.fmt.parseInt(u24, non_integral_addr_space, 10) catch unreachable),
+                    );
+                } else {
+                    field_it.reset();
+                    while (field_it.next()) |native_bit_width| {
+                        _ = std.fmt.parseInt(PrimitiveSpec.BitWidth, native_bit_width, 10) catch unreachable;
+                    }
+                }
+            },
+        };
+
+        for (non_integral_addr_spaces.items) |non_integral_addr_space| {
+            const pointer_spec_gop = try pointer_specs.getOrPut(gpa, non_integral_addr_space);
+            if (!pointer_spec_gop.found_existing) pointer_spec_gop.value_ptr.* = pointer_specs.get(.default).?;
+            pointer_spec_gop.value_ptr.flags.has_unstable_repr = true;
+            pointer_spec_gop.value_ptr.flags.has_external_state = false;
+        }
+
+        {
+            const SortContext = struct {
+                specs: []const PrimitiveSpec,
+                pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
+                    return ctx.specs[lhs_index].bit_width < ctx.specs[rhs_index].bit_width;
+                }
+            };
+            int_specs.sortUnstable(SortContext{ .specs = int_specs.keys() });
+            float_specs.sortUnstable(SortContext{ .specs = float_specs.keys() });
+            vector_specs.sortUnstable(SortContext{ .specs = vector_specs.keys() });
+        }
+        {
+            const SortContext = struct {
+                addr_spaces: []const AddrSpace,
+                pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
+                    return @backingInt(ctx.addr_spaces[lhs_index]) < @backingInt(ctx.addr_spaces[rhs_index]);
+                }
+            };
+            pointer_specs.sortUnstable(SortContext{ .addr_spaces = pointer_specs.keys() });
+            assert(pointer_specs.keys()[0] == .default);
+        }
+
+        return .{
+            .endian = endian,
+            .int_specs = int_specs.move(),
+            .float_specs = float_specs.move(),
+            .vector_specs = vector_specs.move(),
+            .pointer_specs = pointer_specs.move(),
+            .string_repr = string_repr,
+        };
+    }
+
+    pub fn deinit(data_layout: *DataLayout, gpa: Allocator) void {
+        data_layout.int_specs.deinit(gpa);
+        data_layout.float_specs.deinit(gpa);
+        data_layout.vector_specs.deinit(gpa);
+        data_layout.pointer_specs.deinit(gpa);
+    }
+
+    pub fn getIntegerSpec(data_layout: *const DataLayout, bit_width: PrimitiveSpec.BitWidth) PrimitiveSpec {
+        const specs = data_layout.int_specs.keys();
+        return specs[
+            @min(std.sort.lowerBound(PrimitiveSpec, specs, bit_width, struct {
+                fn order(ctx: PrimitiveSpec.BitWidth, spec: PrimitiveSpec) std.math.Order {
+                    return std.math.order(ctx, spec.bit_width);
+                }
+            }.order), specs.len - 1)
+        ];
+    }
+
+    pub fn getFloatSpec(data_layout: *const DataLayout, bit_width: PrimitiveSpec.BitWidth) PrimitiveSpec {
+        if (data_layout.float_specs.getEntry(.{
+            .bit_width = bit_width,
+            .abi_align = .default,
+            .pref_align = .default,
+        })) |entry| return entry.key_ptr.*;
+        const default_align: Alignment = .fromByteUnits(
+            std.math.ceilPowerOfTwoAssert(PrimitiveSpec.BitWidth, bit_width / 8),
+        );
+        return .{ .bit_width = bit_width, .abi_align = default_align, .pref_align = default_align };
+    }
+
+    pub fn getVectorSpec(
+        data_layout: *const DataLayout,
+        bit_width: PrimitiveSpec.BitWidth,
+        store_size: Type.Size,
+    ) PrimitiveSpec {
+        if (data_layout.float_specs.getEntry(.{
+            .bit_width = bit_width,
+            .abi_align = .default,
+            .pref_align = .default,
+        })) |entry| return entry.key_ptr.*;
+        const default_align: Alignment = .fromByteUnits(
+            std.math.ceilPowerOfTwoAssert(PrimitiveSpec.BitWidth, switch (store_size) {
+                .fixed, .scalable => |known_min| known_min,
+            }),
+        );
+        return .{ .bit_width = bit_width, .abi_align = default_align, .pref_align = default_align };
+    }
+
+    pub fn getPointerSpec(data_layout: *const DataLayout, addr_space: AddrSpace) PointerSpec {
+        return data_layout.pointer_specs.get(addr_space) orelse data_layout.pointer_specs.values()[0];
+    }
 };
 
 pub const String = enum(u32) {
@@ -489,7 +938,10 @@ pub const Type = enum(u32) {
             .double, .i64, .x86_mmx => 64,
             .x86_fp80, .i80 => 80,
             .fp128, .ppc_fp128, .i128 => 128,
-            .ptr, .@"ptr addrspace(4)" => @panic("TODO: query data layout"),
+            .ptr => @intCast(builder.data_layout.getPointerSpec(.default).bit_width),
+            .@"ptr addrspace(4)" => @intCast(
+                builder.data_layout.getPointerSpec(@fromBackingInt(@intCast(4))).bit_width,
+            ),
             _ => {
                 const item = builder.type_items.items[@backingInt(self)];
                 return switch (item.tag) {
@@ -498,7 +950,9 @@ pub const Type = enum(u32) {
                     .vararg_function,
                     => unreachable,
                     .integer => @intCast(item.data),
-                    .pointer => @panic("TODO: query data layout"),
+                    .pointer => @intCast(
+                        builder.data_layout.getPointerSpec(@fromBackingInt(@intCast(item.data))).bit_width,
+                    ),
                     .target => unreachable,
                     .vector,
                     .scalable_vector,
@@ -930,6 +1384,67 @@ pub const Type = enum(u32) {
                 };
             },
         };
+    }
+
+    const Size = union(enum) { fixed: u64, scalable: u64 };
+    pub fn bits(ty: Type, builder: *const Builder) Size {
+        const item = builder.type_items.items[@backingInt(ty)];
+        return switch (item.tag) {
+            else => unreachable,
+            .simple => switch (@as(Simple, @fromBackingInt(@intCast(item.data)))) {
+                else => unreachable,
+                .label => .{ .fixed = builder.data_layout.getPointerSpec(.default).bit_width },
+                .half, .bfloat => .{ .fixed = 16 },
+                .float => .{ .fixed = 32 },
+                .double => .{ .fixed = 64 },
+                .ppc_fp128, .fp128 => .{ .fixed = 128 },
+                .x86_amx => .{ .fixed = 8192 },
+                .x86_fp80 => .{ .fixed = 80 },
+            },
+            .integer => .{ .fixed = item.data },
+            .pointer => .{
+                .fixed = builder.data_layout.getPointerSpec(@fromBackingInt(@intCast(item.data))).bit_width,
+            },
+        };
+    }
+
+    pub fn alignment(ty: Type, kind: enum { abi, pref }, builder: *const Builder) Alignment {
+        const item = builder.type_items.items[@backingInt(ty)];
+        switch (item.tag) {
+            else => unreachable,
+            .simple => switch (@as(Simple, @fromBackingInt(@intCast(item.data)))) {
+                else => unreachable,
+                .label => {
+                    const spec = builder.data_layout.getPointerSpec(.default);
+                    return switch (kind) {
+                        .abi => spec.flags.abi_align,
+                        .pref => spec.flags.pref_align,
+                    };
+                },
+                .half, .bfloat, .float, .double, .ppc_fp128, .fp128, .x86_fp80 => {
+                    const spec = builder.data_layout.getFloatSpec(@intCast(ty.bits(builder).fixed));
+                    return switch (kind) {
+                        .abi => spec.abi_align,
+                        .pref => spec.pref_align,
+                    };
+                },
+                .x86_amx => return comptime .fromByteUnits(64),
+            },
+            .integer => {
+                const spec = builder.data_layout.getIntegerSpec(@intCast(item.data));
+                return switch (kind) {
+                    .abi => spec.abi_align,
+                    .pref => spec.pref_align,
+                };
+            },
+            .pointer => {
+                const spec = builder.data_layout.getPointerSpec(@fromBackingInt(@intCast(item.data)));
+                return switch (kind) {
+                    .abi => spec.flags.abi_align,
+                    .pref => spec.flags.pref_align,
+                };
+            },
+        }
     }
 };
 
@@ -2182,11 +2697,18 @@ pub const Alignment = enum(u6) {
         };
     }
 
-    /// Asserts that neither `a` nor `b` is `.default`.
-    pub fn max(a: Alignment, b: Alignment) Alignment {
-        assert(a != .default);
-        assert(b != .default);
-        return @fromBackingInt(@intCast(@max(@backingInt(a), @backingInt(b))));
+    /// Asserts that neither `lhs` nor `rhs` is `.default`.
+    pub fn max(lhs: Alignment, rhs: Alignment) Alignment {
+        assert(lhs != .default);
+        assert(rhs != .default);
+        return @fromBackingInt(@max(@backingInt(lhs), @backingInt(rhs)));
+    }
+
+    /// Asserts that neither `lhs` nor `rhs` is `.default`.
+    pub fn order(lhs: Alignment, rhs: Alignment) std.math.Order {
+        assert(lhs != .default);
+        assert(rhs != .default);
+        return std.math.order(@backingInt(lhs), @backingInt(rhs));
     }
 
     pub fn toLlvm(self: Alignment) u6 {
@@ -9023,7 +9545,14 @@ pub fn init(options: Options) Allocator.Error!Builder {
         .strip = options.strip,
 
         .source_filename = .none,
-        .data_layout = .none,
+        .data_layout = .{
+            .endian = null,
+            .int_specs = .empty,
+            .float_specs = .empty,
+            .vector_specs = .empty,
+            .pointer_specs = .empty,
+            .string_repr = .none,
+        },
         .target_triple = .none,
         .module_asm = .empty,
 
@@ -9079,14 +9608,14 @@ pub fn init(options: Options) Allocator.Error!Builder {
     try self.string_indices.append(self.gpa, 0);
     assert(try self.string("") == .empty);
 
+    self.data_layout = try .parseString(try self.string(DataLayout.stringForTarget(options.target)), &self);
+
     try self.strtab_string_indices.append(self.gpa, 0);
     assert(try self.strtabString("") == .empty);
 
     if (options.name.len > 0) self.source_filename = try self.string(options.name);
 
-    if (options.triple.len > 0) {
-        self.target_triple = try self.string(options.triple);
-    }
+    if (options.triple.len > 0) self.target_triple = try self.string(options.triple);
 
     {
         const static_len = @typeInfo(Type).@"enum".field_names.len - 1;
@@ -9178,6 +9707,8 @@ pub fn clearAndFree(self: *Builder) void {
 
 pub fn deinit(self: *Builder) void {
     const gpa = self.gpa;
+
+    self.data_layout.deinit(gpa);
 
     self.module_asm.deinit(gpa);
 
@@ -9998,17 +10529,17 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
     var metadata_formatter: Metadata.Formatter = .{ .builder = self, .need_comma = undefined };
     defer metadata_formatter.map.deinit(self.gpa);
 
-    if (self.source_filename != .none or self.data_layout != .none or self.target_triple != .none) {
+    if (self.source_filename != .none or self.data_layout.string_repr != .none or self.target_triple != .none) {
         if (need_newline) try w.writeByte('\n') else need_newline = true;
         if (self.source_filename != .none) try w.print(
             \\; ModuleID = '{s}'
             \\source_filename = {f}
             \\
         , .{ self.source_filename.slice(self).?, self.source_filename.fmtQ(self) });
-        if (self.data_layout != .none) try w.print(
+        if (self.data_layout.string_repr != .none) try w.print(
             \\target datalayout = {f}
             \\
-        , .{self.data_layout.fmtQ(self)});
+        , .{self.data_layout.string_repr.fmtQ(self)});
         if (self.target_triple != .none) try w.print(
             \\target triple = {f}
             \\
@@ -13706,7 +14237,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
             });
         }
 
-        if (self.data_layout.slice(self)) |data_layout| {
+        if (self.data_layout.string_repr.slice(self)) |data_layout| {
             try module_block.writeAbbrev(ModuleBlock.String{
                 .code = 3,
                 .string = data_layout,
