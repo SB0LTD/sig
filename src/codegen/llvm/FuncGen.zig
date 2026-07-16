@@ -2040,7 +2040,7 @@ fn airFloatFromInt(fg: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
     const dest_scalar_ty = dest_ty.scalarType(zcu);
     const target = zcu.getTarget();
 
-    if (intrinsicsAllowed(dest_scalar_ty, target))
+    if (intrinsicsAllowed(.compiler_rt, dest_scalar_ty, target))
         return fg.wip.conv(.fromStdLang(operand_scalar_info.signedness), operand, try o.lowerType(dest_ty, .as_value), "");
 
     const rt_int_ty = compilerRtPromoteInt(operand_scalar_info) orelse {
@@ -2093,7 +2093,7 @@ fn airIntFromFloat(
     const dest_llvm_ty = try o.lowerType(dest_ty, .as_value);
     const dest_scalar_info = dest_scalar_ty.intInfo(zcu);
 
-    if (intrinsicsAllowed(operand_scalar_ty, target)) {
+    if (intrinsicsAllowed(.compiler_rt, operand_scalar_ty, target)) {
         // TODO set fast math flag
         return fg.wip.conv(.fromStdLang(dest_scalar_info.signedness), operand, dest_llvm_ty, "");
     }
@@ -3888,7 +3888,7 @@ fn buildFloatCmp(
     const target = zcu.getTarget();
     const scalar_ty = ty.scalarType(zcu);
 
-    if (intrinsicsAllowed(scalar_ty, target)) {
+    if (intrinsicsAllowed(.compiler_rt, scalar_ty, target)) {
         const cond: Builder.FloatCondition = switch (pred) {
             .eq => .oeq,
             .neq => .une,
@@ -3968,10 +3968,14 @@ fn buildFloatOp(
     const target = zcu.getTarget();
     const scalar_ty = ty.scalarType(zcu);
 
-    if (op != .tan and intrinsicsAllowed(scalar_ty, target)) switch (op) {
+    switch (op) {
         // Some operations are dedicated LLVM instructions, not available as intrinsics
-        .neg => return fg.wip.un(.fneg, params[0], ""),
-        .add, .sub, .mul, .div, .fmod => return fg.wip.bin(switch (fast) {
+        .neg => if (intrinsicsAllowed(.compiler_rt, scalar_ty, target)) return fg.wip.un(.fneg, params[0], ""),
+        .add, .sub, .mul, .div, .fmod => if (intrinsicsAllowed(switch (op) {
+            else => unreachable,
+            .add, .sub, .mul, .div => .compiler_rt,
+            .fmod => .libc,
+        }, scalar_ty, target)) return fg.wip.bin(switch (fast) {
             .normal => switch (op) {
                 .add => .fadd,
                 .sub => .fsub,
@@ -3989,6 +3993,7 @@ fn buildFloatOp(
                 else => unreachable,
             },
         }, params[0], params[1], ""),
+        .fma,
         .fmax,
         .fmin,
         .ceil,
@@ -4003,9 +4008,10 @@ fn buildFloatOp(
         .round,
         .sin,
         .sqrt,
+        .tan,
         .trunc,
-        .fma,
-        => return fg.wip.callIntrinsic(fast, .none, switch (op) {
+        => if (intrinsicsAllowed(.libc, scalar_ty, target)) return fg.wip.callIntrinsic(fast, .none, switch (op) {
+            .fma => .fma,
             .fmax => .maxnum,
             .fmin => .minnum,
             .ceil => .ceil,
@@ -4020,12 +4026,11 @@ fn buildFloatOp(
             .round => .round,
             .sin => .sin,
             .sqrt => .sqrt,
+            .tan => .tan,
             .trunc => .trunc,
-            .fma => .fma,
             else => unreachable,
         }, &.{try o.lowerType(ty, .as_value)}, &params, ""),
-        .tan => unreachable,
-    };
+    }
 
     const float_bits = scalar_ty.floatBits(target);
     const fn_name = switch (op) {
@@ -4589,7 +4594,8 @@ fn airFptrunc(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Valu
     const dest_scalar_ty = dest_ty.scalarType(zcu);
     const target = zcu.getTarget();
 
-    if (intrinsicsAllowed(dest_scalar_ty, target) and intrinsicsAllowed(operand_scalar_ty, target))
+    if (intrinsicsAllowed(.compiler_rt, dest_scalar_ty, target) and
+        intrinsicsAllowed(.compiler_rt, operand_scalar_ty, target))
         return self.wip.cast(.fptrunc, operand, try o.lowerType(dest_ty, .as_value), "");
     const dest_bits = dest_scalar_ty.floatBits(target);
     const src_bits = operand_scalar_ty.floatBits(target);
@@ -4610,7 +4616,8 @@ fn airFpext(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value 
     const dest_scalar_ty = dest_ty.scalarType(zcu);
     const target = zcu.getTarget();
 
-    if (intrinsicsAllowed(dest_scalar_ty, target) and intrinsicsAllowed(operand_scalar_ty, target))
+    if (intrinsicsAllowed(.compiler_rt, dest_scalar_ty, target) and
+        intrinsicsAllowed(.compiler_rt, operand_scalar_ty, target))
         return self.wip.cast(.fpext, operand, try o.lowerType(dest_ty, .as_value), "");
     const dest_bits = dest_scalar_ty.floatBits(target);
     const src_bits = operand_scalar_ty.floatBits(target);
@@ -6161,7 +6168,7 @@ fn airReduce(fg: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) All
                     .@"vector.reduce.umax",
                 else => unreachable,
             }, &.{try o.lowerType(operand_ty, .as_value)}, &.{operand}, ""),
-            .float => if (intrinsicsAllowed(scalar_ty, target))
+            .float => if (intrinsicsAllowed(.libc, scalar_ty, target))
                 return fg.wip.callIntrinsic(fast, .none, switch (reduce.operation) {
                     .Min => .@"vector.reduce.fmin",
                     .Max => .@"vector.reduce.fmax",
@@ -6175,7 +6182,7 @@ fn airReduce(fg: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) All
                 .Mul => .@"vector.reduce.mul",
                 else => unreachable,
             }, &.{try o.lowerType(operand_ty, .as_value)}, &.{operand}, ""),
-            .float => if (intrinsicsAllowed(scalar_ty, target))
+            .float => if (intrinsicsAllowed(.compiler_rt, scalar_ty, target))
                 return fg.wip.callIntrinsic(fast, .none, switch (reduce.operation) {
                     .Add => .@"vector.reduce.fadd",
                     .Mul => .@"vector.reduce.fmul",
@@ -7936,9 +7943,18 @@ fn appendConstraints(
 
 /// LLVM does not support all relevant intrinsics for all targets, so we
 /// may need to manually generate a compiler-rt call using a soft type.
-fn intrinsicsAllowed(scalar_ty: Type, target: *const std.Target) bool {
+fn intrinsicsAllowed(kind: enum { compiler_rt, libc }, scalar_ty: Type, target: *const std.Target) bool {
     if (!scalar_ty.isRuntimeFloat()) return true;
-    return switch (std.zig.target.compilerRtFloatAbi(target, scalar_ty.floatBits(target))) {
+    const bits = scalar_ty.floatBits(target);
+    // Since upstream musl/msvc do not actually define the *f128 functions, llvm decides
+    // that it is a much better idea to just emit a call to the entirely wrong function as
+    // a fallback.  We wouldn't want any linker errors when trying to perform an operation
+    // that isn't actually implemented anywhere, now would we!
+    if (bits == 128 and target.cpu.arch.isX86() and !target.abi.isGnu()) return switch (kind) {
+        .compiler_rt => true,
+        .libc => false,
+    };
+    return switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
         .hard => true,
         .soft => false,
     };
