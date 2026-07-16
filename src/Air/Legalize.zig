@@ -605,7 +605,11 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 }
             },
             .bit_cast_safe => if (l.features.has(.expand_bit_cast_safe)) {
-                continue :inst l.replaceInst(inst, .block, try l.safeBitcastBlockPayload(inst));
+                if (try l.safeBitcastBlockPayload(inst)) |payload| {
+                    continue :inst l.replaceInst(inst, .block, payload);
+                }
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                continue :inst l.replaceInst(inst, .bit_cast, .{ .ty_op = ty_op });
             } else if (l.features.hasAny(&.{
                 .scalarize_bit_cast_array,
                 .scalarize_bit_cast_vector_non_elementwise,
@@ -617,7 +621,11 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             },
             .int_cast_safe => if (l.features.has(.expand_int_cast_safe)) {
                 assert(!l.features.has(.scalarize_int_cast_safe)); // it doesn't make sense to do both
-                continue :inst l.replaceInst(inst, .block, try l.safeIntcastBlockPayload(inst));
+                if (try l.safeIntcastBlockPayload(inst)) |payload| {
+                    continue :inst l.replaceInst(inst, .block, payload);
+                }
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                continue :inst l.replaceInst(inst, .int_cast, .{ .ty_op = ty_op });
             } else if (l.features.has(.scalarize_int_cast_safe)) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
                 if (ty_op.ty.toType().isVector(zcu)) {
@@ -2125,7 +2133,7 @@ fn scalarizeReduceBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimize
     } };
 }
 
-fn safeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
+fn safeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?Air.Inst.Data {
     const pt = l.pt;
     const zcu = pt.zcu;
     const ty_op = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].ty_op;
@@ -2133,7 +2141,14 @@ fn safeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
     const operand_ref = ty_op.operand;
     const dest_ty = ty_op.ty.toType();
 
-    // The worst case is a bitcast to an exhaustive enum and looks like this:
+    if (dest_ty.zigTypeTag(zcu) != .@"enum" or
+        dest_ty.isNonexhaustiveEnum(zcu) or
+        !zcu.backendSupportsFeature(.is_named_enum_value))
+    {
+        return null;
+    }
+
+    // We are building this:
     //
     // %x = block({
     //   %1 = bit_cast(@res_ty, %y)
@@ -2148,54 +2163,32 @@ fn safeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
 
     var inst_buf: [6]Air.Inst.Index = undefined;
     try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
-    var opt_condbr: ?CondBr = null;
 
-    var main_block: Block = .init(&inst_buf);
-    var cur_block: *Block = &main_block;
+    var block: Block = .init(&inst_buf);
 
-    const cast_inst = cur_block.addBitCast(l, dest_ty, operand_ref);
-
-    if (dest_ty.zigTypeTag(zcu) == .@"enum" and
-        !dest_ty.isNonexhaustiveEnum(zcu) and
-        zcu.backendSupportsFeature(.is_named_enum_value))
-    {
-        // We are building this:
-        //   %1 = is_named_enum_value(%cast_inst)
-        //   %2 = cond_br(%1, {
-        //     <new cursor>
-        //   }, {
-        //     <panic>
-        //   })
-        const is_named_inst = cur_block.add(l, .{
-            .tag = .is_named_enum_value,
-            .data = .{ .un_op = cast_inst },
-        });
-        opt_condbr = .init(l, is_named_inst.toRef(), cur_block, .{ .false = .cold });
-        const condbr = &(opt_condbr.?);
-        condbr.else_block = .init(cur_block.stealRemainingCapacity());
-        try condbr.else_block.addPanic(l, .invalid_enum_value);
-        condbr.then_block = .init(condbr.else_block.stealRemainingCapacity());
-        cur_block = &condbr.then_block;
-    }
-    // Finally, just `br` to our outer `block`.
-    _ = cur_block.add(l, .{
-        .tag = .br,
-        .data = .{ .br = .{
-            .block_inst = orig_inst,
-            .operand = cast_inst,
-        } },
+    const cast_inst = block.addBitCast(l, dest_ty, operand_ref);
+    const is_named_inst = block.add(l, .{
+        .tag = .is_named_enum_value,
+        .data = .{ .un_op = cast_inst },
     });
-    // We might not have used all of the instructions; that's intentional.
-    _ = cur_block.stealRemainingCapacity();
 
-    if (opt_condbr) |condbr| try condbr.finish(l);
+    var condbr: CondBr = .init(l, is_named_inst.toRef(), &block, .{ .false = .cold });
+
+    condbr.then_block = .init(block.stealRemainingCapacity());
+    condbr.then_block.addBr(l, orig_inst, cast_inst);
+
+    condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+    try condbr.else_block.addPanic(l, .invalid_enum_value);
+
+    try condbr.finish(l);
+
     return .{ .ty_pl = .{
         .ty = .fromType(dest_ty),
-        .payload = try l.addBlockBody(main_block.body()),
+        .payload = try l.addBlockBody(block.body()),
     } };
 }
 
-fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
+fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?Air.Inst.Data {
     const pt = l.pt;
     const zcu = pt.zcu;
     const ty_op = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].ty_op;
@@ -2214,6 +2207,9 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
         .@"enum" => true,
         else => unreachable,
     };
+    const have_enum_value_check = dest_is_enum and
+        !dest_ty.isNonexhaustiveEnum(zcu) and
+        zcu.backendSupportsFeature(.is_named_enum_value);
 
     const operand_info = operand_scalar_ty.intInfo(zcu);
     const dest_info = dest_scalar_ty.intInfo(zcu);
@@ -2228,6 +2224,10 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
             dest_pos_bits < operand_pos_bits,
         };
     };
+
+    if (!have_enum_value_check and !have_min_check and !have_max_check) {
+        return null;
+    }
 
     // The worst-case scenario in terms of total instructions and total condbrs is the case where
     // the result type is an exhaustive enum whose tag type is smaller than the operand type:
@@ -2324,7 +2324,7 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
         } },
     });
     // For ints we're already done, but for exhaustive enums we must check this is a valid tag.
-    if (dest_is_enum and !dest_ty.isNonexhaustiveEnum(zcu) and zcu.backendSupportsFeature(.is_named_enum_value)) {
+    if (have_enum_value_check) {
         assert(!is_vector); // vectors of enums don't exist
         // We are building this:
         //   %1 = is_named_enum_value(%cast_inst)
@@ -2346,16 +2346,12 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
         cur_block = &condbr.then_block;
     }
     // Finally, just `br` to our outer `block`.
-    _ = cur_block.add(l, .{
-        .tag = .br,
-        .data = .{ .br = .{
-            .block_inst = orig_inst,
-            .operand = cast_inst.toRef(),
-        } },
-    });
+    cur_block.addBr(l, orig_inst, cast_inst.toRef());
+
     // We might not have used all of the instructions; that's intentional.
     _ = cur_block.stealRemainingCapacity();
 
+    assert(condbr_idx != 0); // should have already returned `null`
     for (condbr_buf[0..condbr_idx]) |*condbr| try condbr.finish(l);
     return .{ .ty_pl = .{
         .ty = Air.internedToRef(dest_ty.toIntern()),
