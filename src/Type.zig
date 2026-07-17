@@ -3122,7 +3122,6 @@ pub fn validateExtern(ty: Type, position: ExternPosition, zcu: *const Zcu) bool 
 
         .@"opaque",
         .bool,
-        .float,
         .@"anyframe",
         => true,
 
@@ -3143,6 +3142,10 @@ pub fn validateExtern(ty: Type, position: ExternPosition, zcu: *const Zcu) bool 
             0, 8, 16, 32, 64, 128 => true,
             24, 48 => zcu.getTarget().cpu.arch == .ez80,
             else => false,
+        },
+        .float => switch (ty.floatBits(zcu.getTarget())) {
+            else => true,
+            80 => zcu.getTarget().cTypeBitSize(.longdouble) == 80,
         },
         .@"fn" => {
             if (position != .other) return false;
