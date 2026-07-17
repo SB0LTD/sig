@@ -15194,6 +15194,126 @@ void c_test_struct_f32_f32_f32_f32_f32(void) {
     zig_struct_f32_f32_f32_f32_f32((struct Struct_f32_f32_f32_f32_f32){ .a = 6, .b = 7, .c = 8, .d = 9, .e = 10 }, 11);
 }
 
+struct Struct_array_1_f32 {
+    float a[1];
+};
+
+struct Struct_array_1_f32 zig_ret_struct_array_1_f32(void);
+void zig_struct_array_1_f32(struct Struct_array_1_f32, size_t);
+
+struct Struct_array_1_f32 c_ret_struct_array_1_f32(void) {
+    return (struct Struct_array_1_f32){ .a = { 4 } };
+}
+void c_struct_array_1_f32(struct Struct_array_1_f32 s, size_t i) {
+    assert_or_panic(s.a[0] == 5);
+    assert_or_panic(i == 6);
+}
+void c_test_struct_array_1_f32(void) {
+    struct Struct_array_1_f32 s = zig_ret_struct_array_1_f32();
+    assert_or_panic(s.a[0] == 1);
+    zig_struct_array_1_f32((struct Struct_array_1_f32){ .a = { 2 } }, 3);
+}
+
+struct Struct_array_2_f32 {
+    float a[2];
+};
+
+struct Struct_array_2_f32 zig_ret_struct_array_2_f32(void);
+void zig_struct_array_2_f32(struct Struct_array_2_f32, size_t);
+
+struct Struct_array_2_f32 c_ret_struct_array_2_f32(void) {
+    return (struct Struct_array_2_f32){ .a = { 6, 7 } };
+}
+void c_struct_array_2_f32(struct Struct_array_2_f32 s, size_t i) {
+    assert_or_panic(s.a[0] == 8);
+    assert_or_panic(s.a[1] == 9);
+    assert_or_panic(i == 10);
+}
+void c_test_struct_array_2_f32(void) {
+    struct Struct_array_2_f32 s = zig_ret_struct_array_2_f32();
+    assert_or_panic(s.a[0] == 1);
+    assert_or_panic(s.a[1] == 2);
+    zig_struct_array_2_f32((struct Struct_array_2_f32){ .a = { 3, 4 } }, 5);
+}
+
+struct Struct_array_3_f32 {
+    float a[3];
+};
+
+struct Struct_array_3_f32 zig_ret_struct_array_3_f32(void);
+void zig_struct_array_3_f32(struct Struct_array_3_f32, size_t);
+
+struct Struct_array_3_f32 c_ret_struct_array_3_f32(void) {
+    return (struct Struct_array_3_f32){ .a = { 8, 9, 10 } };
+}
+void c_struct_array_3_f32(struct Struct_array_3_f32 s, size_t i) {
+    assert_or_panic(s.a[0] == 11);
+    assert_or_panic(s.a[1] == 12);
+    assert_or_panic(s.a[2] == 13);
+    assert_or_panic(i == 14);
+}
+void c_test_struct_array_3_f32(void) {
+    struct Struct_array_3_f32 s = zig_ret_struct_array_3_f32();
+    assert_or_panic(s.a[0] == 1);
+    assert_or_panic(s.a[1] == 2);
+    assert_or_panic(s.a[2] == 3);
+    zig_struct_array_3_f32((struct Struct_array_3_f32){ .a = { 4, 5, 6 } }, 7);
+}
+
+struct Struct_array_4_f32 {
+    float a[4];
+};
+
+struct Struct_array_4_f32 zig_ret_struct_array_4_f32(void);
+void zig_struct_array_4_f32(struct Struct_array_4_f32, size_t);
+
+struct Struct_array_4_f32 c_ret_struct_array_4_f32(void) {
+    return (struct Struct_array_4_f32){ .a = { 10, 11, 12, 13 } };
+}
+void c_struct_array_4_f32(struct Struct_array_4_f32 s, size_t i) {
+    assert_or_panic(s.a[0] == 14);
+    assert_or_panic(s.a[1] == 15);
+    assert_or_panic(s.a[2] == 16);
+    assert_or_panic(s.a[3] == 17);
+    assert_or_panic(i == 18);
+}
+void c_test_struct_array_4_f32(void) {
+    struct Struct_array_4_f32 s = zig_ret_struct_array_4_f32();
+    assert_or_panic(s.a[0] == 1);
+    assert_or_panic(s.a[1] == 2);
+    assert_or_panic(s.a[2] == 3);
+    assert_or_panic(s.a[3] == 4);
+    zig_struct_array_4_f32((struct Struct_array_4_f32){ .a = { 5, 6, 7, 8 } }, 9);
+}
+
+struct Struct_array_5_f32 {
+    float a[5];
+};
+
+struct Struct_array_5_f32 zig_ret_struct_array_5_f32(void);
+void zig_struct_array_5_f32(struct Struct_array_5_f32, size_t);
+
+struct Struct_array_5_f32 c_ret_struct_array_5_f32(void) {
+    return (struct Struct_array_5_f32){ .a = { 12, 13, 14, 15, 16 } };
+}
+void c_struct_array_5_f32(struct Struct_array_5_f32 s, size_t i) {
+    assert_or_panic(s.a[0] == 17);
+    assert_or_panic(s.a[1] == 18);
+    assert_or_panic(s.a[2] == 19);
+    assert_or_panic(s.a[3] == 20);
+    assert_or_panic(s.a[4] == 21);
+    assert_or_panic(i == 22);
+}
+void c_test_struct_array_5_f32(void) {
+    struct Struct_array_5_f32 s = zig_ret_struct_array_5_f32();
+    assert_or_panic(s.a[0] == 1);
+    assert_or_panic(s.a[1] == 2);
+    assert_or_panic(s.a[2] == 3);
+    assert_or_panic(s.a[3] == 4);
+    assert_or_panic(s.a[4] == 5);
+    zig_struct_array_5_f32((struct Struct_array_5_f32){ .a = { 6, 7, 8, 9, 10 } }, 11);
+}
+
 struct Struct_f32a8 {
     alignas(8) float a;
 };
@@ -15407,6 +15527,126 @@ void c_test_struct_f64_f64_f64_f64_f64(void) {
     assert_or_panic(s.d == 4);
     assert_or_panic(s.e == 5);
     zig_struct_f64_f64_f64_f64_f64((struct Struct_f64_f64_f64_f64_f64){ .a = 6, .b = 7, .c = 8, .d = 9, .e = 10 }, 11);
+}
+
+struct Struct_array_1_f64 {
+    double a[1];
+};
+
+struct Struct_array_1_f64 zig_ret_struct_array_1_f64(void);
+void zig_struct_array_1_f64(struct Struct_array_1_f64, size_t);
+
+struct Struct_array_1_f64 c_ret_struct_array_1_f64(void) {
+    return (struct Struct_array_1_f64){ .a = { 4 } };
+}
+void c_struct_array_1_f64(struct Struct_array_1_f64 s, size_t i) {
+    assert_or_panic(s.a[0] == 5);
+    assert_or_panic(i == 6);
+}
+void c_test_struct_array_1_f64(void) {
+    struct Struct_array_1_f64 s = zig_ret_struct_array_1_f64();
+    assert_or_panic(s.a[0] == 1);
+    zig_struct_array_1_f64((struct Struct_array_1_f64){ .a = { 2 } }, 3);
+}
+
+struct Struct_array_2_f64 {
+    double a[2];
+};
+
+struct Struct_array_2_f64 zig_ret_struct_array_2_f64(void);
+void zig_struct_array_2_f64(struct Struct_array_2_f64, size_t);
+
+struct Struct_array_2_f64 c_ret_struct_array_2_f64(void) {
+    return (struct Struct_array_2_f64){ .a = { 6, 7 } };
+}
+void c_struct_array_2_f64(struct Struct_array_2_f64 s, size_t i) {
+    assert_or_panic(s.a[0] == 8);
+    assert_or_panic(s.a[1] == 9);
+    assert_or_panic(i == 10);
+}
+void c_test_struct_array_2_f64(void) {
+    struct Struct_array_2_f64 s = zig_ret_struct_array_2_f64();
+    assert_or_panic(s.a[0] == 1);
+    assert_or_panic(s.a[1] == 2);
+    zig_struct_array_2_f64((struct Struct_array_2_f64){ .a = { 3, 4 } }, 5);
+}
+
+struct Struct_array_3_f64 {
+    double a[3];
+};
+
+struct Struct_array_3_f64 zig_ret_struct_array_3_f64(void);
+void zig_struct_array_3_f64(struct Struct_array_3_f64, size_t);
+
+struct Struct_array_3_f64 c_ret_struct_array_3_f64(void) {
+    return (struct Struct_array_3_f64){ .a = { 8, 9, 10 } };
+}
+void c_struct_array_3_f64(struct Struct_array_3_f64 s, size_t i) {
+    assert_or_panic(s.a[0] == 11);
+    assert_or_panic(s.a[1] == 12);
+    assert_or_panic(s.a[2] == 13);
+    assert_or_panic(i == 14);
+}
+void c_test_struct_array_3_f64(void) {
+    struct Struct_array_3_f64 s = zig_ret_struct_array_3_f64();
+    assert_or_panic(s.a[0] == 1);
+    assert_or_panic(s.a[1] == 2);
+    assert_or_panic(s.a[2] == 3);
+    zig_struct_array_3_f64((struct Struct_array_3_f64){ .a = { 4, 5, 6 } }, 7);
+}
+
+struct Struct_array_4_f64 {
+    double a[4];
+};
+
+struct Struct_array_4_f64 zig_ret_struct_array_4_f64(void);
+void zig_struct_array_4_f64(struct Struct_array_4_f64, size_t);
+
+struct Struct_array_4_f64 c_ret_struct_array_4_f64(void) {
+    return (struct Struct_array_4_f64){ .a = { 10, 11, 12, 13 } };
+}
+void c_struct_array_4_f64(struct Struct_array_4_f64 s, size_t i) {
+    assert_or_panic(s.a[0] == 14);
+    assert_or_panic(s.a[1] == 15);
+    assert_or_panic(s.a[2] == 16);
+    assert_or_panic(s.a[3] == 17);
+    assert_or_panic(i == 18);
+}
+void c_test_struct_array_4_f64(void) {
+    struct Struct_array_4_f64 s = zig_ret_struct_array_4_f64();
+    assert_or_panic(s.a[0] == 1);
+    assert_or_panic(s.a[1] == 2);
+    assert_or_panic(s.a[2] == 3);
+    assert_or_panic(s.a[3] == 4);
+    zig_struct_array_4_f64((struct Struct_array_4_f64){ .a = { 5, 6, 7, 8 } }, 9);
+}
+
+struct Struct_array_5_f64 {
+    double a[5];
+};
+
+struct Struct_array_5_f64 zig_ret_struct_array_5_f64(void);
+void zig_struct_array_5_f64(struct Struct_array_5_f64, size_t);
+
+struct Struct_array_5_f64 c_ret_struct_array_5_f64(void) {
+    return (struct Struct_array_5_f64){ .a = { 12, 13, 14, 15, 16 } };
+}
+void c_struct_array_5_f64(struct Struct_array_5_f64 s, size_t i) {
+    assert_or_panic(s.a[0] == 17);
+    assert_or_panic(s.a[1] == 18);
+    assert_or_panic(s.a[2] == 19);
+    assert_or_panic(s.a[3] == 20);
+    assert_or_panic(s.a[4] == 21);
+    assert_or_panic(i == 22);
+}
+void c_test_struct_array_5_f64(void) {
+    struct Struct_array_5_f64 s = zig_ret_struct_array_5_f64();
+    assert_or_panic(s.a[0] == 1);
+    assert_or_panic(s.a[1] == 2);
+    assert_or_panic(s.a[2] == 3);
+    assert_or_panic(s.a[3] == 4);
+    assert_or_panic(s.a[4] == 5);
+    zig_struct_array_5_f64((struct Struct_array_5_f64){ .a = { 6, 7, 8, 9, 10 } }, 11);
 }
 
 struct Struct_u32_Union_u32_u32u32 {
