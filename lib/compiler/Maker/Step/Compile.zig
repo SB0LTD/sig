@@ -132,7 +132,7 @@ const ModuleListContext = struct {
 
     pub fn hash(ctx: @This(), key: ModuleList) u32 {
         _ = ctx;
-        return std.hash.int(@intFromEnum(key.keys()[0]));
+        return std.hash.int(@backingInt(key.keys()[0]));
     }
 
     const Adapter = struct {
@@ -144,7 +144,7 @@ const ModuleListContext = struct {
 
         pub fn hash(ctx: @This(), key: Configuration.Module.Index) u32 {
             _ = ctx;
-            return std.hash.int(@intFromEnum(key));
+            return std.hash.int(@backingInt(key));
         }
     };
 };

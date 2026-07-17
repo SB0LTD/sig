@@ -589,10 +589,10 @@ pub fn main(init: process.Init.Minimal) !void {
     graph.cache.addPrefix(graph.local_cache_root);
     graph.cache.addPrefix(global_cache_directory);
     graph.cache.addPrefix(graph.build_root_directory);
-    comptime assert(0 == @intFromEnum(std.zig.Server.Message.PathPrefix.cwd));
-    comptime assert(1 == @intFromEnum(std.zig.Server.Message.PathPrefix.zig_lib));
-    comptime assert(2 == @intFromEnum(std.zig.Server.Message.PathPrefix.local_cache));
-    comptime assert(3 == @intFromEnum(std.zig.Server.Message.PathPrefix.global_cache));
+    comptime assert(0 == @backingInt(std.zig.Server.Message.PathPrefix.cwd));
+    comptime assert(1 == @backingInt(std.zig.Server.Message.PathPrefix.zig_lib));
+    comptime assert(2 == @backingInt(std.zig.Server.Message.PathPrefix.local_cache));
+    comptime assert(3 == @backingInt(std.zig.Server.Message.PathPrefix.global_cache));
 
     graph.cache.hash.addBytes(builtin.zig_version_string);
 
@@ -1406,7 +1406,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
     var top_level_steps: std.array_hash_map.String(Configuration.Step.Index) = .empty;
     for (configuration.steps, 0..) |*conf_step, step_index_usize| {
         if (conf_step.owner != .root) continue;
-        const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
+        const step_index: Configuration.Step.Index = @fromBackingInt(@intCast(step_index_usize));
         const flags = conf_step.flags(c);
         switch (flags.tag) {
             .top_level => {
@@ -2017,7 +2017,7 @@ fn countSubProcesses(maker: *Maker) usize {
 }
 
 pub fn stepByIndex(maker: *const Maker, i: Configuration.Step.Index) *Step {
-    return &maker.steps[@intFromEnum(i)];
+    return &maker.steps[@backingInt(i)];
 }
 
 fn prepare(maker: *Maker, step_names: []const []const u8) !void {
@@ -2029,7 +2029,7 @@ fn prepare(maker: *Maker, step_names: []const []const u8) !void {
     const c = &maker.scanned_config.configuration;
 
     for (maker.steps, 0..) |*step, step_index_usize| {
-        const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
+        const step_index: Configuration.Step.Index = @fromBackingInt(@intCast(step_index_usize));
         step.* = .{ .extended = .init(step_index.ptr(c).flags(c).tag) };
     }
 
@@ -3060,7 +3060,7 @@ pub fn resolveLazyPathIndexAbs(
 }
 
 pub fn generatedPath(maker: *const Maker, index: Configuration.GeneratedFileIndex) *Path {
-    return &maker.generated_files[@intFromEnum(index)];
+    return &maker.generated_files[@backingInt(index)];
 }
 
 pub fn packagePath(
