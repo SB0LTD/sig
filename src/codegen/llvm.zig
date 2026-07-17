@@ -2550,7 +2550,7 @@ pub const Object = struct {
         llvm_function.setCallConv(cc_info.llvm_cc, &o.builder);
 
         if (cc_info.align_stack) {
-            try attributes.addFnAttr(.{ .alignstack = .wrap(.fromByteUnits(target.stackAlignment())) }, &o.builder);
+            try attributes.addFnAttr(.{ .string = .{ .kind = try o.builder.string("stackrealign"), .value = .empty } }, &o.builder);
         }
 
         if (cc_info.naked) {
@@ -4522,7 +4522,7 @@ pub fn toLlvmCallConv(cc: std.lang.CallingConvention, target: *const std.Target)
             std.lang.CallingConvention.SpirvFragmentOptions,
             std.lang.CallingConvention.SpirvMeshOptions,
             => .{ null, 0, 0 },
-            else => @compileError("TODO: toLlvmCallConv" ++ @tagName(pl)),
+            else => @compileError("TODO: toLlvmCallConv(." ++ @tagName(pl) ++ ")"),
         },
     };
     return .{

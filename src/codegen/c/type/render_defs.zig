@@ -203,10 +203,12 @@ pub fn defineComplete(
             const name_cty: CType = .{ .@"fn" = ty };
             const ret_cty: CType = try .lower(effective_ret_ty, deps, arena, zcu);
 
-            try w.print("typedef {f}{f}(", .{
-                ret_cty.fmtDeclaratorPrefix(zcu),
-                name_cty.fmtTypeName(zcu),
-            });
+            try w.print("typedef {f}", .{ret_cty.fmtDeclaratorPrefix(zcu)});
+            switch (CType.CallingConvention.fromLang(func_type.cc, zcu.getTarget())) {
+                .c => {},
+                else => |cc| try w.print("zig_callconv({t}) ", .{cc}),
+            }
+            try w.print("{f}(", .{name_cty.fmtTypeName(zcu)});
             var any_params = false;
             for (func_type.param_types.get(ip)) |param_ty_ip| {
                 const param_ty: Type = .fromInterned(param_ty_ip);
@@ -222,9 +224,7 @@ pub fn defineComplete(
             } else if (!any_params) {
                 try w.writeAll("void");
             }
-            try w.print("){f};", .{
-                ret_cty.fmtDeclaratorSuffixIgnoreNonstring(zcu),
-            });
+            try w.print("){f};", .{ret_cty.fmtDeclaratorSuffixIgnoreNonstring(zcu)});
             break :check_cty null;
         },
         .@"enum" => {
@@ -254,7 +254,7 @@ pub fn defineComplete(
             try w.print(
                 \\{f} {{
                 \\ {f}ptr{f};
-                \\ size_t len;
+                \\ uintptr_t len;
                 \\}};
             , .{
                 name_cty.fmtTypeName(zcu),

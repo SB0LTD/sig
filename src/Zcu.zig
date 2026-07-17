@@ -4617,44 +4617,26 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
                 .m68k_rtd,
                 .m68k_interrupt,
                 .msp430_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .arm_aapcs_vfp,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .arc_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .arm_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .microblaze_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .mips_interrupt,
                 .mips64_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .riscv32_interrupt,
                 .riscv64_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .sh_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
+                .avr_interrupt,
+                .avr_signal,
+                .ez80_tiflags,
+                .naked,
+                => true, // incoming stack alignment supported
 
                 .x86_sysv,
                 .x86_win,
                 .x86_mingw,
                 .x86_stdcall,
-                => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
-
-                .avr_interrupt,
-                .avr_signal,
-                => true,
-
-                .ez80_tiflags => true,
-
-                .naked => true,
+                => |opts| opts.register_params == 0, // incoming stack alignment supported
 
                 else => false,
             };

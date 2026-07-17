@@ -1750,8 +1750,6 @@ pub const DeclGen = struct {
                 try w.writeAll("zig_no_builtin ");
         }
 
-        if (fn_info.return_type == .noreturn_type) try w.writeAll("zig_noreturn ");
-
         // While incomplete types are usually an acceptable substitute for "void", this is not true
         // in function return types, where "void" is the only incomplete type permitted.
         const actual_return_type: Type = .fromInterned(fn_info.return_type);
@@ -1763,8 +1761,9 @@ pub const DeclGen = struct {
 
         const ret_cty: CType = try .lower(effective_return_type, &dg.ctype_deps, dg.arena, zcu);
         try w.print("{f}", .{ret_cty.fmtDeclaratorPrefix(zcu)});
-        if (toCallingConvention(fn_info.cc, zcu)) |call_conv| {
-            try w.print("zig_callconv({s}) ", .{call_conv});
+        switch (CType.CallingConvention.fromLang(fn_info.cc, zcu.getTarget())) {
+            .c => {},
+            else => |cc| try w.print("zig_callconv({t}) ", .{cc}),
         }
         switch (name) {
             .nav => |nav| try renderNavName(w, nav, ip),
@@ -2221,6 +2220,7 @@ pub fn genLazyCallModifierFn(
 
     const fn_val = zcu.navValue(fn_nav);
 
+    if (fn_val.typeOf(zcu).fnReturnType(zcu).isNoReturn(zcu)) try w.writeAll("zig_noreturn ");
     try w.print("static zig_{t} ", .{kind});
     try dg.renderFunctionSignature(w, fn_val, .none, .definition, switch (kind) {
         .never_tail => .{ .nav_never_tail = fn_nav },
@@ -2326,8 +2326,10 @@ pub fn genFunc(f: *Function, fwd_decl_writer: *Writer, header_writer: *Writer) E
     const gpa = f.dg.gpa;
     const nav_index = f.dg.owner_nav.unwrap().?;
     const nav_val = zcu.navValue(nav_index);
+    const fn_info = zcu.typeToFunc(nav_val.typeOf(zcu)).?;
     const nav = ip.getNav(nav_index);
 
+    if (Type.fromInterned(fn_info.return_type).isNoReturn(zcu)) try fwd_decl_writer.writeAll("zig_noreturn ");
     try fwd_decl_writer.writeAll("static ");
     try f.dg.renderFunctionSignature(
         fwd_decl_writer,
@@ -2354,6 +2356,35 @@ pub fn genFunc(f: *Function, fwd_decl_writer: *Writer, header_writer: *Writer) E
 
     const main_body = f.air.getMainBody();
     f.indent();
+    if (switch (fn_info.cc) {
+        inline else => |pl| switch (@TypeOf(pl)) {
+            void,
+            std.lang.CallingConvention.SpirvKernelOptions,
+            std.lang.CallingConvention.SpirvFragmentOptions,
+            std.lang.CallingConvention.SpirvMeshOptions,
+            => null,
+            std.lang.CallingConvention.ArcInterruptOptions,
+            std.lang.CallingConvention.ArmInterruptOptions,
+            std.lang.CallingConvention.RiscvInterruptOptions,
+            std.lang.CallingConvention.ShInterruptOptions,
+            std.lang.CallingConvention.MicroblazeInterruptOptions,
+            std.lang.CallingConvention.MipsInterruptOptions,
+            std.lang.CallingConvention.CommonOptions,
+            std.lang.CallingConvention.X86RegparmOptions,
+            => pl.incoming_stack_alignment,
+            else => @compileError(@tagName(pl)),
+        },
+    }) |incoming_stack_alignment| realign_stack: {
+        const normal_stack_align = zcu.getTarget().stackAlignment();
+        if (incoming_stack_alignment >= normal_stack_align) break :realign_stack;
+        try header_writer.print("char zig_align({d}) zig_realign_stack;\n ", .{
+            normal_stack_align << 1,
+        });
+        try f.code.writer.writeAll(
+            \\__asm volatile("" :: [zig_realign_stack] "m" (zig_realign_stack));
+        );
+        try f.newline();
+    }
     try genBodyResolveState(f, undefined, &.{}, main_body, true);
     try f.outdent();
     try f.code.writer.writeByte('}');
@@ -2456,10 +2487,12 @@ pub fn genDeclFwd(dg: *DeclGen, w: *Writer) Error!void {
 
         .@"extern" => |@"extern"| switch (nav_ty.zigTypeTag(zcu)) {
             .@"fn" => {
+                const fn_val: Value = .fromInterned(nav.resolved.?.value);
+                if (fn_val.typeOf(zcu).fnReturnType(zcu).isNoReturn(zcu)) try w.writeAll("zig_noreturn ");
                 try w.writeAll("zig_extern ");
                 try dg.renderFunctionSignature(
                     w,
-                    .fromInterned(nav.resolved.?.value),
+                    fn_val,
                     nav.resolved.?.@"align",
                     .forward_decl,
                     .{ .@"export" = .{
@@ -2560,11 +2593,13 @@ pub fn genExports(dg: *DeclGen, w: *Writer, exported: Zcu.Exported, export_indic
     const exported_val = exported.getValue(zcu);
     if (ip.isFunctionType(exported_val.typeOf(zcu).toIntern())) return for (export_indices) |export_index| {
         const @"export" = export_index.ptr(zcu);
+        const fn_val = exported.getValue(zcu);
+        if (fn_val.typeOf(zcu).fnReturnType(zcu).isNoReturn(zcu)) try w.writeAll("zig_noreturn ");
         try w.writeAll("zig_extern ");
         if (@"export".opts.linkage == .weak) try w.writeAll("zig_weak_linkage_fn ");
         try dg.renderFunctionSignature(
             w,
-            exported.getValue(zcu),
+            fn_val,
             exported.getAlign(zcu),
             .forward_decl,
             .{ .@"export" = .{
@@ -7275,101 +7310,6 @@ fn toMemoryOrder(order: std.lang.AtomicOrder) [:0]const u8 {
 
 fn writeMemoryOrder(w: *Writer, order: std.lang.AtomicOrder) !void {
     return w.writeAll(toMemoryOrder(order));
-}
-
-fn toCallingConvention(cc: std.lang.CallingConvention, zcu: *Zcu) ?[]const u8 {
-    if (zcu.getTarget().cCallingConvention()) |ccc| {
-        if (cc.eql(ccc)) {
-            return null;
-        }
-    }
-    return switch (cc) {
-        .auto, .naked => null,
-
-        .x86_16_cdecl => "cdecl",
-        .x86_16_regparmcall => "regparmcall",
-        .x86_64_sysv, .x86_sysv => "sysv_abi",
-        .x86_64_win, .x86_win, .x86_mingw => "ms_abi",
-        .x86_16_stdcall, .x86_stdcall => "stdcall",
-        .x86_fastcall => "fastcall",
-        .x86_thiscall => "thiscall",
-
-        .x86_vectorcall,
-        .x86_64_vectorcall,
-        => "vectorcall",
-
-        .x86_64_regcall_v3_sysv,
-        .x86_64_regcall_v4_win,
-        .x86_regcall_v3,
-        .x86_regcall_v4_win,
-        => "regcall",
-
-        .aarch64_vfabi => "aarch64_vector_pcs",
-        .aarch64_vfabi_sve => "aarch64_sve_pcs",
-
-        .arm_aapcs => "pcs(\"aapcs\")",
-        .arm_aapcs_vfp => "pcs(\"aapcs-vfp\")",
-
-        .arc_interrupt => |opts| switch (opts.type) {
-            inline else => |t| "interrupt(\"" ++ @tagName(t) ++ "\")",
-        },
-
-        .arm_interrupt => |opts| switch (opts.type) {
-            .generic => "interrupt",
-            .irq => "interrupt(\"IRQ\")",
-            .fiq => "interrupt(\"FIQ\")",
-            .swi => "interrupt(\"SWI\")",
-            .abort => "interrupt(\"ABORT\")",
-            .undef => "interrupt(\"UNDEF\")",
-        },
-
-        .avr_signal => "signal",
-
-        .microblaze_interrupt => |opts| switch (opts.type) {
-            .user => "save_volatiles",
-            .regular => "interrupt_handler",
-            .fast => "fast_interrupt",
-            .breakpoint => "break_handler",
-        },
-
-        .mips_interrupt,
-        .mips64_interrupt,
-        => |opts| switch (opts.mode) {
-            inline else => |m| "interrupt(\"" ++ @tagName(m) ++ "\")",
-        },
-
-        .riscv64_lp64_v, .riscv32_ilp32_v => "riscv_vector_cc",
-
-        .riscv32_interrupt,
-        .riscv64_interrupt,
-        => |opts| switch (opts.mode) {
-            inline else => |m| "interrupt(\"" ++ @tagName(m) ++ "\")",
-        },
-
-        .sh_renesas => "renesas",
-        .sh_interrupt => |opts| switch (opts.save) {
-            .fpscr => "trapa_handler", // Implies `interrupt_handler`.
-            .high => "interrupt_handler, nosave_low_regs",
-            .full => "interrupt_handler",
-            .bank => "interrupt_handler, resbank",
-        },
-
-        .m68k_rtd => "m68k_rtd",
-
-        .avr_interrupt,
-        .csky_interrupt,
-        .m68k_interrupt,
-        .msp430_interrupt,
-        .x86_16_interrupt,
-        .x86_interrupt,
-        .x86_64_interrupt,
-        => "interrupt",
-
-        .ez80_tiflags,
-        => "__tiflags__",
-
-        else => unreachable, // `Zcu.callconvSupported`
-    };
 }
 
 fn toAtomicRmwSuffix(order: std.lang.AtomicRmwOp) []const u8 {
