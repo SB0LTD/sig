@@ -9,7 +9,7 @@ const compiler_util = @import("../util.zig");
 
 const Translator = @import("Translator.zig");
 
-const fast_exit = @import("builtin").mode != .Debug;
+const fast_exit = @import("builtin").mode != .debug;
 
 pub fn main(init: process.Init) u8 {
     const gpa = init.gpa;

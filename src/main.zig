@@ -44,9 +44,9 @@ pub const std_options: std.Options = .{
     .logFn = log,
 
     .log_level = switch (builtin.mode) {
-        .Debug => .debug,
-        .ReleaseSafe, .ReleaseFast => .info,
-        .ReleaseSmall => .err,
+        .debug => .debug,
+        .safe, .fast => .info,
+        .small => .err,
     },
 };
 pub const std_options_cwd = if (native_os == .wasi) wasi_cwd else null;
@@ -158,8 +158,8 @@ pub fn log(
 
 const use_safe_allocator = build_options.debug_gpa or
     (native_os != .wasi and !builtin.link_libc and switch (builtin.mode) {
-        .Debug, .ReleaseSafe => true,
-        .ReleaseFast, .ReleaseSmall => false,
+        .debug, .safe => true,
+        .fast, .small => false,
     });
 
 var safe_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{
@@ -360,7 +360,7 @@ fn mainArgs(
                 .prepend_zig_exe_path = true,
                 .prepend_seed = true,
                 .debug_env_var = .ZIG_DEBUG_MAKER,
-                .release_mode = .ReleaseSafe,
+                .release_mode = .safe,
             });
         },
         .clang, .@"-cc1", .@"-cc1as" => {
@@ -568,10 +568,10 @@ const usage_build_generic =
     \\Per-Module Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
     \\  -O [mode]                 Choose what to optimize for
-    \\    Debug                   (default) Optimizations off, safety on
-    \\    ReleaseFast             Optimize for performance, safety off
-    \\    ReleaseSafe             Optimize for performance, safety on
-    \\    ReleaseSmall            Optimize for small binary, safety off
+    \\    debug (default)         Prioritize bug detection, accurate debug info, compilation speed
+    \\    fast                    Prioritize runtime performance. Safety checks off.
+    \\    safe                    Enable both safety checks and machine code optimizations
+    \\    small                   Prioritize small binary size. Safety checks off.
     \\  -ofmt=[fmt]               Override target object format
     \\    elf                     Executable and Linking Format
     \\    c                       C source code
@@ -994,7 +994,7 @@ fn buildOutputType(
     var minor_subsystem_version: ?u16 = null;
     var mingw_unicode_entry_point: bool = false;
     var enable_link_snapshots: bool = false;
-    var debug_compiler_runtime_libs: ?std.lang.OptimizeMode = null;
+    var debug_compiler_runtime_libs: ?std.lang.Optimize = null;
     var install_name: ?[]const u8 = null;
     var hash_style: link.File.Lld.Elf.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
@@ -1433,7 +1433,7 @@ fn buildOutputType(
                             enable_link_snapshots = true;
                         }
                     } else if (mem.eql(u8, arg, "--debug-rt")) {
-                        debug_compiler_runtime_libs = .Debug;
+                        debug_compiler_runtime_libs = .debug;
                     } else if (mem.cutPrefix(u8, arg, "--debug-rt=")) |rest| {
                         debug_compiler_runtime_libs = parseOptimizeMode(rest);
                     } else if (mem.eql(u8, arg, "--debug-incremental")) {
@@ -2271,18 +2271,18 @@ fn buildOutputType(
                         if (mem.eql(u8, level, "s") or
                             mem.eql(u8, level, "z"))
                         {
-                            mod_opts.optimize_mode = .ReleaseSmall;
+                            mod_opts.optimize_mode = .small;
                         } else if (mem.eql(u8, level, "1") or
                             mem.eql(u8, level, "2") or
                             mem.eql(u8, level, "3") or
                             mem.eql(u8, level, "4") or
                             mem.eql(u8, level, "fast"))
                         {
-                            mod_opts.optimize_mode = .ReleaseFast;
+                            mod_opts.optimize_mode = .fast;
                         } else if (mem.eql(u8, level, "g") or
                             mem.eql(u8, level, "0"))
                         {
-                            mod_opts.optimize_mode = .Debug;
+                            mod_opts.optimize_mode = .debug;
                         } else {
                             try cc_argv.appendSlice(arena, it.other_args);
                         }
@@ -2356,9 +2356,9 @@ fn buildOutputType(
                                         // `sanitize_c` will resolve to! So we either have to pick `off` or `full`.
                                         //
                                         // `full` has the potential to be problematic if `optimize_mode` turns out to
-                                        // be `ReleaseFast`/`ReleaseSmall` because the user will get a slower and larger
+                                        // be `fast`/`small` because the user will get a slower and larger
                                         // binary than expected. On the other hand, if `optimize_mode` turns out to be
-                                        // `Debug`/`ReleaseSafe`, `off` would mean UBSan would unexpectedly be disabled.
+                                        // `debug`/`safe`, `off` would mean UBSan would unexpectedly be disabled.
                                         //
                                         // `off` seems very slightly less bad, so let's go with that.
                                         mod_opts.sanitize_c = .off;
@@ -2972,8 +2972,8 @@ fn buildOutputType(
             }
 
             if (mod_opts.sanitize_c) |wsc| {
-                if (wsc != .off and mod_opts.optimize_mode == .ReleaseFast) {
-                    mod_opts.optimize_mode = .ReleaseSafe;
+                if (wsc != .off and mod_opts.optimize_mode == .fast) {
+                    mod_opts.optimize_mode = .safe;
                 }
             }
 
@@ -4875,7 +4875,7 @@ const JitCmdOptions = struct {
     /// Send error bundles via std.zig.Server over stdout
     server: bool = false,
     debug_env_var: EnvVar = .ZIG_DEBUG_CMD,
-    release_mode: std.lang.OptimizeMode = .ReleaseFast,
+    release_mode: std.lang.Optimize = .fast,
 };
 
 fn jitCmd(
@@ -4926,11 +4926,11 @@ fn jitCmdInner(
     const self_exe_path = process.executablePathAlloc(io, arena) catch |err|
         fatal("unable to find self exe path: {t}", .{err});
 
-    const optimize_mode: std.lang.OptimizeMode = if (options.debug_env_var.isSet(environ_map))
-        .Debug
+    const optimize_mode: std.lang.Optimize = if (options.debug_env_var.isSet(environ_map))
+        .debug
     else
         options.release_mode;
-    const strip = optimize_mode != .Debug;
+    const strip = optimize_mode != .debug;
     var override_lib_dir: ?[]const u8 = EnvVar.ZIG_LIB_DIR.get(environ_map);
     const override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
 
@@ -6008,9 +6008,8 @@ fn parseRcIncludes(arg: []const u8) std.zig.RcIncludes {
         fatal("unsupported rc includes type: {q}", .{arg});
 }
 
-fn parseOptimizeMode(s: []const u8) std.lang.OptimizeMode {
-    return stringToEnum(std.lang.OptimizeMode, s) orelse
-        fatal("unrecognized optimization mode: {q}", .{s});
+fn parseOptimizeMode(s: []const u8) std.lang.Optimize {
+    return std.lang.Optimize.fromString(s) orelse fatal("unrecognized optimization mode: {q}", .{s});
 }
 
 fn parseWasiExecModel(s: []const u8) std.lang.WasiExecModel {

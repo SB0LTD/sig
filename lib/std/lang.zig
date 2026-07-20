@@ -107,13 +107,43 @@ pub const CodeModel = enum(u4) {
     tiny,
 };
 
+/// Deprecated, to be removed after 0.18.0
+pub const OptimizeMode = Optimize;
+
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const OptimizeMode = enum {
-    Debug,
-    ReleaseSafe,
-    ReleaseFast,
-    ReleaseSmall,
+pub const Optimize = enum {
+    /// Safety checks enabled. Optimize for bug detection, accurate debug info,
+    /// and compilation speed (in that order).
+    debug,
+    /// Safety checks enabled. Optimize for runtime performance.
+    safe,
+    /// Safety checks disabled. Optimize for runtime performance.
+    fast,
+    /// Safety checks disabled. Optimize for machine code size, then runtime performance.
+    small,
+
+    /// Deprecated, to be removed after 0.18.0
+    pub const Debug: @This() = .debug;
+    /// Deprecated, to be removed after 0.18.0
+    pub const ReleaseSafe: @This() = .safe;
+    /// Deprecated, to be removed after 0.18.0
+    pub const ReleaseFast: @This() = .fast;
+    /// Deprecated, to be removed after 0.18.0
+    pub const ReleaseSmall: @This() = .small;
+    /// Deprecated, to be removed after 0.18.0
+    pub fn fromString(s: []const u8) ?@This() {
+        return std.StaticStringMap(@This()).initComptime(&.{
+            .{ "Debug", .debug },
+            .{ "ReleaseSafe", .safe },
+            .{ "ReleaseFast", .fast },
+            .{ "ReleaseSmall", .small },
+            .{ "debug", .debug },
+            .{ "safe", .safe },
+            .{ "fast", .fast },
+            .{ "small", .small },
+        }).get(s);
+    }
 };
 
 /// The calling convention of a function defines how arguments and return values are passed, as well
