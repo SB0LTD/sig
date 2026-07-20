@@ -237,13 +237,12 @@ pub const Symbol = struct {
     };
 };
 
-/// Deprecated because it returns the optimization mode of the standard
-/// library, when the caller probably wants to use the optimization mode of
-/// their own module.
-pub const runtime_safety = switch (builtin.mode) {
-    .debug, .safe => true,
-    .fast, .small => false,
-};
+/// Deprecated in favor of `std.lang.Optimize.runtimeSafety`, to be removed after 0.18.0
+///
+/// Returns whether the standard library has safety checks enabled. Callsites
+/// likely would rather know whether their own module's optimization mode
+/// (found via `@import("builtin").optimize`) has safety checks enabled.
+pub const runtime_safety = builtin.mode.runtimeSafety();
 
 /// Whether we can unwind the stack on this target, allowing capturing and/or printing the current
 /// stack trace. It is still legal to call `captureCurrentStackTrace`, `writeCurrentStackTrace`, and

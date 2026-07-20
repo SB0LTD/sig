@@ -144,6 +144,15 @@ pub const Optimize = enum {
             .{ "small", .small },
         }).get(s);
     }
+
+    /// Returns whether illegal behavior safety checks are enabled based on the
+    /// provided optimization mode.
+    pub fn runtimeSafety(o: @This()) bool {
+        return switch (o) {
+            .debug, .safe => true,
+            .fast, .small => false,
+        };
+    }
 };
 
 /// The calling convention of a function defines how arguments and return values are passed, as well
