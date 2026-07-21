@@ -60,6 +60,8 @@ web_server: ?*AvoidableWebServer,
 /// Allocated into `gpa`.
 memory_blocked_steps: std.ArrayList(Configuration.Step.Index),
 /// Allocated into `gpa`.
+initial_steps: std.array_hash_map.Auto(Configuration.Step.Index, void),
+/// Allocated into `gpa`.
 step_stack: std.array_hash_map.Auto(Configuration.Step.Index, void),
 pkg_config: PkgConfig,
 
@@ -768,6 +770,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 .protocol_server = protocol_server,
                 .protocol_server_mutex = .init,
                 .memory_blocked_steps = .empty,
+                .initial_steps = .empty,
                 .step_stack = .empty,
                 .pkg_config = .{ .debug = debug_pkg_config },
 
@@ -782,6 +785,7 @@ pub fn main(init: process.Init.Minimal) !void {
             };
             defer {
                 maker.memory_blocked_steps.deinit(gpa);
+                maker.initial_steps.deinit(gpa);
                 maker.step_stack.deinit(gpa);
             }
 
@@ -815,6 +819,41 @@ pub fn main(init: process.Init.Minimal) !void {
                                 cleanExit(io, &scanned_config);
                                 process.exit(0);
                             },
+                            .bsp_build_steps => {
+                                // Cancel existing file watching
+                                select.cancelDiscard();
+                                in_debounce = false;
+
+                                const body = try s.in.takeStruct(Client.Message.BuildSteps, .little);
+                                const steps = try s.in.readSliceEndianAlloc(gpa, Configuration.Step.Index, body.step_count, .little);
+                                defer gpa.free(steps);
+                                if (body.flags.watch and !Watch.have_impl) fatal("file watching is unavailable", .{});
+
+                                try select.concurrent(.message, Server.receiveMessage, .{s});
+
+                                maker.watch = body.flags.watch;
+                                maker.prepare(steps) catch |err| switch (err) {
+                                    error.DependencyLoopDetected, error.InsufficientMemory => {
+                                        // TODO handle DependencyLoopDetected as error.FailedButCacheIntact
+                                        // and handle InsufficientMemory as error.AlreadyReported
+                                        _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
+                                        process.exit(1);
+                                    },
+                                    else => |e| return e,
+                                };
+
+                                try maker.makeSteps(main_progress_node, null);
+
+                                if (body.flags.watch) {
+                                    if (!Watch.have_impl) unreachable;
+                                    if (w == null) w = try .init(&maker);
+
+                                    try w.?.update(maker.step_stack.keys());
+                                    try select.concurrent(.fs_event, Watch.wait, .{ &w.?, if (in_debounce) .{ .ms = debounce_interval_ms } else .none });
+                                }
+
+                                continue :loop try select.await();
+                            },
                             else => fatal("unsupported message: {t}", .{header.tag}),
                         }
                     },
@@ -824,7 +863,7 @@ pub fn main(init: process.Init.Minimal) !void {
                             .timeout => {
                                 assert(in_debounce);
                                 markFailedStepsDirty(&maker);
-                                if (true) @panic("TODO run steps that were previous specified over the build system protocol");
+                                try maker.makeSteps(main_progress_node, null);
                                 in_debounce = false;
                             },
                             .dirty => in_debounce = true,
@@ -836,7 +875,10 @@ pub fn main(init: process.Init.Minimal) !void {
                 }
             }
 
-            maker.prepare(step_names.items) catch |err| switch (err) {
+            const initial_steps = try maker.resolveTopLevelSteps(step_names.items);
+            defer gpa.free(initial_steps);
+
+            maker.prepare(initial_steps) catch |err| switch (err) {
                 error.DependencyLoopDetected, error.InsufficientMemory => {
                     // TODO handle DependencyLoopDetected as error.FailedButCacheIntact
                     // and handle InsufficientMemory as error.AlreadyReported
@@ -863,7 +905,7 @@ pub fn main(init: process.Init.Minimal) !void {
             }) {
                 if (web_server) |ws| ws.startBuild();
 
-                try maker.makeStepNames(step_names.items, main_progress_node, fuzz);
+                try maker.makeSteps(main_progress_node, fuzz);
 
                 if (web_server) |ws| {
                     if (fuzz) |mode| if (mode != .forever) fatal(
@@ -2106,11 +2148,37 @@ pub fn stepByIndex(maker: *const Maker, i: Configuration.Step.Index) *Step {
     return &maker.steps[@backingInt(i)];
 }
 
-fn prepare(maker: *Maker, step_names: []const []const u8) !void {
+fn resolveTopLevelSteps(maker: *Maker, step_names: []const []const u8) ![]const Configuration.Step.Index {
+    const gpa = maker.gpa;
+    const c = &maker.scanned_config.configuration;
+
+    if (step_names.len == 0) {
+        return try gpa.dupe(Configuration.Step.Index, &.{c.default_step});
+    }
+
+    var result: std.array_hash_map.Auto(Configuration.Step.Index, void) = .empty;
+    defer result.deinit(gpa);
+
+    try result.ensureTotalCapacity(gpa, step_names.len);
+
+    for (0..step_names.len) |i| {
+        const step_name = step_names[step_names.len - i - 1];
+        const s = maker.scanned_config.top_level_steps.get(step_name) orelse {
+            log.info("to list available steps: zig build -l", .{});
+            fatal("no such step: {s}", .{step_name});
+        };
+        result.putAssumeCapacity(s, {});
+    }
+
+    return try gpa.dupe(Configuration.Step.Index, result.keys());
+}
+
+fn prepare(maker: *Maker, step_indices: []const Configuration.Step.Index) !void {
     const gpa = maker.gpa;
     const graph = maker.graph;
     const arena = graph.arena;
     const seed: u32 = graph.random_seed;
+    const initial_steps = &maker.initial_steps;
     const step_stack = &maker.step_stack;
     const c = &maker.scanned_config.configuration;
 
@@ -2119,18 +2187,15 @@ fn prepare(maker: *Maker, step_names: []const []const u8) !void {
         step.* = .{ .extended = .init(step_index.ptr(c).flags(c).tag) };
     }
 
-    if (step_names.len == 0) {
-        try step_stack.put(gpa, c.default_step, {});
-    } else {
-        try step_stack.ensureUnusedCapacity(gpa, step_names.len);
-        for (0..step_names.len) |i| {
-            const step_name = step_names[step_names.len - i - 1];
-            const s = maker.scanned_config.top_level_steps.get(step_name) orelse {
-                log.info("to list available steps: zig build -l", .{});
-                fatal("no such step: {s}", .{step_name});
-            };
-            step_stack.putAssumeCapacity(s, {});
-        }
+    try initial_steps.ensureUnusedCapacity(gpa, step_indices.len);
+    try step_stack.ensureUnusedCapacity(gpa, step_indices.len);
+
+    initial_steps.clearRetainingCapacity();
+    step_stack.clearRetainingCapacity();
+
+    for (step_indices) |step| {
+        initial_steps.putAssumeCapacity(step, {});
+        step_stack.putAssumeCapacity(step, {});
     }
 
     const starting_steps = try arena.dupe(Configuration.Step.Index, step_stack.keys());
@@ -2179,9 +2244,8 @@ fn prepare(maker: *Maker, step_names: []const []const u8) !void {
     }
 }
 
-fn makeStepNames(
+fn makeSteps(
     maker: *Maker,
-    step_names: []const []const u8,
     parent_progress_node: std.Progress.Node,
     fuzz: ?Fuzz.Mode,
 ) !void {
@@ -2369,7 +2433,7 @@ fn makeStepNames(
         defer step_stack_copy.deinit(gpa);
 
         var print_node: PrintNode = .{ .parent = null };
-        if (step_names.len == 0) {
+        if (maker.initial_steps.count() == 0) {
             print_node.last = true;
             printTreeStep(maker, c.default_step, t, &print_node, &step_stack_copy) catch |err| switch (err) {
                 error.Canceled => |e| return e,
@@ -2377,10 +2441,10 @@ fn makeStepNames(
             };
         } else {
             const last_index = if (maker.summary == .all) top_level_steps.count() else blk: {
-                var i: usize = step_names.len;
+                var i: usize = maker.initial_steps.count();
                 while (i > 0) {
                     i -= 1;
-                    const step_index = top_level_steps.get(step_names[i]).?;
+                    const step_index = maker.initial_steps.keys()[i];
                     const step = maker.stepByIndex(step_index);
                     const found = switch (maker.summary) {
                         .all, .line, .none => unreachable,
@@ -2391,8 +2455,7 @@ fn makeStepNames(
                 }
                 break :blk top_level_steps.count();
             };
-            for (step_names, 0..) |step_name, i| {
-                const step_index = top_level_steps.get(step_name).?;
+            for (maker.initial_steps.keys(), 0..) |step_index, i| {
                 print_node.last = i + 1 == last_index;
                 printTreeStep(maker, step_index, t, &print_node, &step_stack_copy) catch |err| switch (err) {
                     error.Canceled => |e| return e,
@@ -2403,7 +2466,7 @@ fn makeStepNames(
         w.writeByte('\n') catch {};
     }
 
-    if (maker.watch or maker.web_server != null) return;
+    if (maker.watch or maker.web_server != null or maker.protocol_server != null) return;
 
     const code: u8 = code: {
         if (failure_count == 0) break :code 0; // success

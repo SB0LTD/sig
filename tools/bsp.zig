@@ -143,7 +143,32 @@ pub fn main(init: std.process.Init) !void {
             if (std.mem.startsWith(u8, command, "build") or
                 std.mem.startsWith(u8, command, "watch"))
             {
-                @panic("TODO");
+                var steps: std.ArrayList(Configuration.Step.Index) = .empty;
+                defer steps.deinit(gpa);
+
+                const watch = std.mem.startsWith(u8, command, "watch");
+
+                if (std.mem.cutPrefix(u8, command, "build ") orelse
+                    std.mem.cutPrefix(u8, command, "watch ")) |command_args|
+                {
+                    var it = std.mem.tokenizeScalar(u8, command_args, ' ');
+                    while (it.next()) |arg| {
+                        const step: Configuration.Step.Index =
+                            if (std.fmt.parseInt(u32, arg, 10)) |i|
+                                @fromBackingInt(i)
+                            else |_|
+                                top_level_steps.get(arg) orelse std.debug.panic("unexpected step name or index", .{});
+                        try steps.append(gpa, step);
+                    }
+                }
+
+                if (steps.items.len < 1) {
+                    try steps.append(gpa, c.default_step);
+                }
+
+                try client.serveBuildSteps(steps.items, .{ .watch = watch });
+
+                continue;
             } else if (std.mem.eql(u8, command, "exit")) {
                 try client.serveBodylessMessage(.exit);
                 break;

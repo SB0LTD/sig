@@ -4,6 +4,7 @@ const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const Configuration = std.Build.Configuration;
 const OutMessage = std.zig.Client.Message;
 const InMessage = std.zig.Server.Message;
 const Reader = Io.Reader;
@@ -60,7 +61,26 @@ pub const Message = struct {
         /// The message body has the same format as in Server.
         new_fuzz_input,
 
+        /// Asks the server to run a list of steps.
+        /// Body is a `BuildSteps`.
+        /// This message only applies to the build system protocol.
+        bsp_build_steps = 0x80000000,
+
         _,
+    };
+
+    /// Trailing:
+    /// * step_indices: [step_count]std.Build.Configuration.Step.Index,
+    pub const BuildSteps = extern struct {
+        step_count: u32,
+        flags: Flags,
+
+        pub const Flags = packed struct(u32) {
+            /// Can only be enabled when the server declared support for file
+            /// watching.
+            watch: bool,
+            reserved: u31 = 0,
+        };
     };
 
     comptime {
@@ -138,5 +158,23 @@ pub fn serveRunFuzzTestMessage(
         try c.out.writeInt(u32, @intCast(test_name.len), .little);
         try c.out.writeAll(test_name);
     }
+    try c.out.flush();
+}
+
+pub fn serveBuildSteps(
+    c: *const Client,
+    steps: []const Configuration.Step.Index,
+    flags: OutMessage.BuildSteps.Flags,
+) !void {
+    try c.serveMessageHeader(.{
+        .tag = .bsp_build_steps,
+        .bytes_len = @intCast(@sizeOf(OutMessage.BuildSteps) + steps.len * @sizeOf(Configuration.Step.Index)),
+    });
+    const body: OutMessage.BuildSteps = .{
+        .step_count = @intCast(steps.len),
+        .flags = flags,
+    };
+    try c.out.writeStruct(body, .little);
+    try c.out.writeSliceEndian(Configuration.Step.Index, steps, .little);
     try c.out.flush();
 }
