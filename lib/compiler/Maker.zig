@@ -11,6 +11,7 @@ const File = std.Io.File;
 const Io = std.Io;
 const Dir = std.Io.Dir;
 const Path = std.Build.Cache.Path;
+const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
@@ -19,6 +20,8 @@ const log = std.log;
 const mem = std.mem;
 const process = std.process;
 const Color = std.zig.Color;
+const Client = std.zig.Client;
+const Server = std.zig.Server;
 const EnvVar = std.zig.EnvVar;
 const default_local_zig_cache_basename = std.zig.default_local_zig_cache_basename;
 const stringToEnum = std.meta.stringToEnum;
@@ -51,6 +54,8 @@ max_rss_mutex: Io.Mutex,
 skip_oom_steps: bool,
 unit_test_timeout_ns: ?u64,
 watch: bool,
+protocol_server: ?*AvoidableServer,
+protocol_server_mutex: Io.Mutex,
 web_server: ?*AvoidableWebServer,
 /// Allocated into `gpa`.
 memory_blocked_steps: std.ArrayList(Configuration.Step.Index),
@@ -67,6 +72,7 @@ var stdio_buffer_allocation: [256]u8 = undefined;
 var stdout_writer_allocation: Io.File.Writer = undefined;
 var debug_maker_leaks: bool = false;
 
+const AvoidableServer = if (builtin.single_threaded) void else Server;
 const AvoidableWebServer = if (builtin.single_threaded) void else WebServer;
 
 const is_debug_mode = builtin.mode == .debug;
@@ -216,6 +222,7 @@ pub fn main(init: process.Init.Minimal) !void {
     var watch = false;
     var fuzz: ?Fuzz.Mode = null;
     var debounce_interval_ms: u16 = 50;
+    var listen: bool = false;
     var webui_listen: ?Io.net.IpAddress = null;
     var debug_pkg_config = false;
     var run_args: ?[]const []const u8 = null;
@@ -422,6 +429,8 @@ pub fn main(init: process.Init.Minimal) !void {
                         next_arg, err,
                     });
                 };
+            } else if (mem.eql(u8, arg, "--listen=-")) {
+                listen = true;
             } else if (mem.eql(u8, arg, "--webui")) {
                 if (webui_listen == null) webui_listen = .{ .ip6 = .loopback(0) };
             } else if (mem.startsWith(u8, arg, "--webui=")) {
@@ -559,7 +568,7 @@ pub fn main(init: process.Init.Minimal) !void {
     }
 
     const early_exit_mode = fetch_only or help_menu or steps_menu or print_configuration != .none;
-    const server_mode = !early_exit_mode and (watch or webui_listen != null or fuzz != null);
+    const server_mode = !early_exit_mode and (watch or webui_listen != null or fuzz != null or listen);
 
     process.raiseFileDescriptorLimit();
 
@@ -667,6 +676,25 @@ pub fn main(init: process.Init.Minimal) !void {
         break :ws &web_server_allocation;
     } else null;
 
+    var stdin_buffer: [256]u8 = undefined;
+    var stdout_buffer: [256]u8 = undefined;
+    var stdin_reader = Io.File.stdin().reader(io, &stdin_buffer);
+    var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
+
+    var protocol_server_allocation: AvoidableServer = undefined;
+    const protocol_server: ?*AvoidableServer = if (listen) s: {
+        if (builtin.single_threaded) fatal("--listen is not yet supported on single-threaded hosts", .{});
+        if (watch) fatal("using '--watch' and '--listen' together is not supported", .{});
+        if (fuzz != null) fatal("using '--fuzz' and '--listen' together is not supported", .{});
+        if (step_names.items.len > 0) fatal("build steps must be provided over the protocol instead of using CLI arguments", .{});
+        protocol_server_allocation = .{
+            .in = &stdin_reader.interface,
+            .out = &stdout_writer.interface,
+        };
+        try serveBSPHandshake(&protocol_server_allocation);
+        break :s &protocol_server_allocation;
+    } else null;
+
     while (true) {
         // If this fails, we can still start the server and wait for user
         // to request a rebuild. If it returns error.FailedButCacheIntact
@@ -737,13 +765,20 @@ pub fn main(init: process.Init.Minimal) !void {
 
                 .watch = watch,
                 .web_server = web_server,
+                .protocol_server = protocol_server,
+                .protocol_server_mutex = .init,
                 .memory_blocked_steps = .empty,
                 .step_stack = .empty,
                 .pkg_config = .{ .debug = debug_pkg_config },
 
                 .error_style = error_style,
                 .multiline_errors = multiline_errors,
-                .summary = summary orelse if (watch or webui_listen != null) .new else .failures,
+                .summary = summary orelse if (listen)
+                    .none
+                else if (watch or webui_listen != null)
+                    .new
+                else
+                    .failures,
             };
             defer {
                 maker.memory_blocked_steps.deinit(gpa);
@@ -753,6 +788,52 @@ pub fn main(init: process.Init.Minimal) !void {
             if (maker.available_rss == 0) {
                 maker.available_rss = process.totalSystemMemory() catch std.math.maxInt(u64);
                 maker.max_rss_is_default = true;
+            }
+
+            if (protocol_server) |s| {
+                try s.serveStringMessage(.bsp_configuration, try arena.print("{f}", .{scanned_config.path}));
+
+                var w: ?Watch = null;
+
+                const Event = union(enum) {
+                    message: Reader.Error!Client.Message.Header,
+                    fs_event: if (Watch.have_impl) @typeInfo(@TypeOf(Watch.wait)).@"fn".return_type.? else noreturn,
+                };
+
+                var select_buffer: [2]Event = undefined;
+                var select: Io.Select(Event) = .init(io, &select_buffer);
+                defer select.cancelDiscard();
+
+                try select.concurrent(.message, Server.receiveMessage, .{s});
+
+                var in_debounce = false;
+                loop: switch (try select.await()) {
+                    .message => |payload| {
+                        const header: Client.Message.Header = try payload;
+                        switch (header.tag) {
+                            .exit => {
+                                cleanExit(io, &scanned_config);
+                                process.exit(0);
+                            },
+                            else => fatal("unsupported message: {t}", .{header.tag}),
+                        }
+                    },
+                    .fs_event => |payload| {
+                        if (!Watch.have_impl) unreachable;
+                        switch (try payload) {
+                            .timeout => {
+                                assert(in_debounce);
+                                markFailedStepsDirty(&maker);
+                                if (true) @panic("TODO run steps that were previous specified over the build system protocol");
+                                in_debounce = false;
+                            },
+                            .dirty => in_debounce = true,
+                            .clean => {},
+                        }
+                        try select.concurrent(.fs_event, Watch.wait, .{ &w.?, if (in_debounce) .{ .ms = debounce_interval_ms } else .none });
+                        continue :loop try select.await();
+                    },
+                }
             }
 
             maker.prepare(step_names.items) catch |err| switch (err) {
@@ -855,6 +936,9 @@ pub fn main(init: process.Init.Minimal) !void {
             if (!server_mode) {
                 _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
                 process.exit(1);
+            }
+            if (protocol_server != null) {
+                fatal("(zig build system) TODO send error messages to client when build.zig compilation fails", .{});
             }
             if (watch and can_fs_watch) {
                 fatal("(zig build system) TODO set up fs watching even when build.zig compilation fails", .{});
@@ -2990,6 +3074,21 @@ fn cleanTmpFiles(maker: *Maker, steps: []const Configuration.Step.Index) void {
         tmp_path.root_dir.handle.deleteTree(io, tmp_path.subPathOrDot()) catch |err|
             log.warn("failed to delete temporary path {f}: {t}", .{ tmp_path, err });
     }
+}
+
+fn serveBSPHandshake(s: *const std.zig.Server) !void {
+    const handshake_header: Server.Message.Handshake = .{
+        .version = Server.build_system_version,
+        .flags = .{
+            .file_system_watch_supported = Watch.have_impl,
+        },
+    };
+    try s.serveMessageHeader(.{
+        .tag = .bsp_handshake,
+        .bytes_len = @sizeOf(Server.Message.Handshake),
+    });
+    try s.out.writeStruct(handshake_header, .little);
+    try s.out.flush();
 }
 
 fn initStdoutWriter(io: Io) *Writer {

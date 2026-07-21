@@ -12,6 +12,14 @@ const Writer = std.Io.Writer;
 in: *Reader,
 out: *Writer,
 
+/// The ABI version of the build system protocol. Will be bumped whenever a
+/// backwards incompatible changes to the protocol is made.
+///
+/// Does not apply to the internal compiler protocol or test runner.
+///
+/// See `version` in `Message.Handshake`.
+pub const build_system_version: u32 = 1;
+
 pub const Message = struct {
     pub const Header = extern struct {
         tag: Tag,
@@ -66,7 +74,29 @@ pub const Message = struct {
         /// Body is a TimeReport.
         time_report,
 
+        /// The first message sent by the server over the build system protocol.
+        /// Body is a `Handshake`.
+        /// This message only applies to the build system protocol.
+        bsp_handshake = 0x80000000,
+        /// Notifies that a new configuration file is available.
+        /// Body is a cwd relative path to the configuration file.
+        /// This message only applies to the build system protocol.
+        bsp_configuration,
+
         _,
+    };
+
+    /// Trailing:
+    /// * base_paths: BasePaths,
+    pub const Handshake = extern struct {
+        /// See `build_system_version`.
+        version: u32,
+        flags: Flags,
+
+        pub const Flags = packed struct(u32) {
+            file_system_watch_supported: bool,
+            _: u31 = 0,
+        };
     };
 
     pub const PathPrefix = enum(u8) {
