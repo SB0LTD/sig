@@ -58,7 +58,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("lib/std/std.zig"),
             .target = target,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const install_std_docs = b.addInstallDirectory(.{
@@ -433,7 +433,7 @@ pub fn build(b: *std.Build) !void {
     const test_target_filters = b.option([]const []const u8, "test-target-filter", "Skip tests whose target triple do not match any filter") orelse &[0][]const u8{};
     const test_extra_targets = b.option(bool, "test-extra-targets", "Enable running module tests for additional targets") orelse false;
 
-    var chosen_opt_modes_buf: [4]std.lang.OptimizeMode = undefined;
+    var chosen_opt_modes_buf: [4]std.lang.Optimize = undefined;
     var chosen_mode_index: usize = 0;
     if (!skip_debug) {
         chosen_opt_modes_buf[chosen_mode_index] = .debug;
@@ -790,7 +790,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     const semver = try std.SemanticVersion.parse(version);
 
     const exe = addCompilerStep(b, .{
-        .optimize = .ReleaseSmall,
+        .optimize = .small,
         .target = b.resolveTargetQuery(std.Target.Query.parse(.{
             .arch_os_abi = "wasm32-wasi",
             // * `nontrapping_bulk_memory_len0` is supported by `wasm2c`.
@@ -856,7 +856,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
 }
 
 const AddCompilerModOptions = struct {
-    optimize: std.lang.OptimizeMode,
+    optimize: std.lang.Optimize,
     target: std.Build.ResolvedTarget,
     strip: ?bool = null,
     valgrind: ?bool = null,
@@ -1609,7 +1609,7 @@ fn generateLangRef(b: *std.Build) !std.Build.LazyPath {
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/doctest.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
 
@@ -1652,7 +1652,7 @@ fn generateLangRef(b: *std.Build) !std.Build.LazyPath {
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/docgen.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
 
