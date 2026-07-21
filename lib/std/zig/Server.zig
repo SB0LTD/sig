@@ -82,6 +82,18 @@ pub const Message = struct {
         /// Body is a cwd relative path to the configuration file.
         /// This message only applies to the build system protocol.
         bsp_configuration,
+        /// Does not have a body.
+        /// This message only applies to the build system protocol.
+        bsp_build_started,
+        /// Does not have a body.
+        /// This message only applies to the build system protocol.
+        bsp_build_completed,
+        /// Body is a `Configuration.Step.Index`.
+        /// This message only applies to the build system protocol.
+        bsp_step_started,
+        /// Body is a `BuildStepCompleted`.
+        /// This message only applies to the build system protocol.
+        bsp_step_completed,
 
         _,
     };
@@ -96,6 +108,25 @@ pub const Message = struct {
         pub const Flags = packed struct(u32) {
             file_system_watch_supported: bool,
             _: u31 = 0,
+        };
+    };
+
+    /// Trailing:
+    /// * error_bundle: ErrorBundle,
+    pub const BuildStepCompleted = extern struct {
+        step_index: std.Build.Configuration.Step.Index,
+        status: Status,
+        error_bundle: ErrorBundle,
+        // TODO result_error_msgs
+        // TODO result_stderr
+        // TODO result_peak_rss
+        // TODO result_duration_ns
+
+        pub const Status = enum(u32) {
+            success,
+            failure,
+            skipped,
+            skipped_oom,
         };
     };
 
@@ -192,6 +223,11 @@ pub fn serveStringMessage(s: *Server, tag: OutMessage.Tag, msg: []const u8) !voi
 /// Don't forget to flush!
 pub fn serveMessageHeader(s: *const Server, header: OutMessage.Header) !void {
     try s.out.writeStruct(header, .little);
+}
+
+pub fn serveBodylessMessage(s: *const Server, tag: OutMessage.Tag) Writer.Error!void {
+    try s.serveMessageHeader(.{ .tag = tag, .bytes_len = 0 });
+    try s.out.flush();
 }
 
 pub fn serveU32Message(s: *const Server, tag: OutMessage.Tag, int: u32) !void {

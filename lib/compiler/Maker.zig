@@ -903,18 +903,7 @@ pub fn main(init: process.Init.Minimal) !void {
                     error.WriteFailed => return stderr.file_writer.err.?,
                 };
             }) {
-                if (web_server) |ws| ws.startBuild();
-
                 try maker.makeSteps(main_progress_node, fuzz);
-
-                if (web_server) |ws| {
-                    if (fuzz) |mode| if (mode != .forever) fatal(
-                        "error: limited fuzzing is not implemented yet for --webui",
-                        .{},
-                    );
-
-                    ws.finishBuild(.{ .fuzz = fuzz != null });
-                }
 
                 if (web_server) |ws| {
                     const c = &scanned_config.configuration;
@@ -2256,6 +2245,12 @@ fn makeSteps(
     const top_level_steps = &maker.scanned_config.top_level_steps;
     const c = &maker.scanned_config.configuration;
 
+    if (maker.web_server) |ws| ws.startBuild();
+
+    if (maker.protocol_server) |s| {
+        try s.serveBodylessMessage(.bsp_build_started);
+    }
+
     {
         // Collect the initial set of tasks (those with no outstanding dependencies) into a buffer,
         // then spawn them. The buffer is so that we don't race with `makeStep` and end up thinking
@@ -2279,6 +2274,19 @@ fn makeSteps(
         for (initial_set.items) |step_index| try stepReady(maker, &group, step_index, step_prog);
         // ...and `makeStep` will trigger every other step when their last dependency finishes.
         try group.await(io);
+    }
+
+    if (maker.web_server) |ws| {
+        if (fuzz) |mode| if (mode != .forever) fatal(
+            "error: limited fuzzing is not implemented yet for --webui",
+            .{},
+        );
+
+        ws.finishBuild(.{ .fuzz = fuzz != null });
+    }
+
+    if (maker.protocol_server) |s| {
+        try s.serveBodylessMessage(.bsp_build_completed);
     }
 
     assert(maker.memory_blocked_steps.items.len == 0);
@@ -2541,6 +2549,15 @@ fn makeStep(
         defer step_prog_node.end();
 
         if (maker.web_server) |ws| ws.updateStepStatus(step_index, .wip);
+        if (maker.protocol_server) |s| {
+            maker.protocol_server_mutex.lockUncancelable(io);
+            defer maker.protocol_server_mutex.unlock(io);
+
+            s.serveU32Message(
+                .bsp_step_started,
+                @backingInt(step_index),
+            ) catch @panic("TODO propagate error when failing to send protocol message");
+        }
 
         const new_state: Step.State = for (deps) |dep_index| {
             const dep_make_step = maker.stepByIndex(dep_index);
@@ -2566,7 +2583,7 @@ fn makeStep(
 
         @atomicStore(Step.State, &make_step.state, new_state, .monotonic);
 
-        switch (new_state) {
+        const success = switch (new_state) {
             .precheck_unstarted => unreachable,
             .precheck_started => unreachable,
             .precheck_done => unreachable,
@@ -2574,17 +2591,37 @@ fn makeStep(
             .failure,
             .dependency_failure,
             .skipped_oom,
-            => {
-                if (maker.web_server) |ws| ws.updateStepStatus(step_index, .failure);
-                std.Progress.setStatus(.failure_working);
-            },
+            => false,
 
             .success,
             .skipped,
-            => {
-                if (maker.web_server) |ws| ws.updateStepStatus(step_index, .success);
-            },
+            => true,
+        };
+
+        if (maker.web_server) |ws| {
+            ws.updateStepStatus(step_index, if (success) .success else .failure);
         }
+        if (maker.protocol_server != null) {
+            maker.protocol_server_mutex.lockUncancelable(io);
+            defer maker.protocol_server_mutex.unlock(io);
+
+            const status: Server.Message.BuildStepCompleted.Status = switch (new_state) {
+                .precheck_unstarted => unreachable,
+                .precheck_started => unreachable,
+                .precheck_done => unreachable,
+                .success => .success,
+                .failure, .dependency_failure => .failure,
+                .skipped => .skipped,
+                .skipped_oom => .skipped_oom,
+            };
+            serveBuildStepCompleted(
+                maker,
+                step_index,
+                status,
+            ) catch |err| std.debug.panic("TODO propagate error when failing to send protocol message: {t}", .{err});
+        }
+
+        if (!success) std.Progress.setStatus(.failure_working);
     }
 
     // No matter the result, we want to display error/warning messages.
@@ -3151,6 +3188,35 @@ fn serveBSPHandshake(s: *const std.zig.Server) !void {
         .bytes_len = @sizeOf(Server.Message.Handshake),
     });
     try s.out.writeStruct(handshake_header, .little);
+    try s.out.flush();
+}
+
+fn serveBuildStepCompleted(
+    maker: *Maker,
+    step_index: Configuration.Step.Index,
+    status: Server.Message.BuildStepCompleted.Status,
+) !void {
+    const s: *Server = maker.protocol_server.?;
+    const step = maker.stepByIndex(step_index);
+    const error_bundle = step.result_error_bundle;
+
+    const body: Server.Message.BuildStepCompleted = .{
+        .step_index = step_index,
+        .status = status,
+        .error_bundle = .{
+            .extra_len = @intCast(error_bundle.extra.len),
+            .string_bytes_len = @intCast(error_bundle.string_bytes.len),
+        },
+    };
+    const eb_bytes_len = @sizeOf(u32) * error_bundle.extra.len + error_bundle.string_bytes.len;
+    const bytes_len = @sizeOf(Server.Message.BuildStepCompleted) + eb_bytes_len;
+    try s.serveMessageHeader(.{
+        .tag = .bsp_step_completed,
+        .bytes_len = @intCast(bytes_len),
+    });
+    try s.out.writeStruct(body, .little);
+    try s.out.writeSliceEndian(u32, error_bundle.extra, .little);
+    try s.out.writeAll(error_bundle.string_bytes);
     try s.out.flush();
 }
 

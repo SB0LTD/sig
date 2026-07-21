@@ -168,6 +168,27 @@ pub fn main(init: std.process.Init) !void {
 
                 try client.serveBuildSteps(steps.items, .{ .watch = watch });
 
+                while (true) {
+                    const header: Server.Message.Header = client.receiveMessageWithMultiReader(&multi_reader, .none) catch |err| switch (err) {
+                        error.Canceled, error.ConcurrencyUnavailable => |e| return e,
+                        error.Timeout => unreachable,
+                        else => |e| {
+                            log.err("failed to receive message: {t}", .{err});
+                            break :blk e;
+                        },
+                    };
+                    const body = client_stdout.take(header.bytes_len) catch unreachable;
+                    log.debug("received {f} ({d} bytes)", .{ fmtEnum(header.tag), body.len });
+
+                    switch (header.tag) {
+                        .bsp_build_started => {},
+                        .bsp_build_completed => if (!watch) break,
+                        .bsp_step_started => {},
+                        .bsp_step_completed => {},
+                        .bsp_configuration => @panic("TODO"),
+                        else => std.debug.panic("received unexpected message: {f}", .{fmtEnum(header.tag)}),
+                    }
+                }
                 continue;
             } else if (std.mem.eql(u8, command, "exit")) {
                 try client.serveBodylessMessage(.exit);
