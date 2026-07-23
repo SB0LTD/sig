@@ -461,7 +461,7 @@ pub fn wrap(x: anytype, r: anytype) @TypeOf(x) {
     }
 }
 test wrap {
-    if (builtin.os.tag == .windows and builtin.cpu.arch == .x86) {
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .x86 and builtin.abi == .msvc) {
         // https://codeberg.org/ziglang/zig/issues/35520
         return error.SkipZigTest;
     }

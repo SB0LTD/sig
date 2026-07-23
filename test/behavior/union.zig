@@ -1609,6 +1609,10 @@ fn littleToNativeEndian(comptime T: type, v: T) T {
 }
 
 test "reinterpret extern union" {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isRiscv32() and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isWasm()) return error.SkipZigTest;
+
     if (true) {
         // https://github.com/ziglang/zig/issues/19389
         return error.SkipZigTest;
@@ -1676,8 +1680,6 @@ test "reinterpret extern union" {
     };
 
     try comptime S.doTheTest();
-
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
     try S.doTheTest();
 }
 
