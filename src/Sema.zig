@@ -11375,7 +11375,7 @@ fn validateSwitchBlock(
 
             if (has_else) {
                 if (all_tags_handled) {
-                    if (item_ty.isNonexhaustiveEnum(zcu)) {
+                    if (operand_ty.isNonexhaustiveEnum(zcu)) {
                         if (has_under) return sema.fail(
                             block,
                             else_prong_src,
