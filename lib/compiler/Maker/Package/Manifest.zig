@@ -11,7 +11,7 @@ const testing = std.testing;
 const Package = @import("../Package.zig");
 
 pub const max_bytes = 10 * 1024 * 1024;
-pub const basename = "build.sig.zon";
+pub const basename = "build.zig.zon";
 pub const max_name_len = 32;
 pub const max_version_len = 32;
 

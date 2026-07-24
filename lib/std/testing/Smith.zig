@@ -62,7 +62,7 @@ pub inline fn baselineWeights(T: type) []const Weight {
             }, T) != null) {
                 @compileError("type does not have a fixed bitsize: " ++ @typeName(T));
             }
-            break :i &.{.rangeAtMost(Backing(T), 0, std.math.maxInt(Backing(T)), 1)};
+            break :i &.{.rangeAtMost(Backing(T), 0, (1 << @bitSizeOf(T)) - 1, 1)};
         },
         .@"struct" => |s| if (s.backing_integer) |B|
             baselineWeights(B)
@@ -449,7 +449,7 @@ pub fn valueWithHash(s: *Smith, T: type, hash: u32) T {
 
 pub fn valueWeightedWithHash(s: *Smith, T: type, weights: []const Weight, hash: u32) T {
     @disableInstrumentation();
-    checkWeights(weights, std.math.maxInt(Backing(T)));
+    checkWeights(weights, (1 << @bitSizeOf(T)) - 1);
     return valueFromInt(T, @intCast(s.valueWeightedWithHashInner(weights, hash)));
 }
 

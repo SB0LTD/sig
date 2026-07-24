@@ -1553,7 +1553,6 @@ const CertificatePublicKey = struct {
             .rsa_pss_pss_sha384,
             .rsa_pss_pss_sha512,
             => .rsassa_pss,
-            .ed25519 => .curveEd25519,
             else => return error.TlsBadSignatureScheme,
         })) return error.TlsBadSignatureScheme;
 
