@@ -1,6 +1,4 @@
 #undef linux
-#undef environ
-#undef _environ
 
 #include <stdarg.h>
 #include <stddef.h>
@@ -180,16 +178,12 @@
 #define zig_has_attribute(attribute) 0
 #endif
 
-#ifdef ZIG_SUPPRESS_STATIC_ASSERT
-#define zig_static_assert(cond, msg) /* suppressed */
-#elif !defined(zig_static_assert)
 #if __STDC_VERSION__ >= 201112L
 #define zig_static_assert(cond, msg) _Static_assert(cond, msg)
 #elif zig_has_attribute(unused)
 #define zig_static_assert(cond, msg) typedef char zig_expand_concat(zig_static_assert_fail_, __LINE__)[(cond) ? 1 : -1] __attribute__((unused))
 #else
 #define zig_static_assert(cond, msg) typedef char zig_expand_concat(zig_static_assert_fail_, __LINE__)[(cond) ? 1 : -1]
-#endif
 #endif
 
 #if __STDC_VERSION__ >= 202311L
@@ -361,11 +355,7 @@
 #endif /* zig_macho */
 #endif /* zig_msvc */
 
-#if defined(ZIG_NO_EXPORT_ALIASES)
-/* When ZIG_NO_EXPORT_ALIASES is defined (e.g. compiling compiler_rt.c on Windows),
- * suppress zig_export to avoid /alternatename conflicts with CRT symbols. */
-#define zig_export(symbol, name) ;
-#elif defined(zig_msvc)
+#if defined(zig_msvc)
 #define zig_export(symbol, name) ; \
     __pragma(comment(linker, "/alternatename:" zig_mangle_c(name) "=" zig_mangle_c(symbol)))
 #elif (zig_has_attribute(alias) || defined(zig_tinyc)) && !defined(zig_macho)
