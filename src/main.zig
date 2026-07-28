@@ -2148,7 +2148,7 @@ fn buildOutputType(
                                 preprocessor_arg[0] == '-' and
                                 preprocessor_arg[2] != '-')
                             {
-                                if (mem.indexOfScalar(u8, preprocessor_arg, '=')) |equals_pos| {
+                                if (mem.findScalar(u8, preprocessor_arg, '=')) |equals_pos| {
                                     const key = preprocessor_arg[0..equals_pos];
                                     const value = preprocessor_arg[equals_pos + 1 ..];
                                     try preprocessor_args.append(key);
@@ -2170,7 +2170,7 @@ fn buildOutputType(
                                 linker_arg[0] == '-' and
                                 linker_arg[2] != '-')
                             {
-                                if (mem.indexOfScalar(u8, linker_arg, '=')) |equals_pos| {
+                                if (mem.findScalar(u8, linker_arg, '=')) |equals_pos| {
                                     const key = linker_arg[0..equals_pos];
                                     const value = linker_arg[equals_pos + 1 ..];
 
@@ -2378,7 +2378,7 @@ fn buildOutputType(
                         // Handle joined args like `--dependency-file=foo.d`.
                         // Must be prefixed with 1 or 2 dashes.
                         if (it.only_arg.len >= 3 and it.only_arg[0] == '-' and it.only_arg[2] != '-') {
-                            if (mem.indexOfScalar(u8, it.only_arg, '=')) |equals_pos| {
+                            if (mem.findScalar(u8, it.only_arg, '=')) |equals_pos| {
                                 const key = it.only_arg[0..equals_pos];
                                 const value = it.only_arg[equals_pos + 1 ..];
 
