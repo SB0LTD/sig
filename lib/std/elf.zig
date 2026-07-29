@@ -811,7 +811,7 @@ pub const ProgramHeaderIterator = struct {
         if (it.index >= it.phnum) return null;
         defer it.index += 1;
 
-        const size: u64 = if (it.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr);
+        const size: u64 = if (it.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32.Phdr);
         const offset = it.phoff + size * it.index;
         try it.file_reader.seekTo(offset);
 
@@ -832,7 +832,7 @@ pub const ProgramHeaderBufferIterator = struct {
         if (it.index >= it.phnum) return null;
         defer it.index += 1;
 
-        const size: usize = if (it.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr);
+        const size: usize = if (it.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32.Phdr);
         const offset = @as(usize, @intCast(it.phoff)) + size * it.index;
         var reader = Io.Reader.fixed(it.buf[offset..]);
 
@@ -846,16 +846,16 @@ pub fn takeProgramHeader(reader: *Io.Reader, is_64: bool, endian: Endian) !Elf64
         return phdr;
     }
 
-    const phdr = try reader.takeStruct(Elf32_Phdr, endian);
+    const phdr = try reader.takeStruct(Elf32.Phdr, endian);
     return .{
-        .p_type = phdr.p_type,
-        .p_offset = phdr.p_offset,
-        .p_vaddr = phdr.p_vaddr,
-        .p_paddr = phdr.p_paddr,
-        .p_filesz = phdr.p_filesz,
-        .p_memsz = phdr.p_memsz,
-        .p_flags = phdr.p_flags,
-        .p_align = phdr.p_align,
+        .p_type = @backingInt(phdr.type),
+        .p_offset = phdr.offset,
+        .p_vaddr = phdr.vaddr,
+        .p_paddr = phdr.paddr,
+        .p_filesz = phdr.filesz,
+        .p_memsz = phdr.memsz,
+        .p_flags = @backingInt(phdr.flags),
+        .p_align = phdr.@"align",
     };
 }
 

@@ -336,7 +336,7 @@ pub fn createEmpty(
 
         // Initialize PT.PHDR program header
         const p_align: u16 = switch (self.ptr_width) {
-            .p32 => @alignOf(elf.Elf32_Phdr),
+            .p32 => @alignOf(elf.Elf32.Phdr),
             .p64 => @alignOf(elf.Elf64_Phdr),
         };
         const ehsize: u64 = switch (self.ptr_width) {
@@ -344,7 +344,7 @@ pub fn createEmpty(
             .p64 => @sizeOf(elf.Elf64_Ehdr),
         };
         const phsize: u64 = switch (self.ptr_width) {
-            .p32 => @sizeOf(elf.Elf32_Phdr),
+            .p32 => @sizeOf(elf.Elf32.Phdr),
             .p64 => @sizeOf(elf.Elf64_Phdr),
         };
         const max_nphdrs = comptime getMaxNumberOfPhdrs();
@@ -1477,13 +1477,13 @@ fn writePhdrTable(self: *Elf) !void {
 
     switch (self.ptr_width) {
         .p32 => {
-            const buf = try gpa.alloc(elf.Elf32_Phdr, self.phdrs.items.len);
+            const buf = try gpa.alloc(elf.Elf32.Phdr, self.phdrs.items.len);
             defer gpa.free(buf);
 
             for (buf, 0..) |*phdr, i| {
                 phdr.* = phdrTo32(self.phdrs.items[i]);
                 if (foreign_endian) {
-                    mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
+                    mem.byteSwapAllFields(elf.Elf32.Phdr, phdr);
                 }
             }
             try self.pwriteAll(@ptrCast(buf), phdr_table.p_offset);
@@ -1622,7 +1622,7 @@ pub fn writeElfHeader(self: *Elf) !void {
     index += 2;
 
     const e_phentsize: u16 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Phdr),
+        .p32 => @sizeOf(elf.Elf32.Phdr),
         .p64 => @sizeOf(elf.Elf64_Phdr),
     };
     mem.writeInt(u16, hdr_buf[index..][0..2], e_phentsize, endian);
@@ -2672,7 +2672,7 @@ fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
         .p64 => @sizeOf(elf.Elf64_Ehdr),
     };
     const phsize: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Phdr),
+        .p32 => @sizeOf(elf.Elf32.Phdr),
         .p64 => @sizeOf(elf.Elf64_Phdr),
     };
     const needed_size = self.phdrs.items.len * phsize;
@@ -3347,16 +3347,16 @@ pub fn archPtrWidthBytes(self: Elf) u8 {
     return @intCast(@divExact(self.getTarget().ptrBitWidth(), 8));
 }
 
-fn phdrTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
+fn phdrTo32(phdr: elf.Elf64_Phdr) elf.Elf32.Phdr {
     return .{
-        .p_type = phdr.p_type,
-        .p_flags = phdr.p_flags,
-        .p_offset = @as(u32, @intCast(phdr.p_offset)),
-        .p_vaddr = @as(u32, @intCast(phdr.p_vaddr)),
-        .p_paddr = @as(u32, @intCast(phdr.p_paddr)),
-        .p_filesz = @as(u32, @intCast(phdr.p_filesz)),
-        .p_memsz = @as(u32, @intCast(phdr.p_memsz)),
-        .p_align = @as(u32, @intCast(phdr.p_align)),
+        .type = @fromBackingInt(phdr.p_type),
+        .flags = @fromBackingInt(phdr.p_flags),
+        .offset = @intCast(phdr.p_offset),
+        .vaddr = @intCast(phdr.p_vaddr),
+        .paddr = @intCast(phdr.p_paddr),
+        .filesz = @intCast(phdr.p_filesz),
+        .memsz = @intCast(phdr.p_memsz),
+        .@"align" = @intCast(phdr.p_align),
     };
 }
 
