@@ -435,7 +435,7 @@ const BinaryElfOutput = struct {
 
         var program_headers = elf_hdr.iterateProgramHeaders(in);
         while (try program_headers.next()) |phdr| {
-            if (phdr.p_type == elf.PT_LOAD) {
+            if (phdr.p_type == @backingInt(elf.PT.LOAD)) {
                 const newSegment = try allocator.create(BinaryElfSegment);
 
                 newSegment.physicalAddress = phdr.p_paddr;

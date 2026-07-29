@@ -621,7 +621,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
             std.os.linux.tls.initStatic(phdrs);
         }
 
-        // The way Linux executables represent stack size is via the PT_GNU_STACK
+        // The way Linux executables represent stack size is via the PT.GNU_STACK
         // program header. However the kernel does not recognize it; it always gives 8 MiB.
         // Here we look for the stack size in our program headers and use setrlimit
         // to ask for more stack space.
@@ -649,7 +649,7 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
     @disableInstrumentation();
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
-            elf.PT_GNU_STACK => {
+            @backingInt(elf.PT.GNU_STACK) => {
                 if (phdr.p_memsz == 0) break;
                 assert(phdr.p_memsz % std.heap.page_size_min == 0);
 

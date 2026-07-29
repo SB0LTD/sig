@@ -303,7 +303,7 @@ pub fn relocate(phdrs: []const elf.Phdr) void {
     // the theoretical load addresses for the `_DYNAMIC` symbol.
     const base_addr = base: {
         for (phdrs) |*phdr| {
-            if (phdr.p_type != elf.PT_DYNAMIC) continue;
+            if (phdr.p_type != @backingInt(elf.PT.DYNAMIC)) continue;
             break :base @intFromPtr(dynv) - phdr.p_vaddr;
         }
         // This is not supposed to happen for well-formed binaries.

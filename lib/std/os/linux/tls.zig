@@ -22,7 +22,7 @@ const page_size_min = std.heap.page_size_min;
 /// Represents an ELF TLS variant.
 ///
 /// In all variants, the TP and the TLS blocks must be aligned to the `p_align` value in the
-/// `PT_TLS` ELF program header. Everything else has natural alignment.
+/// `PT.TLS` ELF program header. Everything else has natural alignment.
 ///
 /// The location of the DTV does not actually matter. For simplicity, we put it in the TLS area, but
 /// there is no actual ABI requirement that it reside there.
@@ -489,8 +489,8 @@ fn computeAreaDesc(phdrs: []elf.Phdr) void {
 
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
-            elf.PT_PHDR => img_base = @intFromPtr(phdrs.ptr) - phdr.p_vaddr,
-            elf.PT_TLS => tls_phdr = phdr,
+            @backingInt(elf.PT.PHDR) => img_base = @intFromPtr(phdrs.ptr) - phdr.p_vaddr,
+            @backingInt(elf.PT.TLS) => tls_phdr = phdr,
             else => {},
         }
     }
@@ -503,7 +503,7 @@ fn computeAreaDesc(phdrs: []elf.Phdr) void {
         align_factor = phdr.p_align;
 
         // The effective size in memory is represented by `p_memsz`; the length of the data stored
-        // in the `PT_TLS` segment is `p_filesz` and may be less than the former.
+        // in the `PT.TLS` segment is `p_filesz` and may be less than the former.
         block_init = @as([*]u8, @ptrFromInt(img_base + phdr.p_vaddr))[0..phdr.p_filesz];
         block_size = phdr.p_memsz;
     } else {

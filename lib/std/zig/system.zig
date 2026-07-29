@@ -597,14 +597,14 @@ fn abiAndDynamicLinkerFromFile(
         .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
         .dynamic_linker = query.dynamic_linker orelse .none,
     };
-    var rpath_offset: ?u64 = null; // Found inside PT_DYNAMIC
+    var rpath_offset: ?u64 = null; // Found inside PT.DYNAMIC
     const look_for_ld = query.dynamic_linker == null;
 
     var got_dyn_section: bool = false;
     {
         var it = header.iterateProgramHeaders(file_reader);
         while (try it.next()) |phdr| switch (phdr.p_type) {
-            elf.PT_INTERP => {
+            @backingInt(elf.PT.INTERP) => {
                 got_dyn_section = true;
 
                 if (look_for_ld) {
@@ -613,7 +613,7 @@ fn abiAndDynamicLinkerFromFile(
                     const filesz: usize = @intCast(p_filesz);
                     try file_reader.seekTo(phdr.p_offset);
                     try file_reader.interface.readSliceAll(result.dynamic_linker.buffer[0..filesz]);
-                    // PT_INTERP includes a null byte in filesz.
+                    // PT.INTERP includes a null byte in filesz.
                     const len = filesz - 1;
                     // dynamic_linker.max_byte is "max", not "len".
                     // We know it will fit in u8 because we check against dynamic_linker.buffer.len above.
@@ -631,7 +631,7 @@ fn abiAndDynamicLinkerFromFile(
                 }
             },
             // We only need this for detecting glibc version.
-            elf.PT_DYNAMIC => {
+            @backingInt(elf.PT.DYNAMIC) => {
                 got_dyn_section = true;
 
                 if (builtin.target.os.tag == .linux and result.isGnuLibC() and query.glibc_version == null) {

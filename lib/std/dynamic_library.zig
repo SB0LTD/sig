@@ -103,7 +103,7 @@ pub fn get_DYNAMIC() ?[*]const elf.Dyn {
 
 pub fn linkmap_iterator() error{InvalidExe}!LinkMap.Iterator {
     const _DYNAMIC = get_DYNAMIC() orelse {
-        // No PT_DYNAMIC means this is a statically-linked non-PIE program.
+        // No PT.DYNAMIC means this is a statically-linked non-PIE program.
         return .{ .current = null };
     };
 
@@ -263,8 +263,8 @@ pub const ElfDynLib = struct {
             }) {
                 const ph = @as(*elf.Phdr, @ptrFromInt(ph_addr));
                 switch (ph.p_type) {
-                    elf.PT_LOAD => virt_addr_end = @max(virt_addr_end, ph.p_vaddr + ph.p_memsz),
-                    elf.PT_DYNAMIC => maybe_dynv = @as([*]usize, @ptrFromInt(elf_addr + ph.p_offset)),
+                    @backingInt(elf.PT.LOAD) => virt_addr_end = @max(virt_addr_end, ph.p_vaddr + ph.p_memsz),
+                    @backingInt(elf.PT.DYNAMIC) => maybe_dynv = @as([*]usize, @ptrFromInt(elf_addr + ph.p_offset)),
                     else => {},
                 }
             }
@@ -294,7 +294,7 @@ pub const ElfDynLib = struct {
             }) {
                 const ph = @as(*elf.Phdr, @ptrFromInt(ph_addr));
                 switch (ph.p_type) {
-                    elf.PT_LOAD => {
+                    @backingInt(elf.PT.LOAD) => {
                         // The VirtAddr may not be page-aligned; in such case there will be
                         // extra nonsense mapped before/after the VirtAddr,MemSiz
                         const aligned_addr = (base + ph.p_vaddr) & ~(@as(usize, page_size) - 1);

@@ -159,21 +159,21 @@ const ProgramHeaderIndex = enum(u16) {
 };
 
 const ProgramHeaderIndexes = struct {
-    /// PT_PHDR
+    /// PT.PHDR
     table: OptionalProgramHeaderIndex = .none,
-    /// PT_LOAD for PHDR table
+    /// PT.LOAD for PHDR table
     /// We add this special load segment to ensure the EHDR and PHDR table are always
     /// loaded into memory.
     table_load: OptionalProgramHeaderIndex = .none,
-    /// PT_INTERP
+    /// PT.INTERP
     interp: OptionalProgramHeaderIndex = .none,
-    /// PT_DYNAMIC
+    /// PT.DYNAMIC
     dynamic: OptionalProgramHeaderIndex = .none,
-    /// PT_GNU_EH_FRAME
+    /// PT.GNU_EH_FRAME
     gnu_eh_frame: OptionalProgramHeaderIndex = .none,
-    /// PT_GNU_STACK
+    /// PT.GNU_STACK
     gnu_stack: OptionalProgramHeaderIndex = .none,
-    /// PT_TLS
+    /// PT.TLS
     /// TODO I think ELF permits multiple TLS segments but for now, assume one per file.
     tls: OptionalProgramHeaderIndex = .none,
 };
@@ -334,7 +334,7 @@ pub fn createEmpty(
     if (!is_obj_or_ar) {
         try self.dynstrtab.append(gpa, 0);
 
-        // Initialize PT_PHDR program header
+        // Initialize PT.PHDR program header
         const p_align: u16 = switch (self.ptr_width) {
             .p32 => @alignOf(elf.Elf32_Phdr),
             .p64 => @alignOf(elf.Elf64_Phdr),
@@ -350,7 +350,7 @@ pub fn createEmpty(
         const max_nphdrs = comptime getMaxNumberOfPhdrs();
         const reserved: u64 = mem.alignForward(u64, padToIdeal(max_nphdrs * phsize), self.page_size);
         self.phdr_indexes.table = (try self.addPhdr(.{
-            .type = elf.PT_PHDR,
+            .type = @backingInt(elf.PT.PHDR),
             .flags = elf.PF_R,
             .@"align" = p_align,
             .addr = self.image_base + ehsize,
@@ -359,7 +359,7 @@ pub fn createEmpty(
             .memsz = reserved,
         })).toOptional();
         self.phdr_indexes.table_load = (try self.addPhdr(.{
-            .type = elf.PT_LOAD,
+            .type = @backingInt(elf.PT.LOAD),
             .flags = elf.PF_R,
             .@"align" = self.page_size,
             .addr = self.image_base,
@@ -514,7 +514,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) !?u64 {
     }
 
     for (self.phdrs.items) |phdr| {
-        if (phdr.p_type != elf.PT_LOAD) continue;
+        if (phdr.p_type != @backingInt(elf.PT.LOAD)) continue;
         const increased_size = padToIdeal(phdr.p_filesz);
         const test_end = phdr.p_offset +| increased_size;
         if (start < test_end) {
@@ -2091,26 +2091,26 @@ fn initSpecialPhdrs(self: *Elf) !void {
 
     if (self.section_indexes.interp != null and self.phdr_indexes.interp == .none) {
         self.phdr_indexes.interp = (try self.addPhdr(.{
-            .type = elf.PT_INTERP,
+            .type = @backingInt(elf.PT.INTERP),
             .flags = elf.PF_R,
             .@"align" = 1,
         })).toOptional();
     }
     if (self.section_indexes.dynamic != null and self.phdr_indexes.dynamic == .none) {
         self.phdr_indexes.dynamic = (try self.addPhdr(.{
-            .type = elf.PT_DYNAMIC,
+            .type = @backingInt(elf.PT.DYNAMIC),
             .flags = elf.PF_R | elf.PF_W,
         })).toOptional();
     }
     if (self.section_indexes.eh_frame_hdr != null and self.phdr_indexes.gnu_eh_frame == .none) {
         self.phdr_indexes.gnu_eh_frame = (try self.addPhdr(.{
-            .type = elf.PT_GNU_EH_FRAME,
+            .type = @backingInt(elf.PT.GNU_EH_FRAME),
             .flags = elf.PF_R,
         })).toOptional();
     }
     if (self.phdr_indexes.gnu_stack == .none) {
         self.phdr_indexes.gnu_stack = (try self.addPhdr(.{
-            .type = elf.PT_GNU_STACK,
+            .type = @backingInt(elf.PT.GNU_STACK),
             .flags = elf.PF_W | elf.PF_R,
             .memsz = self.base.stack_size,
             .@"align" = 1,
@@ -2122,7 +2122,7 @@ fn initSpecialPhdrs(self: *Elf) !void {
     } else false;
     if (has_tls and self.phdr_indexes.tls == .none) {
         self.phdr_indexes.tls = (try self.addPhdr(.{
-            .type = elf.PT_TLS,
+            .type = @backingInt(elf.PT.TLS),
             .flags = elf.PF_R,
             .@"align" = 1,
         })).toOptional();
@@ -2262,13 +2262,13 @@ fn setHashSections(self: *Elf) !void {
 
 fn phdrRank(phdr: elf.Elf64_Phdr) u8 {
     return switch (phdr.p_type) {
-        elf.PT_NULL => 0,
-        elf.PT_PHDR => 1,
-        elf.PT_INTERP => 2,
-        elf.PT_LOAD => 3,
-        elf.PT_DYNAMIC, elf.PT_TLS => 4,
-        elf.PT_GNU_EH_FRAME => 5,
-        elf.PT_GNU_STACK => 6,
+        @backingInt(elf.PT.NULL) => 0,
+        @backingInt(elf.PT.PHDR) => 1,
+        @backingInt(elf.PT.INTERP) => 2,
+        @backingInt(elf.PT.LOAD) => 3,
+        @backingInt(elf.PT.DYNAMIC), @backingInt(elf.PT.TLS) => 4,
+        @backingInt(elf.PT.GNU_EH_FRAME) => 5,
+        @backingInt(elf.PT.GNU_STACK) => 6,
         else => 7,
     };
 }
@@ -2655,8 +2655,8 @@ fn addLoadPhdrs(self: *Elf) error{OutOfMemory}!void {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         const flags = shdrToPhdrFlags(shdr.sh_flags);
-        if (self.getPhdr(.{ .flags = flags, .type = elf.PT_LOAD }) == .none) {
-            _ = try self.addPhdr(.{ .flags = flags, .type = elf.PT_LOAD });
+        if (self.getPhdr(.{ .flags = flags, .type = @backingInt(elf.PT.LOAD) }) == .none) {
+            _ = try self.addPhdr(.{ .flags = flags, .type = @backingInt(elf.PT.LOAD) });
         }
     }
 }
@@ -2817,7 +2817,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
         }
 
         const first = slice.items(.shdr)[cover.items[0]];
-        const phndx = self.getPhdr(.{ .type = elf.PT_LOAD, .flags = shdrToPhdrFlags(first.sh_flags) }).unwrap().?;
+        const phndx = self.getPhdr(.{ .type = @backingInt(elf.PT.LOAD), .flags = shdrToPhdrFlags(first.sh_flags) }).unwrap().?;
         const phdr = &self.phdrs.items[phndx.int()];
         const allocated_size = self.allocatedSize(phdr.p_offset);
         if (filesz > allocated_size) {
@@ -3906,15 +3906,15 @@ fn formatPhdr(ctx: FormatPhdr, writer: *std.Io.Writer) std.Io.Writer.Error!void 
     if (write) flags[1] = 'W';
     if (read) flags[2] = 'R';
     const p_type = switch (phdr.p_type) {
-        elf.PT_LOAD => "LOAD",
-        elf.PT_TLS => "TLS",
-        elf.PT_GNU_EH_FRAME => "GNU_EH_FRAME",
-        elf.PT_GNU_STACK => "GNU_STACK",
-        elf.PT_DYNAMIC => "DYNAMIC",
-        elf.PT_INTERP => "INTERP",
-        elf.PT_NULL => "NULL",
-        elf.PT_PHDR => "PHDR",
-        elf.PT_NOTE => "NOTE",
+        @backingInt(elf.PT.LOAD) => "LOAD",
+        @backingInt(elf.PT.TLS) => "TLS",
+        @backingInt(elf.PT.GNU_EH_FRAME) => "GNU_EH_FRAME",
+        @backingInt(elf.PT.GNU_STACK) => "GNU_STACK",
+        @backingInt(elf.PT.DYNAMIC) => "DYNAMIC",
+        @backingInt(elf.PT.INTERP) => "INTERP",
+        @backingInt(elf.PT.NULL) => "NULL",
+        @backingInt(elf.PT.PHDR) => "PHDR",
+        @backingInt(elf.PT.NOTE) => "NOTE",
         else => "UNKNOWN",
     };
     try writer.print("{s} : {s} : @{x} ({x}) : align({x}) : filesz({x}) : memsz({x})", .{

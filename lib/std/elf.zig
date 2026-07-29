@@ -290,47 +290,6 @@ pub const VER_FLG_BASE = 1;
 /// Weak version identifier
 pub const VER_FLG_WEAK = 2;
 
-/// Deprecated, use `@intFromEnum(std.elf.PT.NULL)`
-pub const PT_NULL = @backingInt(std.elf.PT.NULL);
-/// Deprecated, use `@intFromEnum(std.elf.PT.LOAD)`
-pub const PT_LOAD = @backingInt(std.elf.PT.LOAD);
-/// Deprecated, use `@intFromEnum(std.elf.PT.DYNAMIC)`
-pub const PT_DYNAMIC = @backingInt(std.elf.PT.DYNAMIC);
-/// Deprecated, use `@intFromEnum(std.elf.PT.INTERP)`
-pub const PT_INTERP = @backingInt(std.elf.PT.INTERP);
-/// Deprecated, use `@intFromEnum(std.elf.PT.NOTE)`
-pub const PT_NOTE = @backingInt(std.elf.PT.NOTE);
-/// Deprecated, use `@intFromEnum(std.elf.PT.SHLIB)`
-pub const PT_SHLIB = @backingInt(std.elf.PT.SHLIB);
-/// Deprecated, use `@intFromEnum(std.elf.PT.PHDR)`
-pub const PT_PHDR = @backingInt(std.elf.PT.PHDR);
-/// Deprecated, use `@intFromEnum(std.elf.PT.TLS)`
-pub const PT_TLS = @backingInt(std.elf.PT.TLS);
-/// Deprecated, use `std.elf.PT.NUM`.
-pub const PT_NUM = PT.NUM;
-/// Deprecated, use `@intFromEnum(std.elf.PT.LOOS)`
-pub const PT_LOOS = @backingInt(std.elf.PT.LOOS);
-/// Deprecated, use `@intFromEnum(std.elf.PT.GNU_EH_FRAME)`
-pub const PT_GNU_EH_FRAME = @backingInt(std.elf.PT.GNU_EH_FRAME);
-/// Deprecated, use `@intFromEnum(std.elf.PT.GNU_STACK)`
-pub const PT_GNU_STACK = @backingInt(std.elf.PT.GNU_STACK);
-/// Deprecated, use `@intFromEnum(std.elf.PT.GNU_RELRO)`
-pub const PT_GNU_RELRO = @backingInt(std.elf.PT.GNU_RELRO);
-/// Deprecated, use `@intFromEnum(std.elf.PT.LOSUNW)`
-pub const PT_LOSUNW = @backingInt(std.elf.PT.LOSUNW);
-/// Deprecated, use `@intFromEnum(std.elf.PT.SUNWBSS)`
-pub const PT_SUNWBSS = @backingInt(std.elf.PT.SUNWBSS);
-/// Deprecated, use `@intFromEnum(std.elf.PT.SUNWSTACK)`
-pub const PT_SUNWSTACK = @backingInt(std.elf.PT.SUNWSTACK);
-/// Deprecated, use `@intFromEnum(std.elf.PT.HISUNW)`
-pub const PT_HISUNW = @backingInt(std.elf.PT.HISUNW);
-/// Deprecated, use `@intFromEnum(std.elf.PT.HIOS)`
-pub const PT_HIOS = @backingInt(std.elf.PT.HIOS);
-/// Deprecated, use `@intFromEnum(std.elf.PT.LOPROC)`
-pub const PT_LOPROC = @backingInt(std.elf.PT.LOPROC);
-/// Deprecated, use `@intFromEnum(std.elf.PT.HIPROC)`
-pub const PT_HIPROC = @backingInt(std.elf.PT.HIPROC);
-
 pub const PN_XNUM = 0xffff;
 
 /// Deprecated, use `@intFromEnum(std.elf.SHT.NULL)`
