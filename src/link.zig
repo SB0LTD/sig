@@ -2240,8 +2240,8 @@ fn resolveLibInput(
     }
 
     // In the case of OpenBSD, dynamic libraries are always versioned, without
-    // unversioned symlinks, so we need to look for the highest-versioned shared
-    // library.
+    // unversioned symlinks. OpenBSD patches LLD to select the highest-versioned
+    // shared library, and this code is intended to match that upstream behavior.
     if (target.isOpenBSDLibC() and link_mode == .dynamic) versioned: {
         const prefix = try std.fmt.allocPrint(arena, "lib{s}.so.", .{lib_name});
 
@@ -2251,11 +2251,8 @@ fn resolveLibInput(
         };
         defer dir.close(io);
 
-        var best_match_version = std.SemanticVersion{
-            .major = 0,
-            .minor = 0,
-            .patch = 0,
-        };
+        var best_match_major: u32 = 0;
+        var best_match_minor: u32 = 0;
         var best_match: ?[]const u8 = null;
 
         var iter = dir.iterate();
@@ -2270,12 +2267,12 @@ fn resolveLibInput(
             const major_str = sit.next() orelse continue;
             const minor_str = sit.next() orelse continue;
             if (sit.next() != null) continue;
-            const major = std.fmt.parseInt(usize, major_str, 10) catch continue;
-            const minor = std.fmt.parseInt(usize, minor_str, 10) catch continue;
+            const major = std.fmt.parseInt(u32, major_str, 10) catch continue;
+            const minor = std.fmt.parseInt(u32, minor_str, 10) catch continue;
 
-            if (major > best_match_version.major or (major == best_match_version.major and minor >= best_match_version.minor)) {
-                best_match_version.major = major;
-                best_match_version.minor = minor;
+            if (major > best_match_major or (major == best_match_major and minor >= best_match_minor)) {
+                best_match_major = major;
+                best_match_minor = minor;
                 best_match = try arena.dupe(u8, entry.name);
             }
         }
