@@ -603,15 +603,15 @@ fn abiAndDynamicLinkerFromFile(
     var got_dyn_section: bool = false;
     {
         var it = header.iterateProgramHeaders(file_reader);
-        while (try it.next()) |phdr| switch (phdr.p_type) {
-            @backingInt(elf.PT.INTERP) => {
+        while (try it.next()) |phdr| switch (phdr.type) {
+            .INTERP => {
                 got_dyn_section = true;
 
                 if (look_for_ld) {
-                    const p_filesz = phdr.p_filesz;
+                    const p_filesz = phdr.filesz;
                     if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
                     const filesz: usize = @intCast(p_filesz);
-                    try file_reader.seekTo(phdr.p_offset);
+                    try file_reader.seekTo(phdr.offset);
                     try file_reader.interface.readSliceAll(result.dynamic_linker.buffer[0..filesz]);
                     // PT.INTERP includes a null byte in filesz.
                     const len = filesz - 1;
@@ -631,11 +631,11 @@ fn abiAndDynamicLinkerFromFile(
                 }
             },
             // We only need this for detecting glibc version.
-            @backingInt(elf.PT.DYNAMIC) => {
+            .DYNAMIC => {
                 got_dyn_section = true;
 
                 if (builtin.target.os.tag == .linux and result.isGnuLibC() and query.glibc_version == null) {
-                    var dyn_it = header.iterateDynamicSection(file_reader, phdr.p_offset, phdr.p_filesz);
+                    var dyn_it = header.iterateDynamicSection(file_reader, phdr.offset, phdr.filesz);
                     while (try dyn_it.next()) |dyn| {
                         if (dyn.d_tag == elf.DT_RUNPATH) {
                             rpath_offset = dyn.d_val;

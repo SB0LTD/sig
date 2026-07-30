@@ -807,11 +807,11 @@ pub const ProgramHeaderIterator = struct {
     file_reader: *Io.File.Reader,
     index: usize = 0,
 
-    pub fn next(it: *ProgramHeaderIterator) !?Elf64_Phdr {
+    pub fn next(it: *ProgramHeaderIterator) !?Elf64.Phdr {
         if (it.index >= it.phnum) return null;
         defer it.index += 1;
 
-        const size: u64 = if (it.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32.Phdr);
+        const size: u64 = if (it.is_64) @sizeOf(Elf64.Phdr) else @sizeOf(Elf32.Phdr);
         const offset = it.phoff + size * it.index;
         try it.file_reader.seekTo(offset);
 
@@ -828,11 +828,11 @@ pub const ProgramHeaderBufferIterator = struct {
     buf: []const u8,
     index: usize = 0,
 
-    pub fn next(it: *ProgramHeaderBufferIterator) !?Elf64_Phdr {
+    pub fn next(it: *ProgramHeaderBufferIterator) !?Elf64.Phdr {
         if (it.index >= it.phnum) return null;
         defer it.index += 1;
 
-        const size: usize = if (it.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32.Phdr);
+        const size: usize = if (it.is_64) @sizeOf(Elf64.Phdr) else @sizeOf(Elf32.Phdr);
         const offset = @as(usize, @intCast(it.phoff)) + size * it.index;
         var reader = Io.Reader.fixed(it.buf[offset..]);
 
@@ -840,22 +840,22 @@ pub const ProgramHeaderBufferIterator = struct {
     }
 };
 
-pub fn takeProgramHeader(reader: *Io.Reader, is_64: bool, endian: Endian) !Elf64_Phdr {
+pub fn takeProgramHeader(reader: *Io.Reader, is_64: bool, endian: Endian) !Elf64.Phdr {
     if (is_64) {
-        const phdr = try reader.takeStruct(Elf64_Phdr, endian);
+        const phdr = try reader.takeStruct(Elf64.Phdr, endian);
         return phdr;
     }
 
     const phdr = try reader.takeStruct(Elf32.Phdr, endian);
     return .{
-        .p_type = @backingInt(phdr.type),
-        .p_offset = phdr.offset,
-        .p_vaddr = phdr.vaddr,
-        .p_paddr = phdr.paddr,
-        .p_filesz = phdr.filesz,
-        .p_memsz = phdr.memsz,
-        .p_flags = @backingInt(phdr.flags),
-        .p_align = phdr.@"align",
+        .type = phdr.type,
+        .offset = phdr.offset,
+        .vaddr = phdr.vaddr,
+        .paddr = phdr.paddr,
+        .filesz = phdr.filesz,
+        .memsz = phdr.memsz,
+        .flags = phdr.flags,
+        .@"align" = phdr.@"align",
     };
 }
 
