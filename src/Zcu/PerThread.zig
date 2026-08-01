@@ -3262,9 +3262,7 @@ fn analyzeFuncBodyInner(
     defer sema.deinit();
 
     // Every runtime function has a dependency on the source of the Decl it originates from.
-    // It also depends on the value of its owner Decl.
     try sema.declareDependency(.{ .src_hash = decl_analysis.zir_index });
-    try sema.declareDependency(.{ .nav_val = func.owner_nav });
 
     // Make sure that the declaration `Nav` still refers to this function (or its generic owner).
     // This will not be the case if the incremental update has changed a function type or turned a
@@ -3275,6 +3273,7 @@ fn analyzeFuncBodyInner(
     // If we *are* still owned by the right NAV, this analysis updates `zir_body_inst` if necessary.
 
     if (func.generic_owner == .none) {
+        try sema.declareDependency(.{ .nav_val = func.owner_nav });
         pt.ensureNavValUpToDate(func.owner_nav, reason) catch |err| switch (err) {
             error.AnalysisFail => return sema.failTransitive(.{ .failed_unit = .wrap(.{ .nav_val = func.owner_nav }) }),
             else => |e| return e,
@@ -3284,6 +3283,7 @@ fn analyzeFuncBodyInner(
         }
     } else {
         const go_nav = zcu.funcInfo(func.generic_owner).owner_nav;
+        try sema.declareDependency(.{ .nav_val = go_nav });
         pt.ensureNavValUpToDate(go_nav, reason) catch |err| switch (err) {
             error.AnalysisFail => return sema.failTransitive(.{ .failed_unit = .wrap(.{ .nav_val = go_nav }) }),
             else => |e| return e,
