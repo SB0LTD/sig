@@ -13587,14 +13587,14 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const lhs_sub_val = if (lhs_ty.isSinglePointer(zcu))
                 try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty) orelse break :rs lhs_src
             else if (lhs_ty.isSlice(zcu))
-                try sema.maybeDerefSliceAsArray(block, lhs_src, lhs_val, lhs_ty) orelse break :rs lhs_src
+                try sema.maybeDerefSliceAsArray(block, lhs_src, lhs_val) orelse break :rs lhs_src
             else
                 lhs_val;
 
             const rhs_sub_val = if (rhs_ty.isSinglePointer(zcu))
                 try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty) orelse break :rs rhs_src
             else if (rhs_ty.isSlice(zcu))
-                try sema.maybeDerefSliceAsArray(block, rhs_src, rhs_val, rhs_ty) orelse break :rs rhs_src
+                try sema.maybeDerefSliceAsArray(block, rhs_src, rhs_val) orelse break :rs rhs_src
             else
                 rhs_val;
 
@@ -31049,7 +31049,7 @@ fn analyzeLoad(
 
     if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
         if (switch (ptr_ty.ptrSize(zcu)) {
-            .slice => try sema.maybeDerefSliceAsArray(block, src, ptr_val, ptr_ty),
+            .slice => try sema.maybeDerefSliceAsArray(block, src, ptr_val),
             else => try sema.pointerDeref(block, src, ptr_val, ptr_ty),
         }) |elem_val| {
             return .fromValue(elem_val);
@@ -34669,7 +34669,7 @@ fn anyUndef(sema: *Sema, block: *Block, src: LazySrcLoc, val: Value) !bool {
         .slice => {
             // If the slice contents are runtime-known, reification will fail later on with a
             // specific error message.
-            const arr = try sema.maybeDerefSliceAsArray(block, src, val, val.typeOf(zcu)) orelse return false;
+            const arr = try sema.maybeDerefSliceAsArray(block, src, val) orelse return false;
             return sema.anyUndef(block, src, arr);
         },
         .aggregate => |aggregate| for (0..aggregate.storage.values().len) |i| {
@@ -34710,7 +34710,7 @@ fn derefSliceAsArray(
     /// being comptime-resolved is that the block is being comptime-evaluated.
     reason: ?ComptimeReason,
 ) CompileError!Value {
-    return try sema.maybeDerefSliceAsArray(block, src, slice_val, slice_val.typeOf(sema.pt.zcu)) orelse {
+    return try sema.maybeDerefSliceAsArray(block, src, slice_val) orelse {
         return sema.failWithNeededComptime(block, src, reason);
     };
 }
@@ -34723,10 +34723,11 @@ fn maybeDerefSliceAsArray(
     block: *Block,
     src: LazySrcLoc,
     slice_val: Value,
-    slice_ty: Type,
 ) CompileError!?Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const slice_ty = slice_val.typeOf(zcu);
+    assert(slice_ty.zigTypeTag(zcu) == .pointer);
     switch (slice_ty.ptrInfo(zcu).flags.size) {
         .slice => {},
         .one => return sema.pointerDeref(block, src, slice_val, slice_ty),
