@@ -45,7 +45,7 @@ pub fn classifyType(ty: Type, context: Context, zcu: *Zcu) Class {
             128 => return .pointer,
         },
         .pointer, .optional => return .simple,
-        .array => switch (ty.arrayLen(zcu)) {
+        .array => switch (ty.arrayLenIncludingSentinel(zcu)) {
             0 => return .none,
             1 => switch (context) {
                 .ret => {},
