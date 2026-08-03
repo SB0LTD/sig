@@ -16153,7 +16153,6 @@ test "struct [1]f32" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_array_1_f32();
     try expect(s.a[0] == 4);
@@ -16321,7 +16320,6 @@ test "struct [0:sentinel]f32" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     var sentinel_index: usize = 0;
     _ = &sentinel_index;
@@ -16802,7 +16800,6 @@ test "struct [1]f64" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
     if (builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
 
     const s = c_ret_struct_array_1_f64();
     try expect(s.a[0] == 4);
