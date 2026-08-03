@@ -11,12 +11,19 @@ comptime {
 }
 
 pub const B_OS_NAME_LENGTH = 32;
+pub const B_ABSOLUTE_TIMEOUT = 0x10;
+pub const B_TIMEOUT_REAL_TIME_BASE = 0x40;
 
+pub extern "root" fn _kern_create_sem(count: c_int, name: ?[*:0]const u8) sem_id;
+pub extern "root" fn _kern_delete_sem(id: sem_id) status_t;
+pub extern "root" fn _kern_acquire_sem_etc(id: sem_id, count: u32, flags: u32, timeout: i64) status_t;
+pub extern "root" fn _kern_release_sem_etc(id: sem_id, count: u32, flags: u32) status_t;
 pub extern "root" fn _kern_open_dir(fd: fd_t, path: [*:0]const u8) fd_t;
 pub extern "root" fn _kern_read_dir(fd: fd_t, buffer: [*]u8, bufferSize: usize, maxCount: u32) isize;
 pub extern "root" fn _kern_rewind_dir(fd: fd_t) status_t;
 pub extern "root" fn _kern_read_stat(fd: fd_t, path: [*:0]const u8, traverseLink: bool, stat: *std.c.Stat, statSize: usize) status_t;
 
+pub extern "root" fn on_exit_thread(callback: *const fn (?*anyopaque) callconv(.c) void, data: ?*anyopaque) status_t;
 pub extern "root" fn find_thread(name: ?[*:0]const u8) thread_id;
 pub extern "root" fn get_system_info(info: *system_info) status_t;
 

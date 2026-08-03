@@ -2991,6 +2991,7 @@ pub const SIG = switch (native_os) {
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
 
+        pub const IO: SIG = .POLL;
         pub const IOT: SIG = .ABRT;
 
         HUP = 1,
@@ -11267,15 +11268,22 @@ pub const signalfd_siginfo = illumos.signalfd_siginfo;
 pub const taskid_t = illumos.taskid_t;
 pub const zoneid_t = illumos.zoneid_t;
 
+pub const B_ABSOLUTE_TIMEOUT = haiku.B_ABSOLUTE_TIMEOUT;
 pub const B_OS_NAME_LENGTH = haiku.B_OS_NAME_LENGTH;
+pub const B_TIMEOUT_REAL_TIME_BASE = haiku.B_TIMEOUT_REAL_TIME_BASE;
 pub const DirEnt = haiku.DirEnt;
+pub const _kern_acquire_sem_etc = haiku._kern_acquire_sem_etc;
+pub const _kern_create_sem = haiku._kern_create_sem;
+pub const _kern_delete_sem = haiku._kern_delete_sem;
 pub const _kern_open_dir = haiku._kern_open_dir;
 pub const _kern_read_dir = haiku._kern_read_dir;
 pub const _kern_read_stat = haiku._kern_read_stat;
+pub const _kern_release_sem_etc = haiku._kern_release_sem_etc;
 pub const _kern_rewind_dir = haiku._kern_rewind_dir;
 pub const area_id = haiku.area_id;
 pub const find_thread = haiku.find_thread;
 pub const get_system_info = haiku.get_system_info;
+pub const on_exit_thread = haiku.on_exit_thread;
 pub const port_id = haiku.port_id;
 pub const readv_pos = haiku.readv_pos;
 pub const sem_id = haiku.sem_id;
