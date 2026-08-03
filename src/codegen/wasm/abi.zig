@@ -84,6 +84,13 @@ pub fn classifyTypeForLlvm(ty: Type, zcu: *const Zcu) LlvmClass {
                 if (explicit_align.compareStrict(.gt, field_ty.abiAlignment(zcu)))
                     return .indirect;
             }
+            if (field_ty.zigTypeTag(zcu) == .array) {
+                switch (field_ty.arrayLenIncludingSentinel(zcu)) {
+                    0 => unreachable,
+                    1 => return classifyTypeForLlvm(field_ty.childType(zcu), zcu),
+                    else => {},
+                }
+            }
             return classifyTypeForLlvm(field_ty, zcu);
         },
         .@"union" => {
