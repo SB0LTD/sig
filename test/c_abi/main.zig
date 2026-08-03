@@ -16103,6 +16103,34 @@ test "struct f32, f32, f32, f32, f32" {
     c_test_struct_f32_f32_f32_f32_f32();
 }
 
+const Struct_void_f32 = extern struct {
+    _: void = {},
+    a: f32,
+};
+
+export fn zig_ret_struct_void_f32() Struct_void_f32 {
+    return .{ .a = 1 };
+}
+export fn zig_struct_void_f32(s: Struct_void_f32, i: usize) void {
+    expect(s.a == 2) catch @panic("test failure");
+    expect(i == 3) catch @panic("test failure");
+}
+
+extern fn c_ret_struct_void_f32() Struct_void_f32;
+extern fn c_struct_void_f32(Struct_void_f32, usize) void;
+extern fn c_test_struct_void_f32() void;
+
+test "struct void, f32" {
+    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const s = c_ret_struct_void_f32();
+    try expect(s.a == 4);
+    c_struct_void_f32(.{ .a = 5 }, 6);
+    c_test_struct_void_f32();
+}
+
 const Struct_array_1_f32 = extern struct {
     a: [1]f32,
 };

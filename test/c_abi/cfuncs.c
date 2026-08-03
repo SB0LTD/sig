@@ -15194,6 +15194,22 @@ void c_test_struct_f32_f32_f32_f32_f32(void) {
     zig_struct_f32_f32_f32_f32_f32((struct Struct_f32_f32_f32_f32_f32){ .a = 6, .b = 7, .c = 8, .d = 9, .e = 10 }, 11);
 }
 
+struct Struct_f32 zig_ret_struct_void_f32(void);
+void zig_struct_void_f32(struct Struct_f32, size_t);
+
+struct Struct_f32 c_ret_struct_void_f32(void) {
+    return (struct Struct_f32){ .a = 4 };
+}
+void c_struct_void_f32(struct Struct_f32 s, size_t i) {
+    assert_or_panic(s.a == 5);
+    assert_or_panic(i == 6);
+}
+void c_test_struct_void_f32(void) {
+    struct Struct_f32 s = zig_ret_struct_void_f32();
+    assert_or_panic(s.a == 1);
+    zig_struct_void_f32((struct Struct_f32){ .a = 2 }, 3);
+}
+
 struct Struct_array_1_f32 {
     float a[1];
 };
