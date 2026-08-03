@@ -102,6 +102,13 @@ pub fn classifyTypeForLlvm(ty: Type, zcu: *const Zcu) LlvmClass {
             assert(layout.tag_size == 0);
             if (union_obj.field_types.len > 1) return .indirect;
             const first_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[0]);
+            if (first_field_ty.zigTypeTag(zcu) == .array) {
+                switch (first_field_ty.arrayLenIncludingSentinel(zcu)) {
+                    0 => unreachable,
+                    1 => return classifyTypeForLlvm(first_field_ty.childType(zcu), zcu),
+                    else => {},
+                }
+            }
             return classifyTypeForLlvm(first_field_ty, zcu);
         },
         .error_union,

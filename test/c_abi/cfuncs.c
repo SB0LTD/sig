@@ -15749,6 +15749,26 @@ void c_test_struct_array_5_f64(void) {
     zig_struct_array_5_f64((struct Struct_array_5_f64){ .a = { 6, 7, 8, 9, 10 } }, 11);
 }
 
+union Union_f64 {
+    double a;
+};
+
+union Union_f64 zig_ret_union_f64(void);
+void zig_union_f64(union Union_f64, size_t);
+
+union Union_f64 c_ret_union_f64(void) {
+    return (union Union_f64){ .a = 4 };
+}
+void c_union_f64(union Union_f64 s, size_t i) {
+    assert_or_panic(s.a == 5);
+    assert_or_panic(i == 6);
+}
+void c_test_union_f64(void) {
+    union Union_f64 s = zig_ret_union_f64();
+    assert_or_panic(s.a == 1);
+    zig_union_f64((union Union_f64){ .a = 2 }, 3);
+}
+
 struct Struct_u32_Union_u32_u32u32 {
     uint32_t a;
     union {

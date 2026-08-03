@@ -16918,6 +16918,36 @@ test "struct [5]f64" {
     c_test_struct_array_5_f64();
 }
 
+const Union_f64 = extern union {
+    a: f64,
+};
+
+export fn zig_ret_union_f64() Union_f64 {
+    return .{ .a = 1 };
+}
+export fn zig_union_f64(s: Union_f64, i: usize) void {
+    expect(s.a == 2) catch @panic("test failure");
+    expect(i == 3) catch @panic("test failure");
+}
+
+extern fn c_ret_union_f64() Union_f64;
+extern fn c_union_f64(Union_f64, usize) void;
+extern fn c_test_union_f64() void;
+
+test "union f64" {
+    if (builtin.cpu.arch.isArm() and builtin.abi.float() == .soft) return error.SkipZigTest;
+    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isRiscv32()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86 and builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const s = c_ret_union_f64();
+    try expect(s.a == 4);
+    c_union_f64(.{ .a = 5 }, 6);
+    c_test_union_f64();
+}
+
 const Struct_u32_Union_u32_u32u32 = extern struct {
     a: u32,
     b: extern union {
