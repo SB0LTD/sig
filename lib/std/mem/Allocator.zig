@@ -316,18 +316,15 @@ pub fn allocBytesAligned(
 ///
 /// `new_len` may be zero, in which case the allocation is freed.
 pub fn resize(self: Allocator, allocation: anytype, new_len: usize) bool {
-    const slice_info = @typeInfo(@TypeOf(allocation)).pointer;
-    if (slice_info.size != .slice) {
-        const slice: Slice(@TypeOf(allocation)) = allocation; // coerce *[len]T to []T
-        return resize(self, slice, new_len);
-    }
-    comptime assert(slice_info.size == .slice);
+    const SliceType = Slice(@TypeOf(allocation));
+    const slice: SliceType = allocation; // coerce *[len]T to []T
+    const slice_info = @typeInfo(SliceType).pointer;
     const T = slice_info.child;
     if (new_len == 0) {
-        self.free(allocation);
+        self.free(slice);
         return true;
     }
-    if (allocation.len == 0) {
+    if (slice.len == 0) {
         return false;
     }
     const old_memory: []u8 = @ptrCast(@constCast(mem.absorbSentinel(allocation)));
@@ -360,27 +357,24 @@ pub fn resize(self: Allocator, allocation: anytype, new_len: usize) bool {
 ///
 /// If the allocation's elements' type is zero bytes sized, `allocation.len` is set to `new_len`.
 pub fn remap(self: Allocator, allocation: anytype, new_len: usize) ?Slice(@TypeOf(allocation)) {
-    const slice_info = @typeInfo(@TypeOf(allocation)).pointer;
-    if (slice_info.size != .slice) {
-        const slice: Slice(@TypeOf(allocation)) = allocation; // coerce *[len]T to []T
-        return remap(self, slice, new_len);
-    }
-    comptime assert(slice_info.size == .slice);
+    const SliceType = Slice(@TypeOf(allocation));
+    const slice: SliceType = allocation; // coerce *[len]T to []T
+    const slice_info = @typeInfo(SliceType).pointer;
     const T = slice_info.child;
 
     if (new_len == 0) {
-        self.free(allocation);
-        return allocation[0..0];
+        self.free(slice);
+        return slice[0..0];
     }
-    if (allocation.len == 0) {
+    if (slice.len == 0) {
         return null;
     }
     if (@sizeOf(T) == 0) {
-        var new_memory = allocation;
+        var new_memory = slice;
         new_memory.len = new_len;
         return new_memory;
     }
-    const old_memory: []u8 = @ptrCast(@constCast(mem.absorbSentinel(allocation)));
+    const old_memory: []u8 = @ptrCast(@constCast(mem.absorbSentinel(slice)));
     // I would like to use saturating multiplication here, but LLVM cannot lower it
     // on WebAssembly: https://github.com/ziglang/zig/issues/9660
     //const new_len_bytes = new_len *| @sizeOf(T);
@@ -418,25 +412,23 @@ pub fn reallocAdvanced(
     new_n: usize,
     return_address: usize,
 ) Error!Slice(@TypeOf(old_mem)) {
-    const slice_info = @typeInfo(@TypeOf(old_mem)).pointer;
-    if (slice_info.size != .slice) {
-        const slice: Slice(@TypeOf(old_mem)) = old_mem; // coerce *[len]T to []T
-        return reallocAdvanced(self, slice, new_n, return_address);
-    }
+    const SliceType = Slice(@TypeOf(old_mem));
+    const slice: SliceType = old_mem; // coerce *[len]T to []T
+    const slice_info = @typeInfo(SliceType).pointer;
     comptime assert(slice_info.size == .slice);
     const T = slice_info.child;
-    if (old_mem.len == 0) {
+    if (slice.len == 0) {
         return self.allocAdvancedWithRetAddr(T, .fromByteUnitsOptional(slice_info.attrs.@"align"), new_n, return_address);
     }
     if (new_n == 0) {
-        self.free(old_mem);
+        self.free(slice);
         const alignment = slice_info.attrs.@"align" orelse @alignOf(T);
         const addr = comptime std.mem.alignBackward(usize, math.maxInt(usize), alignment);
         const ptr: *align(alignment) [0]T = @ptrFromInt(addr);
         return ptr;
     }
 
-    const old_byte_slice: []u8 = @ptrCast(@constCast(mem.absorbSentinel(old_mem)));
+    const old_byte_slice: []u8 = @ptrCast(@constCast(mem.absorbSentinel(slice)));
     const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return error.OutOfMemory;
     // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
     if (self.rawRemap(old_byte_slice, .fromByteUnits(slice_info.attrs.@"align" orelse @alignOf(T)), byte_count, return_address)) |p| {
