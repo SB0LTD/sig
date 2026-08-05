@@ -24,7 +24,7 @@ on:
       bootstrap_tag:
         description: 'Bootstrap release tag to use'
         required: false
-        default: 'bootstrap-sig-v30'
+        default: 'bootstrap-sig-v41'
         type: string
 
 permissions:
