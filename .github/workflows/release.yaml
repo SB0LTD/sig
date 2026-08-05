@@ -177,6 +177,9 @@ jobs:
           cp stage3-out/bin/sig "${OUT}/bin/sig"
           cp stage3-out/bin/sig "${OUT}/bin/zig"
           cp -r lib "${OUT}/lib"
+          # Include sig_build tools in distribution (sig build needs these)
+          mkdir -p "${OUT}/lib/tools"
+          cp -r tools/sig_build "${OUT}/lib/tools/sig_build"
           echo "Size: $(du -h "${OUT}/bin/sig" | cut -f1)"
           ARCHIVE="sig-${VERSION}-x86_64-linux.tar.xz"
           tar -cJf "${ARCHIVE}" "${OUT}"
@@ -291,6 +294,9 @@ jobs:
             sig.exe) cp "${OUT}/bin/sig.exe" "${OUT}/bin/zig.exe" ;;
           esac
           cp -r lib "${OUT}/lib"
+          # Include sig_build tools in distribution (sig build needs these)
+          mkdir -p "${OUT}/lib/tools"
+          cp -r tools/sig_build "${OUT}/lib/tools/sig_build"
 
       - name: Archive (tar.xz)
         if: matrix.ext == 'tar.xz'
@@ -317,9 +323,9 @@ jobs:
             ${{ env.ARCHIVE }}
             ${{ env.ARCHIVE }}.sha256
 
-  # Cross-compile Windows from Linux using official zig.
-  # The C-backend bootstrap has broken LLVM codegen (produces ELF not PE).
-  # Use setup-zig with official zig 0.14.1 which has working cross-compilation.
+  # Cross-compile Windows from Linux using the freshly-built native sig (has LLVM).
+  # Per bootstrap rules: Windows releases MUST be produced by sig itself, not upstream zig.
+  # The C-backend bootstrap has UB on Windows, so we cross-compile from Linux.
   build-windows-cross:
     needs: build-native
     runs-on: ubuntu-latest
@@ -337,18 +343,41 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go
           sudo apt-get clean
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+      - uses: actions/download-artifact@v4
         with:
-          version: "0.14.1"
+          name: sig-x86_64-linux
+          path: .native-sig
+
+      - name: Extract native sig
+        run: |
+          tar -xJf .native-sig/sig-${VERSION}-x86_64-linux.tar.xz
+          SIG="$(pwd)/sig-${VERSION}-x86_64-linux/bin/sig"
+          chmod +x "$SIG"
+          echo "SIG=${SIG}" >> "$GITHUB_ENV"
+          "$SIG" version
 
       - name: Cross-compile for Windows
         run: |
-          ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-          SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
-          mkdir -p .build-gen stage3-out/bin
+          mkdir -p stage3-out/bin
 
-          cat > .build-gen/build_options.zig << EOF
+          "${SIG}" build-exe \
+            --dep build_options --dep aro \
+            -Mroot=src/main.zig \
+            -Mbuild_options="sig-${VERSION}-x86_64-linux/lib/.build-gen/build_options.zig" \
+            -Maro=lib/compiler/aro/aro.zig \
+            --name sig \
+            -OReleaseFast \
+            -fstrip \
+            -fllvm -flld \
+            --zig-lib-dir lib \
+            -target x86_64-windows \
+            --cache-dir .zig-cache \
+            -femit-bin=stage3-out/bin/sig.exe || {
+              # Fallback: regenerate build_options and retry
+              ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
+              SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
+              mkdir -p .build-gen
+              cat > .build-gen/build_options.zig << EOF
           pub const have_llvm: bool = false;
           pub const llvm_has_m68k: bool = false;
           pub const llvm_has_csky: bool = false;
@@ -371,19 +400,20 @@ jobs:
           pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
           pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
           EOF
-
-          zig build-exe \
-            --dep build_options --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.build-gen/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
-            --name sig \
-            -OReleaseFast \
-            -fstrip \
-            --zig-lib-dir lib \
-            -target x86_64-windows \
-            --cache-dir .zig-cache \
-            -femit-bin=stage3-out/bin/sig.exe
+              "${SIG}" build-exe \
+                --dep build_options --dep aro \
+                -Mroot=src/main.zig \
+                -Mbuild_options=.build-gen/build_options.zig \
+                -Maro=lib/compiler/aro/aro.zig \
+                --name sig \
+                -OReleaseFast \
+                -fstrip \
+                -fllvm -flld \
+                --zig-lib-dir lib \
+                -target x86_64-windows \
+                --cache-dir .zig-cache \
+                -femit-bin=stage3-out/bin/sig.exe
+            }
 
       - name: Verify PE binary
         run: |
@@ -399,6 +429,9 @@ jobs:
           cp stage3-out/bin/sig.exe "${OUT}/bin/sig.exe"
           cp stage3-out/bin/sig.exe "${OUT}/bin/zig.exe"
           cp -r lib "${OUT}/lib"
+          # Include sig_build tools in distribution (sig build needs these)
+          mkdir -p "${OUT}/lib/tools"
+          cp -r tools/sig_build "${OUT}/lib/tools/sig_build"
           ARCHIVE="sig-${VERSION}-x86_64-windows.zip"
           7z a -r "${ARCHIVE}" "${OUT}"
           sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
