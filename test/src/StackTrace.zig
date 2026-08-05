@@ -304,6 +304,7 @@ fn addCaseInstance(
     run.expectStdOutEqual("");
 
     const check_run = b.addRunArtifact(self.convert_exe);
+    check_run.skip_foreign_checks = true;
     check_run.setName(annotated_case_name);
     check_run.addFileArg(run.captureStdErr(.{}));
     check_run.expectExitCode(0);
