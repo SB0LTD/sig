@@ -3409,10 +3409,11 @@ pub fn addIncrementalTests(b: *std.Build, test_step: *Step, test_filters: []cons
 
             run.addArg("--quiet"); // don't fill stderr telling us about skipped tests etc
 
-            if (b.enable_qemu) run.addArg("-fqemu");
-            if (b.enable_wine) run.addArg("-fwine");
-            if (b.enable_wasmtime) run.addArg("-fwasmtime");
-            if (b.enable_darling) run.addArg("-fdarling");
+            run.addThirdPartyEnabledArgDarling(.{ .enabled = "-fdarling" });
+            run.addThirdPartyEnabledArgQemu(.{ .enabled = "-fqemu" });
+            run.addThirdPartyEnabledArgRosetta(.{ .enabled = "-frosetta" });
+            run.addThirdPartyEnabledArgWasmtime(.{ .enabled = "-fwasmtime" });
+            run.addThirdPartyEnabledArgWine(.{ .enabled = "-fwine" });
 
             run.addCheck(.{ .expect_term = .{ .exited = 0 } });
             test_step.dependOn(&run.step);
