@@ -984,8 +984,6 @@ pub const Step = extern struct {
         };
 
         pub const Flags3 = packed struct(u32) {
-            is_linking_libc: bool,
-            is_linking_libcpp: bool,
             version: bool,
             initial_memory: bool,
             max_memory: bool,
@@ -1003,6 +1001,7 @@ pub const Step = extern struct {
             entry: Entry,
             lto: Lto,
             subsystem: Subsystem,
+            _: u2 = 0,
         };
 
         pub const Flags4 = packed struct(u32) {
