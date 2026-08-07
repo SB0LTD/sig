@@ -2531,12 +2531,6 @@ pub fn addErrorTraceTests(
     return step;
 }
 
-fn compilerHasPackageManager(b: *std.Build) bool {
-    // We can only use dependencies if the compiler was built with support for package management.
-    // (zig2 doesn't support it, but we still need to construct a build graph to build stage3.)
-    return b.available_deps.len != 0;
-}
-
 pub fn addStandaloneTests(
     b: *std.Build,
     optimize_modes: []const OptimizeMode,
@@ -2545,21 +2539,19 @@ pub fn addStandaloneTests(
     enable_symlinks_windows: bool,
 ) *Step {
     const step = b.step("test-standalone", "Run the standalone tests");
-    if (compilerHasPackageManager(b)) {
-        const test_cases_dep_name = "standalone_test_cases";
-        const test_cases_dep = b.dependency(test_cases_dep_name, .{
-            .enable_ios_sdk = enable_ios_sdk,
-            .enable_macos_sdk = enable_macos_sdk,
-            .enable_symlinks_windows = enable_symlinks_windows,
-            .simple_skip_debug = mem.findScalar(OptimizeMode, optimize_modes, .debug) == null,
-            .simple_skip_release_safe = mem.findScalar(OptimizeMode, optimize_modes, .safe) == null,
-            .simple_skip_release_fast = mem.findScalar(OptimizeMode, optimize_modes, .fast) == null,
-            .simple_skip_release_small = mem.findScalar(OptimizeMode, optimize_modes, .small) == null,
-        });
-        const test_cases_dep_step = test_cases_dep.builder.default_step;
-        test_cases_dep_step.name = b.graph.dupeString(test_cases_dep_name);
-        step.dependOn(test_cases_dep.builder.default_step);
-    }
+    const test_cases_dep_name = "standalone_test_cases";
+    const test_cases_dep = b.dependency(test_cases_dep_name, .{
+        .enable_ios_sdk = enable_ios_sdk,
+        .enable_macos_sdk = enable_macos_sdk,
+        .enable_symlinks_windows = enable_symlinks_windows,
+        .simple_skip_debug = mem.findScalar(OptimizeMode, optimize_modes, .debug) == null,
+        .simple_skip_release_safe = mem.findScalar(OptimizeMode, optimize_modes, .safe) == null,
+        .simple_skip_release_fast = mem.findScalar(OptimizeMode, optimize_modes, .fast) == null,
+        .simple_skip_release_small = mem.findScalar(OptimizeMode, optimize_modes, .small) == null,
+    });
+    const test_cases_dep_step = test_cases_dep.builder.default_step;
+    test_cases_dep_step.name = b.graph.dupeString(test_cases_dep_name);
+    step.dependOn(test_cases_dep.builder.default_step);
     return step;
 }
 
