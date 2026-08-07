@@ -1091,6 +1091,28 @@ pub fn Slice(comptime Pointer: type) type {
     }
 }
 
+/// Given a pointer type, removes the sentinel if present, returning an
+/// equivalent pointer type with no sentinel
+pub fn AbsorbSentinel(comptime Pointer: type) type {
+    const info = @typeInfo(Pointer).pointer;
+    switch (info.size) {
+        .slice => return @Pointer(.slice, info.attrs, info.child, null),
+        .one => {
+            const child_info = @typeInfo(info.child).array;
+            if (child_info.sentinel_ptr == null) {
+                return Pointer;
+            } else {
+                return @Pointer(.one, info.attrs, [child_info.len + 1]child_info.child, null);
+            }
+        },
+        else => unreachable,
+    }
+}
+
 test Slice {
     try testing.expectEqual([]i32, Slice(*[10]i32));
+}
+
+test AbsorbSentinel {
+    try testing.expectEqual(*[5]u32, AbsorbSentinel(*[4:0]u32));
 }

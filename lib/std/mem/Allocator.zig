@@ -9,6 +9,7 @@ const math = std.math;
 const mem = std.mem;
 const Alignment = std.mem.Alignment;
 const Slice = std.meta.Slice;
+const AbsorbSentinel = std.meta.AbsorbSentinel;
 
 pub const Error = error{OutOfMemory};
 pub const Log2Align = math.Log2Int(usize);
@@ -316,15 +317,16 @@ pub fn allocBytesAligned(
 ///
 /// `new_len` may be zero, in which case the allocation is freed.
 pub fn resize(self: Allocator, allocation: anytype, new_len: usize) bool {
-    const SliceType = Slice(@TypeOf(allocation));
-    const slice: SliceType = allocation; // coerce *[len]T to []T
-    const slice_info = @typeInfo(SliceType).pointer;
-    const T = slice_info.child;
+    const slice_info = @typeInfo(@TypeOf(allocation)).pointer;
+    const T = if (slice_info.size != .slice) comptime T: {
+        assert(slice_info.size == .one);
+        break :T @typeInfo(slice_info.child).array.child;
+    } else slice_info.child;
     if (new_len == 0) {
-        self.free(slice);
+        self.free(allocation);
         return true;
     }
-    if (slice.len == 0) {
+    if (allocation.len == 0) {
         return false;
     }
     const old_memory: []u8 = @ptrCast(@constCast(mem.absorbSentinel(allocation)));
@@ -356,25 +358,26 @@ pub fn resize(self: Allocator, allocation: anytype, new_len: usize) bool {
 /// `new_len` may be zero, in which case the allocation is freed.
 ///
 /// If the allocation's elements' type is zero bytes sized, `allocation.len` is set to `new_len`.
-pub fn remap(self: Allocator, allocation: anytype, new_len: usize) ?Slice(@TypeOf(allocation)) {
-    const SliceType = Slice(@TypeOf(allocation));
-    const slice: SliceType = allocation; // coerce *[len]T to []T
-    const slice_info = @typeInfo(SliceType).pointer;
-    const T = slice_info.child;
+pub fn remap(self: Allocator, allocation: anytype, new_len: usize) ?Slice(AbsorbSentinel(@TypeOf(allocation))) {
+    const slice_info = @typeInfo(@TypeOf(allocation)).pointer;
+    const T = if (slice_info.size != .slice) comptime T: {
+        assert(slice_info.size == .one);
+        break :T @typeInfo(slice_info.child).array.child;
+    } else slice_info.child;
 
     if (new_len == 0) {
-        self.free(slice);
-        return slice[0..0];
+        self.free(allocation);
+        return allocation[0..0];
     }
-    if (slice.len == 0) {
+    if (allocation.len == 0) {
         return null;
     }
     if (@sizeOf(T) == 0) {
-        var new_memory = slice;
+        var new_memory = allocation;
         new_memory.len = new_len;
         return new_memory;
     }
-    const old_memory: []u8 = @ptrCast(@constCast(mem.absorbSentinel(slice)));
+    const old_memory: []u8 = @ptrCast(@constCast(mem.absorbSentinel(allocation)));
     // I would like to use saturating multiplication here, but LLVM cannot lower it
     // on WebAssembly: https://github.com/ziglang/zig/issues/9660
     //const new_len_bytes = new_len *| @sizeOf(T);
@@ -402,7 +405,7 @@ pub fn remap(self: Allocator, allocation: anytype, new_len: usize) ?Slice(@TypeO
 ///   do the realloc more efficiently than the caller
 /// * `resize` which returns `false` when the `Allocator` implementation cannot
 ///   change the size without relocating the allocation.
-pub fn realloc(self: Allocator, old_mem: anytype, new_n: usize) Error!Slice(@TypeOf(old_mem)) {
+pub fn realloc(self: Allocator, old_mem: anytype, new_n: usize) Error!Slice(AbsorbSentinel(@TypeOf(old_mem))) {
     return self.reallocAdvanced(old_mem, new_n, @returnAddress());
 }
 
@@ -411,24 +414,24 @@ pub fn reallocAdvanced(
     old_mem: anytype,
     new_n: usize,
     return_address: usize,
-) Error!Slice(@TypeOf(old_mem)) {
-    const SliceType = Slice(@TypeOf(old_mem));
-    const slice: SliceType = old_mem; // coerce *[len]T to []T
-    const slice_info = @typeInfo(SliceType).pointer;
-    comptime assert(slice_info.size == .slice);
-    const T = slice_info.child;
-    if (slice.len == 0) {
+) Error!Slice(AbsorbSentinel(@TypeOf(old_mem))) {
+    const slice_info = @typeInfo(@TypeOf(old_mem)).pointer;
+    const T = if (slice_info.size != .slice) comptime T: {
+        assert(slice_info.size == .one);
+        break :T @typeInfo(slice_info.child).array.child;
+    } else slice_info.child;
+    if (old_mem.len == 0) {
         return self.allocAdvancedWithRetAddr(T, .fromByteUnitsOptional(slice_info.attrs.@"align"), new_n, return_address);
     }
     if (new_n == 0) {
-        self.free(slice);
+        self.free(old_mem);
         const alignment = slice_info.attrs.@"align" orelse @alignOf(T);
         const addr = comptime std.mem.alignBackward(usize, math.maxInt(usize), alignment);
         const ptr: *align(alignment) [0]T = @ptrFromInt(addr);
         return ptr;
     }
 
-    const old_byte_slice: []u8 = @ptrCast(@constCast(mem.absorbSentinel(slice)));
+    const old_byte_slice: []u8 = @ptrCast(@constCast(mem.absorbSentinel(old_mem)));
     const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return error.OutOfMemory;
     // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
     if (self.rawRemap(old_byte_slice, .fromByteUnits(slice_info.attrs.@"align" orelse @alignOf(T)), byte_count, return_address)) |p| {
@@ -451,10 +454,8 @@ pub fn reallocAdvanced(
 pub fn free(self: Allocator, memory: anytype) void {
     const slice_info = @typeInfo(@TypeOf(memory)).pointer;
     if (slice_info.size != .slice) {
-        const slice: Slice(@TypeOf(memory)) = memory; // coerce *[len]T to []T
-        return free(self, slice);
+        assert(slice_info.size == .one and @typeInfo(slice_info.child) == .array);
     }
-    comptime assert(slice_info.size == .slice);
     const bytes: []u8 = @ptrCast(@constCast(mem.absorbSentinel(memory)));
     if (bytes.len == 0) return;
     @memset(bytes, undefined);
@@ -600,6 +601,33 @@ test failing {
 
 test "free single-pointer to array" {
     const allocator = std.testing.allocator;
-    const bytes = allocator.alloc(u32, 128) catch return error.SkipZigTest;
-    allocator.free(bytes.ptr[0..128]);
+    {
+        const slice = allocator.alloc(u32, 128) catch return error.SkipZigTest;
+        slice[127] = 0;
+        const ptr = slice[0..127 :0];
+        allocator.free(ptr);
+    }
+    {
+        const slice = allocator.alloc(u32, 128) catch return error.SkipZigTest;
+        slice[127] = 0;
+        const ptr = slice[0..127 :0];
+        if (allocator.resize(ptr, 16)) {
+            allocator.free(ptr[0..16]);
+        } else allocator.free(ptr);
+    }
+    {
+        const slice = allocator.alloc(u32, 128) catch return error.SkipZigTest;
+        slice[127] = 0;
+        const ptr = slice[0..127 :0];
+        if (allocator.remap(ptr, 16)) |new| {
+            allocator.free(new);
+        } else allocator.free(ptr);
+    }
+    {
+        const slice = allocator.alloc(u32, 128) catch return error.SkipZigTest;
+        slice[127] = 0;
+        const ptr = slice[0..127 :0];
+        const new = allocator.realloc(ptr, 16) catch return error.SkipZigTest;
+        allocator.free(new);
+    }
 }
