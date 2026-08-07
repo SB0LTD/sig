@@ -454,7 +454,7 @@ pub fn reallocAdvanced(
 pub fn free(self: Allocator, memory: anytype) void {
     const slice_info = @typeInfo(@TypeOf(memory)).pointer;
     if (slice_info.size != .slice) {
-        assert(slice_info.size == .one and @typeInfo(slice_info.child) == .array);
+        comptime assert(slice_info.size == .one and @typeInfo(slice_info.child) == .array);
     }
     const bytes: []u8 = @ptrCast(@constCast(mem.absorbSentinel(memory)));
     if (bytes.len == 0) return;
