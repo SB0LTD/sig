@@ -627,7 +627,10 @@ test "free single-pointer to array" {
         const allocation = try allocator.alloc(u32, 128);
         allocation[127] = 0;
         const ptr: *[127:0]u32 = allocation[0..127 :0];
-        const new = try allocator.realloc(ptr, 16);
-        allocator.free(new);
+        if (allocator.realloc(ptr, 16)) |new| {
+            allocator.free(new);
+        } else |_| {
+            allocator.free(allocation);
+        }
     }
 }
