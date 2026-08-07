@@ -602,32 +602,32 @@ test failing {
 test "free single-pointer to array" {
     const allocator = std.testing.allocator;
     {
-        const slice = allocator.alloc(u32, 128) catch return error.SkipZigTest;
-        slice[127] = 0;
-        const ptr = slice[0..127 :0];
+        const allocation = try allocator.alloc(u32, 128);
+        allocation[127] = 0;
+        const ptr: *[127:0]u32 = allocation[0..127 :0];
         allocator.free(ptr);
     }
     {
-        const slice = allocator.alloc(u32, 128) catch return error.SkipZigTest;
-        slice[127] = 0;
-        const ptr = slice[0..127 :0];
+        const allocation = try allocator.alloc(u32, 128);
+        allocation[127] = 0;
+        const ptr: *[127:0]u32 = allocation[0..127 :0];
         if (allocator.resize(ptr, 16)) {
             allocator.free(ptr[0..16]);
         } else allocator.free(ptr);
     }
     {
-        const slice = allocator.alloc(u32, 128) catch return error.SkipZigTest;
-        slice[127] = 0;
-        const ptr = slice[0..127 :0];
+        const allocation = try allocator.alloc(u32, 128);
+        allocation[127] = 0;
+        const ptr: *[127:0]u32 = allocation[0..127 :0];
         if (allocator.remap(ptr, 16)) |new| {
             allocator.free(new);
         } else allocator.free(ptr);
     }
     {
-        const slice = allocator.alloc(u32, 128) catch return error.SkipZigTest;
-        slice[127] = 0;
-        const ptr = slice[0..127 :0];
-        const new = allocator.realloc(ptr, 16) catch return error.SkipZigTest;
+        const allocation = try allocator.alloc(u32, 128);
+        allocation[127] = 0;
+        const ptr: *[127:0]u32 = allocation[0..127 :0];
+        const new = try allocator.realloc(ptr, 16);
         allocator.free(new);
     }
 }
