@@ -247,7 +247,7 @@ pub fn clone() callconv(.naked) u32 {
     );
     asm volatile (
         \\ li 31, 0
-        \\ mtlr 0
+        \\ mtlr 31
         \\
         \\ #call funcptr: move arg (d) into r3
         \\ mr 3, 30

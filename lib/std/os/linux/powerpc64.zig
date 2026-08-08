@@ -232,7 +232,7 @@ pub fn clone() callconv(.naked) u64 {
     );
     asm volatile (
         \\  li    31, 0
-        \\  mtlr   0
+        \\  mtlr  31
         \\
         \\  # call fn(arg)
         \\  ld     3, 16(1)

@@ -438,7 +438,7 @@ fn _start() callconv(.naked) noreturn {
             \\ stwu 1, -16(1)
             \\ stw 0, 0(1)
             \\ li 31, 0
-            \\ mtlr 0
+            \\ mtlr 31
             \\ b %[posixCallMainAndExit]
             ,
             .powerpc64, .powerpc64le =>
@@ -451,7 +451,7 @@ fn _start() callconv(.naked) noreturn {
             \\ li 0, 0
             \\ stdu 0, -32(1)
             \\ li 31, 0
-            \\ mtlr 0
+            \\ mtlr 31
             \\ b %[posixCallMainAndExit]
             \\ nop
             ,
