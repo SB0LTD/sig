@@ -230,11 +230,13 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
             .powerpc64, .powerpc64le => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
+                \\ .balign 8
                 \\ bl 1f
+                \\ nop
                 \\ .quad _DYNAMIC - .
                 \\1:
                 \\ mflr %[ret]
-                \\ ld 4, 0(%[ret])
+                \\ ld 4, 4(%[ret])
                 \\ add %[ret], 4, %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
