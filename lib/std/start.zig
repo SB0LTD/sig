@@ -476,13 +476,14 @@ fn _start() callconv(.naked) noreturn {
             \\ mov r15, r4
             \\ mov #-4, r0
             \\ and r0, r15
+            \\ mova 2f, r0
             \\ mov.l 2f, r1
-            \\1:
-            \\ braf r1
+            \\ add r0, r1
+            \\ jmp @r1
             \\  nop
-            \\2:
             \\ .balign 4
-            \\ .long %[posixCallMainAndExit]@PCREL - (1b + 4 - .)
+            \\1:
+            \\ .long %[posixCallMainAndExit] - .
             ,
             .sparc =>
             // argc is stored after a register window (16 registers * 4 bytes).
