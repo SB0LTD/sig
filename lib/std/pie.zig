@@ -83,7 +83,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ add %[ret], pc
                 \\ b 2f
                 \\1:
-                \\ .word _DYNAMIC-1b
+                \\ .word _DYNAMIC - 1b
                 \\2:
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
@@ -97,20 +97,29 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
             ),
             // The compiler is not required to load the GP register, so do it ourselves.
             .alpha => asm volatile (
+                \\ .weak _DYNAMIC
+                \\ .hidden _DYNAMIC
                 \\ br $29, 1f
                 \\1:
                 \\ ldgp $29, 0($29)
-                \\ ldq %[ret], -0x8000($29)
+                \\ ldah %[ret], _DYNAMIC($29) !gprelhigh
+                \\ lda %[ret], _DYNAMIC(%[ret]) !gprellow
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : .{ .r26 = true, .r29 = true }),
-            // The CSKY ABI requires the gb register to point to the GOT. Additionally, the first
-            // entry in the GOT is defined to hold the address of _DYNAMIC.
+                : .{ .r29 = true }),
             .csky => asm volatile (
-                \\ mov %[ret], gb
-                \\ ldw %[ret], %[ret]
+                \\ .weak _DYNAMIC
+                \\ .hidden _DYNAMIC
+                \\ grs %[ret], 1f
+                \\ br 2f
+                \\1:
+                \\ .long _DYNAMIC - 1b
+                \\2:
+                \\ ldw r12, (%[ret], 0)
+                \\ addu %[ret], %[ret], r12
                 : [ret] "=r" (-> [*]const elf.Dyn),
-            ),
+                :
+                : .{ .r12 = true }),
             .hexagon => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
@@ -146,9 +155,17 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
             .microblaze, .microblazeel => asm volatile (
-                \\ lwi %[ret], r20, 0
+                \\ .weak _DYNAMIC
+                \\ .hidden _DYNAMIC
+                \\ mfs %[ret], rpc
+                \\ bri 1f
+                \\ .word _DYNAMIC - . + 8
+                \\1:
+                \\ lwi r18, %[ret], 8
+                \\ add %[ret], %[ret], r18
                 : [ret] "=r" (-> [*]const elf.Dyn),
-            ),
+                :
+                : .{ .r18 = true }),
             .mips, .mipsel => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
