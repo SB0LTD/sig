@@ -295,7 +295,7 @@ fn _start() callconv(.naked) noreturn {
             \\ r29 = and(r29, #-8)
             \\ memw(r29 + #-8) = r29
             \\ r29 = add(r29, #-8)
-            \\ call %[posixCallMainAndExit]
+            \\ jump %[posixCallMainAndExit]
             ,
             .kvx =>
             \\ make $fp = 0
@@ -327,7 +327,8 @@ fn _start() callconv(.naked) noreturn {
             \\ l.ori r9, r0, 0
             \\ l.ori r3, r1, 0
             \\ l.andi r1, r1, -4
-            \\ l.jal %[posixCallMainAndExit]
+            \\ l.j %[posixCallMainAndExit]
+            \\  l.nop
             ,
             .riscv32, .riscv32be, .riscv64, .riscv64be =>
             \\ li fp, 0
@@ -356,7 +357,7 @@ fn _start() callconv(.naked) noreturn {
             \\ or %%r1, %%r0, %%r0
             \\ or %%r2, %%r31, %%r0
             \\ clr %%r31, %%r31, 4<0>
-            \\ br.n %[posixCallMainAndExit]
+            \\ br %[posixCallMainAndExit]
             ,
             .microblaze, .microblazeel =>
             // r1 = SP, r15 = LR, r19 = FP, r20 = GP
@@ -366,7 +367,7 @@ fn _start() callconv(.naked) noreturn {
             \\ addi r20, r20, _GLOBAL_OFFSET_TABLE_ + 8
             \\ ori r5, r1, 0
             \\ andi r1, r1, -4
-            \\ brlid r15, %[posixCallMainAndExit]
+            \\ bri %[posixCallMainAndExit]
             ,
             .mips, .mipsel =>
             \\ move $fp, $zero
@@ -385,7 +386,7 @@ fn _start() callconv(.naked) noreturn {
             \\ move $a0, $sp
             \\ and $sp, -8
             \\ subu $sp, $sp, 16
-            \\ jalr $t9
+            \\ jr $t9
             ,
             .mips64, .mips64el => switch (builtin.abi) {
                 .gnuabin32, .muslabin32, .abin32 =>
@@ -403,7 +404,7 @@ fn _start() callconv(.naked) noreturn {
                 \\ move $a0, $sp
                 \\ and $sp, -16
                 \\ subu $sp, $sp, 16
-                \\ jalr $t9
+                \\ jr $t9
                 ,
                 else =>
                 \\ move $fp, $zero
@@ -424,7 +425,7 @@ fn _start() callconv(.naked) noreturn {
                 \\ move $a0, $sp
                 \\ and $sp, -16
                 \\ dsubu $sp, $sp, 16
-                \\ jalr $t9
+                \\ jr $t9
                 ,
             },
             .powerpc, .powerpcle =>
@@ -476,7 +477,8 @@ fn _start() callconv(.naked) noreturn {
             \\ and r0, r15
             \\ mov.l 2f, r1
             \\1:
-            \\ bsrf r1
+            \\ braf r1
+            \\  nop
             \\2:
             \\ .balign 4
             \\ .long %[posixCallMainAndExit]@PCREL - (1b + 4 - .)
