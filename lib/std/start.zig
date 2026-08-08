@@ -332,7 +332,7 @@ fn _start() callconv(.naked) noreturn {
             \\ li ra, 0
             \\ mv a0, sp
             \\ andi sp, sp, -16
-            \\ tail %[posixCallMainAndExit]@plt
+            \\ tail %[posixCallMainAndExit]
             ,
             .m68k =>
             // Note that the - 8 is needed because pc in the jsr instruction points into the middle
