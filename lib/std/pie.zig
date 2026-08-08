@@ -271,17 +271,17 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
                 : .{ .r0 = true }),
-            // The compiler does not necessarily have any obligation to load the `l7` register (pointing
-            // to the GOT), so do it ourselves just in case.
             .sparc, .sparc64 => asm volatile (
-                \\ sethi %%hi(_GLOBAL_OFFSET_TABLE_ - 4), %%l7
+                \\ .weak _DYNAMIC
+                \\ .hidden _DYNAMIC
+                \\ sethi %%pc22(_DYNAMIC - 4), %[ret]
                 \\ call 1f
-                \\  add %%l7, %%lo(_GLOBAL_OFFSET_TABLE_ + 4), %%l7
+                \\  add %[ret], %%pc10(_DYNAMIC + 4), %[ret]
                 \\1:
-                \\ add %%l7, %%o7, %[ret]
+                \\ add %[ret], %%o7, %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : .{ .l7 = true }),
+                : .{ .o7 = true }),
             .xtensa, .xtensaeb => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
