@@ -118,7 +118,7 @@ pub fn clone() callconv(.naked) u32 {
     asm volatile (
         \\    andi a1, a1, -16
         \\    # Save func and arg to stack
-        \\    addi a1, a1, -8
+        \\    addi a1, a1, -16
         \\    sw a0, 0(a1)
         \\    sw a3, 4(a1)
         \\
