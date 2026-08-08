@@ -401,7 +401,7 @@ fn _start() callconv(.naked) noreturn {
                 \\ addu $t9, $t9, $gp
                 \\ move $ra, $zero
                 \\ move $a0, $sp
-                \\ and $sp, -8
+                \\ and $sp, -16
                 \\ subu $sp, $sp, 16
                 \\ jalr $t9
                 ,
