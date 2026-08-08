@@ -247,7 +247,7 @@ fn _start() callconv(.naked) noreturn {
             \\ mov $30, $16
             \\ ldi $1, -16
             \\ and $30, $30, $1
-            \\ jsr $26, %[posixCallMainAndExit]
+            \\ br $31, %[posixCallMainAndExit]
             ,
             .arc, .arceb =>
             // ARC v1 and v2 had a very low stack alignment requirement of 4; v3 increased it to 16.
