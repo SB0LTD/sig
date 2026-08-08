@@ -120,7 +120,7 @@ pub fn clone() callconv(.naked) u32 {
         \\ mov t0, r4
         \\ mov t1, r7
         \\
-        \\ andi r1, r1, -8
+        \\ andni r1, r1, 7
         \\
         \\ subi r1, 8
         \\ stw r0, (r1, 0)
