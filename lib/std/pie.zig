@@ -152,7 +152,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .hidden _DYNAMIC
                 \\ lea _DYNAMIC - . - 8, %[ret]
                 \\ lea (%[ret], %%pc), %[ret]
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=a" (-> [*]const elf.Dyn),
             ),
             .microblaze, .microblazeel => asm volatile (
                 \\ .weak _DYNAMIC
