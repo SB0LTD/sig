@@ -295,7 +295,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .balign 4
                 \\ .word _DYNAMIC - .
                 \\1:
-                \\ add a0, a0, 1
+                \\ addi a0, a0, 1
                 \\ l32i a8, a0, 0
                 \\ add %[ret], a0, a8
                 : [ret] "=a" (-> [*]const elf.Dyn),
