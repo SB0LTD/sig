@@ -276,14 +276,16 @@ fn _start() callconv(.naked) noreturn {
             // `_DYNAMIC` as well.
             // r8 = FP
             \\ grs t0, 1f
-            \\ 1:
+            \\1:
             \\ lrw gb, 1b@GOTPC
             \\ addu gb, t0
             \\ movi r8, 0
             \\ movi lr, 0
             \\ mov a0, sp
             \\ andi sp, sp, -8
-            \\ jmpi %[posixCallMainAndExit]
+            \\ lrw t1, %[posixCallMainAndExit]@GOTOFF
+            \\ addu t1, gb
+            \\ jmp t1
             ,
             .hexagon =>
             // r29 = SP, r30 = FP, r31 = LR
