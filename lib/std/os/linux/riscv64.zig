@@ -116,6 +116,7 @@ pub fn clone() callconv(.naked) u64 {
     // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
     //         a7         a0,    a1,    a2,   a3,  a4
     asm volatile (
+        \\    andi a1, a1, -16
         \\    # Save func and arg to stack
         \\    addi a1, a1, -16
         \\    sd a0, 0(a1)
