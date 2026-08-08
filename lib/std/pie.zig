@@ -264,9 +264,9 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ add r0, %[ret]
                 \\ bra 2f
                 \\  nop
-                \\1:
                 \\ .balign 4
-                \\ .long DYNAMIC - .
+                \\1:
+                \\ .long _DYNAMIC - .
                 \\2:
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
