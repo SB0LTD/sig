@@ -138,7 +138,9 @@ pub fn clone() callconv(.naked) u32 {
         \\ l.sys 1
         \\ l.sfeqi r11, 0
         \\ l.bf 1f
+        \\  l.nop
         \\ l.jr r9
+        \\  l.nop
         \\1:
     );
     if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
@@ -151,6 +153,7 @@ pub fn clone() callconv(.naked) u32 {
         \\ l.lwz r11, 0(r1)
         \\ l.lwz r3, 4(r1)
         \\ l.jalr r11
+        \\  l.nop
         \\
         \\ l.ori r3, r11, 0
         \\ l.ori r11, r0, 93 # SYS_exit

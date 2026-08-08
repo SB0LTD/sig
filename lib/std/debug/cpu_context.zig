@@ -1039,6 +1039,7 @@ const Mips = extern struct {
                 \\ sd $fp, 240($t0)
                 \\ sd $ra, 248($t0)
                 \\ bal 1f
+                \\  nop
                 \\1:
                 \\ sd $ra, 256($t0)
                 \\ .set pop
@@ -1080,6 +1081,7 @@ const Mips = extern struct {
                 \\ sw $fp, 120($t4)
                 \\ sw $ra, 124($t4)
                 \\ bal 1f
+                \\  nop
                 \\1:
                 \\ sw $ra, 128($t4)
                 \\ .set pop
@@ -1164,6 +1166,7 @@ const Or1k = extern struct {
             \\ l.sw 120(r15), r30
             \\ l.sw 124(r15), r31
             \\ l.jal 1f
+            \\  l.nop
             \\1:
             \\ l.sw 128(r15), r9
             :
@@ -1558,6 +1561,7 @@ const Sparc = extern struct {
                 \\ stx %i6, [%l0 + 240]
                 \\ stx %i7, [%l0 + 248]
                 \\ call 1f
+                \\  nop
                 \\1:
                 \\ stx %o7, [%l0 + 256]
             else
@@ -1578,6 +1582,7 @@ const Sparc = extern struct {
                 \\ std %i4, [%l0 + 112]
                 \\ std %i6, [%l0 + 120]
                 \\ call 1f
+                \\  nop
                 \\1:
                 \\ st %o7, [%l0 + 128]
             :

@@ -1166,29 +1166,29 @@ const LinuxThreadImpl = struct {
             posix.sigprocmask(std.posix.SIG.BLOCK, &std.os.linux.sigfillset(), null);
             switch (target.cpu.arch) {
                 .x86 => asm volatile (
-                    \\  movl $91, %%eax # SYS_munmap
-                    \\  int $128
-                    \\  movl $1, %%eax # SYS_exit
-                    \\  movl $0, %%ebx
-                    \\  int $128
+                    \\ movl $91, %%eax # SYS_munmap
+                    \\ int $128
+                    \\ movl $1, %%eax # SYS_exit
+                    \\ movl $0, %%ebx
+                    \\ int $128
                     :
                     : [ptr] "{ebx}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{ecx}" (self.mapped.len),
                 ),
                 .x86_64 => asm volatile (switch (target.abi) {
                         .gnux32, .muslx32, .x32 =>
-                        \\  movl $0x4000000b, %%eax # SYS_munmap
-                        \\  syscall
-                        \\  movl $0x4000003c, %%eax # SYS_exit
-                        \\  xor %%rdi, %%rdi
-                        \\  syscall
+                        \\ movl $0x4000000b, %%eax # SYS_munmap
+                        \\ syscall
+                        \\ movl $0x4000003c, %%eax # SYS_exit
+                        \\ xor %%rdi, %%rdi
+                        \\ syscall
                         ,
                         else =>
-                        \\  movl $11, %%eax # SYS_munmap
-                        \\  syscall
-                        \\  movl $60, %%eax # SYS_exit
-                        \\  xor %%rdi, %%rdi
-                        \\  syscall
+                        \\ movl $11, %%eax # SYS_munmap
+                        \\ syscall
+                        \\ movl $60, %%eax # SYS_exit
+                        \\ xor %%rdi, %%rdi
+                        \\ syscall
                         ,
                     }
                     :
@@ -1196,21 +1196,21 @@ const LinuxThreadImpl = struct {
                       [len] "{rsi}" (self.mapped.len),
                 ),
                 .arm, .armeb, .thumb, .thumbeb => asm volatile (
-                    \\  mov r7, #91 // SYS_munmap
-                    \\  svc 0
-                    \\  mov r7, #1 // SYS_exit
-                    \\  mov r0, #0
-                    \\  svc 0
+                    \\ mov r7, #91 // SYS_munmap
+                    \\ svc 0
+                    \\ mov r7, #1 // SYS_exit
+                    \\ mov r0, #0
+                    \\ svc 0
                     :
                     : [ptr] "{r0}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{r1}" (self.mapped.len),
                 ),
                 .aarch64, .aarch64_be => asm volatile (
-                    \\  mov x8, #215 // SYS_munmap
-                    \\  svc 0
-                    \\  mov x8, #93 // SYS_exit
-                    \\  mov x0, #0
-                    \\  svc 0
+                    \\ mov x8, #215 // SYS_munmap
+                    \\ svc 0
+                    \\ mov x8, #93 // SYS_exit
+                    \\ mov x0, #0
+                    \\ svc 0
                     :
                     : [ptr] "{x0}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{x1}" (self.mapped.len),
@@ -1236,21 +1236,21 @@ const LinuxThreadImpl = struct {
                       [len] "{r1}" (self.mapped.len),
                 ),
                 .hexagon => asm volatile (
-                    \\  r6 = #215 // SYS_munmap
-                    \\  trap0(#1)
-                    \\  r6 = #93 // SYS_exit
-                    \\  r0 = #0
-                    \\  trap0(#1)
+                    \\ r6 = #215 // SYS_munmap
+                    \\ trap0(#1)
+                    \\ r6 = #93 // SYS_exit
+                    \\ r0 = #0
+                    \\ trap0(#1)
                     :
                     : [ptr] "{r0}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{r1}" (self.mapped.len),
                 ),
                 .hppa => asm volatile (
-                    \\ ldi 91, %%r20 /* SYS_munmap */
                     \\ ble 0x100(%%sr2, %%r0)
-                    \\ ldi 1, %%r20 /* SYS_exit */
+                    \\  ldi 91, %%r20 /* SYS_munmap */
                     \\ ldi 0, %%r26
                     \\ ble 0x100(%%sr2, %%r0)
+                    \\  ldi 1, %%r20 /* SYS_exit */
                     :
                     : [ptr] "{r26}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{r25}" (self.mapped.len),

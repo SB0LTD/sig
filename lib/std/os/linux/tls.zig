@@ -295,6 +295,7 @@ pub fn setThreadPointer(addr: usize) void {
         .hppa => {
             asm volatile (
                 \\ ble 0xe0(%%sr2, %%r0)
+                \\  nop
                 :
                 : [addr] "={r26}" (addr),
                 : .{ .r29 = true });

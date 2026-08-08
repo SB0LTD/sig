@@ -190,6 +190,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ l.jal 1f
+                \\  l.nop
                 \\ .word _DYNAMIC - .
                 \\1:
                 \\ l.lwz %[ret], 0(r9)
@@ -245,6 +246,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ mov.l 1f, %[ret]
                 \\ add r0, %[ret]
                 \\ bra 2f
+                \\  nop
                 \\1:
                 \\ .balign 4
                 \\ .long DYNAMIC - .
