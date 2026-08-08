@@ -247,7 +247,7 @@ fn _start() callconv(.naked) noreturn {
             \\ mov $30, $16
             \\ ldi $1, -16
             \\ and $30, $30, $1
-            \\ br $31, %[posixCallMainAndExit]
+            \\ jsr $26, %[posixCallMainAndExit]
             ,
             .arc, .arceb =>
             // ARC v1 and v2 had a very low stack alignment requirement of 4; v3 increased it to 16.
@@ -282,7 +282,7 @@ fn _start() callconv(.naked) noreturn {
             \\ movi r8, 0
             \\ movi lr, 0
             \\ mov a0, sp
-            \\ andni sp, sp, 7
+            \\ andi sp, sp, -8
             \\ lrw t1, %[posixCallMainAndExit]@GOTOFF
             \\ addu t1, gb
             \\ jmp t1
@@ -295,7 +295,7 @@ fn _start() callconv(.naked) noreturn {
             \\ r29 = and(r29, #-8)
             \\ memw(r29 + #-8) = r29
             \\ r29 = add(r29, #-8)
-            \\ jump %[posixCallMainAndExit]
+            \\ call %[posixCallMainAndExit]
             ,
             .kvx =>
             \\ make $fp = 0
@@ -326,10 +326,8 @@ fn _start() callconv(.naked) noreturn {
             \\ l.ori r2, r0, 0
             \\ l.ori r9, r0, 0
             \\ l.ori r3, r1, 0
-            \\ l.addi r13, r0, -4
-            \\ l.and r1, r1, r13
-            \\ l.j %[posixCallMainAndExit]
-            \\  l.nop
+            \\ l.andi r1, r1, -4
+            \\ l.jal %[posixCallMainAndExit]
             ,
             .riscv32, .riscv32be, .riscv64, .riscv64be =>
             \\ li fp, 0
@@ -358,7 +356,7 @@ fn _start() callconv(.naked) noreturn {
             \\ or %%r1, %%r0, %%r0
             \\ or %%r2, %%r31, %%r0
             \\ clr %%r31, %%r31, 4<0>
-            \\ br %[posixCallMainAndExit]
+            \\ br.n %[posixCallMainAndExit]
             ,
             .microblaze, .microblazeel =>
             // r1 = SP, r15 = LR, r19 = FP, r20 = GP
@@ -368,7 +366,7 @@ fn _start() callconv(.naked) noreturn {
             \\ addi r20, r20, _GLOBAL_OFFSET_TABLE_ + 8
             \\ ori r5, r1, 0
             \\ andi r1, r1, -4
-            \\ bri %[posixCallMainAndExit]
+            \\ brlid r15, %[posixCallMainAndExit]
             ,
             .mips, .mipsel =>
             \\ move $fp, $zero
@@ -387,7 +385,7 @@ fn _start() callconv(.naked) noreturn {
             \\ move $a0, $sp
             \\ and $sp, -8
             \\ subu $sp, $sp, 16
-            \\ jr $t9
+            \\ jalr $t9
             ,
             .mips64, .mips64el => switch (builtin.abi) {
                 .gnuabin32, .muslabin32, .abin32 =>
@@ -403,9 +401,9 @@ fn _start() callconv(.naked) noreturn {
                 \\ addu $t9, $t9, $gp
                 \\ move $ra, $zero
                 \\ move $a0, $sp
-                \\ and $sp, -16
+                \\ and $sp, -8
                 \\ subu $sp, $sp, 16
-                \\ jr $t9
+                \\ jalr $t9
                 ,
                 else =>
                 \\ move $fp, $zero
@@ -426,7 +424,7 @@ fn _start() callconv(.naked) noreturn {
                 \\ move $a0, $sp
                 \\ and $sp, -16
                 \\ dsubu $sp, $sp, 16
-                \\ jr $t9
+                \\ jalr $t9
                 ,
             },
             .powerpc, .powerpcle =>
@@ -438,7 +436,7 @@ fn _start() callconv(.naked) noreturn {
             \\ stwu 1, -16(1)
             \\ stw 0, 0(1)
             \\ li 31, 0
-            \\ mtlr 31
+            \\ mtlr 0
             \\ b %[posixCallMainAndExit]
             ,
             .powerpc64, .powerpc64le =>
@@ -451,7 +449,7 @@ fn _start() callconv(.naked) noreturn {
             \\ li 0, 0
             \\ stdu 0, -32(1)
             \\ li 31, 0
-            \\ mtlr 31
+            \\ mtlr 0
             \\ b %[posixCallMainAndExit]
             \\ nop
             ,
@@ -476,14 +474,12 @@ fn _start() callconv(.naked) noreturn {
             \\ mov r15, r4
             \\ mov #-4, r0
             \\ and r0, r15
-            \\ mova 2f, r0
             \\ mov.l 2f, r1
-            \\ add r0, r1
-            \\ jmp @r1
-            \\  nop
-            \\ .balign 4
             \\1:
-            \\ .long %[posixCallMainAndExit] - .
+            \\ bsrf r1
+            \\2:
+            \\ .balign 4
+            \\ .long %[posixCallMainAndExit]@PCREL - (1b + 4 - .)
             ,
             .sparc =>
             // argc is stored after a register window (16 registers * 4 bytes).
