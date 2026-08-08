@@ -124,7 +124,8 @@ pub fn clone() callconv(.naked) u32 {
     //         r11        r3,    r4,    r5,   r6,  r7
     asm volatile (
         \\ # Save function pointer and argument pointer on new thread stack
-        \\ l.andi r4, r4, -4
+        \\ l.addi r13, r0, -4
+        \\ l.and r4, r4, r13
         \\ l.addi r4, r4, -8
         \\ l.sw 0(r4), r3
         \\ l.sw 4(r4), r6

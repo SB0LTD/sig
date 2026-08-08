@@ -326,7 +326,8 @@ fn _start() callconv(.naked) noreturn {
             \\ l.ori r2, r0, 0
             \\ l.ori r9, r0, 0
             \\ l.ori r3, r1, 0
-            \\ l.andi r1, r1, -4
+            \\ l.addi r13, r0, -4
+            \\ l.and r1, r1, r13
             \\ l.j %[posixCallMainAndExit]
             \\  l.nop
             ,
