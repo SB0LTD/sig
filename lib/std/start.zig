@@ -282,7 +282,7 @@ fn _start() callconv(.naked) noreturn {
             \\ movi r8, 0
             \\ movi lr, 0
             \\ mov a0, sp
-            \\ andi sp, sp, -8
+            \\ andni sp, sp, 7
             \\ lrw t1, %[posixCallMainAndExit]@GOTOFF
             \\ addu t1, gb
             \\ jmp t1
