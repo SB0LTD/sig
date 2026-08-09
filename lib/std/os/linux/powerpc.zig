@@ -200,8 +200,9 @@ pub fn clone() callconv(.naked) u32 {
     asm volatile (
         \\ # store non-volatile regs r29, r30 on stack in order to put our
         \\ # start func and its arg there
-        \\ stwu 29, -16(1)
-        \\ stw 30, 4(1)
+        \\ stwu 1, -16(1)
+        \\ stw 29, 8(1)
+        \\ stw 30, 12(1)
         \\
         \\ # save r3 (func) into r29, and r6(arg) into r30
         \\ mr 29, 3
@@ -234,8 +235,8 @@ pub fn clone() callconv(.naked) u32 {
         \\
         \\ # if not 0, restore stack and return
         \\ beq cr7, 2f
-        \\ lwz 29, 0(1)
-        \\ lwz 30, 4(1)
+        \\ lwz 29, 8(1)
+        \\ lwz 30, 12(1)
         \\ addi 1, 1, 16
         \\ blr
         \\
