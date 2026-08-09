@@ -52,6 +52,14 @@ train and establishes the allocator-free native SB0 compiler foundation.
   than tag-object IDs, so provenance checks identify the trees actually built.
 - Windows release jobs install the official zstd 1.5.6 executable from an
   immutable SHA-256-pinned archive instead of relying on a nonexistent package.
+- Serialized upstream-sync runs resolve the live `master` tip when they start,
+  preventing delayed dispatches from replaying already-integrated commits.
+- The `zig1.wasm` regeneration bridge accepts the legacy v41 gzip bootstrap
+  only after verifying GitHub's recorded SHA-256 digest; v42 and later continue
+  to require their release checksum sidecars.
+- `zig1.wasm` regeneration now passes Maker's mandatory first
+  `--zig-lib=<path>` argument instead of the compiler-subcommand-only
+  `--zig-lib-dir` spelling.
 
 ### Fixed
 - Stale `bootstrap-sig-v40` sync manifest override that repeatedly selected a

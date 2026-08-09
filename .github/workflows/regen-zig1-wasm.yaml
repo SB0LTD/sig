@@ -30,17 +30,52 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq zstd
-          archive=bootstrap-sig-x86_64-linux.tar.zst
-          gh release download "$BOOTSTRAP_TAG" \
-            --pattern "$archive" \
-            --pattern "$archive.sha256" \
-            --dir /tmp/sig-bootstrap
-          (cd /tmp/sig-bootstrap && sha256sum --check --strict "$archive.sha256")
+
+          release_json=$(gh release view "$BOOTSTRAP_TAG" --json isDraft,assets)
+          jq -e '.isDraft == false' <<<"$release_json" >/dev/null
           mkdir -p /tmp/sig-bootstrap/extracted
-          zstd -d "/tmp/sig-bootstrap/$archive" --stdout | tar -x -C /tmp/sig-bootstrap/extracted
-          BIN="/tmp/sig-bootstrap/extracted/bootstrap-sig-x86_64-linux/bin/sig"
+
+          zstd_archive=bootstrap-sig-x86_64-linux.tar.zst
+          legacy_archive=bootstrap-sig-x86_64-linux.tar.gz
+          if jq -e --arg archive "$zstd_archive" \
+              '[.assets[].name] | index($archive) != null and index($archive + ".sha256") != null' \
+              <<<"$release_json" >/dev/null; then
+            gh release download "$BOOTSTRAP_TAG" \
+              --pattern "$zstd_archive" \
+              --pattern "$zstd_archive.sha256" \
+              --dir /tmp/sig-bootstrap
+            (cd /tmp/sig-bootstrap && sha256sum --check --strict "$zstd_archive.sha256")
+            zstd -d "/tmp/sig-bootstrap/$zstd_archive" --stdout |
+              tar -x -C /tmp/sig-bootstrap/extracted
+          elif jq -e --arg archive "$legacy_archive" \
+              '[.assets[].name] | index($archive) != null' \
+              <<<"$release_json" >/dev/null; then
+            # v41 predates sidecar checksums. GitHub records the immutable asset
+            # digest, so verify that digest before using it as the one-time
+            # bridge into the strict v42 package format.
+            expected=$(jq -er --arg archive "$legacy_archive" \
+              '.assets[] | select(.name == $archive) | .digest | select(startswith("sha256:")) | sub("^sha256:"; "")' \
+              <<<"$release_json")
+            gh release download "$BOOTSTRAP_TAG" \
+              --pattern "$legacy_archive" \
+              --dir /tmp/sig-bootstrap
+            actual=$(sha256sum "/tmp/sig-bootstrap/$legacy_archive" | cut -d' ' -f1)
+            test "$actual" = "$expected"
+            tar -xzf "/tmp/sig-bootstrap/$legacy_archive" \
+              -C /tmp/sig-bootstrap/extracted
+          else
+            echo "::error::Bootstrap $BOOTSTRAP_TAG has no verified x86_64 Linux archive"
+            exit 1
+          fi
+
+          BIN=$(find /tmp/sig-bootstrap/extracted -type f -path '*/bin/sig' -print -quit)
+          test -n "$BIN"
           chmod +x "$BIN"
-          "$BIN" version | grep -q 'sig '
+          version_output=$("$BIN" version)
+          if [[ "$version_output" != *"sig "* && ! "$version_output" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.+-].*)?$ ]]; then
+            echo "::error::Bootstrap returned an invalid version identity: $version_output"
+            exit 1
+          fi
           echo "SIG=$BIN" >> "$GITHUB_ENV"
 
       - name: Regenerate zig1.wasm via build system
@@ -69,10 +104,11 @@ jobs:
           echo "Building zig1.wasm via build system..."
           # Use zig build with build_wasm.zig — the build system properly resolves
           # wasm32-wasi target (build-exe ignores -target for the linker).
-          # Use --zig-lib-dir to point at our repo's lib (has latest CallingConvention defs).
+          # Maker requires --zig-lib= as its first argument. This binds the
+          # bootstrap executable to this exact checkout's matching library.
           "${SIG}" build \
+            --zig-lib=lib \
             --build-file build_wasm.zig \
-            --zig-lib-dir lib \
             -Dsig-version="$SIG_VER" \
             -Dzig-version="$ZIG_VER" \
             update-zig1
