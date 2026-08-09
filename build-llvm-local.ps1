@@ -2,8 +2,8 @@
 # Build LLVM 22 locally on Windows with MSVC
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
-$llvmCommit = "a255c1ed36a1d06f79bd2633ba9f8d900153007c"
-$artifactTag = "llvm-22.1.7-sig-0.3.0.r3"
+$llvmCommit = "ca7933e47d3a3451d81e72ac174dcb5aa28b59d1"
+$artifactTag = "llvm-22.1.8-sig-0.3.0"
 $archive = "C:\llvm-22-x86_64-windows-native.tar.zst"
 
 # Activate MSVC
@@ -15,7 +15,7 @@ Write-Host "MSVC activated: $(cl 2>&1 | Select-Object -First 1)"
 # Clone if needed
 if (-not (Test-Path "C:\llvm-build-src")) {
     Write-Host "Cloning LLVM..."
-    git clone --depth 1 --branch llvmorg-22.1.7 https://github.com/llvm/llvm-project.git C:\llvm-build-src
+    git clone --depth 1 --branch llvmorg-22.1.8 https://github.com/llvm/llvm-project.git C:\llvm-build-src
     if ($LASTEXITCODE -ne 0) { throw "LLVM clone failed" }
 }
 $actualCommit = (git -C C:\llvm-build-src rev-parse HEAD).Trim()
@@ -55,7 +55,7 @@ Write-Host "Building..."
 ninja -C C:\llvm-build install
 if ($LASTEXITCODE -ne 0) { throw "LLVM build or install failed" }
 $builtVersion = (& C:\llvm-22-built\bin\llvm-config.exe --version).Trim()
-if ($LASTEXITCODE -ne 0 -or $builtVersion -ne "22.1.7") {
+if ($LASTEXITCODE -ne 0 -or $builtVersion -ne "22.1.8") {
     throw "LLVM version probe failed: $builtVersion"
 }
 

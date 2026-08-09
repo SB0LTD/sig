@@ -31,7 +31,8 @@ permissions:
   contents: read
 
 env:
-  LLVM_TAG: "llvmorg-22.1.7"
+  LLVM_TAG: "llvmorg-22.1.8"
+  LLVM_SOURCE_COMMIT: "ca7933e47d3a3451d81e72ac174dcb5aa28b59d1"
   ZIG_VERSION: "0.17.0-dev.389+f5a1968f6"
 
 jobs:
@@ -62,7 +63,9 @@ jobs:
           version: ${{ env.ZIG_VERSION }}
 
       - name: Clone LLVM
-        run: git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
+        run: |
+          git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
+          test "$(git -C llvm-src rev-parse HEAD)" = "${LLVM_SOURCE_COMMIT}"
 
       - name: Create zig cc wrappers
         run: |
@@ -176,7 +179,9 @@ jobs:
         run: brew install cmake ninja
 
       - name: Clone LLVM
-        run: git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
+        run: |
+          git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
+          test "$(git -C llvm-src rev-parse HEAD)" = "${LLVM_SOURCE_COMMIT}"
 
       - name: Configure LLVM (native macOS)
         run: |

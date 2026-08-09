@@ -35,10 +35,10 @@ output, while `sig version` identifies both the Sig and Zig versions.
 
 | Platform | Backend | Download |
 |---|---|---|
-| x86_64-linux | Full LLVM 22.1.7 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz) |
-| aarch64-linux | Full LLVM 22.1.7 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-linux.tar.xz) |
-| aarch64-macos | Full LLVM 22.1.7 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-macos.tar.xz) |
-| x86_64-windows | Full LLVM 22.1.7 | [zip](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-windows.zip) |
+| x86_64-linux | Full LLVM 22.1.8 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz) |
+| aarch64-linux | Full LLVM 22.1.8 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-linux.tar.xz) |
+| aarch64-macos | Full LLVM 22.1.8 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-macos.tar.xz) |
+| x86_64-windows | Full LLVM 22.1.8 | [zip](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-windows.zip) |
 
 Every package contains the same full LLVM target set and the same Sig standard
 library. Linux and macOS execute on their build hosts, Windows executes on a
@@ -94,7 +94,7 @@ The result: sig never drifts. You get upstream bug fixes, optimizations, and new
 | **Latest upstream commit** | [`f74dac70`](https://codeberg.org/ziglang/zig/commit/f74dac70b022fb9cbba25865fc9b14021f45b880) |
 | **Last sync** | 2026-08-09 |
 | **Upstream** | [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) |
-| **Base version** | zig 0.17.0-dev · LLVM 22.1.7 |
+| **Base version** | zig 0.17.0-dev · LLVM 22.1.8 |
 | **Sync frequency** | Every commit (< 1 min latency) |
 
 ---

@@ -11,7 +11,7 @@ train and establishes the allocator-free native SB0 compiler foundation.
 
 ### Highlights
 - **Four full LLVM toolchains** — x86_64 Linux, aarch64 Linux, aarch64 macOS,
-  and x86_64 Windows ship with the same LLVM 22.1.7 target closure.
+  and x86_64 Windows ship with the same LLVM 22.1.8 target closure.
 - **Sig builds every final Sig** — the production release stage never invokes
   upstream Zig; Windows is cross-compiled by the proven Linux Sig and then
   executed on a Windows runner.
@@ -38,7 +38,11 @@ train and establishes the allocator-free native SB0 compiler foundation.
 
 ### Changed
 - Bumped the Sig language/toolchain version to 0.3.0.
-- Upgraded the pinned LLVM source from 22.1.3 to 22.1.7.
+- Upgraded the pinned LLVM source from 22.1.3 to 22.1.8.
+- LLVM 22.1.8 is pinned to the official signed tag's peeled commit
+  `ca7933e47d3a3451d81e72ac174dcb5aa28b59d1`; relative to 22.1.7 it carries
+  11 upstream patch commits, including LLD symbol initialization and Hexagon,
+  BPF, RISC-V, WebAssembly, and vector-code-generation fixes.
 - Bootstrap archives now include their matching standard library and Sig build
   runner, and use zstd level 19 for fast extraction.
 - Release publication is atomic at the workflow boundary: incomplete builds
