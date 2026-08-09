@@ -1768,7 +1768,7 @@ const X86_16 = struct {
         switch (register_num) {
             4 => return @ptrCast(ctx.regs.getPtr(.sp)),
             5 => return @ptrCast(ctx.regs.getPtr(.bp)),
-            6 => return @ptrCast(ctx.regs.getPtr(.ip)),
+            8 => return @ptrCast(ctx.regs.getPtr(.ip)),
             41 => return @ptrCast(ctx.regs.getPtr(.cs)),
             42 => return @ptrCast(ctx.regs.getPtr(.ss)),
             else => return error.InvalidRegister,
