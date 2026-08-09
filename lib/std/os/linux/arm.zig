@@ -146,35 +146,21 @@ pub fn clone() callconv(.naked) u32 {
 }
 
 pub fn restore() callconv(.naked) noreturn {
-    switch (builtin.zig_backend) {
-        .stage2_c => asm volatile (
-            \\ mov r7, %[number]
-            \\ svc #0
-            :
-            : [number] "I" (@backingInt(SYS.sigreturn)),
-        ),
-        else => asm volatile (
-            \\ svc #0
-            :
-            : [number] "{r7}" (@backingInt(SYS.sigreturn)),
-        ),
-    }
+    asm volatile (
+        \\ mov r7, %[number]
+        \\ svc #0
+        :
+        : [number] "I" (@backingInt(SYS.sigreturn)),
+    );
 }
 
 pub fn restore_rt() callconv(.naked) noreturn {
-    switch (builtin.zig_backend) {
-        .stage2_c => asm volatile (
-            \\ mov r7, %[number]
-            \\ svc #0
-            :
-            : [number] "I" (@backingInt(SYS.rt_sigreturn)),
-        ),
-        else => asm volatile (
-            \\ svc #0
-            :
-            : [number] "{r7}" (@backingInt(SYS.rt_sigreturn)),
-        ),
-    }
+    asm volatile (
+        \\ mov r7, %[number]
+        \\ svc #0
+        :
+        : [number] "I" (@backingInt(SYS.rt_sigreturn)),
+    );
 }
 
 pub const VDSO = struct {

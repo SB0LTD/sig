@@ -160,19 +160,12 @@ pub fn clone() callconv(.naked) u32 {
 pub const restore = restore_rt;
 
 pub fn restore_rt() callconv(.naked) noreturn {
-    switch (builtin.zig_backend) {
-        .stage2_c => asm volatile (
-            \\ movl %[number], %%eax
-            \\ syscall
-            :
-            : [number] "i" (@backingInt(SYS.rt_sigreturn)),
-        ),
-        else => asm volatile (
-            \\ syscall
-            :
-            : [number] "{rax}" (@backingInt(SYS.rt_sigreturn)),
-        ),
-    }
+    asm volatile (
+        \\ movl %[number], %%eax
+        \\ syscall
+        :
+        : [number] "i" (@backingInt(SYS.rt_sigreturn)),
+    );
 }
 
 pub const time_t = i64;

@@ -174,35 +174,21 @@ pub fn clone() callconv(.naked) u64 {
 }
 
 pub fn restore() callconv(.naked) noreturn {
-    switch (builtin.zig_backend) {
-        .stage2_c => asm volatile (
-            \\lghi %%r1, %[number]
-            \\svc 0
-            :
-            : [number] "K" (@backingInt(SYS.sigreturn)),
-        ),
-        else => asm volatile (
-            \\svc 0
-            :
-            : [number] "{r1}" (@backingInt(SYS.sigreturn)),
-        ),
-    }
+    asm volatile (
+        \\lghi %%r1, %[number]
+        \\svc 0
+        :
+        : [number] "K" (@backingInt(SYS.sigreturn)),
+    );
 }
 
 pub fn restore_rt() callconv(.naked) noreturn {
-    switch (builtin.zig_backend) {
-        .stage2_c => asm volatile (
-            \\lghi %%r1, %[number]
-            \\svc 0
-            :
-            : [number] "K" (@backingInt(SYS.rt_sigreturn)),
-        ),
-        else => asm volatile (
-            \\svc 0
-            :
-            : [number] "{r1}" (@backingInt(SYS.rt_sigreturn)),
-        ),
-    }
+    asm volatile (
+        \\lghi %%r1, %[number]
+        \\svc 0
+        :
+        : [number] "K" (@backingInt(SYS.rt_sigreturn)),
+    );
 }
 
 pub const time_t = i64;
