@@ -43,7 +43,9 @@ train and establishes the allocator-free native SB0 compiler foundation.
   runner, and use zstd level 19 for fast extraction.
 - Release publication is atomic at the workflow boundary: incomplete builds
   remain drafts and cannot become a public LLVM or bootstrap dependency.
-- GitHub Actions used by release-critical workflows are pinned to exact commits.
+- GitHub Actions used by every workflow are pinned to exact commits; checkout,
+  artifact upload, and artifact download use their current Node.js 24 releases
+  so the release train has no forced Node.js 20 compatibility fallback.
 - LLVM source, zlib, zstd, and host-native TableGen inputs are commit-pinned;
   cross closures cannot start until their native TableGen tools are proven.
 - Annotated dependency tags are recorded by their peeled source commits rather

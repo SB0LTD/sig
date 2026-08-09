@@ -39,7 +39,7 @@ jobs:
       sig_version: ${{ steps.source.outputs.sig_version }}
       zig_version: ${{ steps.source.outputs.zig_version }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Resolve source version
         id: source
@@ -94,7 +94,7 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go
           sudo apt-get clean
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -262,7 +262,7 @@ jobs:
           [[ "$zig_output" = "$ZIG_VERSION" || "$zig_output" = "$ZIG_VERSION"-* || "$zig_output" = "$ZIG_VERSION"+* ]]
           [[ "$zig_output" != *sig* ]]
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bootstrap-sig-x86_64-linux
           path: |
@@ -270,7 +270,7 @@ jobs:
             bootstrap-sig-x86_64-linux.tar.zst.sha256
           compression-level: 0
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bootstrap-sig-aarch64-linux
           path: |
@@ -298,7 +298,7 @@ jobs:
       SIG_VERSION: ${{ needs.prepare-release.outputs.sig_version }}
       ZIG_VERSION: ${{ needs.prepare-release.outputs.zig_version }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -409,14 +409,14 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go
           sudo apt-get clean
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Install packaging tools
         run: sudo apt-get update -qq && sudo apt-get install -y -qq xz-utils zstd
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bootstrap-sig-x86_64-linux
           path: .bootstrap-linux
@@ -484,7 +484,7 @@ jobs:
           sha256sum --check --strict "$archive.sha256"
           test "$(od -An -tx1 -N2 "$root/bin/sig.exe" | tr -d ' \n')" = 4d5a
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bootstrap-sig-x86_64-windows
           path: |
@@ -505,7 +505,7 @@ jobs:
       SIG_VERSION: ${{ needs.prepare-release.outputs.sig_version }}
       ZIG_VERSION: ${{ needs.prepare-release.outputs.zig_version }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install extraction tools
         shell: pwsh
@@ -529,7 +529,7 @@ jobs:
           & (Join-Path $bin 'zstd.exe') --version
           if ($LASTEXITCODE -ne 0) { throw 'zstd executable probe failed' }
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bootstrap-sig-x86_64-windows
           path: .bootstrap-windows
