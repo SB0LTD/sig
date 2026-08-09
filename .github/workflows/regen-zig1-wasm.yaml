@@ -120,6 +120,7 @@ jobs:
             echo "FATAL: not a wasm file (magic=$MAGIC)"
             exit 1
           fi
+          chmod 0644 stage1/zig1.wasm
           echo "OK: valid wasm — $(du -h stage1/zig1.wasm | cut -f1)"
 
       - name: Commit
