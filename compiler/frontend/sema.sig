@@ -718,11 +718,13 @@ pub const Sema = struct {
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "Sema init produces empty state" {
     var sema = Sema.init();
-    if (sema.current_depth != 0) @compileError("initial depth should be 0");
-    if (sema.scope_stack.len() != 0) @compileError("scope stack should be empty");
-    if (sema.eval_stack.len() != 0) @compileError("eval stack should be empty");
+    try testing.expect(!(sema.current_depth != 0)); // initial depth should be 0
+    try testing.expect(!(sema.scope_stack.len() != 0)); // scope stack should be empty
+    try testing.expect(!(sema.eval_stack.len() != 0)); // eval stack should be empty
     _ = &sema;
 }
 
@@ -742,29 +744,29 @@ test "declareSymbol and resolveIdentifier" {
 
     // Should be resolvable
     const result = sema.resolveIdentifier(0x1234);
-    if (result == null) @compileError("expected to find declared symbol");
+    try testing.expect(!(result == null)); // expected to find declared symbol
 
     // Unknown symbol should return null
     const missing = sema.resolveIdentifier(0x9999);
-    if (missing != null) @compileError("expected null for unknown symbol");
+    try testing.expect(!(missing != null)); // expected null for unknown symbol
 }
 
 test "pushScope and popScope manage depth" {
     var sema = Sema.init();
-    if (sema.current_depth != 0) @compileError("initial depth should be 0");
+    try testing.expect(!(sema.current_depth != 0)); // initial depth should be 0
 
     sema.pushScope();
-    if (sema.current_depth != 1) @compileError("depth should be 1 after pushScope");
-    if (sema.scope_stack.len() != 1) @compileError("scope stack should have 1 frame");
+    try testing.expect(!(sema.current_depth != 1)); // depth should be 1 after pushScope
+    try testing.expect(!(sema.scope_stack.len() != 1)); // scope stack should have 1 frame
 
     sema.pushScope();
-    if (sema.current_depth != 2) @compileError("depth should be 2 after second pushScope");
+    try testing.expect(!(sema.current_depth != 2)); // depth should be 2 after second pushScope
 
     sema.popScope();
-    if (sema.current_depth != 1) @compileError("depth should be 1 after popScope");
+    try testing.expect(!(sema.current_depth != 1)); // depth should be 1 after popScope
 
     sema.popScope();
-    if (sema.current_depth != 0) @compileError("depth should be 0 after second popScope");
+    try testing.expect(!(sema.current_depth != 0)); // depth should be 0 after second popScope
 }
 
 test "evictCompletedScopes removes inner scope symbols" {
@@ -794,16 +796,16 @@ test "evictCompletedScopes removes inner scope symbols" {
     });
 
     // Inner symbol should be visible
-    if (sema.resolveIdentifier(0xBBBB) == null) @compileError("inner symbol should be visible");
+    try testing.expect(!(sema.resolveIdentifier(0xBBBB) == null)); // inner symbol should be visible
 
     // Pop scope — inner symbol gets evicted
     sema.popScope();
 
     // Outer symbol still visible
-    if (sema.resolveIdentifier(0xAAAA) == null) @compileError("outer symbol should still be visible");
+    try testing.expect(!(sema.resolveIdentifier(0xAAAA) == null)); // outer symbol should still be visible
 
     // Inner symbol no longer visible
-    if (sema.resolveIdentifier(0xBBBB) != null) @compileError("inner symbol should be evicted");
+    try testing.expect(!(sema.resolveIdentifier(0xBBBB) != null)); // inner symbol should be evicted
 }
 
 test "internType deduplicates" {
@@ -827,9 +829,9 @@ test "internType deduplicates" {
     const idx3 = sema.internType(desc3);
 
     // Same type should produce same index
-    if (idx1 != idx2) @compileError("identical types should intern to same index");
+    try testing.expect(!(idx1 != idx2)); // identical types should intern to same index
     // Different type should produce different index
-    if (idx1 == idx3) @compileError("different types should intern to different indices");
+    try testing.expect(!(idx1 == idx3)); // different types should intern to different indices
 }
 
 test "scope shadowing - inner scope wins" {
@@ -863,8 +865,8 @@ test "scope shadowing - inner scope wins" {
 
     // Resolve should find the inner (most recent) declaration
     const resolved = sema.resolveIdentifier(0x1111);
-    if (resolved == null) @compileError("shadowed symbol should be resolvable");
-    if (resolved.?.type_index != 20) @compileError("inner scope should win (type_index=20)");
+    try testing.expect(!(resolved == null)); // shadowed symbol should be resolvable
+    try testing.expect(!(resolved.?.type_index != 20)); // inner scope should win (type_index=20)
 
     sema.popScope();
 }
@@ -882,8 +884,8 @@ test "identifier resolution - inner scope shadows outer" {
     sema.pushScope();
     sema.declareSymbol(.{ .name_hash = 0xABC, .type_index = 2, .scope_depth = 0, .decl_file = 0, .decl_line = 0, .decl_column = 0, .last_referenced = 0 });
     const r = sema.resolveIdentifier(0xABC);
-    if (r == null) @compileError("should resolve");
-    if (r.?.type_index != 2) @compileError("inner scope should shadow outer");
+    try testing.expect(!(r == null)); // should resolve
+    try testing.expect(!(r.?.type_index != 2)); // inner scope should shadow outer
     sema.popScope();
 }
 
@@ -894,9 +896,9 @@ test "identifier resolution - outer visible after inner popped" {
     sema.declareSymbol(.{ .name_hash = 0x123, .type_index = 20, .scope_depth = 0, .decl_file = 0, .decl_line = 0, .decl_column = 0, .last_referenced = 0 });
     sema.popScope();
     // Inner symbol evicted
-    if (sema.resolveIdentifier(0x123) != null) @compileError("inner should be evicted");
+    try testing.expect(!(sema.resolveIdentifier(0x123) != null)); // inner should be evicted
     // Outer still visible
-    if (sema.resolveIdentifier(0xDEF) == null) @compileError("outer should remain");
+    try testing.expect(!(sema.resolveIdentifier(0xDEF) == null)); // outer should remain
 }
 
 // Property 9: Comptime evaluation consistency
@@ -905,24 +907,24 @@ test "comptime evaluation - integer literal" {
     var sema = Sema.init();
     const node = AST_Node{ .tag = .integer_literal, .token_start = 42, .data = .{ .leaf = .{ .token = 42 } } };
     const val = sema.evalComptime(&node);
-    if (val == null) @compileError("integer literal should be comptime evaluable");
-    if (val.?.tag != .int) @compileError("should produce int tag");
-    if (val.?.data.int != 42) @compileError("should produce value 42");
+    try testing.expect(!(val == null)); // integer literal should be comptime evaluable
+    try testing.expect(!(val.?.tag != .int)); // should produce int tag
+    try testing.expect(!(val.?.data.int != 42)); // should produce value 42
 }
 
 test "comptime evaluation - bool literal" {
     var sema = Sema.init();
     const node = AST_Node{ .tag = .bool_literal, .token_start = 1, .data = .{ .leaf = .{ .token = 1 } } };
     const val = sema.evalComptime(&node);
-    if (val == null) @compileError("bool literal should be comptime evaluable");
-    if (val.?.tag != .boolean) @compileError("should produce boolean tag");
+    try testing.expect(!(val == null)); // bool literal should be comptime evaluable
+    try testing.expect(!(val.?.tag != .boolean)); // should produce boolean tag
 }
 
 test "comptime evaluation - non-evaluable returns null" {
     var sema = Sema.init();
     const node = AST_Node{ .tag = .call_expr, .token_start = 0, .data = .{ .call = .{ .callee = 0, .args_start = 0, .args_count = 0 } } };
     const val = sema.evalComptime(&node);
-    if (val != null) @compileError("call_expr should not be comptime evaluable");
+    try testing.expect(!(val != null)); // call_expr should not be comptime evaluable
 }
 
 // Property 10: Semantic error detection
@@ -931,14 +933,14 @@ test "semantic error - undefined reference increments error count" {
     var sema = Sema.init();
     const node = AST_Node{ .tag = .identifier_ref, .token_start = 0, .data = .{ .leaf = .{ .token = 0x9999 } } };
     _ = sema.analyze(&node);
-    if (sema.error_count != 1) @compileError("undefined reference should produce an error");
+    try testing.expect(!(sema.error_count != 1)); // undefined reference should produce an error
 }
 
 test "semantic error - multiple errors accumulate" {
     var sema = Sema.init();
     sema.reportError("err1", .{ .file = 0, .line = 1, .column = 1 });
     sema.reportError("err2", .{ .file = 0, .line = 2, .column = 1 });
-    if (sema.error_count != 2) @compileError("should accumulate 2 errors");
+    try testing.expect(!(sema.error_count != 2)); // should accumulate 2 errors
 }
 
 // Property 11: Eviction-recompute round trip
@@ -949,8 +951,8 @@ test "eviction-recompute - evictCompletedScopes removes correct entries" {
     sema.declareSymbol(.{ .name_hash = 0x111, .type_index = 1, .scope_depth = 0, .decl_file = 0, .decl_line = 0, .decl_column = 0, .last_referenced = 0 });
     sema.declareSymbol(.{ .name_hash = 0x222, .type_index = 2, .scope_depth = 0, .decl_file = 0, .decl_line = 0, .decl_column = 0, .last_referenced = 0 });
     sema.popScope(); // evicts both
-    if (sema.resolveIdentifier(0x111) != null) @compileError("should be evicted");
-    if (sema.resolveIdentifier(0x222) != null) @compileError("should be evicted");
+    try testing.expect(!(sema.resolveIdentifier(0x111) != null)); // should be evicted
+    try testing.expect(!(sema.resolveIdentifier(0x222) != null)); // should be evicted
 }
 
 test "eviction-recompute - recomputeFromSource is callable" {
@@ -958,5 +960,5 @@ test "eviction-recompute - recomputeFromSource is callable" {
     // Should not crash or infinite loop
     sema.recomputeFromSource();
     // No observable side effect — this just verifies the method exists and is safe to call
-    if (sema.error_count != 0) @compileError("recompute should not produce errors");
+    try testing.expect(!(sema.error_count != 0)); // recompute should not produce errors
 }

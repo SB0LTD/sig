@@ -8,16 +8,36 @@ if [ "$#" -ne 5 ]; then
   exit 2
 fi
 
-BOOTSTRAP="$(realpath "$1")"
-LLVM_PREFIX="$(realpath "$2")"
+absolute_existing() {
+  local input="$1"
+  local directory
+  local leaf
+  directory="$(dirname "$input")"
+  leaf="$(basename "$input")"
+  (cd "$directory" && printf '%s/%s\n' "$PWD" "$leaf")
+}
+
+absolute_output() {
+  local input="$1"
+  local directory
+  local leaf
+  directory="$(dirname "$input")"
+  leaf="$(basename "$input")"
+  mkdir -p "$directory"
+  (cd "$directory" && printf '%s/%s\n' "$PWD" "$leaf")
+}
+
+BOOTSTRAP="$(absolute_existing "$1")"
+LLVM_PREFIX="$(absolute_existing "$2")"
 TARGET="$3"
-OUTPUT="$(realpath -m "$4")"
-CACHE="$(realpath -m "$5")"
-ROOT="$(realpath "${SB0_SIG_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}")"
+OUTPUT="$(absolute_output "$4")"
+CACHE="$(absolute_output "$5")"
+ROOT="$(absolute_existing "${SB0_SIG_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}")"
 OPTIMIZE="${SIG_RELEASE_OPTIMIZE:-ReleaseFast}"
+STRIP="${SIG_RELEASE_STRIP:-true}"
 
 case "$TARGET" in
-  x86_64-linux-musl|x86_64-windows-gnu) ;;
+  x86_64-linux-musl|aarch64-linux-musl|aarch64-macos-none|x86_64-windows-gnu) ;;
   *) echo "unsupported release target: $TARGET" >&2; exit 2 ;;
 esac
 
@@ -26,8 +46,15 @@ case "$OPTIMIZE" in
   *) echo "unsupported optimization mode: $OPTIMIZE" >&2; exit 2 ;;
 esac
 
+case "$STRIP" in
+  true) strip_flag=-fstrip ;;
+  false) strip_flag=-fno-strip ;;
+  *) echo "SIG_RELEASE_STRIP must be true or false" >&2; exit 2 ;;
+esac
+
 test -x "$BOOTSTRAP"
 test -f "$LLVM_PREFIX/include/llvm/Config/llvm-config.h"
+test -f "$LLVM_PREFIX/lib/libLLVMCore.a"
 test -f "$ROOT/src/main.zig"
 test -f "$ROOT/lib/std/std.zig"
 mkdir -p "$(dirname "$OUTPUT")" "$CACHE"
@@ -86,7 +113,7 @@ cd "$ROOT"
   -target "$TARGET" \
   -mcpu=baseline \
   "-O$OPTIMIZE" \
-  -fstrip \
+  "$strip_flag" \
   -fllvm \
   -flld \
   -cflags \
@@ -131,6 +158,17 @@ case "$TARGET" in
     test "$(od -An -tx1 -N4 "$OUTPUT" | tr -d ' \n')" = 7f454c46
     file "$OUTPUT" | grep -q 'ELF 64-bit.*x86-64'
     ;;
+  aarch64-linux-musl)
+    test "$(od -An -tx1 -N4 "$OUTPUT" | tr -d ' \n')" = 7f454c46
+    file "$OUTPUT" | grep -q 'ELF 64-bit.*ARM aarch64'
+    ;;
+  aarch64-macos-none)
+    file "$OUTPUT" | grep -q 'Mach-O 64-bit executable arm64'
+    ;;
 esac
 
-sha256sum "$OUTPUT"
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum "$OUTPUT"
+else
+  shasum -a 256 "$OUTPUT"
+fi

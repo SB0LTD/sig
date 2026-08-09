@@ -11,14 +11,14 @@ on:
       bootstrap_tag:
         description: 'Bootstrap release tag'
         required: false
-        default: 'bootstrap-sig-v28'
+        default: 'bootstrap-sig-v42'
         type: string
 
 permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag || 'bootstrap-sig-v28' }}
+  BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag || 'bootstrap-sig-v42' }}
 
 jobs:
   build:
@@ -32,14 +32,23 @@ jobs:
             ext: tar.xz
             bin: sig
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
       - name: Resolve version
         id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          VERSION="${{ inputs.version }}"
+          set -euo pipefail
+          VERSION="$REQUESTED_VERSION"
+          [[ "$VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "invalid release tag" >&2; exit 2; }
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "release $VERSION already exists; transitional tags are immutable" >&2
+            exit 1
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
@@ -47,12 +56,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1
-          # Download bootstrap binary (use curl for reliability with large assets)
-          ASSET_URL=$(gh release view "${{ env.BOOTSTRAP_TAG }}" --json assets --jq '.assets[] | select(.name | startswith("bootstrap-sig-x86_64-linux")) | .url')
-          curl -L -o /tmp/bootstrap-archive.tar.gz "$ASSET_URL"
+          sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1 zstd
+          gh release download "${{ env.BOOTSTRAP_TAG }}" \
+            --pattern bootstrap-sig-x86_64-linux.tar.zst \
+            --pattern bootstrap-sig-x86_64-linux.tar.zst.sha256 \
+            --dir /tmp
+          (cd /tmp && sha256sum --check --strict bootstrap-sig-x86_64-linux.tar.zst.sha256)
           mkdir -p /tmp/bootstrap
-          tar -xf /tmp/bootstrap-archive.tar.gz -C /tmp/bootstrap
+          zstd -d /tmp/bootstrap-sig-x86_64-linux.tar.zst --stdout | tar -x -C /tmp/bootstrap
           BIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)
           chmod +x "$BIN"
           echo "SIG=${BIN}" >> "$GITHUB_ENV"
@@ -105,16 +116,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Create bootstrap archive
-          mkdir -p bootstrap-out/bin
+          set -euo pipefail
+          archive=bootstrap-sig-x86_64-linux.tar.zst
+          mkdir -p bootstrap-out/bin bootstrap-out/tools
           cp stage3-out/bin/sig bootstrap-out/bin/sig
           cp stage3-out/bin/sig bootstrap-out/bin/zig
-          tar -czf bootstrap-sig-x86_64-linux.tar.gz -C bootstrap-out .
+          cp -R lib bootstrap-out/lib
+          cp tools/sig_build/main.zig bootstrap-out/tools/sig_build.zig
+          tar -cf - -C bootstrap-out . | zstd -19 -T0 -o "$archive"
+          sha256sum "$archive" > "$archive.sha256"
+          sha256sum --check --strict "$archive.sha256"
 
-          # Create or update release
-          gh release view "${VERSION}" >/dev/null 2>&1 || \
-            gh release create "${VERSION}" \
-              --title "Bootstrap ${VERSION}" \
-              --notes "No-LLVM transitional bootstrap with compiler module wiring." \
-              --prerelease
-          gh release upload "${VERSION}" bootstrap-sig-x86_64-linux.tar.gz --clobber
+          gh release create "${VERSION}" \
+            --target "${GITHUB_SHA}" \
+            --title "Bootstrap ${VERSION}" \
+            --notes "No-LLVM transitional bootstrap with compiler module wiring. Not a production Sig toolchain." \
+            --draft \
+            --prerelease
+          gh release upload "${VERSION}" "$archive" "$archive.sha256"
+          expected="$(awk '{print $1}' "$archive.sha256")"
+          actual="$(gh release view "${VERSION}" --json assets --jq ".assets[] | select(.name == \"$archive\") | .digest")"
+          test "$actual" = "sha256:$expected"
+          gh release edit "${VERSION}" --draft=false --prerelease

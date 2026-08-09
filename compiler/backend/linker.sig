@@ -65,7 +65,12 @@ pub const Linker = struct {
     target: Target_Triple,
     relocations: BoundedVec(Relocation, Compiler_Capacity_Plan.RELOCATION_TABLE_CAPACITY),
     sections: BoundedVec(Section_Entry, Compiler_Capacity_Plan.SECTION_MERGE_CAPACITY),
-    externals: Fixed_Hash_Map(u64, External_Symbol, 4096, Compiler_Capacity_Plan.EXTERNAL_SYMBOL_INDEX_CAPACITY),
+    externals: Fixed_Hash_Map(
+        u64,
+        External_Symbol,
+        Compiler_Capacity_Plan.EXTERNAL_SYMBOL_BUCKETS,
+        Compiler_Capacity_Plan.EXTERNAL_SYMBOL_INDEX_CAPACITY,
+    ),
     output_offset: u64 = 0,
 
     /// Initialize a new Linker for the given target.
@@ -833,12 +838,14 @@ pub const Linker = struct {
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "Linker init creates empty state" {
     const target = Target_Triple{ .arch = .x86_64, .os = .linux, .abi = .gnu };
     const linker = Linker.init(target);
-    if (linker.sectionCount() != 0) @compileError("new linker should have 0 sections");
-    if (linker.relocationCount() != 0) @compileError("new linker should have 0 relocations");
-    if (linker.output_offset != 0) @compileError("new linker should have output_offset = 0");
+    try testing.expect(!(linker.sectionCount() != 0)); // new linker should have 0 sections
+    try testing.expect(!(linker.relocationCount() != 0)); // new linker should have 0 relocations
+    try testing.expect(!(linker.output_offset != 0)); // new linker should have output_offset = 0
 }
 
 test "addSection increments section count" {
@@ -854,7 +861,7 @@ test "addSection increments section count" {
     entry.size = 1024;
     entry.alignment = 16;
     linker.addSection(entry);
-    if (linker.sectionCount() != 1) @compileError("expected 1 section after addSection");
+    try testing.expect(!(linker.sectionCount() != 1)); // expected 1 section after addSection
 }
 
 test "addRelocation increments relocation count" {
@@ -867,7 +874,7 @@ test "addRelocation increments relocation count" {
         .addend = 0,
     };
     linker.addRelocation(reloc);
-    if (linker.relocationCount() != 1) @compileError("expected 1 relocation after addRelocation");
+    try testing.expect(!(linker.relocationCount() != 1)); // expected 1 relocation after addRelocation
 }
 
 test "streamingFlush clears relocation table" {
@@ -881,9 +888,9 @@ test "streamingFlush clears relocation table" {
     };
     linker.addRelocation(reloc);
     linker.addRelocation(reloc);
-    if (linker.relocationCount() != 2) @compileError("expected 2 relocations");
+    try testing.expect(!(linker.relocationCount() != 2)); // expected 2 relocations
     linker.streamingFlush();
-    if (linker.relocationCount() != 0) @compileError("expected 0 relocations after flush");
+    try testing.expect(!(linker.relocationCount() != 0)); // expected 0 relocations after flush
 }
 
 test "resolveRelocations patches defined symbols" {
@@ -913,14 +920,14 @@ test "resolveRelocations patches defined symbols" {
     var code = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
     const resolved = linker.resolveRelocations(&code);
 
-    if (resolved != 1) @compileError("expected 1 resolved relocation");
-    if (linker.relocationCount() != 0) @compileError("resolved relocations should be removed");
+    try testing.expect(!(resolved != 1)); // expected 1 resolved relocation
+    try testing.expect(!(linker.relocationCount() != 0)); // resolved relocations should be removed
 
     // Verify code was patched with address 0x1000 (little-endian 32-bit)
-    if (code[0] != 0x00) @compileError("byte 0 should be 0x00");
-    if (code[1] != 0x10) @compileError("byte 1 should be 0x10");
-    if (code[2] != 0x00) @compileError("byte 2 should be 0x00");
-    if (code[3] != 0x00) @compileError("byte 3 should be 0x00");
+    try testing.expect(!(code[0] != 0x00)); // byte 0 should be 0x00
+    try testing.expect(!(code[1] != 0x10)); // byte 1 should be 0x10
+    try testing.expect(!(code[2] != 0x00)); // byte 2 should be 0x00
+    try testing.expect(!(code[3] != 0x00)); // byte 3 should be 0x00
 }
 
 test "resolveRelocations keeps unresolved relocations" {
@@ -939,8 +946,8 @@ test "resolveRelocations keeps unresolved relocations" {
     var code = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
     const resolved = linker.resolveRelocations(&code);
 
-    if (resolved != 0) @compileError("no symbols defined — nothing should resolve");
-    if (linker.relocationCount() != 1) @compileError("unresolved relocation should remain");
+    try testing.expect(!(resolved != 0)); // no symbols defined — nothing should resolve
+    try testing.expect(!(linker.relocationCount() != 1)); // unresolved relocation should remain
 }
 
 test "resolveRelocations with undefined symbol keeps relocation" {
@@ -968,8 +975,8 @@ test "resolveRelocations with undefined symbol keeps relocation" {
     var code = [_]u8{ 0, 0, 0, 0 };
     const resolved = linker.resolveRelocations(&code);
 
-    if (resolved != 0) @compileError("undefined symbol should not resolve");
-    if (linker.relocationCount() != 1) @compileError("relocation for undefined sym should remain");
+    try testing.expect(!(resolved != 0)); // undefined symbol should not resolve
+    try testing.expect(!(linker.relocationCount() != 1)); // relocation for undefined sym should remain
 }
 
 test "addExternalSymbol allows lookup via externals" {
@@ -985,10 +992,10 @@ test "addExternalSymbol allows lookup via externals" {
     };
     linker.addExternalSymbol(sym);
 
-    if (linker.externals.get(123) == null) @compileError("should find symbol with hash 123");
+    try testing.expect(!(linker.externals.get(123) == null)); // should find symbol with hash 123
     const found = linker.externals.get(123).?;
-    if (found.offset != 0x2000) @compileError("symbol offset should be 0x2000");
-    if (!found.is_defined) @compileError("symbol should be defined");
+    try testing.expect(!(found.offset != 0x2000)); // symbol offset should be 0x2000
+    try testing.expect(!(!found.is_defined)); // symbol should be defined
 }
 
 test "resolveRelocations applies addend correctly" {
@@ -1016,12 +1023,12 @@ test "resolveRelocations applies addend correctly" {
     var code = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
     const resolved = linker.resolveRelocations(&code);
 
-    if (resolved != 1) @compileError("expected 1 resolved");
+    try testing.expect(!(resolved != 1)); // expected 1 resolved
     // Final address = 0x100 + 4 = 0x104
-    if (code[0] != 0x04) @compileError("byte 0 should be 0x04");
-    if (code[1] != 0x01) @compileError("byte 1 should be 0x01");
-    if (code[2] != 0x00) @compileError("byte 2 should be 0x00");
-    if (code[3] != 0x00) @compileError("byte 3 should be 0x00");
+    try testing.expect(!(code[0] != 0x04)); // byte 0 should be 0x04
+    try testing.expect(!(code[1] != 0x01)); // byte 1 should be 0x01
+    try testing.expect(!(code[2] != 0x00)); // byte 2 should be 0x00
+    try testing.expect(!(code[3] != 0x00)); // byte 3 should be 0x00
 }
 
 test "multiple sections accumulate correctly" {
@@ -1047,26 +1054,28 @@ test "multiple sections accumulate correctly" {
     linker.addSection(text_section);
     linker.addSection(data_section);
 
-    if (linker.sectionCount() != 2) @compileError("expected 2 sections");
+    try testing.expect(!(linker.sectionCount() != 2)); // expected 2 sections
 }
 
 test "emitElf produces ELF magic" {
     const target = Target_Triple{ .arch = .x86_64, .os = .linux, .abi = .gnu };
     var linker = Linker.init(target);
-    var buf: [128]u8 = undefined;
+    // ELF64 header + program header + entry stub + one-byte main = 135 bytes.
+    var buf: [256]u8 = undefined;
     const written = linker.emitElf(&buf);
-    if (written < 64) @compileError("ELF header should be at least 64 bytes");
+    try testing.expect(!(written < 64)); // ELF header should be at least 64 bytes
     if (buf[0] != 0x7f or buf[1] != 'E' or buf[2] != 'L' or buf[3] != 'F')
-        @compileError("ELF magic incorrect");
+        return error.TestUnexpectedResult; // ELF magic incorrect
 }
 
 test "emitPeCoff produces MZ magic" {
     const target = Target_Triple{ .arch = .x86_64, .os = .windows, .abi = .msvc };
     var linker = Linker.init(target);
-    var buf: [128]u8 = undefined;
+    // PE32+ headers and the aligned .text/import section require 1024 bytes.
+    var buf: [1024]u8 = undefined;
     const written = linker.emitPeCoff(&buf);
-    if (written < 68) @compileError("PE header should be at least 68 bytes");
-    if (buf[0] != 0x4D or buf[1] != 0x5A) @compileError("MZ magic incorrect");
+    try testing.expect(!(written < 68)); // PE header should be at least 68 bytes
+    try testing.expect(!(buf[0] != 0x4D or buf[1] != 0x5A)); // MZ magic incorrect
 }
 
 test "emitMachO produces Mach-O magic" {
@@ -1074,10 +1083,10 @@ test "emitMachO produces Mach-O magic" {
     var linker = Linker.init(target);
     var buf: [64]u8 = undefined;
     const written = linker.emitMachO(&buf);
-    if (written < 32) @compileError("Mach-O header should be at least 32 bytes");
+    try testing.expect(!(written < 32)); // Mach-O header should be at least 32 bytes
     // 0xFEEDFACF in little-endian
     if (buf[0] != 0xCF or buf[1] != 0xFA or buf[2] != 0xED or buf[3] != 0xFE)
-        @compileError("Mach-O magic incorrect");
+        return error.TestUnexpectedResult; // Mach-O magic incorrect
 }
 
 test "emitWasm produces Wasm magic" {
@@ -1085,9 +1094,9 @@ test "emitWasm produces Wasm magic" {
     var linker = Linker.init(target);
     var buf: [16]u8 = undefined;
     const written = linker.emitWasm(&buf);
-    if (written != 8) @compileError("Wasm header should be 8 bytes");
+    try testing.expect(!(written != 8)); // Wasm header should be 8 bytes
     if (buf[0] != 0x00 or buf[1] != 0x61 or buf[2] != 0x73 or buf[3] != 0x6D)
-        @compileError("Wasm magic incorrect");
+        return error.TestUnexpectedResult; // Wasm magic incorrect
 }
 
 test "emitSb0Native produces consolidated SB0 magic and fixed metadata sizes" {
@@ -1095,16 +1104,17 @@ test "emitSb0Native produces consolidated SB0 magic and fixed metadata sizes" {
     var linker = Linker.init(target);
     var buf: [256]u8 = undefined;
     const written = linker.emitSb0Native(&buf);
-    if (written != SB0_NATIVE_HEADER_SIZE + SB0_NATIVE_SEGMENT_SIZE)
-        @compileError("SB0 metadata size mismatch");
+    const default_main_size: usize = 4;
+    if (written != SB0_NATIVE_HEADER_SIZE + SB0_NATIVE_SEGMENT_SIZE + default_main_size)
+        return error.TestUnexpectedResult; // SB0 image size mismatch
     if (buf[0] != 'S' or buf[1] != 'B' or buf[2] != '0' or buf[3] != 'X')
-        @compileError("SB0 magic incorrect");
+        return error.TestUnexpectedResult; // SB0 magic incorrect
     if (buf[4] != SB0_NATIVE_FORMAT_VERSION)
-        @compileError("SB0 format version mismatch");
+        return error.TestUnexpectedResult; // SB0 format version mismatch
     if (buf[6] != @as(u8, @truncate(SB0_NATIVE_ABI_VERSION)))
-        @compileError("SB0 ABI version low byte mismatch");
+        return error.TestUnexpectedResult; // SB0 ABI version low byte mismatch
     if (buf[16] != 1 or buf[17] != 0)
-        @compileError("SB0 should emit one initial segment");
+        return error.TestUnexpectedResult; // SB0 should emit one initial segment
 }
 
 test "emitSb0Native rejects non-SB0 target" {
@@ -1112,7 +1122,7 @@ test "emitSb0Native rejects non-SB0 target" {
     var linker = Linker.init(target);
     var buf: [256]u8 = undefined;
     const written = linker.emitSb0Native(&buf);
-    if (written != 0) @compileError("non-SB0 targets should not emit SB0 native image");
+    try testing.expect(!(written != 0)); // non-SB0 targets should not emit SB0 native image
 }
 
 // ============================================================================
@@ -1122,37 +1132,37 @@ test "emitSb0Native rejects non-SB0 target" {
 
 test "linker output format - ELF magic is 0x7f454c46" {
     var linker = Linker.init(.{ .arch = .x86_64, .os = .linux, .abi = .gnu });
-    var buf: [128]u8 = undefined;
+    var buf: [256]u8 = undefined;
     const n = linker.emitElf(&buf);
-    if (n < 4) @compileError("ELF too short");
+    try testing.expect(!(n < 4)); // ELF too short
     if (buf[0] != 0x7f or buf[1] != 0x45 or buf[2] != 0x4C or buf[3] != 0x46)
-        @compileError("ELF magic wrong");
+        return error.TestUnexpectedResult; // ELF magic wrong
 }
 
 test "linker output format - PE magic is 0x4d5a" {
     var linker = Linker.init(.{ .arch = .x86_64, .os = .windows, .abi = .msvc });
-    var buf: [128]u8 = undefined;
+    var buf: [1024]u8 = undefined;
     const n = linker.emitPeCoff(&buf);
-    if (n < 2) @compileError("PE too short");
-    if (buf[0] != 0x4D or buf[1] != 0x5A) @compileError("PE magic wrong");
+    try testing.expect(!(n < 2)); // PE too short
+    try testing.expect(!(buf[0] != 0x4D or buf[1] != 0x5A)); // PE magic wrong
 }
 
 test "linker output format - Wasm magic is 0x0061736d" {
     var linker = Linker.init(.{ .arch = .wasm32, .os = .freestanding, .abi = .none });
     var buf: [16]u8 = undefined;
     const n = linker.emitWasm(&buf);
-    if (n < 4) @compileError("Wasm too short");
+    try testing.expect(!(n < 4)); // Wasm too short
     if (buf[0] != 0x00 or buf[1] != 0x61 or buf[2] != 0x73 or buf[3] != 0x6D)
-        @compileError("Wasm magic wrong");
+        return error.TestUnexpectedResult; // Wasm magic wrong
 }
 
 test "linker output format - SB0 native magic is SB0X" {
     var linker = Linker.init(.{ .arch = .aarch64, .os = .sb0, .abi = .sb0 });
     var buf: [256]u8 = undefined;
     const n = linker.emitSb0Native(&buf);
-    if (n < 4) @compileError("SB0 native image too short");
+    try testing.expect(!(n < 4)); // SB0 native image too short
     if (buf[0] != 'S' or buf[1] != 'B' or buf[2] != '0' or buf[3] != 'X')
-        @compileError("SB0 native magic wrong");
+        return error.TestUnexpectedResult; // SB0 native magic wrong
 }
 
 // ============================================================================
@@ -1166,7 +1176,7 @@ test "unresolved symbol diagnostics - reports unresolved" {
     linker.addRelocation(reloc);
     var diag_buf: [256]u8 = undefined;
     const count = linker.emitUnresolvedDiagnostics(&diag_buf);
-    if (count != 1) @compileError("should report 1 unresolved symbol");
+    try testing.expect(!(count != 1)); // should report 1 unresolved symbol
 }
 
 test "unresolved symbol diagnostics - no report for defined symbols" {
@@ -1176,7 +1186,7 @@ test "unresolved symbol diagnostics - no report for defined symbols" {
     linker.addRelocation(reloc);
     var diag_buf: [256]u8 = undefined;
     const count = linker.emitUnresolvedDiagnostics(&diag_buf);
-    if (count != 0) @compileError("defined symbol should not be reported as unresolved");
+    try testing.expect(!(count != 0)); // defined symbol should not be reported as unresolved
 }
 
 // ============================================================================
@@ -1201,7 +1211,7 @@ test "multi-unit section merge - sections accumulate" {
     linker.addSection(s1);
     linker.addSection(s2);
     linker.addSection(s3);
-    if (linker.sectionCount() != 3) @compileError("expected 3 sections");
+    try testing.expect(!(linker.sectionCount() != 3)); // expected 3 sections
 }
 
 test "multi-unit section merge - relocations from multiple units" {
@@ -1211,5 +1221,5 @@ test "multi-unit section merge - relocations from multiple units" {
     const r2 = Relocation{ .offset = 0x20, .symbol_index = 2, .rel_type = .r_aarch64_call26, .addend = 0 };
     linker.addRelocation(r1);
     linker.addRelocation(r2);
-    if (linker.relocationCount() != 2) @compileError("expected 2 relocations from 2 units");
+    try testing.expect(!(linker.relocationCount() != 2)); // expected 2 relocations from 2 units
 }

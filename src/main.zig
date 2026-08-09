@@ -427,7 +427,11 @@ fn mainArgs(
         },
         .version => {
             dev.check(.version_command);
-            try Io.File.stdout().writeStreamingAll(io, build_options.version ++ "\n");
+            const output = if (invokedAsZig(args[0]))
+                build_options.version ++ "\n"
+            else
+                "sig " ++ build_options.sig_version ++ " (zig " ++ build_options.version ++ ")\n";
+            try Io.File.stdout().writeStreamingAll(io, output);
             return;
         },
         .env => {
@@ -472,6 +476,21 @@ fn mainArgs(
             return cmdDumpZir(arena, io, cmd_args);
         },
     }
+}
+
+fn invokedAsZig(argv0: []const u8) bool {
+    // Windows path rules recognize both slash styles, keeping alias detection
+    // deterministic for cross-built executables and host-native tests.
+    const executable_name = fs.path.basenameWindows(argv0);
+    return mem.eql(u8, executable_name, "zig") or mem.eql(u8, executable_name, "zig.exe");
+}
+
+test "version identity follows the executable alias" {
+    try std.testing.expect(!invokedAsZig("/opt/sig/bin/sig"));
+    try std.testing.expect(!invokedAsZig("C:\\sig\\bin\\sig.exe"));
+    try std.testing.expect(!invokedAsZig("/tmp/bootstrap/zig2"));
+    try std.testing.expect(invokedAsZig("/opt/sig/bin/zig"));
+    try std.testing.expect(invokedAsZig("C:\\sig\\bin\\zig.exe"));
 }
 
 const usage_build_generic =

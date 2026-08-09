@@ -80,19 +80,21 @@ pub const Eviction_Controller = struct {
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "Eviction_Controller init has zero counts" {
     const ctrl = Eviction_Controller.init();
-    if (ctrl.total_recomputations != 0) @compileError("expected zero total recomputations on init");
-    if (ctrl.recomp_counts[0] != 0) @compileError("expected zero count for decl 0");
-    if (ctrl.recomp_counts[100] != 0) @compileError("expected zero count for decl 100");
+    try testing.expect(!(ctrl.total_recomputations != 0)); // expected zero total recomputations on init
+    try testing.expect(!(ctrl.recomp_counts[0] != 0)); // expected zero count for decl 0
+    try testing.expect(!(ctrl.recomp_counts[100] != 0)); // expected zero count for decl 100
 }
 
 test "Eviction_Controller triggerRecomputation increments count" {
     var ctrl = Eviction_Controller.init();
     const allowed = ctrl.triggerRecomputation(5);
-    if (!allowed) @compileError("first recomputation should be allowed");
-    if (ctrl.getRecompCount(5) != 1) @compileError("expected count 1 after one trigger");
-    if (ctrl.total_recomputations != 1) @compileError("expected total 1");
+    try testing.expect(!(!allowed)); // first recomputation should be allowed
+    try testing.expect(!(ctrl.getRecompCount(5) != 1)); // expected count 1 after one trigger
+    try testing.expect(!(ctrl.total_recomputations != 1)); // expected total 1
 }
 
 test "Eviction_Controller respects MAX_RECOMPUTATION_LIMIT" {
@@ -101,25 +103,25 @@ test "Eviction_Controller respects MAX_RECOMPUTATION_LIMIT" {
     var i: u32 = 0;
     while (i < Compiler_Capacity_Plan.MAX_RECOMPUTATION_LIMIT) : (i += 1) {
         const allowed = ctrl.triggerRecomputation(7);
-        if (!allowed) @compileError("recomputation within limit should be allowed");
+        try testing.expect(!(!allowed)); // recomputation within limit should be allowed
     }
     // The next attempt should be denied (at limit)
     const denied = ctrl.triggerRecomputation(7);
-    if (denied) @compileError("recomputation beyond limit should be denied");
+    try testing.expect(!(denied)); // recomputation beyond limit should be denied
     if (ctrl.getRecompCount(7) != Compiler_Capacity_Plan.MAX_RECOMPUTATION_LIMIT)
-        @compileError("count should equal MAX_RECOMPUTATION_LIMIT");
+        return error.TestUnexpectedResult; // count should equal MAX_RECOMPUTATION_LIMIT
 }
 
 test "Eviction_Controller isRecomputationBounded reflects state" {
     var ctrl = Eviction_Controller.init();
-    if (!ctrl.isRecomputationBounded(0)) @compileError("fresh decl should be bounded");
+    try testing.expect(!(!ctrl.isRecomputationBounded(0))); // fresh decl should be bounded
 
     // Fill to limit
     var i: u32 = 0;
     while (i < Compiler_Capacity_Plan.MAX_RECOMPUTATION_LIMIT) : (i += 1) {
         _ = ctrl.triggerRecomputation(0);
     }
-    if (ctrl.isRecomputationBounded(0)) @compileError("at-limit decl should NOT be bounded");
+    try testing.expect(!(ctrl.isRecomputationBounded(0))); // at-limit decl should NOT be bounded
 }
 
 test "Eviction_Controller out-of-bounds returns safe defaults" {
@@ -127,22 +129,22 @@ test "Eviction_Controller out-of-bounds returns safe defaults" {
     const oob_id: u32 = @intCast(Compiler_Capacity_Plan.DEPENDENCY_GRAPH_CAPACITY);
     // Out-of-bounds triggerRecomputation returns false
     const allowed = ctrl.triggerRecomputation(oob_id);
-    if (allowed) @compileError("out-of-bounds should return false");
+    try testing.expect(!(allowed)); // out-of-bounds should return false
     // Out-of-bounds isRecomputationBounded returns false
-    if (ctrl.isRecomputationBounded(oob_id)) @compileError("out-of-bounds should not be bounded");
+    try testing.expect(!(ctrl.isRecomputationBounded(oob_id))); // out-of-bounds should not be bounded
     // Out-of-bounds getRecompCount returns 0
-    if (ctrl.getRecompCount(oob_id) != 0) @compileError("out-of-bounds count should be 0");
+    try testing.expect(!(ctrl.getRecompCount(oob_id) != 0)); // out-of-bounds count should be 0
 }
 
 test "Eviction_Controller resetCount clears a declaration's count" {
     var ctrl = Eviction_Controller.init();
     _ = ctrl.triggerRecomputation(3);
     _ = ctrl.triggerRecomputation(3);
-    if (ctrl.getRecompCount(3) != 2) @compileError("expected count 2");
+    try testing.expect(!(ctrl.getRecompCount(3) != 2)); // expected count 2
     ctrl.resetCount(3);
-    if (ctrl.getRecompCount(3) != 0) @compileError("expected count 0 after reset");
+    try testing.expect(!(ctrl.getRecompCount(3) != 0)); // expected count 0 after reset
     // total_recomputations is not decremented (it's a historical counter)
-    if (ctrl.total_recomputations != 2) @compileError("total should remain 2");
+    try testing.expect(!(ctrl.total_recomputations != 2)); // total should remain 2
 }
 
 test "Eviction_Controller independent declarations tracked separately" {
@@ -150,17 +152,17 @@ test "Eviction_Controller independent declarations tracked separately" {
     _ = ctrl.triggerRecomputation(10);
     _ = ctrl.triggerRecomputation(10);
     _ = ctrl.triggerRecomputation(20);
-    if (ctrl.getRecompCount(10) != 2) @compileError("decl 10 should have count 2");
-    if (ctrl.getRecompCount(20) != 1) @compileError("decl 20 should have count 1");
-    if (ctrl.total_recomputations != 3) @compileError("total should be 3");
+    try testing.expect(!(ctrl.getRecompCount(10) != 2)); // decl 10 should have count 2
+    try testing.expect(!(ctrl.getRecompCount(20) != 1)); // decl 20 should have count 1
+    try testing.expect(!(ctrl.total_recomputations != 3)); // total should be 3
 }
 
 test "Eviction_Controller totalRecomputations accessor" {
     var ctrl = Eviction_Controller.init();
-    if (ctrl.totalRecomputations() != 0) @compileError("expected 0 initially");
+    try testing.expect(!(ctrl.totalRecomputations() != 0)); // expected 0 initially
     _ = ctrl.triggerRecomputation(1);
     _ = ctrl.triggerRecomputation(2);
-    if (ctrl.totalRecomputations() != 2) @compileError("expected 2 after two triggers");
+    try testing.expect(!(ctrl.totalRecomputations() != 2)); // expected 2 after two triggers
 }
 
 
@@ -170,8 +172,8 @@ test "recomputation bound - exactly MAX_RECOMPUTATION_LIMIT allowed then denied"
     const limit = Compiler_Capacity_Plan.MAX_RECOMPUTATION_LIMIT;
     var i: u32 = 0;
     while (i < limit) : (i += 1) {
-        if (!ctrl.triggerRecomputation(0)) @compileError("within-limit recomputation should succeed");
+        try testing.expect(!(!ctrl.triggerRecomputation(0))); // within-limit recomputation should succeed
     }
-    if (ctrl.triggerRecomputation(0)) @compileError("at-limit recomputation should be denied");
-    if (ctrl.getRecompCount(0) != limit) @compileError("count should equal limit");
+    try testing.expect(!(ctrl.triggerRecomputation(0))); // at-limit recomputation should be denied
+    try testing.expect(!(ctrl.getRecompCount(0) != limit)); // count should equal limit
 }

@@ -91,6 +91,8 @@ pub const Target_Triple = struct {
     }
 };
 
+const testing = @import("std").testing;
+
 test "registerCount returns correct values per architecture" {
     const t_x86 = Target_Triple{ .arch = .x86_64, .os = .linux, .abi = .gnu };
     const t_arm64 = Target_Triple{ .arch = .aarch64, .os = .linux, .abi = .gnu };
@@ -100,13 +102,13 @@ test "registerCount returns correct values per architecture" {
     const t_wasm = Target_Triple{ .arch = .wasm32, .os = .freestanding, .abi = .none };
     const t_sb0 = Target_Triple{ .arch = .aarch64, .os = .sb0, .abi = .sb0 };
 
-    if (t_x86.registerCount() != 16) @compileError("x86_64 should have 16 regs");
-    if (t_arm64.registerCount() != 32) @compileError("aarch64 should have 32 regs");
-    if (t_arm32.registerCount() != 16) @compileError("arm should have 16 regs");
-    if (t_rv32.registerCount() != 32) @compileError("riscv32 should have 32 regs");
-    if (t_rv64.registerCount() != 32) @compileError("riscv64 should have 32 regs");
-    if (t_wasm.registerCount() != 0) @compileError("wasm32 should have 0 regs");
-    if (t_sb0.registerCount() != 32) @compileError("sb0 aarch64 should expose 32 regs");
+    try testing.expect(!(t_x86.registerCount() != 16)); // x86_64 should have 16 regs
+    try testing.expect(!(t_arm64.registerCount() != 32)); // aarch64 should have 32 regs
+    try testing.expect(!(t_arm32.registerCount() != 16)); // arm should have 16 regs
+    try testing.expect(!(t_rv32.registerCount() != 32)); // riscv32 should have 32 regs
+    try testing.expect(!(t_rv64.registerCount() != 32)); // riscv64 should have 32 regs
+    try testing.expect(!(t_wasm.registerCount() != 0)); // wasm32 should have 0 regs
+    try testing.expect(!(t_sb0.registerCount() != 32)); // sb0 aarch64 should expose 32 regs
 }
 
 test "all arch variants have valid register counts" {
@@ -115,7 +117,7 @@ test "all arch variants have valid register counts" {
         const t = Target_Triple{ .arch = arch, .os = .linux, .abi = .gnu };
         const count = t.registerCount();
         // All register counts should be within bounds (0 for wasm, 16-32 for others)
-        if (count > 64) @compileError("register count exceeds maximum");
+        try testing.expect(!(count > 64)); // register count exceeds maximum
     }
 }
 
@@ -123,7 +125,7 @@ test "register count is deterministic" {
     const t = Target_Triple{ .arch = .x86_64, .os = .windows, .abi = .msvc };
     const c1 = t.registerCount();
     const c2 = t.registerCount();
-    if (c1 != c2) @compileError("registerCount should be deterministic");
+    try testing.expect(!(c1 != c2)); // registerCount should be deterministic
 }
 
 test "all Arch x Os x Abi combinations produce valid Target_Triple" {
@@ -138,7 +140,7 @@ test "all Arch x Os x Abi combinations produce valid Target_Triple" {
                 // Every combination should return a register count without error
                 const count = t.registerCount();
                 // Register count must be bounded (0 for wasm, <= 64 for others)
-                if (count > 64) @compileError("register count exceeds maximum for some combination");
+                try testing.expect(!(count > 64)); // register count exceeds maximum for some combination
             }
         }
     }
@@ -146,13 +148,13 @@ test "all Arch x Os x Abi combinations produce valid Target_Triple" {
 
 test "aarch64-sb0 selects SB0 native output format" {
     const t = Target_Triple{ .arch = .aarch64, .os = .sb0, .abi = .sb0 };
-    if (!t.isSb0()) @compileError("aarch64-sb0 should be recognized as SB0");
-    if (t.outputFormat() != .sb0_native) @compileError("sb0 should use native SB0 output");
+    try testing.expect(!(!t.isSb0())); // aarch64-sb0 should be recognized as SB0
+    try testing.expect(!(t.outputFormat() != .sb0_native)); // sb0 should use native SB0 output
 }
 
 test "SB0 reserves x18" {
     const t = Target_Triple{ .arch = .aarch64, .os = .sb0, .abi = .sb0 };
-    if (!t.isRegisterReserved(18)) @compileError("SB0 must reserve x18");
-    if (t.isRegisterReserved(17)) @compileError("x17 should not be globally reserved by SB0");
-    if (t.isRegisterReserved(19)) @compileError("x19 should remain allocatable");
+    try testing.expect(!(!t.isRegisterReserved(18))); // SB0 must reserve x18
+    try testing.expect(!(t.isRegisterReserved(17))); // x17 should not be globally reserved by SB0
+    try testing.expect(!(t.isRegisterReserved(19))); // x19 should remain allocatable
 }

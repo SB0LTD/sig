@@ -4,6 +4,86 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the sig version and the upstream Zig version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.3.0] — 2026-08-10 — Native by Construction
+
+Sig 0.3.0 turns the release pipeline into a fail-closed, four-target release
+train and establishes the allocator-free native SB0 compiler foundation.
+
+### Highlights
+- **Four full LLVM toolchains** — x86_64 Linux, aarch64 Linux, aarch64 macOS,
+  and x86_64 Windows ship with the same LLVM 22.1.7 target closure.
+- **Sig builds every final Sig** — the production release stage never invokes
+  upstream Zig; Windows is cross-compiled by the proven Linux Sig and then
+  executed on a Windows runner.
+- **Native SB0 target foundation** — strict, fixed-capacity target modeling,
+  parsing, semantic analysis, code generation, linking, and SB0X verification.
+- **Immutable provenance** — LLVM, bootstrap, and final releases carry exact
+  source commits, workflow runs, per-archive SHA-256 hashes, and aggregate
+  machine-readable manifests.
+
+### Added
+- Full `aarch64-linux-musl` LLVM closure and release executable.
+- Native LLVM bootstrap closures for Linux, macOS, and Windows plus target
+  closures and verified bootstrap packages for all four release platforms.
+- Packaged execution, strict `.sig` parsing, and AArch64 object-generation
+  probes on Linux, macOS, Windows, and QEMU aarch64 Linux.
+- Native packages launch the build runner against their own matching library
+  tree, catching incomplete archives and stale `ZIG_LIB_DIR` overrides.
+- One canonical 210-test compiler graph covering every native compiler module;
+  the same graph runs in bootstrap and final-release jobs on every host.
+- Fixed-capacity native compiler modules under `compiler/`, including the
+  consolidated SB0 ABI target and deterministic SB0X emission/validation.
+- Convenience release assets with stable names alongside immutable versioned
+  archives.
+
+### Changed
+- Bumped the Sig language/toolchain version to 0.3.0.
+- Upgraded the pinned LLVM source from 22.1.3 to 22.1.7.
+- Bootstrap archives now include their matching standard library and Sig build
+  runner, and use zstd level 19 for fast extraction.
+- Release publication is atomic at the workflow boundary: incomplete builds
+  remain drafts and cannot become a public LLVM or bootstrap dependency.
+- GitHub Actions used by release-critical workflows are pinned to exact commits.
+- LLVM source, zlib, zstd, and host-native TableGen inputs are commit-pinned;
+  cross closures cannot start until their native TableGen tools are proven.
+- Annotated dependency tags are recorded by their peeled source commits rather
+  than tag-object IDs, so provenance checks identify the trees actually built.
+
+### Fixed
+- Stale `bootstrap-sig-v40` sync manifest override that repeatedly selected a
+  compiler too old for `@backingInt`, `@fromBackingInt`, and `@divCeil`.
+- Missing Windows assets and invalid/non-executable Windows release binaries.
+- macOS releases silently using the no-LLVM backend despite release claims.
+- Missing aarch64 Linux artifact despite the documented four-target contract.
+- Native `.sig` source files being classified as foreign modules during import
+  resolution.
+- Bounded build graphs leaking module state or failing when repository-scale
+  dependency counts exceeded the original small graph.
+- Release jobs deleting and recreating tags, accepting partial matrices, or
+  publishing without target-native compiler execution.
+- Test-only runtime conditions incorrectly expressed as unconditional
+  `@compileError` paths, which made hundreds of assertions compile-time no-ops.
+- O(capacity) compile-time free-list initialization at the 65,536-node parser
+  bound; recycled object-pool indices now use an O(1) bump-plus-stack design.
+- Type interning comparing padded structs and inactive union bytes; equality is
+  now semantic and tag-directed.
+- Hash maps advertising more entries than buckets. Symbol and external maps now
+  derive power-of-two capacities with a compile-time load factor at most 1/2.
+- Linker format tests allocating less space than the minimum ELF/PE image and
+  omitting the four-byte SB0 entry body from the expected image size.
+- `zig1.wasm` regeneration downloading an unpinned upstream nightly instead of
+  using a verified, checksummed Sig bootstrap.
+- `build_wasm.zig` retaining stale Zig 0.16/Sig 0.1.2 identities; regeneration
+  now requires both canonical versions derived from `build.sig`.
+- Release executables reporting only the upstream Zig version. `sig version`
+  now identifies both toolchains, while the `zig` alias retains its compatible
+  machine-readable semantic-version output.
+- Installed compilers crashing in Maker when a process-level `ZIG_LIB_DIR`
+  selected an older, incompatible library tree; validation now treats that
+  version-skew risk as an installation error.
+- Source builds feeding Sig's hyphenated release tags into upstream Zig's
+  compatibility-version derivation; `git describe` now selects numeric tags.
+
 ## [0.2.0] — 2026-06-12 — No More Excuses
 
 Self-sustained release pipeline. Sig builds sig. Three platforms ship.

@@ -100,17 +100,19 @@ pub const Dependency_Graph = struct {
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "Dependency_Graph init is empty" {
     const graph = Dependency_Graph.init();
-    if (graph.dependencyCount() != 0) @compileError("expected zero dependencies on init");
+    try testing.expect(!(graph.dependencyCount() != 0)); // expected zero dependencies on init
 }
 
 test "Dependency_Graph addDependency increases count" {
     var graph = Dependency_Graph.init();
     graph.addDependency(.{ .source_decl = 1, .target_symbol = 0xABCD, .target_file = 0 });
-    if (graph.dependencyCount() != 1) @compileError("expected 1 dependency after add");
+    try testing.expect(!(graph.dependencyCount() != 1)); // expected 1 dependency after add
     graph.addDependency(.{ .source_decl = 2, .target_symbol = 0x1234, .target_file = 1 });
-    if (graph.dependencyCount() != 2) @compileError("expected 2 dependencies after second add");
+    try testing.expect(!(graph.dependencyCount() != 2)); // expected 2 dependencies after second add
 }
 
 test "Dependency_Graph findDependents counts matching symbol" {
@@ -119,9 +121,9 @@ test "Dependency_Graph findDependents counts matching symbol" {
     graph.addDependency(.{ .source_decl = 1, .target_symbol = sym, .target_file = 0 });
     graph.addDependency(.{ .source_decl = 2, .target_symbol = sym, .target_file = 0 });
     graph.addDependency(.{ .source_decl = 3, .target_symbol = 0x9999, .target_file = 1 });
-    if (graph.findDependents(sym) != 2) @compileError("expected 2 dependents for symbol 0xDEAD");
-    if (graph.findDependents(0x9999) != 1) @compileError("expected 1 dependent for symbol 0x9999");
-    if (graph.findDependents(0x0000) != 0) @compileError("expected 0 dependents for unknown symbol");
+    try testing.expect(!(graph.findDependents(sym) != 2)); // expected 2 dependents for symbol 0xDEAD
+    try testing.expect(!(graph.findDependents(0x9999) != 1)); // expected 1 dependent for symbol 0x9999
+    try testing.expect(!(graph.findDependents(0x0000) != 0)); // expected 0 dependents for unknown symbol
 }
 
 test "Dependency_Graph findDependentsByFile counts matching file" {
@@ -129,26 +131,26 @@ test "Dependency_Graph findDependentsByFile counts matching file" {
     graph.addDependency(.{ .source_decl = 1, .target_symbol = 100, .target_file = 0 });
     graph.addDependency(.{ .source_decl = 2, .target_symbol = 200, .target_file = 0 });
     graph.addDependency(.{ .source_decl = 3, .target_symbol = 300, .target_file = 1 });
-    if (graph.findDependentsByFile(0) != 2) @compileError("expected 2 deps in file 0");
-    if (graph.findDependentsByFile(1) != 1) @compileError("expected 1 dep in file 1");
-    if (graph.findDependentsByFile(5) != 0) @compileError("expected 0 deps in file 5");
+    try testing.expect(!(graph.findDependentsByFile(0) != 2)); // expected 2 deps in file 0
+    try testing.expect(!(graph.findDependentsByFile(1) != 1)); // expected 1 dep in file 1
+    try testing.expect(!(graph.findDependentsByFile(5) != 0)); // expected 0 deps in file 5
 }
 
 test "Dependency_Graph hasDependency finds exact match" {
     var graph = Dependency_Graph.init();
     graph.addDependency(.{ .source_decl = 10, .target_symbol = 500, .target_file = 2 });
-    if (!graph.hasDependency(10, 500)) @compileError("should find existing dependency");
-    if (graph.hasDependency(10, 501)) @compileError("should not find non-existing symbol dep");
-    if (graph.hasDependency(11, 500)) @compileError("should not find non-existing decl dep");
+    try testing.expect(!(!graph.hasDependency(10, 500))); // should find existing dependency
+    try testing.expect(!(graph.hasDependency(10, 501))); // should not find non-existing symbol dep
+    try testing.expect(!(graph.hasDependency(11, 500))); // should not find non-existing decl dep
 }
 
 test "Dependency_Graph clear removes all entries" {
     var graph = Dependency_Graph.init();
     graph.addDependency(.{ .source_decl = 1, .target_symbol = 10, .target_file = 0 });
     graph.addDependency(.{ .source_decl = 2, .target_symbol = 20, .target_file = 1 });
-    if (graph.dependencyCount() != 2) @compileError("expected 2 before clear");
+    try testing.expect(!(graph.dependencyCount() != 2)); // expected 2 before clear
     graph.clear();
-    if (graph.dependencyCount() != 0) @compileError("expected 0 after clear");
+    try testing.expect(!(graph.dependencyCount() != 0)); // expected 0 after clear
 }
 
 test "Dependency_Entry struct fields accessible" {
@@ -157,9 +159,9 @@ test "Dependency_Entry struct fields accessible" {
         .target_symbol = 0xCAFE,
         .target_file = 7,
     };
-    if (entry.source_decl != 42) @compileError("expected source_decl 42");
-    if (entry.target_symbol != 0xCAFE) @compileError("expected target_symbol 0xCAFE");
-    if (entry.target_file != 7) @compileError("expected target_file 7");
+    try testing.expect(!(entry.source_decl != 42)); // expected source_decl 42
+    try testing.expect(!(entry.target_symbol != 0xCAFE)); // expected target_symbol 0xCAFE
+    try testing.expect(!(entry.target_file != 7)); // expected target_file 7
 }
 
 test "Dependency_Graph multiple deps from same source_decl" {
@@ -167,7 +169,7 @@ test "Dependency_Graph multiple deps from same source_decl" {
     // Declaration 5 depends on two different symbols
     graph.addDependency(.{ .source_decl = 5, .target_symbol = 100, .target_file = 0 });
     graph.addDependency(.{ .source_decl = 5, .target_symbol = 200, .target_file = 1 });
-    if (graph.dependencyCount() != 2) @compileError("expected 2 deps");
-    if (!graph.hasDependency(5, 100)) @compileError("should find dep on symbol 100");
-    if (!graph.hasDependency(5, 200)) @compileError("should find dep on symbol 200");
+    try testing.expect(!(graph.dependencyCount() != 2)); // expected 2 deps
+    try testing.expect(!(!graph.hasDependency(5, 100))); // should find dep on symbol 100
+    try testing.expect(!(!graph.hasDependency(5, 200))); // should find dep on symbol 200
 }

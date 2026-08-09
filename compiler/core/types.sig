@@ -280,6 +280,34 @@ pub const Type_Descriptor = struct {
     tag: Tag,
     data: Data,
 
+    /// Semantic equality for type interning. Comparing the raw struct bytes is
+    /// invalid because `Data` is an untagged union and the enclosing struct may
+    /// contain padding. Only the payload selected by `tag` participates.
+    pub fn eql(a: Type_Descriptor, b: Type_Descriptor) bool {
+        if (a.tag != b.tag) return false;
+        return switch (a.tag) {
+            .int => a.data.int.bits == b.data.int.bits and a.data.int.signed == b.data.int.signed,
+            .float => a.data.float.bits == b.data.float.bits,
+            .pointer => a.data.pointer.pointee == b.data.pointer.pointee and
+                a.data.pointer.is_const == b.data.pointer.is_const and
+                a.data.pointer.is_volatile == b.data.pointer.is_volatile,
+            .array => a.data.array.element == b.data.array.element and a.data.array.len == b.data.array.len,
+            .slice => a.data.slice.element == b.data.slice.element,
+            .@"struct" => a.data.structure.fields_start == b.data.structure.fields_start and
+                a.data.structure.field_count == b.data.structure.field_count,
+            .@"enum" => a.data.enumeration.tag_type == b.data.enumeration.tag_type and
+                a.data.enumeration.field_count == b.data.enumeration.field_count,
+            .@"fn" => a.data.function.params_start == b.data.function.params_start and
+                a.data.function.param_count == b.data.function.param_count and
+                a.data.function.return_type == b.data.function.return_type,
+            .optional => a.data.optional.child == b.data.optional.child,
+            .error_union => a.data.error_union.error_set == b.data.error_union.error_set and
+                a.data.error_union.payload == b.data.error_union.payload,
+            .void, .@"bool", .@"union", .error_set, .comptime_int,
+            .comptime_float, .@"type", .any_type, .@"noreturn" => true,
+        };
+    }
+
     pub const Tag = enum(u8) {
         void,
         @"bool",

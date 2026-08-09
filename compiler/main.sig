@@ -176,113 +176,115 @@ fn copyStr(dst: *[256]u8, dst_len: *u16, src: []const u8) void {
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "parseArgs basic input file" {
     const args = [_][]const u8{"main.sig"};
     const result = parseArgs(&args);
-    if (result.input_count != 1) @compileError("expected 1 input file");
+    try testing.expect(!(result.input_count != 1)); // expected 1 input file
 }
 
 test "parseArgs target and output" {
     const args = [_][]const u8{ "-target", "aarch64-macos-none", "-o", "out.bin", "lib.sig" };
     const result = parseArgs(&args);
-    if (result.target.arch != .aarch64) @compileError("expected aarch64");
-    if (result.target.os != .macos) @compileError("expected macos");
-    if (result.emit_macho != true) @compileError("should auto-detect macho");
-    if (result.input_count != 1) @compileError("expected 1 input");
+    try testing.expect(!(result.target.arch != .aarch64)); // expected aarch64
+    try testing.expect(!(result.target.os != .macos)); // expected macos
+    try testing.expect(!(result.emit_macho != true)); // should auto-detect macho
+    try testing.expect(!(result.input_count != 1)); // expected 1 input
 }
 
 test "parseTargetTriple x86_64-linux-gnu" {
     const t = parseTargetTriple("x86_64-linux-gnu");
-    if (t.arch != .x86_64) @compileError("expected x86_64");
-    if (t.os != .linux) @compileError("expected linux");
-    if (t.abi != .gnu) @compileError("expected gnu");
+    try testing.expect(!(t.arch != .x86_64)); // expected x86_64
+    try testing.expect(!(t.os != .linux)); // expected linux
+    try testing.expect(!(t.abi != .gnu)); // expected gnu
 }
 
 test "parseTargetTriple wasm32-freestanding-none" {
     const t = parseTargetTriple("wasm32-freestanding-none");
-    if (t.arch != .wasm32) @compileError("expected wasm32");
-    if (t.os != .freestanding) @compileError("expected freestanding");
+    try testing.expect(!(t.arch != .wasm32)); // expected wasm32
+    try testing.expect(!(t.os != .freestanding)); // expected freestanding
 }
 
 test "parseTargetTriple aarch64-sb0" {
     const t = parseTargetTriple("aarch64-sb0");
-    if (t.arch != .aarch64) @compileError("expected aarch64");
-    if (t.os != .sb0) @compileError("expected sb0 os");
-    if (t.abi != .sb0) @compileError("expected sb0 abi");
-    if (!t.isSb0()) @compileError("expected consolidated sb0 target");
+    try testing.expect(!(t.arch != .aarch64)); // expected aarch64
+    try testing.expect(!(t.os != .sb0)); // expected sb0 os
+    try testing.expect(!(t.abi != .sb0)); // expected sb0 abi
+    try testing.expect(!(!t.isSb0())); // expected consolidated sb0 target
 }
 
 test "parseArgs verbose flag" {
     const args = [_][]const u8{ "--verbose", "input.sig" };
     const result = parseArgs(&args);
-    if (result.verbose != true) @compileError("expected verbose true");
-    if (result.input_count != 1) @compileError("expected 1 input file");
+    try testing.expect(!(result.verbose != true)); // expected verbose true
+    try testing.expect(!(result.input_count != 1)); // expected 1 input file
 }
 
 test "parseArgs auto-detect elf for linux" {
     const args = [_][]const u8{ "-target", "x86_64-linux-gnu", "test.sig" };
     const result = parseArgs(&args);
-    if (result.emit_elf != true) @compileError("should auto-detect elf for linux");
-    if (result.emit_pe != false) @compileError("should not emit pe for linux");
+    try testing.expect(!(result.emit_elf != true)); // should auto-detect elf for linux
+    try testing.expect(!(result.emit_pe != false)); // should not emit pe for linux
 }
 
 test "parseArgs auto-detect pe for windows" {
     const args = [_][]const u8{ "-target", "x86_64-windows-msvc", "test.sig" };
     const result = parseArgs(&args);
-    if (result.emit_pe != true) @compileError("should auto-detect pe for windows");
-    if (result.emit_elf != false) @compileError("should not emit elf for windows");
+    try testing.expect(!(result.emit_pe != true)); // should auto-detect pe for windows
+    try testing.expect(!(result.emit_elf != false)); // should not emit elf for windows
 }
 
 test "parseArgs auto-detect wasm" {
     const args = [_][]const u8{ "-target", "wasm32-freestanding-none", "test.sig" };
     const result = parseArgs(&args);
-    if (result.emit_wasm != true) @compileError("should auto-detect wasm");
+    try testing.expect(!(result.emit_wasm != true)); // should auto-detect wasm
 }
 
 test "parseArgs auto-detect sb0 native" {
     const args = [_][]const u8{ "-target", "aarch64-sb0", "app.sig" };
     const result = parseArgs(&args);
-    if (result.emit_sb0 != true) @compileError("should auto-detect sb0 native");
-    if (result.emit_elf != false) @compileError("sb0 should not emit elf");
-    if (result.emit_pe != false) @compileError("sb0 should not emit pe");
-    if (result.emit_macho != false) @compileError("sb0 should not emit macho");
+    try testing.expect(!(result.emit_sb0 != true)); // should auto-detect sb0 native
+    try testing.expect(!(result.emit_elf != false)); // sb0 should not emit elf
+    try testing.expect(!(result.emit_pe != false)); // sb0 should not emit pe
+    try testing.expect(!(result.emit_macho != false)); // sb0 should not emit macho
 }
 
 test "parseTargetTriple riscv64-linux-gnu" {
     const t = parseTargetTriple("riscv64-linux-gnu");
-    if (t.arch != .riscv64) @compileError("expected riscv64");
-    if (t.os != .linux) @compileError("expected linux");
-    if (t.abi != .gnu) @compileError("expected gnu");
+    try testing.expect(!(t.arch != .riscv64)); // expected riscv64
+    try testing.expect(!(t.os != .linux)); // expected linux
+    try testing.expect(!(t.abi != .gnu)); // expected gnu
 }
 
 test "parseArgs multiple input files" {
     const args = [_][]const u8{ "a.sig", "b.sig", "c.sig" };
     const result = parseArgs(&args);
-    if (result.input_count != 3) @compileError("expected 3 input files");
+    try testing.expect(!(result.input_count != 3)); // expected 3 input files
 }
 
 test "parseArgs output path stored correctly" {
     const args = [_][]const u8{ "-o", "build/output.bin" };
     const result = parseArgs(&args);
-    if (result.output_path_len != 16) @compileError("expected output path length 16");
+    try testing.expect(!(result.output_path_len != 16)); // expected output path length 16
 }
 
 test "eqlStr basic" {
-    if (!eqlStr("hello", "hello")) @compileError("equal strings should match");
-    if (eqlStr("hello", "world")) @compileError("different strings should not match");
-    if (eqlStr("hi", "hello")) @compileError("different length strings should not match");
+    try testing.expect(!(!eqlStr("hello", "hello"))); // equal strings should match
+    try testing.expect(!(eqlStr("hello", "world"))); // different strings should not match
+    try testing.expect(!(eqlStr("hi", "hello"))); // different length strings should not match
 }
 
 test "startsWith basic" {
-    if (!startsWith("x86_64-linux", "x86_64")) @compileError("should start with x86_64");
-    if (startsWith("arm-linux", "x86_64")) @compileError("should not start with x86_64");
-    if (startsWith("x86", "x86_64")) @compileError("shorter haystack should not match longer prefix");
+    try testing.expect(!(!startsWith("x86_64-linux", "x86_64"))); // should start with x86_64
+    try testing.expect(!(startsWith("arm-linux", "x86_64"))); // should not start with x86_64
+    try testing.expect(!(startsWith("x86", "x86_64"))); // shorter haystack should not match longer prefix
 }
 
 test "containsStr basic" {
-    if (!containsStr("x86_64-linux-gnu", "linux")) @compileError("should contain linux");
-    if (containsStr("x86_64-linux-gnu", "windows")) @compileError("should not contain windows");
-    if (!containsStr("linux", "linux")) @compileError("exact match should contain");
+    try testing.expect(!(!containsStr("x86_64-linux-gnu", "linux"))); // should contain linux
+    try testing.expect(!(containsStr("x86_64-linux-gnu", "windows"))); // should not contain windows
+    try testing.expect(!(!containsStr("linux", "linux"))); // exact match should contain
 }
 
 // Property 20: Cross-platform output determinism
@@ -292,12 +294,12 @@ test "cross-platform output determinism - same args same result" {
     const result1 = parseArgs(&args);
     const result2 = parseArgs(&args);
     // Same arguments should produce identical parsing results
-    if (result1.target.arch != result2.target.arch) @compileError("arch should be deterministic");
-    if (result1.target.os != result2.target.os) @compileError("os should be deterministic");
-    if (result1.target.abi != result2.target.abi) @compileError("abi should be deterministic");
-    if (result1.input_count != result2.input_count) @compileError("input_count should be deterministic");
-    if (result1.emit_elf != result2.emit_elf) @compileError("emit_elf should be deterministic");
-    if (result1.output_path_len != result2.output_path_len) @compileError("output_path_len should be deterministic");
+    try testing.expect(!(result1.target.arch != result2.target.arch)); // arch should be deterministic
+    try testing.expect(!(result1.target.os != result2.target.os)); // os should be deterministic
+    try testing.expect(!(result1.target.abi != result2.target.abi)); // abi should be deterministic
+    try testing.expect(!(result1.input_count != result2.input_count)); // input_count should be deterministic
+    try testing.expect(!(result1.emit_elf != result2.emit_elf)); // emit_elf should be deterministic
+    try testing.expect(!(result1.output_path_len != result2.output_path_len)); // output_path_len should be deterministic
 }
 
 test "cross-platform output determinism - different targets produce different formats" {
@@ -305,8 +307,8 @@ test "cross-platform output determinism - different targets produce different fo
     const win_args = [_][]const u8{ "-target", "x86_64-windows-msvc", "a.sig" };
     const linux_result = parseArgs(&linux_args);
     const win_result = parseArgs(&win_args);
-    if (linux_result.emit_elf != true) @compileError("linux should emit elf");
-    if (win_result.emit_pe != true) @compileError("windows should emit pe");
-    if (linux_result.emit_pe) @compileError("linux should not emit pe");
-    if (win_result.emit_elf) @compileError("windows should not emit elf");
+    try testing.expect(!(linux_result.emit_elf != true)); // linux should emit elf
+    try testing.expect(!(win_result.emit_pe != true)); // windows should emit pe
+    try testing.expect(!(linux_result.emit_pe)); // linux should not emit pe
+    try testing.expect(!(win_result.emit_elf)); // windows should not emit elf
 }

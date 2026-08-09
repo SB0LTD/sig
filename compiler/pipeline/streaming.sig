@@ -30,7 +30,7 @@ const Sema = sema_mod.Sema;
 const Codegen = codegen_mod.Codegen;
 const Linker = linker_mod.Linker;
 
-const MAX_EXECUTABLE_IMAGE_BYTES: usize = 65536;
+pub const MAX_EXECUTABLE_IMAGE_BYTES: usize = 65536;
 
 // ============================================================================
 // Pipeline_Result
@@ -243,12 +243,14 @@ pub const Streaming_Controller = struct {
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "Streaming_Controller init creates valid state" {
     const target = Target_Triple{ .arch = .x86_64, .os = .linux, .abi = .gnu };
     const ctrl = Streaming_Controller.init(target);
-    if (ctrl.error_count != 0) @compileError("expected zero errors on init");
-    if (ctrl.total_bytes != 0) @compileError("expected zero bytes on init");
-    if (ctrl.files.len() != 0) @compileError("expected no files on init");
+    try testing.expect(!(ctrl.error_count != 0)); // expected zero errors on init
+    try testing.expect(!(ctrl.total_bytes != 0)); // expected zero bytes on init
+    try testing.expect(!(ctrl.files.len() != 0)); // expected no files on init
 }
 
 test "Streaming_Controller processFile with empty source succeeds" {
@@ -260,8 +262,8 @@ test "Streaming_Controller processFile with empty source succeeds" {
     file.is_sig = true;
 
     const result = ctrl.processFile(file);
-    if (!result.success) @compileError("empty file should succeed");
-    if (result.error_count != 0) @compileError("empty file should have no errors");
+    try testing.expect(!(!result.success)); // empty file should succeed
+    try testing.expect(!(result.error_count != 0)); // empty file should have no errors
 }
 
 test "Streaming_Controller processFile with valid source" {
@@ -280,8 +282,8 @@ test "Streaming_Controller processFile with valid source" {
     file.path_len = path.len;
 
     const result = ctrl.processFile(file);
-    if (!result.success) @compileError("valid source should succeed");
-    if (result.bytes_emitted == 0) @compileError("should emit bytes for non-empty source");
+    try testing.expect(!(!result.success)); // valid source should succeed
+    try testing.expect(!(result.bytes_emitted == 0)); // should emit bytes for non-empty source
 }
 
 test "Streaming_Controller processMultiFile accumulates results" {
@@ -303,9 +305,11 @@ test "Streaming_Controller processMultiFile accumulates results" {
     files[1].is_sig = true;
 
     const result = ctrl.processMultiFile(&files);
-    if (!result.success) @compileError("valid multi-file should succeed");
-    // Bytes emitted should be sum of both sources
-    if (result.bytes_emitted != src1.len + src2.len) @compileError("bytes should accumulate");
+    try testing.expect(!(!result.success)); // valid multi-file should succeed
+    // `bytes_emitted` measures executable image bytes, not source bytes. The
+    // controller total must exactly equal the sum reported for this batch.
+    try testing.expect(!(result.bytes_emitted == 0)); // each file should emit an image
+    try testing.expect(!(result.bytes_emitted != ctrl.total_bytes)); // batch and controller totals should agree
 }
 
 test "Streaming_Controller addFile stores entries" {
@@ -320,17 +324,17 @@ test "Streaming_Controller addFile stores entries" {
     file.path_len = path.len;
 
     ctrl.addFile(file);
-    if (ctrl.files.len() != 1) @compileError("expected 1 file after addFile");
+    try testing.expect(!(ctrl.files.len() != 1)); // expected 1 file after addFile
 
     ctrl.addFile(file);
-    if (ctrl.files.len() != 2) @compileError("expected 2 files after second addFile");
+    try testing.expect(!(ctrl.files.len() != 2)); // expected 2 files after second addFile
 }
 
 test "Streaming_Controller totalErrors tracks cumulative errors" {
     const target = Target_Triple{ .arch = .riscv64, .os = .linux, .abi = .gnu };
     var ctrl = Streaming_Controller.init(target);
 
-    if (ctrl.totalErrors() != 0) @compileError("expected zero errors initially");
+    try testing.expect(!(ctrl.totalErrors() != 0)); // expected zero errors initially
 
     // Process a file with invalid bytes to trigger error counting
     const src = "\xff\xfe"; // invalid bytes
@@ -341,22 +345,22 @@ test "Streaming_Controller totalErrors tracks cumulative errors" {
 
     _ = ctrl.processFile(file);
     // The tokenizer will emit error tokens for invalid bytes
-    if (ctrl.totalErrors() == 0) @compileError("expected errors for invalid source");
+    try testing.expect(!(ctrl.totalErrors() == 0)); // expected errors for invalid source
 }
 
 test "Pipeline_Result default values" {
     const result = Pipeline_Result{};
-    if (result.success) @compileError("default success should be false");
-    if (result.error_count != 0) @compileError("default error_count should be 0");
-    if (result.warning_count != 0) @compileError("default warning_count should be 0");
-    if (result.bytes_emitted != 0) @compileError("default bytes_emitted should be 0");
+    try testing.expect(!(result.success)); // default success should be false
+    try testing.expect(!(result.error_count != 0)); // default error_count should be 0
+    try testing.expect(!(result.warning_count != 0)); // default warning_count should be 0
+    try testing.expect(!(result.bytes_emitted != 0)); // default bytes_emitted should be 0
 }
 
 test "File_Entry default values" {
     const entry = File_Entry{};
-    if (entry.path_len != 0) @compileError("default path_len should be 0");
-    if (entry.source_len != 0) @compileError("default source_len should be 0");
-    if (!entry.is_sig) @compileError("default is_sig should be true");
+    try testing.expect(!(entry.path_len != 0)); // default path_len should be 0
+    try testing.expect(!(entry.source_len != 0)); // default source_len should be 0
+    try testing.expect(!(!entry.is_sig)); // default is_sig should be true
 }
 
 test "Streaming_Controller multi-target init" {
@@ -373,6 +377,6 @@ test "Streaming_Controller multi-target init" {
 
     for (targets) |target| {
         const ctrl = Streaming_Controller.init(target);
-        if (ctrl.error_count != 0) @compileError("all targets should init cleanly");
+        try testing.expect(!(ctrl.error_count != 0)); // all targets should init cleanly
     }
 }

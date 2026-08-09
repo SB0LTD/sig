@@ -2,50 +2,45 @@ name: update-zig1-wasm
 
 on:
   workflow_dispatch:
+    inputs:
+      bootstrap_tag:
+        description: 'Verified Sig bootstrap release tag'
+        required: true
+        default: 'bootstrap-sig-v42'
+        type: string
 
 permissions:
   contents: write
+
+env:
+  BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag }}
 
 jobs:
   regenerate:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      - name: Obtain a working compiler
+      - name: Obtain the verified Sig bootstrap compiler
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
-          # Use upstream zig nightly directly — the cmake-built bootstrap has a
-          # cross-compilation linker bug that makes it ignore -target.
-          # For zig1.wasm regen, we need a compiler that can target wasm32-wasi.
-          echo "Downloading upstream zig nightly..."
-
-          ZIG_INDEX=$(curl -sSL "https://ziglang.org/download/index.json")
-          ZIG_URL=$(echo "$ZIG_INDEX" | python3 -c "
-          import json, sys
-          data = json.load(sys.stdin)
-          master = data.get('master', {})
-          linux = master.get('x86_64-linux', {})
-          print(linux.get('tarball', ''))" 2>/dev/null || true)
-
-          if [ -z "$ZIG_URL" ]; then
-            echo "::error::Could not get upstream zig URL"
-            exit 1
-          fi
-
-          echo "URL: $ZIG_URL"
-          curl -sSL "$ZIG_URL" -o /tmp/zig-upstream.tar.xz
-          mkdir -p /tmp/zig-upstream
-          tar -xJf /tmp/zig-upstream.tar.xz -C /tmp/zig-upstream --strip-components=1
-          BIN="/tmp/zig-upstream/zig"
+          sudo apt-get update -qq && sudo apt-get install -y -qq zstd
+          archive=bootstrap-sig-x86_64-linux.tar.zst
+          gh release download "$BOOTSTRAP_TAG" \
+            --pattern "$archive" \
+            --pattern "$archive.sha256" \
+            --dir /tmp/sig-bootstrap
+          (cd /tmp/sig-bootstrap && sha256sum --check --strict "$archive.sha256")
+          mkdir -p /tmp/sig-bootstrap/extracted
+          zstd -d "/tmp/sig-bootstrap/$archive" --stdout | tar -x -C /tmp/sig-bootstrap/extracted
+          BIN="/tmp/sig-bootstrap/extracted/bootstrap-sig-x86_64-linux/bin/sig"
           chmod +x "$BIN"
-          "$BIN" version
+          "$BIN" version | grep -q 'sig '
           echo "SIG=$BIN" >> "$GITHUB_ENV"
 
       - name: Regenerate zig1.wasm via build system
@@ -66,37 +61,21 @@ jobs:
           rm -f stage1/zig1.wasm
           rm -rf .zig-cache ~/.cache/zig zig-out zig-cache
 
-          # Generate build_options for wasm bootstrap
-          mkdir -p .build-gen
-          cat > .build-gen/build_options.zig << 'EOF'
-          pub const have_llvm: bool = false;
-          pub const llvm_has_m68k: bool = false;
-          pub const llvm_has_csky: bool = false;
-          pub const llvm_has_arc: bool = false;
-          pub const llvm_has_xtensa: bool = false;
-          pub const enable_logging: bool = false;
-          pub const enable_debug_extensions: bool = false;
-          pub const enable_link_snapshots: bool = false;
-          pub const debug_gpa: bool = false;
-          pub const enable_tracy: bool = false;
-          pub const enable_tracy_callstack: bool = false;
-          pub const enable_tracy_allocation: bool = false;
-          pub const tracy_callstack_depth: u32 = 0;
-          pub const value_tracing: bool = false;
-          pub const mem_leak_frames: u32 = 0;
-          pub const io_mode: enum { threaded, evented } = .threaded;
-          pub const value_interpret_mode: enum { direct, by_name } = .by_name;
-          pub const version: [:0]const u8 = "0.17.0";
-          pub const sig_version: [:0]const u8 = "0.2.0";
-          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
-          pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .bootstrap;
-          EOF
+          SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
+          ZIG_VER=$(sed -n 's/^const zig_version:.*major = \([0-9]*\), \.minor = \([0-9]*\), \.patch = \([0-9]*\).*/\1.\2.\3/p' build.sig | head -1)
+          test -n "$SIG_VER"
+          test -n "$ZIG_VER"
 
           echo "Building zig1.wasm via build system..."
           # Use zig build with build_wasm.zig — the build system properly resolves
           # wasm32-wasi target (build-exe ignores -target for the linker).
           # Use --zig-lib-dir to point at our repo's lib (has latest CallingConvention defs).
-          "${SIG}" build --build-file build_wasm.zig --zig-lib-dir lib update-zig1
+          "${SIG}" build \
+            --build-file build_wasm.zig \
+            --zig-lib-dir lib \
+            -Dsig-version="$SIG_VER" \
+            -Dzig-version="$ZIG_VER" \
+            update-zig1
 
           ls -la stage1/zig1.wasm
           file stage1/zig1.wasm

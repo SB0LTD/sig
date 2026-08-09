@@ -1485,12 +1485,14 @@ pub const Parser = struct {
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "parser init creates empty state" {
     const source = "const x = 1;";
     var tok = Tokenizer.init(source, source.len);
     const parser = Parser.init(&tok);
-    if (parser.node_pool.allocated != 0) @compileError("pool should start empty");
-    if (parser.current.tag != .keyword_const) @compileError("first token should be keyword_const");
+    try testing.expect(!(parser.node_pool.allocated != 0)); // pool should start empty
+    try testing.expect(!(parser.current.tag != .keyword_const)); // first token should be keyword_const
 }
 
 test "parser parseTopLevel parses const decl" {
@@ -1498,10 +1500,10 @@ test "parser parseTopLevel parses const decl" {
     var tok = Tokenizer.init(source, source.len);
     var parser = Parser.init(&tok);
     const node_idx = parser.parseTopLevel();
-    if (node_idx == null) @compileError("should parse a node");
+    try testing.expect(!(node_idx == null)); // should parse a node
     const node = parser.getNode(node_idx.?);
-    if (node == null) @compileError("node should exist");
-    if (node.?.tag != .const_decl) @compileError("expected const_decl");
+    try testing.expect(!(node == null)); // node should exist
+    try testing.expect(!(node.?.tag != .const_decl)); // expected const_decl
 }
 
 test "parser parseTopLevel returns null at eof" {
@@ -1509,7 +1511,7 @@ test "parser parseTopLevel returns null at eof" {
     var tok = Tokenizer.init(source, 0);
     var parser = Parser.init(&tok);
     const node_idx = parser.parseTopLevel();
-    if (node_idx != null) @compileError("should return null at eof");
+    try testing.expect(!(node_idx != null)); // should return null at eof
 }
 
 test "parser parses fn decl" {
@@ -1517,10 +1519,10 @@ test "parser parses fn decl" {
     var tok = Tokenizer.init(source, source.len);
     var parser = Parser.init(&tok);
     const node_idx = parser.parseTopLevel();
-    if (node_idx == null) @compileError("should parse fn decl");
+    try testing.expect(!(node_idx == null)); // should parse fn decl
     const node = parser.getNode(node_idx.?);
-    if (node == null) @compileError("node should exist");
-    if (node.?.tag != .fn_decl) @compileError("expected fn_decl");
+    try testing.expect(!(node == null)); // node should exist
+    try testing.expect(!(node.?.tag != .fn_decl)); // expected fn_decl
 }
 
 test "parser parses struct decl" {
@@ -1528,10 +1530,10 @@ test "parser parses struct decl" {
     var tok = Tokenizer.init(source, source.len);
     var parser = Parser.init(&tok);
     const node_idx = parser.parseTopLevel();
-    if (node_idx == null) @compileError("should parse struct decl");
+    try testing.expect(!(node_idx == null)); // should parse struct decl
     const node = parser.getNode(node_idx.?);
-    if (node == null) @compileError("node should exist");
-    if (node.?.tag != .struct_decl) @compileError("expected struct_decl");
+    try testing.expect(!(node == null)); // node should exist
+    try testing.expect(!(node.?.tag != .struct_decl)); // expected struct_decl
 }
 
 // ============================================================================
@@ -1551,11 +1553,11 @@ test "parse-print round trip - deterministic node tags" {
     var p2 = Parser.init(&tok2);
     const n2 = p2.parseTopLevel();
 
-    if (n1 == null or n2 == null) @compileError("should parse successfully");
+    try testing.expect(!(n1 == null or n2 == null)); // should parse successfully
     const node1 = p1.getNode(n1.?);
     const node2 = p2.getNode(n2.?);
-    if (node1 == null or node2 == null) @compileError("nodes should exist");
-    if (node1.?.tag != node2.?.tag) @compileError("same source should produce same tag");
+    try testing.expect(!(node1 == null or node2 == null)); // nodes should exist
+    try testing.expect(!(node1.?.tag != node2.?.tag)); // same source should produce same tag
 }
 
 test "parse-print round trip - fn decl deterministic" {
@@ -1563,10 +1565,10 @@ test "parse-print round trip - fn decl deterministic" {
     var tok1 = @import("tokenizer.sig").Tokenizer.init(source, source.len);
     var p1 = Parser.init(&tok1);
     const n1 = p1.parseTopLevel();
-    if (n1 == null) @compileError("should parse fn decl");
+    try testing.expect(!(n1 == null)); // should parse fn decl
     const node = p1.getNode(n1.?);
-    if (node == null) @compileError("node should exist");
-    if (node.?.tag != .fn_decl) @compileError("should produce fn_decl");
+    try testing.expect(!(node == null)); // node should exist
+    try testing.expect(!(node.?.tag != .fn_decl)); // should produce fn_decl
 }
 
 // Feature: zero-alloc-compiler, Property 6: Parser error recovery continuation
@@ -1613,18 +1615,18 @@ test "AST source location - nodes have non-zero token_start" {
     var parser = Parser.init(&tok);
 
     const n1 = parser.parseTopLevel();
-    if (n1 == null) @compileError("should parse first decl");
+    try testing.expect(!(n1 == null)); // should parse first decl
     // First decl starts at position 0 (beginning of source)
     const node1 = parser.getNode(n1.?);
-    if (node1 == null) @compileError("node should exist");
-    if (node1.?.token_start != 0) @compileError("first decl should start at offset 0");
+    try testing.expect(!(node1 == null)); // node should exist
+    try testing.expect(!(node1.?.token_start != 0)); // first decl should start at offset 0
 
     const n2 = parser.parseTopLevel();
-    if (n2 == null) @compileError("should parse second decl");
+    try testing.expect(!(n2 == null)); // should parse second decl
     const node2 = parser.getNode(n2.?);
-    if (node2 == null) @compileError("node should exist");
+    try testing.expect(!(node2 == null)); // node should exist
     // Second decl starts after "const x = 42; " (14 chars)
-    if (node2.?.token_start < 14) @compileError("second decl should start after first");
+    try testing.expect(!(node2.?.token_start < 14)); // second decl should start after first
 }
 
 test "AST source location - source_map populated" {
@@ -1632,7 +1634,7 @@ test "AST source location - source_map populated" {
     var tok = @import("tokenizer.sig").Tokenizer.init(source, source.len);
     var parser = Parser.init(&tok);
     const n = parser.parseTopLevel();
-    if (n == null) @compileError("should parse");
+    try testing.expect(!(n == null)); // should parse
     // source_map should have at least one entry
-    if (parser.source_map.len() == 0) @compileError("source_map should be populated");
+    try testing.expect(!(parser.source_map.len() == 0)); // source_map should be populated
 }

@@ -718,32 +718,34 @@ pub fn isMultilineStringStart(c: u8, next_c: u8) bool {
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "tokenizer basic identifiers and keywords" {
     const source = "const foo = 42;";
     var tok = Tokenizer.init(source, source.len);
     const t1 = tok.next();
-    if (t1.tag != .keyword_const) @compileError("expected keyword_const");
+    try testing.expect(!(t1.tag != .keyword_const)); // expected keyword_const
 }
 
 test "tokenizer operators" {
     const source = "== != <= >= && || ++ ** -> =>";
     var tok = Tokenizer.init(source, source.len);
     const t1 = tok.next();
-    if (t1.tag != .equal_equal) @compileError("expected equal_equal");
+    try testing.expect(!(t1.tag != .equal_equal)); // expected equal_equal
 }
 
 test "tokenizer eof on empty source" {
     const source = "";
     var tok = Tokenizer.init(source, 0);
     const t1 = tok.next();
-    if (t1.tag != .eof) @compileError("expected eof");
+    try testing.expect(!(t1.tag != .eof)); // expected eof
 }
 
 test "tokenizer produceUntilFull fills ring" {
     const source = "const x = 1;";
     var tok = Tokenizer.init(source, source.len);
     tok.produceUntilFull();
-    if (tok.token_ring.isEmpty()) @compileError("ring should not be empty");
+    try testing.expect(!(tok.token_ring.isEmpty())); // ring should not be empty
 }
 
 test "tokenizer produceOne returns false when full" {
@@ -761,20 +763,20 @@ test "tokenizer invalid bytes coalesce into single error token" {
     const source = [_]u8{ 0x01, 0x02, 0x03, ' ', 'x' };
     var tok = Tokenizer.init(&source, source.len);
     const t1 = tok.next();
-    if (t1.tag != .invalid) @compileError("expected invalid token");
+    try testing.expect(!(t1.tag != .invalid)); // expected invalid token
     // The invalid token should span all 3 bytes
-    if (t1.start != 0) @compileError("expected start 0");
-    if (t1.end != 3) @compileError("expected end 3");
+    try testing.expect(!(t1.start != 0)); // expected start 0
+    try testing.expect(!(t1.end != 3)); // expected end 3
     // Next token should be the identifier 'x'
     const t2 = tok.next();
-    if (t2.tag != .identifier) @compileError("expected identifier after invalid");
+    try testing.expect(!(t2.tag != .identifier)); // expected identifier after invalid
 }
 
 test "tokenizer multiline string literal" {
     const source = "\\\\hello world";
     var tok = Tokenizer.init(source, source.len);
     const t1 = tok.next();
-    if (t1.tag != .multiline_string_literal) @compileError("expected multiline_string_literal");
+    try testing.expect(!(t1.tag != .multiline_string_literal)); // expected multiline_string_literal
 }
 
 test "tokenizer tokenizeAll streams bounded" {
@@ -786,7 +788,7 @@ test "tokenizer tokenizeAll streams bounded" {
         }
     }.handler);
     // After tokenizeAll, ring should be empty (all consumed)
-    if (!tok.token_ring.isEmpty()) @compileError("ring should be empty after tokenizeAll");
+    try testing.expect(!(!tok.token_ring.isEmpty())); // ring should be empty after tokenizeAll
 }
 
 // ============================================================================
@@ -798,15 +800,13 @@ test "tokenizer byte coverage - all printable ASCII produce valid tokens" {
     // Property 2: Every printable ASCII byte (32-126) should produce a non-eof
     // token when tokenized individually. Some produce .invalid, which is fine —
     // the point is that no printable byte is silently dropped.
-    comptime {
-        var byte: u8 = 33; // skip space (32) since it's whitespace → eof
-        while (byte <= 126) : (byte += 1) {
-            const source = [_]u8{byte};
-            var tok = Tokenizer.init(&source, 1);
-            const t = tok.next();
-            if (t.tag == .eof) {
-                @compileError("printable byte should produce a token, not eof");
-            }
+    var byte: u8 = 33; // skip space (32) since it's whitespace → eof
+    while (byte <= 126) : (byte += 1) {
+        const source = [_]u8{byte};
+        var tok = Tokenizer.init(&source, 1);
+        const t = tok.next();
+        if (t.tag == .eof) {
+            return error.TestUnexpectedResult; // printable byte should produce a token, not eof
         }
     }
 }
@@ -814,22 +814,20 @@ test "tokenizer byte coverage - all printable ASCII produce valid tokens" {
 test "tokenizer byte coverage - keywords recognized" {
     // Property 2: All zig/sig keywords must be recognized as their keyword tag,
     // not as a plain .identifier.
-    comptime {
-        const keywords = [_][]const u8{
-            "const",    "var",       "fn",      "pub",     "if",
-            "else",     "while",     "for",     "return",  "struct",
-            "enum",     "union",     "switch",  "break",   "continue",
-            "defer",    "try",       "catch",   "orelse",
-        };
-        for (keywords) |kw| {
-            var tok = Tokenizer.init(kw.ptr, kw.len);
-            const t = tok.next();
-            if (t.tag == .identifier) {
-                @compileError("keyword not recognized — got .identifier");
-            }
-            if (t.tag == .eof) {
-                @compileError("keyword not recognized — got .eof");
-            }
+    const keywords = [_][]const u8{
+        "const",    "var",       "fn",      "pub",     "if",
+        "else",     "while",     "for",     "return",  "struct",
+        "enum",     "union",     "switch",  "break",   "continue",
+        "defer",    "try",       "catch",   "orelse",
+    };
+    for (keywords) |kw| {
+        var tok = Tokenizer.init(kw.ptr, kw.len);
+        const t = tok.next();
+        if (t.tag == .identifier) {
+            return error.TestUnexpectedResult; // keyword not recognized — got .identifier
+        }
+        if (t.tag == .eof) {
+            return error.TestUnexpectedResult; // keyword not recognized — got .eof
         }
     }
 }
@@ -842,32 +840,28 @@ test "tokenizer byte coverage - keywords recognized" {
 test "tokenizer error recovery - invalid followed by valid" {
     // Property 4: After invalid bytes, the tokenizer should recover and produce
     // valid tokens for subsequent valid source text.
-    comptime {
-        const source = [_]u8{ 0x01, 0x02, ' ', 'x', ' ', '4', '2' };
-        var tok = Tokenizer.init(&source, source.len);
-        const t1 = tok.next();
-        if (t1.tag != .invalid) @compileError("expected invalid token first");
-        const t2 = tok.next();
-        if (t2.tag != .identifier) @compileError("expected identifier after recovery");
-        const t3 = tok.next();
-        if (t3.tag != .number_literal) @compileError("expected number after identifier");
-        const t4 = tok.next();
-        if (t4.tag != .eof) @compileError("expected eof");
-    }
+    const source = [_]u8{ 0x01, 0x02, ' ', 'x', ' ', '4', '2' };
+    var tok = Tokenizer.init(&source, source.len);
+    const t1 = tok.next();
+    try testing.expect(!(t1.tag != .invalid)); // expected invalid token first
+    const t2 = tok.next();
+    try testing.expect(!(t2.tag != .identifier)); // expected identifier after recovery
+    const t3 = tok.next();
+    try testing.expect(!(t3.tag != .number_literal)); // expected number after identifier
+    const t4 = tok.next();
+    try testing.expect(!(t4.tag != .eof)); // expected eof
 }
 
 test "tokenizer error recovery - unterminated string then valid" {
     // Property 4: An unterminated string literal (no closing quote before newline)
     // should emit .invalid, then the tokenizer should recover on the next line.
-    comptime {
-        const source = "\"unterminated\nconst x = 1;";
-        var tok = Tokenizer.init(source, source.len);
-        const t1 = tok.next();
-        if (t1.tag != .invalid) @compileError("unterminated string should be invalid");
-        // After the invalid string, should recover to parse 'const'
-        const t2 = tok.next();
-        if (t2.tag != .keyword_const) @compileError("should recover to parse const keyword");
-    }
+    const source = "\"unterminated\nconst x = 1;";
+    var tok = Tokenizer.init(source, source.len);
+    const t1 = tok.next();
+    try testing.expect(!(t1.tag != .invalid)); // unterminated string should be invalid
+    // After the invalid string, should recover to parse 'const'
+    const t2 = tok.next();
+    try testing.expect(!(t2.tag != .keyword_const)); // should recover to parse const keyword
 }
 
 // ============================================================================
@@ -878,24 +872,22 @@ test "tokenizer error recovery - unterminated string then valid" {
 test "streaming backpressure - ring never exceeds capacity" {
     // Property 3: The token ring buffer must never exceed TOKEN_RING_CAPACITY
     // regardless of how many tokens are produced.
-    comptime {
-        const source = "const a = 1; const b = 2; const c = 3; const d = 4;";
-        var tok = Tokenizer.init(source, source.len);
+    const source = "const a = 1; const b = 2; const c = 3; const d = 4;";
+    var tok = Tokenizer.init(source, source.len);
 
-        // Fill ring to capacity
-        tok.produceUntilFull();
-        const ring_len = tok.token_ring.len();
+    // Fill ring to capacity
+    tok.produceUntilFull();
+    const ring_len = tok.token_ring.len();
 
-        // Ring should not exceed TOKEN_RING_CAPACITY
-        if (ring_len > Compiler_Capacity_Plan.TOKEN_RING_CAPACITY) {
-            @compileError("ring length exceeds TOKEN_RING_CAPACITY");
-        }
+    // Ring should not exceed TOKEN_RING_CAPACITY
+    if (ring_len > Compiler_Capacity_Plan.TOKEN_RING_CAPACITY) {
+        return error.TestUnexpectedResult; // ring length exceeds TOKEN_RING_CAPACITY
+    }
 
-        // produceOne should return false when ring is full (backpressure)
-        if (tok.token_ring.isFull()) {
-            const produced = tok.produceOne();
-            if (produced) @compileError("produceOne should return false when ring is full");
-        }
+    // produceOne should return false when ring is full (backpressure)
+    if (tok.token_ring.isFull()) {
+        const produced = tok.produceOne();
+        try testing.expect(!(produced)); // produceOne should return false when ring is full
     }
 }
 
@@ -903,15 +895,13 @@ test "streaming tokenizeAll processes entire source in bounded memory" {
     // Property 3: tokenizeAll demonstrates that arbitrarily large files can be
     // tokenized within the fixed-capacity ring buffer — after completion the
     // ring is empty (all tokens consumed by the handler).
-    comptime {
-        const source = "fn main() void { return; }";
-        var tok = Tokenizer.init(source, source.len);
-        tok.tokenizeAll(struct {
-            fn handler(_: Token) bool {
-                return true; // consume all tokens
-            }
-        }.handler);
-        // Ring should be empty after tokenizeAll (all consumed)
-        if (!tok.token_ring.isEmpty()) @compileError("ring should be drained after tokenizeAll");
-    }
+    const source = "fn main() void { return; }";
+    var tok = Tokenizer.init(source, source.len);
+    tok.tokenizeAll(struct {
+        fn handler(_: Token) bool {
+            return true; // consume all tokens
+        }
+    }.handler);
+    // Ring should be empty after tokenizeAll (all consumed)
+    try testing.expect(!(!tok.token_ring.isEmpty())); // ring should be drained after tokenizeAll
 }

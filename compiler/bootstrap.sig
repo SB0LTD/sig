@@ -196,17 +196,19 @@ pub fn getWindowsCrossFlags(config: Windows_Cross_Config) Windows_Cross_Flags {
 }
 
 // Tests
+const testing = @import("std").testing;
+
 test "Bootstrap_Config init detects cross-compilation" {
     const host = Target_Triple{ .arch = .x86_64, .os = .linux, .abi = .gnu };
     const target_win = Target_Triple{ .arch = .x86_64, .os = .windows, .abi = .msvc };
     const config = Bootstrap_Config.init(host, target_win);
-    if (!config.is_cross) @compileError("linux→windows should be cross");
+    try testing.expect(!(!config.is_cross)); // linux→windows should be cross
 }
 
 test "Bootstrap_Config init detects native" {
     const host = Target_Triple{ .arch = .x86_64, .os = .linux, .abi = .gnu };
     const config = Bootstrap_Config.init(host, host);
-    if (config.is_cross) @compileError("same host and target should not be cross");
+    try testing.expect(!(config.is_cross)); // same host and target should not be cross
 }
 
 test "isValidBootstrap linux host always valid" {
@@ -214,7 +216,7 @@ test "isValidBootstrap linux host always valid" {
         .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
         .{ .arch = .aarch64, .os = .macos, .abi = .none },
     );
-    if (!isValidBootstrap(config)) @compileError("linux host should always be valid");
+    try testing.expect(!(!isValidBootstrap(config))); // linux host should always be valid
 }
 
 test "isValidBootstrap windows native is NOT valid" {
@@ -222,17 +224,17 @@ test "isValidBootstrap windows native is NOT valid" {
         .{ .arch = .x86_64, .os = .windows, .abi = .msvc },
         .{ .arch = .x86_64, .os = .windows, .abi = .msvc },
     );
-    if (isValidBootstrap(config)) @compileError("windows native should NOT be valid");
+    try testing.expect(!(isValidBootstrap(config))); // windows native should NOT be valid
 }
 
 test "verifyNoAllocatorDeps clean source" {
     const src = "pub fn main() void { const x: u32 = 42; }";
-    if (!verifyNoAllocatorDeps(src)) @compileError("clean source should pass");
+    try testing.expect(!(!verifyNoAllocatorDeps(src))); // clean source should pass
 }
 
 test "verifyNoAllocatorDeps detects heap usage" {
     const src = "const alloc = std.heap.page_allocator;";
-    if (verifyNoAllocatorDeps(src)) @compileError("should detect heap usage");
+    try testing.expect(!(verifyNoAllocatorDeps(src))); // should detect heap usage
 }
 
 test "getStrategy native" {
@@ -240,7 +242,7 @@ test "getStrategy native" {
         .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
         .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
     );
-    if (getStrategy(config) != .native) @compileError("same host/target should be native");
+    try testing.expect(!(getStrategy(config) != .native)); // same host/target should be native
 }
 
 test "getStrategy cross_linux" {
@@ -248,7 +250,7 @@ test "getStrategy cross_linux" {
         .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
         .{ .arch = .x86_64, .os = .windows, .abi = .msvc },
     );
-    if (getStrategy(config) != .cross_linux) @compileError("linux→windows should be cross_linux");
+    try testing.expect(!(getStrategy(config) != .cross_linux)); // linux→windows should be cross_linux
 }
 
 test "getStrategy unsupported" {
@@ -256,7 +258,7 @@ test "getStrategy unsupported" {
         .{ .arch = .x86_64, .os = .windows, .abi = .msvc },
         .{ .arch = .x86_64, .os = .windows, .abi = .msvc },
     );
-    if (getStrategy(config) != .unsupported) @compileError("windows native should be unsupported");
+    try testing.expect(!(getStrategy(config) != .unsupported)); // windows native should be unsupported
 }
 
 test "validateSelfHosting with valid linux config" {
@@ -265,10 +267,10 @@ test "validateSelfHosting with valid linux config" {
         .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
     );
     const result = validateSelfHosting(config);
-    if (!result.stage1_success) @compileError("stage1 should succeed");
-    if (!result.stage2_success) @compileError("stage2 should succeed");
-    if (!result.fixed_point) @compileError("should reach fixed point");
-    if (!result.within_memory_bounds) @compileError("should be within memory bounds");
+    try testing.expect(!(!result.stage1_success)); // stage1 should succeed
+    try testing.expect(!(!result.stage2_success)); // stage2 should succeed
+    try testing.expect(!(!result.fixed_point)); // should reach fixed point
+    try testing.expect(!(!result.within_memory_bounds)); // should be within memory bounds
 }
 
 test "validateSelfHosting with windows native fails" {
@@ -277,7 +279,7 @@ test "validateSelfHosting with windows native fails" {
         .{ .arch = .x86_64, .os = .windows, .abi = .msvc },
     );
     const result = validateSelfHosting(config);
-    if (result.stage1_success) @compileError("windows native bootstrap should fail");
+    try testing.expect(!(result.stage1_success)); // windows native bootstrap should fail
 }
 
 test "validateWindowsCross linux to windows valid" {
@@ -286,7 +288,7 @@ test "validateWindowsCross linux to windows valid" {
         .target = .{ .arch = .x86_64, .os = .windows, .abi = .msvc },
         .has_llvm = true,
     };
-    if (!validateWindowsCross(config)) @compileError("linux→windows cross should be valid");
+    try testing.expect(!(!validateWindowsCross(config))); // linux→windows cross should be valid
 }
 
 test "validateWindowsCross windows host invalid" {
@@ -295,7 +297,7 @@ test "validateWindowsCross windows host invalid" {
         .target = .{ .arch = .x86_64, .os = .windows, .abi = .msvc },
         .has_llvm = true,
     };
-    if (validateWindowsCross(config)) @compileError("windows host should not be valid");
+    try testing.expect(!(validateWindowsCross(config))); // windows host should not be valid
 }
 
 test "getWindowsCrossFlags produces target string" {
@@ -305,9 +307,9 @@ test "getWindowsCrossFlags produces target string" {
         .has_llvm = true,
     };
     const flags = getWindowsCrossFlags(config);
-    if (flags.use_llvm != true) @compileError("should use llvm");
-    if (flags.use_lld != true) @compileError("should use lld");
-    if (flags.target_str_len != 14) @compileError("target string should be 14 chars");
+    try testing.expect(!(flags.use_llvm != true)); // should use llvm
+    try testing.expect(!(flags.use_lld != true)); // should use lld
+    try testing.expect(!(flags.target_str_len != 14)); // target string should be 14 chars
 }
 
 // Property 21: Self-compilation fixed point
@@ -319,9 +321,9 @@ test "self-compilation fixed point - deterministic output" {
     const r1 = validateSelfHosting(config);
     const r2 = validateSelfHosting(config);
     // Same config → same result (deterministic)
-    if (r1.fixed_point != r2.fixed_point) @compileError("fixed point should be deterministic");
-    if (r1.stage1_success != r2.stage1_success) @compileError("stage1 should be deterministic");
-    if (r1.stage2_success != r2.stage2_success) @compileError("stage2 should be deterministic");
+    try testing.expect(!(r1.fixed_point != r2.fixed_point)); // fixed point should be deterministic
+    try testing.expect(!(r1.stage1_success != r2.stage1_success)); // stage1 should be deterministic
+    try testing.expect(!(r1.stage2_success != r2.stage2_success)); // stage2 should be deterministic
 }
 
 test "self-compilation fixed point - all valid configs converge" {
@@ -333,6 +335,6 @@ test "self-compilation fixed point - all valid configs converge" {
     for (configs) |config| {
         const result = validateSelfHosting(config);
         // All linux-hosted configs should reach fixed point
-        if (!result.fixed_point) @compileError("linux-hosted config should reach fixed point");
+        try testing.expect(!(!result.fixed_point)); // linux-hosted config should reach fixed point
     }
 }

@@ -588,42 +588,44 @@ pub const RegAlloc = struct {
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "Codegen init produces valid state" {
     const cg = Codegen.init(.{ .arch = .x86_64, .os = .linux, .abi = .gnu });
-    if (cg.code_offset != 0) @compileError("initial code_offset should be 0");
-    if (cg.output_ring.len() != 0) @compileError("initial output ring should be empty");
-    if (cg.relocations.len() != 0) @compileError("initial relocations should be empty");
-    if (cg.interference_graph[0][0] != false) @compileError("interference graph should start clear");
+    try testing.expect(!(cg.code_offset != 0)); // initial code_offset should be 0
+    try testing.expect(!(cg.output_ring.len() != 0)); // initial output ring should be empty
+    try testing.expect(!(cg.relocations.len() != 0)); // initial relocations should be empty
+    try testing.expect(!(cg.interference_graph[0][0] != false)); // interference graph should start clear
 }
 
 test "emitByte pushes to ring and advances offset" {
     var cg = Codegen.init(.{ .arch = .x86_64, .os = .linux, .abi = .gnu });
     cg.emitByte(0xC3);
-    if (cg.output_ring.len() != 1) @compileError("expected 1 byte in ring");
-    if (cg.code_offset != 1) @compileError("expected code_offset 1");
-    if (cg.output_ring.pop().? != 0xC3) @compileError("expected 0xC3");
+    try testing.expect(!(cg.output_ring.len() != 1)); // expected 1 byte in ring
+    try testing.expect(!(cg.code_offset != 1)); // expected code_offset 1
+    try testing.expect(!(cg.output_ring.pop().? != 0xC3)); // expected 0xC3
 }
 
 test "emitU32LE encodes little-endian" {
     var cg = Codegen.init(.{ .arch = .x86_64, .os = .linux, .abi = .gnu });
     cg.emitU32LE(0xDEADBEEF);
-    if (cg.output_ring.pop().? != 0xEF) @compileError("byte 0 should be 0xEF");
-    if (cg.output_ring.pop().? != 0xBE) @compileError("byte 1 should be 0xBE");
-    if (cg.output_ring.pop().? != 0xAD) @compileError("byte 2 should be 0xAD");
-    if (cg.output_ring.pop().? != 0xDE) @compileError("byte 3 should be 0xDE");
+    try testing.expect(!(cg.output_ring.pop().? != 0xEF)); // byte 0 should be 0xEF
+    try testing.expect(!(cg.output_ring.pop().? != 0xBE)); // byte 1 should be 0xBE
+    try testing.expect(!(cg.output_ring.pop().? != 0xAD)); // byte 2 should be 0xAD
+    try testing.expect(!(cg.output_ring.pop().? != 0xDE)); // byte 3 should be 0xDE
 }
 
 test "emitU64LE encodes little-endian" {
     var cg = Codegen.init(.{ .arch = .x86_64, .os = .linux, .abi = .gnu });
     cg.emitU64LE(0x0102030405060708);
-    if (cg.output_ring.pop().? != 0x08) @compileError("byte 0");
-    if (cg.output_ring.pop().? != 0x07) @compileError("byte 1");
-    if (cg.output_ring.pop().? != 0x06) @compileError("byte 2");
-    if (cg.output_ring.pop().? != 0x05) @compileError("byte 3");
-    if (cg.output_ring.pop().? != 0x04) @compileError("byte 4");
-    if (cg.output_ring.pop().? != 0x03) @compileError("byte 5");
-    if (cg.output_ring.pop().? != 0x02) @compileError("byte 6");
-    if (cg.output_ring.pop().? != 0x01) @compileError("byte 7");
+    try testing.expect(!(cg.output_ring.pop().? != 0x08)); // byte 0
+    try testing.expect(!(cg.output_ring.pop().? != 0x07)); // byte 1
+    try testing.expect(!(cg.output_ring.pop().? != 0x06)); // byte 2
+    try testing.expect(!(cg.output_ring.pop().? != 0x05)); // byte 3
+    try testing.expect(!(cg.output_ring.pop().? != 0x04)); // byte 4
+    try testing.expect(!(cg.output_ring.pop().? != 0x03)); // byte 5
+    try testing.expect(!(cg.output_ring.pop().? != 0x02)); // byte 6
+    try testing.expect(!(cg.output_ring.pop().? != 0x01)); // byte 7
 }
 
 test "emit constant small value uses 5-byte mov eax encoding" {
@@ -635,9 +637,9 @@ test "emit constant small value uses 5-byte mov eax encoding" {
     };
     cg.emit(&ir);
     // mov eax, 42 = B8 2A 00 00 00
-    if (cg.output_ring.len() != 5) @compileError("mov eax, imm32 should be 5 bytes");
-    if (cg.output_ring.pop().? != 0xB8) @compileError("opcode should be B8");
-    if (cg.output_ring.pop().? != 42) @compileError("imm byte 0 should be 42");
+    try testing.expect(!(cg.output_ring.len() != 5)); // mov eax, imm32 should be 5 bytes
+    try testing.expect(!(cg.output_ring.pop().? != 0xB8)); // opcode should be B8
+    try testing.expect(!(cg.output_ring.pop().? != 42)); // imm byte 0 should be 42
 }
 
 test "emit constant large value uses 10-byte mov rax encoding" {
@@ -649,9 +651,9 @@ test "emit constant large value uses 10-byte mov rax encoding" {
     };
     cg.emit(&ir);
     // REX.W + mov rax, imm64 = 48 B8 + 8 bytes
-    if (cg.output_ring.len() != 10) @compileError("mov rax, imm64 should be 10 bytes");
-    if (cg.output_ring.pop().? != 0x48) @compileError("REX.W prefix");
-    if (cg.output_ring.pop().? != 0xB8) @compileError("opcode B8");
+    try testing.expect(!(cg.output_ring.len() != 10)); // mov rax, imm64 should be 10 bytes
+    try testing.expect(!(cg.output_ring.pop().? != 0x48)); // REX.W prefix
+    try testing.expect(!(cg.output_ring.pop().? != 0xB8)); // opcode B8
 }
 
 test "emit ret produces single 0xC3 byte" {
@@ -662,8 +664,8 @@ test "emit ret produces single 0xC3 byte" {
         .type_index = 0,
     };
     cg.emit(&ir);
-    if (cg.output_ring.len() != 1) @compileError("ret should be 1 byte");
-    if (cg.output_ring.pop().? != 0xC3) @compileError("ret should be 0xC3");
+    try testing.expect(!(cg.output_ring.len() != 1)); // ret should be 1 byte
+    try testing.expect(!(cg.output_ring.pop().? != 0xC3)); // ret should be 0xC3
 }
 
 test "emit add produces 3-byte REX.W encoding" {
@@ -674,10 +676,10 @@ test "emit add produces 3-byte REX.W encoding" {
         .type_index = 0,
     };
     cg.emit(&ir);
-    if (cg.output_ring.len() != 3) @compileError("add rax, rbx should be 3 bytes");
-    if (cg.output_ring.pop().? != 0x48) @compileError("REX.W");
-    if (cg.output_ring.pop().? != 0x01) @compileError("ADD opcode");
-    if (cg.output_ring.pop().? != 0xD8) @compileError("ModRM");
+    try testing.expect(!(cg.output_ring.len() != 3)); // add rax, rbx should be 3 bytes
+    try testing.expect(!(cg.output_ring.pop().? != 0x48)); // REX.W
+    try testing.expect(!(cg.output_ring.pop().? != 0x01)); // ADD opcode
+    try testing.expect(!(cg.output_ring.pop().? != 0xD8)); // ModRM
 }
 
 test "emit call produces relocation" {
@@ -689,11 +691,11 @@ test "emit call produces relocation" {
     };
     cg.emit(&ir);
     // call rel32 = E8 + 4 bytes = 5 bytes total
-    if (cg.output_ring.len() != 5) @compileError("call should be 5 bytes");
-    if (cg.relocations.len() != 1) @compileError("call should produce 1 relocation");
+    try testing.expect(!(cg.output_ring.len() != 5)); // call should be 5 bytes
+    try testing.expect(!(cg.relocations.len() != 1)); // call should produce 1 relocation
     const reloc = cg.relocations.get(0);
-    if (reloc.symbol_index != 7) @compileError("relocation should reference callee 7");
-    if (reloc.rel_type != .r_x86_64_pc32) @compileError("relocation type should be pc32");
+    try testing.expect(!(reloc.symbol_index != 7)); // relocation should reference callee 7
+    try testing.expect(!(reloc.rel_type != .r_x86_64_pc32)); // relocation type should be pc32
 }
 
 test "flushToLinker drains ring buffer" {
@@ -703,11 +705,11 @@ test "flushToLinker drains ring buffer" {
     cg.emitByte(0xCC);
     var buf: [8]u8 = undefined;
     const written = cg.flushToLinker(&buf);
-    if (written != 3) @compileError("should flush 3 bytes");
-    if (buf[0] != 0xAA) @compileError("byte 0");
-    if (buf[1] != 0xBB) @compileError("byte 1");
-    if (buf[2] != 0xCC) @compileError("byte 2");
-    if (cg.output_ring.len() != 0) @compileError("ring should be empty after flush");
+    try testing.expect(!(written != 3)); // should flush 3 bytes
+    try testing.expect(!(buf[0] != 0xAA)); // byte 0
+    try testing.expect(!(buf[1] != 0xBB)); // byte 1
+    try testing.expect(!(buf[2] != 0xCC)); // byte 2
+    try testing.expect(!(cg.output_ring.len() != 0)); // ring should be empty after flush
 }
 
 test "RegAlloc basic allocation" {
@@ -716,8 +718,8 @@ test "RegAlloc basic allocation" {
     ra.virtual_count = 3;
     // No interference — all should get distinct regs starting from 0
     ra.allocateRegisters(&cg);
-    if (ra.assignments[0] != 0) @compileError("vreg 0 should get phys 0");
-    if (ra.assignments[1] != 0) @compileError("vreg 1 should get phys 0 (no interference)");
+    try testing.expect(!(ra.assignments[0] != 0)); // vreg 0 should get phys 0
+    try testing.expect(!(ra.assignments[1] != 0)); // vreg 1 should get phys 0 (no interference)
 }
 
 // ============================================================================
@@ -737,7 +739,7 @@ test "multi-target codegen - all targets emit bytes for ret" {
     for (targets) |t| {
         var cg = Codegen.init(t);
         cg.emit(&ir);
-        if (cg.output_ring.len() == 0) @compileError("all targets should emit at least 1 byte for ret");
+        try testing.expect(!(cg.output_ring.len() == 0)); // all targets should emit at least 1 byte for ret
     }
 }
 
@@ -753,7 +755,7 @@ test "multi-target codegen - all targets emit bytes for add" {
     for (targets) |t| {
         var cg = Codegen.init(t);
         cg.emit(&ir);
-        if (cg.output_ring.len() == 0) @compileError("all targets should emit bytes for add");
+        try testing.expect(!(cg.output_ring.len() == 0)); // all targets should emit bytes for add
     }
 }
 
@@ -761,7 +763,7 @@ test "multi-target codegen - aarch64 instructions are 4 bytes" {
     var cg = Codegen.init(.{ .arch = .aarch64, .os = .linux, .abi = .gnu });
     const ir = IR_Node{ .tag = .add, .data = .{ .binary = .{ .lhs = 0, .rhs = 1 } }, .type_index = 0 };
     cg.emit(&ir);
-    if (cg.output_ring.len() != 4) @compileError("aarch64 instructions should be 4 bytes");
+    try testing.expect(!(cg.output_ring.len() != 4)); // aarch64 instructions should be 4 bytes
 }
 
 // Property 13: Register allocation within bounds
@@ -774,7 +776,7 @@ test "register allocation - assignments within register count" {
     var i: u16 = 0;
     while (i < 5) : (i += 1) {
         const a = ra.assignments[i];
-        if (a != RegAlloc.SPILLED and a >= 16) @compileError("assignment exceeds register count");
+        try testing.expect(!(a != RegAlloc.SPILLED and a >= 16)); // assignment exceeds register count
     }
 }
 
@@ -793,7 +795,7 @@ test "register allocation - spill when interference forces it" {
     }
     ra.allocateRegisters(&cg);
     // With 17 fully-interfering vregs and 16 regs, at least 1 must spill
-    if (ra.spill_count == 0) @compileError("should have at least 1 spill with 17 interfering vregs and 16 regs");
+    try testing.expect(!(ra.spill_count == 0)); // should have at least 1 spill with 17 interfering vregs and 16 regs
 }
 
 test "register allocation - wasm skips allocation" {
@@ -802,8 +804,8 @@ test "register allocation - wasm skips allocation" {
     ra.virtual_count = 10;
     ra.allocateRegisters(&cg);
     // Wasm has 0 registers — allocateRegisters should be a no-op
-    if (ra.spill_count != 0) @compileError("wasm should not spill (no allocation)");
-    if (ra.assignments[0] != RegAlloc.UNASSIGNED) @compileError("wasm vregs should remain unassigned");
+    try testing.expect(!(ra.spill_count != 0)); // wasm should not spill (no allocation)
+    try testing.expect(!(ra.assignments[0] != RegAlloc.UNASSIGNED)); // wasm vregs should remain unassigned
 }
 
 test "register allocation - SB0 never assigns reserved x18" {
@@ -823,9 +825,9 @@ test "register allocation - SB0 never assigns reserved x18" {
 
     var i: u16 = 0;
     while (i < 31) : (i += 1) {
-        if (ra.assignments[i] == 18) @compileError("SB0 allocation must not assign x18");
+        try testing.expect(!(ra.assignments[i] == 18)); // SB0 allocation must not assign x18
     }
-    if (ra.spill_count != 0) @compileError("31 values should fit in 32 aarch64 regs with x18 reserved");
+    try testing.expect(!(ra.spill_count != 0)); // 31 values should fit in 32 aarch64 regs with x18 reserved
 }
 
 // Property 19: ABI struct layout determinism
@@ -835,10 +837,10 @@ test "ABI determinism - same target produces same output" {
     var cg2 = Codegen.init(.{ .arch = .x86_64, .os = .linux, .abi = .gnu });
     cg1.emit(&ir);
     cg2.emit(&ir);
-    if (cg1.output_ring.len() != cg2.output_ring.len()) @compileError("same target should produce same output length");
+    try testing.expect(!(cg1.output_ring.len() != cg2.output_ring.len())); // same target should produce same output length
     // Compare bytes
     while (cg1.output_ring.pop()) |b1| {
-        const b2 = cg2.output_ring.pop() orelse @compileError("rings should have same length");
-        if (b1 != b2) @compileError("same target should produce identical bytes");
+        const b2 = cg2.output_ring.pop() orelse return error.TestUnexpectedResult; // rings should have same length
+        try testing.expect(!(b1 != b2)); // same target should produce identical bytes
     }
 }

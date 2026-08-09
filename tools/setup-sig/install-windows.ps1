@@ -80,9 +80,13 @@ function Test-SigInstallation {
     }
 
     # Check env var
-    $envLib = [Environment]::GetEnvironmentVariable("ZIG_LIB_DIR", "User")
-    if ($envLib -and $envLib -ne $libDir) {
-        $warnings += "ZIG_LIB_DIR env var ($envLib) does not match installation lib ($libDir)"
+    $envLib = $env:ZIG_LIB_DIR
+    if ($envLib) {
+        $resolvedEnvLib = [IO.Path]::GetFullPath($envLib).TrimEnd('\')
+        $resolvedLibDir = [IO.Path]::GetFullPath($libDir).TrimEnd('\')
+        if (-not $resolvedEnvLib.Equals($resolvedLibDir, [StringComparison]::OrdinalIgnoreCase)) {
+            $errors += "effective ZIG_LIB_DIR ($envLib) does not match installation lib ($libDir)"
+        }
     }
 
     # Report
@@ -116,6 +120,11 @@ function Sync-FromSource {
     $toolsDest = Join-Path $Root "tools\sig_build"
     New-Item -ItemType Directory -Path $toolsDest -Force | Out-Null
     $null = & cmd /c "robocopy `"$toolsSrc`" `"$toolsDest`" /E /NFL /NDL /NJH /NJS /NC /NS /NP /PURGE"
+
+    # The compiler and library are versioned as one unit. Keep both this
+    # process and future shells on the library tree that was just installed.
+    [Environment]::SetEnvironmentVariable("ZIG_LIB_DIR", $libDest, "User")
+    $env:ZIG_LIB_DIR = $libDest
 
     Write-Host "  Done." -ForegroundColor Green
 }

@@ -230,6 +230,8 @@ fn copyBytes(dst: []u8, src: []const u8) void {
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "Diagnostic_Ring emit and flush single entry" {
     var ring: Diagnostic_Ring = .{ .ring = .{} };
 
@@ -252,18 +254,18 @@ test "Diagnostic_Ring emit and flush single entry" {
 
     ring.emit(entry);
 
-    if (ring.error_count != 1) @compileError("expected error_count == 1");
-    if (ring.pendingCount() != 1) @compileError("expected 1 pending");
+    try testing.expect(!(ring.error_count != 1)); // expected error_count == 1
+    try testing.expect(!(ring.pendingCount() != 1)); // expected 1 pending
 
     var out: [256]u8 = undefined;
     const written = ring.flush(&out);
 
     // Expected: "src/main.sig:10:5: error: undeclared identifier\n"
     const expected = "src/main.sig:10:5: error: undeclared identifier\n";
-    if (written != expected.len) @compileError("unexpected output length");
+    try testing.expect(!(written != expected.len)); // unexpected output length
 
     for (expected, 0..) |c, i| {
-        if (out[i] != c) @compileError("output mismatch");
+        try testing.expect(!(out[i] != c)); // output mismatch
     }
 }
 
@@ -288,18 +290,18 @@ test "Diagnostic_Ring warning and note counting" {
     ring.emit(note_entry);
     ring.emit(note_entry);
 
-    if (ring.warning_count != 1) @compileError("expected warning_count == 1");
-    if (ring.note_count != 2) @compileError("expected note_count == 2");
-    if (ring.error_count != 0) @compileError("expected error_count == 0");
+    try testing.expect(!(ring.warning_count != 1)); // expected warning_count == 1
+    try testing.expect(!(ring.note_count != 2)); // expected note_count == 2
+    try testing.expect(!(ring.error_count != 0)); // expected error_count == 0
 }
 
 test "Diagnostic_Ring atErrorLimit respects MAX_ERROR_LIMIT" {
     var ring: Diagnostic_Ring = .{ .ring = .{} };
     ring.error_count = Compiler_Capacity_Plan.MAX_ERROR_LIMIT;
-    if (!ring.atErrorLimit()) @compileError("should be at error limit");
+    try testing.expect(!(!ring.atErrorLimit())); // should be at error limit
 
     ring.error_count = Compiler_Capacity_Plan.MAX_ERROR_LIMIT - 1;
-    if (ring.atErrorLimit()) @compileError("should not be at error limit");
+    try testing.expect(!(ring.atErrorLimit())); // should not be at error limit
 }
 
 test "Diagnostic_Ring flush truncates at last complete diagnostic" {
@@ -325,30 +327,30 @@ test "Diagnostic_Ring flush truncates at last complete diagnostic" {
     // Provide only 25 bytes — should fit first but not second
     var small_out: [25]u8 = undefined;
     const written = ring.flush(&small_out);
-    if (written != 20) @compileError("expected only first diagnostic (20 bytes)");
+    try testing.expect(!(written != 20)); // expected only first diagnostic (20 bytes)
     // Second entry should still be pending
-    if (ring.pendingCount() != 1) @compileError("expected 1 still pending");
+    try testing.expect(!(ring.pendingCount() != 1)); // expected 1 still pending
 }
 
 test "writeU32 formats numbers correctly" {
     var buf: [10]u8 = undefined;
 
-    if (writeU32(&buf, 0) != 1) @compileError("expected 1 digit for 0");
-    if (buf[0] != '0') @compileError("expected '0'");
+    try testing.expect(!(writeU32(&buf, 0) != 1)); // expected 1 digit for 0
+    try testing.expect(!(buf[0] != '0')); // expected '0'
 
-    if (writeU32(&buf, 42) != 2) @compileError("expected 2 digits for 42");
-    if (buf[0] != '4' or buf[1] != '2') @compileError("expected '42'");
+    try testing.expect(!(writeU32(&buf, 42) != 2)); // expected 2 digits for 42
+    try testing.expect(!(buf[0] != '4' or buf[1] != '2')); // expected '42'
 
-    if (writeU32(&buf, 1234567890) != 10) @compileError("expected 10 digits");
+    try testing.expect(!(writeU32(&buf, 1234567890) != 10)); // expected 10 digits
 }
 
 test "severityString returns correct strings" {
     const e = severityString(.@"error");
     const w = severityString(.warning);
     const n = severityString(.note);
-    if (e.len != 5) @compileError("error should be 5 chars");
-    if (w.len != 7) @compileError("warning should be 7 chars");
-    if (n.len != 4) @compileError("note should be 4 chars");
+    try testing.expect(!(e.len != 5)); // error should be 5 chars
+    try testing.expect(!(w.len != 7)); // warning should be 7 chars
+    try testing.expect(!(n.len != 4)); // note should be 4 chars
 }
 
 // ============================================================================
@@ -378,9 +380,9 @@ test "diagnostic format compliance - error format" {
     const written = ring.flush(&out);
     // Expected: "test.sig:42:7: error: type mismatch\n"
     const expected = "test.sig:42:7: error: type mismatch\n";
-    if (written != expected.len) @compileError("format compliance: unexpected length");
+    try testing.expect(!(written != expected.len)); // format compliance: unexpected length
     for (expected, 0..) |c, i| {
-        if (out[i] != c) @compileError("format compliance: character mismatch");
+        try testing.expect(!(out[i] != c)); // format compliance: character mismatch
     }
 }
 
@@ -405,9 +407,9 @@ test "diagnostic format compliance - warning format" {
     var out: [256]u8 = undefined;
     const written = ring.flush(&out);
     const expected = "lib.sig:1:1: warning: unused\n";
-    if (written != expected.len) @compileError("warning format: unexpected length");
+    try testing.expect(!(written != expected.len)); // warning format: unexpected length
     for (expected, 0..) |c, i| {
-        if (out[i] != c) @compileError("warning format: character mismatch");
+        try testing.expect(!(out[i] != c)); // warning format: character mismatch
     }
 }
 
@@ -431,12 +433,12 @@ test "error accumulation stops at MAX_ERROR_LIMIT" {
         ring.emit(entry);
     }
     if (ring.error_count != Compiler_Capacity_Plan.MAX_ERROR_LIMIT)
-        @compileError("should have MAX_ERROR_LIMIT errors");
+        return error.TestUnexpectedResult; // should have MAX_ERROR_LIMIT errors
 
     // Attempting to emit one more error should be rejected (at limit)
     ring.emit(entry);
     if (ring.error_count != Compiler_Capacity_Plan.MAX_ERROR_LIMIT)
-        @compileError("error count should not exceed limit");
+        return error.TestUnexpectedResult; // error count should not exceed limit
 }
 
 test "warnings still accepted after error limit" {
@@ -451,5 +453,5 @@ test "warnings still accepted after error limit" {
     warn_entry.column = 1;
 
     ring.emit(warn_entry);
-    if (ring.warning_count != 1) @compileError("warnings should still be accepted at error limit");
+    try testing.expect(!(ring.warning_count != 1)); // warnings should still be accepted at error limit
 }

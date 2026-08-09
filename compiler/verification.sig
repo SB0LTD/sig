@@ -137,66 +137,68 @@ pub fn verifySigExtensionSupport(source: []const u8) bool {
 }
 
 // Tests
+const testing = @import("std").testing;
+
 test "verifyZeroAlloc clean source passes" {
     const src = "pub fn main() void { const x: [1024]u8 = undefined; }";
-    if (!verifyZeroAlloc(src)) @compileError("clean source should pass");
+    try testing.expect(!(!verifyZeroAlloc(src))); // clean source should pass
 }
 
 test "verifyZeroAlloc detects malloc" {
     const src = "const ptr = malloc(1024);";
-    if (verifyZeroAlloc(src)) @compileError("should detect malloc");
+    try testing.expect(!(verifyZeroAlloc(src))); // should detect malloc
 }
 
 test "verifyZeroAlloc detects page_allocator" {
     const src = "const a = std.heap.page_allocator;";
-    if (verifyZeroAlloc(src)) @compileError("should detect page_allocator");
+    try testing.expect(!(verifyZeroAlloc(src))); // should detect page_allocator
 }
 
 test "verifyComptimeSized clean source" {
     const src = "var buf: [4096]u8 = undefined;";
-    if (!verifyComptimeSized(src)) @compileError("fixed array should pass");
+    try testing.expect(!(!verifyComptimeSized(src))); // fixed array should pass
 }
 
 test "verifyComptimeSized detects dynamic alloc" {
     const src = "const slice = allocator.alloc(u8, n);";
-    if (verifyComptimeSized(src)) @compileError("should detect dynamic alloc");
+    try testing.expect(!(verifyComptimeSized(src))); // should detect dynamic alloc
 }
 
 test "verifyStackAllocated clean source" {
     const src = "pub fn process(buf: []u8) void {}";
-    if (!verifyStackAllocated(src)) @compileError("stack-only should pass");
+    try testing.expect(!(!verifyStackAllocated(src))); // stack-only should pass
 }
 
 test "verifyAll combined check" {
     const clean = "pub fn add(a: u32, b: u32) u32 { return a + b; }";
-    if (!verifyAll(clean)) @compileError("clean source should pass all checks");
+    try testing.expect(!(!verifyAll(clean))); // clean source should pass all checks
     const dirty = "const a = std.heap.page_allocator;";
-    if (verifyAll(dirty)) @compileError("dirty source should fail");
+    try testing.expect(!(verifyAll(dirty))); // dirty source should fail
 }
 
 test "acceptsFileExtension .sig" {
-    if (!acceptsFileExtension("main.sig")) @compileError("should accept .sig");
+    try testing.expect(!(!acceptsFileExtension("main.sig"))); // should accept .sig
 }
 
 test "acceptsFileExtension .zig" {
-    if (!acceptsFileExtension("lib.zig")) @compileError("should accept .zig");
+    try testing.expect(!(!acceptsFileExtension("lib.zig"))); // should accept .zig
 }
 
 test "acceptsFileExtension rejects other" {
-    if (acceptsFileExtension("file.c")) @compileError("should reject .c");
-    if (acceptsFileExtension("file.rs")) @compileError("should reject .rs");
+    try testing.expect(!(acceptsFileExtension("file.c"))); // should reject .c
+    try testing.expect(!(acceptsFileExtension("file.rs"))); // should reject .rs
 }
 
 test "verifyBinaryCompatibility all formats" {
     const result = verifyBinaryCompatibility();
-    if (!result.accepts_sig) @compileError("should accept sig");
-    if (!result.accepts_zig) @compileError("should accept zig");
-    if (!result.elf_compatible) @compileError("should be elf compatible");
-    if (!result.pe_compatible) @compileError("should be pe compatible");
-    if (!result.macho_compatible) @compileError("should be macho compatible");
-    if (!result.wasm_compatible) @compileError("should be wasm compatible");
+    try testing.expect(!(!result.accepts_sig)); // should accept sig
+    try testing.expect(!(!result.accepts_zig)); // should accept zig
+    try testing.expect(!(!result.elf_compatible)); // should be elf compatible
+    try testing.expect(!(!result.pe_compatible)); // should be pe compatible
+    try testing.expect(!(!result.macho_compatible)); // should be macho compatible
+    try testing.expect(!(!result.wasm_compatible)); // should be wasm compatible
 }
 
 test "verifySigExtensionSupport" {
-    if (!verifySigExtensionSupport("const x = 42;")) @compileError("should support standard zig");
+    try testing.expect(!(!verifySigExtensionSupport("const x = 42;"))); // should support standard zig
 }

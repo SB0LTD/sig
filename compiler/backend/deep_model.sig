@@ -81,12 +81,14 @@ pub const Deep_Model_State = struct {
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "Deep_Model_State init produces zero weights" {
     const model = Deep_Model_State.init();
-    if (model.active_layers != 2) @compileError("active_layers should be 2");
-    if (model.neurons_per_layer != 16) @compileError("neurons_per_layer should be 16");
-    if (model.weights[0][0][0] != 0.0) @compileError("weights should be zero-initialized");
-    if (model.biases[0][0] != 0.0) @compileError("biases should be zero-initialized");
+    try testing.expect(!(model.active_layers != 2)); // active_layers should be 2
+    try testing.expect(!(model.neurons_per_layer != 16)); // neurons_per_layer should be 16
+    try testing.expect(!(model.weights[0][0][0] != 0.0)); // weights should be zero-initialized
+    try testing.expect(!(model.biases[0][0] != 0.0)); // biases should be zero-initialized
 }
 
 test "infer with zero weights produces zero output" {
@@ -95,28 +97,28 @@ test "infer with zero weights produces zero output" {
     var output: [4]f32 = undefined;
     model.infer(&input, &output);
     // Zero weights + zero biases → all zeros after ReLU
-    if (output[0] != 0.0) @compileError("output[0] should be 0.0");
-    if (output[1] != 0.0) @compileError("output[1] should be 0.0");
-    if (output[2] != 0.0) @compileError("output[2] should be 0.0");
-    if (output[3] != 0.0) @compileError("output[3] should be 0.0");
+    try testing.expect(!(output[0] != 0.0)); // output[0] should be 0.0
+    try testing.expect(!(output[1] != 0.0)); // output[1] should be 0.0
+    try testing.expect(!(output[2] != 0.0)); // output[2] should be 0.0
+    try testing.expect(!(output[3] != 0.0)); // output[3] should be 0.0
 }
 
 test "isConfident returns false for zero scores" {
     const model = Deep_Model_State.init();
     const scores = [_]f32{ 0.0, 0.0, 0.0 };
-    if (model.isConfident(&scores) != false) @compileError("zero scores should not be confident");
+    try testing.expect(!(model.isConfident(&scores) != false)); // zero scores should not be confident
 }
 
 test "isConfident returns true when max exceeds threshold" {
     const model = Deep_Model_State.init();
     const scores = [_]f32{ 0.1, 0.8, 0.3 };
-    if (model.isConfident(&scores) != true) @compileError("0.8 >= 0.7 threshold");
+    try testing.expect(!(model.isConfident(&scores) != true)); // 0.8 >= 0.7 threshold
 }
 
 test "isConfident returns false when max is below threshold" {
     const model = Deep_Model_State.init();
     const scores = [_]f32{ 0.1, 0.5, 0.3 };
-    if (model.isConfident(&scores) != false) @compileError("0.5 < 0.7 threshold");
+    try testing.expect(!(model.isConfident(&scores) != false)); // 0.5 < 0.7 threshold
 }
 
 // Property 14: Deep model stack-only inference
@@ -132,7 +134,7 @@ test "deep model inference uses only stack memory" {
     model.infer(&input, &output2);
     // Same input → same output (deterministic, no hidden state)
     for (0..16) |i| {
-        if (output1[i] != output2[i]) @compileError("inference should be deterministic");
+        try testing.expect(!(output1[i] != output2[i])); // inference should be deterministic
     }
 }
 
@@ -144,7 +146,7 @@ test "deep model inference output bounded by neurons_per_layer" {
     // Output beyond neurons_per_layer (16) should be untouched (-1.0)
     // Actually the function copies min(output.len, neurons_per_layer) = 16
     // so output[16..] should remain -1.0
-    if (output[16] != -1.0) @compileError("output beyond neurons_per_layer should be untouched");
+    try testing.expect(!(output[16] != -1.0)); // output beyond neurons_per_layer should be untouched
 }
 
 // Property 27: Deep model fallback determinism
@@ -152,7 +154,7 @@ test "deep model fallback - low confidence triggers fallback" {
     const model = Deep_Model_State.init();
     // With zero weights, all outputs are 0.0 → below threshold (0.7)
     const scores: [16]f32 = @splat(0.0);
-    if (model.isConfident(&scores)) @compileError("zero scores should not be confident");
+    try testing.expect(!(model.isConfident(&scores))); // zero scores should not be confident
 }
 
 test "deep model fallback - deterministic regardless of call order" {
@@ -168,6 +170,6 @@ test "deep model fallback - deterministic regardless of call order" {
     model.infer(&input_a, &out_a2);
     // A's output should be identical regardless of intervening B call
     for (0..16) |i| {
-        if (out_a1[i] != out_a2[i]) @compileError("inference should be stateless and deterministic");
+        try testing.expect(!(out_a1[i] != out_a2[i])); // inference should be stateless and deterministic
     }
 }

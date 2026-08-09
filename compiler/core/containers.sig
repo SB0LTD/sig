@@ -95,37 +95,41 @@ pub fn RingBuffer(comptime T: type, comptime capacity: usize) type {
 // FixedPool(T, capacity) — Fixed-capacity object pool with free-list
 // ============================================================================
 
-/// Fixed-capacity object pool using an intrusive free-list.
-/// Slots are pre-allocated at comptime size. `alloc()` returns the next
-/// free slot; `free()` returns a slot to the free list. O(1) alloc/free.
+/// Fixed-capacity object pool using a bump cursor plus a stack of recycled
+/// indices. Slots are pre-allocated at comptime size. Both `alloc()` and
+/// `free()` are O(1), and initialization is O(1) regardless of capacity.
 pub fn FixedPool(comptime T: type, comptime capacity: usize) type {
+    comptime {
+        if (capacity == 0) @compileError("FixedPool capacity must be non-zero");
+        if (capacity > @as(usize, ~@as(u32, 0))) @compileError("FixedPool capacity exceeds its u32 index space");
+    }
     return struct {
         const Self = @This();
 
         /// Storage for pooled objects.
         slots: [capacity]T = undefined,
-        /// Free-list: each entry holds the index of the next free slot.
-        /// A value of `capacity` means "end of free list".
-        free_list: [capacity]u32 = init_free_list(),
-        /// Head of the free list (index of next available slot).
-        free_head: u32 = 0,
+        /// Stack of indices returned by `free`. Contents above `free_count`
+        /// are deliberately undefined and never inspected.
+        free_indices: [capacity]u32 = undefined,
+        /// Number of valid entries in `free_indices`.
+        free_count: usize = 0,
+        /// First slot that has never been allocated.
+        next_uninitialized: usize = 0,
         /// Number of currently allocated slots.
         allocated: usize = 0,
-
-        fn init_free_list() [capacity]u32 {
-            var list: [capacity]u32 = undefined;
-            for (0..capacity) |i| {
-                list[i] = @intCast(i + 1);
-            }
-            return list;
-        }
 
         /// Allocate a slot from the pool.
         /// Returns a pointer to the slot, or null if the pool is full.
         pub fn alloc(self: *Self) ?*T {
-            if (self.free_head >= capacity) return null;
-            const idx = self.free_head;
-            self.free_head = self.free_list[idx];
+            const idx = if (self.free_count > 0) blk: {
+                self.free_count -= 1;
+                break :blk self.free_indices[self.free_count];
+            } else blk: {
+                if (self.next_uninitialized >= capacity) return null;
+                const fresh = self.next_uninitialized;
+                self.next_uninitialized += 1;
+                break :blk fresh;
+            };
             self.allocated += 1;
             return &self.slots[idx];
         }
@@ -135,8 +139,8 @@ pub fn FixedPool(comptime T: type, comptime capacity: usize) type {
             const addr = @intFromPtr(ptr);
             const base = @intFromPtr(&self.slots[0]);
             const idx: u32 = @intCast((addr - base) / @sizeOf(T));
-            self.free_list[idx] = self.free_head;
-            self.free_head = idx;
+            self.free_indices[self.free_count] = idx;
+            self.free_count += 1;
             self.allocated -= 1;
         }
 
@@ -204,6 +208,13 @@ pub fn BoundedVec(comptime T: type, comptime capacity: usize) type {
 /// K must be a type that can be hashed via `hashKey`. Currently supports
 /// u64 keys directly; extend `hashKey` for other types.
 pub fn Fixed_Hash_Map(comptime K: type, comptime V: type, comptime bucket_count: usize, comptime max_entries: usize) type {
+    comptime {
+        if (K != u64) @compileError("Fixed_Hash_Map currently requires u64 keys");
+        if (bucket_count == 0 or bucket_count & (bucket_count - 1) != 0)
+            @compileError("Fixed_Hash_Map bucket_count must be a non-zero power of two");
+        if (max_entries == 0 or max_entries > bucket_count)
+            @compileError("Fixed_Hash_Map max_entries must be in 1..bucket_count");
+    }
     return struct {
         const Self = @This();
 
@@ -337,18 +348,8 @@ pub fn Fixed_Hash_Map(comptime K: type, comptime V: type, comptime bucket_count:
 
         fn hashKey(self: *const Self, key: K) usize {
             _ = self;
-            // FNV-1a style hash for integer keys
-            if (K == u64) {
-                var h: u64 = 14695981039346656037;
-                const bytes = @as([8]u8, @bitCast(key));
-                for (bytes) |b| {
-                    h ^= b;
-                    h *%= 1099511628211;
-                }
-                return @intCast(h & (bucket_count - 1));
-            }
-            // Fallback: treat as raw bytes
-            const bytes = @as([@sizeOf(K)]u8, @bitCast(key));
+            // FNV-1a over the complete u64 key representation.
+            const bytes = @as([8]u8, @bitCast(key));
             var h: u64 = 14695981039346656037;
             for (bytes) |b| {
                 h ^= b;
@@ -359,14 +360,7 @@ pub fn Fixed_Hash_Map(comptime K: type, comptime V: type, comptime bucket_count:
 
         fn keysEqual(self: *const Self, a: K, b: K) bool {
             _ = self;
-            if (K == u64) return a == b;
-            // Fallback: byte comparison
-            const a_bytes = @as([@sizeOf(K)]u8, @bitCast(a));
-            const b_bytes = @as([@sizeOf(K)]u8, @bitCast(b));
-            for (a_bytes, b_bytes) |ab, bb| {
-                if (ab != bb) return false;
-            }
-            return true;
+            return a == b;
         }
     };
 }
@@ -454,12 +448,9 @@ pub fn Intern_Pool(comptime T: type, comptime capacity: usize) type {
 
         fn valuesEqual(self: *const Self, a: T, b: T) bool {
             _ = self;
-            const a_bytes = @as([@sizeOf(T)]u8, @bitCast(a));
-            const b_bytes = @as([@sizeOf(T)]u8, @bitCast(b));
-            for (a_bytes, b_bytes) |ab, bb| {
-                if (ab != bb) return false;
-            }
-            return true;
+            if (T == u64) return a == b;
+            if (T == Type_Descriptor) return Type_Descriptor.eql(a, b);
+            @compileError("Intern_Pool requires an explicit semantic equality implementation for this type");
         }
     };
 }
@@ -541,38 +532,54 @@ pub const CodegenRing = RingBuffer(u8, Compiler_Capacity_Plan.CODEGEN_RING_CAPAC
 // Tests
 // ============================================================================
 
+const testing = @import("std").testing;
+
 test "RingBuffer push/pop basic" {
     var rb: RingBuffer(u32, 4) = .{};
-    if (!rb.isEmpty()) @compileError("new ring should be empty");
+    try testing.expect(!(!rb.isEmpty())); // new ring should be empty
     rb.push(10);
     rb.push(20);
     rb.push(30);
-    if (rb.len() != 3) @compileError("expected len 3");
-    if (rb.pop().? != 10) @compileError("expected 10");
-    if (rb.pop().? != 20) @compileError("expected 20");
-    if (rb.pop().? != 30) @compileError("expected 30");
-    if (rb.pop() != null) @compileError("expected null");
+    try testing.expect(!(rb.len() != 3)); // expected len 3
+    try testing.expect(!(rb.pop().? != 10)); // expected 10
+    try testing.expect(!(rb.pop().? != 20)); // expected 20
+    try testing.expect(!(rb.pop().? != 30)); // expected 30
+    try testing.expect(!(rb.pop() != null)); // expected null
 }
 
 test "RingBuffer overwrite when full" {
     var rb: RingBuffer(u32, 2) = .{};
     rb.push(1);
     rb.push(2);
-    if (!rb.isFull()) @compileError("should be full");
+    try testing.expect(!(!rb.isFull())); // should be full
     rb.push(3); // overwrites 1
-    if (rb.pop().? != 2) @compileError("expected 2 after overwrite");
-    if (rb.pop().? != 3) @compileError("expected 3 after overwrite");
+    try testing.expect(!(rb.pop().? != 2)); // expected 2 after overwrite
+    try testing.expect(!(rb.pop().? != 3)); // expected 3 after overwrite
 }
 
 test "BoundedVec append and get" {
     var v: BoundedVec(u32, 4) = .{};
-    v.append(100) catch @compileError("unexpected overflow");
-    v.append(200) catch @compileError("unexpected overflow");
-    if (v.get(0) != 100) @compileError("expected 100");
-    if (v.get(1) != 200) @compileError("expected 200");
-    if (v.len() != 2) @compileError("expected len 2");
+    try v.append(100); // unexpected overflow
+    try v.append(200); // unexpected overflow
+    try testing.expect(!(v.get(0) != 100)); // expected 100
+    try testing.expect(!(v.get(1) != 200)); // expected 200
+    try testing.expect(!(v.len() != 2)); // expected len 2
     v.clear();
-    if (v.len() != 0) @compileError("expected len 0 after clear");
+    try testing.expect(!(v.len() != 0)); // expected len 0 after clear
+}
+
+test "FixedPool exhausts and recycles in constant time" {
+    var pool: FixedPool(u32, 2) = .{};
+    const first = pool.alloc().?;
+    const second = pool.alloc().?;
+    try testing.expect(pool.alloc() == null);
+    first.* = 41;
+    second.* = 42;
+    pool.free(first);
+    try testing.expect(pool.count() == 1);
+    const recycled = pool.alloc().?;
+    try testing.expect(@intFromPtr(recycled) == @intFromPtr(first));
+    try testing.expect(pool.count() == 2);
 }
 
 test "BoundedBitSet basic operations" {
@@ -580,14 +587,14 @@ test "BoundedBitSet basic operations" {
     bs.set(0);
     bs.set(64);
     bs.set(127);
-    if (!bs.isSet(0)) @compileError("bit 0 should be set");
-    if (!bs.isSet(64)) @compileError("bit 64 should be set");
-    if (!bs.isSet(127)) @compileError("bit 127 should be set");
-    if (bs.isSet(1)) @compileError("bit 1 should not be set");
-    if (bs.count() != 3) @compileError("expected popcount 3");
-    if (bs.findFirstSet().? != 0) @compileError("first set should be 0");
+    try testing.expect(!(!bs.isSet(0))); // bit 0 should be set
+    try testing.expect(!(!bs.isSet(64))); // bit 64 should be set
+    try testing.expect(!(!bs.isSet(127))); // bit 127 should be set
+    try testing.expect(!(bs.isSet(1))); // bit 1 should not be set
+    try testing.expect(!(bs.count() != 3)); // expected popcount 3
+    try testing.expect(!(bs.findFirstSet().? != 0)); // first set should be 0
     bs.clear(0);
-    if (bs.findFirstSet().? != 64) @compileError("first set should be 64 after clear(0)");
+    try testing.expect(!(bs.findFirstSet().? != 64)); // first set should be 64 after clear(0)
 }
 
 // ============================================================================
@@ -604,7 +611,7 @@ test "Fixed_Hash_Map capacity invariant after many puts" {
     map.put(4, 400);
     // At capacity (4 entries) — next put should evict
     map.put(5, 500);
-    if (map.entry_count > 4) @compileError("entry_count should never exceed max_entries");
+    try testing.expect(!(map.entry_count > 4)); // entry_count should never exceed max_entries
 }
 
 test "Fixed_Hash_Map LRU eviction removes oldest entry" {
@@ -618,9 +625,19 @@ test "Fixed_Hash_Map LRU eviction removes oldest entry" {
     // Insert 5 — should evict key 2 (oldest un-accessed)
     map.put(5, 500);
     // Key 2 should be evicted
-    if (map.get(2) != null) @compileError("key 2 should be evicted (LRU)");
+    try testing.expect(!(map.get(2) != null)); // key 2 should be evicted (LRU)
     // Key 1 should still be present (was accessed recently)
-    if (map.get(1) == null) @compileError("key 1 should survive (recently accessed)");
+    try testing.expect(!(map.get(1) == null)); // key 1 should survive (recently accessed)
+}
+
+test "Fixed_Hash_Map removal preserves a collision probe chain" {
+    var map: Fixed_Hash_Map(u64, u64, 8, 4) = .{};
+    // FNV-1a reduced to eight buckets depends on the low three key bits, so 0
+    // and 8 collide. Removing the first must rehash and preserve the second.
+    map.put(0, 100);
+    map.put(8, 800);
+    try testing.expect(map.remove(0));
+    try testing.expect(map.get(8).?.* == 800);
 }
 
 test "RingBuffer len never exceeds capacity" {
@@ -630,7 +647,7 @@ test "RingBuffer len never exceeds capacity" {
     rb.push(3);
     rb.push(4);
     rb.push(5); // overwrite
-    if (rb.len() > 4) @compileError("RingBuffer len should never exceed capacity");
+    try testing.expect(!(rb.len() > 4)); // RingBuffer len should never exceed capacity
 }
 
 test "Intern_Pool count never exceeds capacity" {
@@ -640,5 +657,5 @@ test "Intern_Pool count never exceeds capacity" {
     _ = pool.intern(30);
     _ = pool.intern(40);
     _ = pool.intern(50); // should evict LRU
-    if (pool.entry_count > 4) @compileError("Intern_Pool should never exceed capacity");
+    try testing.expect(!(pool.entry_count > 4)); // Intern_Pool should never exceed capacity
 }
