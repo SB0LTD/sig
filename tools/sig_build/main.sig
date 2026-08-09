@@ -28,8 +28,12 @@ pub const SigError = sig.SigError;
 // All fixed limits for the build runner. Exceeding any of these returns
 // SigError.CapacityExceeded — no silent fallback, no allocator.
 pub const MAX_STEPS = 256;
-pub const MAX_DEPS_PER_STEP = 32;
-pub const MAX_MODULES = 32;
+// Large production graphs commonly use one aggregate test step with dozens of
+// leaf tests. 128 covers that fan-in while keeping both dependency tables
+// statically bounded. With u16 Step_Handle entries the forward and reverse
+// tables consume 2 * 256 * 128 * 2 = 128 KiB in total.
+pub const MAX_DEPS_PER_STEP = 128;
+pub const MAX_MODULES = 128;
 pub const MAX_IMPORTS_PER_MODULE = 8;
 pub const MAX_OPTIONS = 128;
 pub const MAX_CACHE_ENTRIES = 1024;
@@ -37,6 +41,11 @@ pub const MAX_THREADS = 64;
 pub const MAX_WORK_QUEUE = 64;
 pub const MAX_ENV_VARS = 64;
 pub const PATH_BUF_SIZE = 4096;
+// Module and import paths are project-relative build-graph metadata. Keeping
+// them separate from absolute process paths avoids multiplying a 4 KiB buffer
+// through every registry slot: 128 modules now use less memory than the old
+// 32-module registry while allowing production-sized graphs.
+pub const MODULE_PATH_BUF_SIZE = 512;
 pub const NAME_BUF_SIZE = 64;
 pub const DESC_BUF_SIZE = 256;
 pub const VALUE_BUF_SIZE = 256;
@@ -62,6 +71,13 @@ pub const MAX_LIB_SEARCH_DIRS = 8;
 pub const Step_Handle = u16;
 /// Index into the Module_Registry entries array.
 pub const Module_Handle = u16;
+
+pub const DEPENDENCY_TABLE_BYTES = 2 * MAX_STEPS * MAX_DEPS_PER_STEP * @sizeOf(Step_Handle);
+
+comptime {
+    if (MAX_DEPS_PER_STEP > MAX_STEPS) @compileError("dependency fan-in cannot exceed the step registry");
+    if (DEPENDENCY_TABLE_BYTES > 128 * 1024) @compileError("dependency tables exceed the 128 KiB build-runner budget");
+}
 
 // ── Step types ──────────────────────────────────────────────────────────────
 
@@ -91,6 +107,8 @@ pub const Step_Entry = struct {
     make_fn: StepFn,
     deps: [MAX_DEPS_PER_STEP]Step_Handle = undefined,
     dep_count: usize = 0,
+    module_deps: [MAX_IMPORTS_PER_MODULE]Module_Handle = undefined,
+    module_dep_count: usize = 0,
     state: Step_State = .pending,
 };
 
@@ -121,6 +139,7 @@ pub const Step_Registry = struct {
         entry.desc_len = desc.len;
         entry.make_fn = make_fn;
         entry.dep_count = 0;
+        entry.module_dep_count = 0;
         entry.state = .pending;
         self.count += 1;
 
@@ -156,14 +175,14 @@ pub const Step_Registry = struct {
 pub const Import_Entry = struct {
     name: [NAME_BUF_SIZE]u8 = undefined,
     name_len: usize = 0,
-    path: [PATH_BUF_SIZE]u8 = undefined,
+    path: [MODULE_PATH_BUF_SIZE]u8 = undefined,
     path_len: usize = 0,
 };
 
 pub const Module_Entry = struct {
     name: [NAME_BUF_SIZE]u8 = undefined,
     name_len: usize = 0,
-    source_path: [PATH_BUF_SIZE]u8 = undefined,
+    source_path: [MODULE_PATH_BUF_SIZE]u8 = undefined,
     source_path_len: usize = 0,
     imports: [MAX_IMPORTS_PER_MODULE]Import_Entry = undefined,
     import_count: usize = 0,
@@ -178,7 +197,7 @@ pub const Module_Registry = struct {
     ///         CapacityExceeded if registry is full or name is duplicate.
     pub fn register(self: *Module_Registry, name: []const u8, source_path: []const u8) SigError!Module_Handle {
         if (name.len > NAME_BUF_SIZE) return error.BufferTooSmall;
-        if (source_path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+        if (source_path.len > MODULE_PATH_BUF_SIZE) return error.BufferTooSmall;
         if (self.count >= MAX_MODULES) return error.CapacityExceeded;
 
         // Duplicate name check via linear scan.
@@ -208,7 +227,7 @@ pub const Module_Registry = struct {
         if (mod_idx >= self.count) return error.CapacityExceeded;
 
         if (name.len > NAME_BUF_SIZE) return error.BufferTooSmall;
-        if (path.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+        if (path.len > MODULE_PATH_BUF_SIZE) return error.BufferTooSmall;
 
         var entry = &self.entries[mod_idx];
         if (entry.import_count >= MAX_IMPORTS_PER_MODULE) return error.CapacityExceeded;
@@ -231,6 +250,10 @@ pub const Module_Registry = struct {
         return null;
     }
 };
+
+comptime {
+    if (@sizeOf(Module_Registry) > 768 * 1024) @compileError("module registry exceeds the 768 KiB build-runner budget");
+}
 
 // ── Option types ────────────────────────────────────────────────────────────
 
@@ -3220,14 +3243,18 @@ pub const Build_Context = struct {
             const imp_name = imp.name[0..imp.name_len];
             const imp_path = imp.path[0..imp.path_len];
             // Register the module if not already present.
-            _ = self.modules.register(imp_name, imp_path) catch |err| switch (err) {
-                error.CapacityExceeded => {
+            const module_handle = self.modules.register(imp_name, imp_path) catch |err| switch (err) {
+                error.CapacityExceeded => recover: {
                     // May already exist (duplicate name) — that's fine for compile steps.
                     // Only a real capacity issue if the registry is truly full.
-                    if (self.modules.findByName(imp_name) == null) return err;
+                    break :recover self.modules.findByName(imp_name) orelse return err;
                 },
                 else => return err,
             };
+            var step = &self.steps.entries[handle];
+            if (step.module_dep_count >= MAX_IMPORTS_PER_MODULE) return error.CapacityExceeded;
+            step.module_deps[step.module_dep_count] = module_handle;
+            step.module_dep_count += 1;
         }
 
         return handle;
@@ -3242,12 +3269,16 @@ pub const Build_Context = struct {
         for (opts.imports) |imp| {
             const imp_name = imp.name[0..imp.name_len];
             const imp_path = imp.path[0..imp.path_len];
-            _ = self.modules.register(imp_name, imp_path) catch |err| switch (err) {
-                error.CapacityExceeded => {
-                    if (self.modules.findByName(imp_name) == null) return err;
+            const module_handle = self.modules.register(imp_name, imp_path) catch |err| switch (err) {
+                error.CapacityExceeded => recover: {
+                    break :recover self.modules.findByName(imp_name) orelse return err;
                 },
                 else => return err,
             };
+            var step = &self.steps.entries[handle];
+            if (step.module_dep_count >= MAX_IMPORTS_PER_MODULE) return error.CapacityExceeded;
+            step.module_deps[step.module_dep_count] = module_handle;
+            step.module_dep_count += 1;
         }
 
         return handle;
@@ -3702,18 +3733,27 @@ pub const Build_Context = struct {
         try cmd.appendArg(compiler);
         try cmd.appendArg("test");
 
-        // Emit --dep flags first (before the root module / source file).
-        for (build_ctx.modules.entries[0..build_ctx.modules.count]) |mod_entry| {
+        // Emit only this test's declared imports as root dependencies. The
+        // global module registry is shared by the graph and must not leak
+        // unrelated modules into every compiler invocation.
+        for (entry.module_deps[0..entry.module_dep_count]) |module_handle| {
+            const mod_entry = &build_ctx.modules.entries[module_handle];
             const name_slice = mod_entry.name[0..mod_entry.name_len];
             try cmd.appendArg("--dep");
             try cmd.appendArg(name_slice);
         }
 
-        // Source path as positional argument (root module).
-        try cmd.appendArg(source_path);
+        // Once named modules are present, the root must also use -M syntax.
+        var root_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const root_prefix = "-Mroot=";
+        if (root_prefix.len + source_path.len > root_buf.len) return error.BufferTooSmall;
+        @memcpy(root_buf[0..root_prefix.len], root_prefix);
+        @memcpy(root_buf[root_prefix.len..][0..source_path.len], source_path);
+        try cmd.appendArg(root_buf[0 .. root_prefix.len + source_path.len]);
 
-        // Emit -Mname=path for each module (leaf modules, after root).
-        for (build_ctx.modules.entries[0..build_ctx.modules.count]) |mod_entry| {
+        // Emit -Mname=path for this test's modules (leaf modules, after root).
+        for (entry.module_deps[0..entry.module_dep_count]) |module_handle| {
+            const mod_entry = &build_ctx.modules.entries[module_handle];
             const name_slice = mod_entry.name[0..mod_entry.name_len];
             const path_slice = mod_entry.source_path[0..mod_entry.source_path_len];
 
@@ -3736,7 +3776,10 @@ pub const Build_Context = struct {
         var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
         var stderr_len: usize = 0;
         const exit_code = try runCommand(&cmd, &stderr_buf, &stderr_len, io);
-        if (exit_code != 0) return error.BufferTooSmall;
+        if (exit_code != 0) {
+            if (stderr_len > 0) printMsg(io, "test step '{s}' failed:\n{s}", .{ entry.name[0..entry.name_len], stderr_buf[0..stderr_len] });
+            return error.BufferTooSmall;
+        }
     }
 
     /// Step function for install steps. Copies files from source to dest.
