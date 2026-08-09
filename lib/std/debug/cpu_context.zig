@@ -1700,9 +1700,8 @@ const Ve = extern struct {
             \\ st %%s61, 488(, %%s8)
             \\ st %%s62, 496(, %%s8)
             \\ st %%s63, 504(, %%s8)
-            \\ br.l 1f
-            \\1:
-            \\ st %%lr, 512(, %%s8)
+            \\ sic %%s10
+            \\ st %%s10, 512(, %%s8)
             :
             : [ctx] "{s8}" (&ctx),
             : .{ .s10 = true, .memory = true });
