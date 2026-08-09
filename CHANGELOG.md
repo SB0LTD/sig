@@ -70,6 +70,9 @@ train and establishes the allocator-free native SB0 compiler foundation.
 - Native LLVM jobs exercise CMake, Ninja, tar, zstd, and a known SHA-256 vector
   before compilation, moving packaging-environment failures ahead of the
   hour-long all-target build.
+- Immutable LLVM tag validation derives its prefix from the canonical
+  `LLVM_VERSION`, eliminating a duplicated patch-version literal during LLVM
+  upgrades while retaining strict Sig semantic-version validation.
 
 ### Fixed
 - Stale `bootstrap-sig-v40` sync manifest override that repeatedly selected a

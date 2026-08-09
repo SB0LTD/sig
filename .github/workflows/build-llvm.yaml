@@ -44,8 +44,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "${ARTIFACT_TAG}" =~ ^llvm-22\.1\.7-sig-[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9._-]+)?$ ]] || {
+          expected_prefix="llvm-${LLVM_VERSION}-sig-"
+          [[ "${ARTIFACT_TAG}" == "${expected_prefix}"* ]] || {
             echo "ERROR: invalid immutable LLVM tag: ${ARTIFACT_TAG}" >&2
+            exit 2
+          }
+          sig_release="${ARTIFACT_TAG#"${expected_prefix}"}"
+          [[ "${sig_release}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9._-]+)?$ ]] || {
+            echo "ERROR: invalid Sig release identity in LLVM tag: ${ARTIFACT_TAG}" >&2
             exit 2
           }
           if gh release view "${ARTIFACT_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
