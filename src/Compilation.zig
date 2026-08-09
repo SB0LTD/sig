@@ -7062,7 +7062,9 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .assembly;
     } else if (mem.endsWith(u8, filename, ".S")) {
         return .assembly_with_cpp;
-    } else if (mem.endsWith(u8, filename, ".zig")) {
+    } else if (mem.endsWith(u8, filename, ".zig") or
+        mem.endsWith(u8, filename, ".sig"))
+    {
         return .zig;
     } else if (hasSharedLibraryExt(filename)) {
         return .shared_library;
@@ -7094,6 +7096,7 @@ test "classifyFileExt" {
     try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2.3"));
     try std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.so.1.2.3~"));
     try std.testing.expectEqual(FileExt.zig, classifyFileExt("foo.zig"));
+    try std.testing.expectEqual(FileExt.zig, classifyFileExt("foo.sig"));
 }
 
 fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const u8) !Cache.Path {
