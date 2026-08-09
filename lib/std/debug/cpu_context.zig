@@ -638,8 +638,8 @@ const Hexagon = extern struct {
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
 const Kvx = extern struct {
     r: [64]Gpr,
-    ra: Gpr,
     pc: Gpr,
+    ra: Gpr,
 
     pub const Gpr = u64;
 
