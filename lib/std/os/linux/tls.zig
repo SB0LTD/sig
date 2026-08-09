@@ -296,8 +296,8 @@ pub fn setThreadPointer(addr: usize) void {
                 \\ ble 0xe0(%%sr2, %%r0)
                 \\  nop
                 :
-                : [addr] "={r26}" (addr),
-                : .{ .r29 = true });
+                : [addr] "{r26}" (addr),
+                : .{ .r31 = true });
         },
         .loongarch32, .loongarch64 => {
             asm volatile (
