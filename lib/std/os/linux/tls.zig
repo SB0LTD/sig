@@ -358,7 +358,7 @@ pub fn setThreadPointer(addr: usize) void {
         },
         .sh, .sheb => {
             asm volatile (
-                \\ ldc gbr, %[addr]
+                \\ ldc %[addr], gbr
                 :
                 : [addr] "r" (addr),
             );
@@ -450,7 +450,7 @@ pub fn getThreadPointer() usize {
             : [ret] "=r" (-> usize),
         ),
         .sh, .sheb => asm (
-            \\ stc %[ret], gbr
+            \\ stc gbr, %[ret]
             : [ret] "=r" (-> usize),
         ),
         .sparc, .sparc64 => asm (
