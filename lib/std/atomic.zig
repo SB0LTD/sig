@@ -377,13 +377,16 @@ pub inline fn spinLoopHint() void {
         .aarch64_be,
         => asm volatile ("isb"),
 
-        // `yield` was introduced in v6k but is also available on v6m.
         // https://www.keil.com/support/man/docs/armasm/armasm_dom1361289926796.htm
         .arm,
         .armeb,
+        => if (comptime builtin.cpu.has(.arm, .has_v6k)) {
+            asm volatile ("yield");
+        },
+
         .thumb,
         .thumbeb,
-        => if (comptime builtin.cpu.hasAny(.arm, &.{ .has_v6k, .has_v6m })) {
+        => if (comptime builtin.cpu.hasAny(.arm, &.{ .has_v6m, .thumb2 })) {
             asm volatile ("yield");
         },
 
