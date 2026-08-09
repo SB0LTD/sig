@@ -464,10 +464,11 @@ const Arm = struct {
             \\ stm r0, {r0-r12}
             \\ str r13, [r0, #0x34]
             \\ str r14, [r0, #0x38]
-            \\ str r15, [r0, #0x3c]
+            \\ mov r1, pc
+            \\ str r1, [r0, #0x3c]
             :
             : [r] "{r0}" (&ctx.r),
-            : .{ .memory = true });
+            : .{ .r1 = true, .memory = true });
         return ctx;
     }
 
