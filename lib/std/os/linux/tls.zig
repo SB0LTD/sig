@@ -282,7 +282,7 @@ pub fn setThreadPointer(addr: usize) void {
             assert(rc == 0);
         },
         .m68k => {
-            const rc = linux.syscall1(.set_thread_area, addr);
+            const rc = @call(.always_inline, linux.syscall1, .{ .set_thread_area, addr });
             assert(rc == 0);
         },
         .hexagon => {
