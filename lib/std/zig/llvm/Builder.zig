@@ -2962,7 +2962,7 @@ pub fn trailingStrtabString(self: *Builder) Allocator.Error!StrtabString {
 }
 
 pub fn trailingStrtabStringAssumeCapacity(self: *Builder) StrtabString {
-    const start = self.strtab_string_indices.getLast().?;
+    const start = self.strtab_string_indices.last().?;
     const bytes: []const u8 = self.strtab_string_bytes.items[start..];
     const gop = self.strtab_string_map.getOrPutAssumeCapacityAdapted(bytes, StrtabString.Adapter{ .builder = self });
     if (gop.found_existing) {
@@ -9517,7 +9517,7 @@ pub const Metadata = packed struct(u32) {
             nodes: anytype,
             w: *Writer,
         ) !void {
-            const names = comptime std.meta.fieldNames(@TypeOf(nodes));
+            const names = @typeInfo(@TypeOf(nodes)).@"struct".field_names;
 
             comptime var fmt_str: []const u8 = "{[distinct]s}{[node]s}(";
             inline for (names) |name| fmt_str = fmt_str ++ "{[" ++ name ++ "]f}";
@@ -9765,7 +9765,7 @@ pub fn deinit(self: *Builder) void {
 
 pub fn finishModuleAsm(self: *Builder, aw: *Writer.Allocating) Allocator.Error!void {
     self.module_asm = aw.toArrayList();
-    if (self.module_asm.getLast()) |last| if (last != '\n')
+    if (self.module_asm.last()) |last| if (last != '\n')
         try self.module_asm.append(self.gpa, '\n');
 }
 
@@ -9811,7 +9811,7 @@ pub fn trailingString(self: *Builder) Allocator.Error!String {
 }
 
 pub fn trailingStringAssumeCapacity(self: *Builder) String {
-    const start = self.string_indices.getLast().?;
+    const start = self.string_indices.last().?;
     const bytes: []const u8 = self.string_bytes.items[start..];
     const gop = self.string_map.getOrPutAssumeCapacityAdapted(bytes, String.Adapter{ .builder = self });
     if (gop.found_existing) {
@@ -13042,7 +13042,7 @@ pub fn trailingMetadataString(self: *Builder) Allocator.Error!Metadata.String {
 }
 
 pub fn trailingMetadataStringAssumeCapacity(self: *Builder) Metadata.String {
-    const start = self.metadata_string_indices.getLast().?;
+    const start = self.metadata_string_indices.last().?;
     const bytes: []const u8 = self.metadata_string_bytes.items[start..];
     assert(bytes.len > 0);
     const gop = self.metadata_string_map.getOrPutAssumeCapacityAdapted(bytes, Metadata.String.Adapter{ .builder = self });
@@ -13484,7 +13484,7 @@ fn metadataSimpleAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anytyp
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
             var hasher = std.hash.Wyhash.init(std.hash.int(@backingInt(key.tag)));
-            inline for (comptime std.meta.fieldNames(@TypeOf(value))) |field_name| {
+            inline for (@typeInfo(@TypeOf(value)).@"struct".field_names) |field_name| {
                 hasher.update(std.mem.asBytes(&@field(key.value, field_name)));
             }
             return @truncate(hasher.final());

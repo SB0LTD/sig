@@ -2119,7 +2119,7 @@ fn markFailedStepsDirty(maker: *Maker) void {
     for (all_steps) |step_index| {
         const step = maker.stepByIndex(step_index);
         switch (step.state) {
-            .dependency_failure, .failure, .skipped => _ = maker.invalidateResult(step),
+            .dependency_failure, .dependency_skipped, .failure, .skipped => _ = maker.invalidateResult(step),
             else => continue,
         }
     }
@@ -2236,6 +2236,7 @@ fn prepare(maker: *Maker, step_indices: []const Configuration.Step.Index) !void 
             }
         }
         if (any_problems) {
+            log.info("use --skip-oom-steps to proceed, skipping memory limited steps", .{});
             if (maker.max_rss_is_default) {
                 log.info("use --maxrss {d} to proceed, risking system memory exhaustion", .{max_needed});
             }
@@ -2333,7 +2334,7 @@ fn makeSteps(
             .precheck_unstarted => unreachable,
             .precheck_started => unreachable,
             .precheck_done => unreachable,
-            .dependency_failure => pending_count += 1,
+            .dependency_failure, .dependency_skipped => pending_count += 1,
             .success => success_count += 1,
             .skipped, .skipped_oom => skipped_count += 1,
             .failure => {
@@ -2579,10 +2580,14 @@ fn makeStep(
 
                 .failure,
                 .dependency_failure,
-                .skipped_oom,
                 => break .dependency_failure,
 
-                .success, .skipped => {},
+                .dependency_skipped,
+                .skipped_oom,
+                .skipped,
+                => break .dependency_skipped,
+
+                .success => {},
             }
         } else if (Step.make(step_index, maker, step_prog_node)) state: {
             break :state .success;
@@ -2601,11 +2606,12 @@ fn makeStep(
 
             .failure,
             .dependency_failure,
+            .dependency_skipped,
             .skipped_oom,
+            .skipped,
             => false,
 
             .success,
-            .skipped,
             => true,
         };
 
@@ -2622,7 +2628,7 @@ fn makeStep(
                 .precheck_done => unreachable,
                 .success => .success,
                 .failure, .dependency_failure => .failure,
-                .skipped => .skipped,
+                .dependency_skipped, .skipped => .skipped,
                 .skipped_oom => .skipped_oom,
             };
             serveBuildStepCompleted(
@@ -2665,7 +2671,7 @@ fn makeStep(
             maker.available_rss += max_rss;
             dispatch_set.ensureUnusedCapacity(gpa, maker.memory_blocked_steps.items.len) catch
                 @panic("TODO eliminate memory allocation here");
-            while (maker.memory_blocked_steps.getLast()) |candidate_index| {
+            while (maker.memory_blocked_steps.last()) |candidate_index| {
                 const candidate_max_rss = candidate_index.ptr(c).max_rss.toBytes();
                 if (maker.available_rss < candidate_max_rss) break;
                 assert(maker.memory_blocked_steps.pop() == candidate_index);
@@ -2773,6 +2779,12 @@ fn printStepStatus(maker: *Maker, step_index: Configuration.Step.Index, stderr: 
         .dependency_failure => {
             try stderr.setColor(.dim);
             try writer.writeAll(" transitive failure\n");
+            try stderr.setColor(.reset);
+        },
+
+        .dependency_skipped => {
+            try stderr.setColor(.dim);
+            try writer.writeAll(" transitive skip\n");
             try stderr.setColor(.reset);
         },
 
@@ -3022,6 +3034,7 @@ fn constructGraphAndCheckForDependencyLoop(
 
         // These don't happen until we actually run the step graph.
         .dependency_failure => unreachable,
+        .dependency_skipped => unreachable,
         .success => unreachable,
         .failure => unreachable,
         .skipped => unreachable,
@@ -3312,17 +3325,19 @@ pub fn packagePath(
 ) Allocator.Error!Path {
     const c = &maker.scanned_config.configuration;
     const graph = maker.graph;
-    const package = package_index.get(c) orelse return .{
+
+    if (package_index == .root) return .{
         .root_dir = graph.build_root_directory,
         .sub_path = sub_path,
     };
+
     // Currently, neither configurer nor Maker is aware of the standard zig
     // package path, and the root path is stored as a bare string rather than
     // relative to a known base directory. Without changing that, we must
     // construct a cwd relative path here.
     return .{
         .root_dir = .cwd(),
-        .sub_path = try Dir.path.join(arena, &.{ package.root_path.slice(c), sub_path }),
+        .sub_path = try Dir.path.join(arena, &.{ package_index.ptr(c).root_path.slice(c), sub_path }),
     };
 }
 
@@ -3952,7 +3967,7 @@ fn confPathDepToCachePath(
             .root_dir = graph.build_root_directory,
             .sub_path = switch (path_dep.pkg.unwrap().?) {
                 .root => sub_path,
-                else => |index| try Dir.path.join(arena, &.{ index.get(c).?.root_path.slice(c), sub_path }),
+                else => |index| try Dir.path.join(arena, &.{ index.ptr(c).root_path.slice(c), sub_path }),
             },
         },
         .zig_lib => .{

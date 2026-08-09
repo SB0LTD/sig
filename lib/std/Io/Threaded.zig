@@ -829,6 +829,7 @@ const Thread = struct {
     /// Always released when `Status.cancelation` is set to `.parked`.
     futex_waiter: if (use_parking_futex) ?*parking_futex.Waiter else ?noreturn,
     unpark_flag: UnparkFlag,
+    park_tid: if (ParkTid == std.Thread.Id) void else ParkTid,
 
     csprng: Csprng,
 
@@ -1220,7 +1221,7 @@ const Thread = struct {
                         parking_futex.removeCanceledWaiter(futex_waiter);
                     }
                     if (need_unpark_flag) setUnparkFlag(&thread.unpark_flag);
-                    unpark(&.{thread.id}, null);
+                    unpark(&.{if (ParkTid == std.Thread.Id) thread.id else thread.park_tid}, null);
                     return false;
                 },
 
@@ -1749,6 +1750,7 @@ fn worker(t: *Threaded) void {
         .cancel_protection = .unblocked,
         .futex_waiter = undefined,
         .unpark_flag = unpark_flag_init,
+        .park_tid = if (ParkTid == std.Thread.Id) {} else getParkTid(),
         .csprng = .uninitialized,
     };
     Thread.current = &thread;
@@ -4401,7 +4403,7 @@ fn dirCreateFilePosix(
             }
         };
 
-        fl_flags |= @as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
+        fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
 
         const syscall: Syscall = try .start();
         while (true) {
@@ -4997,7 +4999,7 @@ fn dirOpenFilePosix(
             }
         };
 
-        fl_flags |= @as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
+        fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
 
         const syscall: Syscall = try .start();
         while (true) {
@@ -11228,7 +11230,10 @@ fn fileWriteFileStreaming(
         var off: std.os.linux.off_t = undefined;
         const off_ptr: ?*std.os.linux.off_t, const count: usize = switch (file_reader.mode) {
             .positional => o: {
-                const size = file_reader.getSize() catch return 0;
+                const size = file_reader.getSize() catch |err| switch (err) {
+                    error.Canceled => |e| return e,
+                    else => break :sf,
+                };
                 off = std.math.cast(std.os.linux.off_t, file_reader.pos) orelse return error.ReadFailed;
                 break :o .{ &off, @min(@backingInt(limit), size - file_reader.pos, max_count) };
             },
@@ -11577,7 +11582,10 @@ fn fileWriteFilePositional(
         if (file_reader.pos != 0) break :fcf;
         if (offset != 0) break :fcf;
         if (limit != .unlimited) break :fcf;
-        const size = file_reader.getSize() catch break :fcf;
+        const size = file_reader.getSize() catch |err| switch (err) {
+            error.Canceled => |e| return e,
+            else => break :fcf,
+        };
         if (header.len != 0 or reader_buffered.len != 0) {
             const n = try fileWritePositional(t, file, header, &.{limit.slice(reader_buffered)}, 1, offset);
             file_reader.interface.toss(n -| header.len);
@@ -11769,7 +11777,6 @@ fn nowWasi(clock: Io.Clock) Io.Timestamp {
 
 fn sleep(userdata: ?*anyopaque, timeout: Io.Timeout) Io.Cancelable!void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    if (timeout == .none) return;
     if (use_parking_sleep) return parking_sleep.sleep(timeout);
     if (native_os == .wasi) return sleepWasi(t, timeout);
     if (@TypeOf(posix.system.clock_nanosleep) != void) return sleepPosix(timeout);
@@ -12086,6 +12093,7 @@ fn posixBind(
             else => |e| {
                 syscall.finish();
                 switch (e) {
+                    .ACCES => return error.AccessDenied,
                     .ADDRINUSE => return error.AddressInUse,
                     .BADF => |err| return errnoBug(err), // File descriptor used after closed.
                     .INVAL => |err| return errnoBug(err), // invalid parameters
@@ -13407,13 +13415,13 @@ fn addBuf(v: []posix.iovec_const, i: *iovlen_t, bytes: []const u8) void {
     i.* += 1;
 }
 
-fn netClose(userdata: ?*anyopaque, handles: []const net.Socket.Handle) void {
+fn netClose(userdata: ?*anyopaque, sockets: []const net.Socket) void {
     if (!have_networking) unreachable;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     _ = t;
-    for (handles) |handle| switch (native_os) {
-        .windows => windows.CloseHandle(handle),
-        else => closeFd(handle),
+    for (sockets) |socket| switch (native_os) {
+        .windows => windows.CloseHandle(socket.handle),
+        else => closeFd(socket.handle),
     };
 }
 
@@ -13915,9 +13923,14 @@ fn netLookupFallible(
         var port_buffer: [8]u8 = undefined;
         const port_c = std.fmt.bufPrintSentinel(&port_buffer, "{d}", .{options.port}, 0) catch unreachable;
 
+        const family: i32 = if (options.family) |f| switch (f) {
+            .ip4 => posix.AF.INET,
+            .ip6 => posix.AF.INET6,
+        } else posix.AF.UNSPEC;
+
         const hints: posix.addrinfo = .{
             .flags = .{ .CANONNAME = options.canonical_name_buffer != null, .NUMERICSERV = true },
-            .family = posix.AF.UNSPEC,
+            .family = family,
             .socktype = posix.SOCK.STREAM,
             .protocol = posix.IPPROTO.TCP,
             .canonname = null,
@@ -17430,6 +17443,7 @@ const use_parking_futex = switch (native_os) {
     .windows => true, // RtlWaitOnAddress is a userland implementation anyway
     .netbsd => true, // NetBSD has `futex(2)`, but it's historically been quite buggy. TODO: evaluate whether it's okay to use now.
     .illumos => true, // Illumos has no futex mechanism
+    .haiku => true, // Haiku has no futex mechanism
     else => false,
 };
 const use_parking_sleep = switch (native_os) {
@@ -17475,7 +17489,7 @@ const parking_futex = struct {
     const Waiter = struct {
         node: std.DoublyLinkedList.Node,
         address: usize,
-        tid: std.Thread.Id,
+        tid: ParkTid,
         /// `thread_status.cancelation` is `.parked` while the thread is waiting. The single thread
         /// which atomically updates it (to `.none` or `.canceling`) is responsible for:
         ///
@@ -17516,7 +17530,7 @@ const parking_futex = struct {
 
         // Put the threadlocal access outside of the critical section.
         const opt_thread = Thread.current;
-        const self_tid = if (opt_thread) |thread| thread.id else std.Thread.getCurrentId();
+        const self_tid = getParkTid();
 
         var waiter: Waiter = .{
             .node = undefined, // populated by list append
@@ -17764,7 +17778,12 @@ const parking_sleep = struct {
                 },
             }
         }
+
         // Uncancelable sleep; we expect not to be manually unparked.
+
+        // On systems where parking the thread requires a one-time setup operation (e.g. creating a
+        // semaphore), we need to ensure that setup is done before we call `park`.
+        _ = getParkTid();
         var dummy_flag: UnparkFlag = unpark_flag_init;
         if (park(timeout, null, if (need_unpark_flag) &dummy_flag)) {
             unreachable; // unexpected unpark
@@ -17803,7 +17822,7 @@ const ParkingMutex = struct {
         /// Never modified once the `Waiter` is in the linked list.
         next: ?*Waiter,
         /// Never modified once the `Waiter` is in the linked list.
-        tid: std.Thread.Id,
+        tid: ParkTid,
     };
     fn lock(m: *ParkingMutex) void {
         state: switch (State.unlocked) { // assume 'unlocked' to optimize for uncontended case
@@ -17819,7 +17838,7 @@ const ParkingMutex = struct {
 
             .locked_once, _ => |last_state| {
                 const old_waiter = last_state.waiter();
-                const self_tid = if (Thread.current) |t| t.id else std.Thread.getCurrentId();
+                const self_tid = getParkTid();
                 var waiter: Waiter = .{
                     .next = old_waiter,
                     .unpark_flag = unpark_flag_init,
@@ -17947,8 +17966,35 @@ fn setUnparkFlag(f: *UnparkFlag) void {
 /// but it seems that someone at Microsoft forgot how big their TIDs are supposed to be.
 const UnparkTid = switch (native_os) {
     .windows => usize,
+    else => ParkTid,
+};
+
+const ParkTid = switch (native_os) {
+    .haiku => std.c.sem_id,
     else => std.Thread.Id,
 };
+
+threadlocal var park_sem: std.c.sem_id = -1;
+
+fn getParkTid() ParkTid {
+    switch (native_os) {
+        .haiku => {
+            if (park_sem == -1) {
+                park_sem = std.c._kern_create_sem(0, null);
+                if (park_sem < 0) @panic("_kern_create_sem failed");
+                _ = std.c.on_exit_thread(destroyParkSem, null);
+            }
+            return park_sem;
+        },
+        else => {
+            return if (Thread.current) |thread| thread.id else std.Thread.getCurrentId();
+        },
+    }
+}
+
+fn destroyParkSem(_: ?*anyopaque) callconv(.c) void {
+    _ = std.c._kern_delete_sem(park_sem);
+}
 
 fn park(
     timeout: Io.Timeout,
@@ -18015,6 +18061,27 @@ fn park(
             }
         },
         .illumos => @panic("TODO: illumos lwp_park"),
+        .haiku => {
+            const timeout_flags: u32, const timeout_us = switch (timeout) {
+                .none => .{ 0, 0 },
+                .deadline => |deadline| .{
+                    if (deadline.clock == .real) std.c.B_ABSOLUTE_TIMEOUT | std.c.B_TIMEOUT_REAL_TIME_BASE else std.c.B_ABSOLUTE_TIMEOUT,
+                    deadline.raw.toMicroseconds(),
+                },
+                .duration => |duration| .{
+                    if (duration.clock == .real) std.c.B_ABSOLUTE_TIMEOUT | std.c.B_TIMEOUT_REAL_TIME_BASE else std.c.B_ABSOLUTE_TIMEOUT,
+                    nowPosix(duration.clock).addDuration(duration.raw).toMicroseconds(),
+                },
+            };
+            while (true) {
+                switch (std.c._kern_acquire_sem_etc(park_sem, 1, timeout_flags, timeout_us)) {
+                    0 => return,
+                    std.c.E.B_TIMED_OUT => return error.Timeout,
+                    std.c.E.B_INTERRUPTED => {},
+                    else => unreachable,
+                }
+            }
+        },
         else => comptime unreachable,
     }
 }
@@ -18057,6 +18124,14 @@ fn unpark(tids: []const UnparkTid, addr_hint: ?*const anyopaque) void {
             }
         },
         .illumos => @panic("TODO: illumos lwp_unpark"),
+        .haiku => {
+            for (tids) |tid| {
+                switch (std.c._kern_release_sem_etc(tid, 1, 0)) {
+                    0 => {},
+                    else => recoverableOsBugDetected(),
+                }
+            }
+        },
         else => comptime unreachable,
     }
 }

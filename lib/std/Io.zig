@@ -238,7 +238,7 @@ pub const VTable = struct {
     netSend: *const fn (?*anyopaque, net.Socket.Handle, []net.OutgoingMessage, net.SendFlags) struct { ?net.Socket.SendError, usize },
     netWrite: *const fn (?*anyopaque, dest: net.Socket.Handle, header: []const u8, data: []const []const u8, splat: usize) net.Stream.Writer.Error!usize,
     netWriteFile: *const fn (?*anyopaque, net.Socket.Handle, header: []const u8, *Io.File.Reader, Io.Limit) net.Stream.Writer.WriteFileError!usize,
-    netClose: *const fn (?*anyopaque, handle: []const net.Socket.Handle) void,
+    netClose: *const fn (?*anyopaque, sockets: []const net.Socket) void,
     netShutdown: *const fn (?*anyopaque, handle: net.Socket.Handle, how: net.ShutdownHow) net.ShutdownError!void,
     netInterfaceNameResolve: *const fn (?*anyopaque, *const net.Interface.Name) net.Interface.Name.ResolveError!net.Interface,
     netInterfaceName: *const fn (?*anyopaque, net.Interface) net.Interface.NameError!net.Interface.Name,
@@ -467,6 +467,7 @@ pub const OperateTimeoutError = Cancelable || Timeout.Error || ConcurrentError;
 
 /// Performs one `Operation` with provided `timeout`.
 pub fn operateTimeout(io: Io, operation: Operation, timeout: Timeout) OperateTimeoutError!Operation.Result {
+    if (timeout == .none) return io.vtable.operate(io.userdata, operation);
     var storage: [1]Operation.Storage = undefined;
     var batch: Batch = .init(&storage);
     batch.addAt(0, operation);
@@ -980,6 +981,10 @@ pub const Timestamp = struct {
         const now_ts = clock.now(io);
         return t.durationTo(now_ts);
     }
+
+    pub fn compare(lhs: Timestamp, op: math.CompareOperator, rhs: Timestamp) bool {
+        return math.compare(lhs.nanoseconds, op, rhs.nanoseconds);
+    }
 };
 
 pub const Duration = struct {
@@ -1147,6 +1152,7 @@ pub const Duration = struct {
 
 /// Declares under what conditions an operation should return `error.Timeout`.
 pub const Timeout = union(enum) {
+    /// `.none` will wait forever
     none,
     duration: Clock.Duration,
     deadline: Clock.Timestamp,
@@ -2525,7 +2531,7 @@ pub fn lockStderr(io: Io, buffer: []u8, terminal_mode: ?Terminal.Mode) Cancelabl
 
 /// Same as `lockStderr` but non-blocking.
 pub fn tryLockStderr(io: Io, buffer: []u8, terminal_mode: ?Terminal.Mode) Cancelable!?LockedStderr {
-    const ls = (try io.vtable.tryLockStderr(io.userdata, buffer, terminal_mode)) orelse return null;
+    const ls = (try io.vtable.tryLockStderr(io.userdata, terminal_mode)) orelse return null;
     try ls.clear(buffer);
     return ls;
 }
@@ -3476,9 +3482,9 @@ pub fn failingNetWriteFile(userdata: ?*anyopaque, handle: net.Socket.Handle, hea
     return error.NetworkDown;
 }
 
-pub fn unreachableNetClose(userdata: ?*anyopaque, handle: []const net.Socket.Handle) void {
+pub fn unreachableNetClose(userdata: ?*anyopaque, sockets: []const net.Socket) void {
     _ = userdata;
-    _ = handle;
+    _ = sockets;
     unreachable;
 }
 

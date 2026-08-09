@@ -2821,13 +2821,14 @@ pub const SIG = switch (native_os) {
         }
 
         pub const POLL: SIG = .IO;
+        pub const IOT: SIG = .ABRT;
+        pub const CLD: SIG = .CHLD;
 
         HUP = 1,
         INT = 2,
         QUIT = 3,
         ILL = 4,
         TRAP = 5,
-        IOT = 6,
         ABRT = 6,
         EMT = 7,
         FPE = 8,
@@ -2840,7 +2841,6 @@ pub const SIG = switch (native_os) {
         TERM = 15,
         USR1 = 16,
         USR2 = 17,
-        CLD = 18,
         CHLD = 18,
         PWR = 19,
         WINCH = 20,
@@ -2991,6 +2991,7 @@ pub const SIG = switch (native_os) {
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
 
+        pub const IO: SIG = .POLL;
         pub const IOT: SIG = .ABRT;
 
         HUP = 1,
@@ -11267,31 +11268,30 @@ pub const signalfd_siginfo = illumos.signalfd_siginfo;
 pub const taskid_t = illumos.taskid_t;
 pub const zoneid_t = illumos.zoneid_t;
 
+pub const B_ABSOLUTE_TIMEOUT = haiku.B_ABSOLUTE_TIMEOUT;
+pub const B_OS_NAME_LENGTH = haiku.B_OS_NAME_LENGTH;
+pub const B_TIMEOUT_REAL_TIME_BASE = haiku.B_TIMEOUT_REAL_TIME_BASE;
 pub const DirEnt = haiku.DirEnt;
-pub const _get_next_area_info = haiku._get_next_area_info;
-pub const _get_next_image_info = haiku._get_next_image_info;
-pub const _get_team_info = haiku._get_team_info;
-pub const _kern_get_current_team = haiku._kern_get_current_team;
+pub const _kern_acquire_sem_etc = haiku._kern_acquire_sem_etc;
+pub const _kern_create_sem = haiku._kern_create_sem;
+pub const _kern_delete_sem = haiku._kern_delete_sem;
 pub const _kern_open_dir = haiku._kern_open_dir;
 pub const _kern_read_dir = haiku._kern_read_dir;
 pub const _kern_read_stat = haiku._kern_read_stat;
+pub const _kern_release_sem_etc = haiku._kern_release_sem_etc;
 pub const _kern_rewind_dir = haiku._kern_rewind_dir;
-pub const readv_pos = haiku.readv_pos;
-pub const writev_pos = haiku.writev_pos;
 pub const area_id = haiku.area_id;
-pub const area_info = haiku.area_info;
-pub const directory_which = haiku.directory_which;
-pub const find_directory = haiku.find_directory;
 pub const find_thread = haiku.find_thread;
 pub const get_system_info = haiku.get_system_info;
-pub const image_info = haiku.image_info;
+pub const on_exit_thread = haiku.on_exit_thread;
 pub const port_id = haiku.port_id;
+pub const readv_pos = haiku.readv_pos;
 pub const sem_id = haiku.sem_id;
 pub const status_t = haiku.status_t;
 pub const system_info = haiku.system_info;
 pub const team_id = haiku.team_id;
-pub const team_info = haiku.team_info;
 pub const thread_id = haiku.thread_id;
+pub const writev_pos = haiku.writev_pos;
 
 pub const AUTH = openbsd.AUTH;
 pub const BI = openbsd.BI;

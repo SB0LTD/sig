@@ -198,6 +198,8 @@ pub const IpAddress = union(enum) {
     }
 
     pub const ListenError = error{
+        /// The address is protected and the current user does not have permission to bind it.
+        AccessDenied,
         /// The address is already taken. Can occur when bound port is 0 but
         /// all ephemeral ports are already in use.
         AddressInUse,
@@ -254,6 +256,8 @@ pub const IpAddress = union(enum) {
     }
 
     pub const BindError = error{
+        /// The address is protected and the current user does not have permission to bind it.
+        AccessDenied,
         /// The address is already taken. Can occur when bound port is 0 but
         /// all ephemeral ports are already in use.
         AddressInUse,
@@ -1077,7 +1081,7 @@ pub const Socket = struct {
 
     /// Leaves `address` in a valid state.
     pub fn close(s: *const Socket, io: Io) void {
-        io.vtable.netClose(io.userdata, (&s.handle)[0..1]);
+        io.vtable.netClose(io.userdata, s[0..1]);
     }
 
     pub fn closeMany(io: Io, sockets: []const Socket) void {
@@ -1254,7 +1258,7 @@ pub const Stream = struct {
     }
 
     pub fn close(s: *const Stream, io: Io) void {
-        io.vtable.netClose(io.userdata, (&s.socket.handle)[0..1]);
+        io.vtable.netClose(io.userdata, (&s.socket)[0..1]);
     }
 
     pub fn shutdown(s: *const Stream, io: Io, how: ShutdownHow) ShutdownError!void {

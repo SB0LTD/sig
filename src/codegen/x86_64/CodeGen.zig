@@ -1301,7 +1301,7 @@ fn addInst(self: *CodeGen, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
 }
 
 fn addExtra(self: *CodeGen, extra: anytype) Allocator.Error!u32 {
-    const field_count = std.meta.fieldNames(@TypeOf(extra)).len;
+    const field_count = @typeInfo(@TypeOf(extra)).@"struct".field_names.len;
     try self.mir_extra.ensureUnusedCapacity(self.gpa, field_count);
     return self.addExtraAssumeCapacity(extra);
 }
@@ -2152,7 +2152,7 @@ fn gen(
 
         const epilogue = if (self.epilogue_relocs.items.len > 0) epilogue: {
             var last_inst: Mir.Inst.Index = @intCast(self.mir_instructions.len - 1);
-            while (self.epilogue_relocs.getLast() == last_inst) {
+            while (self.epilogue_relocs.last() == last_inst) {
                 self.epilogue_relocs.items.len -= 1;
                 self.mir_instructions.set(last_inst, .{
                     .tag = .pseudo,
@@ -176978,7 +176978,7 @@ fn lowerBlock(self: *CodeGen, inst: Air.Inst.Index, body: []const Air.Inst.Index
     defer block_data.value.deinit(self.gpa);
     if (block_data.value.relocs.items.len > 0) {
         var last_inst: Mir.Inst.Index = @intCast(self.mir_instructions.len - 1);
-        while (block_data.value.relocs.getLast() == last_inst) {
+        while (block_data.value.relocs.last() == last_inst) {
             block_data.value.relocs.items.len -= 1;
             self.mir_instructions.set(last_inst, .{
                 .tag = .pseudo,

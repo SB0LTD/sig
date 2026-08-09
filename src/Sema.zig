@@ -21184,7 +21184,10 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     const dest_scalar_ty = dest_ty.scalarType(zcu);
     const operand_scalar_ty = operand_ty.scalarType(zcu);
 
-    _ = try sema.checkIntType(block, src, dest_scalar_ty);
+    switch (dest_scalar_ty.zigTypeTag(zcu)) {
+        .comptime_int, .int => {},
+        else => return sema.fail(block, src, "expected integer result type, found '{f}'", .{dest_scalar_ty.fmt(pt)}),
+    }
     try sema.checkFloatType(block, operand_src, operand_scalar_ty);
 
     if (sema.resolveValue(operand)) |operand_val| {
@@ -21360,7 +21363,10 @@ fn zirFloatFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     const dest_scalar_ty = dest_ty.scalarType(zcu);
     const operand_scalar_ty = operand_ty.scalarType(zcu);
 
-    try sema.checkFloatType(block, src, dest_scalar_ty);
+    switch (dest_scalar_ty.zigTypeTag(zcu)) {
+        .comptime_float, .float => {},
+        else => return sema.fail(block, src, "expected float result type, found '{f}'", .{dest_scalar_ty.fmt(pt)}),
+    }
     _ = try sema.checkIntType(block, operand_src, operand_scalar_ty);
 
     if (sema.resolveValue(operand)) |operand_val| {
@@ -23541,7 +23547,9 @@ fn analyzeShuffle(
         // `InternPool.Index` values using the known operands.
         for (mask_shuffle_two, mask_ip_index) |in, *out| {
             const val: Value = switch (in.unwrap()) {
-                .undef => try pt.undefValue(elem_ty),
+                // Special case zero bit types: there is no undefined value for OPV elements.
+                // Only affects the case where `!a_rt and !b_rt` since `a_coerced` and `b_coerced`'s types are also OPV for OPV elements.
+                .undef => try elem_ty.onePossibleValue(pt) orelse try pt.undefValue(elem_ty),
                 .a_elem => |idx| try maybe_a_val.?.elemValue(pt, idx),
                 .b_elem => |idx| try maybe_b_val.?.elemValue(pt, idx),
             };
@@ -23589,6 +23597,9 @@ fn zirSelect(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) C
     });
     const a = try sema.coerce(block, vec_ty, sema.resolveInst(extra.a), a_src);
     const b = try sema.coerce(block, vec_ty, sema.resolveInst(extra.b), b_src);
+
+    // special case zero bit types
+    if (try vec_ty.onePossibleValue(pt)) |opv| return .fromValue(opv);
 
     const maybe_pred = sema.resolveValue(pred);
     const maybe_a = sema.resolveValue(a);
@@ -25542,10 +25553,10 @@ fn zirRoundOpType(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDa
         return .generic_poison_type;
     };
 
-    const float_ty = dest_ty.optEuBaseType(zcu);
-    switch (float_ty.scalarType(zcu).zigTypeTag(zcu)) {
-        .float, .comptime_float => return .fromType(float_ty),
-        else => return .comptime_float_type,
+    const dest_base_ty = dest_ty.optEuBaseType(zcu);
+    switch (dest_base_ty.scalarType(zcu).zigTypeTag(zcu)) {
+        .float, .comptime_float => return .fromType(dest_base_ty),
+        else => return .generic_poison_type,
     }
 }
 
@@ -34022,7 +34033,7 @@ pub fn getTmpAir(sema: Sema) Air {
 }
 
 pub fn addExtra(sema: *Sema, extra: anytype) Allocator.Error!u32 {
-    const field_count = std.meta.fieldNames(@TypeOf(extra)).len;
+    const field_count = @typeInfo(@TypeOf(extra)).@"struct".field_names.len;
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, field_count);
     return sema.addExtraAssumeCapacity(extra);
 }

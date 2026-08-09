@@ -5189,9 +5189,9 @@ fn netWriteFileUnavailable(
     return error.Unimplemented;
 }
 
-fn netClose(userdata: ?*anyopaque, handles: []const net.Socket.Handle) void {
+fn netClose(userdata: ?*anyopaque, sockets: []const net.Socket) void {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
-    for (handles) |handle| ev.close(handle);
+    for (sockets) |sock| ev.close(sock.handle);
 }
 
 fn netShutdown(
@@ -5298,6 +5298,7 @@ fn bind(
         switch (cancel_region.errno()) {
             .SUCCESS => return,
             .INTR, .CANCELED => {},
+            .ACCES => return error.AccessDenied,
             .ADDRINUSE => return error.AddressInUse,
             .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .INVAL => |err| return errnoBug(err), // invalid parameters
