@@ -156,6 +156,9 @@ pub fn main(init: std.process.Init) !void {
     ctx.build_root_len = build_root.len;
     @memcpy(ctx.cache_dir[0..cache_dir.len], cache_dir);
     ctx.cache_dir_len = cache_dir.len;
+    const global_cache_dir = runner_args.global_cache_dir[0..runner_args.global_cache_dir_len];
+    @memcpy(ctx.global_cache_dir[0..global_cache_dir.len], global_cache_dir);
+    ctx.global_cache_dir_len = global_cache_dir.len;
 
     // Install prefix: --prefix override or build_root/sig-out
     if (config.install_prefix_len > 0) {

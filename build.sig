@@ -7,7 +7,7 @@ const sig_build = @import("sig_build");
 const std = @import("std");
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
-const sig_version_string = "0.2.0";
+const sig_version_string = "0.3.0";
 
 fn noopStep(ctx: *sig_build.Step_Context) sig_build.SigError!void {
     _ = ctx;

@@ -21,24 +21,34 @@
 
 ---
 
-## 0.2.0 — No More Excuses
+## 0.3.0 — Native by Construction
 
-Three platforms. Self-sustained pipeline. Sig builds sig.
+Four platforms. One verified LLVM closure. Sig builds Sig.
 
 ```
 $ sig version
-sig 0.2.0 (zig 0.17.0-dev, LLVM 22)
+sig 0.3.0 (zig 0.17.0-dev)
 ```
+
+The packaged `zig` alias preserves the upstream machine-readable version-only
+output, while `sig version` identifies both the Sig and Zig versions.
 
 | Platform | Backend | Download |
 |---|---|---|
-| x86_64-linux | Full (LLVM 22 + self-hosted) | [tar.xz](https://github.com/SB0LTD/sig/releases/latest) |
-| aarch64-macos | Self-hosted | [tar.xz](https://github.com/SB0LTD/sig/releases/latest) |
-| x86_64-windows | Self-hosted | [zip](https://github.com/SB0LTD/sig/releases/latest) |
+| x86_64-linux | Full LLVM 22.1.7 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz) |
+| aarch64-linux | Full LLVM 22.1.7 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-linux.tar.xz) |
+| aarch64-macos | Full LLVM 22.1.7 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-macos.tar.xz) |
+| x86_64-windows | Full LLVM 22.1.7 | [zip](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-windows.zip) |
 
-The Linux binary has the full LLVM backend — it can emit machine code for every target LLVM supports. macOS and Windows ship with the self-hosted backends (x86_64, aarch64, wasm, arm, riscv64). All three produce working binaries today.
+Every package contains the same full LLVM target set and the same Sig standard
+library. Linux and macOS execute on their build hosts, Windows executes on a
+Windows runner, and aarch64 Linux executes under QEMU user-mode before the
+release can be published.
 
-The entire release is produced by sig itself. No cmake. No external zig. One `sig build-exe` invocation compiles the compiler, links LLVM, and outputs a static binary. That binary can then cross-compile itself for other targets. Bootstrap complete.
+The final release is produced by Sig itself. CMake and upstream Zig are absent
+from the release stage. The checked-in `zig1.wasm` chain is used only to create
+the native bootstrap set; those bootstraps then compile the four final Sig
+executables with immutable LLVM closures.
 
 ---
 
@@ -84,7 +94,7 @@ The result: sig never drifts. You get upstream bug fixes, optimizations, and new
 | **Latest upstream commit** | [`cb7c6e39`](https://codeberg.org/ziglang/zig/commit/cb7c6e391872d2922a688c77def805883b69eba8) |
 | **Last sync** | 2026-08-09 |
 | **Upstream** | [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) |
-| **Base version** | zig 0.17.0-dev · LLVM 22.1.3 |
+| **Base version** | zig 0.17.0-dev · LLVM 22.1.7 |
 | **Sync frequency** | Every commit (< 1 min latency) |
 
 ---
@@ -93,24 +103,35 @@ The result: sig never drifts. You get upstream bug fixes, optimizations, and new
 
 ```bash
 # Download the latest release
-curl -sL https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz | tar -xJ
-export PATH="$PWD/sig/bin:$PATH"
+mkdir -p sig-toolchain
+curl -sL https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz \
+  | tar -xJ -C sig-toolchain --strip-components=1
+export PATH="$PWD/sig-toolchain/bin:$PATH"
 
-# Or build from source (requires a sig or zig binary)
+# Or build from source (requires an existing Sig compiler)
 git clone https://github.com/SB0LTD/sig.git && cd sig
 sig build -OReleaseFast
 ```
+
+The executable and `lib/` directory are a matched toolchain unit. Normally Sig
+finds the adjacent library automatically. If `ZIG_LIB_DIR` is set globally,
+unset it or point it at the extracted `sig-toolchain/lib`; mixing compiler and
+library versions can make the build runner fail before your build begins.
 
 It's a drop-in replacement. Every `.zig` file compiles unchanged. Rename to `.sig` when you're ready to go strict.
 
 ## How it's built
 
 ```
-build-llvm (one-time)  →  build-bootstrap (one-time)  →  release (every version)
-     LLVM 22 .a files        v28 bootstrap binary            sig builds sig
+build-llvm                 →  build-bootstrap              →  release
+7 immutable LLVM closures    4 verified host bootstraps      4 LLVM-backed toolchains
 ```
 
-The bootstrap is a previous sig release. It compiles the current source with LLVM 22 linked in. The output is a static musl binary that cross-compiles for all targets. No external dependencies at runtime.
+Each stage publishes an exact manifest, SHA-256 set, source commit, producer,
+and workflow run. Drafts become visible only after every required artifact and
+target-specific execution probe succeeds. Bootstrap and final compilers also
+run the canonical 210-test native compiler graph with an explicit fixed stack
+budget, then cross-compile and validate an AArch64 object.
 
 ## License
 

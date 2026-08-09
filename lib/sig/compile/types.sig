@@ -40,8 +40,9 @@ pub const Capacity_Plan = struct {
     pub const KNOWN_PREPROCESSOR_DEFS: usize = 7;
     /// Shared C++ compiler flags (-std=c++17, -fno-exceptions, etc.)
     pub const KNOWN_COMPILER_FLAGS: usize = 8;
-    /// Maximum inter-module dependencies (root depends on 5 modules)
-    pub const KNOWN_MAX_DEPS: usize = 5;
+    /// Maximum inter-module dependencies proven by the ZPM transport
+    /// integration graph (10 direct dependencies).
+    pub const KNOWN_MAX_DEPS: usize = 10;
     /// Working set: source files in a typical sig project
     pub const KNOWN_SOURCE_FILES: usize = 200;
 };
@@ -60,7 +61,7 @@ pub const MAX_PREPROCESSOR_DEFS: usize = Capacity_Plan.planned(Capacity_Plan.KNO
 pub const MAX_LIB_SEARCH_DIRS: usize = 8;
 pub const MAX_LLVM_LIBS: usize = 256; // 180 libs → 256 (next pow2 above 180*1.4)
 pub const MAX_SYSTEM_LIBS: usize = Capacity_Plan.planned(Capacity_Plan.KNOWN_SYSTEM_LIBS, 2.0); // → 16
-pub const MAX_IMPORTS_PER_MODULE: usize = Capacity_Plan.planned(Capacity_Plan.KNOWN_MAX_DEPS, 1.6); // → 8
+pub const MAX_IMPORTS_PER_MODULE: usize = Capacity_Plan.planned(Capacity_Plan.KNOWN_MAX_DEPS, 1.6); // → 16
 pub const MAX_CACHE_ENTRIES: usize = 1024; // 200 sources * 3x headroom → 1024
 pub const MAX_DIAGNOSTICS: usize = 64;
 pub const DIAGNOSTIC_BUF_SIZE: usize = 4096;

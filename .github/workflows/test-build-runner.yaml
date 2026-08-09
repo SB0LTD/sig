@@ -1,61 +1,68 @@
-# Test compiling main.sig with the current bootstrap release
+# Prove that the published bootstrap executable, library tree, and build runner
+# are one compatible toolchain unit. This is intentionally package-level: a
+# source-tree-only test cannot detect incomplete archives or version skew.
 name: test-build-runner
 
 on:
   workflow_dispatch:
+    inputs:
+      bootstrap_tag:
+        description: 'Published bootstrap release to verify'
+        required: true
+        default: 'bootstrap-sig-v42'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-build-runner-${{ inputs.bootstrap_tag }}
+  cancel-in-progress: false
 
 env:
-  BOOTSTRAP_URL: https://github.com/SB0LTD/sig/releases/download/bootstrap-sig-v2/bootstrap-sig-x86_64-linux.tar.gz
+  BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag }}
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - name: Download bootstrap
-        run: |
-          mkdir -p /tmp/bs
-          curl -fsSL "$BOOTSTRAP_URL" -o /tmp/bs.tar
-          tar -xf /tmp/bs.tar -C /tmp/bs
-          chmod +x /tmp/bs/bin/sig
-          /tmp/bs/bin/sig version
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Test compile main.sig directly
-        run: |
-          /tmp/bs/bin/sig build-exe \
-            --dep sig --dep std \
-            -Mroot=tools/sig_build/main.sig \
-            -Msig=lib/sig/sig.zig \
-            -Mstd=lib/std/std.zig \
-            --zig-lib-dir lib \
-            --cache-dir .zig-cache \
-            --global-cache-dir .zig-cache
-        timeout-minutes: 30
+      - name: Install extraction tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zstd
 
-      - name: Test sig build (sigBuildDelegate path)
+      - name: Download and verify packaged bootstrap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          echo "=== Testing sigBuildDelegate path ==="
-          /tmp/bs/bin/sig build --zig-lib-dir lib -Dno-lib -Dno-langref -Dno-bin 2>&1 || true
-          echo "=== sigBuildDelegate failed, testing manual equivalent ==="
-          # Reproduce what sigBuildDelegate does:
-          # 1. Compile the build runner
-          /tmp/bs/bin/sig build-exe \
-            --dep sig --dep std \
-            -Mroot=tools/sig_build/main.sig \
-            -Msig=lib/sig/sig.zig \
-            -Mstd=lib/std/std.zig \
-            --cache-dir .zig-cache \
-            --global-cache-dir .zig-cache \
-            -femit-bin=.zig-cache/sig_build_runner \
-            --zig-lib-dir lib
-          echo "Build runner compiled OK"
-          # 2. Run the build runner with the same argv protocol
-          ./.zig-cache/sig_build_runner \
-            /tmp/bs/bin/sig \
-            lib \
-            . \
-            .zig-cache \
-            .zig-cache \
-            -Dno-lib -Dno-langref -Dno-bin
-        timeout-minutes: 30
+          set -euo pipefail
+          archive=bootstrap-sig-x86_64-linux.tar.zst
+          mkdir -p /tmp/bootstrap-download /tmp/bootstrap-package
+          gh release download "${BOOTSTRAP_TAG}" \
+            --pattern "$archive" \
+            --pattern "$archive.sha256" \
+            --dir /tmp/bootstrap-download
+          (cd /tmp/bootstrap-download && sha256sum --check --strict "$archive.sha256")
+          zstd -d "/tmp/bootstrap-download/$archive" --stdout | \
+            tar -x -C /tmp/bootstrap-package
+          package=/tmp/bootstrap-package/bootstrap-sig-x86_64-linux
+          test -x "$package/bin/sig"
+          test -f "$package/lib/compiler/Maker.zig"
+          test -f "$package/tools/sig_build/main.sig"
+          echo "SIG=$package/bin/sig" >> "$GITHUB_ENV"
+          echo "ZIG_LIB_DIR=$package/lib" >> "$GITHUB_ENV"
 
+      - name: Execute compiler and build runner from the package
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$SIG" version | grep -q '^sig '
+          "$SIG" build --help >/tmp/sig-build-help.txt
+          grep -q '^Usage:.*build' /tmp/sig-build-help.txt
+          "$SIG" ast-check compiler/test_all.sig
+          "$SIG" build \
+            -Dno-lib \
+            -Dno-langref \
+            -Dno-bin \
+            --summary all

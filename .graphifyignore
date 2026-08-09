@@ -1,0 +1,53 @@
+# Graphify ignore for sig compiler project
+# Skip vendored/generated/build artifacts
+
+.build-gen/
+.deploy-ctx/
+.zig-cache/
+bld/
+build/
+crashdumps/
+graphify-out/
+llvm-22/
+sig-release-win/
+stage1/
+stage3-out/
+tmp-build-context/
+cmake/
+.git/
+ci/
+doc/
+tools/
+
+# Vendored zig stdlib and LLVM bindings (very large)
+lib/c/
+lib/compiler_rt/
+lib/docs/
+lib/include/
+lib/init/
+lib/libc/
+lib/libcxx/
+lib/libcxxabi/
+lib/libtsan/
+lib/libunwind/
+lib/lldb/
+lib/std/
+
+# Large test fixtures
+test_minimal/
+test-trivial/
+tests/
+
+# Binary artifacts
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.wasm
+*.tar
+*.gz
+*.zip

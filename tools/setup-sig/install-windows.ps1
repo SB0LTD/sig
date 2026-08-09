@@ -9,12 +9,12 @@
 # The sig installation layout:
 #   <prefix>/
 #   ├── bin/sig.exe
-#   └── lib/
-#       ├── std/           (zig standard library)
-#       ├── sig/           (sig standard library modules)
-#       ├── compiler/      (Maker.zig, configurer.zig, aro/)
-#       └── tools/
-#           └── sig_build/ (sig-native build runner)
+#   ├── lib/
+#   │   ├── std/           (zig standard library)
+#   │   ├── sig/           (sig standard library modules)
+#   │   └── compiler/      (Maker.zig, configurer.zig, aro/)
+#   └── tools/
+#       └── sig_build/     (sig-native build runner)
 
 param(
     [string]$Install,
@@ -53,16 +53,19 @@ function Test-SigInstallation {
         "sig\containers.sig",
         "compiler\Maker.zig",
         "compiler\configurer.zig",
-        "compiler\aro\aro.zig",
-        "tools\sig_build\main.sig",
-        "tools\sig_build\build_host.sig",
-        "tools\sig_build\cli.sig"
+        "compiler\aro\aro.zig"
     )
 
     foreach ($rel in $requiredPaths) {
         $full = Join-Path $libDir $rel
         if (-not (Test-Path $full)) {
             $errors += "Missing: lib\$rel"
+        }
+    }
+    foreach ($rel in @("main.sig", "build_host.sig", "cli.sig")) {
+        $full = Join-Path $Root "tools\sig_build\$rel"
+        if (-not (Test-Path $full)) {
+            $errors += "Missing: tools\sig_build\$rel"
         }
     }
 
@@ -77,15 +80,19 @@ function Test-SigInstallation {
     }
 
     # Check env var
-    $envLib = [Environment]::GetEnvironmentVariable("ZIG_LIB_DIR", "User")
-    if ($envLib -and $envLib -ne $libDir) {
-        $warnings += "ZIG_LIB_DIR env var ($envLib) does not match installation lib ($libDir)"
+    $envLib = $env:ZIG_LIB_DIR
+    if ($envLib) {
+        $resolvedEnvLib = [IO.Path]::GetFullPath($envLib).TrimEnd('\')
+        $resolvedLibDir = [IO.Path]::GetFullPath($libDir).TrimEnd('\')
+        if (-not $resolvedEnvLib.Equals($resolvedLibDir, [StringComparison]::OrdinalIgnoreCase)) {
+            $errors += "effective ZIG_LIB_DIR ($envLib) does not match installation lib ($libDir)"
+        }
     }
 
     # Report
     Write-Host ""
     if ($errors.Count -eq 0) {
-        Write-Host "  Installation OK ($($requiredPaths.Count) critical files verified)" -ForegroundColor Green
+        Write-Host "  Installation OK ($($requiredPaths.Count + 3) critical files verified)" -ForegroundColor Green
     } else {
         Write-Host "  ERRORS ($($errors.Count)):" -ForegroundColor Red
         foreach ($e in $errors) { Write-Host "    - $e" -ForegroundColor Red }
@@ -107,11 +114,17 @@ function Sync-FromSource {
     # Use robocopy for fast sync
     $null = & cmd /c "robocopy `"$SigRepo\lib`" `"$libDest`" /E /NFL /NDL /NJH /NJS /NC /NS /NP /PURGE"
 
-    # Copy tools/sig_build into lib/tools/sig_build
+    # The compiler resolves the build runner relative to ZIG_LIB_DIR as
+    # <prefix>/tools/sig_build, so it must be a sibling of lib/, not inside it.
     $toolsSrc = Join-Path $SigRepo "tools\sig_build"
-    $toolsDest = Join-Path $libDest "tools\sig_build"
+    $toolsDest = Join-Path $Root "tools\sig_build"
     New-Item -ItemType Directory -Path $toolsDest -Force | Out-Null
     $null = & cmd /c "robocopy `"$toolsSrc`" `"$toolsDest`" /E /NFL /NDL /NJH /NJS /NC /NS /NP /PURGE"
+
+    # The compiler and library are versioned as one unit. Keep both this
+    # process and future shells on the library tree that was just installed.
+    [Environment]::SetEnvironmentVariable("ZIG_LIB_DIR", $libDest, "User")
+    $env:ZIG_LIB_DIR = $libDest
 
     Write-Host "  Done." -ForegroundColor Green
 }

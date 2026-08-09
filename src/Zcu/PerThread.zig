@@ -2331,7 +2331,7 @@ pub fn discoverImport(
     const io = comp.io;
     const gpa = comp.gpa;
 
-    if (!mem.endsWith(u8, import_string, ".zig") and !mem.endsWith(u8, import_string, ".zon")) {
+    if (Zcu.File.modeFromPath(import_string) == null) {
         return .module;
     }
 
@@ -2417,9 +2417,7 @@ pub fn doImport(
             };
         }
     }
-    if (!std.mem.endsWith(u8, import_string, ".zig") and
-        !std.mem.endsWith(u8, import_string, ".zon"))
-    {
+    if (Zcu.File.modeFromPath(import_string) == null) {
         return error.ModuleNotFound;
     }
     const path = try importer.path.upJoin(gpa, zcu.comp.dirs, import_string);

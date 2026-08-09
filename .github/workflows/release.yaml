@@ -1,10 +1,13 @@
-# [sig] Self-sustained release pipeline — sig builds sig
+# Full Sig release train. Sig builds Sig; upstream Zig is never used here.
 #
-# Two-stage build: first produce a native x86_64-linux binary using the v28 bootstrap,
-# then use that freshly-built binary to cross-compile for all other targets.
-# This mirrors upstream zig-bootstrap's approach.
+# Release targets:
+#   x86_64-linux-musl, aarch64-linux-musl,
+#   aarch64-macos-none, x86_64-windows-gnu.
 #
-# Chain: build-llvm (one-time) → build-bootstrap (one-time) → release (every release)
+# Every compiler is LLVM-backed. Publication is gated on packaged execution,
+# strict .sig parsing, AArch64 code generation, archive hashes, and an exact
+# four-target manifest. Stable releases are manual; sync dispatches are always
+# prereleases but pass the identical build and verification graph.
 name: release
 
 on:
@@ -13,329 +16,168 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 0.1.2)'
+        description: 'Sig semantic version; must match source'
         required: true
+        default: '0.3.0'
         type: string
       prerelease:
-        description: 'Mark as pre-release'
+        description: 'Publish as a prerelease'
         required: false
-        default: true
+        default: false
         type: boolean
       bootstrap_tag:
-        description: 'Bootstrap release tag to use'
-        required: false
-        default: 'bootstrap-sig-v41'
+        description: 'Verified bootstrap release tag'
+        required: true
+        default: 'bootstrap-sig-v42'
         type: string
+      llvm_tag:
+        description: 'Verified LLVM closure release tag'
+        required: true
+        default: 'llvm-22.1.7-sig-0.3.0'
+        type: string
+
+concurrency:
+  group: sig-release-${{ github.event.client_payload.version || inputs.version || github.sha }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v30' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v42' }}
+  LLVM_ARTIFACT_TAG: ${{ github.event.client_payload.llvm_tag || inputs.llvm_tag || 'llvm-22.1.7-sig-0.3.0' }}
 
 jobs:
-  # Stage 1: Build native x86_64-linux binary using v28 bootstrap
-  build-native:
+  prepare:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      version: ${{ steps.release.outputs.version }}
+      sig_version: ${{ steps.release.outputs.sig_version }}
+      zig_version: ${{ steps.release.outputs.zig_version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      - name: Resolve version
-        id: version
+      - name: Resolve and validate release identity
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_VERSION: ${{ github.event.client_payload.version || inputs.version }}
         shell: bash
         run: |
-          if [ -f "build.sig" ]; then
-            VER_FILE="build.sig"
-          else
-            VER_FILE="build.zig"
-          fi
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
-            SIG_VER="${{ inputs.version }}"
-          else
-            SIG_MAJOR=$(sed -n 's/^const sig_version.*major = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
-            SIG_MINOR=$(sed -n 's/^const sig_version.*minor = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
-            SIG_PATCH=$(sed -n 's/^const sig_version.*patch = \([0-9]*\).*/\1/p' "$VER_FILE" | head -1)
-            SIG_PRE=$(sed -n 's/^const sig_version.*pre = "\([^"]*\)".*/\1/p' "$VER_FILE" | head -1)
-            if [ -z "$SIG_MAJOR" ]; then
-              SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' "$VER_FILE" | head -1)
-            else
-              [ -n "$SIG_PRE" ] && SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}-${SIG_PRE}" \
-                                || SIG_VER="${SIG_MAJOR}.${SIG_MINOR}.${SIG_PATCH}"
-            fi
-          fi
-          ZIG_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' build.zig | head -1)
-          ZIG_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' build.zig | head -1)
-          ZIG_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' build.zig | head -1)
-          if [ -z "$ZIG_MAJOR" ] || [ -z "$ZIG_MINOR" ] || [ -z "$ZIG_PATCH" ]; then
-            echo "ERROR: failed to extract zig_version from build.zig"
+          set -euo pipefail
+          sig_version="$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)"
+          zig_version="$(sed -n 's/^const zig_version:.*major = \([0-9]*\), \.minor = \([0-9]*\), \.patch = \([0-9]*\).*/\1.\2.\3/p' build.sig | head -1)"
+          zig_build_version="$(sed -n 's/^const zig_version:.*major = \([0-9]*\), \.minor = \([0-9]*\), \.patch = \([0-9]*\).*/\1.\2.\3/p' build.zig | head -1)"
+          test -n "$sig_version"
+          test -n "$zig_version"
+          test "$zig_version" = "$zig_build_version"
+          grep -Fqx "const sig_version_string = \"${sig_version}\";" build.zig
+          [[ "$sig_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [ -n "${REQUESTED_VERSION:-}" ] && [ "$REQUESTED_VERSION" != "$sig_version" ]; then
+            echo "ERROR: requested ${REQUESTED_VERSION} but source declares ${sig_version}" >&2
             exit 1
           fi
-          VERSION="${SIG_VER}-zig${ZIG_MAJOR}.${ZIG_MINOR}.${ZIG_PATCH}.$(git rev-parse --short=7 HEAD)"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "Building sig ${VERSION} (native x86_64-linux stage)"
-
-      - name: Download bootstrap
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1
-          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "bootstrap-sig-x86_64-linux.*" --dir /tmp
-          BOOTSTRAP_ARCHIVE=$(ls /tmp/bootstrap-sig-x86_64-linux.* | head -1)
-          mkdir -p /tmp/bootstrap
-          tar -xf "$BOOTSTRAP_ARCHIVE" -C /tmp/bootstrap
-          BIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)
-          if [ -z "$BIN" ]; then
-            echo "ERROR: sig binary not found in bootstrap archive"
+          grep -Fq "## [${sig_version}]" CHANGELOG.md || {
+            echo "ERROR: CHANGELOG.md has no ${sig_version} section" >&2
+            exit 1
+          }
+          version="${sig_version}-zig${zig_version}.$(git rev-parse --short=7 HEAD)"
+          tag="sig-${version}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "ERROR: release ${tag} already exists; release tags are immutable" >&2
             exit 1
           fi
-          chmod +x "$BIN"
-          echo "SIG=${BIN}" >> "$GITHUB_ENV"
-          ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"
-          "${BIN}" version || true
+          if [ "${GITHUB_EVENT_NAME}" = repository_dispatch ]; then
+            prerelease=true
+          else
+            prerelease='${{ inputs.prerelease }}'
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sig_version=$sig_version" >> "$GITHUB_OUTPUT"
+          echo "zig_version=$zig_version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          printf 'Sig %s; tag %s; prerelease=%s\n' "$sig_version" "$tag" "$prerelease"
 
-      - name: Download LLVM 22 (x86_64-linux)
+      - name: Verify immutable upstream artifact manifests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          gh release download llvm-22 --pattern "llvm-22-x86_64-linux.tar.xz" --dir /tmp
-          mkdir -p llvm-22
-          tar -xJf "/tmp/llvm-22-x86_64-linux.tar.xz" -C llvm-22 --strip-components=1
-          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
-
-      - name: Build native sig (x86_64-linux-musl)
-        run: |
-          ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-          SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
-          echo "Building x86_64-linux-musl (version: ${ZIG_VER_BASE}, sig: ${SIG_VER})"
-
-          mkdir -p .build-gen stage3-out/bin
-          cat > .build-gen/build_options.zig << EOF
-          pub const have_llvm: bool = true;
-          pub const llvm_has_m68k: bool = true;
-          pub const llvm_has_csky: bool = true;
-          pub const llvm_has_arc: bool = true;
-          pub const llvm_has_xtensa: bool = true;
-          pub const enable_logging: bool = false;
-          pub const enable_debug_extensions: bool = false;
-          pub const enable_link_snapshots: bool = false;
-          pub const debug_gpa: bool = false;
-          pub const enable_tracy: bool = false;
-          pub const enable_tracy_callstack: bool = false;
-          pub const enable_tracy_allocation: bool = false;
-          pub const tracy_callstack_depth: u32 = 6;
-          pub const value_tracing: bool = false;
-          pub const mem_leak_frames: u32 = 0;
-          pub const io_mode: enum { threaded, evented } = .threaded;
-          pub const value_interpret_mode: enum { direct, by_name } = .direct;
-          pub const version: [:0]const u8 = "${ZIG_VER_BASE}";
-          pub const sig_version: [:0]const u8 = "${SIG_VER}";
-          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
-          pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
-          EOF
-
-          # Build LLVM link flags from available static libraries
-          LLVM_LINK_FLAGS=""
-          for lib in "${LLVM_PREFIX}"/lib/lib*.a; do
-            name=$(basename "$lib" .a | sed 's/^lib//')
-            LLVM_LINK_FLAGS="$LLVM_LINK_FLAGS -l${name}"
+          set -euo pipefail
+          test "$(gh release view "${BOOTSTRAP_TAG}" --json isDraft --jq .isDraft)" = false
+          test "$(gh release view "${LLVM_ARTIFACT_TAG}" --json isDraft --jq .isDraft)" = false
+          bootstrap_assets="$(gh release view "${BOOTSTRAP_TAG}" --json assets)"
+          llvm_assets="$(gh release view "${LLVM_ARTIFACT_TAG}" --json assets)"
+          mkdir -p /tmp/upstream-manifests/bootstrap /tmp/upstream-manifests/llvm
+          gh release download "${BOOTSTRAP_TAG}" --pattern bootstrap-build-manifest.json --dir /tmp/upstream-manifests/bootstrap
+          gh release download "${LLVM_ARTIFACT_TAG}" --pattern llvm-build-manifest.json --dir /tmp/upstream-manifests/llvm
+          bootstrap_manifest=/tmp/upstream-manifests/bootstrap/bootstrap-build-manifest.json
+          llvm_manifest=/tmp/upstream-manifests/llvm/llvm-build-manifest.json
+          jq -e \
+            --arg tag "${BOOTSTRAP_TAG}" \
+            --arg llvm_tag "${LLVM_ARTIFACT_TAG}" \
+            '.schema == "sb0.sig.bootstrap-release.v1" and
+             .tag == $tag and .llvm_artifact_tag == $llvm_tag and
+             (.sig_source_commit | test("^[0-9a-f]{40}$")) and
+             (.assets | length) == 12' \
+            "$bootstrap_manifest" >/dev/null
+          jq -e \
+            --arg tag "${LLVM_ARTIFACT_TAG}" \
+            '.schema == "sb0.sig.llvm-release.v1" and
+             .tag == $tag and .llvm_version == "22.1.7" and
+             .llvm_source_commit == "a255c1ed36a1d06f79bd2633ba9f8d900153007c" and
+             (.assets | length) == 21' \
+            "$llvm_manifest" >/dev/null
+          for name in \
+            bootstrap-sig-x86_64-linux.tar.zst \
+            bootstrap-sig-aarch64-linux.tar.zst \
+            bootstrap-sig-aarch64-macos.tar.zst \
+            bootstrap-sig-x86_64-windows.tar.zst; do
+            digest="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest' <<<"$bootstrap_assets")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            jq -e --arg name "$name" --arg digest "$digest" \
+              '.assets[] | select(.name == $name and .digest == $digest)' \
+              "$bootstrap_manifest" >/dev/null
+          done
+          for name in \
+            llvm-22-x86_64-linux.tar.xz \
+            llvm-22-aarch64-linux.tar.xz \
+            llvm-22-aarch64-macos-native.tar.zst \
+            llvm-22-x86_64-windows.tar.xz; do
+            digest="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest' <<<"$llvm_assets")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            jq -e --arg name "$name" --arg digest "$digest" \
+              '.assets[] | select(.name == $name and .digest == $digest)' \
+              "$llvm_manifest" >/dev/null
           done
 
-          "${SIG}" build-exe \
-            -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I${LLVM_PREFIX}/include -isystem lib/libcxx/include -isystem lib/libcxxabi/include -- \
-            src/zig_llvm.cpp src/zig_llvm-ar.cpp src/zig_clang_driver.cpp src/zig_clang_cc1_main.cpp src/zig_clang_cc1as_main.cpp \
-            --dep build_options --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.build-gen/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
-            --name sig \
-            -OReleaseFast \
-            -fstrip \
-            --zig-lib-dir lib \
-            -target x86_64-linux-musl \
-            --cache-dir .zig-cache \
-            -lc \
-            -lc++ \
-            -L "${LLVM_PREFIX}/lib" \
-            $LLVM_LINK_FLAGS \
-            -femit-bin=stage3-out/bin/sig
-
-      - name: Verify native binary
-        run: |
-          chmod +x stage3-out/bin/sig
-          ./stage3-out/bin/sig version
-
-      - name: Package native binary
-        run: |
-          OUT="sig-${VERSION}-x86_64-linux"
-          mkdir -p "${OUT}/bin"
-          cp stage3-out/bin/sig "${OUT}/bin/sig"
-          cp stage3-out/bin/sig "${OUT}/bin/zig"
-          cp -r lib "${OUT}/lib"
-          # Include sig_build tools in distribution (sig build needs these)
-          mkdir -p "${OUT}/lib/tools"
-          cp -r tools/sig_build "${OUT}/lib/tools/sig_build"
-          echo "Size: $(du -h "${OUT}/bin/sig" | cut -f1)"
-          ARCHIVE="sig-${VERSION}-x86_64-linux.tar.xz"
-          tar -cJf "${ARCHIVE}" "${OUT}"
-          sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sig-x86_64-linux
-          path: |
-            sig-${{ env.VERSION }}-x86_64-linux.tar.xz
-            sig-${{ env.VERSION }}-x86_64-linux.tar.xz.sha256
-
-  # Native builds on macOS using its own platform bootstrap.
-  # Windows is cross-compiled from Linux (native bootstrap has C-backend UB).
-  # sig builds sig — bootstrap is sig, output is sig.
-  build-platform:
-    needs: build-native
+  build-linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
-            target: aarch64-macos
-            bootstrap_asset: bootstrap-sig-aarch64-macos.tar.gz
-            ext: tar.xz
-            bin: sig
-    runs-on: ${{ matrix.os }}
+          - platform: x86_64-linux
+            target: x86_64-linux-musl
+            llvm_archive: llvm-22-x86_64-linux.tar.xz
+            binary: sig
+            qemu: ''
+          - platform: aarch64-linux
+            target: aarch64-linux-musl
+            llvm_archive: llvm-22-aarch64-linux.tar.xz
+            binary: sig
+            qemu: qemu-aarch64
     env:
-      VERSION: ${{ needs.build-native.outputs.version }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Download native bootstrap
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p .bootstrap-dl .bootstrap
-          gh release download "${{ env.BOOTSTRAP_TAG }}" --pattern "${{ matrix.bootstrap_asset }}" --dir .bootstrap-dl
-          tar -xf ".bootstrap-dl/${{ matrix.bootstrap_asset }}" -C .bootstrap
-          # Copy bootstrap binary to workspace root for reliable execution
-          if [ -f .bootstrap/bin/sig.exe ]; then
-            cp .bootstrap/bin/sig.exe ./bootstrap-sig.exe
-          else
-            cp .bootstrap/bin/sig ./bootstrap-sig
-            chmod +x ./bootstrap-sig
-          fi
-          ./bootstrap-sig* version || echo "WARNING: bootstrap binary failed"
-
-      - name: Generate build options
-        shell: bash
-        run: |
-          ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-          SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
-          mkdir -p .build-gen stage3-out/bin
-          cat > .build-gen/build_options.zig << EOF
-          pub const have_llvm: bool = false;
-          pub const llvm_has_m68k: bool = false;
-          pub const llvm_has_csky: bool = false;
-          pub const llvm_has_arc: bool = false;
-          pub const llvm_has_xtensa: bool = false;
-          pub const enable_logging: bool = false;
-          pub const enable_debug_extensions: bool = false;
-          pub const enable_link_snapshots: bool = false;
-          pub const debug_gpa: bool = false;
-          pub const enable_tracy: bool = false;
-          pub const enable_tracy_callstack: bool = false;
-          pub const enable_tracy_allocation: bool = false;
-          pub const tracy_callstack_depth: u32 = 6;
-          pub const value_tracing: bool = false;
-          pub const mem_leak_frames: u32 = 0;
-          pub const io_mode: enum { threaded, evented } = .threaded;
-          pub const value_interpret_mode: enum { direct, by_name } = .direct;
-          pub const version: [:0]const u8 = "${ZIG_VER_BASE}";
-          pub const sig_version: [:0]const u8 = "${SIG_VER}";
-          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
-          pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
-          EOF
-
-      - name: Build sig natively
-        shell: bash
-        run: |
-          echo "Building ${{ matrix.target }} natively (sig builds sig, no-LLVM)"
-          ./bootstrap-sig build-exe \
-            --dep build_options --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.build-gen/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
-            --name sig \
-            -OReleaseSafe \
-            --zig-lib-dir lib \
-            --cache-dir .zig-cache \
-            -femit-bin=stage3-out/bin/${{ matrix.bin }}
-
-      - name: Verify binary
-        shell: bash
-        run: |
-          chmod +x stage3-out/bin/${{ matrix.bin }} 2>/dev/null || true
-          file stage3-out/bin/${{ matrix.bin }} || true
-          stage3-out/bin/${{ matrix.bin }} version || ./stage3-out/bin/${{ matrix.bin }} version || true
-
-      - name: Package
-        shell: bash
-        run: |
-          OUT="sig-${VERSION}-${{ matrix.target }}"
-          mkdir -p "${OUT}/bin"
-          cp "stage3-out/bin/${{ matrix.bin }}" "${OUT}/bin/${{ matrix.bin }}"
-          case "${{ matrix.bin }}" in
-            sig)     cp "${OUT}/bin/sig" "${OUT}/bin/zig" ;;
-            sig.exe) cp "${OUT}/bin/sig.exe" "${OUT}/bin/zig.exe" ;;
-          esac
-          cp -r lib "${OUT}/lib"
-          # Include sig_build tools in distribution (sig build needs these)
-          mkdir -p "${OUT}/lib/tools"
-          cp -r tools/sig_build "${OUT}/lib/tools/sig_build"
-
-      - name: Archive (tar.xz)
-        if: matrix.ext == 'tar.xz'
-        shell: bash
-        run: |
-          ARCHIVE="sig-${VERSION}-${{ matrix.target }}.tar.xz"
-          tar -cJf "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
-          shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
-          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
-
-      - name: Archive (zip)
-        if: matrix.ext == 'zip'
-        shell: bash
-        run: |
-          ARCHIVE="sig-${VERSION}-${{ matrix.target }}.zip"
-          7z a -r "${ARCHIVE}" "sig-${VERSION}-${{ matrix.target }}"
-          sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256" 2>/dev/null || certutil -hashfile "${ARCHIVE}" SHA256 > "${ARCHIVE}.sha256"
-          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sig-${{ matrix.target }}
-          path: |
-            ${{ env.ARCHIVE }}
-            ${{ env.ARCHIVE }}.sha256
-
-  # Cross-compile Windows from Linux using the freshly-built native sig (has LLVM).
-  # Per bootstrap rules: Windows releases MUST be produced by sig itself, not upstream zig.
-  # The C-backend bootstrap has UB on Windows, so we cross-compile from Linux.
-  build-windows-cross:
-    needs: build-native
-    runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.build-native.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
@@ -343,136 +185,574 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go
           sudo apt-get clean
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          name: sig-x86_64-linux
-          path: .native-sig
+          fetch-depth: 0
 
-      - name: Extract native sig
+      - name: Install verification tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user xz-utils zstd
+
+      - name: Download and verify Linux bootstrap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          tar -xJf .native-sig/sig-${VERSION}-x86_64-linux.tar.xz
-          SIG="$(pwd)/sig-${VERSION}-x86_64-linux/bin/sig"
-          chmod +x "$SIG"
-          echo "SIG=${SIG}" >> "$GITHUB_ENV"
-          "$SIG" version
+          set -euo pipefail
+          archive=bootstrap-sig-x86_64-linux.tar.zst
+          gh release download "${BOOTSTRAP_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/bootstrap-download
+          (cd /tmp/bootstrap-download && sha256sum --check --strict "$archive.sha256")
+          mkdir .bootstrap
+          zstd -d "/tmp/bootstrap-download/$archive" --stdout | tar -x -C .bootstrap
+          SIG="$PWD/.bootstrap/bootstrap-sig-x86_64-linux/bin/sig"
+          "$SIG" version | grep -q "sig ${SIG_VERSION}"
+          echo "SIG=$SIG" >> "$GITHUB_ENV"
 
-      - name: Cross-compile for Windows
+      - name: Download and verify target LLVM closure
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          mkdir -p stage3-out/bin
+          set -euo pipefail
+          archive='${{ matrix.llvm_archive }}'
+          gh release download "${LLVM_ARTIFACT_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/llvm-download
+          (cd /tmp/llvm-download && sha256sum --check --strict "$archive.sha256")
+          mkdir llvm-target
+          tar -xJf "/tmp/llvm-download/$archive" -C llvm-target --strip-components=1
+          test -f llvm-target/include/llvm/Config/llvm-config.h
+          test -f llvm-target/lib/libLLVMCore.a
+          echo "LLVM_PREFIX=$PWD/llvm-target" >> "$GITHUB_ENV"
 
-          "${SIG}" build-exe \
-            --dep build_options --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options="sig-${VERSION}-x86_64-linux/lib/.build-gen/build_options.zig" \
-            -Maro=lib/compiler/aro/aro.zig \
-            --name sig \
-            -OReleaseFast \
-            -fstrip \
-            -fllvm -flld \
+      - name: Build full LLVM-backed compiler
+        shell: bash
+        run: |
+          chmod +x ci/build-self-hosted-release.sh
+          ci/build-self-hosted-release.sh \
+            "$SIG" \
+            "$LLVM_PREFIX" \
+            '${{ matrix.target }}' \
+            'stage3-out/bin/${{ matrix.binary }}' \
+            '.zig-cache/release-${{ matrix.platform }}'
+
+      - name: Execute compiler and prove strict/AArch64 compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          compiler='stage3-out/bin/${{ matrix.binary }}'
+          chmod +x "$compiler"
+          file "$compiler"
+          if [ -n '${{ matrix.qemu }}' ]; then
+            file "$compiler" | grep -q 'statically linked'
+            runner='${{ matrix.qemu }}'
+          else
+            runner=''
+          fi
+          $runner "$compiler" version | tee /tmp/version.txt
+          grep -q "sig ${SIG_VERSION}" /tmp/version.txt
+          $runner "$compiler" ast-check compiler/core/target.sig
+          $runner "$compiler" test compiler/test_all.sig \
             --zig-lib-dir lib \
-            -target x86_64-windows \
-            --cache-dir .zig-cache \
-            -femit-bin=stage3-out/bin/sig.exe || {
-              # Fallback: regenerate build_options and retry
-              ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-              SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
-              mkdir -p .build-gen
-              cat > .build-gen/build_options.zig << EOF
-          pub const have_llvm: bool = false;
-          pub const llvm_has_m68k: bool = false;
-          pub const llvm_has_csky: bool = false;
-          pub const llvm_has_arc: bool = false;
-          pub const llvm_has_xtensa: bool = false;
-          pub const enable_logging: bool = false;
-          pub const enable_debug_extensions: bool = false;
-          pub const enable_link_snapshots: bool = false;
-          pub const debug_gpa: bool = false;
-          pub const enable_tracy: bool = false;
-          pub const enable_tracy_callstack: bool = false;
-          pub const enable_tracy_allocation: bool = false;
-          pub const tracy_callstack_depth: u32 = 6;
-          pub const value_tracing: bool = false;
-          pub const mem_leak_frames: u32 = 0;
-          pub const io_mode: enum { threaded, evented } = .threaded;
-          pub const value_interpret_mode: enum { direct, by_name } = .direct;
-          pub const version: [:0]const u8 = "${ZIG_VER_BASE}";
-          pub const sig_version: [:0]const u8 = "${SIG_VER}";
-          pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
-          pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
+            --cache-dir /tmp/sig-tests-local \
+            --global-cache-dir /tmp/sig-tests-global \
+            --stack 33554432
+          $runner "$compiler" build-obj compiler/core/target.sig \
+            -target aarch64-freestanding-none \
+            -mcpu=baseline \
+            -OReleaseFast \
+            -fno-stack-check \
+            --zig-lib-dir lib \
+            --cache-dir /tmp/sig-release-local \
+            --global-cache-dir /tmp/sig-release-global \
+            -femit-bin=/tmp/release-aarch64.o
+          file /tmp/release-aarch64.o | grep -q 'ARM aarch64'
+
+      - name: Package Linux toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="sig-${VERSION}-${{ matrix.platform }}"
+          archive="${root}.tar.xz"
+          mkdir -p "$root/bin" "$root/tools"
+          cp 'stage3-out/bin/${{ matrix.binary }}' "$root/bin/sig"
+          ln "$root/bin/sig" "$root/bin/zig"
+          cp -r lib "$root/lib"
+          cp -r tools/sig_build "$root/tools/sig_build"
+          tar -cJf "$archive" "$root"
+          sha256sum "$archive" > "$archive.sha256"
+          cat > "$archive.provenance.txt" <<EOF
+          schema=sb0.sig.release-artifact.v1
+          artifact=$archive
+          platform=${{ matrix.platform }}
+          target=${{ matrix.target }}
+          sig_version=${SIG_VERSION}
+          source_commit=${GITHUB_SHA}
+          bootstrap_tag=${BOOTSTRAP_TAG}
+          llvm_artifact_tag=${LLVM_ARTIFACT_TAG}
+          workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
-              "${SIG}" build-exe \
-                --dep build_options --dep aro \
-                -Mroot=src/main.zig \
-                -Mbuild_options=.build-gen/build_options.zig \
-                -Maro=lib/compiler/aro/aro.zig \
-                --name sig \
-                -OReleaseFast \
-                -fstrip \
-                -fllvm -flld \
-                --zig-lib-dir lib \
-                -target x86_64-windows \
-                --cache-dir .zig-cache \
-                -femit-bin=stage3-out/bin/sig.exe
-            }
+          sha256sum --check --strict "$archive.sha256"
+          mkdir /tmp/package-check
+          tar -xJf "$archive" -C /tmp/package-check
+          packaged="/tmp/package-check/$root/bin/sig"
+          if [ -n '${{ matrix.qemu }}' ]; then runner='${{ matrix.qemu }}'; else runner=''; fi
+          $runner "$packaged" version | grep -q "sig ${SIG_VERSION}"
+          zig_output="$($runner "/tmp/package-check/$root/bin/zig" version)"
+          [[ "$zig_output" = "$ZIG_VERSION" || "$zig_output" = "$ZIG_VERSION"-* || "$zig_output" = "$ZIG_VERSION"+* ]]
+          [[ "$zig_output" != *sig* ]]
+          if [ '${{ matrix.platform }}' = x86_64-linux ]; then
+            ZIG_LIB_DIR="/tmp/package-check/$root/lib" \
+              "$packaged" build --help >/tmp/release-build-help.txt
+            grep -q '^Usage:.*build' /tmp/release-build-help.txt
+          fi
 
-      - name: Verify PE binary
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sig-${{ matrix.platform }}
+          path: |
+            sig-${{ env.VERSION }}-${{ matrix.platform }}.tar.xz
+            sig-${{ env.VERSION }}-${{ matrix.platform }}.tar.xz.sha256
+            sig-${{ env.VERSION }}-${{ matrix.platform }}.tar.xz.provenance.txt
+          compression-level: 0
+
+  build-macos:
+    needs: prepare
+    runs-on: macos-14
+    timeout-minutes: 240
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install packaging tools
+        run: brew install zstd
+
+      - name: Download and verify macOS bootstrap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          file stage3-out/bin/sig.exe
-          head -c 2 stage3-out/bin/sig.exe | xxd | grep -q "4d5a" || { echo "ERROR: Not a PE binary!"; exit 1; }
-          ls -la stage3-out/bin/sig.exe
-          echo "Valid PE binary produced"
+          set -euo pipefail
+          archive=bootstrap-sig-aarch64-macos.tar.zst
+          gh release download "${BOOTSTRAP_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/bootstrap-download
+          (cd /tmp/bootstrap-download && shasum -a 256 -c "$archive.sha256")
+          mkdir .bootstrap
+          zstd -d "/tmp/bootstrap-download/$archive" --stdout | tar -x -C .bootstrap
+          SIG="$PWD/.bootstrap/bootstrap-sig-aarch64-macos/bin/sig"
+          "$SIG" version | grep -q "sig ${SIG_VERSION}"
+          echo "SIG=$SIG" >> "$GITHUB_ENV"
 
-      - name: Package
+      - name: Download and verify native macOS LLVM closure
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          OUT="sig-${VERSION}-x86_64-windows"
-          mkdir -p "${OUT}/bin"
-          cp stage3-out/bin/sig.exe "${OUT}/bin/sig.exe"
-          cp stage3-out/bin/sig.exe "${OUT}/bin/zig.exe"
-          cp -r lib "${OUT}/lib"
-          # Include sig_build tools in distribution (sig build needs these)
-          mkdir -p "${OUT}/lib/tools"
-          cp -r tools/sig_build "${OUT}/lib/tools/sig_build"
-          ARCHIVE="sig-${VERSION}-x86_64-windows.zip"
-          7z a -r "${ARCHIVE}" "${OUT}"
-          sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
-          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+          set -euo pipefail
+          archive=llvm-22-aarch64-macos-native.tar.zst
+          gh release download "${LLVM_ARTIFACT_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/llvm-download
+          (cd /tmp/llvm-download && shasum -a 256 -c "$archive.sha256")
+          mkdir llvm-target
+          zstd -d "/tmp/llvm-download/$archive" --stdout | tar -x -C llvm-target --strip-components=1
+          llvm-target/bin/llvm-config --version | grep -qx '22.1.7'
+          echo "LLVM_PREFIX=$PWD/llvm-target" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v4
+      - name: Build full LLVM-backed macOS compiler
+        shell: bash
+        run: |
+          chmod +x ci/build-self-hosted-release.sh
+          ci/build-self-hosted-release.sh \
+            "$SIG" \
+            "$LLVM_PREFIX" \
+            aarch64-macos-none \
+            stage3-out/bin/sig \
+            .zig-cache/release-macos
+
+      - name: Execute compiler and prove strict/AArch64 compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage3-out/bin/sig version | tee /tmp/version.txt
+          grep -q "sig ${SIG_VERSION}" /tmp/version.txt
+          stage3-out/bin/sig ast-check compiler/core/target.sig
+          stage3-out/bin/sig test compiler/test_all.sig \
+            --zig-lib-dir lib \
+            --cache-dir /tmp/sig-tests-local \
+            --global-cache-dir /tmp/sig-tests-global \
+            --stack 33554432
+          stage3-out/bin/sig build-obj compiler/core/target.sig \
+            -target aarch64-freestanding-none \
+            -mcpu=baseline \
+            -OReleaseFast \
+            -fno-stack-check \
+            --zig-lib-dir lib \
+            --cache-dir /tmp/sig-release-local \
+            --global-cache-dir /tmp/sig-release-global \
+            -femit-bin=/tmp/release-aarch64.o
+          file stage3-out/bin/sig | grep -q 'Mach-O 64-bit executable arm64'
+          file /tmp/release-aarch64.o | grep -q 'ARM aarch64'
+
+      - name: Package macOS toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="sig-${VERSION}-aarch64-macos"
+          archive="${root}.tar.xz"
+          mkdir -p "$root/bin" "$root/tools"
+          cp stage3-out/bin/sig "$root/bin/sig"
+          ln "$root/bin/sig" "$root/bin/zig"
+          cp -R lib "$root/lib"
+          cp -R tools/sig_build "$root/tools/sig_build"
+          tar -cJf "$archive" "$root"
+          shasum -a 256 "$archive" > "$archive.sha256"
+          cat > "$archive.provenance.txt" <<EOF
+          schema=sb0.sig.release-artifact.v1
+          artifact=$archive
+          platform=aarch64-macos
+          target=aarch64-macos-none
+          sig_version=${SIG_VERSION}
+          source_commit=${GITHUB_SHA}
+          bootstrap_tag=${BOOTSTRAP_TAG}
+          llvm_artifact_tag=${LLVM_ARTIFACT_TAG}
+          workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          shasum -a 256 -c "$archive.sha256"
+          mkdir /tmp/package-check
+          tar -xJf "$archive" -C /tmp/package-check
+          /tmp/package-check/$root/bin/sig version | grep -q "sig ${SIG_VERSION}"
+          zig_output="$(/tmp/package-check/$root/bin/zig version)"
+          [[ "$zig_output" = "$ZIG_VERSION" || "$zig_output" = "$ZIG_VERSION"-* || "$zig_output" = "$ZIG_VERSION"+* ]]
+          [[ "$zig_output" != *sig* ]]
+          ZIG_LIB_DIR="/tmp/package-check/$root/lib" \
+            /tmp/package-check/$root/bin/sig build --help >/tmp/release-build-help.txt
+          grep -q '^Usage:.*build' /tmp/release-build-help.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sig-aarch64-macos
+          path: |
+            sig-${{ env.VERSION }}-aarch64-macos.tar.xz
+            sig-${{ env.VERSION }}-aarch64-macos.tar.xz.sha256
+            sig-${{ env.VERSION }}-aarch64-macos.tar.xz.provenance.txt
+          compression-level: 0
+
+  build-windows:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          sudo rm -rf /usr/local/graalvm /usr/local/.ghcup /usr/local/share/powershell
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go
+          sudo apt-get clean
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install packaging tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full zstd xz-utils
+
+      - name: Download and verify Linux bootstrap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=bootstrap-sig-x86_64-linux.tar.zst
+          gh release download "${BOOTSTRAP_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/bootstrap-download
+          (cd /tmp/bootstrap-download && sha256sum --check --strict "$archive.sha256")
+          mkdir .bootstrap
+          zstd -d "/tmp/bootstrap-download/$archive" --stdout | tar -x -C .bootstrap
+          SIG="$PWD/.bootstrap/bootstrap-sig-x86_64-linux/bin/sig"
+          "$SIG" version | grep -q "sig ${SIG_VERSION}"
+          echo "SIG=$SIG" >> "$GITHUB_ENV"
+
+      - name: Download and verify Windows LLVM closure
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=llvm-22-x86_64-windows.tar.xz
+          gh release download "${LLVM_ARTIFACT_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/llvm-download
+          (cd /tmp/llvm-download && sha256sum --check --strict "$archive.sha256")
+          mkdir llvm-target
+          tar -xJf "/tmp/llvm-download/$archive" -C llvm-target --strip-components=1
+          test -f llvm-target/include/llvm/Config/llvm-config.h
+          test -f llvm-target/lib/libLLVMCore.a
+          echo "LLVM_PREFIX=$PWD/llvm-target" >> "$GITHUB_ENV"
+
+      - name: Build full LLVM-backed Windows compiler with Sig
+        shell: bash
+        run: |
+          chmod +x ci/build-self-hosted-release.sh
+          ci/build-self-hosted-release.sh \
+            "$SIG" \
+            "$LLVM_PREFIX" \
+            x86_64-windows-gnu \
+            stage3-out/bin/sig.exe \
+            .zig-cache/release-windows
+
+      - name: Package Windows toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="sig-${VERSION}-x86_64-windows"
+          archive="${root}.zip"
+          mkdir -p "$root/bin" "$root/tools"
+          cp stage3-out/bin/sig.exe "$root/bin/sig.exe"
+          ln "$root/bin/sig.exe" "$root/bin/zig.exe"
+          cp -r lib "$root/lib"
+          cp -r tools/sig_build "$root/tools/sig_build"
+          7z a -tzip -mx=9 "$archive" "$root"
+          7z t "$archive"
+          sha256sum "$archive" > "$archive.sha256"
+          cat > "$archive.provenance.txt" <<EOF
+          schema=sb0.sig.release-artifact.v1
+          artifact=$archive
+          platform=x86_64-windows
+          target=x86_64-windows-gnu
+          sig_version=${SIG_VERSION}
+          source_commit=${GITHUB_SHA}
+          bootstrap_tag=${BOOTSTRAP_TAG}
+          llvm_artifact_tag=${LLVM_ARTIFACT_TAG}
+          workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          sha256sum --check --strict "$archive.sha256"
+          rm -rf /tmp/package-check
+          7z x -o/tmp/package-check "$archive" >/dev/null
+          cmp "/tmp/package-check/$root/bin/sig.exe" "/tmp/package-check/$root/bin/zig.exe"
+          test "$(od -An -tx1 -N2 "/tmp/package-check/$root/bin/sig.exe" | tr -d ' \n')" = 4d5a
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sig-x86_64-windows
           path: |
-            ${{ env.ARCHIVE }}
-            ${{ env.ARCHIVE }}.sha256
+            sig-${{ env.VERSION }}-x86_64-windows.zip
+            sig-${{ env.VERSION }}-x86_64-windows.zip.sha256
+            sig-${{ env.VERSION }}-x86_64-windows.zip.provenance.txt
+          compression-level: 0
+
+  verify-windows:
+    needs: [prepare, build-windows]
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: sig-x86_64-windows
+          path: .windows-release
+
+      - name: Execute packaged Windows compiler and compile AArch64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Resolve-Path ".windows-release\sig-${env:VERSION}-x86_64-windows.zip"
+          $expected = ((Get-Content "${archive}.sha256") -split '\s+')[0]
+          $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'Windows release archive digest mismatch' }
+          Expand-Archive -LiteralPath $archive -DestinationPath .windows-package
+          $root = Resolve-Path ".windows-package\sig-${env:VERSION}-x86_64-windows"
+          $sig = Join-Path $root 'bin\sig.exe'
+          $zig = Join-Path $root 'bin\zig.exe'
+          $env:ZIG_LIB_DIR = Join-Path $root 'lib'
+          if ((Get-FileHash $sig).Hash -ne (Get-FileHash $zig).Hash) { throw 'sig.exe and zig.exe differ' }
+          & $sig version | Tee-Object -Variable version
+          if ($LASTEXITCODE -ne 0 -or ($version -join "`n") -notmatch "sig $([regex]::Escape($env:SIG_VERSION))") { throw 'Windows compiler version probe failed' }
+          & $zig version | Tee-Object -Variable zigVersion
+          $zigText = ($zigVersion -join "`n")
+          $zigBase = [regex]::Escape($env:ZIG_VERSION)
+          if ($LASTEXITCODE -ne 0 -or $zigText -notmatch "^${zigBase}(?:[-+].*)?$" -or $zigText -match 'sig') { throw 'Windows compiler Zig alias version probe failed' }
+          & $sig build --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'packaged Windows build runner failed' }
+          & $sig ast-check compiler\core\target.sig
+          if ($LASTEXITCODE -ne 0) { throw 'strict .sig parse failed' }
+          & $sig test compiler\test_all.sig `
+            --zig-lib-dir lib `
+            --cache-dir "$env:RUNNER_TEMP\sig-tests-local" `
+            --global-cache-dir "$env:RUNNER_TEMP\sig-tests-global" `
+            --stack 33554432
+          if ($LASTEXITCODE -ne 0) { throw 'native compiler test graph failed' }
+          & $sig build-obj compiler\core\target.sig `
+            -target aarch64-freestanding-none `
+            -mcpu=baseline `
+            -OReleaseFast `
+            -fno-stack-check `
+            --zig-lib-dir lib `
+            --cache-dir "$env:RUNNER_TEMP\sig-local" `
+            --global-cache-dir "$env:RUNNER_TEMP\sig-global" `
+            "-femit-bin=$env:RUNNER_TEMP\release-aarch64.o"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows AArch64 compilation failed' }
+          $magic = [IO.File]::ReadAllBytes("$env:RUNNER_TEMP\release-aarch64.o")[0..3]
+          if ([BitConverter]::ToString($magic) -ne '7F-45-4C-46') { throw 'AArch64 output is not ELF' }
 
   publish:
-    needs: [build-native, build-platform, build-windows-cross]
-    if: always() && needs.build-native.result == 'success'
+    needs: [prepare, build-linux, build-macos, build-windows, verify-windows]
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     env:
-      VERSION: ${{ needs.build-native.outputs.version }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
+      PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
           pattern: sig-*
           merge-multiple: true
-      - name: Create release
+
+      - name: Verify exact release set and build manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          versioned=(
+            "sig-${VERSION}-x86_64-linux.tar.xz"
+            "sig-${VERSION}-aarch64-linux.tar.xz"
+            "sig-${VERSION}-aarch64-macos.tar.xz"
+            "sig-${VERSION}-x86_64-windows.zip"
+          )
+          aliases=(
+            sig-x86_64-linux.tar.xz
+            sig-aarch64-linux.tar.xz
+            sig-aarch64-macos.tar.xz
+            sig-x86_64-windows.zip
+          )
+          provenance=(
+            "${versioned[0]}.provenance.txt"
+            "${versioned[1]}.provenance.txt"
+            "${versioned[2]}.provenance.txt"
+            "${versioned[3]}.provenance.txt"
+          )
+          for archive in "${versioned[@]}"; do
+            test -s "$archive"
+            test -s "$archive.sha256"
+            test -s "$archive.provenance.txt"
+            sha256sum --check --strict "$archive.sha256"
+          done
+          for index in "${!versioned[@]}"; do
+            cp "${versioned[$index]}" "${aliases[$index]}"
+          done
+          assets_json="$({
+            for archive in "${versioned[@]}" "${aliases[@]}" "${provenance[@]}"; do
+              hash="$(sha256sum "$archive" | awk '{print $1}')"
+              size="$(stat -c %s "$archive")"
+              jq -n --arg name "$archive" --arg sha256 "$hash" --argjson size "$size" '{name:$name, sha256:$sha256, size:$size}'
+            done
+          } | jq -s .)"
+          jq -n \
+            --arg schema 'sb0.sig.release.v1' \
+            --arg version "$VERSION" \
+            --arg sig_version "$SIG_VERSION" \
+            --arg source_commit "$GITHUB_SHA" \
+            --arg bootstrap_tag "$BOOTSTRAP_TAG" \
+            --arg llvm_artifact_tag "$LLVM_ARTIFACT_TAG" \
+            --arg workflow_run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --argjson assets "$assets_json" \
+            '{schema:$schema, version:$version, sig_version:$sig_version, source_commit:$source_commit, bootstrap_tag:$bootstrap_tag, llvm_artifact_tag:$llvm_artifact_tag, workflow_run:$workflow_run, assets:$assets}' \
+            > release-manifest.json
+          sha256sum "${versioned[@]}" "${aliases[@]}" "${provenance[@]}" release-manifest.json > SHA256SUMS.txt
+          test "$(wc -l < SHA256SUMS.txt)" -eq 13
+          sha256sum --check --strict SHA256SUMS.txt
+
+      - name: Build release notes from changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          awk -v version="$SIG_VERSION" '
+            $0 ~ "^## \\[" version "\\]" { emit=1; next }
+            emit && /^## \[/ { exit }
+            emit { print }
+          ' CHANGELOG.md > /tmp/changelog-section.md
+          test -s /tmp/changelog-section.md
+          cat > /tmp/release-notes.md <<EOF
+          Sig ${VERSION}
+
+          Four LLVM-backed toolchains built by Sig itself and verified on Linux,
+          macOS, Windows, and QEMU AArch64 Linux. Exact build inputs:
+
+          - source: ${GITHUB_SHA}
+          - bootstrap: ${BOOTSTRAP_TAG}
+          - LLVM closure: ${LLVM_ARTIFACT_TAG}
+          - workflow: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          EOF
+          cat /tmp/changelog-section.md >> /tmp/release-notes.md
+
+      - name: Create immutable draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
+          set -euo pipefail
           cd artifacts
-          rm -f sig
-          cat *.sha256 > sha256sums.txt 2>/dev/null || true
-          PRERELEASE=""
-          LATEST_FLAG="--latest"
-          [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.prerelease }}" = "true" ] && PRERELEASE="--prerelease" && LATEST_FLAG=""
-          ARCHIVES=""
-          for f in sig-*.tar.xz sig-*.zip; do [ -f "$f" ] && ARCHIVES="$ARCHIVES $f"; done
-          gh release delete "sig-${VERSION}" --yes --cleanup-tag 2>/dev/null || true
-          sleep 2
-          gh release create "sig-${VERSION}" \
+          tag="sig-${VERSION}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "ERROR: release ${tag} already exists" >&2
+            exit 1
+          fi
+          flags=()
+          if [ "$PRERELEASE" = true ]; then
+            flags+=(--prerelease)
+          fi
+          files=(
+            "sig-${VERSION}-x86_64-linux.tar.xz"
+            "sig-${VERSION}-aarch64-linux.tar.xz"
+            "sig-${VERSION}-aarch64-macos.tar.xz"
+            "sig-${VERSION}-x86_64-windows.zip"
+            sig-x86_64-linux.tar.xz
+            sig-aarch64-linux.tar.xz
+            sig-aarch64-macos.tar.xz
+            sig-x86_64-windows.zip
+            SHA256SUMS.txt
+            release-manifest.json
+            ./*.provenance.txt
+          )
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
             --title "Sig ${VERSION}" \
-            --notes "Sig ${VERSION} — self-sustained release (sig builds sig). x86_64-linux with full LLVM 22." \
-            ${LATEST_FLAG} ${PRERELEASE} \
-            $ARCHIVES sha256sums.txt
+            --notes-file /tmp/release-notes.md \
+            --draft \
+            "${flags[@]}" \
+            "${files[@]}"
+
+      - name: Verify asset digests and atomically publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          tag="sig-${VERSION}"
+          assets_json="$(gh release view "$tag" --json assets,isDraft,isPrerelease)"
+          test "$(jq -r .isDraft <<<"$assets_json")" = true
+          test "$(jq '.assets | length' <<<"$assets_json")" -eq 14
+          while read -r hash name; do
+            remote="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest' <<<"$assets_json")"
+            test "$remote" = "sha256:$hash"
+          done < SHA256SUMS.txt
+          jq -e '.assets[] | select(.name == "release-manifest.json")' <<<"$assets_json" >/dev/null
+          if [ "$PRERELEASE" = true ]; then
+            gh release edit "$tag" --draft=false --prerelease
+          else
+            gh release edit "$tag" --draft=false --latest
+          fi
+          test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = false

@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: sig-sync
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -16,9 +16,9 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -90,7 +90,7 @@ jobs:
           git config user.email "sig-sync@users.noreply.github.com"
 
           # ── Resolve current bootstrap tag from manifest ─────────────
-          BOOTSTRAP_TAG="bootstrap-sig-v13"
+          BOOTSTRAP_TAG="bootstrap-sig-v42"
           if [ -f tools/sig_sync/manifest.json ]; then
             MANIFEST_BOOT=$(python3 -c "
           import json
@@ -103,7 +103,7 @@ jobs:
 
           # Files we own — on conflict, keep ours
           SIG_OWNED=(
-            README.md CHANGELOG.md build.zig
+            README.md CHANGELOG.md build.sig build.zig build_wasm.zig
             stage1/config.zig.in
             .gitignore bootstrap.ps1 CMakeLists.txt
           )
@@ -159,14 +159,22 @@ jobs:
 
             # Download bootstrap
             local TMPBOOT=$(mktemp -d)
-            if ! gh release download "$TAG" --pattern "bootstrap-sig-x86_64-linux.tar.gz" --dir "$TMPBOOT" 2>/dev/null; then
+            if ! gh release download "$TAG" \
+                --pattern "bootstrap-sig-x86_64-linux.tar.zst" \
+                --pattern "bootstrap-sig-x86_64-linux.tar.zst.sha256" \
+                --dir "$TMPBOOT" 2>/dev/null; then
               echo "::warning::Bootstrap $TAG not found"
               return 1
             fi
+            (cd "$TMPBOOT" && sha256sum --check --strict bootstrap-sig-x86_64-linux.tar.zst.sha256) || {
+              echo "::warning::Bootstrap $TAG digest mismatch"
+              rm -rf "$TMPBOOT"
+              return 1
+            }
             mkdir -p "$TMPBOOT/boot"
-            tar -xzf "$TMPBOOT/bootstrap-sig-x86_64-linux.tar.gz" -C "$TMPBOOT/boot"
+            zstd -d "$TMPBOOT/bootstrap-sig-x86_64-linux.tar.zst" --stdout | tar -x -C "$TMPBOOT/boot"
 
-            local SIG_BIN=$(find "$TMPBOOT/boot" -type f -name "sig" -o -name "zig" | head -1)
+            local SIG_BIN=$(find "$TMPBOOT/boot" -type f \( -name "sig" -o -name "zig" \) | head -1)
             [ -z "$SIG_BIN" ] && echo "::warning::No binary in bootstrap" && rm -rf "$TMPBOOT" && return 1
             chmod +x "$SIG_BIN"
 
@@ -191,10 +199,9 @@ jobs:
                 echo "::warning::Bootstrap $TAG has stale lib references — rebuild needed"
                 RESULT=1
               else
-                # Unknown failure — don't block sync, just warn
-                echo "::warning::Bootstrap probe failed (non-lib reason) — continuing"
+                echo "::warning::Bootstrap probe failed — rebuild required"
                 cat "$TMPBOOT/probe.log"
-                RESULT=0
+                RESULT=1
               fi
             else
               echo "Bootstrap $TAG build-exe probe OK"
@@ -202,8 +209,9 @@ jobs:
 
             # Also probe 'zig build --help' which exercises lib/compiler/ build runner
             if [ "$RESULT" = "0" ]; then
-              if ! "$SIG_BIN" build --help \
-                  --zig-lib-dir "$(pwd)/lib" 2>"$TMPBOOT/build_probe.log"; then
+              if ! "$SIG_BIN" build \
+                  "--zig-lib=$(pwd)/lib" \
+                  --help 2>"$TMPBOOT/build_probe.log"; then
                 echo "Bootstrap probe (zig build) failed:"
                 cat "$TMPBOOT/build_probe.log"
                 if grep -q "FileNotFound\|file_hash" "$TMPBOOT/build_probe.log"; then
@@ -219,61 +227,7 @@ jobs:
             return $RESULT
           }
 
-          # ── Trigger bootstrap rebuild and wait ──────────────────────
-          trigger_bootstrap_rebuild() {
-            local OLD_TAG="$1"
-
-            # Bump version: bootstrap-sig-vN → bootstrap-sig-v(N+1)
-            local VER_NUM=$(echo "$OLD_TAG" | grep -oP 'v\K[0-9]+')
-            local NEW_VER=$((VER_NUM + 1))
-            local NEW_TAG="bootstrap-sig-v${NEW_VER}"
-
-            echo "::notice::Triggering zig1.wasm regen + bootstrap rebuild: $OLD_TAG → $NEW_TAG"
-
-            # First regenerate zig1.wasm (uses upstream zig as fallback)
-            gh workflow run update-zig1-wasm.yaml 2>/dev/null || true
-
-            # Then dispatch the bootstrap build
-            gh workflow run build-bootstrap.yaml -f version="$NEW_TAG"
-
-            # Wait for the bootstrap build to complete (poll every 60s, max 3h)
-            echo "Waiting for bootstrap $NEW_TAG to build..."
-            local MAX_WAIT=10800  # 3 hours
-            local WAITED=0
-            local POLL=60
-
-            while [ $WAITED -lt $MAX_WAIT ]; do
-              sleep $POLL
-              WAITED=$((WAITED + POLL))
-
-              # Check if the release asset exists
-              if gh release view "$NEW_TAG" --json assets --jq '.assets[].name' 2>/dev/null \
-                  | grep -q "bootstrap-sig-x86_64-linux.tar.gz"; then
-                echo "Bootstrap $NEW_TAG linux asset ready (waited ${WAITED}s)"
-
-                # Wait a bit more for all platforms to finish
-                sleep 120
-
-                # Validate the new bootstrap
-                if validate_bootstrap "$NEW_TAG"; then
-                  echo "Bootstrap $NEW_TAG validated successfully"
-                  echo "$NEW_TAG"
-                  return 0
-                else
-                  echo "::error::New bootstrap $NEW_TAG also fails validation"
-                  return 1
-                fi
-              fi
-
-              echo "  Still waiting... (${WAITED}s / ${MAX_WAIT}s)"
-            done
-
-            echo "::error::Bootstrap build timed out after ${MAX_WAIT}s"
-            return 1
-          }
-
           # ── Pre-flight: validate current bootstrap ──────────────────
-          BOOTSTRAP_VALID=true
           NEED_REBUILD=false
 
           TOTAL=$(wc -l < /tmp/new_commits.txt)
@@ -340,21 +294,19 @@ jobs:
 
             # ── Post-integration: version sync, manifest, README, push
             if [ "$INTEGRATED" = "true" ]; then
-              # Sync zig version from CMakeLists.txt → build.zig
+              # Sync Zig compatibility version from CMakeLists.txt into both
+              # Sig build frontends. build.sig remains the release authority,
+              # and release preflight rejects any divergence between the two.
               ZIG_MAJOR=$(sed -n 's/^set(ZIG_VERSION_MAJOR \([0-9]*\))/\1/p' CMakeLists.txt)
               ZIG_MINOR=$(sed -n 's/^set(ZIG_VERSION_MINOR \([0-9]*\))/\1/p' CMakeLists.txt)
               ZIG_PATCH=$(sed -n 's/^set(ZIG_VERSION_PATCH \([0-9]*\))/\1/p' CMakeLists.txt)
 
               if [ -n "$ZIG_MAJOR" ] && [ -n "$ZIG_MINOR" ] && [ -n "$ZIG_PATCH" ]; then
-                CUR_MAJOR=$(sed -n 's/.*zig_version.*major = \([0-9]*\).*/\1/p' build.zig | head -1)
-                CUR_MINOR=$(sed -n 's/.*zig_version.*minor = \([0-9]*\).*/\1/p' build.zig | head -1)
-                CUR_PATCH=$(sed -n 's/.*zig_version.*patch = \([0-9]*\).*/\1/p' build.zig | head -1)
-
-                if [ "$ZIG_MAJOR" != "$CUR_MAJOR" ] || [ "$ZIG_MINOR" != "$CUR_MINOR" ] || [ "$ZIG_PATCH" != "$CUR_PATCH" ]; then
-                  sed -i "s/const zig_version: std.SemanticVersion = .{ .major = [0-9]*, .minor = [0-9]*, .patch = [0-9]* };/const zig_version: std.SemanticVersion = .{ .major = $ZIG_MAJOR, .minor = $ZIG_MINOR, .patch = $ZIG_PATCH };/" build.zig
-                  git add build.zig
-                  git diff --cached --quiet || git commit -m "sig-sync: bump zig_version to $ZIG_MAJOR.$ZIG_MINOR.$ZIG_PATCH"
-                fi
+                for build_file in build.sig build.zig; do
+                  sed -i "s/const zig_version: std.SemanticVersion = .{ .major = [0-9]*, .minor = [0-9]*, .patch = [0-9]* };/const zig_version: std.SemanticVersion = .{ .major = $ZIG_MAJOR, .minor = $ZIG_MINOR, .patch = $ZIG_PATCH };/" "$build_file"
+                done
+                git add build.sig build.zig
+                git diff --cached --quiet || git commit -m "sig-sync: bump zig_version to $ZIG_MAJOR.$ZIG_MINOR.$ZIG_PATCH"
               fi
 
               # ── Check if this commit touches lib/ in ways that break bootstrap ──
@@ -421,7 +373,7 @@ jobs:
           with open('README.md', 'r') as f: content = f.read()
           content = re.sub(r'\| \*\*Latest upstream commit\*\* \|[^|]*\|', f'| **Latest upstream commit** | [\`{short}\`](https://codeberg.org/ziglang/zig/commit/{commit}) |', content)
           content = re.sub(r'\| \*\*Last sync\*\* \|[^|]*\|', f'| **Last sync** | {date} |', content)
-          content = re.sub(r'\| \*\*Base version\*\* \|[^|]*\|', f'| **Base version** | zig {zig}-dev · LLVM 22.1.3 |', content)
+          content = re.sub(r'\| \*\*Base version\*\* \|[^|]*\|', f'| **Base version** | zig {zig}-dev · LLVM 22.1.7 |', content)
           with open('README.md', 'w') as f: f.write(content)
           PYEOF
               git add README.md
@@ -449,7 +401,14 @@ jobs:
 
           if [ "$REGEN_NEEDED" = "true" ]; then
             echo "::notice::Triggering zig1.wasm regeneration + bootstrap rebuild chain..."
-            gh workflow run regen-zig1-wasm.yaml
+            PREVIOUS_REGEN_ID=$(gh run list \
+              --workflow="regen-zig1-wasm.yaml" \
+              --event workflow_dispatch \
+              --branch master \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // 0' 2>/dev/null || echo 0)
+            gh workflow run regen-zig1-wasm.yaml -f bootstrap_tag="$BOOTSTRAP_TAG"
 
             # Wait for zig1.wasm regen to complete (max 2h)
             echo "Waiting for zig1.wasm regeneration..."
@@ -457,11 +416,28 @@ jobs:
             WAITED=0
             POLL=60
             REGEN_OK=false
+            REGEN_RUN_ID=""
             while [ $WAITED -lt $MAX_WAIT ]; do
               sleep $POLL
               WAITED=$((WAITED + POLL))
-              # Check if the latest regen run succeeded
-              REGEN_STATUS=$(gh run list --workflow="regen-zig1-wasm.yaml" --limit 1 --json conclusion --jq '.[0].conclusion' 2>/dev/null || true)
+              if [ -z "$REGEN_RUN_ID" ]; then
+                CANDIDATE_ID=$(gh run list \
+                  --workflow="regen-zig1-wasm.yaml" \
+                  --event workflow_dispatch \
+                  --branch master \
+                  --limit 1 \
+                  --json databaseId \
+                  --jq '.[0].databaseId // 0' 2>/dev/null || echo 0)
+                if [ "$CANDIDATE_ID" != 0 ] && [ "$CANDIDATE_ID" != "$PREVIOUS_REGEN_ID" ]; then
+                  REGEN_RUN_ID="$CANDIDATE_ID"
+                  echo "Tracking zig1.wasm workflow run $REGEN_RUN_ID"
+                fi
+              fi
+              if [ -n "$REGEN_RUN_ID" ]; then
+                REGEN_STATUS=$(gh run view "$REGEN_RUN_ID" --json conclusion --jq '.conclusion // ""' 2>/dev/null || true)
+              else
+                REGEN_STATUS=""
+              fi
               if [ "$REGEN_STATUS" = "success" ]; then
                 echo "zig1.wasm regeneration complete (waited ${WAITED}s)"
                 REGEN_OK=true
@@ -473,40 +449,55 @@ jobs:
               echo "  Still waiting for zig1.wasm regen... (${WAITED}s)"
             done
 
-            if [ "$REGEN_OK" = "true" ]; then
-              # Pull the new zig1.wasm commit
-              git pull --rebase origin master || true
+            if [ "$REGEN_OK" != "true" ]; then
+              echo "::error::zig1.wasm regeneration did not complete successfully"
+              exit 1
+            fi
 
-              # Bump bootstrap version and rebuild
-              VER_NUM=$(echo "$BOOTSTRAP_TAG" | grep -oP 'v\K[0-9]+')
-              NEW_VER=$((VER_NUM + 1))
-              NEW_TAG="bootstrap-sig-v${NEW_VER}"
-              echo "::notice::Rebuilding bootstrap: $BOOTSTRAP_TAG → $NEW_TAG"
-              gh workflow run build-bootstrap.yaml -f version="$NEW_TAG"
+            # Pull the exact regenerated zig1.wasm commit before bootstrapping.
+            git pull --rebase origin master
 
-              # Wait for bootstrap build (max 3h)
-              echo "Waiting for bootstrap $NEW_TAG..."
-              MAX_WAIT=10800
-              WAITED=0
-              BOOT_OK=false
-              while [ $WAITED -lt $MAX_WAIT ]; do
-                sleep $POLL
-                WAITED=$((WAITED + POLL))
-                if gh release view "$NEW_TAG" --json assets --jq '.assets[].name' 2>/dev/null \
-                    | grep -q "bootstrap-sig-x86_64-linux.tar.gz"; then
-                  echo "Bootstrap $NEW_TAG linux asset ready (waited ${WAITED}s)"
-                  # Wait a bit for macOS to finish too
-                  sleep 120
+            # Bump bootstrap version and rebuild.
+            VER_NUM=$(echo "$BOOTSTRAP_TAG" | grep -oP 'v\K[0-9]+')
+            NEW_VER=$((VER_NUM + 1))
+            NEW_TAG="bootstrap-sig-v${NEW_VER}"
+            echo "::notice::Rebuilding bootstrap: $BOOTSTRAP_TAG → $NEW_TAG"
+            gh workflow run build-bootstrap.yaml \
+              -f version="$NEW_TAG" \
+              -f llvm_tag=llvm-22.1.7-sig-0.3.0
+
+            # The draft is published only after all four platform probes and
+            # the aggregate manifest pass. A Linux asset alone is insufficient.
+            echo "Waiting for published bootstrap $NEW_TAG..."
+            MAX_WAIT=10800
+            WAITED=0
+            BOOT_OK=false
+            while [ $WAITED -lt $MAX_WAIT ]; do
+              sleep $POLL
+              WAITED=$((WAITED + POLL))
+              RELEASE_JSON=$(gh release view "$NEW_TAG" --json isDraft,assets 2>/dev/null || true)
+              if [ -n "$RELEASE_JSON" ] && jq -e \
+                  '.isDraft == false and ([.assets[].name] | index("bootstrap-build-manifest.json") != null)' \
+                  <<<"$RELEASE_JSON" >/dev/null; then
+                if validate_bootstrap "$NEW_TAG"; then
+                  echo "Bootstrap $NEW_TAG fully published and validated (waited ${WAITED}s)"
                   BOOT_OK=true
                   break
                 fi
-                echo "  Still waiting for bootstrap... (${WAITED}s)"
-              done
+                echo "::error::Published bootstrap $NEW_TAG failed its consumer probe"
+                exit 1
+              fi
+              echo "  Still waiting for complete bootstrap... (${WAITED}s)"
+            done
 
-              if [ "$BOOT_OK" = "true" ]; then
-                BOOTSTRAP_TAG="$NEW_TAG"
-                # Update manifest with new bootstrap tag
-                python3 -c "
+            if [ "$BOOT_OK" != "true" ]; then
+              echo "::error::Bootstrap build timed out or failed; refusing stale release"
+              exit 1
+            fi
+
+            BOOTSTRAP_TAG="$NEW_TAG"
+            # Update manifest only after the immutable set is fully published.
+            python3 -c "
           import json
           with open('tools/sig_sync/manifest.json') as f: m = json.load(f)
           m['bootstrap_tag'] = '$NEW_TAG'
@@ -514,17 +505,14 @@ jobs:
               json.dump(m, f, indent=2)
               f.write('\n')
           "
-                git add tools/sig_sync/manifest.json
-                git diff --cached --quiet || git commit -m "sig-sync: bump bootstrap to $NEW_TAG"
-                git push origin HEAD:master
-              else
-                echo "::error::Bootstrap build timed out or failed — releasing with stale bootstrap"
-              fi
-            fi
+            git add tools/sig_sync/manifest.json
+            git diff --cached --quiet || git commit -m "sig-sync: bump bootstrap to $NEW_TAG"
+            git push origin HEAD:master
           fi
 
           # ── Dispatch release ────────────────────────────────────────
           echo "Dispatching sig-release with bootstrap=$BOOTSTRAP_TAG..."
           gh api repos/${{ github.repository }}/dispatches \
             -f event_type=sig-release \
-            -f "client_payload[bootstrap_tag]=$BOOTSTRAP_TAG"
+            -f "client_payload[bootstrap_tag]=$BOOTSTRAP_TAG" \
+            -f "client_payload[llvm_tag]=llvm-22.1.7-sig-0.3.0"

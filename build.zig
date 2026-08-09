@@ -10,7 +10,7 @@ const tests = @import("test/tests.zig");
 const DevEnv = @import("src/dev.zig").Env;
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
-const sig_version_string = "0.2.0";
+const sig_version_string = "0.3.0";
 const stack_size = 46 * 1024 * 1024;
 
 const IoMode = enum { threaded, evented };
@@ -300,7 +300,7 @@ pub fn build(b: *std.Build) !void {
             "git",
             "-C", b.fmt("{f}", .{b.root}), // affects the --git-dir argument
             "--git-dir", ".git", // affected by the -C argument
-            "describe", "--match",    "*.*.*", //
+            "describe", "--match",    "[0-9]*.[0-9]*.[0-9]*", //
             "--tags",   "--abbrev=9",
         }, &code, .ignore) catch {
             break :v version_string;

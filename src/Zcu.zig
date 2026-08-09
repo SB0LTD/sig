@@ -1067,11 +1067,20 @@ pub const File = struct {
     pub fn modeFromPath(path: []const u8) ?Ast.Mode {
         if (std.mem.endsWith(u8, path, ".zon")) {
             return .zon;
-        } else if (std.mem.endsWith(u8, path, ".zig")) {
+        } else if (std.mem.endsWith(u8, path, ".zig") or
+            std.mem.endsWith(u8, path, ".sig"))
+        {
             return .zig;
         } else {
             return null;
         }
+    }
+
+    test "modeFromPath recognizes Zig, Sig, and ZON sources" {
+        try std.testing.expectEqual(Ast.Mode.zig, modeFromPath("root.zig").?);
+        try std.testing.expectEqual(Ast.Mode.zig, modeFromPath("root.sig").?);
+        try std.testing.expectEqual(Ast.Mode.zon, modeFromPath("build.zon").?);
+        try std.testing.expectEqual(@as(?Ast.Mode, null), modeFromPath("object.o"));
     }
 
     pub fn unload(file: *File, gpa: Allocator) void {

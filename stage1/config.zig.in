@@ -17,6 +17,6 @@ pub const skip_non_native = false;
 pub const debug_gpa = false;
 pub const mem_leak_frames = 0;
 pub const dev = .full;
-pub const sig_version: [:0]const u8 = "0.1.2";
+pub const sig_version: [:0]const u8 = "@RESOLVED_SIG_VERSION@";
 pub const io_mode: enum { threaded, evented } = .threaded;
 pub const value_interpret_mode = .direct;

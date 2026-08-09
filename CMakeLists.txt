@@ -47,6 +47,17 @@ set(ZIG_VERSION_MINOR 17)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
+# Sig's language/toolchain version is owned by build.sig. Parse it here so the
+# checked-in zig1.wasm -> CMake bootstrap receives the same build option as the
+# self-hosted build.sig/build.zig paths, with no fourth mutable version string.
+file(STRINGS "${PROJECT_SOURCE_DIR}/build.sig" SIG_VERSION_LINE
+    REGEX "^const sig_version_string = \"[0-9]+\\.[0-9]+\\.[0-9]+\";")
+string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" RESOLVED_SIG_VERSION "${SIG_VERSION_LINE}")
+if("${RESOLVED_SIG_VERSION}" STREQUAL "")
+    message(FATAL_ERROR "Unable to resolve Sig version from build.sig")
+endif()
+message(STATUS "Configuring sig version ${RESOLVED_SIG_VERSION}")
+
 if("${ZIG_VERSION}" STREQUAL "")
     set(RESOLVED_ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
     find_program(GIT_EXE NAMES git NAMES_PER_DIR)
