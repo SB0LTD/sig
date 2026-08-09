@@ -111,35 +111,34 @@ pub fn syscall6(
 
 pub fn clone() callconv(.naked) u64 {
     asm volatile (
-        \\      movl $56,%%eax // SYS_clone
-        \\      movq %%rdi,%%r11
-        \\      movq %%rdx,%%rdi
-        \\      movq %%r8,%%rdx
-        \\      movq %%r9,%%r8
-        \\      movq 8(%%rsp),%%r10
-        \\      movq %%r11,%%r9
-        \\      andq $-16,%%rsi
-        \\      subq $8,%%rsi
-        \\      movq %%rcx,(%%rsi)
-        \\      syscall
-        \\      testq %%rax,%%rax
-        \\      jz 1f
-        \\      retq
+        \\ movl $56,%%eax // SYS_clone
+        \\ movq %%rdi,%%r11
+        \\ movq %%rdx,%%rdi
+        \\ movq %%r8,%%rdx
+        \\ movq %%r9,%%r8
+        \\ movq 8(%%rsp),%%r10
+        \\ movq %%r11,%%r9
+        \\ andq $-16,%%rsi
+        \\ subq $8,%%rsi
+        \\ movq %%rcx,(%%rsi)
+        \\ syscall
+        \\ testq %%rax,%%rax
+        \\ jz 1f
+        \\ retq
         \\
         \\1:
     );
     if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
-        \\      .cfi_undefined %%rip
+        \\ .cfi_undefined %%rip
     );
     asm volatile (
-        \\      xorl %%ebp,%%ebp
+        \\ xorl %%ebp,%%ebp
         \\
-        \\      popq %%rdi
-        \\      callq *%%r9
-        \\      movl %%eax,%%edi
-        \\      movl $60,%%eax // SYS_exit
-        \\      syscall
-        \\
+        \\ popq %%rdi
+        \\ callq *%%r9
+        \\ movl %%eax,%%edi
+        \\ movl $60,%%eax // SYS_exit
+        \\ syscall
     );
 }
 

@@ -116,37 +116,37 @@ pub fn clone() callconv(.naked) u32 {
     // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
     //         r8         r0,    r1,    r2,   r3,  r4
     asm volatile (
-        \\    // Align stack pointer
-        \\    and r1, r1, -16
-        \\    mov r10, r0
-        \\    mov r11, r3
-        \\    // Setup the arguments
-        \\    mov r0, r2
-        \\    mov r2, r4
-        \\    mov r3, r5
-        \\    mov r4, r6
-        \\    mov r8, 220 // SYS_clone
-        \\    trap_s 0
-        \\    cmp r0, 0
-        \\    beq 1f
-        \\    j [blink]
-        \\    // Child
-        \\ 1: 
+        \\ // Align stack pointer
+        \\ and r1, r1, -16
+        \\ mov r10, r0
+        \\ mov r11, r3
+        \\ // Setup the arguments
+        \\ mov r0, r2
+        \\ mov r2, r4
+        \\ mov r3, r5
+        \\ mov r4, r6
+        \\ mov r8, 220 // SYS_clone
+        \\ trap_s 0
+        \\ cmp r0, 0
+        \\ beq 1f
+        \\ j [blink]
+        \\ // Child
+        \\1: 
     );
     if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
         \\ .cfi_undefined blink
     );
 
     asm volatile (
-        \\    mov fp, 0
-        \\    mov blink, 0
+        \\ mov fp, 0
+        \\ mov blink, 0
         \\
-        \\    mov r0, r11
-        \\    jl [r10]
+        \\ mov r0, r11
+        \\ jl [r10]
         \\
-        \\    // Exit
-        \\    mov r8, 93 // SYS_exit
-        \\    trap_s 0
+        \\ // Exit
+        \\ mov r8, 93 // SYS_exit
+        \\ trap_s 0
     );
 }
 

@@ -16,7 +16,7 @@ pub fn syscall0(
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
-        \\ 1:
+        \\1:
         : [ret] "={r3}" (-> u32),
           [r0_out] "={r0}" (r0_out),
         : [number] "{r0}" (@backingInt(number)),
@@ -33,7 +33,7 @@ pub fn syscall1(
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
-        \\ 1:
+        \\1:
         : [ret] "={r3}" (-> u32),
           [r0_out] "={r0}" (r0_out),
         : [number] "{r0}" (@backingInt(number)),
@@ -53,7 +53,7 @@ pub fn syscall2(
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
-        \\ 1:
+        \\1:
         : [ret] "={r3}" (-> u32),
           [r0_out] "={r0}" (r0_out),
           [r4_out] "={r4}" (r4_out),
@@ -77,7 +77,7 @@ pub fn syscall3(
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
-        \\ 1:
+        \\1:
         : [ret] "={r3}" (-> u32),
           [r0_out] "={r0}" (r0_out),
           [r4_out] "={r4}" (r4_out),
@@ -105,7 +105,7 @@ pub fn syscall4(
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
-        \\ 1:
+        \\1:
         : [ret] "={r3}" (-> u32),
           [r0_out] "={r0}" (r0_out),
           [r4_out] "={r4}" (r4_out),
@@ -137,7 +137,7 @@ pub fn syscall5(
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
-        \\ 1:
+        \\1:
         : [ret] "={r3}" (-> u32),
           [r0_out] "={r0}" (r0_out),
           [r4_out] "={r4}" (r4_out),
@@ -173,7 +173,7 @@ pub fn syscall6(
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
-        \\ 1:
+        \\1:
         : [ret] "={r3}" (-> u32),
           [r0_out] "={r0}" (r0_out),
           [r4_out] "={r4}" (r4_out),
