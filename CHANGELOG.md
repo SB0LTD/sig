@@ -48,6 +48,8 @@ train and establishes the allocator-free native SB0 compiler foundation.
   cross closures cannot start until their native TableGen tools are proven.
 - Annotated dependency tags are recorded by their peeled source commits rather
   than tag-object IDs, so provenance checks identify the trees actually built.
+- Windows release jobs install the official zstd 1.5.6 executable from an
+  immutable SHA-256-pinned archive instead of relying on a nonexistent package.
 
 ### Fixed
 - Stale `bootstrap-sig-v40` sync manifest override that repeatedly selected a

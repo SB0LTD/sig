@@ -14,7 +14,7 @@ on:
       artifact_tag:
         description: 'Immutable LLVM artifact tag'
         required: true
-        default: 'llvm-22.1.7-sig-0.3.0'
+        default: 'llvm-22.1.7-sig-0.3.0.r2'
         type: string
 
 concurrency:
@@ -432,7 +432,27 @@ jobs:
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: choco install ninja zstd -y --no-progress
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install ninja -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'ninja installation failed' }
+          $archive = Join-Path $env:RUNNER_TEMP 'zstd-v1.5.6-win64.zip'
+          gh release download v1.5.6 `
+            --repo facebook/zstd `
+            --pattern zstd-v1.5.6-win64.zip `
+            --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'zstd download failed' }
+          $expected = '7b4eff6719990e38aca93a4844c2e86a1935090625c4611f7e89675e999c56cc'
+          $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'zstd archive digest mismatch' }
+          $destination = Join-Path $env:RUNNER_TEMP 'zstd-win64'
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          $bin = Join-Path $destination 'zstd-v1.5.6-win64'
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & (Join-Path $bin 'zstd.exe') --version
+          if ($LASTEXITCODE -ne 0) { throw 'zstd executable probe failed' }
 
       - name: Clone exact LLVM source
         shell: bash
