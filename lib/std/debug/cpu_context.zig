@@ -1613,7 +1613,11 @@ const Sparc = extern struct {
             8...15 => return @ptrCast(&ctx.o[register_num - 8]),
             16...23 => return @ptrCast(&ctx.l[register_num - 16]),
             24...31 => return @ptrCast(&ctx.i[register_num - 24]),
-            32 => return @ptrCast(&ctx.pc),
+            65 => return @ptrCast(&ctx.pc),
+
+            32...63 => return error.UnsupportedRegister, // F0-F31
+            64 => return error.UnsupportedRegister, // Y
+            72...87 => return error.UnsupportedRegister, // D0-D15
 
             else => return error.InvalidRegister,
         }
