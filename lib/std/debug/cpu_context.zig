@@ -349,6 +349,7 @@ const Alpha = extern struct {
             \\ stq $28, 0x0e0($0)
             \\ stq $29, 0x0e8($0)
             \\ stq $30, 0x0f0($0)
+            \\ stq $31, 0x0f8($0)
             \\
             \\ br $1, 1f
             \\1:
