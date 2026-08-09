@@ -408,6 +408,12 @@ pub inline fn spinLoopHint() void {
             asm volatile ("pause");
         },
 
+        .sparc,
+        .sparc64,
+        => if (comptime builtin.cpu.hasAny(.sparc, &.{ .v8plus, .v9 })) {
+            asm volatile ("rd %%ccr, %%g0");
+        },
+
         else => {},
     }
 }
