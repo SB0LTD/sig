@@ -418,7 +418,7 @@ pub fn getThreadPointer() usize {
             \\ move %[ret], $tp
             : [ret] "=r" (-> usize),
         ),
-        .m68k => linux.syscall1(.get_thread_area),
+        .m68k => linux.syscall0(.get_thread_area),
         .mips, .mipsel, .mips64, .mips64el => asm (
             \\ rdhwr %[ret], $29
             : [ret] "=r" (-> usize),
