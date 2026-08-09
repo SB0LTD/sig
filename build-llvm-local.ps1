@@ -3,7 +3,7 @@
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
 $llvmCommit = "a255c1ed36a1d06f79bd2633ba9f8d900153007c"
-$artifactTag = "llvm-22.1.7-sig-0.3.0.r2"
+$artifactTag = "llvm-22.1.7-sig-0.3.0.r3"
 $archive = "C:\llvm-22-x86_64-windows-native.tar.zst"
 
 # Activate MSVC

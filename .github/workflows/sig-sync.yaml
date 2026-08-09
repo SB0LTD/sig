@@ -468,7 +468,7 @@ jobs:
             echo "::notice::Rebuilding bootstrap: $BOOTSTRAP_TAG → $NEW_TAG"
             gh workflow run build-bootstrap.yaml \
               -f version="$NEW_TAG" \
-              -f llvm_tag=llvm-22.1.7-sig-0.3.0.r2
+              -f llvm_tag=llvm-22.1.7-sig-0.3.0.r3
 
             # The draft is published only after all four platform probes and
             # the aggregate manifest pass. A Linux asset alone is insufficient.
@@ -519,4 +519,4 @@ jobs:
           gh api repos/${{ github.repository }}/dispatches \
             -f event_type=sig-release \
             -f "client_payload[bootstrap_tag]=$BOOTSTRAP_TAG" \
-            -f "client_payload[llvm_tag]=llvm-22.1.7-sig-0.3.0.r2"
+            -f "client_payload[llvm_tag]=llvm-22.1.7-sig-0.3.0.r3"

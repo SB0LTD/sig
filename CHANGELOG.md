@@ -60,6 +60,12 @@ train and establishes the allocator-free native SB0 compiler foundation.
 - `zig1.wasm` regeneration now passes Maker's mandatory first
   `--zig-lib=<path>` argument instead of the compiler-subcommand-only
   `--zig-lib-dir` spelling.
+- Native LLVM packaging selects GNU `sha256sum` or BSD/macOS `shasum`
+  explicitly and verifies the computed digest, so a completed macOS build
+  cannot fail merely because GNU coreutils is absent.
+- Native LLVM jobs exercise CMake, Ninja, tar, zstd, and a known SHA-256 vector
+  before compilation, moving packaging-environment failures ahead of the
+  hour-long all-target build.
 
 ### Fixed
 - Stale `bootstrap-sig-v40` sync manifest override that repeatedly selected a

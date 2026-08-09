@@ -14,7 +14,7 @@ on:
       artifact_tag:
         description: 'Immutable LLVM artifact tag'
         required: true
-        default: 'llvm-22.1.7-sig-0.3.0.r2'
+        default: 'llvm-22.1.7-sig-0.3.0.r3'
         type: string
 
 concurrency:
@@ -454,6 +454,28 @@ jobs:
           & (Join-Path $bin 'zstd.exe') --version
           if ($LASTEXITCODE -ne 0) { throw 'zstd executable probe failed' }
 
+      - name: Verify native packaging toolchain before build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --version
+          ninja --version
+          command -v tar
+          command -v zstd
+          printf 'sig\n' > sig-sha-probe.txt
+          if command -v sha256sum >/dev/null 2>&1; then
+            probe_hash="$(sha256sum sig-sha-probe.txt | awk '{print $1}')"
+          elif command -v shasum >/dev/null 2>&1; then
+            probe_hash="$(shasum -a 256 sig-sha-probe.txt | awk '{print $1}')"
+          else
+            echo "::error::No SHA-256 implementation is available" >&2
+            exit 127
+          fi
+          test "$probe_hash" = 0a017e570e0b4626683b04224173c91586bdcff8767c95ed58078dc0a693896c
+          zstd -q -f sig-sha-probe.txt -o sig-sha-probe.txt.zst
+          zstd -q -t sig-sha-probe.txt.zst
+          rm sig-sha-probe.txt sig-sha-probe.txt.zst
+
       - name: Clone exact LLVM source
         shell: bash
         run: |
@@ -500,8 +522,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sha256_file() {
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$1"
+            elif command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "$1"
+            else
+              echo "::error::No SHA-256 implementation is available" >&2
+              return 127
+            fi
+          }
           tar -cf - llvm-install/ | zstd -19 -T0 -o '${{ matrix.artifact }}'
-          sha256sum '${{ matrix.artifact }}' > '${{ matrix.artifact }}.sha256'
+          sha256_file '${{ matrix.artifact }}' > '${{ matrix.artifact }}.sha256'
           cat > '${{ matrix.artifact }}.provenance.txt' <<EOF
           schema=sb0.sig.llvm-closure.v1
           artifact=${{ matrix.artifact }}
@@ -513,7 +545,10 @@ jobs:
           sig_source_commit=${GITHUB_SHA}
           workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
-          sha256sum --check --strict '${{ matrix.artifact }}.sha256'
+          expected_hash="$(awk '{print $1}' '${{ matrix.artifact }}.sha256')"
+          actual_hash="$(sha256_file '${{ matrix.artifact }}' | awk '{print $1}')"
+          [[ "$expected_hash" =~ ^[0-9a-f]{64}$ ]]
+          test "$actual_hash" = "$expected_hash"
 
       - name: Upload closure to draft release
         env:
