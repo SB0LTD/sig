@@ -718,38 +718,38 @@ const Lanai = extern struct {
     pub inline fn current() Lanai {
         var ctx: Lanai = undefined;
         asm volatile (
-            \\ st %%r0, 0[r9]
-            \\ st %%r1, 4[r9]
-            \\ st %%r2, 8[r9]
-            \\ st %%r3, 12[r9]
-            \\ st %%r4, 16[r9]
-            \\ st %%r5, 20[r9]
-            \\ st %%r6, 24[r9]
-            \\ st %%r7, 28[r9]
-            \\ st %%r8, 32[r9]
-            \\ st %%r9, 36[r9]
-            \\ st %%r10, 40[r9]
-            \\ st %%r11, 44[r9]
-            \\ st %%r12, 48[r9]
-            \\ st %%r13, 52[r9]
-            \\ st %%r14, 56[r9]
-            \\ st %%r15, 60[r9]
-            \\ st %%r16, 64[r9]
-            \\ st %%r17, 68[r9]
-            \\ st %%r18, 72[r9]
-            \\ st %%r19, 76[r9]
-            \\ st %%r20, 80[r9]
-            \\ st %%r21, 84[r9]
-            \\ st %%r22, 88[r9]
-            \\ st %%r23, 92[r9]
-            \\ st %%r24, 96[r9]
-            \\ st %%r25, 100[r9]
-            \\ st %%r26, 104[r9]
-            \\ st %%r27, 108[r9]
-            \\ st %%r28, 112[r9]
-            \\ st %%r29, 116[r9]
-            \\ st %%r30, 120[r9]
-            \\ st %%r31, 124[r9]
+            \\ st %%r0, 0[%%r9]
+            \\ st %%r1, 4[%%r9]
+            \\ st %%r2, 8[%%r9]
+            \\ st %%r3, 12[%%r9]
+            \\ st %%r4, 16[%%r9]
+            \\ st %%r5, 20[%%r9]
+            \\ st %%r6, 24[%%r9]
+            \\ st %%r7, 28[%%r9]
+            \\ st %%r8, 32[%%r9]
+            \\ st %%r9, 36[%%r9]
+            \\ st %%r10, 40[%%r9]
+            \\ st %%r11, 44[%%r9]
+            \\ st %%r12, 48[%%r9]
+            \\ st %%r13, 52[%%r9]
+            \\ st %%r14, 56[%%r9]
+            \\ st %%r15, 60[%%r9]
+            \\ st %%r16, 64[%%r9]
+            \\ st %%r17, 68[%%r9]
+            \\ st %%r18, 72[%%r9]
+            \\ st %%r19, 76[%%r9]
+            \\ st %%r20, 80[%%r9]
+            \\ st %%r21, 84[%%r9]
+            \\ st %%r22, 88[%%r9]
+            \\ st %%r23, 92[%%r9]
+            \\ st %%r24, 96[%%r9]
+            \\ st %%r25, 100[%%r9]
+            \\ st %%r26, 104[%%r9]
+            \\ st %%r27, 108[%%r9]
+            \\ st %%r28, 112[%%r9]
+            \\ st %%r29, 116[%%r9]
+            \\ st %%r30, 120[%%r9]
+            \\ st %%r31, 124[%%r9]
             :
             : [ctx] "{r9}" (&ctx),
             : .{ .memory = true });
@@ -765,7 +765,7 @@ const Lanai = extern struct {
 
     pub fn dwarfRegisterBytes(ctx: *Lanai, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
-            0...31 => return @ptrCast(&ctx.s[register_num]),
+            0...31 => return @ptrCast(&ctx.r[register_num]),
 
             else => return error.InvalidRegister,
         }
