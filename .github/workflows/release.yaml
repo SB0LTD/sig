@@ -178,8 +178,9 @@ jobs:
           cp stage3-out/bin/sig "${OUT}/bin/zig"
           cp -r lib "${OUT}/lib"
           # Include sig_build tools in distribution (sig build needs these)
-          mkdir -p "${OUT}/lib/tools"
-          cp -r tools/sig_build "${OUT}/lib/tools/sig_build"
+          mkdir -p "${OUT}/tools"
+          cp -r tools/sig_build "${OUT}/tools/sig_build"
+          test -f "${OUT}/tools/sig_build/main.sig"
           echo "Size: $(du -h "${OUT}/bin/sig" | cut -f1)"
           ARCHIVE="sig-${VERSION}-x86_64-linux.tar.xz"
           tar -cJf "${ARCHIVE}" "${OUT}"
@@ -295,8 +296,9 @@ jobs:
           esac
           cp -r lib "${OUT}/lib"
           # Include sig_build tools in distribution (sig build needs these)
-          mkdir -p "${OUT}/lib/tools"
-          cp -r tools/sig_build "${OUT}/lib/tools/sig_build"
+          mkdir -p "${OUT}/tools"
+          cp -r tools/sig_build "${OUT}/tools/sig_build"
+          test -f "${OUT}/tools/sig_build/main.sig"
 
       - name: Archive (tar.xz)
         if: matrix.ext == 'tar.xz'
@@ -430,8 +432,9 @@ jobs:
           cp stage3-out/bin/sig.exe "${OUT}/bin/zig.exe"
           cp -r lib "${OUT}/lib"
           # Include sig_build tools in distribution (sig build needs these)
-          mkdir -p "${OUT}/lib/tools"
-          cp -r tools/sig_build "${OUT}/lib/tools/sig_build"
+          mkdir -p "${OUT}/tools"
+          cp -r tools/sig_build "${OUT}/tools/sig_build"
+          test -f "${OUT}/tools/sig_build/main.sig"
           ARCHIVE="sig-${VERSION}-x86_64-windows.zip"
           7z a -r "${ARCHIVE}" "${OUT}"
           sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"

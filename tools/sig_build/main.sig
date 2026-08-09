@@ -34,7 +34,10 @@ pub const MAX_STEPS = 256;
 // tables consume 2 * 256 * 128 * 2 = 128 KiB in total.
 pub const MAX_DEPS_PER_STEP = 128;
 pub const MAX_MODULES = 128;
-pub const MAX_IMPORTS_PER_MODULE = 8;
+// Production modules such as a protocol connection or OS service commonly
+// compose more than eight leaf capabilities. Sixteen keeps the dependency
+// representation bounded while avoiding artificial umbrella modules.
+pub const MAX_IMPORTS_PER_MODULE = 16;
 pub const MAX_OPTIONS = 128;
 pub const MAX_CACHE_ENTRIES = 1024;
 pub const MAX_THREADS = 64;
@@ -184,7 +187,9 @@ pub const Module_Entry = struct {
     name_len: usize = 0,
     source_path: [MODULE_PATH_BUF_SIZE]u8 = undefined,
     source_path_len: usize = 0,
-    imports: [MAX_IMPORTS_PER_MODULE]Import_Entry = undefined,
+    // Dependency metadata is canonical in the registry. Edges store compact
+    // handles rather than duplicating a 64-byte name and 512-byte path.
+    imports: [MAX_IMPORTS_PER_MODULE]Module_Handle = undefined,
     import_count: usize = 0,
 };
 
@@ -219,9 +224,10 @@ pub const Module_Registry = struct {
         return @intCast(idx);
     }
 
-    /// Wire an import (name → path) onto a module.
-    /// Errors: BufferTooSmall if name/path exceed buffer size,
-    ///         CapacityExceeded if the module's import list is full.
+    /// Wire an import (name → path) onto a module. The target module is
+    /// interned once and the edge stores its compact registry handle.
+    /// Errors: BufferTooSmall if name/path exceed buffer size;
+    ///         CapacityExceeded on conflicts or exhausted fixed capacity.
     pub fn addImport(self: *Module_Registry, module: Module_Handle, name: []const u8, path: []const u8) SigError!void {
         const mod_idx: usize = module;
         if (mod_idx >= self.count) return error.CapacityExceeded;
@@ -229,14 +235,22 @@ pub const Module_Registry = struct {
         if (name.len > NAME_BUF_SIZE) return error.BufferTooSmall;
         if (path.len > MODULE_PATH_BUF_SIZE) return error.BufferTooSmall;
 
+        const dependency = if (self.findByName(name)) |existing| validate: {
+            const existing_entry = &self.entries[existing];
+            if (existing_entry.source_path_len != path.len or
+                !std.mem.eql(u8, existing_entry.source_path[0..existing_entry.source_path_len], path))
+            {
+                return error.CapacityExceeded;
+            }
+            break :validate existing;
+        } else try self.register(name, path);
+
         var entry = &self.entries[mod_idx];
         if (entry.import_count >= MAX_IMPORTS_PER_MODULE) return error.CapacityExceeded;
-
-        var imp = &entry.imports[entry.import_count];
-        @memcpy(imp.name[0..name.len], name);
-        imp.name_len = name.len;
-        @memcpy(imp.path[0..path.len], path);
-        imp.path_len = path.len;
+        for (entry.imports[0..entry.import_count]) |existing| {
+            if (existing == dependency) return;
+        }
+        entry.imports[entry.import_count] = dependency;
         entry.import_count += 1;
     }
 
@@ -2887,21 +2901,12 @@ fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
     printMsg(io, "llvm: using {d} static LLD libraries", .{build_ctx.llvm_config.lld_lib_count});
 }
 
-// ── In-Process Compilation Backend ────────────────────────────────────────────
+// ── Experimental compilation-context receipt backend ─────────────────────────
 
-/// In-process compilation backend — calls Compilation.create() + update() directly.
-///
-/// This eliminates subprocess spawning for compile steps. The build runner binary
-/// is compiled with the `compiler` module wired (src/build_api.zig), giving
-/// direct access to the full compilation pipeline.
-///
-/// Maps Compilation_Context fields to Compilation.create() parameters:
-/// - root_source_path → root module paths
-/// - modules[] → Package.Module dep graph
-/// - target → Package.Module.ResolvedTarget
-/// - optimize → Compilation.Config
-/// - zig_lib_dir, cache_dir, global_cache_dir → Compilation.Directories
-fn inProcessCompileBackend(ctx: *compile.Compilation_Context, result: *compile.Compilation_Result, io: std.Io) void {
+/// Serialize a compilation context for diagnostics and parity tooling. This is
+/// deliberately not registered as a compile step: the output is a receipt,
+/// not an executable artifact.
+fn writeCompileRequestReceipt(ctx: *compile.Compilation_Context, result: *compile.Compilation_Result, io: std.Io) void {
     const cache_dir = if (ctx.cache_dir_len > 0) ctx.cache_dir[0..ctx.cache_dir_len] else ".zig-cache";
     var path_buf: [PATH_BUF_SIZE]u8 = undefined;
     const req_segs = [_][]const u8{ cache_dir, "compile_request.bin" };
@@ -3157,6 +3162,8 @@ pub const Build_Context = struct {
     build_root_len: usize = 0,
     cache_dir: [PATH_BUF_SIZE]u8 = undefined,
     cache_dir_len: usize = 0,
+    global_cache_dir: [PATH_BUF_SIZE]u8 = undefined,
+    global_cache_dir_len: usize = 0,
     install_prefix: [PATH_BUF_SIZE]u8 = undefined,
     install_prefix_len: usize = 0,
     target: Target_Triple = .{},
@@ -3231,7 +3238,7 @@ pub const Build_Context = struct {
     /// Registers a step whose make_fn builds and runs the compile command.
     pub fn addCompileStep(self: *Build_Context, opts: Compile_Options) SigError!Step_Handle {
         // Register a step named after the output binary.
-        const handle = try self.steps.register(opts.output_name, opts.source_path, &engineStepFn);
+        const handle = try self.steps.register(opts.output_name, opts.source_path, &externalCompileStepFn);
 
         // Store the source path in the step's desc field as a secondary record
         // so the compile command can be reconstructed at execution time.
@@ -3410,7 +3417,147 @@ pub const Build_Context = struct {
 
     // --- Internal step functions ---
 
-    /// Step function for in-process compilation via the Compilation_Engine.
+    /// Compile an executable with the real Sig compiler process. The former
+    /// experimental in-process backend emitted a serialized request buffer;
+    /// that receipt is not an executable and must never satisfy a compile
+    /// step. This path preserves the bounded build graph while delegating
+    /// code generation/linking to the canonical compiler binary.
+    fn externalCompileStepFn(ctx: *Step_Context) SigError!void {
+        const build_ctx = ctx.build_ctx;
+        const io = ctx.io;
+        const entry = &build_ctx.steps.entries[ctx.step_handle];
+        const source_path = entry.desc[0..entry.desc_len];
+        const compiler = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
+
+        var cmd: Command_Buffer = .{};
+        try cmd.appendArg(compiler);
+        try cmd.appendArg("build-exe");
+
+        // Root imports are exactly those declared on this compile step.
+        for (entry.module_deps[0..entry.module_dep_count]) |module_handle| {
+            const mod_entry = &build_ctx.modules.entries[module_handle];
+            try cmd.appendArg("--dep");
+            try cmd.appendArg(mod_entry.name[0..mod_entry.name_len]);
+        }
+
+        var root_flag: [PATH_BUF_SIZE]u8 = undefined;
+        const root_prefix = "-Mroot=";
+        if (root_prefix.len + source_path.len > root_flag.len) return error.BufferTooSmall;
+        @memcpy(root_flag[0..root_prefix.len], root_prefix);
+        @memcpy(root_flag[root_prefix.len..][0..source_path.len], source_path);
+        try cmd.appendArg(root_flag[0 .. root_prefix.len + source_path.len]);
+
+        // Select the transitive closure and attach each dependency list to its
+        // own -M declaration, matching Sig/Zig module CLI semantics.
+        var selected: [MAX_MODULES]bool = @splat(false);
+        for (entry.module_deps[0..entry.module_dep_count]) |module_handle| selected[module_handle] = true;
+        var changed = true;
+        while (changed) {
+            changed = false;
+            for (build_ctx.modules.entries[0..build_ctx.modules.count], 0..) |mod_entry, module_index| {
+                if (!selected[module_index]) continue;
+                for (mod_entry.imports[0..mod_entry.import_count]) |dependency| {
+                    if (!selected[dependency]) {
+                        selected[dependency] = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        for (build_ctx.modules.entries[0..build_ctx.modules.count], 0..) |*mod_entry, module_index| {
+            if (!selected[module_index]) continue;
+            for (mod_entry.imports[0..mod_entry.import_count]) |dependency| {
+                const dep = &build_ctx.modules.entries[dependency];
+                try cmd.appendArg("--dep");
+                try cmd.appendArg(dep.name[0..dep.name_len]);
+            }
+            const name = mod_entry.name[0..mod_entry.name_len];
+            const module_path = mod_entry.source_path[0..mod_entry.source_path_len];
+            var module_flag: [PATH_BUF_SIZE]u8 = undefined;
+            const prefix_len = 2 + name.len + 1;
+            const total = prefix_len + module_path.len;
+            if (total > module_flag.len) return error.BufferTooSmall;
+            module_flag[0] = '-';
+            module_flag[1] = 'M';
+            @memcpy(module_flag[2..][0..name.len], name);
+            module_flag[2 + name.len] = '=';
+            @memcpy(module_flag[prefix_len..][0..module_path.len], module_path);
+            try cmd.appendArg(module_flag[0..total]);
+        }
+
+        try cmd.appendArg(switch (build_ctx.optimize) {
+            .Debug => "-ODebug",
+            .ReleaseSafe => "-OReleaseSafe",
+            .ReleaseFast => "-OReleaseFast",
+            .ReleaseSmall => "-OReleaseSmall",
+        });
+        if (build_ctx.target.arch_len > 0) {
+            var target_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const target = try build_ctx.target.format(&target_buf);
+            try cmd.appendArg("-target");
+            try cmd.appendArg(target);
+        }
+        if (optBool(&build_ctx.options, "strip", false)) try cmd.appendArg("-fstrip");
+        if (optBool(&build_ctx.options, "link-libc", true) or build_ctx.target.arch_len > 0) try cmd.appendArg("-lc");
+        if (optBool(&build_ctx.options, "link-libcpp", false)) try cmd.appendArg("-lc++");
+
+        try cmd.appendArg("--cache-dir");
+        try cmd.appendArg(build_ctx.cache_dir[0..build_ctx.cache_dir_len]);
+        if (build_ctx.global_cache_dir_len > 0) {
+            try cmd.appendArg("--global-cache-dir");
+            try cmd.appendArg(build_ctx.global_cache_dir[0..build_ctx.global_cache_dir_len]);
+        }
+        if (build_ctx.zig_lib_dir_len > 0) {
+            try cmd.appendArg("--zig-lib-dir");
+            try cmd.appendArg(build_ctx.zig_lib_dir[0..build_ctx.zig_lib_dir_len]);
+        }
+
+        var bin_dir_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const bin_dir = sig_fs.joinPath(&bin_dir_buf, &.{ build_ctx.install_prefix[0..build_ctx.install_prefix_len], "bin" }) catch return error.BufferTooSmall;
+        std.Io.Dir.cwd().createDirPath(io, bin_dir) catch return error.BufferTooSmall;
+        var bin_name_buf: [NAME_BUF_SIZE]u8 = undefined;
+        const bin_name = resolveOutputBinName(&bin_name_buf, entry.name[0..entry.name_len], if (build_ctx.target.arch_len > 0) &build_ctx.target else null);
+        var output_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const output = sig_fs.joinPath(&output_buf, &.{ bin_dir, bin_name }) catch return error.BufferTooSmall;
+        var emit_flag: [PATH_BUF_SIZE]u8 = undefined;
+        const emit_prefix = "-femit-bin=";
+        if (emit_prefix.len + output.len > emit_flag.len) return error.BufferTooSmall;
+        @memcpy(emit_flag[0..emit_prefix.len], emit_prefix);
+        @memcpy(emit_flag[emit_prefix.len..][0..output.len], output);
+        try cmd.appendArg(emit_flag[0 .. emit_prefix.len + output.len]);
+
+        printMsg(io, "compile: {s} -> {s} ({d} modules)", .{ source_path, output, build_ctx.modules.count });
+        var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
+        var stderr_len: usize = 0;
+        const exit_code = try runCommand(&cmd, &stderr_buf, &stderr_len, io);
+        if (exit_code != 0) {
+            if (stderr_len > 0) printMsg(io, "compile step '{s}' failed:\n{s}", .{ entry.name[0..entry.name_len], stderr_buf[0..stderr_len] });
+            return error.BufferTooSmall;
+        }
+
+        // A successful executable step must produce an executable container,
+        // never an opaque request/receipt blob.
+        var file = std.Io.Dir.cwd().openFile(io, output, .{}) catch return error.BufferTooSmall;
+        defer file.close(io);
+        var header: [4]u8 = undefined;
+        var reader = file.readerStreaming(io, &.{});
+        const header_len = reader.interface.readSliceShort(&header) catch return error.BufferTooSmall;
+        const valid_magic = header_len == header.len and (
+            std.mem.eql(u8, &header, "\x7fELF") or
+            (header[0] == 'M' and header[1] == 'Z') or
+            std.mem.eql(u8, &header, "\xcf\xfa\xed\xfe") or
+            std.mem.eql(u8, &header, "\xfe\xed\xfa\xcf") or
+            std.mem.eql(u8, &header, "\xca\xfe\xba\xbe") or
+            std.mem.eql(u8, &header, "\x00asm"));
+        if (!valid_magic) {
+            printMsg(io, "compile step '{s}' produced a non-executable artifact", .{entry.name[0..entry.name_len]});
+            return error.BufferTooSmall;
+        }
+        printMsg(io, "compile: executable verified at {s}", .{output});
+    }
+
+    /// Experimental compilation-context receipt step. Not registered by the
+    /// public build API; executable builds use externalCompileStepFn.
     ///
     /// Replaces subprocess spawning with a direct call to the internal
     /// Compilation API. Populates a Compilation_Context from the step's
@@ -3423,7 +3570,7 @@ pub const Build_Context = struct {
     /// On failure, diagnostics from the engine result are printed via printMsg
     /// and the function returns error.CompilationFailed (mapped to BufferTooSmall
     /// in the SigError set for scheduler compatibility).
-    fn engineStepFn(ctx: *Step_Context) SigError!void {
+    fn compileReceiptStepFn(ctx: *Step_Context) SigError!void {
         const build_ctx = ctx.build_ctx;
         const io = ctx.io;
         const handle: usize = ctx.step_handle;
@@ -3499,9 +3646,10 @@ pub const Build_Context = struct {
             decl.source_path_len = mod_path.len;
 
             // Wire imports as dependencies on the module declaration.
-            for (mod_entry.imports[0..mod_entry.import_count]) |imp| {
+            for (mod_entry.imports[0..mod_entry.import_count]) |dependency| {
                 if (decl.dep_count >= compile.MAX_IMPORTS_PER_MODULE) break;
-                const dep_name = imp.name[0..imp.name_len];
+                const dep_entry = &build_ctx.modules.entries[dependency];
+                const dep_name = dep_entry.name[0..dep_entry.name_len];
                 if (dep_name.len > compile.NAME_BUF_SIZE) continue;
                 @memcpy(decl.deps[decl.dep_count].name[0..dep_name.len], dep_name);
                 decl.deps[decl.dep_count].name_len = dep_name.len;
@@ -3518,8 +3666,8 @@ pub const Build_Context = struct {
         const is_strip = optBool(&build_ctx.options, "strip", false);
         comp_ctx.strip = is_strip;
 
-        // Set the in-process compilation backend — calls Compilation.create() + update() directly.
-        comp_ctx.compile_fn = &inProcessCompileBackend;
+        // Serialize the request for parity diagnostics; this does not compile.
+        comp_ctx.compile_fn = &writeCompileRequestReceipt;
 
         // Wire the environment map pointer for Compilation.create().
         comp_ctx.environ_map_ptr = build_ctx.environ_map_ptr;
@@ -3751,9 +3899,39 @@ pub const Build_Context = struct {
         @memcpy(root_buf[root_prefix.len..][0..source_path.len], source_path);
         try cmd.appendArg(root_buf[0 .. root_prefix.len + source_path.len]);
 
-        // Emit -Mname=path for this test's modules (leaf modules, after root).
+        // Compute the exact transitive module closure for this test. A module
+        // registered through Build_Context.addImport may itself have imports;
+        // those dependencies must be associated with that module's -M flag,
+        // not leaked into the root module. The fixed-point scan is bounded by
+        // MAX_MODULES and performs no allocation.
+        var selected: [MAX_MODULES]bool = @splat(false);
         for (entry.module_deps[0..entry.module_dep_count]) |module_handle| {
-            const mod_entry = &build_ctx.modules.entries[module_handle];
+            selected[module_handle] = true;
+        }
+        var changed = true;
+        while (changed) {
+            changed = false;
+            for (build_ctx.modules.entries[0..build_ctx.modules.count], 0..) |mod_entry, module_index| {
+                if (!selected[module_index]) continue;
+                for (mod_entry.imports[0..mod_entry.import_count]) |dependency| {
+                    if (!selected[dependency]) {
+                        selected[dependency] = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        // Emit -Mname=path for precisely the selected closure. Zig/Sig's CLI
+        // associates --dep flags with the immediately following -M module, so
+        // render each module's own dependency list before its declaration.
+        for (build_ctx.modules.entries[0..build_ctx.modules.count], 0..) |*mod_entry, module_index| {
+            if (!selected[module_index]) continue;
+            for (mod_entry.imports[0..mod_entry.import_count]) |dependency| {
+                const dependency_entry = &build_ctx.modules.entries[dependency];
+                try cmd.appendArg("--dep");
+                try cmd.appendArg(dependency_entry.name[0..dependency_entry.name_len]);
+            }
             const name_slice = mod_entry.name[0..mod_entry.name_len];
             const path_slice = mod_entry.source_path[0..mod_entry.source_path_len];
 
