@@ -392,6 +392,14 @@ pub inline fn spinLoopHint() void {
         .hexagon,
         => asm volatile ("pause(#1)"),
 
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        => if (comptime builtin.cpu.has(.mips, .mips32r2)) {
+            asm volatile ("pause");
+        },
+
         .riscv32,
         .riscv32be,
         .riscv64,
