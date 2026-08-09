@@ -1316,30 +1316,29 @@ const LinuxThreadImpl = struct {
                       [len] "{r4}" (self.mapped.len),
                 ),
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
-                    \\  li 0, 91 # SYS_munmap
-                    \\  sc
-                    \\  li 0, 1 # SYS_exit
-                    \\  li 3, 0
-                    \\  sc
-                    \\  blr
+                    \\ li 0, 91 # SYS_munmap
+                    \\ sc
+                    \\ li 0, 1 # SYS_exit
+                    \\ li 3, 0
+                    \\ sc
                     :
                     : [ptr] "{r3}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{r4}" (self.mapped.len),
                 ),
                 .riscv32, .riscv64 => asm volatile (
-                    \\  li a7, 215 # SYS_munmap
-                    \\  ecall
-                    \\  li a7, 93 # SYS_exit
-                    \\  mv a0, zero
-                    \\  ecall
+                    \\ li a7, 215 # SYS_munmap
+                    \\ ecall
+                    \\ li a7, 93 # SYS_exit
+                    \\ mv a0, zero
+                    \\ ecall
                     :
                     : [ptr] "{a0}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{a1}" (self.mapped.len),
                 ),
                 .s390x => asm volatile (
-                    \\  svc 91 # SYS_munmap
-                    \\  lghi %%r2, 0
-                    \\  svc 1 # SYS_exit
+                    \\ svc 91 # SYS_munmap
+                    \\ lghi %%r2, 0
+                    \\ svc 1 # SYS_exit
                     :
                     : [ptr] "{r2}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{r3}" (self.mapped.len),
@@ -1379,7 +1378,7 @@ const LinuxThreadImpl = struct {
                     : [ptr] "{g1}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{g2}" (self.mapped.len),
                       [stack] "{g3}" (&sparc_exit_stack),
-                    : .{ .memory = true }),
+                ),
                 .sparc64 => asm volatile (
                     \\ // Ensure that the kernel only has to flush the current register window.
                     \\ flushw
@@ -1398,7 +1397,7 @@ const LinuxThreadImpl = struct {
                     : [ptr] "{g1}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{g2}" (self.mapped.len),
                       [stack] "{g3}" (&sparc_exit_stack),
-                    : .{ .memory = true }),
+                ),
                 .loongarch32, .loongarch64 => asm volatile (
                     \\ ori     $a7, $zero, 215     # SYS_munmap
                     \\ syscall 0                   # call munmap
@@ -1408,7 +1407,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "{r4}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{r5}" (self.mapped.len),
-                    : .{ .memory = true }),
+                ),
                 .csky => asm volatile (
                     \\ movi r7, 215 # SYS_munmap
                     \\ trap 0
@@ -1418,7 +1417,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "{r0}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{r1}" (self.mapped.len),
-                    : .{ .memory = true }),
+                ),
                 .xtensa, .xtensaeb => asm volatile (
                     \\ movi a2, 81 // SYS_munmap
                     \\ syscall
@@ -1428,7 +1427,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "{a6}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{a3}" (self.mapped.len),
-                    : .{ .memory = true }),
+                ),
                 else => |cpu_arch| @compileError("Unsupported linux arch: " ++ @tagName(cpu_arch)),
             }
             unreachable;
