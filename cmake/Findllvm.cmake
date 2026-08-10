@@ -10,6 +10,7 @@
 
 
 if(ZIG_USE_LLVM_CONFIG)
+  include(RelocateLlvmSystemLibraries)
   set(LLVM_CONFIG_ERROR_MESSAGES "")
   while(1)
     # If this variable is not unset, the same result is returned even though
@@ -154,6 +155,8 @@ if(ZIG_USE_LLVM_CONFIG)
       OUTPUT_STRIP_TRAILING_WHITESPACE)
   endif()
 
+  zig_relocate_llvm_system_libraries(LLVM_SYSTEM_LIBS LLVM_LIBDIRS)
+
   if (${LLVM_LINK_MODE} STREQUAL "shared")
     # We always ask for the system libs corresponding to static linking,
     # since on some distros LLD is only available as a static library
@@ -164,6 +167,7 @@ if(ZIG_USE_LLVM_CONFIG)
         ERROR_QUIET # Some installations have no static libs, we just ignore the failure
         OUTPUT_STRIP_TRAILING_WHITESPACE)
     string(REPLACE " " ";" LLVM_STATIC_SYSTEM_LIBS "${LLVM_STATIC_SYSTEM_LIBS_SPACES}")
+    zig_relocate_llvm_system_libraries(LLVM_STATIC_SYSTEM_LIBS LLVM_LIBDIRS)
 
     set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS} ${LLVM_STATIC_SYSTEM_LIBS})
   else()

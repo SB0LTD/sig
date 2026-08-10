@@ -492,6 +492,7 @@ jobs:
         if: matrix.target == 'native'
         shell: bash
         run: |
+          git -C llvm-src apply "$GITHUB_WORKSPACE/ci/patches/llvm-22-portable-static-zstd.patch"
           cmake -S llvm-src/llvm -B llvm-build -G Ninja \
             -DCMAKE_C_COMPILER=gcc \
             -DCMAKE_CXX_COMPILER=g++ \
@@ -527,6 +528,15 @@ jobs:
           test -f llvm-install/lib/libz.a
           test -f llvm-install/lib/libzstd.a
           llvm-install/bin/llvm-config --version | grep -qx "${LLVM_VERSION}"
+          system_libs="$(llvm-install/bin/llvm-config --system-libs --link-static)"
+          [[ " $system_libs " == *" -lzstd "* ]]
+          [[ "$system_libs" != *"$GITHUB_WORKSPACE"* ]]
+
+          relocated_prefix="$RUNNER_TEMP/relocated-llvm"
+          cp -a llvm-install "$relocated_prefix"
+          "$relocated_prefix/bin/llvm-config" --version | grep -qx "${LLVM_VERSION}"
+          relocated_system_libs="$("$relocated_prefix/bin/llvm-config" --system-libs --link-static)"
+          test "$relocated_system_libs" = "$system_libs"
 
       - name: Package, hash, and record provenance
         shell: bash

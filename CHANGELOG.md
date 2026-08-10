@@ -82,6 +82,11 @@ train and establishes the allocator-free native SB0 compiler foundation.
   without rerunning any multi-hour closure build.
 
 ### Fixed
+- Native LLVM closures recording a producer-only absolute static-zstd path in
+  `llvm-config`. Native discovery now relocates missing absolute system-library
+  entries by basename into the verified closure, fails early when no exact
+  replacement exists, and has a focused CMake regression test. Future Linux
+  closures also emit portable `-lzstd` metadata and prove it after relocation.
 - Native Windows LLVM version verification now captures `llvm-config` output,
   process status, and the normalized version in PowerShell. This replaces a
   silent `cmd | findstr` failure that occurred after an otherwise successful

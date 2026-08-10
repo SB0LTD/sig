@@ -1,0 +1,20 @@
+diff --git a/llvm/tools/llvm-config/CMakeLists.txt b/llvm/tools/llvm-config/CMakeLists.txt
+index fbe6e2f6b1e0..d1d7cf47dc09 100644
+--- a/llvm/tools/llvm-config/CMakeLists.txt
++++ b/llvm/tools/llvm-config/CMakeLists.txt
+@@ -34,8 +34,14 @@ foreach(l ${SUPPORT_SYSTEM_LIBS} ${WINDOWSMANIFEST_SYSTEM_LIBS})
+       set(SYSTEM_LIBS ${SYSTEM_LIBS} "${l}")
+     else()
+       # Otherwise assume it's a library name we need to link with.
+-      if(IS_ABSOLUTE ${l})
++      if(IS_ABSOLUTE ${l} AND NOT l MATCHES "/libzstd\\.a$")
+         set(SYSTEM_LIBS ${SYSTEM_LIBS} "${l}")
++      elseif(IS_ABSOLUTE ${l})
++        # Sig's native LLVM closure installs its pinned static zstd archive
++        # beside LLVM. Keeping the producer's imported-target path here
++        # makes the installed llvm-config non-relocatable, so emit the
++        # conventional linker name that llvm-config's libdir can resolve.
++        set(SYSTEM_LIBS ${SYSTEM_LIBS} "-lzstd")
+       else()
+         set(SYSTEM_LIBS ${SYSTEM_LIBS} "-l${l}")
+       endif()

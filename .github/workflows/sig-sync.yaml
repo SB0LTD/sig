@@ -94,7 +94,7 @@ jobs:
           git config user.email "sig-sync@users.noreply.github.com"
 
           # ── Resolve current bootstrap tag from manifest ─────────────
-          BOOTSTRAP_TAG="bootstrap-sig-v42"
+          BOOTSTRAP_TAG="bootstrap-sig-v43"
           if [ -f tools/sig_sync/manifest.json ]; then
             MANIFEST_BOOT=$(python3 -c "
           import json
