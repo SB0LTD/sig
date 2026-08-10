@@ -23,7 +23,16 @@ compiler branches into the release train.
   `build.zig`/`std.Build` instead of the native fixed-capacity `build.sig`
   runner. Native dispatch is explicit again, supports custom `.sig` build
   files, reports the resolved graph in `--help`, and is package-tested by
-  executing a marker-producing graph with no `build.zig` present.
+  executing both callback and nested compiler steps with no `build.zig`
+  present.
+- An old-base conflict resolution in the Nexus array-repetition merge that
+  replaced modern parser recovery and pointer-modifier behavior. The restored
+  `**` grammar now composes with current parser recovery, type-info, and
+  formatter semantics.
+- Nested compile and test steps sharing the build host's local compiler cache,
+  which could poison manifests and make every child command exit silently.
+  Each scheduled step now gets a deterministic fixed-capacity local namespace,
+  while the global compiler cache remains explicitly shared for reuse.
 - `print_zir.zig` missing handler for the `array_mul` instruction (introduced
   alongside `from_backing_int` in the same instruction range).
 

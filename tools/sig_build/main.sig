@@ -1127,6 +1127,24 @@ pub fn runCommand(
     return sig_process.runCommand(io_ctx, cmd, stderr_buf, stderr_len, .{});
 }
 
+/// Derive a deterministic local cache namespace for one scheduled compiler
+/// step. The build runner and build host use the caller-provided cache root;
+/// nested compiler invocations must not share that root (or each other's local
+/// manifests), especially when the graph executes in parallel.
+fn isolatedStepCacheDir(
+    build_ctx: *const Build_Context,
+    step_handle: Step_Handle,
+    io: std.Io,
+    path_buf: *[PATH_BUF_SIZE]u8,
+    id_buf: *[32]u8,
+) SigError![]const u8 {
+    const base = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
+    const step_id = std.fmt.bufPrint(id_buf, "step-{d}", .{step_handle}) catch return error.BufferTooSmall;
+    const path = sig_fs.joinPath(path_buf, &.{ base, "steps", step_id }) catch return error.BufferTooSmall;
+    std.Io.Dir.cwd().createDirPath(io, path) catch return error.BufferTooSmall;
+    return path;
+}
+
 // ── Compile step options ─────────────────────────────────────────────────────
 
 /// Options for addCompileStep — passed by build.sig to register a compile step.
@@ -3509,8 +3527,11 @@ pub const Build_Context = struct {
         if (optBool(&build_ctx.options, "link-libc", true) or build_ctx.target.arch_len > 0) try cmd.appendArg("-lc");
         if (optBool(&build_ctx.options, "link-libcpp", false)) try cmd.appendArg("-lc++");
 
+        var step_cache_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+        var step_cache_id_buf: [32]u8 = undefined;
+        const step_cache_dir = try isolatedStepCacheDir(build_ctx, ctx.step_handle, io, &step_cache_path_buf, &step_cache_id_buf);
         try cmd.appendArg("--cache-dir");
-        try cmd.appendArg(build_ctx.cache_dir[0..build_ctx.cache_dir_len]);
+        try cmd.appendArg(step_cache_dir);
         if (build_ctx.global_cache_dir_len > 0) {
             try cmd.appendArg("--global-cache-dir");
             try cmd.appendArg(build_ctx.global_cache_dir[0..build_ctx.global_cache_dir_len]);
@@ -3881,7 +3902,6 @@ pub const Build_Context = struct {
         const entry = &build_ctx.steps.entries[handle];
 
         const source_path = entry.desc[0..entry.desc_len];
-        const cache_dir = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
         const compiler = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
 
         var cmd: Command_Buffer = .{};
@@ -3954,9 +3974,21 @@ pub const Build_Context = struct {
             try cmd.appendArg(mod_buf[0..total]);
         }
 
-        // Cache directory.
+        // Each nested compiler process owns a local cache namespace. The
+        // global cache is explicitly shared and provides cross-step reuse.
+        var step_cache_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+        var step_cache_id_buf: [32]u8 = undefined;
+        const step_cache_dir = try isolatedStepCacheDir(build_ctx, ctx.step_handle, io, &step_cache_path_buf, &step_cache_id_buf);
         try cmd.appendArg("--cache-dir");
-        try cmd.appendArg(cache_dir);
+        try cmd.appendArg(step_cache_dir);
+        if (build_ctx.global_cache_dir_len > 0) {
+            try cmd.appendArg("--global-cache-dir");
+            try cmd.appendArg(build_ctx.global_cache_dir[0..build_ctx.global_cache_dir_len]);
+        }
+        if (build_ctx.zig_lib_dir_len > 0) {
+            try cmd.appendArg("--zig-lib-dir");
+            try cmd.appendArg(build_ctx.zig_lib_dir[0..build_ctx.zig_lib_dir_len]);
+        }
 
         var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
         var stderr_len: usize = 0;

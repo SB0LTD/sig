@@ -20,4 +20,9 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         "execute the allocator-free build.sig release fixture",
         &writeProof,
     );
+    _ = try ctx.addTestStep(.{
+        .name = "native-release-test",
+        .source_path = "native_test.sig",
+        .imports = &.{},
+    });
 }

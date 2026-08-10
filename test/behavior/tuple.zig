@@ -30,10 +30,10 @@ test "tuple multiplication" {
     const S = struct {
         fn doTheTest() !void {
             const empty = .{} ** 4;
-            try expect(@typeInfo(@TypeOf(empty)).@"struct".fields.len == 0);
+            try expect(@typeInfo(@TypeOf(empty)).@"struct".field_names.len == 0);
 
             const repeated = .{ 1, 2, 3 } ** 4;
-            try expect(@typeInfo(@TypeOf(repeated)).@"struct".fields.len == 12);
+            try expect(@typeInfo(@TypeOf(repeated)).@"struct".field_names.len == 12);
             inline for (repeated, 0..) |value, i| {
                 try expect(value == 1 + i % 3);
             }
