@@ -191,13 +191,19 @@ jobs:
             --stack 8388608 \
             -femit-bin=/tmp/pipeline-workspace-probe
           file /tmp/pipeline-workspace-probe | grep -q 'ELF 64-bit.*ARM aarch64'
-          ulimit -s 8192
-          qemu-aarch64 /tmp/pipeline-workspace-probe
+          prlimit --stack=8388608:8388608 -- qemu-aarch64 /tmp/pipeline-workspace-probe
           # QEMU user mode inherits the host shell's RLIMIT_STACK instead of
           # honoring the guest ELF GNU_STACK size. The compiler tests include
           # deliberate fixed-capacity phase values, so provision the same
-          # explicit 64 MiB ceiling as the compiler memory contract.
-          ulimit -s 65536
+          # explicit 64 MiB ceiling as the compiler memory contract. GitHub's
+          # runner starts the job shell with an 8 MiB hard limit; changing that
+          # shell through passwordless prlimit keeps the compiler itself running
+          # as the unprivileged runner user.
+          if ! ulimit -s 65536 2>/dev/null; then
+            sudo prlimit --pid "$$" --stack=67108864:67108864
+          fi
+          test "$(ulimit -Ss)" -eq 65536
+          test "$(ulimit -Hs)" -eq 65536
           qemu-aarch64 stage3-aarch64/bin/sig version | tee /tmp/aarch64-version.txt
           grep -q "sig ${SIG_VERSION}" /tmp/aarch64-version.txt
           qemu-aarch64 stage3-aarch64/bin/sig ast-check compiler/core/target.sig
