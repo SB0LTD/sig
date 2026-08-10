@@ -7,7 +7,9 @@
 
 #include "panic.h"
 
+#ifndef LOG_TRACE
 #define LOG_TRACE 0
+#endif
 
 enum wasi_errno {
     wasi_errno_success        = 0,
@@ -254,7 +256,7 @@ int main(int argc, char **argv) {
     time_t now = time(NULL);
     srand((unsigned)now);
 
-    de_len = 4;
+    de_len = 5;
     des = calloc(de_len, sizeof(struct DirEntry));
     if (des == NULL) panic("out of memory");
 
@@ -274,7 +276,15 @@ int main(int argc, char **argv) {
     des[3].guest_path = dupe("/lib", sizeof("/lib"));
     des[3].host_path = dupe(argv[1], strlen(argv[1]) + 1);
 
-    fd_len = 6;
+    // The stage-1 compiler accepts absolute module paths (CMake's generated
+    // config.zig is one). Expose the host root as a proper WASI preopen so the
+    // compiler resolves those paths through a directory descriptor instead
+    // of stripping the leading slash and accidentally rebasing them on cwd.
+    des[4].filetype = wasi_filetype_directory;
+    des[4].guest_path = dupe("/", sizeof("/"));
+    des[4].host_path = dupe("/", sizeof("/"));
+
+    fd_len = 7;
     fds = calloc(sizeof(struct FileDescriptor), fd_len);
     if (fds == NULL) panic("out of memory");
     fds[0].stream = stdin;
@@ -283,6 +293,7 @@ int main(int argc, char **argv) {
     fds[3].de = 1;
     fds[4].de = 2;
     fds[5].de = 3;
+    fds[6].de = 4;
 
     wasm__start();
 }
@@ -327,10 +338,44 @@ static enum wasi_errno DirEntry_create(uint32_t dir_fd, const char *path, uint32
         memcpy(&de->guest_path[0], path, path_len);
         de->guest_path[path_len] = '\0';
 
-        de->host_path = malloc(path_len + 1);
-        if (de->host_path == NULL) return wasi_errno_nomem;
-        memcpy(&de->host_path[0], path, path_len);
-        de->host_path[path_len] = '\0';
+        // Absolute WASI guest paths under a preopen must remain inside that
+        // preopen's host mapping. In particular, `/lib/std/...` maps to the
+        // source tree supplied as argv[1], not the host machine's `/lib`.
+        // Absolute paths outside a guest preopen are direct host paths; CMake
+        // relies on this for generated modules such as build/config.zig.
+        uint32_t preopen_de = UINT32_MAX;
+        size_t preopen_guest_path_len = 0;
+        for (uint32_t i = 0; i < de_len; i += 1) {
+            if (des[i].filetype != wasi_filetype_directory || des[i].guest_path == NULL) continue;
+            size_t candidate_len = strlen(des[i].guest_path);
+            if (candidate_len == 0 || candidate_len >= path_len) continue;
+            if (!isAbsPath(des[i].guest_path, candidate_len)) continue;
+            if (!isSamePath(des[i].guest_path, path, candidate_len)) continue;
+            if (!isPathSep(path[candidate_len])) continue;
+            if (candidate_len <= preopen_guest_path_len) continue;
+            preopen_de = i;
+            preopen_guest_path_len = candidate_len;
+        }
+
+        if (preopen_de != UINT32_MAX) {
+            const struct DirEntry *preopen = &des[preopen_de];
+            if (preopen->host_path == NULL) {
+                de->host_path = NULL;
+            } else {
+                const size_t host_len = strlen(preopen->host_path);
+                const size_t suffix_len = path_len - preopen_guest_path_len;
+                de->host_path = malloc(host_len + suffix_len + 1);
+                if (de->host_path == NULL) { free(de->guest_path); return wasi_errno_nomem; }
+                memcpy(de->host_path, preopen->host_path, host_len);
+                memcpy(&de->host_path[host_len], &path[preopen_guest_path_len], suffix_len);
+                de->host_path[host_len + suffix_len] = '\0';
+            }
+        } else {
+            de->host_path = malloc(path_len + 1);
+            if (de->host_path == NULL) { free(de->guest_path); return wasi_errno_nomem; }
+            memcpy(&de->host_path[0], path, path_len);
+            de->host_path[path_len] = '\0';
+        }
     } else {
         const struct DirEntry *dir_de = &des[fds[dir_fd].de];
         if (dir_de->guest_path != NULL) {
