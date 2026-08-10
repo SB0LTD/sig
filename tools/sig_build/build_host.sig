@@ -246,8 +246,8 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // ── 4. Validate requested step names ────────────────────────────────
-    const requested = config.requested_steps.slice();
-    for (requested) |step_name| {
+    for (0..config.requested_steps.count) |requested_index| {
+        const step_name = config.requested_steps.get(requested_index);
         if (ctx.steps.findByName(step_name) == null) {
             var avail_buf: [4096]u8 = undefined;
             var avail_offset: usize = 0;
@@ -291,8 +291,9 @@ pub fn main(init: std.process.Init) !void {
         var roots: [32]sig_build.Step_Handle = undefined;
         var roots_len: usize = 0;
 
-        if (requested.len > 0) {
-            for (requested) |step_name| {
+        if (config.requested_steps.count > 0) {
+            for (0..config.requested_steps.count) |requested_index| {
+                const step_name = config.requested_steps.get(requested_index);
                 if (ctx.steps.findByName(step_name)) |h| {
                     roots[roots_len] = h;
                     roots_len += 1;

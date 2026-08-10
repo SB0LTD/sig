@@ -25,4 +25,13 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         .source_path = "native_test.sig",
         .imports = &.{},
     });
+    _ = try ctx.addCompileStep(.{
+        .source_path = "target_probe.sig",
+        .output_name = "native-target-proof",
+        .cache_dir = ctx.cache_dir[0..ctx.cache_dir_len],
+        .optimize = ctx.optimize,
+        .target = null,
+        .imports = &.{},
+        .compiler_path = "",
+    });
 }

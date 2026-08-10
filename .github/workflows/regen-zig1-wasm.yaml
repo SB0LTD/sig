@@ -22,7 +22,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          # Regeneration only needs the checked-out tree and a fast-forward
+          # commit on master, not the fork's complete multi-year history.
+          fetch-depth: 1
 
       - name: Obtain the verified Sig bootstrap compiler
         env:
@@ -79,6 +81,11 @@ jobs:
           echo "SIG=$BIN" >> "$GITHUB_ENV"
 
       - name: Regenerate zig1.wasm via build system
+        env:
+          # Native Maker resolves its compiler library before the build host
+          # exists. Pin it to this checkout; do not forward a stale Maker-only
+          # --zig-lib argument into the native build host.
+          ZIG_LIB_DIR: ${{ github.workspace }}/lib
         run: |
           set -euo pipefail
           ulimit -s unlimited 2>/dev/null || true
@@ -102,13 +109,10 @@ jobs:
           test -n "$ZIG_VER"
 
           echo "Building zig1.wasm via build system..."
-          # Use zig build with build_wasm.zig — the build system properly resolves
-          # wasm32-wasi target (build-exe ignores -target for the linker).
-          # Maker requires --zig-lib= as its first argument. This binds the
-          # bootstrap executable to this exact checkout's matching library.
+          # The native allocator-free build runner owns the exact wasm32-wasi
+          # compiler command and validates the output magic before returning.
           "${SIG}" build \
-            --zig-lib=lib \
-            --build-file build_wasm.zig \
+            --build-file build_wasm.sig \
             -Dsig-version="$SIG_VER" \
             -Dzig-version="$ZIG_VER" \
             update-zig1

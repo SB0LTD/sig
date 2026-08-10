@@ -24,7 +24,10 @@ jobs:
           # run may start much later, so resolve the branch tip when it starts
           # instead of replaying commits already integrated by the prior run.
           ref: master
-          fetch-depth: 0
+          # The upstream cursor in tools/sig_sync/manifest.json is the source
+          # of truth. Fetching the fork's 1.35 GiB history here is unnecessary;
+          # the upstream range is deepened independently below when required.
+          fetch-depth: 1
 
       - name: Fetch upstream
         run: |
@@ -64,24 +67,47 @@ jobs:
       - name: Enumerate new commits
         id: check
         run: |
+          set -euo pipefail
           UPSTREAM=$(git rev-parse upstream/master)
+          MANIFEST=tools/sig_sync/manifest.json
+          jq -e '
+            .schema == "sb0.sig.sync-manifest.v1" and
+            (.last_integrated_commit | test("^[0-9a-f]{40}$")) and
+            (.bootstrap_tag | test("^bootstrap-sig-v[0-9]+$")) and
+            (.llvm_tag | test("^llvm-[0-9]+\\.[0-9]+\\.[0-9]+-sig-[0-9]+\\.[0-9]+\\.[0-9]+$"))
+          ' "$MANIFEST" >/dev/null
+          LAST_INTEGRATED=$(jq -r .last_integrated_commit "$MANIFEST")
 
-          if git merge-base --is-ancestor "$UPSTREAM" HEAD 2>/dev/null; then
+          if [ "$UPSTREAM" = "$LAST_INTEGRATED" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "Already up to date with upstream ($UPSTREAM)"
             exit 0
           fi
 
-          # [sig] If merge-base fails (shallow clone), deepen further
-          if ! git merge-base HEAD upstream/master >/dev/null 2>&1; then
-            echo "Shallow history insufficient, fetching full history..."
-            git fetch upstream master --unshallow 2>/dev/null || git fetch upstream master 2>/dev/null || true
+          # The fork deliberately cherry-picks upstream, so upstream commits
+          # are not ancestors of HEAD. Use the durable upstream cursor rather
+          # than HEAD ancestry, deepening only the upstream history as needed.
+          if ! git cat-file -e "${LAST_INTEGRATED}^{commit}" 2>/dev/null; then
+            echo "Upstream cursor not present in shallow fetch; deepening..."
+            git fetch upstream master --deepen=5000
+          fi
+          if ! git cat-file -e "${LAST_INTEGRATED}^{commit}" 2>/dev/null; then
+            echo "Cursor still unavailable; fetching complete upstream history..."
+            git fetch upstream master --unshallow 2>/dev/null || git fetch upstream master
+          fi
+          if ! git merge-base --is-ancestor "$LAST_INTEGRATED" "$UPSTREAM"; then
+            echo "::error::Recorded upstream cursor $LAST_INTEGRATED is not an ancestor of $UPSTREAM; refusing a rewritten or corrupt range"
+            exit 1
           fi
 
-          git rev-list HEAD..upstream/master --reverse > /tmp/new_commits.txt
+          # First-parent commits describe the exact evolution of upstream
+          # master. Merge commits are applied relative to parent 1 below so a
+          # PR is integrated once, including any merge-resolution changes.
+          git rev-list --first-parent --reverse "$LAST_INTEGRATED..$UPSTREAM" > /tmp/new_commits.txt
           COUNT=$(wc -l < /tmp/new_commits.txt)
+          test "$COUNT" -gt 0
           echo "skip=false" >> "$GITHUB_OUTPUT"
-          echo "$COUNT new upstream commits to integrate"
+          echo "$COUNT new upstream mainline commits to integrate"
 
       - name: Integrate commits one-by-one
         if: steps.check.outputs.skip != 'true'
@@ -93,21 +119,16 @@ jobs:
           git config user.name  "sig-sync[bot]"
           git config user.email "sig-sync@users.noreply.github.com"
 
-          # ── Resolve current bootstrap tag from manifest ─────────────
-          BOOTSTRAP_TAG="bootstrap-sig-v44"
-          if [ -f tools/sig_sync/manifest.json ]; then
-            MANIFEST_BOOT=$(python3 -c "
-          import json
-          with open('tools/sig_sync/manifest.json') as f:
-              m = json.load(f)
-          print(m.get('bootstrap_tag', ''))" 2>/dev/null || true)
-            [ -n "$MANIFEST_BOOT" ] && BOOTSTRAP_TAG="$MANIFEST_BOOT"
-          fi
-          echo "Current bootstrap: $BOOTSTRAP_TAG"
+          # ── Resolve the immutable toolchain pair from one manifest ──
+          BOOTSTRAP_TAG=$(jq -er .bootstrap_tag tools/sig_sync/manifest.json)
+          LLVM_ARTIFACT_TAG=$(jq -er .llvm_tag tools/sig_sync/manifest.json)
+          [[ "$BOOTSTRAP_TAG" =~ ^bootstrap-sig-v[0-9]+$ ]]
+          [[ "$LLVM_ARTIFACT_TAG" =~ ^llvm-[0-9]+\.[0-9]+\.[0-9]+-sig-[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "Current toolchain: bootstrap=$BOOTSTRAP_TAG llvm=$LLVM_ARTIFACT_TAG"
 
           # Files we own — on conflict, keep ours
           SIG_OWNED=(
-            README.md CHANGELOG.md build.sig build.zig build_wasm.zig
+            README.md CHANGELOG.md build.sig build.zig build_wasm.sig build_wasm.zig
             stage1/config.zig.in
             .gitignore bootstrap.ps1 CMakeLists.txt
           )
@@ -251,7 +272,12 @@ jobs:
             INTEGRATED=false
 
             # ── Try cherry-pick first ─────────────────────────────────
-            if git cherry-pick "$COMMIT" --no-edit 2>/dev/null; then
+            PARENT_COUNT=$(($(git rev-list --parents -n 1 "$COMMIT" | awk '{print NF}') - 1))
+            CHERRY_PICK_ARGS=("$COMMIT" --no-edit)
+            if [ "$PARENT_COUNT" -gt 1 ]; then
+              CHERRY_PICK_ARGS=(-m 1 "$COMMIT" --no-edit)
+            fi
+            if git cherry-pick "${CHERRY_PICK_ARGS[@]}" 2>/dev/null; then
               echo "Clean cherry-pick"
               INTEGRATED=true
             else
@@ -357,9 +383,11 @@ jobs:
               python3 -c "
           import json, os
           m = {
+            'schema': 'sb0.sig.sync-manifest.v1',
             'last_integrated_commit': '$COMMIT',
             'last_integration_timestamp': $TIMESTAMP,
             'bootstrap_tag': '$BOOTSTRAP_TAG',
+            'llvm_tag': '$LLVM_ARTIFACT_TAG',
             'entries': []
           }
           os.makedirs('tools/sig_sync', exist_ok=True)
@@ -473,7 +501,7 @@ jobs:
             echo "::notice::Rebuilding bootstrap: $BOOTSTRAP_TAG → $NEW_TAG"
             gh workflow run build-bootstrap.yaml \
               -f version="$NEW_TAG" \
-              -f llvm_tag=llvm-22.1.8-sig-0.3.0
+              -f llvm_tag="$LLVM_ARTIFACT_TAG"
 
             # The draft is published only after all four platform probes and
             # the aggregate manifest pass. A Linux asset alone is insufficient.
@@ -524,4 +552,4 @@ jobs:
           gh api repos/${{ github.repository }}/dispatches \
             -f event_type=sig-release \
             -f "client_payload[bootstrap_tag]=$BOOTSTRAP_TAG" \
-            -f "client_payload[llvm_tag]=llvm-22.1.8-sig-0.3.0"
+            -f "client_payload[llvm_tag]=$LLVM_ARTIFACT_TAG"

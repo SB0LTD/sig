@@ -18,6 +18,8 @@ cp "$script_dir/fixtures/native-build/build.sig" "$default_project/build.sig"
 cp "$script_dir/fixtures/native-build/build.sig" "$custom_project/project.sig"
 cp "$script_dir/fixtures/native-build/native_test.sig" "$default_project/native_test.sig"
 cp "$script_dir/fixtures/native-build/native_test.sig" "$custom_project/native_test.sig"
+cp "$script_dir/fixtures/native-build/target_probe.sig" "$default_project/target_probe.sig"
+cp "$script_dir/fixtures/native-build/target_probe.sig" "$custom_project/target_probe.sig"
 
 export ZIG_LIB_DIR="$zig_lib_dir"
 
@@ -29,15 +31,23 @@ export ZIG_LIB_DIR="$zig_lib_dir"
     grep -q '^Native build file:.*build.sig$' help.txt
     grep -q '^  native-release-proof' help.txt
     grep -q '^  native-release-test' help.txt
+    grep -q '^  native-target-proof' help.txt
     test ! -e build.zig
     test ! -e native-sig-build.proof
     "$sig" build native-release-proof \
+        -Dregression-sentinel=preserved \
         --cache-dir "$proof_root/default-cache" \
         --global-cache-dir "$proof_root/global-cache"
     grep -qx 'native build.sig executed' native-sig-build.proof
     "$sig" build native-release-test \
         --cache-dir "$proof_root/default-cache" \
         --global-cache-dir "$proof_root/global-cache"
+    "$sig" build native-target-proof \
+        -Dtarget=wasm32-wasi \
+        -Doptimize=ReleaseSmall \
+        --cache-dir "$proof_root/target-cache" \
+        --global-cache-dir "$proof_root/global-cache"
+    test "$(od -An -tx1 -N4 sig-out/bin/native-target-proof | tr -d ' \n')" = 0061736d
 )
 
 (
@@ -48,6 +58,7 @@ export ZIG_LIB_DIR="$zig_lib_dir"
     grep -q '^Native build file:.*project.sig$' help.txt
     grep -q '^  native-release-proof' help.txt
     grep -q '^  native-release-test' help.txt
+    grep -q '^  native-target-proof' help.txt
     test ! -e build.sig
     test ! -e build.zig
 )

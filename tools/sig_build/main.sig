@@ -3459,6 +3459,23 @@ pub const Build_Context = struct {
         try cmd.appendArg(compiler);
         try cmd.appendArg("build-exe");
 
+        // These are per-module options in the compiler CLI and therefore
+        // must precede the root -M declaration. Appending them after all
+        // modules silently compiled the host target/configuration instead.
+        try cmd.appendArg(switch (build_ctx.optimize) {
+            .Debug => "-ODebug",
+            .ReleaseSafe => "-OReleaseSafe",
+            .ReleaseFast => "-OReleaseFast",
+            .ReleaseSmall => "-OReleaseSmall",
+        });
+        if (build_ctx.target.arch_len > 0) {
+            var target_buf: [PATH_BUF_SIZE]u8 = undefined;
+            const target = try build_ctx.target.format(&target_buf);
+            try cmd.appendArg("-target");
+            try cmd.appendArg(target);
+        }
+        if (optBool(&build_ctx.options, "strip", false)) try cmd.appendArg("-fstrip");
+
         // Root imports are exactly those declared on this compile step.
         for (entry.module_deps[0..entry.module_dep_count]) |module_handle| {
             const mod_entry = &build_ctx.modules.entries[module_handle];
@@ -3511,19 +3528,6 @@ pub const Build_Context = struct {
             try cmd.appendArg(module_flag[0..total]);
         }
 
-        try cmd.appendArg(switch (build_ctx.optimize) {
-            .Debug => "-ODebug",
-            .ReleaseSafe => "-OReleaseSafe",
-            .ReleaseFast => "-OReleaseFast",
-            .ReleaseSmall => "-OReleaseSmall",
-        });
-        if (build_ctx.target.arch_len > 0) {
-            var target_buf: [PATH_BUF_SIZE]u8 = undefined;
-            const target = try build_ctx.target.format(&target_buf);
-            try cmd.appendArg("-target");
-            try cmd.appendArg(target);
-        }
-        if (optBool(&build_ctx.options, "strip", false)) try cmd.appendArg("-fstrip");
         if (optBool(&build_ctx.options, "link-libc", true) or build_ctx.target.arch_len > 0) try cmd.appendArg("-lc");
         if (optBool(&build_ctx.options, "link-libcpp", false)) try cmd.appendArg("-lc++");
 
@@ -4244,9 +4248,38 @@ pub const Runner_Args = struct {
 
 /// Parsed CLI configuration from user arguments (argv[7+]).
 /// All fields are stack-allocated.
+pub const Requested_Step_List = struct {
+    names: [32][NAME_BUF_SIZE]u8 = undefined,
+    name_lens: [32]u8 = @splat(0),
+    count: usize = 0,
+
+    pub fn push(self: *Requested_Step_List, name: []const u8) SigError!void {
+        if (self.count >= self.names.len) return error.CapacityExceeded;
+        if (name.len == 0 or name.len > NAME_BUF_SIZE) return error.BufferTooSmall;
+        @memcpy(self.names[self.count][0..name.len], name);
+        self.name_lens[self.count] = @intCast(name.len);
+        self.count += 1;
+    }
+
+    pub fn get(self: *const Requested_Step_List, index: usize) []const u8 {
+        const len: usize = self.name_lens[index];
+        return self.names[index][0..len];
+    }
+};
+
+test "requested build steps own argument storage" {
+    var requested: Requested_Step_List = .{};
+    var transient = [_]u8{ 'u', 'p', 'd', 'a', 't', 'e', '-', 'z', 'i', 'g', '1' };
+    try requested.push(&transient);
+    @memset(&transient, 'x');
+    try std.testing.expectEqualStrings("update-zig1", requested.get(0));
+}
+
 pub const Cli_Config = struct {
-    /// Requested step names from positional arguments.
-    requested_steps: containers.BoundedVec([]const u8, 32) = .{},
+    /// Requested step names copied out of the reusable process-argument
+    /// iterator buffer. Borrowing those slices corrupts earlier names when a
+    /// later argument is decoded.
+    requested_steps: Requested_Step_List = .{},
     /// -D options parsed into the option map.
     options: Option_Map = .{},
     /// -j thread count (0 = auto-detect).
@@ -4759,8 +4792,8 @@ pub fn main(init: std.process.Init) !void {
     host_cmd.appendArg(build_file_path) catch fatal(io, "build file path too long", .{});
 
     // Forward user args: step names, -D flags, -j, --verbose, etc.
-    const requested = config.requested_steps.slice();
-    for (requested) |step_name| {
+    for (0..config.requested_steps.count) |requested_index| {
+        const step_name = config.requested_steps.get(requested_index);
         host_cmd.appendArg(step_name) catch fatal(io, "step name too long for command buffer", .{});
     }
 

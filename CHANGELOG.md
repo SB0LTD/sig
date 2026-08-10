@@ -4,7 +4,7 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the sig version and the upstream Zig version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
-## [0.3.1] — 2026-08-10 — Nexus Compatibility
+## [0.3.1] — 2026-08-11 — Nexus Compatibility
 
 Patch release adding Nexus array repetition support and merging outstanding
 compiler branches into the release train.
@@ -35,6 +35,19 @@ compiler branches into the release train.
   while the global compiler cache remains explicitly shared for reuse.
 - `print_zir.zig` missing handler for the `array_mul` instruction (introduced
   alongside `from_backing_int` in the same instruction range).
+- Native build-step names borrowing the process iterator's reusable argument
+  buffer. A following `-D` option could corrupt a requested step such as
+  `update-zig1`; the runner now copies every name into bounded owned storage.
+- Per-module target, optimization, and strip flags being appended after the
+  root module declaration, which silently emitted a host binary for requested
+  cross targets. The package proof now compiles and verifies a wasm target.
+- `zig1.wasm` regeneration still routing through the transitional
+  `build_wasm.zig`. A native zero-allocation `build_wasm.sig` now owns the
+  exact wasm32-wasi command, canonical bootstrap options, and output check.
+- Upstream sync using fork ancestry even though integration is intentionally
+  cherry-pick based. The durable upstream cursor now prevents duplicate
+  dispatches from replaying the same commits, and the sync manifest records
+  the exact bootstrap/LLVM pair used by subsequent builds and releases.
 
 ## [0.3.0] — 2026-08-10 — Native by Construction
 
