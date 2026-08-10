@@ -43,6 +43,42 @@ The target parser should keep OS/ABI identity separate from output container.
 For SB0, the output container is the consolidated SB0 native image format,
 derived from SB0X rather than ELF or PE.
 
+Native artifact kind is also separate from target identity:
+
+- `SB0X` is the bounded native userspace image.
+- `SB0K` is the privileged kernel image.
+
+Both are `aarch64-sb0`. Kernel versus application is an artifact-kind choice,
+not a second OS, ABI, or compiler target. The fixed-capacity emitter writes
+either image directly into caller-provided storage; an SB0 build must never
+route through a foreign executable or object container.
+
+## Native Kernel Container
+
+`SB0K` version 1 begins with one fixed 64-byte header followed immediately by
+reset code. All integers are little-endian.
+
+| Offset | Bytes | Field |
+|---:|---:|---|
+| 0x00 | 4 | `SB0K` magic |
+| 0x04 | 2 | format version |
+| 0x06 | 2 | header bytes |
+| 0x08 | 2 | boot ABI version |
+| 0x0a | 2 | ABI revision |
+| 0x0c | 4 | flags; bit 0 is fixed layout |
+| 0x10 | 8 | entry offset |
+| 0x18 | 8 | total image bytes |
+| 0x20 | 8 | relocation offset; zero when absent |
+| 0x28 | 4 | relocation count |
+| 0x2c | 4 | relocation entry bytes |
+| 0x30 | 8 | build identity |
+| 0x38 | 8 | preferred physical base; zero is loader-selected |
+
+The initial direct-emission gate accepts only already-relocated AArch64 reset
+code and records no relocation table. Later section and relocation work must
+remain internal to the bounded SB0 emitter rather than materializing a foreign
+intermediate file.
+
 ## Classic SB0S Evidence
 
 These are compiler-visible requirements from classic SB0S that should be carried
@@ -112,6 +148,8 @@ SB0 support should have its own gates, parallel to ELF/PE:
    `x0-x5`, issues `svc #0`, and reads `x0/x1`.
 5. Linker emits a valid consolidated SB0 native image:
    fixed header, bounded segment descriptors, entry in executable segment.
+   For a kernel artifact it emits `SB0K` directly with a fixed 64-byte header
+   and reset entry, without a foreign intermediate container.
 6. The generated image passes loader validation tests derived from both
    `sb0s/tests/abi/test_sb0x_validation.sig` and Nexus loader expectations.
 7. Process-entry tests validate BHB/handle-table register assumptions:

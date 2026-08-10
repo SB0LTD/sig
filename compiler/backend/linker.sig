@@ -27,6 +27,16 @@ pub const SB0_NATIVE_HEADER_SIZE: usize = 64;
 pub const SB0_NATIVE_SEGMENT_SIZE: usize = 40;
 pub const SB0_NATIVE_MAX_SEGMENTS: usize = 8;
 
+/// Native SB0 kernel container. This is an artifact kind of `aarch64-sb0`,
+/// not a second target ABI. The emitter writes this container directly into
+/// caller-provided storage; no foreign object or executable format exists at
+/// any point in the zero-allocation pipeline.
+pub const SB0_KERNEL_MAGIC = [_]u8{ 'S', 'B', '0', 'K' };
+pub const SB0_KERNEL_FORMAT_VERSION: u16 = 1;
+pub const SB0_KERNEL_HEADER_SIZE: usize = 64;
+pub const SB0_KERNEL_BOOT_ABI_VERSION: u16 = 1;
+pub const SB0_KERNEL_FLAG_FIXED_LAYOUT: u32 = 1;
+
 // ============================================================================
 // Section_Entry
 // ============================================================================
@@ -622,6 +632,58 @@ pub const Linker = struct {
         return total_size;
     }
 
+    /// Emit a native SB0 kernel image directly from already-relocated AArch64
+    /// code. Kernel and application images share the `aarch64-sb0` register
+    /// and calling convention; `SB0K` identifies the privileged artifact.
+    ///
+    /// Header layout (64 bytes):
+    ///   0x00 magic `SB0K`
+    ///   0x04 format version (u16)
+    ///   0x06 header bytes (u16)
+    ///   0x08 boot ABI version (u16)
+    ///   0x0a ABI revision (u16)
+    ///   0x0c flags (u32)
+    ///   0x10 entry offset (u64)
+    ///   0x18 total image bytes (u64)
+    ///   0x20 relocation offset (u64; zero means none)
+    ///   0x28 relocation count (u32)
+    ///   0x2c relocation entry bytes (u32)
+    ///   0x30 build identity (u64)
+    ///   0x38 preferred physical base (u64; zero means loader-selected)
+    pub fn emitSb0Kernel(
+        self: *Linker,
+        output: []u8,
+        reset_code: []const u8,
+        build_identity: u64,
+        preferred_physical_base: u64,
+    ) usize {
+        if (!self.target.isSb0()) return 0;
+        if (reset_code.len == 0) return 0;
+
+        const total_size = SB0_KERNEL_HEADER_SIZE + reset_code.len;
+        if (output.len < total_size) return 0;
+
+        self.zeroBuffer(output[0..total_size]);
+        output[0] = SB0_KERNEL_MAGIC[0];
+        output[1] = SB0_KERNEL_MAGIC[1];
+        output[2] = SB0_KERNEL_MAGIC[2];
+        output[3] = SB0_KERNEL_MAGIC[3];
+        self.writeU16LE(output[4..], SB0_KERNEL_FORMAT_VERSION);
+        self.writeU16LE(output[6..], @intCast(SB0_KERNEL_HEADER_SIZE));
+        self.writeU16LE(output[8..], SB0_KERNEL_BOOT_ABI_VERSION);
+        self.writeU16LE(output[10..], 0);
+        self.writeU32LE(output[12..], SB0_KERNEL_FLAG_FIXED_LAYOUT);
+        self.writeU64LE(output[16..], SB0_KERNEL_HEADER_SIZE);
+        self.writeU64LE(output[24..], @intCast(total_size));
+        self.writeU64LE(output[32..], 0);
+        self.writeU32LE(output[40..], 0);
+        self.writeU32LE(output[44..], 0);
+        self.writeU64LE(output[48..], build_identity);
+        self.writeU64LE(output[56..], preferred_physical_base);
+        self.copyBytes(output[SB0_KERNEL_HEADER_SIZE..total_size], reset_code);
+        return total_size;
+    }
+
     /// Emit raw machine code for freestanding targets.
     pub fn emitRaw(self: *Linker, output: []u8, main_code: []const u8) usize {
         _ = self;
@@ -1123,6 +1185,57 @@ test "emitSb0Native rejects non-SB0 target" {
     var buf: [256]u8 = undefined;
     const written = linker.emitSb0Native(&buf);
     try testing.expect(!(written != 0)); // non-SB0 targets should not emit SB0 native image
+}
+
+test "emitSb0Kernel writes the direct native kernel container" {
+    const target = Target_Triple{ .arch = .aarch64, .os = .sb0, .abi = .sb0 };
+    var linker = Linker.init(target);
+    const reset_code = [_]u8{
+        0x5f, 0x20, 0x03, 0xd5, // wfe
+        0xff, 0xff, 0xff, 0x17, // b .
+    };
+    var buf: [128]u8 = undefined;
+    const written = linker.emitSb0Kernel(
+        &buf,
+        &reset_code,
+        0x0102_0304_0506_0708,
+        0x0000_0000_8000_0000,
+    );
+
+    try testing.expect(!(written != SB0_KERNEL_HEADER_SIZE + reset_code.len));
+    if (buf[0] != 'S' or buf[1] != 'B' or buf[2] != '0' or buf[3] != 'K')
+        return error.TestUnexpectedResult;
+    try testing.expect(!(buf[4] != 1 or buf[5] != 0));
+    try testing.expect(!(buf[6] != 64 or buf[7] != 0));
+    try testing.expect(!(buf[8] != 1 or buf[9] != 0));
+    try testing.expect(!(buf[12] != 1));
+    try testing.expect(!(buf[16] != 64));
+    try testing.expect(!(buf[24] != @as(u8, @intCast(written))));
+    try testing.expect(!(buf[48] != 0x08 or buf[55] != 0x01));
+    try testing.expect(!(buf[59] != 0x80));
+    for (reset_code, 0..) |byte, i| {
+        try testing.expect(!(buf[SB0_KERNEL_HEADER_SIZE + i] != byte));
+    }
+}
+
+test "emitSb0Kernel rejects every non-SB0 target" {
+    var linker = Linker.init(.{ .arch = .aarch64, .os = .freestanding, .abi = .none });
+    const reset_code = [_]u8{ 0x5f, 0x20, 0x03, 0xd5 };
+    var buf: [128]u8 = undefined;
+    try testing.expect(!(linker.emitSb0Kernel(&buf, &reset_code, 0, 0) != 0));
+}
+
+test "SB0 kernel header cannot identify as a foreign container" {
+    var linker = Linker.init(.{ .arch = .aarch64, .os = .sb0, .abi = .sb0 });
+    const reset_code = [_]u8{ 0x5f, 0x20, 0x03, 0xd5 };
+    var buf: [128]u8 = undefined;
+    const written = linker.emitSb0Kernel(&buf, &reset_code, 0, 0);
+    try testing.expect(!(written == 0));
+
+    // Foreign executable magics are rejected at the artifact boundary.
+    try testing.expect(!(buf[0] == 0x7f and buf[1] == 'E' and buf[2] == 'L' and buf[3] == 'F'));
+    try testing.expect(!(buf[0] == 'M' and buf[1] == 'Z'));
+    try testing.expect(!(buf[0] == 0xcf and buf[1] == 0xfa and buf[2] == 0xed and buf[3] == 0xfe));
 }
 
 // ============================================================================
