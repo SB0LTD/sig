@@ -77,6 +77,9 @@ train and establishes the allocator-free native SB0 compiler foundation.
   existing asset triples, GitHub digests, provenance, source pins, and release
   commit identity are re-verified. This preserves successful multi-hour builds
   without weakening the immutable published-release boundary.
+- LLVM finalization has an explicit no-rebuild recovery scope and repository
+  context, so a manifest/publication failure can revalidate a complete draft
+  without rerunning any multi-hour closure build.
 
 ### Fixed
 - Native Windows LLVM version verification now captures `llvm-config` output,

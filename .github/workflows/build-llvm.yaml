@@ -30,6 +30,7 @@ on:
           - cross-windows
           - native-macos
           - native-windows
+          - finalize-only
 
 concurrency:
   group: build-llvm-${{ inputs.artifact_tag }}
@@ -115,6 +116,10 @@ jobs:
               selected_archive=llvm-22-x86_64-windows-native.tar.zst
               linux_matrix='{"include":[]}'
               native_matrix='{"include":[{"os":"windows-2022","target":"x86_64-windows-native","artifact":"llvm-22-x86_64-windows-native.tar.zst"}]}'
+              ;;
+            finalize-only)
+              linux_matrix='{"include":[]}'
+              native_matrix='{"include":[]}'
               ;;
             *)
               echo "ERROR: unsupported build scope: $build_scope" >&2
@@ -724,6 +729,7 @@ jobs:
       - name: Verify exact manifest and publish LLVM closure
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
