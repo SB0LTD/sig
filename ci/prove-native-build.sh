@@ -22,6 +22,7 @@ cp "$script_dir/fixtures/native-build/target_probe.sig" "$default_project/target
 cp "$script_dir/fixtures/native-build/target_probe.sig" "$custom_project/target_probe.sig"
 
 export ZIG_LIB_DIR="$zig_lib_dir"
+prove_cross_target="${PROVE_CROSS_TARGET:-1}"
 
 (
     cd "$default_project"
@@ -42,15 +43,17 @@ export ZIG_LIB_DIR="$zig_lib_dir"
     "$sig" build native-release-test \
         --cache-dir "$proof_root/default-cache" \
         --global-cache-dir "$proof_root/global-cache"
-    "$sig" build native-target-proof \
-        -Dtarget=wasm32-wasi \
-        -Doptimize=ReleaseSmall \
-        --cache-dir "$proof_root/target-cache" \
-        --global-cache-dir "$proof_root/global-cache"
-    target_magic="$(od -An -tx1 -N4 sig-out/bin/native-target-proof | awk '{ for (i = 1; i <= NF; i++) printf "%s", $i }')"
-    file sig-out/bin/native-target-proof
-    echo "native target magic: $target_magic"
-    test "$target_magic" = 0061736d
+    if [[ "$prove_cross_target" = 1 ]]; then
+        "$sig" build native-target-proof \
+            -Dtarget=wasm32-wasi \
+            -Doptimize=ReleaseSmall \
+            --cache-dir "$proof_root/target-cache" \
+            --global-cache-dir "$proof_root/global-cache"
+        target_magic="$(od -An -tx1 -N4 sig-out/bin/native-target-proof | awk '{ for (i = 1; i <= NF; i++) printf "%s", $i }')"
+        file sig-out/bin/native-target-proof
+        echo "native target magic: $target_magic"
+        test "$target_magic" = 0061736d
+    fi
 )
 
 (

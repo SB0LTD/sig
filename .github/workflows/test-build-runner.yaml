@@ -1,6 +1,7 @@
-# Prove that the published bootstrap executable, library tree, and build runner
-# are one compatible toolchain unit. This is intentionally package-level: a
-# source-tree-only test cannot detect incomplete archives or version skew.
+# Prove both sides of a bootstrap transition: the published package remains a
+# compatible compiler/library/build-runner unit, and that verified compiler can
+# execute the current checkout's native runner before a replacement bootstrap
+# exists. Final bootstrap packaging performs the full package-level target test.
 name: test-build-runner
 
 on:
@@ -51,13 +52,16 @@ jobs:
           test -f "$package/lib/compiler/Maker.zig"
           test -f "$package/tools/sig_build/main.sig"
           echo "SIG=$package/bin/sig" >> "$GITHUB_ENV"
-          echo "ZIG_LIB_DIR=$package/lib" >> "$GITHUB_ENV"
+          echo "PACKAGE_ZIG_LIB_DIR=$package/lib" >> "$GITHUB_ENV"
 
-      - name: Execute compiler and build runner from the package
+      - name: Prove packaged compatibility and current native runner
         shell: bash
         run: |
           set -euo pipefail
           "$SIG" version | grep -q '^sig '
+          PROVE_CROSS_TARGET=0 \
+            bash ci/prove-native-build.sh "$SIG" "$PACKAGE_ZIG_LIB_DIR"
+          export ZIG_LIB_DIR="$GITHUB_WORKSPACE/lib"
           bash ci/prove-native-build.sh "$SIG" "$ZIG_LIB_DIR"
           "$SIG" ast-check compiler/test_all.sig
           "$SIG" build \
