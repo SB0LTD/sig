@@ -73,8 +73,16 @@ train and establishes the allocator-free native SB0 compiler foundation.
 - Immutable LLVM tag validation derives its prefix from the canonical
   `LLVM_VERSION`, eliminating a duplicated patch-version literal during LLVM
   upgrades while retaining strict Sig semantic-version validation.
+- Incomplete LLVM draft releases can be repaired by closure scope after all
+  existing asset triples, GitHub digests, provenance, source pins, and release
+  commit identity are re-verified. This preserves successful multi-hour builds
+  without weakening the immutable published-release boundary.
 
 ### Fixed
+- Native Windows LLVM version verification now captures `llvm-config` output,
+  process status, and the normalized version in PowerShell. This replaces a
+  silent `cmd | findstr` failure that occurred after an otherwise successful
+  5,939-target build and install.
 - Stale `bootstrap-sig-v40` sync manifest override that repeatedly selected a
   compiler too old for `@backingInt`, `@fromBackingInt`, and `@divCeil`.
 - Missing Windows assets and invalid/non-executable Windows release binaries.

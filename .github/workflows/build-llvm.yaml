@@ -16,6 +16,20 @@ on:
         required: true
         default: 'llvm-22.1.8-sig-0.3.0'
         type: string
+      build_scope:
+        description: 'Closure subset (non-all scopes resume an existing verified draft)'
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - linux-native
+          - linux-x86_64
+          - linux-aarch64
+          - cross-macos
+          - cross-windows
+          - native-macos
+          - native-windows
 
 concurrency:
   group: build-llvm-${{ inputs.artifact_tag }}
@@ -37,8 +51,13 @@ jobs:
   prepare-release:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      release_source_commit: ${{ steps.release.outputs.release_source_commit }}
+      linux_matrix: ${{ steps.release.outputs.linux_matrix }}
+      native_matrix: ${{ steps.release.outputs.native_matrix }}
     steps:
-      - name: Create empty draft release
+      - name: Prepare or verify draft release
+        id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -54,20 +73,151 @@ jobs:
             echo "ERROR: invalid Sig release identity in LLVM tag: ${ARTIFACT_TAG}" >&2
             exit 2
           }
+          build_scope='${{ inputs.build_scope }}'
+          release_source_commit="${GITHUB_SHA}"
+          selected_archive=
+          case "$build_scope" in
+            all)
+              linux_matrix='{"include":[{"target":"native","artifact":"llvm-22-x86_64-linux-native.tar.xz"},{"target":"x86_64-linux-musl","artifact":"llvm-22-x86_64-linux.tar.xz"},{"target":"aarch64-linux-musl","artifact":"llvm-22-aarch64-linux.tar.xz"},{"target":"aarch64-macos-none","artifact":"llvm-22-aarch64-macos.tar.xz"},{"target":"x86_64-windows-gnu","artifact":"llvm-22-x86_64-windows.tar.xz"}]}'
+              native_matrix='{"include":[{"os":"windows-2022","target":"x86_64-windows-native","artifact":"llvm-22-x86_64-windows-native.tar.zst"},{"os":"macos-14","target":"aarch64-macos-native","artifact":"llvm-22-aarch64-macos-native.tar.zst"}]}'
+              ;;
+            linux-native)
+              selected_archive=llvm-22-x86_64-linux-native.tar.xz
+              linux_matrix='{"include":[{"target":"native","artifact":"llvm-22-x86_64-linux-native.tar.xz"}]}'
+              native_matrix='{"include":[]}'
+              ;;
+            linux-x86_64)
+              selected_archive=llvm-22-x86_64-linux.tar.xz
+              linux_matrix='{"include":[{"target":"x86_64-linux-musl","artifact":"llvm-22-x86_64-linux.tar.xz"}]}'
+              native_matrix='{"include":[]}'
+              ;;
+            linux-aarch64)
+              selected_archive=llvm-22-aarch64-linux.tar.xz
+              linux_matrix='{"include":[{"target":"aarch64-linux-musl","artifact":"llvm-22-aarch64-linux.tar.xz"}]}'
+              native_matrix='{"include":[]}'
+              ;;
+            cross-macos)
+              selected_archive=llvm-22-aarch64-macos.tar.xz
+              linux_matrix='{"include":[{"target":"aarch64-macos-none","artifact":"llvm-22-aarch64-macos.tar.xz"}]}'
+              native_matrix='{"include":[]}'
+              ;;
+            cross-windows)
+              selected_archive=llvm-22-x86_64-windows.tar.xz
+              linux_matrix='{"include":[{"target":"x86_64-windows-gnu","artifact":"llvm-22-x86_64-windows.tar.xz"}]}'
+              native_matrix='{"include":[]}'
+              ;;
+            native-macos)
+              selected_archive=llvm-22-aarch64-macos-native.tar.zst
+              linux_matrix='{"include":[]}'
+              native_matrix='{"include":[{"os":"macos-14","target":"aarch64-macos-native","artifact":"llvm-22-aarch64-macos-native.tar.zst"}]}'
+              ;;
+            native-windows)
+              selected_archive=llvm-22-x86_64-windows-native.tar.zst
+              linux_matrix='{"include":[]}'
+              native_matrix='{"include":[{"os":"windows-2022","target":"x86_64-windows-native","artifact":"llvm-22-x86_64-windows-native.tar.zst"}]}'
+              ;;
+            *)
+              echo "ERROR: unsupported build scope: $build_scope" >&2
+              exit 2
+              ;;
+          esac
           if gh release view "${ARTIFACT_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            echo "ERROR: release ${ARTIFACT_TAG} already exists; artifact tags are immutable" >&2
-            exit 1
+            test "$build_scope" != all || {
+              echo "ERROR: release ${ARTIFACT_TAG} already exists; use a repair scope only for an incomplete draft" >&2
+              exit 1
+            }
+            release_json="$(gh release view "${ARTIFACT_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,isPrerelease,targetCommitish,assets)"
+            test "$(jq -r .isDraft <<<"$release_json")" = true
+            test "$(jq -r .isPrerelease <<<"$release_json")" = true
+            release_source_commit="$(jq -r .targetCommitish <<<"$release_json")"
+            [[ "$release_source_commit" =~ ^[0-9a-f]{40}$ ]]
+
+            expected=(
+              llvm-22-x86_64-linux-native.tar.xz
+              llvm-22-x86_64-linux.tar.xz
+              llvm-22-aarch64-linux.tar.xz
+              llvm-22-aarch64-macos.tar.xz
+              llvm-22-x86_64-windows.tar.xz
+              llvm-22-aarch64-macos-native.tar.zst
+              llvm-22-x86_64-windows-native.tar.zst
+            )
+            declare -A allowed=()
+            for archive in "${expected[@]}"; do
+              allowed["$archive"]=1
+              allowed["$archive.sha256"]=1
+              allowed["$archive.provenance.txt"]=1
+            done
+            mapfile -t existing_names < <(jq -r '.assets[].name' <<<"$release_json")
+            test "${#existing_names[@]}" -gt 0
+            for name in "${existing_names[@]}"; do
+              test -n "${allowed[$name]:-}" || {
+                echo "ERROR: unexpected asset in repair draft: $name" >&2
+                exit 1
+              }
+            done
+
+            mkdir repair-metadata
+            for archive in "${expected[@]}"; do
+              present=0
+              for name in "$archive" "$archive.sha256" "$archive.provenance.txt"; do
+                if jq -e --arg name "$name" '.assets[] | select(.name == $name)' <<<"$release_json" >/dev/null; then
+                  present=$((present + 1))
+                fi
+              done
+              test "$present" -eq 0 || test "$present" -eq 3 || {
+                echo "ERROR: incomplete asset triple for $archive" >&2
+                exit 1
+              }
+              if test "$archive" = "$selected_archive" && test "$present" -ne 0; then
+                echo "ERROR: selected repair closure already exists: $archive" >&2
+                exit 1
+              fi
+              test "$present" -eq 0 && continue
+
+              gh release download "${ARTIFACT_TAG}" --repo "${GITHUB_REPOSITORY}" \
+                --pattern "$archive.sha256" \
+                --pattern "$archive.provenance.txt" \
+                --dir repair-metadata
+              sidecar="repair-metadata/$archive.sha256"
+              provenance="repair-metadata/$archive.provenance.txt"
+              expected_hash="$(awk '{print $1}' "$sidecar")"
+              [[ "$expected_hash" =~ ^[0-9a-f]{64}$ ]]
+              archive_digest="$(jq -r --arg name "$archive" '.assets[] | select(.name == $name) | .digest' <<<"$release_json")"
+              test "$archive_digest" = "sha256:$expected_hash"
+              for metadata in "$sidecar" "$provenance"; do
+                name="$(basename "$metadata")"
+                local_hash="$(sha256sum "$metadata" | awk '{print $1}')"
+                remote_digest="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest' <<<"$release_json")"
+                test "$remote_digest" = "sha256:$local_hash"
+              done
+              grep -Fqx 'schema=sb0.sig.llvm-closure.v1' "$provenance"
+              grep -Fqx "artifact=$archive" "$provenance"
+              grep -Fqx "llvm_source_tag=${LLVM_TAG}" "$provenance"
+              grep -Fqx "llvm_source_commit=${LLVM_SOURCE_COMMIT}" "$provenance"
+              grep -Fqx "llvm_version=${LLVM_VERSION}" "$provenance"
+              grep -Fqx "sig_source_commit=${release_source_commit}" "$provenance"
+            done
+            printf 'Verified %d existing assets before scoped repair.\n' "${#existing_names[@]}"
+          else
+            test "$build_scope" = all || {
+              echo "ERROR: repair scope $build_scope requires an existing incomplete draft" >&2
+              exit 1
+            }
+            gh release create "${ARTIFACT_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${GITHUB_SHA}" \
+              --title "LLVM ${LLVM_VERSION} for Sig" \
+              --notes "Draft LLVM ${LLVM_VERSION} closure for the Sig release train. Published only after all target and native bootstrap archives pass digest verification." \
+              --draft \
+              --prerelease
           fi
-          gh release create "${ARTIFACT_TAG}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --target "${GITHUB_SHA}" \
-            --title "LLVM ${LLVM_VERSION} for Sig" \
-            --notes "Draft LLVM ${LLVM_VERSION} closure for the Sig release train. Published only after all target and native bootstrap archives pass digest verification." \
-            --draft \
-            --prerelease
+          echo "release_source_commit=$release_source_commit" >> "$GITHUB_OUTPUT"
+          echo "linux_matrix=$linux_matrix" >> "$GITHUB_OUTPUT"
+          echo "native_matrix=$native_matrix" >> "$GITHUB_OUTPUT"
 
   build-linux-tablegen:
     needs: prepare-release
+    if: inputs.build_scope == 'all' || inputs.build_scope == 'linux-native' || inputs.build_scope == 'linux-x86_64' || inputs.build_scope == 'linux-aarch64' || inputs.build_scope == 'cross-macos' || inputs.build_scope == 'cross-windows'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -110,22 +260,12 @@ jobs:
 
   build-linux:
     needs: [prepare-release, build-linux-tablegen]
+    if: inputs.build_scope == 'all' || inputs.build_scope == 'linux-native' || inputs.build_scope == 'linux-x86_64' || inputs.build_scope == 'linux-aarch64' || inputs.build_scope == 'cross-macos' || inputs.build_scope == 'cross-windows'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target: native
-            artifact: llvm-22-x86_64-linux-native.tar.xz
-          - target: x86_64-linux-musl
-            artifact: llvm-22-x86_64-linux.tar.xz
-          - target: aarch64-linux-musl
-            artifact: llvm-22-aarch64-linux.tar.xz
-          - target: aarch64-macos-none
-            artifact: llvm-22-aarch64-macos.tar.xz
-          - target: x86_64-windows-gnu
-            artifact: llvm-22-x86_64-windows.tar.xz
+      matrix: ${{ fromJSON(needs.prepare-release.outputs.linux_matrix) }}
     steps:
       - name: Free disk space
         run: |
@@ -399,7 +539,8 @@ jobs:
           zlib_source_commit=${ZLIB_SOURCE_COMMIT}
           zstd_source_commit=${ZSTD_SOURCE_COMMIT}
           toolchain_zig=${ZIG_VERSION}
-          sig_source_commit=${GITHUB_SHA}
+          sig_source_commit=${{ needs.prepare-release.outputs.release_source_commit }}
+          workflow_source_commit=${GITHUB_SHA}
           workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
           sha256sum --check --strict '${{ matrix.artifact }}.sha256'
@@ -416,17 +557,11 @@ jobs:
 
   build-native-platform:
     needs: prepare-release
+    if: inputs.build_scope == 'all' || inputs.build_scope == 'native-macos' || inputs.build_scope == 'native-windows'
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: windows-2022
-            target: x86_64-windows-native
-            artifact: llvm-22-x86_64-windows-native.tar.zst
-          - os: macos-14
-            target: aarch64-macos-native
-            artifact: llvm-22-aarch64-macos-native.tar.zst
+      matrix: ${{ fromJSON(needs.prepare-release.outputs.native_matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -522,7 +657,20 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           cmake -S llvm-src\llvm -B llvm-build -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_INSTALL_PREFIX=%CD%\llvm-install -DLLVM_ENABLE_PROJECTS=clang;lld -DLLVM_TARGETS_TO_BUILD=AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SPIRV;SystemZ;VE;WebAssembly;X86;XCore -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=ARC;CSKY;M68k;Xtensa -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DBUILD_SHARED_LIBS=OFF -DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_BUILD_TOOLS=ON -DCLANG_ENABLE_ARCMT=OFF -DCLANG_ENABLE_STATIC_ANALYZER=ON -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF
           ninja -C llvm-build install -j%NUMBER_OF_PROCESSORS%
-          llvm-install\bin\llvm-config.exe --version | findstr /x "22.1.8"
+
+      - name: Verify native Windows LLVM version
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = & .\llvm-install\bin\llvm-config.exe --version 2>&1
+          $exitCode = $LASTEXITCODE
+          $version = ($output | Out-String).Trim()
+          Write-Output "llvm-config exit=$exitCode version='$version'"
+          if ($exitCode -ne 0) { throw "llvm-config failed with exit code $exitCode" }
+          if ($version -ne $env:LLVM_VERSION) {
+            throw "Expected LLVM $env:LLVM_VERSION, got '$version'"
+          }
 
       - name: Package, hash, and record provenance
         shell: bash
@@ -548,7 +696,8 @@ jobs:
           llvm_source_commit=${LLVM_SOURCE_COMMIT}
           llvm_version=${LLVM_VERSION}
           native_runner=${{ matrix.os }}
-          sig_source_commit=${GITHUB_SHA}
+          sig_source_commit=${{ needs.prepare-release.outputs.release_source_commit }}
+          workflow_source_commit=${GITHUB_SHA}
           workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
           expected_hash="$(awk '{print $1}' '${{ matrix.artifact }}.sha256')"
@@ -568,6 +717,7 @@ jobs:
 
   finalize-release:
     needs: [prepare-release, build-linux, build-native-platform]
+    if: always() && needs.prepare-release.result == 'success' && (needs.build-linux.result == 'success' || needs.build-linux.result == 'skipped') && (needs.build-native-platform.result == 'success' || needs.build-native-platform.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -606,10 +756,11 @@ jobs:
             --arg llvm_source_tag "${LLVM_TAG}" \
             --arg llvm_source_commit "${LLVM_SOURCE_COMMIT}" \
             --arg llvm_version "${LLVM_VERSION}" \
-            --arg sig_source_commit "${GITHUB_SHA}" \
+            --arg sig_source_commit "${{ needs.prepare-release.outputs.release_source_commit }}" \
+            --arg workflow_source_commit "${GITHUB_SHA}" \
             --arg workflow_run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             --argjson assets "$(jq '.assets | map({name, size, digest})' <<<"$assets_json")" \
-            '{schema:$schema, tag:$tag, llvm_source_tag:$llvm_source_tag, llvm_source_commit:$llvm_source_commit, llvm_version:$llvm_version, sig_source_commit:$sig_source_commit, workflow_run:$workflow_run, assets:$assets}' \
+            '{schema:$schema, tag:$tag, llvm_source_tag:$llvm_source_tag, llvm_source_commit:$llvm_source_commit, llvm_version:$llvm_version, sig_source_commit:$sig_source_commit, workflow_source_commit:$workflow_source_commit, workflow_run:$workflow_run, assets:$assets}' \
             > llvm-build-manifest.json
           gh release upload "${ARTIFACT_TAG}" LLVM-SHA256SUMS.txt llvm-build-manifest.json
           final_assets="$(gh release view "${ARTIFACT_TAG}" --json assets,isDraft)"
