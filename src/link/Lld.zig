@@ -207,7 +207,7 @@ pub fn createEmpty(
 
     const gc_sections: bool = options.gc_sections orelse switch (target.ofmt) {
         .coff => optimize_mode != .debug,
-        .elf => optimize_mode != .debug and output_mode != .Obj,
+        .elf, .raw => optimize_mode != .debug and output_mode != .Obj,
         .wasm => output_mode != .Obj,
         else => unreachable,
     };
@@ -232,7 +232,7 @@ pub fn createEmpty(
         },
         .ofmt = switch (target.ofmt) {
             .coff => .{ .coff = try .init(comp, options) },
-            .elf => .{ .elf = try .init(comp, options) },
+            .elf, .raw => .{ .elf = try .init(comp, options) },
             .wasm => .{ .wasm = try .init(comp, options) },
             else => unreachable,
         },
@@ -1275,6 +1275,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         }
 
         try spawnLld(comp, arena, argv.items);
+        if (target.ofmt == .raw) try rewriteElfAsRaw(comp, arena, base.emit);
     }
 }
 fn getLDMOption(target: *const std.Target) ?[]const u8 {
@@ -1611,6 +1612,76 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
                 return diags.fail("{s}: failed to enable executable permissions: {t}", .{ full_out_path, err });
         }
     }
+}
+
+/// Convert LLD's fully relocated internal layout into the compiler's flat raw
+/// output in place. The temporary container is never exposed as a separate
+/// build artifact and is gone before `sig build-exe` returns.
+fn rewriteElfAsRaw(comp: *Compilation, arena: Allocator, output: Cache.Path) !void {
+    const io = comp.io;
+    const diags = &comp.link_diags;
+    const output_file = output.root_dir.handle.openFile(io, output.sub_path, .{
+        .mode = .read_write,
+    }) catch |err| return diags.fail("failed to open linked raw output: {t}", .{err});
+    defer output_file.close(io);
+
+    const stat = output_file.stat(io) catch |err|
+        return diags.fail("failed to stat linked raw output: {t}", .{err});
+    var reader_buffer: [1024]u8 = undefined;
+    var reader: Io.File.Reader = .initSize(output_file, io, &reader_buffer, stat.size);
+    const header = std.elf.Header.read(&reader.interface) catch |err| switch (err) {
+        error.ReadFailed => return diags.fail("failed to read internal link output: {t}", .{reader.err.?}),
+        else => |e| return diags.fail("internal link output is not valid ELF: {t}", .{e}),
+    };
+
+    var base_addr: u64 = std.math.maxInt(u64);
+    var end_addr: u64 = 0;
+    var sections = header.iterateSectionHeaders(&reader);
+    while (try sections.next()) |section| {
+        if (!rawSectionPayload(section)) continue;
+        base_addr = @min(base_addr, section.sh_addr);
+        end_addr = @max(end_addr, std.math.add(u64, section.sh_addr, section.sh_size) catch
+            return diags.fail("raw output address range overflows", .{}));
+    }
+
+    if (base_addr == std.math.maxInt(u64)) {
+        return output_file.setLength(io, 0) catch |err|
+            diags.fail("failed to truncate empty raw output: {t}", .{err});
+    }
+
+    const image_size_u64 = end_addr - base_addr;
+    const image_size = std.math.cast(usize, image_size_u64) orelse
+        return diags.fail("raw output is too large: 0x{x} bytes", .{image_size_u64});
+    const image = try arena.alloc(u8, image_size);
+    @memset(image, 0);
+
+    sections = header.iterateSectionHeaders(&reader);
+    while (try sections.next()) |section| {
+        if (!rawSectionPayload(section)) continue;
+        const output_offset: usize = @intCast(section.sh_addr - base_addr);
+        const section_size: usize = @intCast(section.sh_size);
+        const destination = image[output_offset..][0..section_size];
+        const amount = output_file.readPositionalAll(io, destination, section.sh_offset) catch |err|
+            return diags.fail("failed to read linked section for raw output: {t}", .{err});
+        if (amount != section_size) {
+            return diags.fail("short read while producing raw output: expected {d} bytes, found {d}", .{
+                section_size,
+                amount,
+            });
+        }
+    }
+
+    output_file.writePositionalAll(io, image, 0) catch |err|
+        return diags.fail("failed to write raw output: {t}", .{err});
+    output_file.setLength(io, image_size_u64) catch |err|
+        return diags.fail("failed to set raw output length: {t}", .{err});
+}
+
+fn rawSectionPayload(section: std.elf.Elf64_Shdr) bool {
+    return section.sh_type != std.elf.SHT_NULL and
+        section.sh_type != std.elf.SHT_NOBITS and
+        section.sh_size != 0 and
+        section.sh_flags & std.elf.SHF_ALLOC != 0;
 }
 
 fn spawnLld(comp: *Compilation, arena: Allocator, argv: []const []const u8) !void {

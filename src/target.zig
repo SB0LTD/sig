@@ -278,7 +278,10 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
 /// The set of targets that Zig supports using LLD to link for.
 pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
     return switch (ofmt) {
-        .elf, .coff, .wasm => true,
+        // Raw images use LLD's mature ELF relocation engine internally, then
+        // Sig rewrites the output in-place as a flat load image before the
+        // compiler returns. No ELF artifact survives the compiler boundary.
+        .elf, .raw, .coff, .wasm => true,
         else => false,
     };
 }
