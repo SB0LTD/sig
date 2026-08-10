@@ -23,6 +23,26 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    // Exercise direct executable emission in the raw object format. This is
+    // the path used by SB0 device builds: relocation is complete when the
+    // compiler returns and the emitted artifact has no executable container.
+    const raw_target = b.resolveTargetQuery(.{
+        .cpu_arch = .aarch64,
+        .cpu_model = .baseline,
+        .os_tag = .freestanding,
+        .abi = .none,
+        .ofmt = .raw,
+    });
+    const raw = b.addExecutable(.{
+        .name = "sig-aarch64-probe.bin",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("raw.sig"),
+            .target = raw_target,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    test_step.dependOn(&raw.step);
+
     const hex_step = elf.addObjCopy(.{
         .basename = "hello.hex",
     });
