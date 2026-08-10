@@ -28,23 +28,19 @@ const diagnostics = @import("pipeline/diagnostics.sig");
 const eviction = @import("pipeline/eviction.sig");
 const streaming = @import("pipeline/streaming.sig");
 
-/// Cross-platform reserve used by the canonical test jobs. The pipeline frame
-/// owns all fixed-capacity phases simultaneously in Debug test builds, plus a
-/// code buffer and final image. Requiring 2x that exact type-size sum leaves a
-/// deterministic margin for the test runner, call frames, and ABI alignment.
-pub const CANONICAL_TEST_STACK_BYTES: usize = 32 * 1024 * 1024;
-pub const PIPELINE_FIXED_STATE_BYTES: usize =
-    @sizeOf(tokenizer.Tokenizer) +
-    @sizeOf(parser.Parser) +
-    @sizeOf(sema.Sema) +
-    @sizeOf(codegen.Codegen) +
-    @sizeOf(linker.Linker) +
-    capacity.Compiler_Capacity_Plan.CODEGEN_RING_CAPACITY +
-    streaming.MAX_EXECUTABLE_IMAGE_BYTES;
+/// The full fixed-capacity compiler state is caller-owned rather than hidden in
+/// a function frame. This is the property the cross-platform bootstrap must
+/// enforce: deterministic storage below the 64 MiB design bound and a small
+/// orchestration object that remains safe on constrained native stacks.
+pub const PIPELINE_FIXED_STATE_BYTES: usize = @sizeOf(streaming.Pipeline_Workspace);
+pub const PIPELINE_MEMORY_BUDGET_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_CONTROLLER_STACK_BYTES: usize = 1024 * 1024;
 
 comptime {
-    if (CANONICAL_TEST_STACK_BYTES < PIPELINE_FIXED_STATE_BYTES * 2)
-        @compileError("canonical compiler test stack has less than 2x fixed-state headroom");
+    if (PIPELINE_FIXED_STATE_BYTES > PIPELINE_MEMORY_BUDGET_BYTES)
+        @compileError("canonical pipeline workspace exceeds its fixed memory budget");
+    if (@sizeOf(streaming.Streaming_Controller) > MAX_CONTROLLER_STACK_BYTES)
+        @compileError("streaming controller is too large for a bounded native stack");
 }
 
 test "all native compiler modules are reachable from the canonical root" {
@@ -68,7 +64,8 @@ test "all native compiler modules are reachable from the canonical root" {
     _ = streaming;
 }
 
-test "canonical stack reserve has at least 2x pipeline headroom" {
+test "canonical pipeline storage is explicit and remains within budget" {
     const testing = @import("std").testing;
-    try testing.expect(CANONICAL_TEST_STACK_BYTES >= PIPELINE_FIXED_STATE_BYTES * 2);
+    try testing.expect(PIPELINE_FIXED_STATE_BYTES <= PIPELINE_MEMORY_BUDGET_BYTES);
+    try testing.expect(@sizeOf(streaming.Streaming_Controller) <= MAX_CONTROLLER_STACK_BYTES);
 }

@@ -70,6 +70,27 @@ pub const Parser = struct {
         };
     }
 
+    /// Initialize pinned caller-owned parser storage in place. The tokenizer
+    /// pointer remains valid for the lifetime of this parser.
+    pub fn initInto(self: *Parser, tok: *Tokenizer) void {
+        if (tok.token_ring.isEmpty()) {
+            _ = tok.produceOne();
+        }
+        const first_token = tok.token_ring.pop() orelse Token{
+            .tag = .eof,
+            .start = 0,
+            .end = 0,
+        };
+        self.* = Parser{
+            .node_pool = .{},
+            .source_map = .{},
+            .lowered_mask = .{},
+            .tokenizer = tok,
+            .current = first_token,
+            .file_index = 0,
+        };
+    }
+
     // ========================================================================
     // Token consumption helpers
     // ========================================================================

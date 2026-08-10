@@ -33,6 +33,19 @@ pub const Tokenizer = struct {
         };
     }
 
+    /// Initialize caller-owned storage directly, avoiding a large aggregate
+    /// return slot in Debug and cross-compiled builds.
+    pub fn initInto(self: *Tokenizer, source: [*]const u8, source_len: usize) void {
+        self.* = Tokenizer{
+            .source = source,
+            .source_len = source_len,
+            .pos = 0,
+            .line = 1,
+            .column = 1,
+            .token_ring = .{},
+        };
+    }
+
     /// Produce one token from the source stream.
     /// Returns .eof when past end of source.
     pub fn next(self: *Tokenizer) Token {

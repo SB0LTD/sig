@@ -108,6 +108,19 @@ pub const Sema = struct {
         };
     }
 
+    /// Initialize fixed-capacity semantic state directly in caller storage.
+    pub fn initInto(self: *Sema) void {
+        self.* = .{
+            .symbol_table = .{},
+            .type_pool = .{},
+            .eval_stack = .{},
+            .scope_stack = .{},
+            .current_depth = 0,
+            .error_count = 0,
+            .ir_buffer = .{},
+        };
+    }
+
     /// Resolve an identifier by name hash.
     /// Returns a pointer to the Symbol_Entry if found and the symbol's
     /// scope_depth <= current_depth (i.e. it's visible in the current scope).

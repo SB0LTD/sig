@@ -65,6 +65,17 @@ pub const Codegen = struct {
         };
     }
 
+    /// Initialize the code generator directly in its bounded workspace.
+    pub fn initInto(self: *Codegen, target: Target_Triple) void {
+        self.* = Codegen{
+            .target = target,
+            .output_ring = .{},
+            .relocations = .{},
+            .interference_graph = @splat(@as([MAX_TARGET_REGS]bool, @splat(false))),
+            .code_offset = 0,
+        };
+    }
+
     /// Emit machine code for a single IR node.
     /// Dispatches to the appropriate target-specific encoder.
     pub fn emit(self: *Codegen, ir_node: *const IR_Node) void {

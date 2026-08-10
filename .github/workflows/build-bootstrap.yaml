@@ -184,6 +184,20 @@ jobs:
             .zig-cache/bootstrap-aarch64-linux
           file stage3-aarch64/bin/sig | grep -q 'ELF 64-bit.*ARM aarch64'
           file stage3-aarch64/bin/sig | grep -q 'statically linked'
+          qemu-aarch64 stage3-aarch64/bin/sig build-exe compiler/pipeline_workspace_probe.sig \
+            --zig-lib-dir lib \
+            --cache-dir /tmp/sig-bootstrap-aarch64-probe-local \
+            --global-cache-dir /tmp/sig-bootstrap-aarch64-probe-global \
+            --stack 8388608 \
+            -femit-bin=/tmp/pipeline-workspace-probe
+          file /tmp/pipeline-workspace-probe | grep -q 'ELF 64-bit.*ARM aarch64'
+          ulimit -s 8192
+          qemu-aarch64 /tmp/pipeline-workspace-probe
+          # QEMU user mode inherits the host shell's RLIMIT_STACK instead of
+          # honoring the guest ELF GNU_STACK size. The compiler tests include
+          # deliberate fixed-capacity phase values, so provision the same
+          # explicit 64 MiB ceiling as the compiler memory contract.
+          ulimit -s 65536
           qemu-aarch64 stage3-aarch64/bin/sig version | tee /tmp/aarch64-version.txt
           grep -q "sig ${SIG_VERSION}" /tmp/aarch64-version.txt
           qemu-aarch64 stage3-aarch64/bin/sig ast-check compiler/core/target.sig

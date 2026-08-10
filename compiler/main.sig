@@ -1,12 +1,13 @@
 //! Zero-Alloc Compiler — CLI Driver
 //! Entry point for the zero-alloc sig compiler.
 //! Parses command-line arguments, selects target, and invokes the streaming pipeline.
-//! Zero heap allocations — all state is stack or comptime-sized.
+//! Zero heap allocations — all state is caller-provided or comptime-sized.
 
 const target_mod = @import("core/target.sig");
 const streaming_mod = @import("pipeline/streaming.sig");
 const Target_Triple = target_mod.Target_Triple;
 const Streaming_Controller = streaming_mod.Streaming_Controller;
+pub const Pipeline_Workspace = streaming_mod.Pipeline_Workspace;
 const File_Entry = streaming_mod.File_Entry;
 const Pipeline_Result = streaming_mod.Pipeline_Result;
 
@@ -67,10 +68,16 @@ pub fn parseArgs(args: []const []const u8) Cli_Args {
 }
 
 /// Compile source bytes with argv-style options into a caller-provided buffer.
-/// File I/O stays outside this zero-alloc core; callers provide source/output.
-pub fn compileSourceToBuffer(args: []const []const u8, source: []const u8, output: []u8) Pipeline_Result {
+/// File I/O stays outside this zero-alloc core; callers provide source, output,
+/// and one pinned fixed-capacity workspace that can be reused across calls.
+pub fn compileSourceToBuffer(
+    args: []const []const u8,
+    source: []const u8,
+    output: []u8,
+    workspace: *Pipeline_Workspace,
+) Pipeline_Result {
     const parsed = parseArgs(args);
-    var controller = Streaming_Controller.init(parsed.target);
+    var controller = Streaming_Controller.init(parsed.target, workspace);
     var file = File_Entry{};
     file.source = source.ptr;
     file.source_len = source.len;

@@ -8,7 +8,7 @@
 // demonstrates the streaming model where each phase's bounded memory is
 // reused across files.
 //
-// Zero heap allocations — all state is comptime-sized or stack-allocated.
+// Zero heap allocations — all state is comptime-sized and caller-provided.
 
 const types = @import("../core/types.sig");
 const containers = @import("../core/containers.sig");
@@ -31,6 +31,32 @@ const Codegen = codegen_mod.Codegen;
 const Linker = linker_mod.Linker;
 
 pub const MAX_EXECUTABLE_IMAGE_BYTES: usize = 65536;
+
+/// Fixed-capacity storage for one active compilation pipeline.
+///
+/// The phase types intentionally contain multi-megabyte bounded tables. Keeping
+/// them as locals makes every call reserve their sum on the native stack, even
+/// when an early return (such as an empty source file) does not use them. A
+/// caller supplies this pinned workspace from static storage, a fixed arena, or
+/// another explicitly provisioned region. No heap allocation is introduced,
+/// and independent compiler threads use independent workspaces.
+pub const Pipeline_Workspace = struct {
+    tokenizer: Tokenizer,
+    parser: Parser,
+    sema: Sema,
+    codegen: Codegen,
+    linker: Linker,
+    code: [Compiler_Capacity_Plan.CODEGEN_RING_CAPACITY]u8,
+    image: [MAX_EXECUTABLE_IMAGE_BYTES]u8,
+};
+
+pub const PIPELINE_WORKSPACE_BYTES: usize = @sizeOf(Pipeline_Workspace);
+pub const MAX_PIPELINE_WORKSPACE_BYTES: usize = 64 * 1024 * 1024;
+
+comptime {
+    if (PIPELINE_WORKSPACE_BYTES > MAX_PIPELINE_WORKSPACE_BYTES)
+        @compileError("pipeline workspace exceeds the 64 MiB fixed-capacity budget");
+}
 
 // ============================================================================
 // Pipeline_Result
@@ -75,6 +101,11 @@ pub const Streaming_Controller = struct {
     /// Target triple for code generation and linking.
     target: Target_Triple,
 
+    /// Pinned caller-owned phase storage. The workspace must outlive the
+    /// controller and must not be moved while a compilation is active because
+    /// the parser holds a pointer into its tokenizer field.
+    workspace: *Pipeline_Workspace,
+
     /// Files added to this compilation unit.
     files: BoundedVec(File_Entry, 256),
 
@@ -89,9 +120,10 @@ pub const Streaming_Controller = struct {
     total_bytes: u64 = 0,
 
     /// Initialize a streaming controller for the given target triple.
-    pub fn init(target: Target_Triple) Streaming_Controller {
+    pub fn init(target: Target_Triple, workspace: *Pipeline_Workspace) Streaming_Controller {
         return Streaming_Controller{
             .target = target,
+            .workspace = workspace,
             .files = .{},
             .recomputation_counts = .{},
             .error_count = 0,
@@ -101,15 +133,11 @@ pub const Streaming_Controller = struct {
 
     /// Process a single file through the full pipeline.
     ///
-    /// Creates a tokenizer, parser, sema, and codegen locally on the stack.
-    /// Runs the pipeline: tokenize → parse top-level declarations → analyze
-    /// each → emit code. Returns the compilation result for this file.
-    ///
-    /// This demonstrates the streaming model where each phase's bounded
-    /// memory is reused per-file (stack frames are reclaimed on return).
+    /// Reinitializes tokenizer, parser, sema, codegen, and linker state inside
+    /// the pinned workspace. Runs tokenize → parse → analyze → emit and reuses
+    /// the same bounded storage for the next file.
     pub fn processFile(self: *Streaming_Controller, file: File_Entry) Pipeline_Result {
-        var output: [MAX_EXECUTABLE_IMAGE_BYTES]u8 = undefined;
-        return self.compileFileToBuffer(file, output[0..]);
+        return self.compileFileToBuffer(file, self.workspace.image[0..]);
     }
 
     /// Compile one source file into a caller-provided executable image buffer.
@@ -132,17 +160,18 @@ pub const Streaming_Controller = struct {
             return result;
         }
 
-        var tokenizer = Tokenizer.init(file.source, file.source_len);
-        var parser = Parser.init(&tokenizer);
-        var sema = Sema.init();
-        var codegen = Codegen.init(self.target);
+        const workspace = self.workspace;
+        workspace.tokenizer.initInto(file.source, file.source_len);
+        workspace.parser.initInto(&workspace.tokenizer);
+        workspace.sema.initInto();
+        workspace.codegen.initInto(self.target);
 
         var emitted_function = false;
-        while (parser.parseTopLevel()) |node_idx| {
-            if (parser.getNode(node_idx)) |node| {
-                _ = sema.analyze(node);
+        while (workspace.parser.parseTopLevel()) |node_idx| {
+            if (workspace.parser.getNode(node_idx)) |node| {
+                _ = workspace.sema.analyze(node);
                 if (node.tag == .fn_decl and !emitted_function) {
-                    codegen.emitVoidFunction();
+                    workspace.codegen.emitVoidFunction();
                     emitted_function = true;
                 }
             } else {
@@ -153,11 +182,11 @@ pub const Streaming_Controller = struct {
         // For non-function files, still emit a deterministic empty entry so the
         // linker can produce a structurally valid executable image.
         if (!emitted_function and result.error_count == 0) {
-            codegen.emitVoidFunction();
+            workspace.codegen.emitVoidFunction();
         }
 
-        if (sema.error_count != 0) {
-            result.error_count += sema.error_count;
+        if (workspace.sema.error_count != 0) {
+            result.error_count += workspace.sema.error_count;
         }
         if (result.error_count != 0) {
             result.success = false;
@@ -165,8 +194,7 @@ pub const Streaming_Controller = struct {
             return result;
         }
 
-        var code_buf: [Compiler_Capacity_Plan.CODEGEN_RING_CAPACITY]u8 = undefined;
-        const code_len = codegen.flushToLinker(code_buf[0..]);
+        const code_len = workspace.codegen.flushToLinker(workspace.code[0..]);
         if (code_len == 0) {
             result.error_count = 1;
             result.success = false;
@@ -174,8 +202,8 @@ pub const Streaming_Controller = struct {
             return result;
         }
 
-        var linker = Linker.init(self.target);
-        const written = linker.emitExecutable(output, code_buf[0..code_len]);
+        workspace.linker.initInto(self.target);
+        const written = workspace.linker.emitExecutable(output, workspace.code[0..code_len]);
         if (written == 0) {
             result.error_count = 1;
             result.success = false;
@@ -244,10 +272,11 @@ pub const Streaming_Controller = struct {
 // ============================================================================
 
 const testing = @import("std").testing;
+var test_workspace: Pipeline_Workspace = undefined;
 
 test "Streaming_Controller init creates valid state" {
     const target = Target_Triple{ .arch = .x86_64, .os = .linux, .abi = .gnu };
-    const ctrl = Streaming_Controller.init(target);
+    const ctrl = Streaming_Controller.init(target, &test_workspace);
     try testing.expect(!(ctrl.error_count != 0)); // expected zero errors on init
     try testing.expect(!(ctrl.total_bytes != 0)); // expected zero bytes on init
     try testing.expect(!(ctrl.files.len() != 0)); // expected no files on init
@@ -255,7 +284,7 @@ test "Streaming_Controller init creates valid state" {
 
 test "Streaming_Controller processFile with empty source succeeds" {
     const target = Target_Triple{ .arch = .x86_64, .os = .linux, .abi = .gnu };
-    var ctrl = Streaming_Controller.init(target);
+    var ctrl = Streaming_Controller.init(target, &test_workspace);
 
     var file = File_Entry{};
     file.source_len = 0;
@@ -268,7 +297,7 @@ test "Streaming_Controller processFile with empty source succeeds" {
 
 test "Streaming_Controller processFile with valid source" {
     const target = Target_Triple{ .arch = .x86_64, .os = .linux, .abi = .gnu };
-    var ctrl = Streaming_Controller.init(target);
+    var ctrl = Streaming_Controller.init(target, &test_workspace);
 
     const src = "const x = 42;";
     var file = File_Entry{};
@@ -288,7 +317,7 @@ test "Streaming_Controller processFile with valid source" {
 
 test "Streaming_Controller processMultiFile accumulates results" {
     const target = Target_Triple{ .arch = .aarch64, .os = .macos, .abi = .none };
-    var ctrl = Streaming_Controller.init(target);
+    var ctrl = Streaming_Controller.init(target, &test_workspace);
 
     const src1 = "pub fn main() void {}";
     const src2 = "const y = 10;";
@@ -314,7 +343,7 @@ test "Streaming_Controller processMultiFile accumulates results" {
 
 test "Streaming_Controller addFile stores entries" {
     const target = Target_Triple{ .arch = .x86_64, .os = .windows, .abi = .msvc };
-    var ctrl = Streaming_Controller.init(target);
+    var ctrl = Streaming_Controller.init(target, &test_workspace);
 
     var file = File_Entry{};
     const path = "src/lib.sig";
@@ -332,7 +361,7 @@ test "Streaming_Controller addFile stores entries" {
 
 test "Streaming_Controller totalErrors tracks cumulative errors" {
     const target = Target_Triple{ .arch = .riscv64, .os = .linux, .abi = .gnu };
-    var ctrl = Streaming_Controller.init(target);
+    var ctrl = Streaming_Controller.init(target, &test_workspace);
 
     try testing.expect(!(ctrl.totalErrors() != 0)); // expected zero errors initially
 
@@ -376,7 +405,7 @@ test "Streaming_Controller multi-target init" {
     };
 
     for (targets) |target| {
-        const ctrl = Streaming_Controller.init(target);
+        const ctrl = Streaming_Controller.init(target, &test_workspace);
         try testing.expect(!(ctrl.error_count != 0)); // all targets should init cleanly
     }
 }
