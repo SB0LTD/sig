@@ -47,7 +47,10 @@ export ZIG_LIB_DIR="$zig_lib_dir"
         -Doptimize=ReleaseSmall \
         --cache-dir "$proof_root/target-cache" \
         --global-cache-dir "$proof_root/global-cache"
-    test "$(od -An -tx1 -N4 sig-out/bin/native-target-proof | tr -d ' \n')" = 0061736d
+    target_magic="$(od -An -tx1 -N4 sig-out/bin/native-target-proof | awk '{ for (i = 1; i <= NF; i++) printf "%s", $i }')"
+    file sig-out/bin/native-target-proof
+    echo "native target magic: $target_magic"
+    test "$target_magic" = 0061736d
 )
 
 (
