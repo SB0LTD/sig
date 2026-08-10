@@ -44,6 +44,11 @@ compiler branches into the release train.
 - `zig1.wasm` regeneration still routing through the transitional
   `build_wasm.zig`. A native zero-allocation `build_wasm.sig` now owns the
   exact wasm32-wasi command, canonical bootstrap options, and output check.
+- The refreshed `zig1.wasm` importing WASI path timestamp operations without a
+  matching native host shim. File-descriptor and path timestamp updates now
+  implement WASI flag validation and metadata semantics, and every bootstrap
+  release proves the complete wasm-to-C link and executes the resulting zig1
+  compiler before downloading LLVM closures.
 - Upstream sync using fork ancestry even though integration is intentionally
   cherry-pick based. The durable upstream cursor now prevents duplicate
   dispatches from replaying the same commits, and the sync manifest records

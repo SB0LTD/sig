@@ -55,6 +55,10 @@ jobs:
           echo "sig_version=$sig_version" >> "$GITHUB_OUTPUT"
           echo "zig_version=$zig_version" >> "$GITHUB_OUTPUT"
 
+      - name: Prove WebAssembly bootstrap host shim
+        shell: bash
+        run: bash ci/prove-wasm-bootstrap.sh
+
       - name: Validate inputs and create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

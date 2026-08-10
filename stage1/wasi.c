@@ -155,6 +155,13 @@ enum wasi_fdflags {
     wasi_fdflags_sync     = 1 << 4,
 };
 
+enum wasi_fstflags {
+    wasi_fstflags_atim     = 1 << 0,
+    wasi_fstflags_atim_now = 1 << 1,
+    wasi_fstflags_mtim     = 1 << 2,
+    wasi_fstflags_mtim_now = 1 << 3,
+};
+
 struct wasi_filestat {
     uint64_t dev;
     uint64_t ino;
@@ -390,6 +397,31 @@ static void DirEntry_filestat(uint32_t de, struct wasi_filestat *res_filestat) {
     store64_align3(&res_filestat->atim, des[de].atim * UINT64_C(1000000000));
     store64_align3(&res_filestat->mtim, des[de].mtim * UINT64_C(1000000000));
     store64_align3(&res_filestat->ctim, des[de].ctim * UINT64_C(1000000000));
+}
+
+static enum wasi_errno DirEntry_set_times(uint32_t de, uint64_t atim, uint64_t mtim, uint32_t fst_flags) {
+    const uint32_t known_flags =
+        wasi_fstflags_atim | wasi_fstflags_atim_now |
+        wasi_fstflags_mtim | wasi_fstflags_mtim_now;
+    if ((fst_flags & ~known_flags) != 0) return wasi_errno_inval;
+    if ((fst_flags & (wasi_fstflags_atim | wasi_fstflags_atim_now)) ==
+        (wasi_fstflags_atim | wasi_fstflags_atim_now)) return wasi_errno_inval;
+    if ((fst_flags & (wasi_fstflags_mtim | wasi_fstflags_mtim_now)) ==
+        (wasi_fstflags_mtim | wasi_fstflags_mtim_now)) return wasi_errno_inval;
+
+    const time_t now = time(NULL);
+    if ((fst_flags & wasi_fstflags_atim_now) != 0) {
+        des[de].atim = now;
+    } else if ((fst_flags & wasi_fstflags_atim) != 0) {
+        des[de].atim = (time_t)(atim / UINT64_C(1000000000));
+    }
+    if ((fst_flags & wasi_fstflags_mtim_now) != 0) {
+        des[de].mtim = now;
+    } else if ((fst_flags & wasi_fstflags_mtim) != 0) {
+        des[de].mtim = (time_t)(mtim / UINT64_C(1000000000));
+    }
+    des[de].ctim = now;
+    return wasi_errno_success;
 }
 
 static void DirEntry_unlink(uint32_t de) {
@@ -678,16 +710,12 @@ uint32_t wasi_snapshot_preview1_random_get(uint32_t buf, uint32_t buf_len) {
 }
 
 uint32_t wasi_snapshot_preview1_fd_filestat_set_times(uint32_t fd, uint64_t atim, uint64_t mtim, uint32_t fst_flags) {
-    (void)fd;
-    (void)atim;
-    (void)mtim;
-    (void)fst_flags;
 #if LOG_TRACE
     fprintf(stderr, "wasi_snapshot_preview1_fd_filestat_set_times(%u, %llu, %llu, 0x%X)\n", fd, (unsigned long long)atim, (unsigned long long)mtim, fst_flags);
 #endif
 
-    panic("unimplemented: fd_filestat_set_times");
-    return wasi_errno_success;
+    if (fd >= fd_len || fds[fd].de >= de_len) return wasi_errno_badf;
+    return DirEntry_set_times(fds[fd].de, atim, mtim, fst_flags);
 }
 
 uint32_t wasi_snapshot_preview1_environ_sizes_get(uint32_t environ_size, uint32_t environ_buf_size) {
@@ -737,6 +765,19 @@ uint32_t wasi_snapshot_preview1_path_filestat_get(uint32_t fd, uint32_t flags, u
         }
     }
     return wasi_errno_success;
+}
+
+uint32_t wasi_snapshot_preview1_path_filestat_set_times(uint32_t fd, uint32_t flags, uint32_t path, uint32_t path_len, uint64_t atim, uint64_t mtim, uint32_t fst_flags) {
+    uint8_t *const m = *wasm_memory;
+    const char *path_ptr = (const char *)&m[path];
+#if LOG_TRACE
+    fprintf(stderr, "wasi_snapshot_preview1_path_filestat_set_times(%u, 0x%X, \"%.*s\", %llu, %llu, 0x%X)\n", fd, flags, (int)path_len, path_ptr, (unsigned long long)atim, (unsigned long long)mtim, fst_flags);
+#endif
+
+    uint32_t de;
+    enum wasi_errno lookup_errno = DirEntry_lookup(fd, flags, path_ptr, path_len, &de);
+    if (lookup_errno != wasi_errno_success) return lookup_errno;
+    return DirEntry_set_times(de, atim, mtim, fst_flags);
 }
 
 uint32_t wasi_snapshot_preview1_fd_fdstat_get(uint32_t fd, uint32_t res_fdstat) {
