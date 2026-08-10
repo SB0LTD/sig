@@ -12,7 +12,6 @@ on:
       version:
         description: 'Immutable bootstrap release tag'
         required: true
-        default: 'bootstrap-sig-v44'
         type: string
       llvm_tag:
         description: 'Verified LLVM closure release tag'
@@ -609,49 +608,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Verify exact manifest and publish bootstrap set
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
-          set -euo pipefail
-          expected=(
-            bootstrap-sig-x86_64-linux.tar.zst
-            bootstrap-sig-aarch64-linux.tar.zst
-            bootstrap-sig-aarch64-macos.tar.zst
-            bootstrap-sig-x86_64-windows.tar.zst
-          )
-          gh release download "${BOOTSTRAP_TAG}" --pattern '*.sha256' --dir checksums
-          assets_json="$(gh release view "${BOOTSTRAP_TAG}" --json assets)"
-          test "$(jq '.assets | length' <<<"$assets_json")" -eq 12
-          : > BOOTSTRAP-SHA256SUMS.txt
-          for archive in "${expected[@]}"; do
-            sidecar="checksums/${archive}.sha256"
-            test -s "$sidecar"
-            expected_hash="$(awk '{print $1}' "$sidecar")"
-            [[ "$expected_hash" =~ ^[0-9a-f]{64}$ ]]
-            remote_digest="$(jq -r --arg name "$archive" '.assets[] | select(.name == $name) | .digest' <<<"$assets_json")"
-            test "$remote_digest" = "sha256:${expected_hash}"
-            jq -e --arg name "${archive}.provenance.txt" '.assets[] | select(.name == $name)' <<<"$assets_json" >/dev/null
-            printf '%s  %s\n' "$expected_hash" "$archive" >> BOOTSTRAP-SHA256SUMS.txt
-          done
-          jq -n \
-            --arg schema 'sb0.sig.bootstrap-release.v1' \
-            --arg tag "${BOOTSTRAP_TAG}" \
-            --arg llvm_artifact_tag "${LLVM_ARTIFACT_TAG}" \
-            --arg sig_source_commit "${GITHUB_SHA}" \
-            --arg workflow_run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-            --argjson assets "$(jq '.assets | map({name, size, digest})' <<<"$assets_json")" \
-            '{schema:$schema, tag:$tag, llvm_artifact_tag:$llvm_artifact_tag, sig_source_commit:$sig_source_commit, workflow_run:$workflow_run, assets:$assets}' \
-            > bootstrap-build-manifest.json
-          gh release upload "${BOOTSTRAP_TAG}" BOOTSTRAP-SHA256SUMS.txt bootstrap-build-manifest.json
-          final_assets="$(gh release view "${BOOTSTRAP_TAG}" --json assets,isDraft)"
-          test "$(jq -r .isDraft <<<"$final_assets")" = true
-          test "$(jq '.assets | length' <<<"$final_assets")" -eq 14
-          for aggregate in BOOTSTRAP-SHA256SUMS.txt bootstrap-build-manifest.json; do
-            local_hash="$(sha256sum "$aggregate" | awk '{print $1}')"
-            remote_digest="$(jq -r --arg name "$aggregate" '.assets[] | select(.name == $name) | .digest' <<<"$final_assets")"
-            test "$remote_digest" = "sha256:${local_hash}"
-          done
-          gh release edit "${BOOTSTRAP_TAG}" --draft=false --prerelease
-          test "$(gh release view "${BOOTSTRAP_TAG}" --json isDraft --jq .isDraft)" = false
+          bash ci/finalize-bootstrap-release.sh \
+            "${BOOTSTRAP_TAG}" \
+            "${LLVM_ARTIFACT_TAG}" \
+            "${GITHUB_SHA}" \
+            "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"

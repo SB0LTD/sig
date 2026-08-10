@@ -1,0 +1,47 @@
+name: finalize-bootstrap-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap_tag:
+        description: Existing draft bootstrap release tag
+        required: true
+        type: string
+      llvm_tag:
+        description: Immutable LLVM closure release tag
+        required: true
+        type: string
+      source_commit:
+        description: Sig commit used to build every bootstrap artifact
+        required: true
+        type: string
+      source_workflow_run:
+        description: Successful bootstrap build workflow URL
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-bootstrap-${{ inputs.bootstrap_tag }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify exact manifest and publish bootstrap set
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          bash ci/finalize-bootstrap-release.sh \
+            "${{ inputs.bootstrap_tag }}" \
+            "${{ inputs.llvm_tag }}" \
+            "${{ inputs.source_commit }}" \
+            "${{ inputs.source_workflow_run }}"
