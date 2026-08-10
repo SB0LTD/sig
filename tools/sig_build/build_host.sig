@@ -25,7 +25,7 @@ const sig_process = sig.process;
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
-    // ── 1. Parse argv: fixed positional args [0..6) + user args [6..] ───
+    // ── 1. Parse argv: fixed positional args [0..7) + user args [7..] ───
     var runner_args: sig_build.Runner_Args = .{};
     var config: sig_build.Cli_Config = .{};
 
@@ -83,11 +83,20 @@ pub fn main(init: std.process.Init) !void {
         arg_count += 1;
     }
 
-    if (arg_count < 6) {
-        sig_build.fatal(io, "build host requires at least 6 arguments (got {d})", .{arg_count});
+    // argv[6]: fully resolved build file path (retained for diagnostics and
+    // protocol symmetry; the module was already wired at compilation time).
+    if (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |arg| {
+        if (arg.len > sig_build.PATH_BUF_SIZE) sig_build.fatal(io, "argv[6] path too long", .{});
+        @memcpy(runner_args.build_file[0..arg.len], arg);
+        runner_args.build_file_len = arg.len;
+        arg_count += 1;
     }
 
-    // argv[6..]: user arguments (step names, -D flags, -j, --verbose, etc.)
+    if (arg_count < 7) {
+        sig_build.fatal(io, "build host requires at least 7 arguments (got {d})", .{arg_count});
+    }
+
+    // argv[7..]: user arguments (step names, -D flags, -j, --verbose, etc.)
     while (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |arg| {
         if (arg.len >= 2 and arg[0] == '-' and arg[1] == 'D') {
             sig_build.parseOption(&config.options, arg) catch {
@@ -105,6 +114,8 @@ pub fn main(init: std.process.Init) !void {
             }
         } else if (std.mem.eql(u8, arg, "--verbose")) {
             config.verbose = true;
+        } else if (std.mem.eql(u8, arg, "--help")) {
+            config.help = true;
         } else if (std.mem.eql(u8, arg, "--benchmark")) {
             config.benchmark = true;
         } else if (std.mem.eql(u8, arg, "--keep-going")) {
@@ -215,6 +226,23 @@ pub fn main(init: std.process.Init) !void {
 
     if (config.verbose) {
         sig_build.printMsg(io, "build.sig registered {d} steps", .{ctx.steps.count});
+    }
+
+    if (config.help) {
+        sig_build.printMsg(io, "Usage: sig build [step ...] [-Dname=value] [-jN] [options]", .{});
+        sig_build.printMsg(io, "", .{});
+        sig_build.printMsg(io, "Native build file: {s}", .{runner_args.build_file[0..runner_args.build_file_len]});
+        sig_build.printMsg(io, "Steps:", .{});
+        for (ctx.steps.entries[0..ctx.steps.count]) |entry| {
+            sig_build.printMsg(io, "  {s:<24} {s}", .{
+                entry.name[0..entry.name_len],
+                entry.desc[0..entry.desc_len],
+            });
+        }
+        sig_build.printMsg(io, "", .{});
+        sig_build.printMsg(io, "Options: --build-file <file.sig>, --cache-dir <dir>, --global-cache-dir <dir>,", .{});
+        sig_build.printMsg(io, "         --prefix <dir>, --verbose, --benchmark, --keep-going, --self-test", .{});
+        return;
     }
 
     // ── 4. Validate requested step names ────────────────────────────────

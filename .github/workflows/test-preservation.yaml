@@ -360,7 +360,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1 zstd
-          BOOTSTRAP_TAG="bootstrap-sig-v43"
+          BOOTSTRAP_TAG="bootstrap-sig-v44"
           gh release download "${BOOTSTRAP_TAG}" \
             --pattern "bootstrap-sig-x86_64-linux.tar.zst" \
             --pattern "bootstrap-sig-x86_64-linux.tar.zst.sha256" \

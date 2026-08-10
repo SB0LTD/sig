@@ -6,7 +6,7 @@ on:
       bootstrap_tag:
         description: 'Verified Sig bootstrap release tag'
         required: true
-        default: 'bootstrap-sig-v43'
+        default: 'bootstrap-sig-v44'
         type: string
 
 permissions:

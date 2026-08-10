@@ -2910,13 +2910,22 @@ fn writeCompileRequestReceipt(ctx: *compile.Compilation_Context, result: *compil
     const cache_dir = if (ctx.cache_dir_len > 0) ctx.cache_dir[0..ctx.cache_dir_len] else ".zig-cache";
     var path_buf: [PATH_BUF_SIZE]u8 = undefined;
     const req_segs = [_][]const u8{ cache_dir, "compile_request.bin" };
-    const req_path = sig_fs.joinPath(&path_buf, &req_segs) catch { inProcessFailResult(result, "path error"); return; };
+    const req_path = sig_fs.joinPath(&path_buf, &req_segs) catch {
+        inProcessFailResult(result, "path error");
+        return;
+    };
     const ctx_bytes = std.mem.asBytes(ctx);
     const cwd: std.Io.Dir = .cwd();
     cwd.createDirPath(io, cache_dir) catch {};
-    var file = cwd.createFile(io, req_path, .{}) catch { inProcessFailResult(result, "create file error"); return; };
+    var file = cwd.createFile(io, req_path, .{}) catch {
+        inProcessFailResult(result, "create file error");
+        return;
+    };
     defer file.close(io);
-    file.writeStreamingAll(io, ctx_bytes) catch { inProcessFailResult(result, "write error"); return; };
+    file.writeStreamingAll(io, ctx_bytes) catch {
+        inProcessFailResult(result, "write error");
+        return;
+    };
     result.success = true;
     @memcpy(result.output_path[0..req_path.len], req_path);
     result.output_path_len = req_path.len;
@@ -2932,7 +2941,6 @@ fn inProcessFailResult(result: *compile.Compilation_Result, msg: []const u8) voi
     result.diagnostic_count = 1;
     result.success = false;
 }
-
 
 // ── Engine-Based C++ Compilation Step ────────────────────────────────────────
 
@@ -3542,8 +3550,7 @@ pub const Build_Context = struct {
         var header: [4]u8 = undefined;
         var reader = file.readerStreaming(io, &.{});
         const header_len = reader.interface.readSliceShort(&header) catch return error.BufferTooSmall;
-        const valid_magic = header_len == header.len and (
-            std.mem.eql(u8, &header, "\x7fELF") or
+        const valid_magic = header_len == header.len and (std.mem.eql(u8, &header, "\x7fELF") or
             (header[0] == 'M' and header[1] == 'Z') or
             std.mem.eql(u8, &header, "\xcf\xfa\xed\xfe") or
             std.mem.eql(u8, &header, "\xfe\xed\xfa\xcf") or
@@ -4182,7 +4189,8 @@ pub fn verifySelfHosting(
 
 /// Parsed fixed positional arguments from the compiler's sigBuildDelegate.
 /// Layout: argv[0]=runner, argv[1]=compiler, argv[2]=zig_lib_dir,
-///         argv[3]=build_root, argv[4]=local_cache, argv[5]=global_cache.
+///         argv[3]=build_root, argv[4]=local_cache, argv[5]=global_cache,
+///         argv[6]=resolved_build_file.
 pub const Runner_Args = struct {
     runner_binary: [PATH_BUF_SIZE]u8 = undefined,
     runner_binary_len: usize = 0,
@@ -4196,11 +4204,13 @@ pub const Runner_Args = struct {
     local_cache_dir_len: usize = 0,
     global_cache_dir: [PATH_BUF_SIZE]u8 = undefined,
     global_cache_dir_len: usize = 0,
+    build_file: [PATH_BUF_SIZE]u8 = undefined,
+    build_file_len: usize = 0,
 };
 
 // ── CLI configuration ────────────────────────────────────────────────────────
 
-/// Parsed CLI configuration from user arguments (argv[6+]).
+/// Parsed CLI configuration from user arguments (argv[7+]).
 /// All fields are stack-allocated.
 pub const Cli_Config = struct {
     /// Requested step names from positional arguments.
@@ -4215,6 +4225,8 @@ pub const Cli_Config = struct {
     verbose: bool = false,
     /// --keep-going: continue executing independent steps after a failure.
     keep_going: bool = false,
+    /// -h/--help: print the resolved build graph without executing it.
+    help: bool = false,
     /// --self-test mode: rebuild the build runner and verify byte-identical output.
     self_test: bool = false,
     /// Path to the compiler binary for self-test rebuild (defaults to "sig").
@@ -4225,8 +4237,6 @@ pub const Cli_Config = struct {
     install_prefix_len: usize = 0,
 };
 
-/// Default build file name.
-const DEFAULT_BUILD_FILE = "build.sig";
 /// Default cache directory name.
 const DEFAULT_CACHE_DIR = ".sig-cache";
 /// Default cache file name within the cache directory.
@@ -4517,7 +4527,7 @@ fn compileBuildSig(
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
-    // ── 1. Parse argv: fixed positional args [0..6) + user args [6..] ───
+    // ── 1. Parse argv: fixed positional args [0..7) + user args [7..] ───
     var runner_args: Runner_Args = .{};
     var config: Cli_Config = .{};
 
@@ -4526,7 +4536,7 @@ pub fn main(init: std.process.Init) !void {
     var argv_buf: [4096]u8 = undefined;
     var args_it = sig_process.Argv_Iterator.init(init.minimal.args.vector, &argv_buf);
 
-    // Count total args to validate we have at least 6.
+    // Count total args to validate we have the complete internal protocol.
     var arg_count: usize = 0;
     // We need to collect all args first since the iterator is forward-only.
     // Use a bounded buffer for the fixed args, then parse user args inline.
@@ -4579,12 +4589,20 @@ pub fn main(init: std.process.Init) !void {
         arg_count += 1;
     }
 
-    // Validate that all 6 fixed positional args were present.
-    if (arg_count < 6) {
-        fatal(io, "sig build runner requires at least 6 arguments (got {d})\n  Usage: <runner> <compiler> <zig-lib-dir> <build-root> <local-cache> <global-cache> [user-args...]", .{arg_count});
+    // argv[6]: fully resolved build file path
+    if (args_it.next() catch fatal(io, "argv decode error", .{})) |arg| {
+        if (arg.len > PATH_BUF_SIZE) fatal(io, "argv[6] (build file) path too long", .{});
+        @memcpy(runner_args.build_file[0..arg.len], arg);
+        runner_args.build_file_len = arg.len;
+        arg_count += 1;
     }
 
-    // argv[6..]: user arguments (step names, -D flags, -j, --verbose, etc.)
+    // Validate that all 7 fixed positional args were present.
+    if (arg_count < 7) {
+        fatal(io, "sig build runner requires at least 7 arguments (got {d})\n  Usage: <runner> <compiler> <zig-lib-dir> <build-root> <local-cache> <global-cache> <build-file> [user-args...]", .{arg_count});
+    }
+
+    // argv[7..]: user arguments (step names, -D flags, -j, --verbose, etc.)
     while (args_it.next() catch fatal(io, "argv decode error", .{})) |arg| {
         if (arg.len >= 2 and arg[0] == '-' and arg[1] == 'D') {
             // -Dname=value or -Dname (boolean shorthand)
@@ -4609,6 +4627,8 @@ pub fn main(init: std.process.Init) !void {
             // Long options: --benchmark, --verbose, --keep-going, --self-test
             if (std.mem.eql(u8, arg, "--benchmark")) {
                 config.benchmark = true;
+            } else if (std.mem.eql(u8, arg, "--help")) {
+                config.help = true;
             } else if (std.mem.eql(u8, arg, "--verbose")) {
                 config.verbose = true;
             } else if (std.mem.eql(u8, arg, "--keep-going")) {
@@ -4622,7 +4642,8 @@ pub fn main(init: std.process.Init) !void {
                     config.self_test_compiler_len = value.len;
                 }
             } else if (std.mem.eql(u8, arg, "--prefix") or
-                std.mem.eql(u8, arg, "--maxrss"))
+                std.mem.eql(u8, arg, "--maxrss") or
+                std.mem.eql(u8, arg, "--summary"))
             {
                 // Store --prefix for forwarding to build host.
                 if (std.mem.eql(u8, arg, "--prefix")) {
@@ -4633,7 +4654,8 @@ pub fn main(init: std.process.Init) !void {
                         }
                     }
                 } else {
-                    // --maxrss: skip the value
+                    // Compatibility/reporting controls are accepted by the
+                    // native runner, which always prints its bounded summary.
                     _ = args_it.next() catch {};
                 }
             } else if (std.mem.eql(u8, arg, "--search-prefix")) {
@@ -4660,12 +4682,8 @@ pub fn main(init: std.process.Init) !void {
     // ── 2. Extract build root from Runner_Args ──────────────────────────
     const build_root = runner_args.build_root[0..runner_args.build_root_len];
 
-    // ── 3. Derive build.sig path from build root ────────────────────────
-    var build_file_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const build_file_segs = [_][]const u8{ build_root, DEFAULT_BUILD_FILE };
-    const build_file_path = sig_fs.joinPath(&build_file_path_buf, &build_file_segs) catch {
-        fatal(io, "failed to construct build file path", .{});
-    };
+    // ── 3. Use the compiler-resolved build file ─────────────────────────
+    const build_file_path = runner_args.build_file[0..runner_args.build_file_len];
 
     // Verify build.sig exists by attempting to open it.
     {
@@ -4695,7 +4713,8 @@ pub fn main(init: std.process.Init) !void {
 
     // ── 5. Spawn build host with same argv and propagate exit code ──────
     // The host receives the same argument protocol as this runner:
-    // [host_binary, compiler, zig_lib_dir, build_root, local_cache, global_cache, user_args...]
+    // [host_binary, compiler, zig_lib_dir, build_root, local_cache,
+    //  global_cache, build_file, user_args...]
     // We reconstruct the argv from runner_args and config.
     var host_cmd: Command_Buffer = .{};
 
@@ -4705,6 +4724,7 @@ pub fn main(init: std.process.Init) !void {
     host_cmd.appendArg(build_root) catch fatal(io, "build root too long", .{});
     host_cmd.appendArg(runner_args.local_cache_dir[0..runner_args.local_cache_dir_len]) catch fatal(io, "local cache dir too long", .{});
     host_cmd.appendArg(runner_args.global_cache_dir[0..runner_args.global_cache_dir_len]) catch fatal(io, "global cache dir too long", .{});
+    host_cmd.appendArg(build_file_path) catch fatal(io, "build file path too long", .{});
 
     // Forward user args: step names, -D flags, -j, --verbose, etc.
     const requested = config.requested_steps.slice();
@@ -4746,6 +4766,9 @@ pub fn main(init: std.process.Init) !void {
     }
     if (config.keep_going) {
         host_cmd.appendArg("--keep-going") catch {};
+    }
+    if (config.help) {
+        host_cmd.appendArg("--help") catch {};
     }
     if (config.self_test) {
         if (config.self_test_compiler_len > 0) {

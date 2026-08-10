@@ -11,14 +11,14 @@ on:
       bootstrap_tag:
         description: 'Bootstrap release tag'
         required: false
-        default: 'bootstrap-sig-v43'
+        default: 'bootstrap-sig-v44'
         type: string
 
 permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag || 'bootstrap-sig-v43' }}
+  BOOTSTRAP_TAG: ${{ inputs.bootstrap_tag || 'bootstrap-sig-v44' }}
 
 jobs:
   build:

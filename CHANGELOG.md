@@ -19,6 +19,11 @@ compiler branches into the release train.
   parsing and ZIR generation required by Nexus workloads.
 
 ### Fixed
+- Upstream Maker migration routing `sig build` through transitional
+  `build.zig`/`std.Build` instead of the native fixed-capacity `build.sig`
+  runner. Native dispatch is explicit again, supports custom `.sig` build
+  files, reports the resolved graph in `--help`, and is package-tested by
+  executing a marker-producing graph with no `build.zig` present.
 - `print_zir.zig` missing handler for the `array_mul` instruction (introduced
   alongside `from_backing_int` in the same instruction range).
 

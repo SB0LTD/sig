@@ -350,7 +350,10 @@ fn mainArgs(
             dev.check(.ar_command);
             return process.exit(try llvmArMain(arena, args));
         },
-        .build, .fetch, .init, .libc => {
+        .build => {
+            return cmdBuild(gpa, arena, io, cmd_args, environ_map);
+        },
+        .fetch, .init, .libc => {
             return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
                 .cmd_name = "maker",
                 .root_src_path = "Maker.zig",
@@ -4867,6 +4870,346 @@ pub fn translateC(
         .depend_on_aro = true,
         .capture = capture,
     });
+}
+
+const SigBuildRoot = struct {
+    directory: Cache.Directory,
+    build_file_basename: []const u8,
+    cleanup_directory: ?Io.Dir,
+
+    fn deinit(root: *SigBuildRoot, io: Io) void {
+        if (root.cleanup_directory) |*dir| dir.close(io);
+        root.* = undefined;
+    }
+
+    fn buildFilePath(root: SigBuildRoot, arena: Allocator) Allocator.Error![]const u8 {
+        return root.directory.join(arena, &.{root.build_file_basename});
+    }
+};
+
+const FindSigBuildRootOptions = struct {
+    build_file: ?[]const u8 = null,
+    cwd_path: []const u8,
+};
+
+/// Resolve the native Sig build description. A Sig build never silently
+/// falls back to `build.zig`: that would execute a different build language
+/// and makes release probes incapable of proving the native path.
+fn findSigBuildRoot(arena: Allocator, io: Io, options: FindSigBuildRootOptions) !SigBuildRoot {
+    if (options.build_file) |build_file_arg| {
+        if (!mem.endsWith(u8, build_file_arg, ".sig")) {
+            fatal("native 'sig build' requires a .sig build description; found {q}", .{build_file_arg});
+        }
+        const resolved_file = try fs.path.resolve(arena, &.{ options.cwd_path, build_file_arg });
+        Io.Dir.cwd().access(io, resolved_file, .{}) catch |err| {
+            fatal("unable to access build file {q}: {t}", .{ resolved_file, err });
+        };
+        const dirname = fs.path.dirname(resolved_file) orelse options.cwd_path;
+        const dir = Io.Dir.cwd().openDir(io, dirname, .{}) catch |err| {
+            fatal("unable to open build root {q}: {t}", .{ dirname, err });
+        };
+        return .{
+            .build_file_basename = fs.path.basename(resolved_file),
+            .directory = .{ .path = dirname, .handle = dir },
+            .cleanup_directory = dir,
+        };
+    }
+
+    var dirname = options.cwd_path;
+    while (true) {
+        const build_file = try fs.path.join(arena, &.{ dirname, "build.sig" });
+        if (Io.Dir.cwd().access(io, build_file, .{})) |_| {
+            const dir = Io.Dir.cwd().openDir(io, dirname, .{}) catch |err| {
+                fatal("unable to open build root {q}: {t}", .{ dirname, err });
+            };
+            return .{
+                .build_file_basename = "build.sig",
+                .directory = .{ .path = dirname, .handle = dir },
+                .cleanup_directory = dir,
+            };
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => fatal("unable to inspect build file {q}: {t}", .{ build_file, err }),
+        }
+
+        const parent = fs.path.dirname(dirname) orelse
+            fatal("no build.sig found in the current directory or any parent directory", .{});
+        if (mem.eql(u8, parent, dirname)) {
+            fatal("no build.sig found in the current directory or any parent directory", .{});
+        }
+        dirname = parent;
+    }
+}
+
+const SigBuildRunnerOptions = struct {
+    environ_map: *const process.Environ.Map,
+    dirs: std.zig.Directories,
+    parent_prog_node: std.Progress.Node,
+    resolved_target: Module.ResolvedTarget,
+    self_exe_path: []const u8,
+    thread_limit: usize,
+    color: Color,
+    reference_trace: ?u32,
+    verbose_link: bool,
+    verbose_cc: bool,
+};
+
+/// Compile the fixed-capacity runner from the installed toolchain. The runner
+/// imports only the allocator-free Sig support and compilation modules; the
+/// user's `build.sig` is compiled in its second, isolated build-host stage.
+fn compileSigBuildRunner(
+    gpa: Allocator,
+    arena: Allocator,
+    io: Io,
+    options: SigBuildRunnerOptions,
+) !Path {
+    const compile_prog_node = options.parent_prog_node.start("Compile native build runner", 0);
+    defer compile_prog_node.end();
+
+    const sig_build_root_path = try fs.path.join(arena, &.{
+        options.dirs.zig_lib.path orelse "lib",
+        "..",
+        "tools",
+        "sig_build",
+    });
+    const root_paths: Module.CreateOptions.Paths = .{
+        .root = try .fromUnresolved(arena, options.dirs, &.{sig_build_root_path}),
+        .root_src_path = "main.sig",
+    };
+    const config = try Compilation.Config.resolve(.{
+        .output_mode = .Exe,
+        .root_optimize_mode = .safe,
+        .root_strip = true,
+        .resolved_target = options.resolved_target,
+        .have_zcu = true,
+        .emit_bin = true,
+        .is_test = false,
+    });
+    const root_mod = try Module.create(arena, .{
+        .paths = root_paths,
+        .fully_qualified_name = "root",
+        .cc_argv = &.{},
+        .inherited = .{
+            .resolved_target = options.resolved_target,
+            .optimize_mode = .safe,
+            .strip = true,
+            .single_threaded = true,
+        },
+        .global = config,
+        .parent = null,
+    });
+    const sig_mod = try Module.create(arena, .{
+        .paths = .{
+            .root = try .fromRoot(arena, options.dirs, .zig_lib, "sig"),
+            .root_src_path = "sig.zig",
+        },
+        .fully_qualified_name = "root.sig",
+        .cc_argv = &.{},
+        .inherited = .{},
+        .global = config,
+        .parent = root_mod,
+    });
+    const compile_mod = try Module.create(arena, .{
+        .paths = .{
+            .root = try .fromRoot(arena, options.dirs, .zig_lib, "sig/compile"),
+            .root_src_path = "compile.sig",
+        },
+        .fully_qualified_name = "root.compile",
+        .cc_argv = &.{},
+        .inherited = .{},
+        .global = config,
+        .parent = root_mod,
+    });
+    try root_mod.deps.put(arena, "sig", sig_mod);
+    try root_mod.deps.put(arena, "compile", compile_mod);
+
+    var create_diag: Compilation.CreateDiagnostic = undefined;
+    const comp = Compilation.create(gpa, arena, io, &create_diag, .{
+        .dirs = options.dirs,
+        .root_name = "sig_build_runner",
+        .config = config,
+        .root_mod = root_mod,
+        .main_mod = root_mod,
+        .emit_bin = .yes_cache,
+        .self_exe_path = options.self_exe_path,
+        .thread_limit = options.thread_limit,
+        .verbose_cc = options.verbose_cc,
+        .verbose_link = options.verbose_link,
+        .cache_mode = .whole,
+        .reference_trace = options.reference_trace,
+        .environ_map = options.environ_map,
+    }) catch |err| switch (err) {
+        error.CreateFail => fatal("failed to create native build runner compilation: {f}", .{create_diag}),
+        else => fatal("failed to create native build runner compilation: {t}", .{err}),
+    };
+    defer comp.destroy();
+
+    updateModule(comp, options.color, compile_prog_node) catch |err| switch (err) {
+        error.CompileErrorsReported => process.exit(2),
+        else => |e| return e,
+    };
+    return .{
+        .root_dir = options.dirs.local_cache,
+        .sub_path = try arena.print("o/{s}/{s}", .{ &Cache.binToHex(comp.digest.?), comp.emit_bin.? }),
+    };
+}
+
+fn cmdBuild(
+    gpa: Allocator,
+    arena: Allocator,
+    io: Io,
+    args: []const []const u8,
+    environ_map: *const process.Environ.Map,
+) !void {
+    dev.check(.jit_command);
+
+    var build_file: ?[]const u8 = null;
+    var override_lib_dir: ?[]const u8 = EnvVar.ZIG_LIB_DIR.get(environ_map);
+    var override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
+    var override_local_cache_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_CACHE_DIR.get(environ_map);
+    var reference_trace: ?u32 = null;
+    var verbose_link = EnvVar.ZIG_VERBOSE_LINK.isSet(environ_map);
+    var verbose_cc = EnvVar.ZIG_VERBOSE_CC.isSet(environ_map);
+    var color = Color.settingFromEnvironment(environ_map);
+    var n_jobs: ?u32 = null;
+
+    var runner_args: std.ArrayList([]const u8) = .empty;
+    try runner_args.ensureUnusedCapacity(arena, args.len + 1);
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (mem.eql(u8, arg, "--build-file") or
+            mem.eql(u8, arg, "--zig-lib-dir") or
+            mem.eql(u8, arg, "--cache-dir") or
+            mem.eql(u8, arg, "--global-cache-dir") or
+            mem.eql(u8, arg, "--color"))
+        {
+            if (i + 1 >= args.len) fatal("expected argument after {s}", .{arg});
+            i += 1;
+            const value = args[i];
+            if (mem.eql(u8, arg, "--build-file")) build_file = value else if (mem.eql(u8, arg, "--zig-lib-dir")) override_lib_dir = value else if (mem.eql(u8, arg, "--cache-dir")) override_local_cache_dir = value else if (mem.eql(u8, arg, "--global-cache-dir")) override_global_cache_dir = value else color = stringToEnum(Color, value) orelse fatal("expected --color [auto|on|off]; found {q}", .{value});
+            continue;
+        }
+        if (mem.cutPrefix(u8, arg, "--build-file=")) |value| {
+            build_file = value;
+        } else if (mem.cutPrefix(u8, arg, "--zig-lib-dir=")) |value| {
+            override_lib_dir = value;
+        } else if (mem.cutPrefix(u8, arg, "--cache-dir=")) |value| {
+            override_local_cache_dir = value;
+        } else if (mem.cutPrefix(u8, arg, "--global-cache-dir=")) |value| {
+            override_global_cache_dir = value;
+        } else if (mem.cutPrefix(u8, arg, "--color=")) |value| {
+            color = stringToEnum(Color, value) orelse fatal("expected --color=[auto|on|off]; found {q}", .{arg});
+        } else if (mem.eql(u8, arg, "-h")) {
+            try runner_args.append(arena, "--help");
+        } else if (mem.eql(u8, arg, "-j")) {
+            if (i + 1 >= args.len) fatal("expected job count after -j", .{});
+            i += 1;
+            n_jobs = std.fmt.parseUnsigned(u32, args[i], 10) catch |err|
+                fatal("unable to parse jobs count {q}: {t}", .{ args[i], err });
+            if (n_jobs.? < 1) fatal("number of jobs must be at least 1", .{});
+            try runner_args.appendSlice(arena, &.{ "-j", args[i] });
+        } else if (mem.cutPrefix(u8, arg, "-j")) |value| {
+            n_jobs = std.fmt.parseUnsigned(u32, value, 10) catch |err|
+                fatal("unable to parse jobs count {q}: {t}", .{ value, err });
+            if (n_jobs.? < 1) fatal("number of jobs must be at least 1", .{});
+            try runner_args.append(arena, arg);
+        } else if (mem.eql(u8, arg, "-freference-trace")) {
+            reference_trace = 256;
+        } else if (mem.cutPrefix(u8, arg, "-freference-trace=")) |value| {
+            reference_trace = std.fmt.parseUnsigned(u32, value, 10) catch |err|
+                fatal("unable to parse reference trace count {q}: {t}", .{ value, err });
+        } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
+            reference_trace = null;
+        } else if (mem.eql(u8, arg, "--verbose-link")) {
+            verbose_link = true;
+        } else if (mem.eql(u8, arg, "--verbose-cc")) {
+            verbose_cc = true;
+        } else {
+            try runner_args.append(arena, arg);
+        }
+    }
+
+    const self_exe_path = process.executablePathAlloc(io, arena) catch |err|
+        fatal("unable to find self executable: {t}", .{err});
+    const cwd_path = std.zig.getResolvedCwd(io, arena) catch |err|
+        fatal("unable to resolve current directory: {t}", .{err});
+    var build_root = try findSigBuildRoot(arena, io, .{ .cwd_path = cwd_path, .build_file = build_file });
+    defer build_root.deinit(io);
+
+    var dirs: std.zig.Directories = .init(
+        arena,
+        io,
+        override_lib_dir,
+        override_global_cache_dir,
+        .{ .override = override_local_cache_dir orelse try build_root.directory.join(arena, &.{std.zig.default_local_zig_cache_basename}) },
+        preopens,
+        self_exe_path,
+        environ_map,
+        cwd_path,
+    );
+    defer dirs.deinit(io);
+
+    const root_prog_node = std.Progress.start(io, .{
+        .disable_printing = color == .off,
+        .root_name = "Compiling native Sig build graph (first time setup)",
+    });
+    defer root_prog_node.end();
+    process.raiseFileDescriptorLimit();
+    const thread_limit = @min(
+        @max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1),
+        std.math.maxInt(Zcu.PerThread.IdBacking),
+    );
+    try setThreadLimit(arena, thread_limit);
+    const resolved_target: Module.ResolvedTarget = .{
+        .result = std.zig.resolveTargetQueryOrFatal(io, .{}),
+        .is_native_os = true,
+        .is_native_abi = true,
+        .is_explicit_dynamic_linker = false,
+    };
+    const runner_exe = try compileSigBuildRunner(gpa, arena, io, .{
+        .dirs = dirs,
+        .environ_map = environ_map,
+        .parent_prog_node = root_prog_node,
+        .resolved_target = resolved_target,
+        .self_exe_path = self_exe_path,
+        .thread_limit = thread_limit,
+        .color = color,
+        .reference_trace = reference_trace,
+        .verbose_link = verbose_link,
+        .verbose_cc = verbose_cc,
+    });
+
+    var child_argv: std.ArrayList([]const u8) = .empty;
+    try child_argv.ensureUnusedCapacity(arena, runner_args.items.len + 7);
+    child_argv.appendAssumeCapacity(try runner_exe.toString(arena));
+    child_argv.appendAssumeCapacity(self_exe_path);
+    child_argv.appendAssumeCapacity(dirs.zig_lib.path orelse cwd_path);
+    child_argv.appendAssumeCapacity(build_root.directory.path orelse cwd_path);
+    child_argv.appendAssumeCapacity(dirs.local_cache.path orelse cwd_path);
+    child_argv.appendAssumeCapacity(dirs.global_cache.path orelse cwd_path);
+    child_argv.appendAssumeCapacity(try build_root.buildFilePath(arena));
+    child_argv.appendSliceAssumeCapacity(runner_args.items);
+
+    if (EnvVar.ZIG_VERBOSE_CMD.isSet(environ_map)) {
+        std.log.info("{f}", .{std.zig.SubprocessCommand{ .argv = child_argv.items }});
+    }
+    if (!process.can_spawn) fatal("native 'sig build' cannot spawn its build host on {t}", .{native_os});
+    const term = term: {
+        _ = try io.lockStderr(&.{}, .no_color);
+        defer io.unlockStderr();
+        var child = std.process.spawn(io, .{
+            .argv = child_argv.items,
+            .stdin = .inherit,
+            .stdout = .inherit,
+            .stderr = .inherit,
+        }) catch |err| fatal("failed to spawn native build runner {s}: {t}", .{ child_argv.items[0], err });
+        defer child.kill(io);
+        break :term try child.wait(io);
+    };
+    if (term.success()) return cleanExit(io);
+    const command = try mem.join(arena, " ", child_argv.items);
+    fatal("native build runner failed with {f}:\n{s}", .{ term, command });
 }
 
 const JitCmdOptions = struct {

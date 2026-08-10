@@ -18,7 +18,7 @@ on:
       version:
         description: 'Sig semantic version; must match source'
         required: true
-        default: '0.3.0'
+        default: '0.3.1'
         type: string
       prerelease:
         description: 'Publish as a prerelease'
@@ -28,12 +28,12 @@ on:
       bootstrap_tag:
         description: 'Verified bootstrap release tag'
         required: true
-        default: 'bootstrap-sig-v43'
+        default: 'bootstrap-sig-v44'
         type: string
       llvm_tag:
         description: 'Verified LLVM closure release tag'
         required: true
-        default: 'llvm-22.1.8-sig-0.3.1'
+        default: 'llvm-22.1.8-sig-0.3.0'
         type: string
 
 concurrency:
@@ -44,8 +44,8 @@ permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v43' }}
-  LLVM_ARTIFACT_TAG: ${{ github.event.client_payload.llvm_tag || inputs.llvm_tag || 'llvm-22.1.8-sig-0.3.1' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v44' }}
+  LLVM_ARTIFACT_TAG: ${{ github.event.client_payload.llvm_tag || inputs.llvm_tag || 'llvm-22.1.8-sig-0.3.0' }}
 
 jobs:
   prepare:
@@ -299,9 +299,9 @@ jobs:
           [[ "$zig_output" = "$ZIG_VERSION" || "$zig_output" = "$ZIG_VERSION"-* || "$zig_output" = "$ZIG_VERSION"+* ]]
           [[ "$zig_output" != *sig* ]]
           if [ '${{ matrix.platform }}' = x86_64-linux ]; then
-            ZIG_LIB_DIR="/tmp/package-check/$root/lib" \
-              "$packaged" build --help >/tmp/release-build-help.txt
-            grep -q '^Usage:.*build' /tmp/release-build-help.txt
+            bash ci/prove-native-build.sh \
+              "$packaged" \
+              "/tmp/package-check/$root/lib"
           fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -424,9 +424,9 @@ jobs:
           zig_output="$(/tmp/package-check/$root/bin/zig version)"
           [[ "$zig_output" = "$ZIG_VERSION" || "$zig_output" = "$ZIG_VERSION"-* || "$zig_output" = "$ZIG_VERSION"+* ]]
           [[ "$zig_output" != *sig* ]]
-          ZIG_LIB_DIR="/tmp/package-check/$root/lib" \
-            /tmp/package-check/$root/bin/sig build --help >/tmp/release-build-help.txt
-          grep -q '^Usage:.*build' /tmp/release-build-help.txt
+          bash ci/prove-native-build.sh \
+            "/tmp/package-check/$root/bin/sig" \
+            "/tmp/package-check/$root/lib"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -577,8 +577,7 @@ jobs:
           $zigText = ($zigVersion -join "`n")
           $zigBase = [regex]::Escape($env:ZIG_VERSION)
           if ($LASTEXITCODE -ne 0 -or $zigText -notmatch "^${zigBase}(?:[-+].*)?$" -or $zigText -match 'sig') { throw 'Windows compiler Zig alias version probe failed' }
-          & $sig build --help | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw 'packaged Windows build runner failed' }
+          & .\ci\prove-native-build.ps1 -Sig $sig -ZigLibDir $env:ZIG_LIB_DIR
           & $sig ast-check compiler\core\target.sig
           if ($LASTEXITCODE -ne 0) { throw 'strict .sig parse failed' }
           & $sig test compiler\test_all.sig `

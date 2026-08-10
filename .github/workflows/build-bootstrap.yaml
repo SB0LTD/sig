@@ -12,12 +12,12 @@ on:
       version:
         description: 'Immutable bootstrap release tag'
         required: true
-        default: 'bootstrap-sig-v43'
+        default: 'bootstrap-sig-v44'
         type: string
       llvm_tag:
         description: 'Verified LLVM closure release tag'
         required: true
-        default: 'llvm-22.1.8-sig-0.3.1'
+        default: 'llvm-22.1.8-sig-0.3.0'
         type: string
 
 concurrency:
@@ -232,9 +232,9 @@ jobs:
           zig_output="$(/tmp/bootstrap-package-check/$root/bin/zig version)"
           [[ "$zig_output" = "$ZIG_VERSION" || "$zig_output" = "$ZIG_VERSION"-* || "$zig_output" = "$ZIG_VERSION"+* ]]
           [[ "$zig_output" != *sig* ]]
-          ZIG_LIB_DIR="/tmp/bootstrap-package-check/$root/lib" \
-            /tmp/bootstrap-package-check/$root/bin/sig build --help >/tmp/bootstrap-build-help.txt
-          grep -q '^Usage:.*build' /tmp/bootstrap-build-help.txt
+          bash ci/prove-native-build.sh \
+            "/tmp/bootstrap-package-check/$root/bin/sig" \
+            "/tmp/bootstrap-package-check/$root/lib"
 
       - name: Package aarch64 Linux bootstrap
         shell: bash
@@ -389,9 +389,9 @@ jobs:
           zig_output="$(/tmp/bootstrap-package-check/$root/bin/zig version)"
           [[ "$zig_output" = "$ZIG_VERSION" || "$zig_output" = "$ZIG_VERSION"-* || "$zig_output" = "$ZIG_VERSION"+* ]]
           [[ "$zig_output" != *sig* ]]
-          ZIG_LIB_DIR="/tmp/bootstrap-package-check/$root/lib" \
-            /tmp/bootstrap-package-check/$root/bin/sig build --help >/tmp/bootstrap-build-help.txt
-          grep -q '^Usage:.*build' /tmp/bootstrap-build-help.txt
+          bash ci/prove-native-build.sh \
+            "/tmp/bootstrap-package-check/$root/bin/sig" \
+            "/tmp/bootstrap-package-check/$root/lib"
 
       - name: Upload macOS bootstrap to draft release
         env:
@@ -562,8 +562,7 @@ jobs:
           $zigText = ($zigVersion -join "`n")
           $zigBase = [regex]::Escape($env:ZIG_VERSION)
           if ($LASTEXITCODE -ne 0 -or $zigText -notmatch "^${zigBase}(?:[-+].*)?$" -or $zigText -match 'sig') { throw 'Windows bootstrap Zig alias version probe failed' }
-          & $sig build --help | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw 'packaged Windows bootstrap build runner failed' }
+          & .\ci\prove-native-build.ps1 -Sig $sig -ZigLibDir $env:ZIG_LIB_DIR
           & $sig ast-check compiler\core\target.sig
           if ($LASTEXITCODE -ne 0) { throw 'strict .sig parse failed' }
           & $sig test compiler\test_all.sig `

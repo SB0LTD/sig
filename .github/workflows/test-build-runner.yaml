@@ -9,7 +9,7 @@ on:
       bootstrap_tag:
         description: 'Published bootstrap release to verify'
         required: true
-        default: 'bootstrap-sig-v43'
+        default: 'bootstrap-sig-v44'
 
 permissions:
   contents: read
@@ -58,8 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           "$SIG" version | grep -q '^sig '
-          "$SIG" build --help >/tmp/sig-build-help.txt
-          grep -q '^Usage:.*build' /tmp/sig-build-help.txt
+          bash ci/prove-native-build.sh "$SIG" "$ZIG_LIB_DIR"
           "$SIG" ast-check compiler/test_all.sig
           "$SIG" build \
             -Dno-lib \

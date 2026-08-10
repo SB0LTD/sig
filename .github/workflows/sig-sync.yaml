@@ -94,7 +94,7 @@ jobs:
           git config user.email "sig-sync@users.noreply.github.com"
 
           # ── Resolve current bootstrap tag from manifest ─────────────
-          BOOTSTRAP_TAG="bootstrap-sig-v43"
+          BOOTSTRAP_TAG="bootstrap-sig-v44"
           if [ -f tools/sig_sync/manifest.json ]; then
             MANIFEST_BOOT=$(python3 -c "
           import json
@@ -181,6 +181,13 @@ jobs:
             local SIG_BIN=$(find "$TMPBOOT/boot" -type f \( -name "sig" -o -name "zig" \) | head -1)
             [ -z "$SIG_BIN" ] && echo "::warning::No binary in bootstrap" && rm -rf "$TMPBOOT" && return 1
             chmod +x "$SIG_BIN"
+            local SIG_PREFIX=$(dirname "$(dirname "$SIG_BIN")")
+            local SIG_LIB="$SIG_PREFIX/lib"
+            test -f "$SIG_LIB/std/std.zig" || {
+              echo "::warning::Bootstrap $TAG has no matching standard library"
+              rm -rf "$TMPBOOT"
+              return 1
+            }
 
             # Try a minimal musl libc compilation probe — this catches stale
             # musl sources (e.g. deleted .c files the compiler recipe still references).
@@ -193,7 +200,7 @@ jobs:
 
             local RESULT=0
             if ! "$SIG_BIN" build-exe "$TMPBOOT/probe.zig" \
-                --zig-lib-dir "$(pwd)/lib" \
+                --zig-lib-dir "$SIG_LIB" \
                 -target x86_64-linux-musl -lc \
                 --name probe \
                 -fno-emit-bin 2>"$TMPBOOT/probe.log"; then
@@ -211,19 +218,17 @@ jobs:
               echo "Bootstrap $TAG build-exe probe OK"
             fi
 
-            # Also probe 'zig build --help' which exercises lib/compiler/ build runner
+            # Prove native build.sig discovery, graph loading, execution, and
+            # custom build-file selection against the package's own lib/tools.
             if [ "$RESULT" = "0" ]; then
-              if ! "$SIG_BIN" build \
-                  "--zig-lib=$(pwd)/lib" \
-                  --help 2>"$TMPBOOT/build_probe.log"; then
-                echo "Bootstrap probe (zig build) failed:"
+              if ! bash ci/prove-native-build.sh "$SIG_BIN" "$SIG_LIB" \
+                  >"$TMPBOOT/build_probe.log" 2>&1; then
+                echo "Bootstrap native build.sig proof failed:"
                 cat "$TMPBOOT/build_probe.log"
-                if grep -q "FileNotFound\|file_hash" "$TMPBOOT/build_probe.log"; then
-                  echo "::warning::Bootstrap $TAG can't run 'zig build' — rebuild needed"
-                  RESULT=1
-                fi
+                echo "::warning::Bootstrap $TAG can't execute native build.sig — rebuild needed"
+                RESULT=1
               else
-                echo "Bootstrap $TAG zig-build probe OK"
+                echo "Bootstrap $TAG native build.sig proof OK"
               fi
             fi
 
@@ -468,7 +473,7 @@ jobs:
             echo "::notice::Rebuilding bootstrap: $BOOTSTRAP_TAG → $NEW_TAG"
             gh workflow run build-bootstrap.yaml \
               -f version="$NEW_TAG" \
-              -f llvm_tag=llvm-22.1.8-sig-0.3.1
+              -f llvm_tag=llvm-22.1.8-sig-0.3.0
 
             # The draft is published only after all four platform probes and
             # the aggregate manifest pass. A Linux asset alone is insufficient.
@@ -519,4 +524,4 @@ jobs:
           gh api repos/${{ github.repository }}/dispatches \
             -f event_type=sig-release \
             -f "client_payload[bootstrap_tag]=$BOOTSTRAP_TAG" \
-            -f "client_payload[llvm_tag]=llvm-22.1.8-sig-0.3.1"
+            -f "client_payload[llvm_tag]=llvm-22.1.8-sig-0.3.0"
