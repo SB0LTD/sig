@@ -805,6 +805,7 @@ fn tokenizeAndPrint(arena: Allocator, out: *Writer, raw_src: []const u8) !void {
             .minus_pipe_equal,
             .asterisk,
             .asterisk_equal,
+            .asterisk_asterisk,
             .asterisk_percent,
             .asterisk_percent_equal,
             .asterisk_pipe,
@@ -830,7 +831,7 @@ fn tokenizeAndPrint(arena: Allocator, out: *Writer, raw_src: []const u8) !void {
             .tilde,
             => try writeEscaped(out, src[token.loc.start..token.loc.end]),
 
-            .invalid => fatal("syntax error", .{}),
+            .invalid, .invalid_periodasterisks => fatal("syntax error", .{}),
         }
         index = token.loc.end;
     }

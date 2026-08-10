@@ -336,6 +336,11 @@ pub fn rootDecls(tree: Ast) []const Node.Index {
 
 pub fn renderError(tree: Ast, parse_error: Error, w: *Writer) Writer.Error!void {
     switch (parse_error.tag) {
+        .asterisk_after_ptr_deref => {
+            // Note that the token will point at the `.*` but ideally the source
+            // location would point to the `*` after the `.*`.
+            return w.writeAll("'.*' cannot be followed by '*'; are you missing a space?");
+        },
         .chained_comparison_operators => {
             return w.writeAll("comparison operators cannot be chained");
         },
@@ -672,6 +677,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .mul,
         .div,
         .mod,
+        .array_mult,
         .mul_wrap,
         .mul_sat,
         .add,
@@ -908,6 +914,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .mul,
         .div,
         .mod,
+        .array_mult,
         .mul_wrap,
         .mul_sat,
         .add,
@@ -2094,7 +2101,9 @@ fn fullFnProtoComponents(tree: Ast, info: full.FnProto.Components) full.FnProto 
 
 fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType {
     const size: std.lang.Type.Pointer.Size = switch (tree.tokenTag(info.main_token)) {
-        .asterisk => .one,
+        .asterisk,
+        .asterisk_asterisk,
+        => .one,
         .l_bracket => switch (tree.tokenTag(info.main_token + 1)) {
             .asterisk => if (tree.tokenTag(info.main_token + 2) == .identifier) .c else .many,
             else => .slice,
@@ -2840,6 +2849,7 @@ pub const Error = struct {
     } = .{ .none = {} },
 
     pub const Tag = enum {
+        asterisk_after_ptr_deref,
         chained_comparison_operators,
         decl_between_fields,
         expected_block,
@@ -3170,6 +3180,8 @@ pub const Node = struct {
         div,
         /// `lhs % rhs`. The `main_token` field is the `%` token.
         mod,
+        /// `lhs ** rhs`. The `main_token` field is the `**` token.
+        array_mult,
         /// `lhs *% rhs`. The `main_token` field is the `*%` token.
         mul_wrap,
         /// `lhs *| rhs`. The `main_token` field is the `*|` token.
@@ -3240,6 +3252,8 @@ pub const Node = struct {
         ///
         /// The `main_token` is the asterisk if a single item pointer or the
         /// lbracket if a slice, many-item pointer, or C-pointer.
+        /// The `main_token` might be a ** token, which is shared with a
+        /// parent/child pointer type and may require special handling.
         ptr_type_aligned,
         /// `[*:lhs]rhs`,
         /// `*rhs`,
@@ -3251,6 +3265,8 @@ pub const Node = struct {
         ///
         /// The `main_token` is the asterisk if a single item pointer or the
         /// lbracket if a slice, many-item pointer, or C-pointer.
+        /// The `main_token` might be a ** token, which is shared with a
+        /// parent/child pointer type and may require special handling.
         ptr_type_sentinel,
         /// The `data` field is a `.extra_and_node`:
         ///   1. a `ExtraIndex` to `PtrType`.
@@ -3258,6 +3274,8 @@ pub const Node = struct {
         ///
         /// The `main_token` is the asterisk if a single item pointer or the
         /// lbracket if a slice, many-item pointer, or C-pointer.
+        /// The `main_token` might be a ** token, which is shared with a
+        /// parent/child pointer type and may require special handling.
         ptr_type,
         /// The `data` field is a `.extra_and_node`:
         ///   1. a `ExtraIndex` to `PtrTypeBitRange`.
@@ -3265,6 +3283,8 @@ pub const Node = struct {
         ///
         /// The `main_token` is the asterisk if a single item pointer or the
         /// lbracket if a slice, many-item pointer, or C-pointer.
+        /// The `main_token` might be a ** token, which is shared with a
+        /// parent/child pointer type and may require special handling.
         ptr_type_bit_range,
         /// `lhs[rhs..]`
         ///

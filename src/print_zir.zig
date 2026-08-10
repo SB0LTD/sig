@@ -421,6 +421,7 @@ const Writer = struct {
             .for_len => try self.writePlNodeMultiOp(stream, inst),
 
             .from_backing_int => try self.writePlNodeBin(stream, inst),
+            .array_mul => try self.writeArrayMul(stream, inst),
 
             .elem_val_imm => try self.writeElemValImm(stream, inst),
 
@@ -1067,6 +1068,18 @@ const Writer = struct {
             try self.writeInstRef(stream, arg);
         }
         try stream.writeAll("}) ");
+        try self.writeSrcNode(stream, inst_data.src_node);
+    }
+
+    fn writeArrayMul(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ArrayMul, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.res_ty);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(") ");
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
