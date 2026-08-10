@@ -135,6 +135,7 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
     try ctx.options.put("dev", "bootstrap");
     try ctx.options.put("value-interpret-mode", "by_name");
     try ctx.options.put("mem-leak-frames", "0");
+    try ctx.options.put("tracy-callstack-depth", "0");
     try ctx.options.put("skip-non-native", "false");
 
     _ = try ctx.addStep(
