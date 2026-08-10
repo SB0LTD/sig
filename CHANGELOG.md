@@ -4,6 +4,24 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the sig version and the upstream Zig version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.3.1] — 2026-08-10 — Nexus Compatibility
+
+Patch release adding Nexus array repetition support and merging outstanding
+compiler branches into the release train.
+
+### Added
+- Array repetition (`array_mul`) ZIR instruction printing support for Nexus
+  compatibility.
+
+### Changed
+- Bumped the Sig language/toolchain version to 0.3.1.
+- Merged `codex/nexus-sig-compat` branch: restores `.**` array repetition
+  parsing and ZIR generation required by Nexus workloads.
+
+### Fixed
+- `print_zir.zig` missing handler for the `array_mul` instruction (introduced
+  alongside `from_backing_int` in the same instruction range).
+
 ## [0.3.0] — 2026-08-10 — Native by Construction
 
 Sig 0.3.0 turns the release pipeline into a fail-closed, four-target release

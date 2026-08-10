@@ -17,7 +17,7 @@ on:
       llvm_tag:
         description: 'Verified LLVM closure release tag'
         required: true
-        default: 'llvm-22.1.8-sig-0.3.0'
+        default: 'llvm-22.1.8-sig-0.3.1'
         type: string
 
 concurrency:

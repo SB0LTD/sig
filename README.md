@@ -21,13 +21,13 @@
 
 ---
 
-## 0.3.0 — Native by Construction
+## 0.3.1 — Nexus Compatibility
 
-Four platforms. One verified LLVM closure. Sig builds Sig.
+Patch release adding Nexus array repetition support.
 
 ```
 $ sig version
-sig 0.3.0 (zig 0.17.0-dev)
+sig 0.3.1 (zig 0.17.0-dev)
 ```
 
 The packaged `zig` alias preserves the upstream machine-readable version-only
