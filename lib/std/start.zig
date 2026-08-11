@@ -72,6 +72,7 @@ comptime {
         } else switch (native_os) {
             .other,
             .freestanding,
+            .sb0,
             .vulkan,
             .opengl,
             .opencl,

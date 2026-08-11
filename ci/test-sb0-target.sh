@@ -15,6 +15,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 test -x "$SIG"
 test -f "$ROOT/test/sb0_codegen_probe.sig"
+test -f "$ROOT/test/sb0_custom_entry_probe.sig"
 test -f "$ROOT/test/sb0_target_contract.sig"
 
 "$SIG" test "$ROOT/test/sb0_target_contract.sig" \
@@ -39,6 +40,27 @@ test -f "$ROOT/test/sb0_target_contract.sig"
 
 test "$(od -An -tx1 -N8 "$TMP/sb0-codegen.bin" | tr -d ' \n')" = 5f2003d5ffffff17
 test "$(od -An -tx1 -N4 "$TMP/sb0-codegen.bin" | tr -d ' \n')" != 7f454c46
+
+# A first-class SB0 kernel supplies its own reset symbol. The standard library
+# must not synthesize a POSIX _start or instantiate host I/O merely because the
+# symbol is named something other than `_start`.
+"$SIG" build-exe "$ROOT/test/sb0_custom_entry_probe.sig" \
+  -target aarch64-sb0 \
+  -OReleaseFast \
+  -fentry=_image_start \
+  -fllvm \
+  -flld \
+  -fno-stack-check \
+  -fno-stack-protector \
+  -fno-unwind-tables \
+  -fstrip \
+  --zig-lib-dir "$ROOT/lib" \
+  --cache-dir "$TMP/custom-entry-cache" \
+  --global-cache-dir "$TMP/global-cache" \
+  -femit-bin="$TMP/sb0-custom-entry.bin"
+
+test "$(od -An -tx1 -N8 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')" = 5f2003d5ffffff17
+test "$(od -An -tx1 -N4 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')" != 7f454c46
 
 expect_failure() {
   local expected="$1"
