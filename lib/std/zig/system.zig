@@ -444,6 +444,13 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
 
     // These CPU feature hacks have to come after ABI detection.
     {
+        // x18 is reserved by the consolidated SB0 AArch64 ABI. Apply this
+        // after user feature overrides so `-mcpu=...-reserve_x18` cannot make
+        // an ABI-incompatible image.
+        if (result.os.tag == .sb0 and result.cpu.arch == .aarch64) {
+            result.cpu.features.addFeature(@backingInt(Target.aarch64.Feature.reserve_x18));
+        }
+
         if (result.cpu.arch == .hexagon) {
             // Both LLVM and LLD have broken support for the small data area. Yet LLVM has the
             // feature on by default for all Hexagon CPUs. Clang sort of solves this by defaulting

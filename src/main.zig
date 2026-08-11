@@ -4219,6 +4219,9 @@ fn createModule(
         };
 
         create_module.resolved_options = Compilation.Config.resolve(create_module.opts) catch |err| switch (err) {
+            error.Sb0RequiresAarch64 => fatal("SB0 supports only the aarch64 architecture", .{}),
+            error.Sb0RequiresSb0Abi => fatal("the SB0 operating system and ABI must be selected together", .{}),
+            error.Sb0RequiresNativeObjectFormat => fatal("SB0 requires the native raw object format", .{}),
             error.WasiExecModelRequiresWasi => fatal("only WASI OS targets support execution model", .{}),
             error.SharedMemoryIsWasmOnly => fatal("only WebAssembly CPU targets support shared memory", .{}),
             error.ObjectFilesCannotShareMemory => fatal("object files cannot share memory", .{}),

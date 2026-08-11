@@ -659,6 +659,32 @@ test parse {
     }
     {
         const query = try Query.parse(.{
+            .arch_os_abi = "aarch64-sb0",
+            // The ABI reservation is mandatory even if a caller attempts to
+            // subtract the corresponding backend feature.
+            .cpu_features = "baseline-reserve_x18",
+        });
+        const target = try std.zig.system.resolveTargetQuery(io, query);
+
+        try std.testing.expectEqual(Target.Cpu.Arch.aarch64, target.cpu.arch);
+        try std.testing.expectEqual(Target.Os.Tag.sb0, target.os.tag);
+        try std.testing.expectEqual(Target.Abi.sb0, target.abi);
+        try std.testing.expectEqual(Target.ObjectFormat.raw, target.ofmt);
+        try std.testing.expect(target.dynamic_linker.get() == null);
+        try std.testing.expect(target.cpu.has(.aarch64, .reserve_x18));
+        try std.testing.expect(target.isSb0());
+
+        const text = try query.zigTriple(std.testing.allocator);
+        defer std.testing.allocator.free(text);
+        try std.testing.expectEqualSlices(u8, "aarch64-sb0", text);
+    }
+    {
+        const query = try Query.parse(.{ .arch_os_abi = "aarch64-sb0-sb0" });
+        const target = try std.zig.system.resolveTargetQuery(io, query);
+        try std.testing.expect(target.isSb0());
+    }
+    {
+        const query = try Query.parse(.{
             .arch_os_abi = "x86_64-linux-gnu",
             .cpu_features = "x86_64-sse-sse2-avx-cx8",
         });

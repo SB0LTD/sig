@@ -241,6 +241,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
 
         .contiki,
         .freestanding,
+        .sb0,
         .opencl, // https://llvm.org/docs/SPIRVUsage.html#target-triples
         .opengl,
         .other,
@@ -280,6 +281,9 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
 
     const llvm_abi = switch (target.abi) {
         .none => if (target.os.tag == .maccatalyst) "macabi" else "unknown",
+        // LLVM has no SB0 triple spelling. Preserve SB0 in the Sig target and
+        // lower only the code-generation triple to the unknown AAPCS64 ABI.
+        .sb0 => "unknown",
         .gnu => "gnu",
         .gnuabin32 => "gnuabin32",
         .gnuabi64 => "gnuabi64",

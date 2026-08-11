@@ -18,6 +18,9 @@ pub const Os = struct {
     pub const Tag = enum {
         freestanding,
         other,
+        /// Native SB0. The only supported architecture is AArch64 and the
+        /// corresponding ABI is `.sb0`.
+        sb0,
 
         contiki,
         fuchsia,
@@ -154,6 +157,7 @@ pub const Os = struct {
             return switch (tag) {
                 .freestanding,
                 .other,
+                .sb0,
 
                 .managarm,
 
@@ -394,6 +398,7 @@ pub const Os = struct {
             return switch (tag) {
                 .freestanding,
                 .other,
+                .sb0,
 
                 .managarm,
 
@@ -796,6 +801,8 @@ pub const z80 = @import("Target/generic.zig");
 
 pub const Abi = enum {
     none,
+    /// Consolidated native SB0 AArch64 ABI.
+    sb0,
     gnu,
     gnuabin32,
     gnuabi64,
@@ -828,6 +835,7 @@ pub const Abi = enum {
 
     pub fn default(arch: Cpu.Arch, os_tag: Os.Tag) Abi {
         return switch (os_tag) {
+            .sb0 => .sb0,
             .freestanding, .other => switch (arch) {
                 // Soft float is usually a sane default for freestanding.
                 .arm,
@@ -1068,6 +1076,10 @@ pub const ObjectFormat = enum {
 
     pub fn default(os_tag: Os.Tag, arch: Cpu.Arch) ObjectFormat {
         return switch (os_tag) {
+            // SB0K and SB0X are artifact kinds under one target ABI. The
+            // production frontend emits the relocated native byte image; the
+            // SB0 linker owns the fixed container header.
+            .sb0 => .raw,
             .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => .macho,
             .plan9 => .plan9,
             .uefi, .windows => .coff,
@@ -2182,6 +2194,12 @@ pub inline fn isMinGW(target: *const Target) bool {
     return target.os.tag == .windows and target.abi.isGnu();
 }
 
+/// True only for the consolidated native SB0 target. Keeping this predicate
+/// strict prevents a foreign architecture or ABI from being mistaken for SB0.
+pub inline fn isSb0(target: *const Target) bool {
+    return target.cpu.arch == .aarch64 and target.os.tag == .sb0 and target.abi == .sb0;
+}
+
 pub inline fn isGnuLibC(target: *const Target) bool {
     return switch (target.os.tag) {
         .hurd, .linux => target.abi.isGnu(),
@@ -2257,6 +2275,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .netbsd,
         .openbsd,
         .freestanding,
+        .sb0,
         .fuchsia,
         .managarm,
         .rtems,
@@ -2422,6 +2441,7 @@ pub const DynamicLinker = struct {
             => .arch_os_abi,
             .freestanding,
             .other,
+            .sb0,
 
             .contiki,
             .hermit,
@@ -2862,6 +2882,7 @@ pub const DynamicLinker = struct {
             // dynamic linker path.
             .freestanding,
             .other,
+            .sb0,
 
             .contiki,
             .hermit,
@@ -3166,6 +3187,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) ?u16 {
     switch (target.os.tag) {
         .freestanding,
         .other,
+        .sb0,
         .ashetos,
         => switch (target.cpu.arch) {
             .msp430,

@@ -24,7 +24,7 @@ pub fn canDynamicLink(target: *const std.Target) bool {
         => true,
         else => switch (target.os.tag) {
             // This list is likely incomplete.
-            .freestanding, .uefi => false,
+            .freestanding, .sb0, .uefi => false,
             else => true,
         },
     };
@@ -52,6 +52,7 @@ pub fn libCxxNeedsLibUnwind(target: *const std.Target) bool {
         .tvos,
         .visionos,
         .freestanding,
+        .sb0,
         .wasi, // Wasm/WASI currently doesn't offer support for libunwind, so don't link it.
         => false,
 

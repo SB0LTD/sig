@@ -120,6 +120,9 @@ pub const Options = struct {
 };
 
 pub const ResolveError = error{
+    Sb0RequiresAarch64,
+    Sb0RequiresSb0Abi,
+    Sb0RequiresNativeObjectFormat,
     WasiExecModelRequiresWasi,
     SharedMemoryIsWasmOnly,
     ObjectFilesCannotShareMemory,
@@ -158,6 +161,14 @@ pub const ResolveError = error{
 
 pub fn resolve(options: Options) ResolveError!Config {
     const target = &options.resolved_target.result;
+
+    if (target.os.tag == .sb0) {
+        if (target.cpu.arch != .aarch64) return error.Sb0RequiresAarch64;
+        if (target.abi != .sb0) return error.Sb0RequiresSb0Abi;
+        if (target.ofmt != .raw) return error.Sb0RequiresNativeObjectFormat;
+    } else if (target.abi == .sb0) {
+        return error.Sb0RequiresSb0Abi;
+    }
 
     // WASI-only. Resolve the optional exec-model option, defaults to command.
     if (target.os.tag != .wasi and options.wasi_exec_model != null)
@@ -217,7 +228,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.link_libcpp == false) return error.SanitizeThreadRequiresLibCpp;
             break :b true;
         }
-        if (options.ensure_libcpp_on_non_freestanding and target.os.tag != .freestanding)
+        if (options.ensure_libcpp_on_non_freestanding and target.os.tag != .freestanding and target.os.tag != .sb0)
             break :b true;
 
         break :b false;
@@ -233,7 +244,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b true;
         }
         if (options.link_libc) |x| break :b x;
-        if (options.ensure_libc_on_non_freestanding and target.os.tag != .freestanding)
+        if (options.ensure_libc_on_non_freestanding and target.os.tag != .freestanding and target.os.tag != .sb0)
             break :b true;
 
         break :b std.os.targetRequiresLibC(target);

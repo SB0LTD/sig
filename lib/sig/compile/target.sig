@@ -37,6 +37,7 @@ pub const Target_Triple = struct {
 
     pub const Os = enum {
         native,
+        sb0,
         linux,
         windows,
         macos,
@@ -44,6 +45,7 @@ pub const Target_Triple = struct {
 
     pub const Abi = enum {
         native,
+        sb0,
         musl,
         gnu,
         none,
@@ -63,6 +65,7 @@ pub const Target_Triple = struct {
 
         const resolved_os: std.Target.Os.Tag = switch (self.os) {
             .native => builtin.os.tag,
+            .sb0 => .sb0,
             .linux => .linux,
             .windows => .windows,
             .macos => .macos,
@@ -70,6 +73,7 @@ pub const Target_Triple = struct {
 
         const resolved_abi: std.Target.Abi = switch (self.abi) {
             .native => builtin.abi,
+            .sb0 => .sb0,
             .musl => .musl,
             .gnu => .gnu,
             .none => .none,
@@ -93,6 +97,7 @@ pub const Target_Triple = struct {
     /// - other  → fall back to the host's object format
     fn objectFormatForOs(os_tag: std.Target.Os.Tag) std.Target.ObjectFormat {
         return switch (os_tag) {
+            .sb0 => .raw,
             .linux => .elf,
             .windows => .coff,
             .macos => .macho,
@@ -100,3 +105,16 @@ pub const Target_Triple = struct {
         };
     }
 };
+
+test "aarch64-sb0 resolves to the native SB0 ABI" {
+    const target = (Target_Triple{
+        .arch = .aarch64,
+        .os = .sb0,
+        .abi = .sb0,
+    }).resolve();
+
+    try std.testing.expectEqual(std.Target.Cpu.Arch.aarch64, target.cpu_arch);
+    try std.testing.expectEqual(std.Target.Os.Tag.sb0, target.os_tag);
+    try std.testing.expectEqual(std.Target.Abi.sb0, target.abi);
+    try std.testing.expectEqual(std.Target.ObjectFormat.raw, target.ofmt);
+}
