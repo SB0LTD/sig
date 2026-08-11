@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # Sig Sync Watcher — GCP Cloud Run deployment
 #
-# The watcher is compiled by the sig bootstrap compiler (v9+, dev=.full).
-# The bootstrap downloads its own std lib, so we only need main.sig.
+# The watcher is compiled by one immutable Sig bootstrap package. The package
+# carries its matching standard library, so source/compiler drift is impossible.
 #
 # Usage:
 #   ./tools/sig_sync_watcher/deploy.sh [PROJECT_ID] [REGION]
@@ -21,57 +21,25 @@ IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/sig/${SERVICE_NAME}"
 echo "==> Preparing minimal build context"
 
 TMPCTX=$(mktemp -d)
-trap "rm -rf $TMPCTX" EXIT
+trap 'rm -rf "$TMPCTX"' EXIT
 
 cp tools/sig_sync_watcher/main.sig "$TMPCTX/main.sig"
 
 # Resolve bootstrap tag from manifest
-BOOTSTRAP_TAG="bootstrap-sig-v19"
+BOOTSTRAP_TAG="bootstrap-sig-v49"
 if [ -f tools/sig_sync/manifest.json ]; then
-  MANIFEST_BOOT=$(python3 -c "
-import json
-with open('tools/sig_sync/manifest.json') as f:
-    m = json.load(f)
-print(m.get('bootstrap_tag', ''))" 2>/dev/null || true)
+  MANIFEST_BOOT="$(sed -n 's/.*"bootstrap_tag"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' tools/sig_sync/manifest.json | head -1)"
   [ -n "$MANIFEST_BOOT" ] && BOOTSTRAP_TAG="$MANIFEST_BOOT"
 fi
+[[ "$BOOTSTRAP_TAG" =~ ^bootstrap-sig-v[0-9]+$ ]] || {
+  echo "Invalid bootstrap tag: $BOOTSTRAP_TAG" >&2
+  exit 1
+}
 echo "    Bootstrap: $BOOTSTRAP_TAG"
 
-# Inline Dockerfile — downloads bootstrap sig and compiles the watcher
-cat > "$TMPCTX/Dockerfile" << DOCKERFILE
-FROM ubuntu:24.04 AS builder
-
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-    curl ca-certificates && \\
-    rm -rf /var/lib/apt/lists/*
-
-# Download bootstrap sig (${BOOTSTRAP_TAG})
-RUN curl -sL "https://github.com/SB0LTD/sig/releases/download/${BOOTSTRAP_TAG}/bootstrap-sig-x86_64-linux.tar.gz" \\
-    | tar -xz -C /opt && \\
-    chmod +x /opt/bin/sig /opt/bin/zig && \\
-    echo "sig bootstrap ready (${BOOTSTRAP_TAG})"
-
-# Clone just the lib/ directory we need for compilation
-RUN mkdir -p /opt/sig-src && \\
-    curl -sL "https://github.com/SB0LTD/sig/archive/refs/heads/master.tar.gz" \\
-    | tar -xz --strip-components=1 -C /opt/sig-src "sig-master/lib" && \\
-    echo "std lib ready"
-
-WORKDIR /app
-COPY main.sig main.zig
-
-RUN /opt/bin/sig build-exe main.zig \\
-    --zig-lib-dir /opt/sig-src/lib \\
-    -target x86_64-linux-musl -OReleaseSafe -lc \\
-    --name sig-sync-watcher
-
-FROM alpine:3.21
-RUN apk add --no-cache curl ca-certificates
-COPY --from=builder /app/sig-sync-watcher /sig-sync-watcher
-ENV PORT=8080
-EXPOSE 8080
-ENTRYPOINT ["/sig-sync-watcher"]
-DOCKERFILE
+# Reuse the checked-in Dockerfile while keeping the Cloud Build context tiny.
+cp tools/sig_sync_watcher/Dockerfile "$TMPCTX/Dockerfile"
+sed -i "s/^ARG BOOTSTRAP_TAG=.*/ARG BOOTSTRAP_TAG=${BOOTSTRAP_TAG}/" "$TMPCTX/Dockerfile"
 
 echo "    Context size: $(du -sh "$TMPCTX" | cut -f1)"
 

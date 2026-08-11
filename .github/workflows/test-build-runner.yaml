@@ -10,7 +10,7 @@ on:
       bootstrap_tag:
         description: 'Published bootstrap release to verify'
         required: true
-        default: 'bootstrap-sig-v44'
+        default: 'bootstrap-sig-v49'
 
 permissions:
   contents: read

@@ -15,6 +15,9 @@ compiler branches into the release train.
 
 ### Changed
 - Bumped the Sig language/toolchain version to 0.3.1.
+- Pinned the complete release, regeneration, preservation, sync, and watcher
+  chain to the four-platform `bootstrap-sig-v49` set and the immutable
+  `llvm-22.1.8-sig-0.3.1` closure.
 - Merged `codex/nexus-sig-compat` branch: restores `.**` array repetition
   parsing and ZIR generation required by Nexus workloads.
 
@@ -55,6 +58,15 @@ compiler branches into the release train.
   cherry-pick based. The durable upstream cursor now prevents duplicate
   dispatches from replaying the same commits, and the sync manifest records
   the exact bootstrap/LLVM pair used by subsequent builds and releases.
+- `setup-sig` still resolving releases from the former repository, deriving a
+  Sig toolchain version from Zig manifest metadata, accepting unverified
+  downloads, and using an unpinned legacy cache action. Resolution now targets
+  immutable SB0LTD release identities, supports Sig semver, verifies aggregate
+  release checksums fail-closed, and pins the current Node 24 cache action.
+- The Cloud Run sync watcher still consuming the obsolete flat `.tar.gz`
+  bootstrap layout while fetching an unrelated library snapshot from master.
+  It now compiles its `.sig` source from one checksum-verified bootstrap archive
+  and that archive's bundled matching standard library.
 
 ## [0.3.0] — 2026-08-10 — Native by Construction
 

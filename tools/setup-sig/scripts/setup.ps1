@@ -10,7 +10,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$GithubReleaseBase = 'https://github.com/ShadovvBeast/sig/releases'
+$GithubRepository = 'SB0LTD/sig'
+$GithubReleaseBase = "https://github.com/$GithubRepository/releases"
+$GithubApiBase = "https://api.github.com/repos/$GithubRepository"
 
 # --- Helpers ---
 
@@ -29,7 +31,7 @@ function Resolve-VersionFromManifest {
 
     if ($manifest) {
         $content = Get-Content $manifest -Raw
-        if ($content -match '\.minimum_zig_version\s*=\s*"([^"]+)"') {
+        if ($content -match '\.minimum_sig_version\s*=\s*"([^"]+)"') {
             return $Matches[1]
         }
     }
@@ -38,7 +40,7 @@ function Resolve-VersionFromManifest {
 
 function Resolve-LatestVersion {
     try {
-        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/ShadovvBeast/sig/releases/latest" `
+        $response = Invoke-RestMethod -Uri "$GithubApiBase/releases/latest" `
             -Headers @{ 'User-Agent' = 'setup-sig' } -ErrorAction Stop
         $tag = $response.tag_name -replace '^sig-', ''
         return $tag
@@ -46,6 +48,35 @@ function Resolve-LatestVersion {
         Write-Output "::warning::Could not query latest release from GitHub API"
         return ''
     }
+}
+
+function Resolve-RequestedVersion {
+    param([string]$Requested)
+
+    $requestedVersion = $Requested -replace '^sig-', ''
+    if (-not $requestedVersion -or $requestedVersion -eq 'latest') {
+        return Resolve-LatestVersion
+    }
+    if ($requestedVersion -eq 'master') {
+        throw "'master' is not an immutable Sig release; use 'latest' or a version"
+    }
+    if ($requestedVersion -match '^\d+\.\d+\.\d+$') {
+        $releases = Invoke-RestMethod -Uri "$GithubApiBase/releases?per_page=100" `
+            -Headers @{ 'User-Agent' = 'setup-sig' }
+        $prefix = "sig-${requestedVersion}-zig"
+        $release = $releases | Where-Object {
+            -not $_.draft -and -not $_.prerelease -and $_.tag_name.StartsWith($prefix)
+        } | Select-Object -First 1
+        if (-not $release) { throw "No stable Sig ${requestedVersion} release was found" }
+        return ($release.tag_name -replace '^sig-', '')
+    }
+    try {
+        $null = Invoke-RestMethod -Uri "$GithubApiBase/releases/tags/sig-${requestedVersion}" `
+            -Headers @{ 'User-Agent' = 'setup-sig' } -ErrorAction Stop
+    } catch {
+        throw "No published Sig release has identity ${requestedVersion}"
+    }
+    return $requestedVersion
 }
 
 function Get-DownloadUrl {
@@ -67,9 +98,7 @@ function Invoke-Resolve {
     if (-not $ver) {
         $ver = Resolve-VersionFromManifest
     }
-    if (-not $ver -or $ver -eq 'latest') {
-        $ver = Resolve-LatestVersion
-    }
+    $ver = Resolve-RequestedVersion -Requested $ver
     if (-not $ver) {
         Write-Output "::error::Could not resolve Sig version. Specify one explicitly."
         exit 1
@@ -84,7 +113,7 @@ function Invoke-Resolve {
 }
 
 function Invoke-Install {
-    if ($CacheHit -eq 'true' -and (Test-Path (Join-Path $ToolDir 'bin/sig'))) {
+    if ($CacheHit -eq 'true' -and (Test-Path (Join-Path $ToolDir 'bin\sig.exe'))) {
         Write-Output "Sig ${Version} restored from cache"
         return
     }
@@ -96,30 +125,42 @@ function Invoke-Install {
 
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $zipFile -UseBasicParsing
 
-    # Download and verify checksum
-    $checksumsUrl = (Split-Path $DownloadUrl -Parent) + '/sha256sums.txt'
-    $checksumsFile = Join-Path $tmpDir 'sha256sums.txt'
-    $checksumVerified = $false
-    try {
-        Invoke-WebRequest -Uri $checksumsUrl -OutFile $checksumsFile -UseBasicParsing -ErrorAction Stop
-        $tarballName = Split-Path $DownloadUrl -Leaf
-        $checksumLine = Get-Content $checksumsFile | Where-Object { $_ -match $tarballName }
-        if ($checksumLine) {
-            $expected = ($checksumLine -split '\s+')[0]
-            $actual = (Get-FileHash -Path $zipFile -Algorithm SHA256).Hash.ToLower()
-            if ($expected -ne $actual) {
-                Write-Output "::error::Checksum mismatch! Expected: ${expected}, Got: ${actual}"
-                Remove-Item -Recurse -Force $tmpDir
-                exit 1
-            }
-            $checksumVerified = $true
-            Write-Output "Checksum verified"
-        } else {
-            Write-Output "::warning::Tarball not found in sha256sums.txt — skipping verification"
+    $checksumsFile = Join-Path $tmpDir 'SHA256SUMS.txt'
+    $checksumsName = $null
+    foreach ($candidate in @('SHA256SUMS.txt', 'sha256sums.txt')) {
+        try {
+            Invoke-WebRequest -Uri ((Split-Path $DownloadUrl -Parent) + "/$candidate") `
+                -OutFile $checksumsFile -UseBasicParsing -ErrorAction Stop
+            $checksumsName = $candidate
+            break
+        } catch {
+            # Try the legacy/current alternate aggregate name.
         }
-    } catch {
-        Write-Output "::warning::sha256sums.txt not available — skipping checksum verification"
     }
+    if (-not $checksumsName) {
+        Remove-Item -Recurse -Force -LiteralPath $tmpDir
+        throw 'Release checksum manifest is unavailable'
+    }
+    $archiveName = Split-Path $DownloadUrl -Leaf
+    $checksumLine = Get-Content $checksumsFile | Where-Object {
+        $parts = $_ -split '\s+', 2
+        $parts.Count -eq 2 -and $parts[1] -eq $archiveName
+    } | Select-Object -First 1
+    if (-not $checksumLine) {
+        Remove-Item -Recurse -Force -LiteralPath $tmpDir
+        throw "${archiveName} is absent from ${checksumsName}"
+    }
+    $expected = ($checksumLine -split '\s+')[0].ToLowerInvariant()
+    if ($expected -notmatch '^[0-9a-f]{64}$') {
+        Remove-Item -Recurse -Force -LiteralPath $tmpDir
+        throw "Invalid digest for ${archiveName} in ${checksumsName}"
+    }
+    $actual = (Get-FileHash -Path $zipFile -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($expected -ne $actual) {
+        Remove-Item -Recurse -Force -LiteralPath $tmpDir
+        throw "Checksum mismatch! Expected: ${expected}, Got: ${actual}"
+    }
+    Write-Output "Checksum verified via ${checksumsName}"
 
     # Extract
     if (-not (Test-Path $ToolDir)) {
@@ -131,7 +172,7 @@ function Invoke-Install {
     if ($extracted -and (Test-Path (Join-Path $extracted.FullName 'bin'))) {
         Copy-Item -Path (Join-Path $extracted.FullName '*') -Destination $ToolDir -Recurse -Force
     } else {
-        Copy-Item -Path (Join-Path $tmpDir '*') -Destination $ToolDir -Recurse -Force -Exclude 'sig.zip','sha256sums.txt'
+        Copy-Item -Path (Join-Path $tmpDir '*') -Destination $ToolDir -Recurse -Force -Exclude 'sig.zip','SHA256SUMS.txt'
     }
     Remove-Item -Recurse -Force $tmpDir
 

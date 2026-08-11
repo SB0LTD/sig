@@ -1,30 +1,32 @@
-ARG BOOTSTRAP_TAG=bootstrap-sig-v19
+ARG BOOTSTRAP_TAG=bootstrap-sig-v49
 
 FROM ubuntu:24.04 AS builder
 
 ARG BOOTSTRAP_TAG
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates && \
+    curl ca-certificates zstd && \
     rm -rf /var/lib/apt/lists/*
 
-# Download bootstrap sig (version from build arg)
-RUN curl -sL "https://github.com/SB0LTD/sig/releases/download/${BOOTSTRAP_TAG}/bootstrap-sig-x86_64-linux.tar.gz" \
-    | tar -xz -C /opt && \
-    chmod +x /opt/bin/sig /opt/bin/zig && \
-    echo "sig binary ready (${BOOTSTRAP_TAG})"
+# Download and verify the complete bootstrap package (version from build arg).
+RUN archive=bootstrap-sig-x86_64-linux.tar.zst && \
+    curl -fsSL -o "/tmp/${archive}" \
+      "https://github.com/SB0LTD/sig/releases/download/${BOOTSTRAP_TAG}/${archive}" && \
+    curl -fsSL -o "/tmp/${archive}.sha256" \
+      "https://github.com/SB0LTD/sig/releases/download/${BOOTSTRAP_TAG}/${archive}.sha256" && \
+    (cd /tmp && sha256sum --check --strict "${archive}.sha256") && \
+    mkdir -p /opt/bootstrap && \
+    zstd -d "/tmp/${archive}" --stdout | tar -x -C /opt/bootstrap && \
+    /opt/bootstrap/bootstrap-sig-x86_64-linux/bin/sig version
 
 WORKDIR /app
 
-# Copy the sig standard library (needed for compilation)
-COPY lib/ /app/lib/
-
 # Copy watcher source
-COPY tools/sig_sync_watcher/main.sig /app/main.zig
+COPY main.sig /app/main.sig
 
 # Build a static musl binary
-RUN /opt/bin/sig build-exe main.zig \
-    --zig-lib-dir /app/lib \
+RUN /opt/bootstrap/bootstrap-sig-x86_64-linux/bin/sig build-exe main.sig \
+    --zig-lib-dir /opt/bootstrap/bootstrap-sig-x86_64-linux/lib \
     -target x86_64-linux-musl -OReleaseSafe -lc \
     --name sig-sync-watcher
 

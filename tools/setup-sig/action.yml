@@ -8,9 +8,9 @@ branding:
 inputs:
   version:
     description: >
-      Sig version to install. Examples: "0.0.1", "master", "latest".
-      If omitted, auto-detects from build.sig.zon or build.zig.zon minimum_zig_version,
-      falling back to "latest".
+      Sig release to install. Accepts a complete release identity such as
+      "0.3.1-zig0.17.0.abcdef0", a Sig semver such as "0.3.1", or "latest".
+      If omitted, auto-detects minimum_sig_version and falls back to "latest".
     required: false
     default: ''
   mirror:
@@ -55,7 +55,7 @@ runs:
     # --- Cache compiler tarball ---
     - name: Cache Sig compiler
       if: inputs.use-cache == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       id: compiler-cache
       with:
         path: ${{ runner.tool_cache }}/sig
@@ -97,7 +97,7 @@ runs:
     # --- Cache Zig global cache directory ---
     - name: Cache Zig global cache
       if: inputs.use-cache == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           ~/.cache/zig

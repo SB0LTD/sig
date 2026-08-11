@@ -33,6 +33,8 @@ permissions:
 env:
   LLVM_TAG: "llvmorg-22.1.8"
   LLVM_SOURCE_COMMIT: "ca7933e47d3a3451d81e72ac174dcb5aa28b59d1"
+  LLVM_ARTIFACT_TAG: "llvm-22.1.8-sig-0.3.1"
+  BOOTSTRAP_TAG: "bootstrap-sig-v49"
   ZIG_VERSION: "0.17.0-dev.389+f5a1968f6"
 
 jobs:
@@ -244,9 +246,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download llvm-22 --pattern "llvm-22-x86_64-linux-native.tar.xz" --dir /tmp
+          archive=llvm-22-x86_64-linux-native.tar.xz
+          gh release download "${LLVM_ARTIFACT_TAG}" \
+            --pattern "${archive}" --pattern "${archive}.sha256" --dir /tmp
+          (cd /tmp && sha256sum --check --strict "${archive}.sha256")
           mkdir -p llvm-22
-          tar -xJf /tmp/llvm-22-x86_64-linux-native.tar.xz -C llvm-22 --strip-components=1
+          tar -xJf "/tmp/${archive}" -C llvm-22 --strip-components=1
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
 
       - name: Build bootstrap with cmake
@@ -299,14 +304,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release download llvm-22 --pattern "llvm-22-aarch64-macos-native.tar.zst" --dir /tmp 2>/dev/null; then
-            mkdir -p llvm-22
-            zstd -d /tmp/llvm-22-aarch64-macos-native.tar.zst --stdout | tar -x -C llvm-22 --strip-components=1
-          else
-            gh release download llvm-22 --pattern "llvm-22-aarch64-macos-native.tar.xz" --dir /tmp
-            mkdir -p llvm-22
-            tar -xJf /tmp/llvm-22-aarch64-macos-native.tar.xz -C llvm-22 --strip-components=1
-          fi
+          archive=llvm-22-aarch64-macos-native.tar.zst
+          gh release download "${LLVM_ARTIFACT_TAG}" \
+            --pattern "${archive}" --pattern "${archive}.sha256" --dir /tmp
+          (cd /tmp && shasum -a 256 -c "${archive}.sha256")
+          mkdir -p llvm-22
+          zstd -d "/tmp/${archive}" --stdout | tar -x -C llvm-22 --strip-components=1
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
 
       - name: Build bootstrap with cmake
@@ -360,7 +363,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq libc++1 libc++abi1 zstd
-          BOOTSTRAP_TAG="bootstrap-sig-v44"
           gh release download "${BOOTSTRAP_TAG}" \
             --pattern "bootstrap-sig-x86_64-linux.tar.zst" \
             --pattern "bootstrap-sig-x86_64-linux.tar.zst.sha256" \
@@ -371,11 +373,10 @@ jobs:
           BIN=$(find /tmp/bootstrap -type f -name "sig" | head -1)
           chmod +x "$BIN"
           echo "SIG=${BIN}" >> "$GITHUB_ENV"
-          ln -sf "$(pwd)/lib" "$(dirname "$(dirname "$BIN")")/lib"
 
       - name: "VERIFY: Bootstrap binary runs on Linux"
         run: |
-          "${SIG}" version || echo "version command returned non-zero (acceptable for some bootstrap versions)"
+          "${SIG}" version
           echo "✓ Bootstrap binary loads and executes on Linux"
 
       - name: Cross-compile to Windows (no-LLVM path)
@@ -455,16 +456,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $zst = "llvm-22-x86_64-windows-native.tar.zst"
-          $xz = "llvm-22-x86_64-windows-native.tar.xz"
-          gh release download llvm-22 --pattern $zst --dir $env:TEMP 2>$null
-          if (Test-Path "$env:TEMP\$zst") {
-            mkdir llvm-22
-            zstd -d "$env:TEMP\$zst" --stdout | tar -x -C llvm-22 --strip-components=1
-          } else {
-            gh release download llvm-22 --pattern $xz --dir $env:TEMP
-            mkdir llvm-22
-            tar -xJf "$env:TEMP\$xz" -C llvm-22 --strip-components=1
+          $sidecar = "${zst}.sha256"
+          gh release download $env:LLVM_ARTIFACT_TAG --pattern $zst --pattern $sidecar --dir $env:TEMP
+          $expected = ((Get-Content "$env:TEMP\$sidecar") -split '\s+')[0].ToLowerInvariant()
+          $actual = (Get-FileHash "$env:TEMP\$zst" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) {
+            throw "LLVM archive checksum mismatch: expected $expected, got $actual"
           }
+          mkdir llvm-22
+          zstd -d "$env:TEMP\$zst" --stdout | tar -x -C llvm-22 --strip-components=1
           echo "LLVM_PREFIX=$PWD\llvm-22" >> $env:GITHUB_ENV
 
       - name: Build with cmake + MSVC (compilation and linking)

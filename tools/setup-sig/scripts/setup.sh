@@ -3,22 +3,29 @@
 set -euo pipefail
 
 ACTION="$1"
-GITHUB_RELEASE_BASE="https://github.com/ShadovvBeast/sig/releases"
+GITHUB_REPOSITORY="SB0LTD/sig"
+GITHUB_RELEASE_BASE="https://github.com/${GITHUB_REPOSITORY}/releases"
+GITHUB_API_BASE="https://api.github.com/repos/${GITHUB_REPOSITORY}"
 
 # --- Helpers ---
 
 detect_platform() {
-  local os arch
+  local os arch machine
+  machine="$(uname -m)"
   case "$(uname -s)" in
     Linux*)  os="linux" ;;
     Darwin*) os="macos" ;;
     *)       echo "::error::Unsupported OS: $(uname -s)"; exit 1 ;;
   esac
-  case "$(uname -m)" in
+  case "$machine" in
     x86_64)  arch="x86_64" ;;
     aarch64|arm64) arch="aarch64" ;;
-    *)       echo "::error::Unsupported architecture: $(uname -m)"; exit 1 ;;
+    *)       echo "::error::Unsupported architecture: $machine"; exit 1 ;;
   esac
+  if [ "$os" = macos ] && [ "$arch" != aarch64 ]; then
+    echo "::error::Sig releases currently support macOS on aarch64 only"
+    exit 1
+  fi
   echo "${arch}-${os}"
 }
 
@@ -30,18 +37,51 @@ resolve_version_from_manifest() {
     manifest="build.zig.zon"
   fi
   if [ -n "$manifest" ]; then
-    grep -oP '\.minimum_zig_version\s*=\s*"\K[^"]+' "$manifest" 2>/dev/null || true
+    sed -n 's/.*\.minimum_sig_version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -1
   fi
 }
 
 resolve_latest_version() {
-  # Query GitHub API for latest release tag (format: sig-{version})
   local tag
-  tag=$(curl -fsSL "https://api.github.com/repos/ShadovvBeast/sig/releases/latest" \
-    | grep -oP '"tag_name":\s*"\K[^"]+' 2>/dev/null || true)
-  # Strip the sig- prefix to get the version
+  tag="$(curl -fsSL "${GITHUB_API_BASE}/releases/latest" \
+    | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' \
+    | head -1)"
   tag="${tag#sig-}"
   echo "$tag"
+}
+
+resolve_requested_version() {
+  local requested="$1" tag release
+  requested="${requested#sig-}"
+  if [ -z "$requested" ] || [ "$requested" = latest ]; then
+    resolve_latest_version
+    return
+  fi
+  if [ "$requested" = master ]; then
+    echo "::error::'master' is not an immutable Sig release; use 'latest' or a version" >&2
+    return 1
+  fi
+  if [[ "$requested" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    while IFS= read -r tag; do
+      [ -n "$tag" ] || continue
+      release="$(curl -fsSL "${GITHUB_API_BASE}/releases/tags/${tag}")"
+      if grep -q '"draft":[[:space:]]*false' <<<"$release" &&
+         grep -q '"prerelease":[[:space:]]*false' <<<"$release"; then
+        echo "${tag#sig-}"
+        return
+      fi
+    done < <(curl -fsSL "${GITHUB_API_BASE}/releases?per_page=100" \
+      | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' \
+      | grep -E "^sig-${requested}-zig" \
+      || true)
+    echo "::error::No stable Sig ${requested} release was found" >&2
+    return 1
+  fi
+  curl -fsSL "${GITHUB_API_BASE}/releases/tags/sig-${requested}" >/dev/null || {
+    echo "::error::No published Sig release has identity ${requested}" >&2
+    return 1
+  }
+  echo "$requested"
 }
 
 compute_download_url() {
@@ -65,13 +105,10 @@ action_resolve() {
   local triple
   triple=$(detect_platform)
 
-  # Auto-detect version if not specified
   if [ -z "$version" ]; then
     version=$(resolve_version_from_manifest)
   fi
-  if [ -z "$version" ] || [ "$version" = "latest" ]; then
-    version=$(resolve_latest_version)
-  fi
+  version="$(resolve_requested_version "${version:-latest}")"
   if [ -z "$version" ]; then
     echo "::error::Could not resolve Sig version. Specify one explicitly."
     exit 1
@@ -101,32 +138,37 @@ action_install() {
 
   curl -fsSL "$url" -o "$tarball"
 
-  # Download and verify checksum
-  local checksums_url
-  checksums_url="${url%/*}/sha256sums.txt"
-  local checksums_file="${tmpdir}/sha256sums.txt"
-  if curl -fsSL "$checksums_url" -o "$checksums_file" 2>/dev/null; then
-    local expected actual tarball_name
-    tarball_name=$(basename "$url")
-    expected=$(grep "$tarball_name" "$checksums_file" | awk '{print $1}')
-    if [ -n "$expected" ]; then
-      if command -v sha256sum &>/dev/null; then
-        actual=$(sha256sum "$tarball" | awk '{print $1}')
-      else
-        actual=$(shasum -a 256 "$tarball" | awk '{print $1}')
-      fi
-      if [ "$expected" != "$actual" ]; then
-        echo "::error::Checksum mismatch! Expected: ${expected}, Got: ${actual}"
-        rm -rf "$tmpdir"
-        exit 1
-      fi
-      echo "Checksum verified"
-    else
-      echo "::warning::Tarball not found in sha256sums.txt — skipping verification"
+  local checksums_file="${tmpdir}/SHA256SUMS.txt" checksums_name expected actual tarball_name
+  checksums_name=""
+  for candidate in SHA256SUMS.txt sha256sums.txt; do
+    if curl -fsSL "${url%/*}/${candidate}" -o "$checksums_file" 2>/dev/null; then
+      checksums_name="$candidate"
+      break
     fi
-  else
-    echo "::warning::sha256sums.txt not available — skipping checksum verification"
+  done
+  if [ -z "$checksums_name" ]; then
+    echo "::error::Release checksum manifest is unavailable" >&2
+    rm -rf "$tmpdir"
+    exit 1
   fi
+  tarball_name="$(basename "$url")"
+  expected="$(awk -v name="$tarball_name" '$2 == name { print $1; exit }' "$checksums_file")"
+  if ! [[ "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "::error::${tarball_name} is absent from ${checksums_name}" >&2
+    rm -rf "$tmpdir"
+    exit 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$tarball" | awk '{print $1}')"
+  else
+    actual="$(shasum -a 256 "$tarball" | awk '{print $1}')"
+  fi
+  if [ "$expected" != "$actual" ]; then
+    echo "::error::Checksum mismatch! Expected: ${expected}, Got: ${actual}" >&2
+    rm -rf "$tmpdir"
+    exit 1
+  fi
+  echo "Checksum verified via ${checksums_name}"
 
   # Extract
   mkdir -p "$tool_dir"
