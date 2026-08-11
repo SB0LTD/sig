@@ -267,6 +267,7 @@ fn libCGenericName(target: *const std.Target) [:0]const u8 {
         => return "musl",
         .eabi,
         .eabihf,
+        .sb0,
         .abin32,
         .x32,
         .ilp32,
