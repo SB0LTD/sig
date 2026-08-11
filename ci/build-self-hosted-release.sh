@@ -104,11 +104,19 @@ fi
 # Bash 3.2 (the system shell on macOS runners) treats an empty array expansion
 # as an unbound variable under `set -u`. Positional parameters are defined even
 # when empty, so use them as the optional platform-link-flag vector.
+lld_flag=-flld
 set --
-if [ "$TARGET" = x86_64-windows-gnu ]; then
-  set -- \
-    -lole32 -luuid -lversion -ladvapi32 -lshell32 -luser32 -lws2_32
-fi
+case "$TARGET" in
+  aarch64-macos-none)
+    # Zig's bundled LLD does not implement Mach-O linking. A native macOS
+    # release must use Apple's system linker from the runner toolchain.
+    lld_flag=-fno-lld
+    ;;
+  x86_64-windows-gnu)
+    set -- \
+      -lole32 -luuid -lversion -ladvapi32 -lshell32 -luser32 -lws2_32
+    ;;
+esac
 
 cd "$ROOT"
 "$BOOTSTRAP" build-exe \
@@ -117,7 +125,7 @@ cd "$ROOT"
   "-O$OPTIMIZE" \
   "$strip_flag" \
   -fllvm \
-  -flld \
+  "$lld_flag" \
   -cflags \
     -std=c++17 \
     -fno-exceptions \

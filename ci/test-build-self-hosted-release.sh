@@ -72,8 +72,20 @@ if grep -qFx -- '-lole32' "$mac_args"; then
   echo "macOS release received Windows link libraries" >&2
   exit 1
 fi
+grep -qFx -- '-fno-lld' "$mac_args" || {
+  echo "macOS release did not select the native Mach-O linker" >&2
+  exit 1
+}
+if grep -qFx -- '-flld' "$mac_args"; then
+  echo "macOS release selected unsupported Mach-O LLD" >&2
+  exit 1
+fi
 
 windows_args="$(run_probe x86_64-windows-gnu | tail -1)"
+grep -qFx -- '-flld' "$windows_args" || {
+  echo "Windows release did not select LLD" >&2
+  exit 1
+}
 for flag in -lole32 -luuid -lversion -ladvapi32 -lshell32 -luser32 -lws2_32; do
   grep -qFx -- "$flag" "$windows_args" || {
     echo "Windows release is missing $flag" >&2

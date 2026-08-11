@@ -63,6 +63,10 @@ compiler branches into the release train.
   Release concurrency is keyed by the complete source identity, so a corrected
   immutable revision can run without cancelling or waiting behind an already
   doomed older revision.
+- The shared builder forcing LLD for Mach-O even though the bundled linker only
+  supports the ELF/PE release paths. Target policy now selects Apple's native
+  linker for aarch64 macOS and retains LLD for Linux and Windows; the preflight
+  rejects either policy regressing.
 - Upstream sync using fork ancestry even though integration is intentionally
   cherry-pick based. The durable upstream cursor now prevents duplicate
   dispatches from replaying the same commits, and the sync manifest records
