@@ -471,16 +471,19 @@ jobs:
                 fi
               fi
               if [ -n "$REGEN_RUN_ID" ]; then
-                REGEN_STATUS=$(gh run view "$REGEN_RUN_ID" --json conclusion --jq '.conclusion // ""' 2>/dev/null || true)
+                REGEN_JSON=$(gh run view "$REGEN_RUN_ID" --json status,conclusion 2>/dev/null || true)
+                REGEN_STATUS=$(jq -r '.status // ""' <<<"$REGEN_JSON" 2>/dev/null || true)
+                REGEN_CONCLUSION=$(jq -r '.conclusion // ""' <<<"$REGEN_JSON" 2>/dev/null || true)
               else
                 REGEN_STATUS=""
+                REGEN_CONCLUSION=""
               fi
-              if [ "$REGEN_STATUS" = "success" ]; then
+              if [ "$REGEN_STATUS" = "completed" ] && [ "$REGEN_CONCLUSION" = "success" ]; then
                 echo "zig1.wasm regeneration complete (waited ${WAITED}s)"
                 REGEN_OK=true
                 break
-              elif [ "$REGEN_STATUS" = "failure" ]; then
-                echo "::error::zig1.wasm regeneration failed"
+              elif [ "$REGEN_STATUS" = "completed" ]; then
+                echo "::error::zig1.wasm regeneration ended with ${REGEN_CONCLUSION:-unknown}"
                 break
               fi
               echo "  Still waiting for zig1.wasm regen... (${WAITED}s)"
@@ -494,37 +497,83 @@ jobs:
             # Pull the exact regenerated zig1.wasm commit before bootstrapping.
             git pull --rebase origin master
 
-            # Bump bootstrap version and rebuild.
-            VER_NUM=$(echo "$BOOTSTRAP_TAG" | grep -oP 'v\K[0-9]+')
-            NEW_VER=$((VER_NUM + 1))
-            NEW_TAG="bootstrap-sig-v${NEW_VER}"
+            # Select a genuinely unused immutable identity. Failed bootstrap
+            # attempts deliberately leave drafts behind, and published tags can
+            # outlive a deleted release; neither may ever be reused.
+            VER_NUM="${BOOTSTRAP_TAG##*v}"
+            while :; do
+              VER_NUM=$((VER_NUM + 1))
+              NEW_TAG="bootstrap-sig-v${VER_NUM}"
+              if ! gh release view "$NEW_TAG" >/dev/null 2>&1 &&
+                 ! git ls-remote --exit-code --tags origin "refs/tags/$NEW_TAG" >/dev/null 2>&1; then
+                break
+              fi
+              echo "Skipping existing immutable bootstrap identity $NEW_TAG"
+            done
             echo "::notice::Rebuilding bootstrap: $BOOTSTRAP_TAG → $NEW_TAG"
+
+            PREVIOUS_BUILD_ID=$(gh run list \
+              --workflow="build-bootstrap.yaml" \
+              --event workflow_dispatch \
+              --branch master \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // 0' 2>/dev/null || echo 0)
             gh workflow run build-bootstrap.yaml \
               -f version="$NEW_TAG" \
               -f llvm_tag="$LLVM_ARTIFACT_TAG"
 
-            # The draft is published only after all four platform probes and
-            # the aggregate manifest pass. A Linux asset alone is insufficient.
-            echo "Waiting for published bootstrap $NEW_TAG..."
+            # Track the exact new workflow and fail as soon as any terminal
+            # conclusion is non-success. The release is accepted only after the
+            # workflow and its atomic four-platform manifest both succeed.
+            echo "Waiting for verified bootstrap workflow $NEW_TAG..."
             MAX_WAIT=10800
             WAITED=0
             BOOT_OK=false
+            BUILD_RUN_ID=""
             while [ $WAITED -lt $MAX_WAIT ]; do
               sleep $POLL
               WAITED=$((WAITED + POLL))
-              RELEASE_JSON=$(gh release view "$NEW_TAG" --json isDraft,assets 2>/dev/null || true)
-              if [ -n "$RELEASE_JSON" ] && jq -e \
-                  '.isDraft == false and ([.assets[].name] | index("bootstrap-build-manifest.json") != null)' \
-                  <<<"$RELEASE_JSON" >/dev/null; then
-                if validate_bootstrap "$NEW_TAG"; then
-                  echo "Bootstrap $NEW_TAG fully published and validated (waited ${WAITED}s)"
+              if [ -z "$BUILD_RUN_ID" ]; then
+                CANDIDATE_ID=$(gh run list \
+                  --workflow="build-bootstrap.yaml" \
+                  --event workflow_dispatch \
+                  --branch master \
+                  --limit 1 \
+                  --json databaseId \
+                  --jq '.[0].databaseId // 0' 2>/dev/null || echo 0)
+                if [ "$CANDIDATE_ID" != 0 ] && [ "$CANDIDATE_ID" != "$PREVIOUS_BUILD_ID" ]; then
+                  BUILD_RUN_ID="$CANDIDATE_ID"
+                  echo "Tracking bootstrap workflow run $BUILD_RUN_ID"
+                fi
+              fi
+
+              if [ -n "$BUILD_RUN_ID" ]; then
+                BUILD_JSON=$(gh run view "$BUILD_RUN_ID" --json status,conclusion 2>/dev/null || true)
+                BUILD_STATUS=$(jq -r '.status // ""' <<<"$BUILD_JSON" 2>/dev/null || true)
+                BUILD_CONCLUSION=$(jq -r '.conclusion // ""' <<<"$BUILD_JSON" 2>/dev/null || true)
+                if [ "$BUILD_STATUS" = "completed" ] && [ "$BUILD_CONCLUSION" != "success" ]; then
+                  echo "::error::Bootstrap workflow $BUILD_RUN_ID ended with ${BUILD_CONCLUSION:-unknown}"
+                  exit 1
+                fi
+                if [ "$BUILD_STATUS" = "completed" ] && [ "$BUILD_CONCLUSION" = "success" ]; then
+                  RELEASE_JSON=$(gh release view "$NEW_TAG" --json isDraft,assets 2>/dev/null || true)
+                  if ! jq -e \
+                      '.isDraft == false and ([.assets[].name] | index("bootstrap-build-manifest.json") != null)' \
+                      <<<"$RELEASE_JSON" >/dev/null; then
+                    echo "::error::Successful bootstrap workflow did not publish the exact manifest"
+                    exit 1
+                  fi
+                  if ! validate_bootstrap "$NEW_TAG"; then
+                    echo "::error::Published bootstrap $NEW_TAG failed its consumer probe"
+                    exit 1
+                  fi
+                  echo "Bootstrap $NEW_TAG fully published and validated by run $BUILD_RUN_ID (waited ${WAITED}s)"
                   BOOT_OK=true
                   break
                 fi
-                echo "::error::Published bootstrap $NEW_TAG failed its consumer probe"
-                exit 1
               fi
-              echo "  Still waiting for complete bootstrap... (${WAITED}s)"
+              echo "  Still waiting for bootstrap workflow... (${WAITED}s)"
             done
 
             if [ "$BOOT_OK" != "true" ]; then

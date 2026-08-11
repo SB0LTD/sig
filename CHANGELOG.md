@@ -58,6 +58,11 @@ compiler branches into the release train.
   cherry-pick based. The durable upstream cursor now prevents duplicate
   dispatches from replaying the same commits, and the sync manifest records
   the exact bootstrap/LLVM pair used by subsequent builds and releases.
+- Upstream sync blindly reusing the next numeric bootstrap identity and then
+  polling a failed draft for three hours. Rebuilds now skip every existing
+  draft/tag, track the exact dispatched workflow, fail immediately on any
+  terminal non-success conclusion, and require its published four-platform
+  manifest plus a fresh consumer probe.
 - `setup-sig` still resolving releases from the former repository, deriving a
   Sig toolchain version from Zig manifest metadata, accepting unverified
   downloads, and using an unpinned legacy cache action. Resolution now targets
