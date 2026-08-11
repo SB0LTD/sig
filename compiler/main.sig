@@ -93,6 +93,26 @@ pub fn compileSourceToBuffer(
     return controller.compileFileToBuffer(file, output);
 }
 
+/// Native SB0 compiler service entry. Unlike the multi-target CLI adapter,
+/// this path makes the target and artifact kind compile-time invariants so a
+/// released SB0K runner contains no foreign target parser or linker emitter.
+pub fn compileSb0SourceToBuffer(
+    source: []const u8,
+    output: []u8,
+    workspace: *Pipeline_Workspace,
+) Pipeline_Result {
+    const target = Target_Triple{ .arch = .aarch64, .os = .sb0, .abi = .sb0 };
+    var controller = Streaming_Controller.init(target, workspace);
+    var file = File_Entry{};
+    file.source = source.ptr;
+    file.source_len = source.len;
+    file.is_sig = true;
+    const path = "native-input.sig";
+    for (path, 0..) |byte, index| file.path[index] = byte;
+    file.path_len = path.len;
+    return controller.compileSb0FileToBuffer(file, output);
+}
+
 /// Parse a target triple string like "x86_64-linux-gnu".
 fn parseTargetTriple(s: []const u8) Target_Triple {
     var result = Target_Triple{ .arch = .x86_64, .os = .linux, .abi = .gnu };

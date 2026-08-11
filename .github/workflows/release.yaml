@@ -18,7 +18,7 @@ on:
       version:
         description: 'Sig semantic version; must match source'
         required: true
-        default: '0.3.1'
+        default: '0.3.2'
         type: string
       prerelease:
         description: 'Publish as a prerelease'
@@ -28,7 +28,7 @@ on:
       bootstrap_tag:
         description: 'Verified bootstrap release tag'
         required: true
-        default: 'bootstrap-sig-v49'
+        default: 'bootstrap-sig-v50'
         type: string
       llvm_tag:
         description: 'Verified LLVM closure release tag'
@@ -47,7 +47,7 @@ permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v49' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v50' }}
   LLVM_ARTIFACT_TAG: ${{ github.event.client_payload.llvm_tag || inputs.llvm_tag || 'llvm-22.1.8-sig-0.3.1' }}
 
 jobs:
@@ -198,7 +198,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install verification tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user xz-utils zstd
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user qemu-system-arm xz-utils zstd
 
       - name: Download and verify Linux bootstrap
         env:
@@ -272,6 +272,26 @@ jobs:
             --global-cache-dir /tmp/sig-release-global \
             -femit-bin=/tmp/release-aarch64.o
           file /tmp/release-aarch64.o | grep -q 'ARM aarch64'
+          if [ '${{ matrix.platform }}' = x86_64-linux ]; then
+            bash ci/test-sb0-target.sh "$compiler" "$PWD"
+            sb0_runner="sig-${VERSION}-aarch64-sb0-runner.sb0k"
+            SB0_RUNNER_OUTPUT="$PWD/$sb0_runner" \
+              bash ci/test-sb0-runner.sh "$compiler" "$PWD"
+            sha256sum "$sb0_runner" > "$sb0_runner.sha256"
+            printf '%s\n' \
+              'schema=sb0.sig.release-artifact.v1' \
+              "artifact=$sb0_runner" \
+              'platform=aarch64-sb0' \
+              'target=aarch64-sb0' \
+              'artifact_kind=SB0K' \
+              "sig_version=${SIG_VERSION}" \
+              "source_commit=${GITHUB_SHA}" \
+              "bootstrap_tag=${BOOTSTRAP_TAG}" \
+              "llvm_artifact_tag=${LLVM_ARTIFACT_TAG}" \
+              "workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              > "$sb0_runner.provenance.txt"
+            sha256sum --check --strict "$sb0_runner.sha256"
+          fi
 
       - name: Package Linux toolchain
         shell: bash
@@ -319,6 +339,16 @@ jobs:
             sig-${{ env.VERSION }}-${{ matrix.platform }}.tar.xz
             sig-${{ env.VERSION }}-${{ matrix.platform }}.tar.xz.sha256
             sig-${{ env.VERSION }}-${{ matrix.platform }}.tar.xz.provenance.txt
+          compression-level: 0
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: matrix.platform == 'x86_64-linux'
+        with:
+          name: sig-aarch64-sb0
+          path: |
+            sig-${{ env.VERSION }}-aarch64-sb0-runner.sb0k
+            sig-${{ env.VERSION }}-aarch64-sb0-runner.sb0k.sha256
+            sig-${{ env.VERSION }}-aarch64-sb0-runner.sb0k.provenance.txt
           compression-level: 0
 
   build-macos:
@@ -636,18 +666,21 @@ jobs:
             "sig-${VERSION}-aarch64-linux.tar.xz"
             "sig-${VERSION}-aarch64-macos.tar.xz"
             "sig-${VERSION}-x86_64-windows.zip"
+            "sig-${VERSION}-aarch64-sb0-runner.sb0k"
           )
           aliases=(
             sig-x86_64-linux.tar.xz
             sig-aarch64-linux.tar.xz
             sig-aarch64-macos.tar.xz
             sig-x86_64-windows.zip
+            sig-aarch64-sb0-runner.sb0k
           )
           provenance=(
             "${versioned[0]}.provenance.txt"
             "${versioned[1]}.provenance.txt"
             "${versioned[2]}.provenance.txt"
             "${versioned[3]}.provenance.txt"
+            "${versioned[4]}.provenance.txt"
           )
           for archive in "${versioned[@]}"; do
             test -s "$archive"
@@ -677,7 +710,7 @@ jobs:
             '{schema:$schema, version:$version, sig_version:$sig_version, source_commit:$source_commit, bootstrap_tag:$bootstrap_tag, llvm_artifact_tag:$llvm_artifact_tag, workflow_run:$workflow_run, assets:$assets}' \
             > release-manifest.json
           sha256sum "${versioned[@]}" "${aliases[@]}" "${provenance[@]}" release-manifest.json > SHA256SUMS.txt
-          test "$(wc -l < SHA256SUMS.txt)" -eq 13
+          test "$(wc -l < SHA256SUMS.txt)" -eq 16
           sha256sum --check --strict SHA256SUMS.txt
 
       - name: Build release notes from changelog
@@ -693,8 +726,9 @@ jobs:
           cat > /tmp/release-notes.md <<EOF
           Sig ${VERSION}
 
-          Four LLVM-backed toolchains built by Sig itself and verified on Linux,
-          macOS, Windows, and QEMU AArch64 Linux. Exact build inputs:
+          Four LLVM-backed host toolchains plus one allocator-free native SB0K
+          compiler runner, all built by Sig itself. The runner is boot-verified
+          on system QEMU and emits SB0X in-guest. Exact build inputs:
 
           - source: ${GITHUB_SHA}
           - bootstrap: ${BOOTSTRAP_TAG}
@@ -725,10 +759,12 @@ jobs:
             "sig-${VERSION}-aarch64-linux.tar.xz"
             "sig-${VERSION}-aarch64-macos.tar.xz"
             "sig-${VERSION}-x86_64-windows.zip"
+            "sig-${VERSION}-aarch64-sb0-runner.sb0k"
             sig-x86_64-linux.tar.xz
             sig-aarch64-linux.tar.xz
             sig-aarch64-macos.tar.xz
             sig-x86_64-windows.zip
+            sig-aarch64-sb0-runner.sb0k
             SHA256SUMS.txt
             release-manifest.json
             ./*.provenance.txt
@@ -751,7 +787,7 @@ jobs:
           tag="sig-${VERSION}"
           assets_json="$(gh release view "$tag" --json assets,isDraft,isPrerelease)"
           test "$(jq -r .isDraft <<<"$assets_json")" = true
-          test "$(jq '.assets | length' <<<"$assets_json")" -eq 14
+          test "$(jq '.assets | length' <<<"$assets_json")" -eq 17
           while read -r hash name; do
             remote="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest' <<<"$assets_json")"
             test "$remote" = "sha256:$hash"

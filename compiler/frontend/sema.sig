@@ -110,15 +110,13 @@ pub const Sema = struct {
 
     /// Initialize fixed-capacity semantic state directly in caller storage.
     pub fn initInto(self: *Sema) void {
-        self.* = .{
-            .symbol_table = .{},
-            .type_pool = .{},
-            .eval_stack = .{},
-            .scope_stack = .{},
-            .current_depth = 0,
-            .error_count = 0,
-            .ir_buffer = .{},
-        };
+        self.symbol_table.clear();
+        self.type_pool.clear();
+        self.eval_stack.clear();
+        self.scope_stack.clear();
+        self.current_depth = 0;
+        self.error_count = 0;
+        self.ir_buffer.clear();
     }
 
     /// Resolve an identifier by name hash.
@@ -606,7 +604,7 @@ pub const Sema = struct {
             .data = .{ .unary = .{ .operand = node.data.unary.operand } },
             .type_index = self.internVoidType(),
         });
-        return self.internType(.{ .tag = .@"noreturn", .data = .{ .int = .{ .bits = 0, .signed = false } } });
+        return self.internType(.{ .tag = .noreturn, .data = .{ .int = .{ .bits = 0, .signed = false } } });
     }
 
     /// Analyze an if statement.
@@ -696,7 +694,7 @@ pub const Sema = struct {
     /// Intern the bool type, returning its stable index.
     fn internBoolType(self: *Sema) u32 {
         return self.internType(.{
-            .tag = .@"bool",
+            .tag = .bool,
             .data = .{ .int = .{ .bits = 1, .signed = false } },
         });
     }
@@ -883,7 +881,6 @@ test "scope shadowing - inner scope wins" {
 
     sema.popScope();
 }
-
 
 // ============================================================================
 // Property Tests — Tasks 5.3, 5.4, 5.5, 5.6

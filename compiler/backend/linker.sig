@@ -96,13 +96,11 @@ pub const Linker = struct {
 
     /// Initialize linker state directly in caller-owned fixed storage.
     pub fn initInto(self: *Linker, target: Target_Triple) void {
-        self.* = Linker{
-            .target = target,
-            .relocations = .{},
-            .sections = .{},
-            .externals = .{},
-            .output_offset = 0,
-        };
+        self.target = target;
+        self.relocations.clear();
+        self.sections.clear();
+        self.externals.clear();
+        self.output_offset = 0;
     }
 
     /// Add a section to the linker's section merge table.

@@ -88,6 +88,13 @@ pub fn RingBuffer(comptime T: type, comptime capacity: usize) type {
         pub fn len(self: *const Self) usize {
             return self.count;
         }
+
+        /// Reset logical state without touching unused fixed-capacity storage.
+        pub fn reset(self: *Self) void {
+            self.head = 0;
+            self.tail = 0;
+            self.count = 0;
+        }
     };
 }
 
@@ -147,6 +154,13 @@ pub fn FixedPool(comptime T: type, comptime capacity: usize) type {
         /// Returns the number of currently allocated slots.
         pub fn count(self: *const Self) usize {
             return self.allocated;
+        }
+
+        /// Reset logical state without materializing or clearing slot storage.
+        pub fn reset(self: *Self) void {
+            self.free_count = 0;
+            self.next_uninitialized = 0;
+            self.allocated = 0;
         }
     };
 }
@@ -307,6 +321,15 @@ pub fn Fixed_Hash_Map(comptime K: type, comptime V: type, comptime bucket_count:
             return false;
         }
 
+        /// Remove every live entry while leaving undefined key/value bytes
+        /// untouched. This avoids embedding a multi-megabyte zero template in
+        /// native compiler images.
+        pub fn clear(self: *Self) void {
+            for (&self.buckets) |*entry| entry.occupied = false;
+            self.entry_count = 0;
+            self.timestamp = 1;
+        }
+
         /// Evict the entry with the lowest last_accessed timestamp.
         fn evictLru(self: *Self) void {
             var min_ts: u32 = ~@as(u32, 0);
@@ -433,6 +456,13 @@ pub fn Intern_Pool(comptime T: type, comptime capacity: usize) type {
             return &self.entries[index].value;
         }
 
+        /// Remove every interned value without clearing unused payload bytes.
+        pub fn clear(self: *Self) void {
+            for (&self.entries) |*entry| entry.occupied = false;
+            self.entry_count = 0;
+            self.timestamp = 1;
+        }
+
         /// Find the index of the entry with the lowest last_accessed timestamp.
         fn findLru(self: *const Self) usize {
             var min_ts: u32 = ~@as(u32, 0);
@@ -511,6 +541,10 @@ pub fn BoundedBitSet(comptime capacity: usize) type {
             }
             return null;
         }
+
+        pub fn clearAll(self: *Self) void {
+            @memset(&self.words, 0);
+        }
     };
 }
 
@@ -545,6 +579,9 @@ test "RingBuffer push/pop basic" {
     try testing.expect(!(rb.pop().? != 20)); // expected 20
     try testing.expect(!(rb.pop().? != 30)); // expected 30
     try testing.expect(!(rb.pop() != null)); // expected null
+    rb.push(40);
+    rb.reset();
+    try testing.expect(rb.isEmpty());
 }
 
 test "RingBuffer overwrite when full" {
@@ -580,6 +617,9 @@ test "FixedPool exhausts and recycles in constant time" {
     const recycled = pool.alloc().?;
     try testing.expect(@intFromPtr(recycled) == @intFromPtr(first));
     try testing.expect(pool.count() == 2);
+    pool.reset();
+    try testing.expect(pool.count() == 0);
+    try testing.expect(@intFromPtr(pool.alloc().?) == @intFromPtr(first));
 }
 
 test "BoundedBitSet basic operations" {
@@ -595,6 +635,8 @@ test "BoundedBitSet basic operations" {
     try testing.expect(!(bs.findFirstSet().? != 0)); // first set should be 0
     bs.clear(0);
     try testing.expect(!(bs.findFirstSet().? != 64)); // first set should be 64 after clear(0)
+    bs.clearAll();
+    try testing.expect(bs.findFirstSet() == null);
 }
 
 // ============================================================================
@@ -612,6 +654,9 @@ test "Fixed_Hash_Map capacity invariant after many puts" {
     // At capacity (4 entries) — next put should evict
     map.put(5, 500);
     try testing.expect(!(map.entry_count > 4)); // entry_count should never exceed max_entries
+    map.clear();
+    try testing.expect(map.entry_count == 0);
+    try testing.expect(map.get(5) == null);
 }
 
 test "Fixed_Hash_Map LRU eviction removes oldest entry" {
@@ -658,4 +703,6 @@ test "Intern_Pool count never exceeds capacity" {
     _ = pool.intern(40);
     _ = pool.intern(50); // should evict LRU
     try testing.expect(!(pool.entry_count > 4)); // Intern_Pool should never exceed capacity
+    pool.clear();
+    try testing.expect(pool.entry_count == 0);
 }

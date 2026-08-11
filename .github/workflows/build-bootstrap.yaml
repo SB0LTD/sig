@@ -107,7 +107,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install build dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build qemu-user zlib1g-dev libzstd-dev xz-utils zstd
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build qemu-user qemu-system-arm zlib1g-dev libzstd-dev xz-utils zstd
 
       - name: Prove llvm-config system-library relocation
         shell: bash
@@ -178,6 +178,8 @@ jobs:
             --global-cache-dir /tmp/sig-bootstrap-global \
             -femit-bin=/tmp/bootstrap-aarch64.o
           file /tmp/bootstrap-aarch64.o | grep -q 'ARM aarch64'
+          bash ci/test-sb0-target.sh "$PWD/build/zig2" "$PWD"
+          bash ci/test-sb0-runner.sh "$PWD/build/zig2" "$PWD"
 
       - name: Build and prove aarch64 Linux bootstrap with Sig
         shell: bash

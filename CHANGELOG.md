@@ -4,6 +4,47 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the sig version and the upstream Zig version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.3.2] — 2026-08-11 — First-Class SB0 Target
+
+Patch release making the consolidated native SB0 ABI a production compiler
+target rather than a freestanding compatibility spelling.
+
+### Added
+- First-class `aarch64-sb0` parsing and target identity in the production Sig
+  compiler, standard target model, and allocator-free native build API.
+- `std.Target.Os.Tag.sb0`, `std.Target.Abi.sb0`, and the strict
+  `Target.isSb0()` predicate.
+- A release-gating SB0 contract test that compiles a real AArch64 image and
+  verifies target identity through `@import("builtin")`.
+- A native allocator-free `aarch64-sb0` compiler-service release artifact in
+  an SB0K v1 container. The gate boots the artifact, submits source through a
+  bounded SB0C frame, and proves the in-guest result is SB0X.
+- Strict `.sig` request and response tools backed by fixed 64 KiB storage and
+  raw syscalls; the native-runner path has no Python client or validator.
+- In-place reset operations for fixed-capacity compiler containers. Native
+  phase initialization no longer embeds multi-megabyte zero templates, and the
+  release gate caps the compiler-service SB0K file at 64 KiB.
+
+### Changed
+- Pinned the 0.3.2 release chain to the four-platform
+  `bootstrap-sig-v50` set while retaining the immutable
+  `llvm-22.1.8-sig-0.3.1` compiler closure.
+- `aarch64-sb0` now defaults to the SB0 ABI, native raw output, no dynamic
+  linker, no libc, and no libc++.
+- AArch64 register x18 is reserved after every command-line CPU-feature
+  override, so callers cannot accidentally produce an ABI-incompatible image.
+- LLVM code generation lowers SB0 internally through the platform-neutral
+  AAPCS64 triple while retaining `sb0/sb0` in Sig's public target identity.
+
+### Fixed
+- Nexus builds having to masquerade as `aarch64-freestanding-none` and
+  manually request `+reserve_x18`.
+- Invalid `x86_64-sb0`, mismatched OS/ABI, and foreign SB0 output-format
+  combinations reaching code generation. They now fail with targeted
+  diagnostics.
+- Native SB0 output being described as complete without a compiler-level gate
+  proving that no ELF header survives the output boundary.
+
 ## [0.3.1] — 2026-08-11 — Nexus Compatibility
 
 Patch release adding Nexus array repetition support and merging outstanding

@@ -145,6 +145,23 @@ pub const Streaming_Controller = struct {
     /// The pipeline is intentionally stack-bounded: every phase owns fixed-size
     /// storage, and the caller owns the final output buffer.
     pub fn compileFileToBuffer(self: *Streaming_Controller, file: File_Entry, output: []u8) Pipeline_Result {
+        return self.compileFileToBufferMode(file, output, false);
+    }
+
+    /// Compile one source file through the SB0-only emission graph. Keeping the
+    /// artifact choice comptime-known prevents foreign format emitters and
+    /// their constants from entering a native compiler-runner image.
+    pub fn compileSb0FileToBuffer(self: *Streaming_Controller, file: File_Entry, output: []u8) Pipeline_Result {
+        if (!self.target.isSb0()) return .{ .error_count = 1 };
+        return self.compileFileToBufferMode(file, output, true);
+    }
+
+    fn compileFileToBufferMode(
+        self: *Streaming_Controller,
+        file: File_Entry,
+        output: []u8,
+        comptime sb0_only: bool,
+    ) Pipeline_Result {
         var result = Pipeline_Result{};
 
         if (file.source_len == 0) {
@@ -203,7 +220,10 @@ pub const Streaming_Controller = struct {
         }
 
         workspace.linker.initInto(self.target);
-        const written = workspace.linker.emitExecutable(output, workspace.code[0..code_len]);
+        const written = if (sb0_only)
+            workspace.linker.emitSb0NativeExecutable(output, workspace.code[0..code_len])
+        else
+            workspace.linker.emitExecutable(output, workspace.code[0..code_len]);
         if (written == 0) {
             result.error_count = 1;
             result.success = false;

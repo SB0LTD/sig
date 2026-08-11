@@ -81,14 +81,12 @@ pub const Parser = struct {
             .start = 0,
             .end = 0,
         };
-        self.* = Parser{
-            .node_pool = .{},
-            .source_map = .{},
-            .lowered_mask = .{},
-            .tokenizer = tok,
-            .current = first_token,
-            .file_index = 0,
-        };
+        self.node_pool.reset();
+        self.source_map.clear();
+        self.lowered_mask.clearAll();
+        self.tokenizer = tok;
+        self.current = first_token;
+        self.file_index = 0;
     }
 
     // ========================================================================
@@ -1612,7 +1610,7 @@ test "parser error recovery - continues after bad token" {
 }
 
 test "parser error recovery - no infinite loop on eof" {
-    const source = "const";  // incomplete declaration
+    const source = "const"; // incomplete declaration
     var tok = @import("tokenizer.sig").Tokenizer.init(source, source.len);
     var parser = Parser.init(&tok);
     const result = parser.parseTopLevel();

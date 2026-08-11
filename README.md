@@ -21,14 +21,19 @@
 
 ---
 
-## 0.3.1 — Nexus Compatibility
+## 0.3.2 — First-Class SB0 Target
 
-Patch release adding Nexus array repetition support.
+Patch release adding the consolidated native `aarch64-sb0` target.
 
 ```
 $ sig version
-sig 0.3.1 (zig 0.17.0-dev)
+sig 0.3.2 (zig 0.17.0-dev)
 ```
+
+`-target aarch64-sb0` now selects the SB0 OS and ABI directly, emits native
+raw bytes, reserves x18 automatically, and has no libc or dynamic-linker
+fallback. SB0K and SB0X remain artifact kinds under this one target rather
+than separate compiler destinations.
 
 The packaged `zig` alias preserves the upstream machine-readable version-only
 output, while `sig version` identifies both the Sig and Zig versions.
@@ -39,11 +44,20 @@ output, while `sig version` identifies both the Sig and Zig versions.
 | aarch64-linux | Full LLVM 22.1.8 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-linux.tar.xz) |
 | aarch64-macos | Full LLVM 22.1.8 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-macos.tar.xz) |
 | x86_64-windows | Full LLVM 22.1.8 | [zip](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-windows.zip) |
+| aarch64-sb0 | Native allocator-free SB0K runner | [sb0k](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-sb0-runner.sb0k) |
 
 Every package contains the same full LLVM target set and the same Sig standard
 library. Linux and macOS execute on their build hosts, Windows executes on a
 Windows runner, and aarch64 Linux executes under QEMU user-mode before the
 release can be published.
+
+The SB0K release asset boots as the compiler service itself: it accepts one
+bounded SB0C request, compiles through the SB0-only fixed-capacity pipeline,
+and returns an SB0X image. Its request encoder and response extractor are also
+strict `.sig` programs using fixed storage and raw syscalls—Python is not part
+of the runner or its release gate. See
+[compiler/SB0_NATIVE_RUNNER.md](compiler/SB0_NATIVE_RUNNER.md) for the wire
+contract and reproducible QEMU invocation.
 
 The final release is produced by Sig itself. CMake and upstream Zig are absent
 from the release stage. The checked-in `zig1.wasm` chain is used only to create

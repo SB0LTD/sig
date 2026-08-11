@@ -36,14 +36,12 @@ pub const Tokenizer = struct {
     /// Initialize caller-owned storage directly, avoiding a large aggregate
     /// return slot in Debug and cross-compiled builds.
     pub fn initInto(self: *Tokenizer, source: [*]const u8, source_len: usize) void {
-        self.* = Tokenizer{
-            .source = source,
-            .source_len = source_len,
-            .pos = 0,
-            .line = 1,
-            .column = 1,
-            .token_ring = .{},
-        };
+        self.source = source;
+        self.source_len = source_len;
+        self.pos = 0;
+        self.line = 1;
+        self.column = 1;
+        self.token_ring.reset();
     }
 
     /// Produce one token from the source stream.
@@ -332,18 +330,54 @@ pub const Tokenizer = struct {
         const n2 = self.peekAt(2);
 
         switch (c) {
-            '(' => { self.advance(); return self.makeToken(.l_paren, start_pos); },
-            ')' => { self.advance(); return self.makeToken(.r_paren, start_pos); },
-            '[' => { self.advance(); return self.makeToken(.l_bracket, start_pos); },
-            ']' => { self.advance(); return self.makeToken(.r_bracket, start_pos); },
-            '{' => { self.advance(); return self.makeToken(.l_brace, start_pos); },
-            '}' => { self.advance(); return self.makeToken(.r_brace, start_pos); },
-            ',' => { self.advance(); return self.makeToken(.comma, start_pos); },
-            ':' => { self.advance(); return self.makeToken(.colon, start_pos); },
-            ';' => { self.advance(); return self.makeToken(.semicolon, start_pos); },
-            '~' => { self.advance(); return self.makeToken(.tilde, start_pos); },
-            '@' => { self.advance(); return self.makeToken(.at_sign, start_pos); },
-            '?' => { self.advance(); return self.makeToken(.question_mark, start_pos); },
+            '(' => {
+                self.advance();
+                return self.makeToken(.l_paren, start_pos);
+            },
+            ')' => {
+                self.advance();
+                return self.makeToken(.r_paren, start_pos);
+            },
+            '[' => {
+                self.advance();
+                return self.makeToken(.l_bracket, start_pos);
+            },
+            ']' => {
+                self.advance();
+                return self.makeToken(.r_bracket, start_pos);
+            },
+            '{' => {
+                self.advance();
+                return self.makeToken(.l_brace, start_pos);
+            },
+            '}' => {
+                self.advance();
+                return self.makeToken(.r_brace, start_pos);
+            },
+            ',' => {
+                self.advance();
+                return self.makeToken(.comma, start_pos);
+            },
+            ':' => {
+                self.advance();
+                return self.makeToken(.colon, start_pos);
+            },
+            ';' => {
+                self.advance();
+                return self.makeToken(.semicolon, start_pos);
+            },
+            '~' => {
+                self.advance();
+                return self.makeToken(.tilde, start_pos);
+            },
+            '@' => {
+                self.advance();
+                return self.makeToken(.at_sign, start_pos);
+            },
+            '?' => {
+                self.advance();
+                return self.makeToken(.question_mark, start_pos);
+            },
             '.' => {
                 if (n == '.' and n2 == '.') {
                     self.advanceN(3);
@@ -353,20 +387,38 @@ pub const Tokenizer = struct {
                 return self.makeToken(.dot, start_pos);
             },
             '+' => {
-                if (n == '+') { self.advanceN(2); return self.makeToken(.plus_plus, start_pos); }
-                if (n == '=') { self.advanceN(2); return self.makeToken(.plus_equal, start_pos); }
+                if (n == '+') {
+                    self.advanceN(2);
+                    return self.makeToken(.plus_plus, start_pos);
+                }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.plus_equal, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.plus, start_pos);
             },
             '-' => {
-                if (n == '=') { self.advanceN(2); return self.makeToken(.minus_equal, start_pos); }
-                if (n == '>') { self.advanceN(2); return self.makeToken(.arrow, start_pos); }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.minus_equal, start_pos);
+                }
+                if (n == '>') {
+                    self.advanceN(2);
+                    return self.makeToken(.arrow, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.minus, start_pos);
             },
             '*' => {
-                if (n == '*') { self.advanceN(2); return self.makeToken(.asterisk_asterisk, start_pos); }
-                if (n == '=') { self.advanceN(2); return self.makeToken(.asterisk_equal, start_pos); }
+                if (n == '*') {
+                    self.advanceN(2);
+                    return self.makeToken(.asterisk_asterisk, start_pos);
+                }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.asterisk_equal, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.asterisk, start_pos);
             },
@@ -386,7 +438,10 @@ pub const Tokenizer = struct {
                     }
                     return self.next();
                 }
-                if (n == '=') { self.advanceN(2); return self.makeToken(.slash_equal, start_pos); }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.slash_equal, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.slash, start_pos);
             },
@@ -397,55 +452,94 @@ pub const Tokenizer = struct {
     fn lexOperatorOrPunctuationCont(self: *Tokenizer, start_pos: usize, c: u8, n: u8) Token {
         switch (c) {
             '%' => {
-                if (n == '=') { self.advanceN(2); return self.makeToken(.percent_equal, start_pos); }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.percent_equal, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.percent, start_pos);
             },
             '&' => {
-                if (n == '&') { self.advanceN(2); return self.makeToken(.ampersand_ampersand, start_pos); }
-                if (n == '=') { self.advanceN(2); return self.makeToken(.ampersand_equal, start_pos); }
+                if (n == '&') {
+                    self.advanceN(2);
+                    return self.makeToken(.ampersand_ampersand, start_pos);
+                }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.ampersand_equal, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.ampersand, start_pos);
             },
             '|' => {
-                if (n == '|') { self.advanceN(2); return self.makeToken(.pipe_pipe, start_pos); }
-                if (n == '=') { self.advanceN(2); return self.makeToken(.pipe_equal, start_pos); }
+                if (n == '|') {
+                    self.advanceN(2);
+                    return self.makeToken(.pipe_pipe, start_pos);
+                }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.pipe_equal, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.pipe, start_pos);
             },
             '^' => {
-                if (n == '=') { self.advanceN(2); return self.makeToken(.caret_equal, start_pos); }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.caret_equal, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.caret, start_pos);
             },
             '=' => {
-                if (n == '=') { self.advanceN(2); return self.makeToken(.equal_equal, start_pos); }
-                if (n == '>') { self.advanceN(2); return self.makeToken(.fat_arrow, start_pos); }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.equal_equal, start_pos);
+                }
+                if (n == '>') {
+                    self.advanceN(2);
+                    return self.makeToken(.fat_arrow, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.equal, start_pos);
             },
             '!' => {
-                if (n == '=') { self.advanceN(2); return self.makeToken(.bang_equal, start_pos); }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.bang_equal, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.bang, start_pos);
             },
             '<' => {
                 if (n == '<') {
-                    if (self.peekAt(2) == '=') { self.advanceN(3); return self.makeToken(.less_less_equal, start_pos); }
+                    if (self.peekAt(2) == '=') {
+                        self.advanceN(3);
+                        return self.makeToken(.less_less_equal, start_pos);
+                    }
                     self.advanceN(2);
                     return self.makeToken(.less_less, start_pos);
                 }
-                if (n == '=') { self.advanceN(2); return self.makeToken(.less_equal, start_pos); }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.less_equal, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.less_than, start_pos);
             },
             '>' => {
                 if (n == '>') {
-                    if (self.peekAt(2) == '=') { self.advanceN(3); return self.makeToken(.greater_greater_equal, start_pos); }
+                    if (self.peekAt(2) == '=') {
+                        self.advanceN(3);
+                        return self.makeToken(.greater_greater_equal, start_pos);
+                    }
                     self.advanceN(2);
                     return self.makeToken(.greater_greater, start_pos);
                 }
-                if (n == '=') { self.advanceN(2); return self.makeToken(.greater_equal, start_pos); }
+                if (n == '=') {
+                    self.advanceN(2);
+                    return self.makeToken(.greater_equal, start_pos);
+                }
                 self.advance();
                 return self.makeToken(.greater_than, start_pos);
             },
@@ -828,10 +922,10 @@ test "tokenizer byte coverage - keywords recognized" {
     // Property 2: All zig/sig keywords must be recognized as their keyword tag,
     // not as a plain .identifier.
     const keywords = [_][]const u8{
-        "const",    "var",       "fn",      "pub",     "if",
-        "else",     "while",     "for",     "return",  "struct",
-        "enum",     "union",     "switch",  "break",   "continue",
-        "defer",    "try",       "catch",   "orelse",
+        "const", "var",   "fn",     "pub",    "if",
+        "else",  "while", "for",    "return", "struct",
+        "enum",  "union", "switch", "break",  "continue",
+        "defer", "try",   "catch",  "orelse",
     };
     for (keywords) |kw| {
         var tok = Tokenizer.init(kw.ptr, kw.len);
