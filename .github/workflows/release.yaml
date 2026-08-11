@@ -37,7 +37,10 @@ on:
         type: string
 
 concurrency:
-  group: sig-release-${{ github.event.client_payload.version || inputs.version || github.sha }}
+  # Release identities include the source SHA. Serialize duplicate dispatches
+  # for one exact source, but do not let a doomed older revision block a fixed
+  # immutable revision from using otherwise-idle platform runners.
+  group: sig-release-${{ github.event.client_payload.version || inputs.version || 'source' }}-${{ github.sha }}
   cancel-in-progress: false
 
 permissions:
@@ -60,6 +63,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Prove shared release argument vectors
+        run: |
+          chmod +x ci/build-self-hosted-release.sh ci/test-build-self-hosted-release.sh
+          ci/test-build-self-hosted-release.sh
 
       - name: Resolve and validate release identity
         id: release

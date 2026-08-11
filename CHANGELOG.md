@@ -54,6 +54,15 @@ compiler branches into the release train.
   not silently rebased onto the source directory. Every bootstrap release now
   proves the complete wasm-to-C link and uses the resulting zig1 compiler to
   compile the real compiler entry point before downloading LLVM closures.
+- The shared final-release builder expanding an empty Bash array under
+  `set -u`, which is accepted by newer Linux Bash but aborts on macOS Bash 3.2.
+  Optional platform link arguments now use the shell's always-defined
+  positional vector, preserving the Windows libraries without a macOS special
+  case. Bootstrap and stable release preflights now regression-test both the
+  empty macOS vector and the complete Windows library vector before building.
+  Release concurrency is keyed by the complete source identity, so a corrected
+  immutable revision can run without cancelling or waiting behind an already
+  doomed older revision.
 - Upstream sync using fork ancestry even though integration is intentionally
   cherry-pick based. The durable upstream cursor now prevents duplicate
   dispatches from replaying the same commits, and the sync manifest records

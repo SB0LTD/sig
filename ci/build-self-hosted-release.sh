@@ -101,11 +101,13 @@ if [ "${#llvm_link_flags[@]}" -eq 0 ]; then
   exit 1
 fi
 
-platform_link_flags=()
+# Bash 3.2 (the system shell on macOS runners) treats an empty array expansion
+# as an unbound variable under `set -u`. Positional parameters are defined even
+# when empty, so use them as the optional platform-link-flag vector.
+set --
 if [ "$TARGET" = x86_64-windows-gnu ]; then
-  platform_link_flags+=(
+  set -- \
     -lole32 -luuid -lversion -ladvapi32 -lshell32 -luser32 -lws2_32
-  )
 fi
 
 cd "$ROOT"
@@ -144,7 +146,7 @@ cd "$ROOT"
   --cache-dir "$CACHE/compiler" \
   -lc \
   -lc++ \
-  "${platform_link_flags[@]}" \
+  "$@" \
   -L "$LLVM_PREFIX/lib" \
   "${llvm_link_flags[@]}" \
   "-femit-bin=$OUTPUT"
