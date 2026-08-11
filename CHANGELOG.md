@@ -27,7 +27,7 @@ target rather than a freestanding compatibility spelling.
 
 ### Changed
 - Pinned the 0.3.2 release chain to the four-platform
-  `bootstrap-sig-v50` set while retaining the immutable
+  `bootstrap-sig-v51` set while retaining the immutable
   `llvm-22.1.8-sig-0.3.1` compiler closure.
 - `aarch64-sb0` now defaults to the SB0 ABI, native raw output, no dynamic
   linker, no libc, and no libc++.
@@ -37,6 +37,10 @@ target rather than a freestanding compatibility spelling.
   AAPCS64 triple while retaining `sb0/sb0` in Sig's public target identity.
 
 ### Fixed
+- SB0 kernels with a custom entry such as `_image_start` incorrectly
+  instantiating the POSIX `_start` path and `std.Io.Threaded`. `.sb0` now uses
+  the same no-runtime startup policy as freestanding targets, with a raw
+  custom-entry release regression.
 - Nexus builds having to masquerade as `aarch64-freestanding-none` and
   manually request `+reserve_x18`.
 - Invalid `x86_64-sb0`, mismatched OS/ABI, and foreign SB0 output-format
