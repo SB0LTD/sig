@@ -773,6 +773,7 @@ const usage_build_generic =
     \\  --import-symbols               (WebAssembly) import missing symbols from the host environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
     \\  --export-table                 (WebAssembly) export function table to the host environment
+    \\  --growable-table               (WebAssembly) remove maximum size from function table, allowing table to grow
     \\  --initial-memory=[bytes]       (WebAssembly) initial size of the linear memory
     \\  --max-memory=[bytes]           (WebAssembly) maximum size of the linear memory
     \\  --shared-memory                (WebAssembly) use shared linear memory
@@ -1007,6 +1008,7 @@ fn buildOutputType(
     var linker_import_symbols: bool = false;
     var linker_import_table: bool = false;
     var linker_export_table: bool = false;
+    var linker_growable_table: bool = false;
     var linker_initial_memory: ?u64 = null;
     var linker_max_memory: ?u64 = null;
     var linker_global_base: ?u64 = null;
@@ -1786,6 +1788,8 @@ fn buildOutputType(
                         linker_import_table = true;
                     } else if (mem.eql(u8, arg, "--export-table")) {
                         linker_export_table = true;
+                    } else if (mem.eql(u8, arg, "--growable-table")) {
+                        linker_growable_table = true;
                     } else if (prefixedIntArg(arg, "--initial-memory=")) |int| {
                         linker_initial_memory = int;
                     } else if (prefixedIntArg(arg, "--max-memory=")) |int| {
@@ -2734,6 +2738,8 @@ fn buildOutputType(
                     linker_import_table = true;
                 } else if (mem.eql(u8, arg, "--export-table")) {
                     linker_export_table = true;
+                } else if (mem.eql(u8, arg, "--growable-table")) {
+                    linker_growable_table = true;
                 } else if (mem.eql(u8, arg, "--no-entry")) {
                     entry = .disabled;
                 } else if (mem.eql(u8, arg, "--initial-memory")) {
@@ -3696,6 +3702,7 @@ fn buildOutputType(
         .linker_import_symbols = linker_import_symbols,
         .linker_import_table = linker_import_table,
         .linker_export_table = linker_export_table,
+        .linker_growable_table = linker_growable_table,
         .linker_initial_memory = linker_initial_memory,
         .linker_max_memory = linker_max_memory,
         .linker_print_gc_sections = linker_print_gc_sections,

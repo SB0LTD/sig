@@ -1478,6 +1478,7 @@ pub const CreateOptions = struct {
     linker_import_symbols: bool = false,
     linker_import_table: bool = false,
     linker_export_table: bool = false,
+    linker_growable_table: bool = false,
     linker_initial_memory: ?u64 = null,
     linker_max_memory: ?u64 = null,
     linker_global_base: ?u64 = null,
@@ -2183,6 +2184,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
             .import_symbols = options.linker_import_symbols,
             .import_table = options.linker_import_table,
             .export_table = options.linker_export_table,
+            .growable_table = options.linker_growable_table,
             .initial_memory = options.linker_initial_memory,
             .max_memory = options.linker_max_memory,
             .global_base = options.linker_global_base,
@@ -3434,6 +3436,7 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.add(opts.import_symbols);
     man.hash.add(opts.import_table);
     man.hash.add(opts.export_table);
+    man.hash.add(opts.growable_table);
 
     // Mach-O specific stuff
     try link.File.MachO.hashAddFrameworks(man, opts.frameworks);
