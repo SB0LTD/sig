@@ -221,22 +221,19 @@ pub fn update(
                     .astgen_failure, .success => {}, // the file was read successfully
                 }
 
-                const path = try file.path.toAbsolute(comp.dirs, gpa);
-                defer gpa.free(path);
-
                 const result = res: {
                     try whole.cache_manifest_mutex.lock(io);
                     defer whole.cache_manifest_mutex.unlock(io);
                     if (file.source) |source| {
-                        break :res man.addFilePostContents(path, source, file.stat);
+                        break :res file.path.addToCacheManifestPostHitContents(man, &comp.dirs, source, file.stat);
                     } else {
-                        break :res man.addFilePost(path);
+                        break :res file.path.addToCacheManifestPostHit(man, &comp.dirs);
                     }
                 };
                 result catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
                     else => {
-                        try pt.reportRetryableFileError(file_index, "unable to update cache: {s}", .{@errorName(err)});
+                        try pt.reportRetryableFileError(file_index, "unable to update cache: {t}", .{err});
                         continue;
                     },
                 };
@@ -481,7 +478,7 @@ pub fn updateFile(
     const stat = try source_file.stat(io);
 
     const want_local_cache = switch (file.path.root) {
-        .none, .local_cache => true,
+        .none, .local_cache, .build_root => true,
         .global_cache, .zig_lib => false,
     };
 
@@ -2963,13 +2960,10 @@ fn newEmbedFile(
         const array_len = Value.fromInterned(new_file.val).typeOf(zcu).childType(zcu).arrayLen(zcu);
         const contents = ip_str.toSlice(array_len, ip);
 
-        const path_str = try path.toAbsolute(comp.dirs, gpa);
-        defer gpa.free(path_str);
-
         try whole.cache_manifest_mutex.lock(io);
         defer whole.cache_manifest_mutex.unlock(io);
 
-        try man.addFilePostContents(path_str, contents, new_file.stat);
+        try path.addToCacheManifestPostHitContents(man, &comp.dirs, contents, new_file.stat);
     }
 
     return new_file;
