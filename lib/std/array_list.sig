@@ -544,6 +544,11 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
             return self.allocatedSlice()[self.items.len..];
         }
 
+        /// Deprecated
+        pub fn getLast(self: Self) T {
+            return self.items[self.items.len - 1];
+        }
+
         /// Deprecated in favor of `last`
         pub const getLastOrNull = last;
 
@@ -1398,6 +1403,14 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         pub fn unusedCapacitySlice(self: Self) []T {
             return self.allocatedSlice()[self.items.len..];
         }
+
+        /// Deprecated
+        pub fn getLast(self: Self) T {
+            return self.items[self.items.len - 1];
+        }
+
+        /// Deprecated in favor of `last`
+        pub const getLastOrNull = last;
 
         /// Returns the last element from the list, or `null` if the list is
         /// empty.
