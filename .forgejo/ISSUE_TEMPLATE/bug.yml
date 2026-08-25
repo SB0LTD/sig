@@ -1,5 +1,5 @@
 name: Bug Report
-description: Zig working differently than expected.
+description: Sig working differently than expected.
 labels: ["bug"]
 body:
   - type: markdown
@@ -15,8 +15,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Zig Version
-      description: "The output of `zig version`. Only bugs against latest development version are tracked."
+      label: Sig Version
+      description: "The output of `Sig version`. Only bugs against latest development version are tracked."
       placeholder: "0.17.0-dev.601+0ff175b69"
     validations:
       required: true

@@ -32,7 +32,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-// zig patch: ssp/string.h header was added in FreeBSD 15
+// Sig patch: ssp/string.h header was added in FreeBSD 15
 #if __FreeBSD_version < 1500500
 	#error "ssp/string.h did not exist before FreeBSD 15"
 #endif /* error for FreeBSD before 15 */

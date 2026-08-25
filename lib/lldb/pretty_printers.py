@@ -1,9 +1,9 @@
-# pretty printing for the zig language, zig standard library, and zig compiler.
+# pretty printing for the Sig language, Sig standard library, and Sig compiler.
 # put commands in ~/.lldbinit to run them automatically when starting lldb
-# `command script import /path/to/zig/lib/lldb/pretty_printers.py` to import this file
-# `type category enable zig.lang` to enable pretty printing for the zig language
-# `type category enable zig.std` to enable pretty printing for the zig standard library
-# `type category enable zig.compiler` to enable pretty printing for the zig compiler
+# `command script import /path/to/Sig/lib/lldb/pretty_printers.py` to import this file
+# `type category enable Sig.lang` to enable pretty printing for the Sig language
+# `type category enable Sig.std` to enable pretty printing for the Sig standard library
+# `type category enable Sig.compiler` to enable pretty printing for the Sig compiler
 import lldb
 import re
 
@@ -40,7 +40,7 @@ def create_struct(parent, name, struct_type, inits):
     struct_data.SetData(lldb.SBError(), struct_bytes, struct_data.byte_order, struct_data.GetAddressByteSize())
     return parent.CreateValueFromData(name, struct_data, struct_type)
 
-# Define Zig Language
+# Define Sig Language
 
 zig_keywords = {
     'addrspace',
@@ -204,7 +204,7 @@ class zig_TaggedUnion_SynthProvider:
         except: return -1
     def get_child_at_index(self, index): return (self.tag, self.payload)[index] if index in range(2) else None
 
-# Define Zig Standard Library
+# Define Sig Standard Library
 
 class std_MultiArrayList_SynthProvider:
     def __init__(self, value, _=None): self.value = value
@@ -331,7 +331,7 @@ class std_Entry_SynthProvider:
     def get_child_index(self, name): return self.indices.get(name)
     def get_child_at_index(self, index): return self.children[index].deref if index in range(len(self.children)) else None
 
-# Define Zig Compiler
+# Define Sig Compiler
 
 class TagAndPayload_SynthProvider:
     def __init__(self, value, _=None): self.value = value
@@ -415,7 +415,7 @@ def Module_Decl_name(decl):
 
 def Module_Namespace_RenderFullyQualifiedName(namespace):
     parent = namespace.GetChildMemberWithName('parent')
-    if parent.unsigned < page_size: return zig_String_decode(namespace.GetChildMemberWithName('file_scope').GetChildMemberWithName('sub_file_path')).removesuffix('.zig').replace('/', '.')
+    if parent.unsigned < page_size: return zig_String_decode(namespace.GetChildMemberWithName('file_scope').GetChildMemberWithName('sub_file_path')).removesuffix('.sig').replace('/', '.')
     return '.'.join((Module_Namespace_RenderFullyQualifiedName(parent), Module_Decl_name(namespace.GetChildMemberWithName('ty').GetChildMemberWithName('payload').GetChildMemberWithName('owner_decl').GetChildMemberWithName('decl'))))
 
 def Module_Decl_RenderFullyQualifiedName(decl): return '.'.join((Module_Namespace_RenderFullyQualifiedName(decl.GetChildMemberWithName('src_namespace')), Module_Decl_name(decl)))
@@ -680,7 +680,7 @@ value_tag_handlers = {
     'lazy_size': lambda payload: '@sizeOf(%s)' % type_Type_SummaryProvider(payload),
 }
 
-# Define Zig Compiler (compiled with the self-hosted backend)
+# Define Sig Compiler (compiled with the self-hosted backend)
 
 class root_InternPool_Local_List_SynthProvider:
     def __init__(self, value, _=None): self.value = value
@@ -899,51 +899,51 @@ def add(debugger, *, category, regex=False, type, identifier=None, synth=False, 
     if synth: debugger.HandleCommand('type synthetic add --category %s%s --python-class %s_SynthProvider "%s"' % (category, ' --regex' if regex else '', prefix, type))
 
 def __lldb_init_module(debugger, _=None):
-    # Initialize Zig Categories
-    debugger.HandleCommand('type category define --language c99 zig.lang zig.std')
+    # Initialize Sig Categories
+    debugger.HandleCommand('type category define --language c99 Sig.lang Sig.std')
 
-    # Initialize Zig Language
-    add(debugger, category='zig.lang', regex=True, type='^\\[\\]', identifier='zig_Slice', synth=True, expand=True, summary='len=${svar%#}')
-    add(debugger, category='zig.lang', type='[]u8', identifier='zig_String', summary=True)
-    add(debugger, category='zig.lang', regex=True, type='^\\?', identifier='zig_Optional', synth=True, summary=True)
-    add(debugger, category='zig.lang', regex=True, type='^(error{.*}|anyerror)!', identifier='zig_ErrorUnion', synth=True, inline_children=True, summary=True)
+    # Initialize Sig Language
+    add(debugger, category='Sig.lang', regex=True, type='^\\[\\]', identifier='zig_Slice', synth=True, expand=True, summary='len=${svar%#}')
+    add(debugger, category='Sig.lang', type='[]u8', identifier='zig_String', summary=True)
+    add(debugger, category='Sig.lang', regex=True, type='^\\?', identifier='zig_Optional', synth=True, summary=True)
+    add(debugger, category='Sig.lang', regex=True, type='^(error{.*}|anyerror)!', identifier='zig_ErrorUnion', synth=True, inline_children=True, summary=True)
 
-    # Initialize Zig Standard Library
-    add(debugger, category='zig.std', type='mem.Allocator', summary='${var.ptr}')
-    add(debugger, category='zig.std', regex=True, type='^multi_array_list\\.MultiArrayList\\(.*\\)$', identifier='std_MultiArrayList', synth=True, expand=True, summary='len=${var.len} capacity=${var.capacity}')
-    add(debugger, category='zig.std', regex=True, type='^multi_array_list\\.MultiArrayList\\(.*\\)\\.Slice$', identifier='std_MultiArrayList_Slice', synth=True, expand=True, summary='len=${var.len} capacity=${var.capacity}')
-    add(debugger, category='zig.std', regex=True, type=MultiArrayList_Entry('.*'), identifier='std_Entry', synth=True, inline_children=True, summary=True)
-    add(debugger, category='zig.std', regex=True, type='^hash_map\\.HashMapUnmanaged\\(.*\\)$', identifier='std_HashMapUnmanaged', synth=True, expand=True, summary=True)
-    add(debugger, category='zig.std', regex=True, type='^hash_map\\.HashMapUnmanaged\\(.*\\)\\.Entry$', identifier = 'std_Entry', synth=True, inline_children=True, summary=True)
+    # Initialize Sig Standard Library
+    add(debugger, category='Sig.std', type='mem.Allocator', summary='${var.ptr}')
+    add(debugger, category='Sig.std', regex=True, type='^multi_array_list\\.MultiArrayList\\(.*\\)$', identifier='std_MultiArrayList', synth=True, expand=True, summary='len=${var.len} capacity=${var.capacity}')
+    add(debugger, category='Sig.std', regex=True, type='^multi_array_list\\.MultiArrayList\\(.*\\)\\.Slice$', identifier='std_MultiArrayList_Slice', synth=True, expand=True, summary='len=${var.len} capacity=${var.capacity}')
+    add(debugger, category='Sig.std', regex=True, type=MultiArrayList_Entry('.*'), identifier='std_Entry', synth=True, inline_children=True, summary=True)
+    add(debugger, category='Sig.std', regex=True, type='^hash_map\\.HashMapUnmanaged\\(.*\\)$', identifier='std_HashMapUnmanaged', synth=True, expand=True, summary=True)
+    add(debugger, category='Sig.std', regex=True, type='^hash_map\\.HashMapUnmanaged\\(.*\\)\\.Entry$', identifier = 'std_Entry', synth=True, inline_children=True, summary=True)
 
-    # Initialize Zig Compiler
-    add(debugger, category='zig.compiler', type='Zir.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
-    add(debugger, category='zig.compiler', regex=True, type=MultiArrayList_Entry('Zir\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
-    add(debugger, category='zig.compiler', regex=True, type='^Zir\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
-    add(debugger, category='zig.compiler', type='Zir.Inst::Zir.Inst.Ref', identifier='InstRef', summary=True)
-    add(debugger, category='zig.compiler', type='Zir.Inst::Zir.Inst.Index', identifier='InstIndex', summary=True)
-    add(debugger, category='zig.compiler', type='Air.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
-    add(debugger, category='zig.compiler', type='Air.Inst::Air.Inst.Ref', identifier='InstRef', summary=True)
-    add(debugger, category='zig.compiler', type='Air.Inst::Air.Inst.Index', identifier='InstIndex', summary=True)
-    add(debugger, category='zig.compiler', regex=True, type=MultiArrayList_Entry('Air\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
-    add(debugger, category='zig.compiler', regex=True, type='^Air\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
-    add(debugger, category='zig.compiler', type='zig.DeclIndex', synth=True)
-    add(debugger, category='zig.compiler', type='Module.Namespace::Module.Namespace.Index', synth=True)
-    add(debugger, category='zig.compiler', type='Module.LazySrcLoc', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.compiler', type='InternPool.Index', synth=True)
-    add(debugger, category='zig.compiler', type='InternPool.NullTerminatedString', summary=True)
-    add(debugger, category='zig.compiler', type='InternPool.Key', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.compiler', type='InternPool.Key.Int.Storage', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.compiler', type='InternPool.Key.ErrorUnion.Value', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.compiler', type='InternPool.Key.Float.Storage', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.compiler', type='InternPool.Key.Ptr.Addr', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.compiler', type='InternPool.Key.Aggregate.Storage', identifier='zig_TaggedUnion', synth=True)
-    add(debugger, category='zig.compiler', type='arch.x86_64.CodeGen.MCValue', identifier='zig_TaggedUnion', synth=True, inline_children=True, summary=True)
+    # Initialize Sig Compiler
+    add(debugger, category='Sig.compiler', type='Zir.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
+    add(debugger, category='Sig.compiler', regex=True, type=MultiArrayList_Entry('Zir\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
+    add(debugger, category='Sig.compiler', regex=True, type='^Zir\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
+    add(debugger, category='Sig.compiler', type='Zir.Inst::Zir.Inst.Ref', identifier='InstRef', summary=True)
+    add(debugger, category='Sig.compiler', type='Zir.Inst::Zir.Inst.Index', identifier='InstIndex', summary=True)
+    add(debugger, category='Sig.compiler', type='Air.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
+    add(debugger, category='Sig.compiler', type='Air.Inst::Air.Inst.Ref', identifier='InstRef', summary=True)
+    add(debugger, category='Sig.compiler', type='Air.Inst::Air.Inst.Index', identifier='InstIndex', summary=True)
+    add(debugger, category='Sig.compiler', regex=True, type=MultiArrayList_Entry('Air\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
+    add(debugger, category='Sig.compiler', regex=True, type='^Air\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
+    add(debugger, category='Sig.compiler', type='Sig.DeclIndex', synth=True)
+    add(debugger, category='Sig.compiler', type='Module.Namespace::Module.Namespace.Index', synth=True)
+    add(debugger, category='Sig.compiler', type='Module.LazySrcLoc', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='Sig.compiler', type='InternPool.Index', synth=True)
+    add(debugger, category='Sig.compiler', type='InternPool.NullTerminatedString', summary=True)
+    add(debugger, category='Sig.compiler', type='InternPool.Key', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='Sig.compiler', type='InternPool.Key.Int.Storage', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='Sig.compiler', type='InternPool.Key.ErrorUnion.Value', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='Sig.compiler', type='InternPool.Key.Float.Storage', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='Sig.compiler', type='InternPool.Key.Ptr.Addr', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='Sig.compiler', type='InternPool.Key.Aggregate.Storage', identifier='zig_TaggedUnion', synth=True)
+    add(debugger, category='Sig.compiler', type='arch.x86_64.CodeGen.MCValue', identifier='zig_TaggedUnion', synth=True, inline_children=True, summary=True)
 
-    # Initialize Zig Compiler (compiled with the self-hosted backend)
-    add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.Local\.List\(.*\)$', identifier='root_InternPool_Local_List', synth=True, expand=True, summary='capacity=${var%#}')
-    add(debugger, category='zig', type='root.InternPool.Index', synth=True, summary=True)
-    add(debugger, category='zig', type='root.InternPool.Index.Unwrapped', synth=True)
-    add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.(Optional)?(NullTerminated)?String$', identifier='root_InternPool_String', summary=True)
-    add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.TrackedInst\.Index(\.Optional)?$', identifier='root_InternPool_TrackedInst_Index', synth=True)
-    add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.Nav\.Index(\.Optional)?$', identifier='root_InternPool_Nav_Index', synth=True)
+    # Initialize Sig Compiler (compiled with the self-hosted backend)
+    add(debugger, category='Sig', regex=True, type=r'^root\.InternPool\.Local\.List\(.*\)$', identifier='root_InternPool_Local_List', synth=True, expand=True, summary='capacity=${var%#}')
+    add(debugger, category='Sig', type='root.InternPool.Index', synth=True, summary=True)
+    add(debugger, category='Sig', type='root.InternPool.Index.Unwrapped', synth=True)
+    add(debugger, category='Sig', regex=True, type=r'^root\.InternPool\.(Optional)?(NullTerminated)?String$', identifier='root_InternPool_String', summary=True)
+    add(debugger, category='Sig', regex=True, type=r'^root\.InternPool\.TrackedInst\.Index(\.Optional)?$', identifier='root_InternPool_TrackedInst_Index', synth=True)
+    add(debugger, category='Sig', regex=True, type=r'^root\.InternPool\.Nav\.Index(\.Optional)?$', identifier='root_InternPool_Nav_Index', synth=True)

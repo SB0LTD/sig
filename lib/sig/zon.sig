@@ -1,4 +1,4 @@
-//! Capacity-first ZON (Zig Object Notation) parser.
+//! Capacity-first ZON (Sig Object Notation) parser.
 //!
 //! Parses ZON text into a flat token stream stored in caller-provided buffers.
 //! No allocator.

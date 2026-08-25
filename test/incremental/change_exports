@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 export fn foo() void {}
 const bar: u32 = 123;
 const other: u32 = 456;
@@ -20,7 +20,7 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="123\n"
 
 #update=add conflict
-#file=main.zig
+#file=main.sig
 export fn foo() void {}
 const bar: u32 = 123;
 const other: u32 = 456;
@@ -40,11 +40,11 @@ pub fn main() !void {
 }
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
-#expect_error=main.zig:6:5: error: exported symbol collision: foo
-#expect_error=main.zig:1:1: note: other symbol here
+#expect_error=main.sig:6:5: error: exported symbol collision: foo
+#expect_error=main.sig:1:1: note: other symbol here
 
 #update=resolve conflict
-#file=main.zig
+#file=main.sig
 export fn foo() void {}
 const bar: u32 = 123;
 const other: u32 = 456;
@@ -67,7 +67,7 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="123 456\n"
 
 #update=put exports in decl
-#file=main.zig
+#file=main.sig
 export fn foo() void {}
 const bar: u32 = 123;
 const other: u32 = 456;
@@ -93,7 +93,7 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="123 456\n"
 
 #update=remove reference to exporting decl
-#file=main.zig
+#file=main.sig
 export fn foo() void {}
 const bar: u32 = 123;
 const other: u32 = 456;
@@ -114,7 +114,7 @@ const std = @import("std");
 #expect_stdout=""
 
 #update=mark consts as export
-#file=main.zig
+#file=main.sig
 export fn foo() void {}
 export const bar: u32 = 123;
 export const other: u32 = 456;
@@ -140,7 +140,7 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="123 456\n"
 
 #update=reintroduce reference to exporting decl, introducing conflict
-#file=main.zig
+#file=main.sig
 export fn foo() void {}
 export const bar: u32 = 123;
 export const other: u32 = 456;
@@ -163,7 +163,7 @@ pub fn main() !void {
 }
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
-#expect_error=main.zig:5:5: error: exported symbol collision: bar
-#expect_error=main.zig:2:1: note: other symbol here
-#expect_error=main.zig:6:5: error: exported symbol collision: other
-#expect_error=main.zig:3:1: note: other symbol here
+#expect_error=main.sig:5:5: error: exported symbol collision: bar
+#expect_error=main.sig:2:1: note: other symbol here
+#expect_error=main.sig:6:5: error: exported symbol collision: other
+#expect_error=main.sig:3:1: note: other symbol here

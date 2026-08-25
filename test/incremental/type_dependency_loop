@@ -1,17 +1,17 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 pub const A = struct { b: B };
 pub const B = struct { a: A };
 pub fn main() void {
     _ = @as(B, undefined);
 }
 #expect_error=:error: dependency loop with length 2
-#expect_error=main.zig:2:27: note: type 'main.B' depends on type 'main.A' for field declared here
-#expect_error=main.zig:1:27: note: type 'main.A' depends on type 'main.B' for field declared here
+#expect_error=main.sig:2:27: note: type 'main.B' depends on type 'main.A' for field declared here
+#expect_error=main.sig:1:27: note: type 'main.A' depends on type 'main.B' for field declared here
 #expect_error=:note: eliminate any one of these dependencies to break the loop
 
 #update=remove reference to dependency loop
-#file=main.zig
+#file=main.sig
 pub const A = struct { b: B };
 pub const B = struct { a: A };
 pub fn main() void {
@@ -20,7 +20,7 @@ pub fn main() void {
 #expect_stdout=""
 
 #update=change dependency loop without fixing it
-#file=main.zig
+#file=main.sig
 pub const A = struct { b: B };
 pub const B = struct { a: *align(@alignOf(A)) A };
 pub fn main() void {
@@ -29,19 +29,19 @@ pub fn main() void {
 #expect_stdout=""
 
 #update=reference dependency loop again
-#file=main.zig
+#file=main.sig
 pub const A = struct { b: B };
 pub const B = struct { a: *align(@alignOf(A)) A };
 pub fn main() void {
     _ = @as(B, undefined);
 }
 #expect_error=:error: dependency loop with length 2
-#expect_error=main.zig:2:43: note: type 'main.B' depends on type 'main.A' for alignment query here
-#expect_error=main.zig:1:27: note: type 'main.A' depends on type 'main.B' for field declared here
+#expect_error=main.sig:2:43: note: type 'main.B' depends on type 'main.A' for alignment query here
+#expect_error=main.sig:1:27: note: type 'main.A' depends on type 'main.B' for field declared here
 #expect_error=:note: eliminate any one of these dependencies to break the loop
 
 #update=fix dependency loop
-#file=main.zig
+#file=main.sig
 pub const A = struct { b: B };
 pub const B = struct { a: *A };
 pub fn main() void {

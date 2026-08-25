@@ -1,4 +1,4 @@
-// zig fmt: off
+// Sig fmt: off
 .{
     // General-purpose
     .{ .aaa, .z, .{}, .{ 0x37 }, 0, .none, .@"32bit" },
@@ -2699,4 +2699,4 @@
 
     .{ .aesencwide256kl, .m, .{ .m }, .{ 0xf3, 0x0f, 0x38, 0xd8 }, 2, .none, .widekl },
 }
-// zig fmt: on
+// Sig fmt: on

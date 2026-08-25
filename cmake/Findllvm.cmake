@@ -91,7 +91,7 @@ if(ZIG_USE_LLVM_CONFIG)
       list (FIND LLVM_TARGETS_BUILT "${TARGET_NAME}" _index)
       if (${_index} EQUAL -1)
         # Save the error message, in case this is the last llvm-config we find
-        list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM (according to ${LLVM_CONFIG_EXE}) is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
+        list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM (according to ${LLVM_CONFIG_EXE}) is missing target ${TARGET_NAME}. Sig requires LLVM to be built with all default targets enabled.")
 
         # Ignore this directory and try the search again
         list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
@@ -182,7 +182,7 @@ if(ZIG_USE_LLVM_CONFIG)
 
   link_directories("${LLVM_LIBDIRS}")
 else()
-  # Here we assume that we're cross compiling with Zig, of course. No reason
+  # Here we assume that we're cross compiling with Sig, of course. No reason
   # to support more complicated setups.
 
   macro(FIND_AND_ADD_LLVM_LIB _libname_)

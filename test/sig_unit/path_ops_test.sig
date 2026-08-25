@@ -200,9 +200,9 @@ fn p(comptime literal: []const u8) []const u8 {
 
 test "pathJoin: two segments" {
     var buf: [PATH_BUF_SIZE]u8 = undefined;
-    const segs = [_][]const u8{ "src", "main.zig" };
+    const segs = [_][]const u8{ "src", "main.sig" };
     const result = try pathJoin(&buf, &segs);
-    try testing.expectEqualStrings(p("src/main.zig"), result);
+    try testing.expectEqualStrings(p("src/main.sig"), result);
 }
 
 test "pathJoin: three segments" {
@@ -230,20 +230,20 @@ test "pathJoin: empty segments are skipped" {
 
 test "pathResolve: simple relative" {
     var buf: [PATH_BUF_SIZE]u8 = undefined;
-    const result = try pathResolve(&buf, p("project/src"), "main.zig");
-    try testing.expectEqualStrings(p("project/src/main.zig"), result);
+    const result = try pathResolve(&buf, p("project/src"), "main.sig");
+    try testing.expectEqualStrings(p("project/src/main.sig"), result);
 }
 
 test "pathResolve: dot component is collapsed" {
     var buf: [PATH_BUF_SIZE]u8 = undefined;
-    const result = try pathResolve(&buf, p("project"), p("./src/main.zig"));
-    try testing.expectEqualStrings(p("project/src/main.zig"), result);
+    const result = try pathResolve(&buf, p("project"), p("./src/main.sig"));
+    try testing.expectEqualStrings(p("project/src/main.sig"), result);
 }
 
 test "pathResolve: dotdot navigates up" {
     var buf: [PATH_BUF_SIZE]u8 = undefined;
-    const result = try pathResolve(&buf, p("project/src"), p("../lib/utils.zig"));
-    try testing.expectEqualStrings(p("project/lib/utils.zig"), result);
+    const result = try pathResolve(&buf, p("project/src"), p("../lib/utils.sig"));
+    try testing.expectEqualStrings(p("project/lib/utils.sig"), result);
 }
 
 test "pathResolve: multiple dotdot" {
@@ -275,8 +275,8 @@ test "pathRelative: sibling directory" {
 
 test "pathRelative: child directory" {
     var buf: [PATH_BUF_SIZE]u8 = undefined;
-    const result = try pathRelative(&buf, "project", p("project/src/main.zig"));
-    try testing.expectEqualStrings(p("src/main.zig"), result);
+    const result = try pathRelative(&buf, "project", p("project/src/main.sig"));
+    try testing.expectEqualStrings(p("src/main.sig"), result);
 }
 
 test "pathRelative: same path returns dot" {
@@ -301,7 +301,7 @@ test "pathRelative: completely different paths" {
 
 test "pathStem: simple filename with extension" {
     var buf: [NAME_BUF_SIZE]u8 = undefined;
-    const result = try pathStem(&buf, "main.zig");
+    const result = try pathStem(&buf, "main.sig");
     try testing.expectEqualStrings("main", result);
 }
 

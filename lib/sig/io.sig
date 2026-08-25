@@ -90,7 +90,7 @@ pub fn stderrWriter(io: @import("std").Io) FdWriter {
     return .{ .file = @import("std").Io.File.stderr(), .io = io };
 }
 
-/// Cross-platform file writer using the Zig 0.16 Io interface.
+/// Cross-platform file writer using the Sig 0.16 Io interface.
 /// No allocator.
 pub const FdWriter = struct {
     file: @import("std").Io.File,

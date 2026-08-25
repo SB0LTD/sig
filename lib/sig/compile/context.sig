@@ -24,7 +24,7 @@ const Emit_Mode = types.Emit_Mode;
 pub const Compilation_Context = struct {
     // ── Source ──
 
-    /// Root source file path (e.g., `src/main.zig`)
+    /// Root source file path (e.g., `src/main.sig`)
     root_source_path: [types.PATH_BUF_SIZE]u8 = undefined,
     root_source_path_len: usize = 0,
 
@@ -106,9 +106,9 @@ pub const Compilation_Context = struct {
 
     // ── Directories ──
 
-    /// Path to the Zig standard library directory
-    zig_lib_dir: [types.PATH_BUF_SIZE]u8 = undefined,
-    zig_lib_dir_len: usize = 0,
+    /// Path to the Sig standard library directory
+    SIG_LIB_DIR: [types.PATH_BUF_SIZE]u8 = undefined,
+    SIG_LIB_DIR_len: usize = 0,
 
     /// Path to the local build cache directory
     cache_dir: [types.PATH_BUF_SIZE]u8 = undefined,
@@ -263,12 +263,12 @@ pub const Compilation_Context = struct {
 
     // ── Directory Setters ──
 
-    /// Set the Zig standard library directory path.
+    /// Set the Sig standard library directory path.
     /// Returns `error.BufferTooSmall` if the path exceeds `PATH_BUF_SIZE`.
     pub fn setZigLibDir(self: *Compilation_Context, path: []const u8) error{BufferTooSmall}!void {
         if (path.len > types.PATH_BUF_SIZE) return error.BufferTooSmall;
-        @memcpy(self.zig_lib_dir[0..path.len], path);
-        self.zig_lib_dir_len = path.len;
+        @memcpy(self.sig_lib_dir[0..path.len], path);
+        self.sig_lib_dir_len = path.len;
     }
 
     /// Set the local build cache directory path.

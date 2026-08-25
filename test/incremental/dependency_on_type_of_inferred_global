@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const foo = @as(u8, 123);
 comptime {
     // depends on value of `foo`
@@ -12,7 +12,7 @@ comptime {
 pub fn main() void {}
 #expect_stdout=""
 #update=change the type
-#file=main.zig
+#file=main.sig
 const foo = @as(u16, 123);
 comptime {
     // depends on value of `foo`
@@ -23,4 +23,4 @@ comptime {
     if (@TypeOf(&foo) != *const u8) unreachable;
 }
 pub fn main() void {}
-#expect_error=main.zig:8:37: error: reached unreachable code
+#expect_error=main.sig:8:37: error: reached unreachable code

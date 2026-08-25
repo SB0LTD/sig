@@ -10,7 +10,7 @@
     Bug Condition (from design):
       isBugCondition(input) returns true when:
         input.llvmPackage.crtLinkage == "/MD"
-        AND input.zig2Target.crtLinkage == "/MD"  
+        AND input.sig2Target.crtLinkage == "/MD"  
         AND input.compilerRt.exportsMathSymbols("round", "fabs", "ceil", "floor", "sqrt")
         AND input.linkerFlags.contains("/FORCE:MULTIPLE")
         AND input.operation == "build-exe"
@@ -43,7 +43,7 @@ $SigRoot = Split-Path -Parent $ScriptDir
 
 $CMakeListsPath = Join-Path $SigRoot "CMakeLists.txt"
 $BuildLlvmYamlPath = Join-Path $SigRoot ".github\workflows\build-llvm.yaml"
-$CompilerRtPath = Join-Path $SigRoot "lib\compiler_rt.zig"
+$CompilerRtPath = Join-Path $SigRoot "lib\compiler_rt.sig"
 
 # Track results
 $Results = @()
@@ -183,9 +183,9 @@ $check3 = Test-BugCondition -Name "FORCE_MULTIPLE_FLAG" -Description "/FORCE:MUL
 $Results += $check3
 
 # ============================================================================
-# CHECK 4: compiler_rt.zig exports math symbols with .strong linkage for -ofmt=c
+# CHECK 4: compiler_rt.sig exports math symbols with .strong linkage for -ofmt=c
 # ============================================================================
-$check4 = Test-BugCondition -Name "COMPILER_RT_STRONG_MATH" -Description "compiler_rt.zig exports conflicting math symbols with .strong linkage when ofmt_c" -Check {
+$check4 = Test-BugCondition -Name "COMPILER_RT_STRONG_MATH" -Description "compiler_rt.sig exports conflicting math symbols with .strong linkage when ofmt_c" -Check {
     $compilerRt = Get-Content $CompilerRtPath -Raw
     $cmake = Get-Content $CMakeListsPath -Raw
     
@@ -196,7 +196,7 @@ $check4 = Test-BugCondition -Name "COMPILER_RT_STRONG_MATH" -Description "compil
     if ($hasForceIncludeRenameHeader) {
         # The fix uses a force-include header to rename conflicting symbols at compile time.
         # This means compiler_rt.c won't export the raw math symbols (they get prefixed).
-        # The source compiler_rt.zig is unchanged, but the compiled output is safe.
+        # The source compiler_rt.sig is unchanged, but the compiled output is safe.
         return @{
             BugPresent = $false
             Details = "compiler_rt.c math symbols are renamed via force-include header (compiler_rt_msvc_math.h). No conflicts with MSVC CRT."
@@ -208,7 +208,7 @@ $check4 = Test-BugCondition -Name "COMPILER_RT_STRONG_MATH" -Description "compil
     $strongLinkageMatch = [regex]::Match($compilerRt, 'if\s*\(ofmt_c\)\s*\n?\s*\.strong')
     
     # Check 2: Math symbol files are imported (these export round, fabs, ceil, floor, sqrt)
-    $conflictingSymbols = @("fabs.zig", "floor_ceil.zig", "round.zig", "sqrt.zig")
+    $conflictingSymbols = @("fabs.sig", "floor_ceil.sig", "round.sig", "sqrt.sig")
     $foundSymbols = @()
     
     foreach ($sym in $conflictingSymbols) {
@@ -268,7 +268,7 @@ ALL bug conditions confirmed present in unfixed code:
   1. LLVM package built with /MD (dynamic CRT) - forces zig2.exe to use /MD
   2. zig2 target explicitly set to MultiThreadedDLL (/MD) - runtime DLL dependency
   3. /FORCE:MULTIPLE allows linker to pick between conflicting implementations
-  4. compiler_rt.zig exports strong math symbols that duplicate MSVC CRT
+  4. compiler_rt.sig exports strong math symbols that duplicate MSVC CRT
   
   CONSEQUENCE: When zig2.exe runs build-exe (heavy allocation), the conflicting
   heap implementations cause STATUS_HEAP_CORRUPTION (0xC0000374). In environments

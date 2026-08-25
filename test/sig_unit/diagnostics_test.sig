@@ -16,7 +16,7 @@ test "analyzeSource: detects direct allocator.alloc call" {
     const entries = try sig_diag.analyzeSource(
         gpa,
         source,
-        "test.zig",
+        "test.sig",
         .default,
     );
     defer sig_diag.freeEntries(gpa, entries);
@@ -25,7 +25,7 @@ test "analyzeSource: detects direct allocator.alloc call" {
         sig_diag.Classification.direct_allocation,
         entries[0].classification,
     );
-    try testing.expectEqualStrings("test.zig", entries[0].file_path);
+    try testing.expectEqualStrings("test.sig", entries[0].file_path);
     try testing.expectEqual(@as(u32, 2), entries[0].line);
     try testing.expectEqualStrings("doStuff", entries[0].function_name);
     try testing.expect(entries[0].call_path == null);
@@ -41,7 +41,7 @@ test "analyzeSource: detects transitive via Allocator param" {
     const entries = try sig_diag.analyzeSource(
         gpa,
         source,
-        "lib.zig",
+        "lib.sig",
         .default,
     );
     defer sig_diag.freeEntries(gpa, entries);
@@ -50,7 +50,7 @@ test "analyzeSource: detects transitive via Allocator param" {
         sig_diag.Classification.transitive_allocation,
         entries[0].classification,
     );
-    try testing.expectEqualStrings("lib.zig", entries[0].file_path);
+    try testing.expectEqualStrings("lib.sig", entries[0].file_path);
     try testing.expectEqual(@as(u32, 1), entries[0].line);
     try testing.expect(entries[0].call_path != null);
     const cp = entries[0].call_path.?;
@@ -67,7 +67,7 @@ test "analyzeSource: detects unknown memory behavior via fn pointer" {
     const entries = try sig_diag.analyzeSource(
         gpa,
         source,
-        "generic.zig",
+        "generic.sig",
         .default,
     );
     defer sig_diag.freeEntries(gpa, entries);
@@ -76,7 +76,7 @@ test "analyzeSource: detects unknown memory behavior via fn pointer" {
         sig_diag.Classification.unknown_memory_behavior,
         entries[0].classification,
     );
-    try testing.expectEqualStrings("generic.zig", entries[0].file_path);
+    try testing.expectEqualStrings("generic.sig", entries[0].file_path);
 }
 
 test "analyzeSource: clean code produces no diagnostics" {
@@ -89,7 +89,7 @@ test "analyzeSource: clean code produces no diagnostics" {
     const entries = try sig_diag.analyzeSource(
         gpa,
         source,
-        "clean.zig",
+        "clean.sig",
         .default,
     );
     defer sig_diag.freeEntries(gpa, entries);
@@ -98,7 +98,7 @@ test "analyzeSource: clean code produces no diagnostics" {
 
 test "formatDiagnostic: default mode produces warning severity" {
     const entry = sig_diag.DiagnosticEntry{
-        .file_path = "src/main.zig",
+        .file_path = "src/main.sig",
         .line = 10,
         .column = 5,
         .function_name = "init",
@@ -109,14 +109,14 @@ test "formatDiagnostic: default mode produces warning severity" {
     const msg = try sig_diag.formatDiagnostic(gpa, entry, .default);
     defer gpa.free(msg);
     try testing.expect(std.mem.indexOf(u8, msg, "warning") != null);
-    try testing.expect(std.mem.indexOf(u8, msg, "src/main.zig") != null);
+    try testing.expect(std.mem.indexOf(u8, msg, "src/main.sig") != null);
     try testing.expect(std.mem.indexOf(u8, msg, "10") != null);
     try testing.expect(std.mem.indexOf(u8, msg, "direct allocation") != null);
 }
 
 test "formatDiagnostic: strict mode produces error severity" {
     const entry = sig_diag.DiagnosticEntry{
-        .file_path = "src/main.zig",
+        .file_path = "src/main.sig",
         .line = 10,
         .column = 5,
         .function_name = "init",
@@ -142,7 +142,7 @@ test "analyzeSource: call_path non-null for transitive, null for direct" {
     const entries = try sig_diag.analyzeSource(
         gpa,
         source,
-        "mixed.zig",
+        "mixed.sig",
         .default,
     );
     defer sig_diag.freeEntries(gpa, entries);

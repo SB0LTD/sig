@@ -71,10 +71,10 @@ compiles these two host-side protocol tools from strict Sig source:
 
 ```sh
 sig build-exe ci/sb0_runner_request.sig \
-  -target x86_64-linux-musl --zig-lib-dir lib \
+  -target x86_64-linux-musl --Sig-lib-dir lib \
   -femit-bin=sb0-runner-request
 sig build-exe ci/sb0_runner_client.sig \
-  -target x86_64-linux-musl --zig-lib-dir lib \
+  -target x86_64-linux-musl --Sig-lib-dir lib \
   -femit-bin=sb0-runner-client
 
 sb0-runner-request input.sig > request.sb0c

@@ -1,11 +1,11 @@
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	﻿2026-06-11T13:09:14.6807491Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6808207Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	﻿2026-06-11T13:09:14.6807491Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-Sig//' | sed 's/\.[0-9a-f]*$//')
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6808207Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-Sig//' | sed 's/\.[0-9a-f]*$//')[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6808746Z [36;1mSIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6809299Z [36;1mecho "Building aarch64-macos-none (version: ${ZIG_VER_BASE}, sig: ${SIG_VER})"[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6809696Z [36;1m[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6810094Z [36;1m# Generate build_options directly (skip sig build — v28 can't run the new build runner)[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6810548Z [36;1mmkdir -p .build-gen stage3-out/bin[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6810859Z [36;1mcat > .build-gen/build_options.zig << EOF[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6810859Z [36;1mcat > .build-gen/build_options.sig << EOF[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6811167Z [36;1mpub const have_llvm: bool = true;[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6811454Z [36;1mpub const llvm_has_m68k: bool = true;[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6811746Z [36;1mpub const llvm_has_csky: bool = true;[0m
@@ -34,15 +34,15 @@ build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6820886Z [36;1m  -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I${LLVM_PREFIX}/include -- \[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6821856Z [36;1m  src/zig_llvm.cpp src/zig_llvm-ar.cpp src/zig_clang_driver.cpp src/zig_clang_cc1_main.cpp src/zig_clang_cc1as_main.cpp \[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6822394Z [36;1m  --dep build_options --dep aro \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6822674Z [36;1m  -Mroot=src/main.zig \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6822967Z [36;1m  -Mbuild_options=.build-gen/build_options.zig \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6823297Z [36;1m  -Maro=lib/compiler/aro/aro.zig \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6822674Z [36;1m  -Mroot=src/main.sig \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6822967Z [36;1m  -Mbuild_options=.build-gen/build_options.sig \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6823297Z [36;1m  -Maro=lib/compiler/aro/aro.sig \[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6823566Z [36;1m  --name sig \[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6823791Z [36;1m  -OReleaseFast \[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6824013Z [36;1m  -fstrip \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6824224Z [36;1m  --zig-lib-dir lib \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6824224Z [36;1m  --Sig-lib-dir lib \[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6824476Z [36;1m  -target aarch64-macos-none \[0m
-build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6824740Z [36;1m  --cache-dir .zig-cache \[0m
+build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6824740Z [36;1m  --cache-dir .sig-cache \[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6825091Z [36;1m  -lc \[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6825305Z [36;1m  -L "${LLVM_PREFIX}/lib" \[0m
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:09:14.6825731Z [36;1m  -femit-bin=stage3-out/bin/sig[0m
@@ -145,14 +145,14 @@ build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:17:02.0480298Z #include "llvm/Support/type_traits.h"
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:17:02.0480543Z          ^
 build (aarch64-macos, aarch64-macos-none, tar.xz, sig, llvm-22-aarch64-macos.tar.xz)	Build stage3	2026-06-11T13:17:02.0682166Z ##[error]Process completed with exit code 1.
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	﻿2026-06-11T13:07:17.9212609Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9213246Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	﻿2026-06-11T13:07:17.9212609Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-Sig//' | sed 's/\.[0-9a-f]*$//')
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9213246Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-Sig//' | sed 's/\.[0-9a-f]*$//')[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9213833Z [36;1mSIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9214408Z [36;1mecho "Building x86_64-linux-musl (version: ${ZIG_VER_BASE}, sig: ${SIG_VER})"[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9214821Z [36;1m[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9215203Z [36;1m# Generate build_options directly (skip sig build — v28 can't run the new build runner)[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9215678Z [36;1mmkdir -p .build-gen stage3-out/bin[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9216017Z [36;1mcat > .build-gen/build_options.zig << EOF[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9216017Z [36;1mcat > .build-gen/build_options.sig << EOF[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9216344Z [36;1mpub const have_llvm: bool = true;[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9216648Z [36;1mpub const llvm_has_m68k: bool = true;[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9216952Z [36;1mpub const llvm_has_csky: bool = true;[0m
@@ -181,15 +181,15 @@ build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9226760Z [36;1m  -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I${LLVM_PREFIX}/include -- \[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9227752Z [36;1m  src/zig_llvm.cpp src/zig_llvm-ar.cpp src/zig_clang_driver.cpp src/zig_clang_cc1_main.cpp src/zig_clang_cc1as_main.cpp \[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9228336Z [36;1m  --dep build_options --dep aro \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9228632Z [36;1m  -Mroot=src/main.zig \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9228949Z [36;1m  -Mbuild_options=.build-gen/build_options.zig \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9229289Z [36;1m  -Maro=lib/compiler/aro/aro.zig \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9228632Z [36;1m  -Mroot=src/main.sig \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9228949Z [36;1m  -Mbuild_options=.build-gen/build_options.sig \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9229289Z [36;1m  -Maro=lib/compiler/aro/aro.sig \[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9229574Z [36;1m  --name sig \[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9229813Z [36;1m  -OReleaseFast \[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9230061Z [36;1m  -fstrip \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9230293Z [36;1m  --zig-lib-dir lib \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9230293Z [36;1m  --Sig-lib-dir lib \[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9230556Z [36;1m  -target x86_64-linux-musl \[0m
-build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9231048Z [36;1m  --cache-dir .zig-cache \[0m
+build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9231048Z [36;1m  --cache-dir .sig-cache \[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9231305Z [36;1m  -lc \[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9231533Z [36;1m  -L "${LLVM_PREFIX}/lib" \[0m
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:07:17.9232007Z [36;1m  -femit-bin=stage3-out/bin/sig[0m
@@ -292,14 +292,14 @@ build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:15:29.6102469Z #include "llvm/Support/type_traits.h"
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:15:29.6102901Z          ^
 build (x86_64-linux, x86_64-linux-musl, tar.xz, sig, llvm-22-x86_64-linux.tar.xz)	Build stage3	2026-06-11T13:15:29.6449375Z ##[error]Process completed with exit code 1.
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	﻿2026-06-11T13:06:56.7735018Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7735653Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-zig//' | sed 's/\.[0-9a-f]*$//')[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	﻿2026-06-11T13:06:56.7735018Z ##[group]Run ZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-Sig//' | sed 's/\.[0-9a-f]*$//')
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7735653Z [36;1mZIG_VER_BASE=$(echo "${VERSION}" | sed 's/.*-Sig//' | sed 's/\.[0-9a-f]*$//')[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7736254Z [36;1mSIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7736884Z [36;1mecho "Building x86_64-windows-gnu (version: ${ZIG_VER_BASE}, sig: ${SIG_VER})"[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7737318Z [36;1m[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7737721Z [36;1m# Generate build_options directly (skip sig build — v28 can't run the new build runner)[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7738212Z [36;1mmkdir -p .build-gen stage3-out/bin[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7738552Z [36;1mcat > .build-gen/build_options.zig << EOF[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7738552Z [36;1mcat > .build-gen/build_options.sig << EOF[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7738883Z [36;1mpub const have_llvm: bool = true;[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7739193Z [36;1mpub const llvm_has_m68k: bool = true;[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7739501Z [36;1mpub const llvm_has_csky: bool = true;[0m
@@ -328,15 +328,15 @@ build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7749417Z [36;1m  -cflags -std=c++17 -fno-exceptions -fno-rtti -fno-stack-protector -DNDEBUG -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I${LLVM_PREFIX}/include -- \[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7750607Z [36;1m  src/zig_llvm.cpp src/zig_llvm-ar.cpp src/zig_clang_driver.cpp src/zig_clang_cc1_main.cpp src/zig_clang_cc1as_main.cpp \[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7751197Z [36;1m  --dep build_options --dep aro \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7751502Z [36;1m  -Mroot=src/main.zig \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7751824Z [36;1m  -Mbuild_options=.build-gen/build_options.zig \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7752181Z [36;1m  -Maro=lib/compiler/aro/aro.zig \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7751502Z [36;1m  -Mroot=src/main.sig \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7751824Z [36;1m  -Mbuild_options=.build-gen/build_options.sig \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7752181Z [36;1m  -Maro=lib/compiler/aro/aro.sig \[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7752476Z [36;1m  --name sig \[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7752726Z [36;1m  -OReleaseFast \[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7752975Z [36;1m  -fstrip \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7753214Z [36;1m  --zig-lib-dir lib \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7753214Z [36;1m  --Sig-lib-dir lib \[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7753491Z [36;1m  -target x86_64-windows-gnu \[0m
-build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7753783Z [36;1m  --cache-dir .zig-cache \[0m
+build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7753783Z [36;1m  --cache-dir .sig-cache \[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7754048Z [36;1m  -lc \[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7754279Z [36;1m  -L "${LLVM_PREFIX}/lib" \[0m
 build (x86_64-windows, x86_64-windows-gnu, zip, sig.exe, llvm-22-x86_64-windows.tar.xz)	Build stage3	2026-06-11T13:06:56.7754773Z [36;1m  -femit-bin=stage3-out/bin/sig.exe[0m

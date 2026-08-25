@@ -299,9 +299,9 @@ jobs:
           chmod +x native-tablegen/llvm-tblgen native-tablegen/clang-tblgen
           native-tablegen/llvm-tblgen --version | grep -q "LLVM version ${LLVM_VERSION}"
 
-      - name: Install pinned Zig for toolchain construction
+      - name: Install pinned Sig for toolchain construction
         if: matrix.target != 'native'
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        uses: mlugg/setup-Sig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: ${{ env.ZIG_VERSION }}
 
@@ -359,24 +359,24 @@ jobs:
         if: matrix.target != 'native'
         shell: bash
         run: |
-          cat > /tmp/zig-cc <<'EOF'
+          cat > /tmp/Sig-cc <<'EOF'
           #!/usr/bin/env bash
-          exec zig cc -target __TARGET__ "$@"
+          exec Sig cc -target __TARGET__ "$@"
           EOF
-          cat > /tmp/zig-cxx <<'EOF'
+          cat > /tmp/Sig-cxx <<'EOF'
           #!/usr/bin/env bash
-          exec zig c++ -target __TARGET__ "$@"
+          exec Sig c++ -target __TARGET__ "$@"
           EOF
-          sed -i 's/__TARGET__/${{ matrix.target }}/g' /tmp/zig-cc /tmp/zig-cxx
-          cat > /tmp/zig-ar <<'EOF'
+          sed -i 's/__TARGET__/${{ matrix.target }}/g' /tmp/Sig-cc /tmp/Sig-cxx
+          cat > /tmp/Sig-ar <<'EOF'
           #!/usr/bin/env bash
-          exec zig ar "$@"
+          exec Sig ar "$@"
           EOF
-          cat > /tmp/zig-ranlib <<'EOF'
+          cat > /tmp/Sig-ranlib <<'EOF'
           #!/usr/bin/env bash
-          exec zig ranlib "$@"
+          exec Sig ranlib "$@"
           EOF
-          chmod +x /tmp/zig-cc /tmp/zig-cxx /tmp/zig-ar /tmp/zig-ranlib
+          chmod +x /tmp/Sig-cc /tmp/Sig-cxx /tmp/Sig-ar /tmp/Sig-ranlib
 
       - name: Cross-compile zlib
         if: matrix.target != 'native'
@@ -391,9 +391,9 @@ jobs:
             ../zlib-src/deflate.c ../zlib-src/infback.c ../zlib-src/inffast.c \
             ../zlib-src/inflate.c ../zlib-src/inftrees.c ../zlib-src/trees.c \
             ../zlib-src/uncompr.c ../zlib-src/zutil.c; do
-            zig cc -target "${{ matrix.target }}" -O2 -fPIC -c "$source"
+            Sig cc -target "${{ matrix.target }}" -O2 -fPIC -c "$source"
           done
-          zig ar rcs libz.a ./*.o ./*.obj 2>/dev/null || zig ar rcs libz.a ./*.o || zig ar rcs libz.a ./*.obj
+          Sig ar rcs libz.a ./*.o ./*.obj 2>/dev/null || Sig ar rcs libz.a ./*.o || Sig ar rcs libz.a ./*.obj
           cd ..
           mkdir -p zlib-out/lib zlib-out/include
           cp zlib-build/libz.a zlib-out/lib/
@@ -410,10 +410,10 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$PWD/zstd-out" \
             -DCMAKE_SYSTEM_NAME=${{ steps.cmake-system.outputs.name }} \
-            -DCMAKE_C_COMPILER=/tmp/zig-cc \
-            -DCMAKE_CXX_COMPILER=/tmp/zig-cxx \
-            -DCMAKE_AR=/tmp/zig-ar \
-            -DCMAKE_RANLIB=/tmp/zig-ranlib \
+            -DCMAKE_C_COMPILER=/tmp/Sig-cc \
+            -DCMAKE_CXX_COMPILER=/tmp/Sig-cxx \
+            -DCMAKE_AR=/tmp/Sig-ar \
+            -DCMAKE_RANLIB=/tmp/Sig-ranlib \
             -DLLVM_TABLEGEN="$PWD/native-tablegen/llvm-tblgen" \
             -DCLANG_TABLEGEN="$PWD/native-tablegen/clang-tblgen" \
             -DZSTD_BUILD_PROGRAMS=OFF \
@@ -431,10 +431,10 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" \
             -DCMAKE_SYSTEM_NAME=${{ steps.cmake-system.outputs.name }} \
-            -DCMAKE_C_COMPILER=/tmp/zig-cc \
-            -DCMAKE_CXX_COMPILER=/tmp/zig-cxx \
-            -DCMAKE_AR=/tmp/zig-ar \
-            -DCMAKE_RANLIB=/tmp/zig-ranlib \
+            -DCMAKE_C_COMPILER=/tmp/Sig-cc \
+            -DCMAKE_CXX_COMPILER=/tmp/Sig-cxx \
+            -DCMAKE_AR=/tmp/Sig-ar \
+            -DCMAKE_RANLIB=/tmp/Sig-ranlib \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2015 Andrew Kelley
  *
- * This file is part of zig, which is MIT licensed.
+ * This file is part of Sig, which is MIT licensed.
  * See http://opensource.org/licenses/MIT
  */
 
@@ -25,7 +25,7 @@
 // extern function declarations in the self-hosted compiler.
 
 // synchronize with llvm/include/Transforms/Instrumentation.h::SanitizerCoverageOptions::Type
-// synchronize with codegen/llvm/bindings.zig::TargetMachine::EmitOptions::Coverage::Type
+// synchronize with codegen/llvm/bindings.sig::TargetMachine::EmitOptions::Coverage::Type
 enum ZigLLVMCoverageType {
     ZigLLVMCoverageType_None = 0,
     ZigLLVMCoverageType_Function,
@@ -54,7 +54,7 @@ struct ZigLLVMCoverageOptions {
 };
 
 // synchronize with llvm/include/Pass.h::ThinOrFullLTOPhase
-// synchronize with codegen/llvm/bindings.zig::EmitOptions::LtoPhase
+// synchronize with codegen/llvm/bindings.sig::EmitOptions::LtoPhase
 enum ZigLLVMThinOrFullLTOPhase {
     ZigLLVMThinOrFullLTOPhase_None,
     ZigLLVMThinOrFullLTOPhase_ThinPreLink,
@@ -83,7 +83,7 @@ struct ZigLLVMEmitOptions {
 };
 
 // synchronize with llvm/include/Object/Archive.h::Object::Archive::Kind
-// synchronize with codegen/llvm/bindings.zig::ArchiveKind
+// synchronize with codegen/llvm/bindings.sig::ArchiveKind
 enum ZigLLVMArchiveKind {
     ZigLLVMArchiveKind_GNU,
     ZigLLVMArchiveKind_GNU64,
@@ -95,7 +95,7 @@ enum ZigLLVMArchiveKind {
 };
 
 // synchronize with llvm/include/Target/TargetOptions.h::FloatABI::ABIType
-// synchronize with codegen/llvm/bindings.zig::TargetMachine::FloatABI
+// synchronize with codegen/llvm/bindings.sig::TargetMachine::FloatABI
 enum ZigLLVMFloatABI {
     ZigLLVMFloatABI_Default, // Target-specific (either soft or hard depending on triple, etc).
     ZigLLVMFloatABI_Soft,    // Soft float.

@@ -33,7 +33,7 @@
 #define _RISCV_SIGNAL_H_
 
 #ifndef _LOCORE
-// zig patch: Clang does not define __SIG_ATOMIC_TYPE__
+// Sig patch: Clang does not define __SIG_ATOMIC_TYPE__
 typedef int sig_atomic_t;
 #endif
 

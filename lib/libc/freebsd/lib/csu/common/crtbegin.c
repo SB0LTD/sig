@@ -40,7 +40,7 @@ void __cxa_finalize(void *) __weak_symbol;
  * When we have ctors/dtors call from the dtor handler before calling
  * any dtors, otherwise use a destructor.
  */
-/* zig patch: no HAVE_CTORS */
+/* Sig patch: no HAVE_CTORS */
 __attribute__((destructor))
 static void
 run_cxa_finalize(void)
@@ -51,4 +51,4 @@ run_cxa_finalize(void)
 }
 #endif
 
-/* zig patch: no HAVE_CTORS */
+/* Sig patch: no HAVE_CTORS */

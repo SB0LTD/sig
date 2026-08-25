@@ -73,7 +73,7 @@
 	"	 mov	%g1, %o1		\n" \
 	"	.previous")
 
-/* zig patch: no static crt support */
+/* Sig patch: no static crt support */
 
 #define	MD_START_ARGS		char **sp, void (*cleanup)(void)
 #define	MD_START_SETUP				\

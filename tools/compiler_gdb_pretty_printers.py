@@ -6,7 +6,7 @@ import gdb.printing
 class TypePrinter:
     no_payload_count = 4096
 
-    # Keep in sync with src/type.zig
+    # Keep in sync with src/type.sig
     # Types which have no payload do not need to be entered here.
     payload_type_names = {
         'array_u8': 'Type.Payload.Len',
@@ -95,7 +95,7 @@ class TypePrinter:
 class ValuePrinter:
     no_payload_count = 4096
 
-    # Keep in sync with src/value.zig
+    # Keep in sync with src/value.sig
     # Values which have no payload do not need to be entered here.
     payload_type_names = {
         'big_int_positive': 'Value.Payload.BigInt',
@@ -182,7 +182,7 @@ class ValuePrinter:
         if payload_type is not None:
             yield ('payload', self.val['ptr_otherwise'].cast(payload_type.pointer()).dereference()['data'])
 
-pp = gdb.printing.RegexpCollectionPrettyPrinter('Zig stage2 compiler')
+pp = gdb.printing.RegexpCollectionPrettyPrinter('Sig stage2 compiler')
 pp.add_printer('Type', r'^type\.Type$', TypePrinter)
 pp.add_printer('Value', r'^value\.Value$', ValuePrinter)
 gdb.printing.register_pretty_printer(gdb.current_objfile(), pp)

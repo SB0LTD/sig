@@ -16,7 +16,7 @@ $ErrorActionPreference = 'Stop'
 # ── Configuration ────────────────────────────────────────────────────────────
 
 $SOURCE   = "tools/sig_build/main.sig"
-$MOD_PATH = "lib/sig/sig.zig"
+$MOD_PATH = "lib/sig/sig.sig"
 $OUT_DIR  = if ($env:SIG_OUT_DIR) { $env:SIG_OUT_DIR } else { "sig-out\bin" }
 $OUT_NAME = "sig-build"
 $OUT_PATH = "$OUT_DIR\$OUT_NAME.exe"

@@ -69,7 +69,7 @@ test "conflict entry has non-empty conflicting_files list" {
         \\      "upstream_commit": "2222222222222222222222222222222222222222",
         \\      "timestamp": 1700001000,
         \\      "status": "conflict",
-        \\      "conflicting_files": ["lib/sig/fmt.zig", "src/main.zig", "build.zig"]
+        \\      "conflicting_files": ["lib/sig/fmt.sig", "src/main.sig", "build.sig"]
         \\    }
         \\  ]
         \\}
@@ -79,9 +79,9 @@ test "conflict entry has non-empty conflicting_files list" {
 
     try testing.expectEqual(SyncEntry.Status.conflict, entry.status);
     try testing.expectEqual(@as(usize, 3), entry.conflict_count);
-    try testing.expectEqualStrings("lib/sig/fmt.zig", entry.conflictFile(0));
-    try testing.expectEqualStrings("src/main.zig", entry.conflictFile(1));
-    try testing.expectEqualStrings("build.zig", entry.conflictFile(2));
+    try testing.expectEqualStrings("lib/sig/fmt.sig", entry.conflictFile(0));
+    try testing.expectEqualStrings("src/main.sig", entry.conflictFile(1));
+    try testing.expectEqualStrings("build.sig", entry.conflictFile(2));
 }
 
 test "integrated entry has zero conflict_count" {
@@ -114,8 +114,8 @@ test "conflict entry round-trips through serialize/parse with files preserved" {
     entry.setCommit("dddddddddddddddddddddddddddddddddddddd");
     entry.timestamp = 1700005000;
     entry.status = .conflict;
-    entry.addConflictFile("lib/sig/io.zig");
-    entry.addConflictFile("tools/sig_sync/main.zig");
+    entry.addConflictFile("lib/sig/io.sig");
+    entry.addConflictFile("tools/sig_sync/main.sig");
     manifest.addEntry(entry);
 
     var buf: [8192]u8 = undefined;
@@ -126,8 +126,8 @@ test "conflict entry round-trips through serialize/parse with files preserved" {
 
     try testing.expectEqual(SyncEntry.Status.conflict, pe.status);
     try testing.expectEqual(@as(usize, 2), pe.conflict_count);
-    try testing.expectEqualStrings("lib/sig/io.zig", pe.conflictFile(0));
-    try testing.expectEqualStrings("tools/sig_sync/main.zig", pe.conflictFile(1));
+    try testing.expectEqualStrings("lib/sig/io.sig", pe.conflictFile(0));
+    try testing.expectEqualStrings("tools/sig_sync/main.sig", pe.conflictFile(1));
 }
 
 
@@ -150,7 +150,7 @@ test "all SyncEntry fields preserved through serialize/parse round trip" {
     e1.setCommit("abcdef0123456789abcdef0123456789abcdef01");
     e1.timestamp = 1699999500;
     e1.status = .conflict;
-    e1.addConflictFile("src/Compilation.zig");
+    e1.addConflictFile("src/Compilation.sig");
     manifest.addEntry(e1);
 
     // Entry 2: skipped
@@ -181,7 +181,7 @@ test "all SyncEntry fields preserved through serialize/parse round trip" {
     try testing.expectEqual(@as(i64, 1699999500), m.entries[1].timestamp);
     try testing.expectEqual(SyncEntry.Status.conflict, m.entries[1].status);
     try testing.expectEqual(@as(usize, 1), m.entries[1].conflict_count);
-    try testing.expectEqualStrings("src/Compilation.zig", m.entries[1].conflictFile(0));
+    try testing.expectEqualStrings("src/Compilation.sig", m.entries[1].conflictFile(0));
 
     // Entry 2: skipped
     try testing.expectEqualStrings("fedcba9876543210fedcba9876543210fedcba98", m.entries[2].commit());
@@ -244,7 +244,7 @@ test "many entries manifest round-trips preserving count" {
         entry.timestamp = @as(i64, @intCast(i)) * 1000;
         entry.status = if (i % 3 == 0) .integrated else if (i % 3 == 1) .conflict else .skipped;
         if (i % 3 == 1) {
-            entry.addConflictFile("file.zig");
+            entry.addConflictFile("file.sig");
         }
         manifest.addEntry(entry);
     }
@@ -295,7 +295,7 @@ test "multiple entries with mixed statuses preserve all fields" {
         \\      "upstream_commit": "bbbb000000000000000000000000000000000000",
         \\      "timestamp": 1700002000,
         \\      "status": "conflict",
-        \\      "conflicting_files": ["lib/sig/containers.zig"]
+        \\      "conflicting_files": ["lib/sig/containers.sig"]
         \\    },
         \\    {
         \\      "upstream_commit": "cccc000000000000000000000000000000000000",
@@ -359,7 +359,7 @@ test "serialized manifest contains status string values not enum integers" {
     e1.setCommit("2222222222222222222222222222222222222222");
     e1.timestamp = 2;
     e1.status = .conflict;
-    e1.addConflictFile("a.zig");
+    e1.addConflictFile("a.sig");
     manifest.addEntry(e1);
 
     var e2 = SyncEntry{};

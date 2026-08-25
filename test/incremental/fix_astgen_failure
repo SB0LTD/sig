@@ -1,15 +1,15 @@
 #update=initial version with error
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
-    try @import("foo.zig").hello();
+    try @import("foo.sig").hello();
 }
-#file=foo.zig
+#file=foo.sig
 pub fn hello() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "Hello, World!\n");
 }
-#expect_error=foo.zig:2:9: error: use of undeclared identifier 'std'
+#expect_error=foo.sig:2:9: error: use of undeclared identifier 'std'
 #update=fix the error
-#file=foo.zig
+#file=foo.sig
 const std = @import("std");
 pub fn hello() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "Hello, World!\n");
@@ -17,15 +17,15 @@ pub fn hello() !void {
 const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="Hello, World!\n"
 #update=add new error
-#file=foo.zig
+#file=foo.sig
 const std = @import("std");
 pub fn hello() !void {
     try std.Io.File.stdout().writeStreamingAll(io, hello_str);
 }
 const io = std.Io.Threaded.global_single_threaded.io();
-#expect_error=foo.zig:3:52: error: use of undeclared identifier 'hello_str'
+#expect_error=foo.sig:3:52: error: use of undeclared identifier 'hello_str'
 #update=fix the new error
-#file=foo.zig
+#file=foo.sig
 const std = @import("std");
 const hello_str = "Hello, World! Again!\n";
 pub fn hello() !void {

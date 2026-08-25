@@ -35,7 +35,7 @@ extern int posix_spawnattr_setcgroup_np (posix_spawnattr_t *__attr,
 					 int __cgroup)
      __THROW __nonnull ((1));
 
-// zig patch: check target glibc version
+// Sig patch: check target glibc version
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 39) || __GLIBC__ > 2
 /* Spawn a new process executing PATH with the attributes describes in *ATTRP.
    Before running the process perform the actions described in FACTS.  Return

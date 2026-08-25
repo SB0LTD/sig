@@ -20,7 +20,7 @@ echo "=== Setting up build options ==="
 ulimit -s unlimited
 mkdir -p .build-gen stage3-out/bin
 
-cat > .build-gen/build_options.zig << 'EOF'
+cat > .build-gen/build_options.sig << 'EOF'
 pub const have_llvm: bool = false;
 pub const llvm_has_m68k: bool = false;
 pub const llvm_has_csky: bool = false;
@@ -47,16 +47,16 @@ EOF
 echo "=== Cross-compiling sig for x86_64-windows ==="
 "$SIG" build-exe \
   --dep build_options --dep aro \
-  -Mroot=src/main.zig \
-  -Mbuild_options=.build-gen/build_options.zig \
-  -Maro=lib/compiler/aro/aro.zig \
+  -Mroot=src/main.sig \
+  -Mbuild_options=.build-gen/build_options.sig \
+  -Maro=lib/compiler/aro/aro.sig \
   --name sig \
   -OReleaseFast \
   -fstrip \
   -flld \
-  --zig-lib-dir lib \
+  --Sig-lib-dir lib \
   -target x86_64-windows \
-  --cache-dir .zig-cache \
+  --cache-dir .sig-cache \
   -femit-bin=stage3-out/bin/sig.exe
 
 echo "=== Verifying output ==="

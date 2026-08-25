@@ -125,11 +125,11 @@ test "Property 2: stripping extension produces correct import name" {
             var base_buf: [20]u8 = undefined;
             const base_name = genValidName(rand, &base_buf);
 
-            // Test with .zig extension (lib/sig/ modules)
+            // Test with .sig extension (lib/sig/ modules)
             {
                 var fname_buf: [32]u8 = undefined;
                 @memcpy(fname_buf[0..base_name.len], base_name);
-                @memcpy(fname_buf[base_name.len..][0..4], ".zig");
+                @memcpy(fname_buf[base_name.len..][0..4], ".sig");
                 const filename = fname_buf[0 .. base_name.len + 4];
 
                 const stem = std.fs.path.stem(filename);
@@ -266,7 +266,7 @@ test "Property 4: presence of main.sig determines tool discovery" {
                 "config.sig",
                 "README.md",
                 "Dockerfile",
-                "main.zig",
+                "main.sig",
             };
 
             // Randomly select a subset of files

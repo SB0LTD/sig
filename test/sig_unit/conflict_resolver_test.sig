@@ -21,7 +21,7 @@ test "parse manifest with ai_resolved status and ai_resolution_details" {
         \\      "upstream_commit": "ccdd000000000000000000000000000000000000",
         \\      "timestamp": 1700010000,
         \\      "status": "ai_resolved",
-        \\      "conflicting_files": ["lib/sig/fmt.zig", "src/main.zig"],
+        \\      "conflicting_files": ["lib/sig/fmt.sig", "src/main.sig"],
         \\      "ai_resolution_details": {
         \\        "confidence": 87,
         \\        "explanation": "Upstream renamed function, sig block relocated alongside new name",
@@ -51,8 +51,8 @@ test "parse manifest with ai_resolved status and ai_resolution_details" {
 
     // Conflict files still parsed
     try testing.expectEqual(@as(usize, 2), entry.conflict_count);
-    try testing.expectEqualStrings("lib/sig/fmt.zig", entry.conflictFile(0));
-    try testing.expectEqualStrings("src/main.zig", entry.conflictFile(1));
+    try testing.expectEqualStrings("lib/sig/fmt.sig", entry.conflictFile(0));
+    try testing.expectEqualStrings("src/main.sig", entry.conflictFile(1));
 }
 
 // ── Test 2: Parse legacy manifest (no ai_resolution_details) ────────────
@@ -73,7 +73,7 @@ test "parse legacy manifest without ai_resolution_details has defaults" {
         \\      "upstream_commit": "3333000000000000000000000000000000000000",
         \\      "timestamp": 1700021000,
         \\      "status": "conflict",
-        \\      "conflicting_files": ["build.zig"]
+        \\      "conflicting_files": ["build.sig"]
         \\    },
         \\    {
         \\      "upstream_commit": "4444000000000000000000000000000000000000",
@@ -117,7 +117,7 @@ test "serialize manifest with has_ai_details true emits ai_resolution_details" {
     entry.ai_details.confidence = 95;
     entry.ai_details.resolved_file_count = 3;
     entry.ai_details.setExplanation("Merged import lists and kept sig additions");
-    entry.addConflictFile("lib/sig/io.zig");
+    entry.addConflictFile("lib/sig/io.sig");
     manifest.addEntry(entry);
 
     var buf: [8192]u8 = undefined;
@@ -342,20 +342,20 @@ fn containsStr(haystack: []const u8, needle: []const u8) bool {
     return false;
 }
 
-// ── Test 14: .zig file includes zig-specific context ────────────────────
+// ── Test 14: .sig file includes Sig-specific context ────────────────────
 
-test "prompt for .zig file includes zig-specific context" {
+test "prompt for .sig file includes Sig-specific context" {
     var buf: [32 * 1024]u8 = undefined;
     const prompt = try sig_prompt.buildPrompt(
         &buf,
-        "lib/sig/fmt.zig",
+        "lib/sig/fmt.sig",
         "<<<<<<< HEAD\nold\n=======\nnew\n>>>>>>> upstream\n",
         "aaaa000000000000000000000000000000000000",
         "bbbb000000000000000000000000000000000000",
     );
 
-    // Should mention .zig and diagnostics per mode
-    try testing.expect(containsStr(prompt, ".zig"));
+    // Should mention .sig and diagnostics per mode
+    try testing.expect(containsStr(prompt, ".sig"));
     try testing.expect(containsStr(prompt, "diagnostics"));
 }
 
@@ -383,7 +383,7 @@ test "prompt includes conflicted content verbatim" {
     var buf: [32 * 1024]u8 = undefined;
     const prompt = try sig_prompt.buildPrompt(
         &buf,
-        "src/main.zig",
+        "src/main.sig",
         conflicted,
         "cccc000000000000000000000000000000000000",
         "dddd000000000000000000000000000000000000",
@@ -400,7 +400,7 @@ test "prompt fits within 32KB buffer for typical conflict" {
     var buf: [32 * 1024]u8 = undefined;
     const prompt = try sig_prompt.buildPrompt(
         &buf,
-        "lib/sig/parse.zig",
+        "lib/sig/parse.sig",
         conflicted,
         "eeee000000000000000000000000000000000000",
         "ffff000000000000000000000000000000000000",
@@ -416,7 +416,7 @@ test "prompt returns BufferTooSmall on tiny buffer" {
     var buf: [16]u8 = undefined;
     const result = sig_prompt.buildPrompt(
         &buf,
-        "lib/sig/fmt.zig",
+        "lib/sig/fmt.sig",
         "some conflict content",
         "aaaa000000000000000000000000000000000000",
         "bbbb000000000000000000000000000000000000",
@@ -433,7 +433,7 @@ test "prompt contains both commit hashes" {
     var buf: [32 * 1024]u8 = undefined;
     const prompt = try sig_prompt.buildPrompt(
         &buf,
-        "lib/sig/io.zig",
+        "lib/sig/io.sig",
         "conflict",
         upstream,
         sig_commit,
@@ -465,6 +465,6 @@ test "SYSTEM_PROMPT contains all required Sig conventions" {
     try testing.expect(containsStr(sp, "ONLY upstream code"));
 
     // Requirement 20.6: File extension context
-    try testing.expect(containsStr(sp, ".zig"));
+    try testing.expect(containsStr(sp, ".sig"));
     try testing.expect(containsStr(sp, ".sig"));
 }

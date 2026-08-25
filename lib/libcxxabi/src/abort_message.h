@@ -15,7 +15,7 @@ extern "C" _LIBCXXABI_HIDDEN _LIBCXXABI_NORETURN void
 __abort_message(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
 #ifndef _LIBCXXABI_ASSERT
-// zig patch: respect NDEBUG. Otherwise the file path makes it into the binary,
+// Sig patch: respect NDEBUG. Otherwise the file path makes it into the binary,
 // causing non-reproducible builds.
 #ifdef NDEBUG
 #define _LIBCXXABI_ASSERT(a,b) (void)0

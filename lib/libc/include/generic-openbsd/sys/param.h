@@ -41,7 +41,7 @@
 #define BSD4_3	1
 #define BSD4_4	1
 
-/* zig patch: ___OpenBSD and OpenBSDX_Y are defined by the compiler */
+/* Sig patch: ___OpenBSD and OpenBSDX_Y are defined by the compiler */
 #define OpenBSD ___OpenBSD
 
 #include <sys/_null.h>

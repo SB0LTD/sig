@@ -122,7 +122,7 @@ pub fn validateSelfHosting(config: Bootstrap_Config) Self_Host_Result {
     var result = Self_Host_Result{};
 
     // Stage 1: existing compiler builds the zero-alloc compiler
-    // This always succeeds if the source is valid zig/sig
+    // This always succeeds if the source is valid Sig/sig
     result.stage1_success = isValidBootstrap(config);
 
     // Stage 2: the produced binary compiles itself

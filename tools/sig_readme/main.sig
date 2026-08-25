@@ -46,14 +46,14 @@ pub fn writeReadme(w: *std.Io.Writer, manifest: SyncManifest) std.Io.Writer.Erro
         \\  <img src="sig.png" alt="Sig" width="420" />
         \\</p>
         \\
-        \\<h1 align="center">Sig — Strict Zig</h1>
+        \\<h1 align="center">Sig — Strict Sig</h1>
         \\
         \\<p align="center">
         \\  <em>Memory is not a guess.</em>
         \\</p>
         \\
         \\<p align="center">
-        \\  A capacity-first memory model layer on top of the Zig compiler.<br/>
+        \\  A capacity-first memory model layer on top of the Sig compiler.<br/>
         \\  Every buffer is caller-owned. Every container is bounded. Every allocation is visible.
         \\</p>
         \\
@@ -61,14 +61,14 @@ pub fn writeReadme(w: *std.Io.Writer, manifest: SyncManifest) std.Io.Writer.Erro
         \\
         \\## Why Sig?
         \\
-        \\Zig gives you control. Sig makes that control **the default**.
+        \\Sig gives you control. Sig makes that control **the default**.
         \\
-        \\Standard Zig APIs pass around `std.mem.Allocator` — a runtime parameter that hides when, where, and how much memory is used. Code compiles, ships, and then OOMs in production because an `ArrayList` doubled its backing store at the worst possible moment.
+        \\Standard Sig APIs pass around `std.mem.Allocator` — a runtime parameter that hides when, where, and how much memory is used. Code compiles, ships, and then OOMs in production because an `ArrayList` doubled its backing store at the worst possible moment.
         \\
         \\Sig eliminates that entire class of failure. Every API takes a caller-provided buffer or a fixed-capacity container. If the memory isn't there, you get a compile-time-sized error — not a surprise at 3 AM.
         \\
-        \\```zig
-        \\// Zig standard library — allocator hidden inside
+        \\```Sig
+        \\// Sig standard library — allocator hidden inside
         \\var list = std.ArrayList(u8).init(allocator);
         \\try list.appendSlice(data); // may allocate 1x, 2x, 4x… who knows?
         \\
@@ -79,7 +79,7 @@ pub fn writeReadme(w: *std.Io.Writer, manifest: SyncManifest) std.Io.Writer.Erro
         \\
         \\## Benchmarks
         \\
-        \\Real numbers. Same hardware, same inputs, same compiler backend. Sig's capacity-first APIs vs Zig's allocator-based equivalents.
+        \\Real numbers. Same hardware, same inputs, same compiler backend. Sig's capacity-first APIs vs Sig's allocator-based equivalents.
         \\
         \\
     );
@@ -102,7 +102,7 @@ pub fn writeReadme(w: *std.Io.Writer, manifest: SyncManifest) std.Io.Writer.Erro
     try w.writeAll(
         \\## License
         \\
-        \\Same as upstream Zig. See [LICENSE](LICENSE).
+        \\Same as upstream Sig. See [LICENSE](LICENSE).
         \\
     );
 }
@@ -111,7 +111,7 @@ fn writeDefaultBenchmarks(w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.writeAll(
         \\### Formatting
         \\
-        \\| Operation | Sig `formatInto` | Zig `std.fmt.bufPrint` | Δ Latency | Sig Peak RAM | Zig Peak RAM |
+        \\| Operation | Sig `formatInto` | Sig `std.fmt.bufPrint` | Δ Latency | Sig Peak RAM | Sig Peak RAM |
         \\|---|--:|--:|--:|--:|--:|
         \\| Small string (32 B) | **18 ns** | 31 ns | −42% | 64 B | 4,096 B |
         \\| Medium template (256 B) | **42 ns** | 67 ns | −37% | 256 B | 4,096 B |
@@ -119,7 +119,7 @@ fn writeDefaultBenchmarks(w: *std.Io.Writer) std.Io.Writer.Error!void {
         \\
         \\### I/O Reads
         \\
-        \\| Operation | Sig `readInto` | Zig `std.io` reader | Δ Latency | Sig Peak RAM | Zig Peak RAM |
+        \\| Operation | Sig `readInto` | Sig `std.io` reader | Δ Latency | Sig Peak RAM | Sig Peak RAM |
         \\|---|--:|--:|--:|--:|--:|
         \\| 4 KB file read | **1.2 µs** | 2.1 µs | −43% | 4,096 B | 8,192 B |
         \\| 64 KB buffered read | **14 µs** | 23 µs | −39% | 65,536 B | 131,072 B |
@@ -127,7 +127,7 @@ fn writeDefaultBenchmarks(w: *std.Io.Writer) std.Io.Writer.Error!void {
         \\
         \\### Containers
         \\
-        \\| Operation | Sig `BoundedVec` | Zig `std.ArrayList` | Δ Latency | Sig Peak RAM | Zig Peak RAM |
+        \\| Operation | Sig `BoundedVec` | Sig `std.ArrayList` | Δ Latency | Sig Peak RAM | Sig Peak RAM |
         \\|---|--:|--:|--:|--:|--:|
         \\| 1,000 push ops | **8.4 µs** | 14.2 µs | −41% | 8,000 B | 16,384 B |
         \\| 10,000 push ops | **84 µs** | 156 µs | −46% | 80,000 B | 131,072 B |
@@ -143,7 +143,7 @@ fn writeSpoonSection(w: *std.Io.Writer) std.Io.Writer.Error!void {
         \\
         \\Sig is not a fork. It's a **Spoon**.
         \\
-        \\A Spoon is a close derivative that stays continuously synchronized with its upstream. While a traditional fork drifts further from its origin with every passing month, a Spoon integrates every upstream commit automatically. Sig tracks the upstream Zig compiler and standard library through **Sig_Sync** — every commit in [ziglang/zig](https://github.com/ziglang/zig) flows into Sig automatically.
+        \\A Spoon is a close derivative that stays continuously synchronized with its upstream. While a traditional fork drifts further from its origin with every passing month, a Spoon integrates every upstream commit automatically. Sig tracks the upstream Sig compiler and standard library through **Sig_Sync** — every commit in [ziglang/Sig](https://github.com/ziglang/Sig) flows into Sig automatically.
         \\
         \\| | Traditional Fork | Spoon (Sig) |
         \\|---|---|---|
@@ -173,10 +173,10 @@ fn writeSyncStatus(w: *std.Io.Writer, manifest: SyncManifest) std.Io.Writer.Erro
             try w.writeAll("—");
         }
         try w.writeAll(" |\n");
-        try w.writeAll("| Upstream | [ziglang/zig @ `");
+        try w.writeAll("| Upstream | [ziglang/Sig @ `");
         const short = if (commit.len >= 7) commit[0..7] else commit;
         try w.writeAll(short);
-        try w.writeAll("`](https://github.com/ziglang/zig/commit/");
+        try w.writeAll("`](https://github.com/ziglang/Sig/commit/");
         try w.writeAll(commit);
         try w.writeAll(") |\n\n");
     } else {
@@ -191,14 +191,14 @@ fn writeGettingStarted(w: *std.Io.Writer) std.Io.Writer.Error!void {
         \\```bash
         \\git clone https://github.com/sig-lang/sig.git
         \\cd sig
-        \\zig build
+        \\Sig build
         \\```
         \\
-        \\Prerequisites: CMake, a system C/C++ toolchain, LLVM 22.x. See the [Zig getting started guide](https://ziglang.org/learn/getting-started/) for details.
+        \\Prerequisites: CMake, a system C/C++ toolchain, LLVM 22.x. See the [Sig getting started guide](https://ziglang.org/learn/getting-started/) for details.
         \\
         \\### Quick Example
         \\
-        \\```zig
+        \\```Sig
         \\const sig = @import("sig");
         \\
         \\pub fn main() !void {
@@ -260,7 +260,7 @@ fn writeErrorModel(w: *std.Io.Writer) std.Io.Writer.Error!void {
         \\| `DepthExceeded` | Recursive operation exceeds depth limit |
         \\| `QuotaExceeded` | Resource usage limit reached |
         \\
-        \\These are standard Zig error unions — handle them with `try`, `catch`, or `orelse`. No panics, no hidden allocations.
+        \\These are standard Sig error unions — handle them with `try`, `catch`, or `orelse`. No panics, no hidden allocations.
         \\
         \\
     );
@@ -273,9 +273,9 @@ fn writeContributing(w: *std.Io.Writer) std.Io.Writer.Error!void {
         \\1. Check the issue tracker for open items.
         \\2. All Sig APIs must follow the capacity-first model — no `Allocator` parameters in public interfaces.
         \\3. Property-based tests are required for new `Sig_Std` modules.
-        \\4. Run `zig build test-sig` before submitting.
+        \\4. Run `Sig build test-sig` before submitting.
         \\
-        \\See the upstream [Zig contributing guide](https://github.com/ziglang/zig#contributing) for general guidelines.
+        \\See the upstream [Sig contributing guide](https://github.com/ziglang/Sig#contributing) for general guidelines.
         \\
         \\
     );

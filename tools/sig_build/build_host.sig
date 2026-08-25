@@ -5,8 +5,8 @@
 ///   --dep build --dep sig_build --dep sig --dep std --dep compile -Mroot=<this file>
 ///   --dep sig --dep std --dep compile -Msig_build=<path/to/main.sig>
 ///   --dep sig_build -Mbuild=<path/to/build.sig>
-///   -Msig=<path/to/sig.zig>
-///   -Mstd=<path/to/std.zig>
+///   -Msig=<path/to/sig.sig>
+///   -Mstd=<path/to/std.sig>
 ///   --dep std -Mcompile=<path/to/compile.sig>
 ///
 /// The host creates a Build_Context, calls build.sig's build function,
@@ -51,11 +51,11 @@ pub fn main(init: std.process.Init) !void {
         arg_count += 1;
     }
 
-    // argv[2]: zig lib directory
+    // argv[2]: Sig lib directory
     if (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |arg| {
         if (arg.len > sig_build.PATH_BUF_SIZE) sig_build.fatal(io, "argv[2] path too long", .{});
-        @memcpy(runner_args.zig_lib_dir[0..arg.len], arg);
-        runner_args.zig_lib_dir_len = arg.len;
+        @memcpy(runner_args.sig_lib_dir[0..arg.len], arg);
+        runner_args.sig_lib_dir_len = arg.len;
         arg_count += 1;
     }
 
@@ -143,11 +143,11 @@ pub fn main(init: std.process.Init) !void {
             } else {
                 sig_build.fatal(io, "--search-prefix requires a path argument", .{});
             }
-        } else if (std.mem.eql(u8, arg, "--zig-lib-dir")) {
+        } else if (std.mem.eql(u8, arg, "--Sig-lib-dir")) {
             if (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |value| {
-                config.options.put("zig-lib-dir", value) catch {};
+                config.options.put("Sig-lib-dir", value) catch {};
             } else {
-                sig_build.fatal(io, "--zig-lib-dir requires a path argument", .{});
+                sig_build.fatal(io, "--Sig-lib-dir requires a path argument", .{});
             }
         } else if (arg.len >= 2 and arg[0] == '-' and arg[1] == '-') {
             sig_build.fatal(io, "unknown option: '{s}'", .{arg});
@@ -195,11 +195,11 @@ pub fn main(init: std.process.Init) !void {
         ctx.compiler_path_len = cp.len;
     }
 
-    // Set zig lib dir from runner args so step functions can pass --zig-lib-dir.
+    // Set Sig lib dir from runner args so step functions can pass --Sig-lib-dir.
     {
-        const ld = runner_args.zig_lib_dir[0..runner_args.zig_lib_dir_len];
-        @memcpy(ctx.zig_lib_dir[0..ld.len], ld);
-        ctx.zig_lib_dir_len = ld.len;
+        const ld = runner_args.sig_lib_dir[0..runner_args.sig_lib_dir_len];
+        @memcpy(ctx.sig_lib_dir[0..ld.len], ld);
+        ctx.sig_lib_dir_len = ld.len;
     }
 
     if (sig_build.getOption(sig_build.Optimize_Mode, &ctx.options, "optimize")) |mode| {
@@ -213,7 +213,7 @@ pub fn main(init: std.process.Init) !void {
 
     if (config.verbose) {
         sig_build.printMsg(io, "compiler:   {s}", .{runner_args.compiler_path[0..runner_args.compiler_path_len]});
-        sig_build.printMsg(io, "zig lib:    {s}", .{runner_args.zig_lib_dir[0..runner_args.zig_lib_dir_len]});
+        sig_build.printMsg(io, "Sig lib:    {s}", .{runner_args.sig_lib_dir[0..runner_args.sig_lib_dir_len]});
         sig_build.printMsg(io, "build root: {s}", .{build_root});
         sig_build.printMsg(io, "cache dir:  {s}", .{cache_dir});
         sig_build.printMsg(io, "prefix:     {s}", .{ctx.install_prefix[0..ctx.install_prefix_len]});

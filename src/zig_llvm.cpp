@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2015 Andrew Kelley
  *
- * This file is part of zig, which is MIT licensed.
+ * This file is part of Sig, which is MIT licensed.
  * See http://opensource.org/licenses/MIT
  */
 
@@ -262,7 +262,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
 
 
     auto PID = sys::Process::getProcessId();
-    std::string ProcName = "zig-";
+    std::string ProcName = "Sig-";
     ProcName += std::to_string(PID);
     TimeTracerRAII TimeTracer(ProcName,
                               options->bin_filename? options->bin_filename : options->asm_filename);
@@ -424,7 +424,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
     }
 
     // This must only happen once we know we've succeeded and will be returning `false`, because
-    // this code `malloc`s memory which will become owned by the caller (in Zig code).
+    // this code `malloc`s memory which will become owned by the caller (in Sig code).
     if (options->time_report_out != nullptr) {
         std::string out_str;
         auto os = raw_string_ostream(out_str);
@@ -449,7 +449,7 @@ struct ZigDiagnosticHandler : public DiagnosticHandler {
     bool handleDiagnostics(const DiagnosticInfo &DI) override {
         // This dyn_cast should be casting to DiagnosticInfoIgnoringInvalidDebugMetadata
         // but DiagnosticInfoIgnoringInvalidDebugMetadata is treated as DiagnosticInfoDebugMetadataVersion
-        // because of a bug in LLVM (see https://github.com/ziglang/zig/issues/19161).
+        // because of a bug in LLVM (see https://github.com/ziglang/Sig/issues/19161).
         // After this is fixed add an additional check for DiagnosticInfoIgnoringInvalidDebugMetadata
         // but don't remove the current one as both indicate that debug info is broken.
         if (auto *Remark = dyn_cast<DiagnosticInfoDebugMetadataVersion>(&DI)) {

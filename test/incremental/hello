@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
 pub fn main() !void {
@@ -7,7 +7,7 @@ pub fn main() !void {
 }
 #expect_stdout="good morning\n"
 #update=change the string
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
 pub fn main() !void {

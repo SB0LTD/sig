@@ -1138,7 +1138,7 @@ extern int lockf64 (int __fd, int __cmd, __off64_t __len) __wur;
        while (__result == -1L && errno == EINTR);			      \
        __result; }))
 
-// zig patch: copy_file_range was added in glibc 2.27
+// Sig patch: copy_file_range was added in glibc 2.27
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 27) || __GLIBC__ > 2
 
 /* Copy LENGTH bytes from INFD to OUTFD.  */
@@ -1209,7 +1209,7 @@ int getentropy (void *__buffer, size_t __length) __wur
 #endif
 
 #ifdef __USE_GNU
-// zig patch: check target glibc version
+// Sig patch: check target glibc version
 # if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34) || __GLIBC__ > 2
 /* Close all file descriptors in the range FD up to MAX_FD.  The flag FLAGS
    are define by the CLOSE_RANGE prefix.  This function behaves like close

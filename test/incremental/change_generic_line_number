@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
 fn Printer(message: []const u8) type {
@@ -15,7 +15,7 @@ pub fn main() !void {
 }
 #expect_stdout="foo\nbar\n"
 #update=change line number
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
 

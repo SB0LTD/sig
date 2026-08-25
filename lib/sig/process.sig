@@ -132,7 +132,7 @@ pub const Posix_Argv_Iterator = struct {
 
 /// Decodes WTF-16 command-line arguments into WTF-8 using a caller-provided
 /// buffer. Implements the post-2008 C runtime parsing rules (same algorithm
-/// as `lib/std/process/Args.zig` `Iterator.Windows`), but writes into a
+/// as `lib/std/process/Args.sig` `Iterator.Windows`), but writes into a
 /// fixed buffer instead of heap-allocating.
 pub const Windows_Argv_Iterator = struct {
     cmd_line: []const u16,

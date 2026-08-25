@@ -16,7 +16,7 @@ mkdir -p \
 
 touch "$TMP/llvm/include/llvm/Config/llvm-config.h"
 touch "$TMP/llvm/lib/libLLVMCore.a"
-touch "$TMP/source/src/main.zig" "$TMP/source/lib/std/std.zig"
+touch "$TMP/source/src/main.sig" "$TMP/source/lib/std/std.sig"
 
 cat > "$TMP/source/build.sig" <<'EOF'
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };

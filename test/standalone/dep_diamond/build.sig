@@ -1,0 +1,30 @@
+const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    const optimize: std.builtin.Optimize = .debug;
+
+    const main_mod = b.createModule(.{
+        .root_source_file = b.path("test.sig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const shared_mod = b.createModule(.{ .root_source_file = b.path("shared.sig") });
+    const foo_mod = b.createModule(.{ .root_source_file = b.path("foo.sig") });
+    const bar_mod = b.createModule(.{ .root_source_file = b.path("bar.sig") });
+
+    main_mod.addImport("foo", foo_mod);
+    main_mod.addImport("bar", bar_mod);
+    foo_mod.addImport("shared", shared_mod);
+    bar_mod.addImport("shared", shared_mod);
+
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .root_module = main_mod,
+    });
+
+    const run = b.addRunArtifact(exe);
+    test_step.dependOn(&run.step);
+}

@@ -12,7 +12,7 @@
 #   ├── lib/
 #   │   ├── std/           (zig standard library)
 #   │   ├── sig/           (sig standard library modules)
-#   │   └── compiler/      (Maker.zig, configurer.zig, aro/)
+#   │   └── compiler/      (Maker.sig, configurer.sig, aro/)
 #   └── tools/
 #       └── sig_build/     (sig-native build runner)
 
@@ -47,13 +47,13 @@ function Test-SigInstallation {
     # Check lib directory structure
     $libDir = Join-Path $Root "lib"
     $requiredPaths = @(
-        "std\std.zig",
-        "std\lang.zig",
+        "std\std.sig",
+        "std\lang.sig",
         "sig\sig.sig",
         "sig\containers.sig",
-        "compiler\Maker.zig",
-        "compiler\configurer.zig",
-        "compiler\aro\aro.zig"
+        "compiler\Maker.sig",
+        "compiler\configurer.sig",
+        "compiler\aro\aro.sig"
     )
 
     foreach ($rel in $requiredPaths) {
@@ -69,13 +69,13 @@ function Test-SigInstallation {
         }
     }
 
-    # Check for stale .zig files in lib/sig/ (should be .sig)
+    # Check for stale .sig files in lib/sig/ (should be .sig)
     $sigLibDir = Join-Path $libDir "sig"
     if (Test-Path $sigLibDir) {
-        $zigFiles = Get-ChildItem $sigLibDir -Filter "*.zig" -ErrorAction SilentlyContinue
+        $zigFiles = Get-ChildItem $sigLibDir -Filter "*.sig" -ErrorAction SilentlyContinue
         $sigFiles = Get-ChildItem $sigLibDir -Filter "*.sig" -ErrorAction SilentlyContinue
         if ($zigFiles.Count -gt 0 -and $sigFiles.Count -eq 0) {
-            $errors += "lib\sig\ contains .zig files but no .sig files (stale distribution)"
+            $errors += "lib\sig\ contains .sig files but no .sig files (stale distribution)"
         }
     }
 
@@ -149,7 +149,7 @@ if ($Install) {
     if (-not $ok) {
         Write-Host ""
         Write-Host "  Attempting auto-fix from source repo at: $sigRepo" -ForegroundColor Yellow
-        if (Test-Path (Join-Path $sigRepo "lib\std\std.zig")) {
+        if (Test-Path (Join-Path $sigRepo "lib\std\std.sig")) {
             Sync-FromSource -Root $Prefix -SigRepo $sigRepo
             Write-Host ""
             Write-Host "  Re-validating..." -ForegroundColor Cyan

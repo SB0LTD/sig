@@ -94,14 +94,14 @@ pub const Compilation_Engine = struct {
         }
 
         // ── Step 4: Validate required directories ──
-        if (ctx.zig_lib_dir_len == 0) {
+        if (ctx.sig_lib_dir_len == 0) {
             captureDiagnostic(
                 &diag_buf,
                 .@"error",
                 ctx.root_source_path[0..ctx.root_source_path_len],
                 0,
                 0,
-                "zig_lib_dir not set in Compilation_Context",
+                "SIG_LIB_DIR not set in Compilation_Context",
             );
             return finalizeResult(&result, &diag_buf, false);
         }

@@ -9,7 +9,7 @@
 #ifndef _LIBCPP___CONFIGURATION_HARDENING_H
 #define _LIBCPP___CONFIGURATION_HARDENING_H
 
-/* zig patch: instead of including __config_site, zig adds -D flags when compiling */
+/* Sig patch: instead of including __config_site, Sig adds -D flags when compiling */
 #include <__configuration/experimental.h>
 #include <__configuration/language.h>
 

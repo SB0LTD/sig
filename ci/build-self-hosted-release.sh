@@ -55,8 +55,8 @@ esac
 test -x "$BOOTSTRAP"
 test -f "$LLVM_PREFIX/include/llvm/Config/llvm-config.h"
 test -f "$LLVM_PREFIX/lib/libLLVMCore.a"
-test -f "$ROOT/src/main.zig"
-test -f "$ROOT/lib/std/std.zig"
+test -f "$ROOT/src/main.sig"
+test -f "$ROOT/lib/std/std.sig"
 mkdir -p "$(dirname "$OUTPUT")" "$CACHE"
 
 ZIG_VERSION="$(sed -n 's/^const zig_version:.*major = \([0-9]*\), \.minor = \([0-9]*\), \.patch = \([0-9]*\).*/\1.\2.\3/p' "$ROOT/build.sig" | head -1)"
@@ -64,7 +64,7 @@ SIG_VERSION="$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' "$ROOT/
 test -n "$ZIG_VERSION"
 test -n "$SIG_VERSION"
 
-BUILD_OPTIONS="$CACHE/release_build_options.zig"
+BUILD_OPTIONS="$CACHE/release_build_options.sig"
 cat > "$BUILD_OPTIONS" <<EOF
 pub const have_llvm: bool = true;
 pub const llvm_has_m68k: bool = true;
@@ -108,7 +108,7 @@ lld_flag=-flld
 set --
 case "$TARGET" in
   aarch64-macos-none)
-    # Zig's bundled LLD does not implement Mach-O linking. A native macOS
+    # Sig's bundled LLD does not implement Mach-O linking. A native macOS
     # release must use Apple's system linker from the runner toolchain.
     lld_flag=-fno-lld
     ;;
@@ -146,11 +146,11 @@ cd "$ROOT"
   src/zig_clang_cc1as_main.cpp \
   --dep build_options \
   --dep aro \
-  -Mroot=src/main.zig \
+  -Mroot=src/main.sig \
   "-Mbuild_options=$BUILD_OPTIONS" \
-  -Maro=lib/compiler/aro/aro.zig \
+  -Maro=lib/compiler/aro/aro.sig \
   --name sig \
-  --zig-lib-dir "$ROOT/lib" \
+  --Sig-lib-dir "$ROOT/lib" \
   --cache-dir "$CACHE/compiler" \
   -lc \
   -lc++ \

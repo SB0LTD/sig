@@ -271,7 +271,7 @@ typedef struct _ftsent {
 } FTSENT;
 
 #ifdef __USE_LARGEFILE64
-// zig patch: 64bits variants appeared starting from glibc 2.23
+// Sig patch: 64bits variants appeared starting from glibc 2.23
 # if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 23) || __GLIBC__ > 2
 typedef struct _ftsent64 {
 	struct _ftsent64 *fts_cycle;	/* cycle node */
@@ -306,7 +306,7 @@ typedef struct _ftsent64 {
 
 __BEGIN_DECLS
 
-// zig patch: 64bits variants appeared starting from glibc 2.23
+// Sig patch: 64bits variants appeared starting from glibc 2.23
 // before that version, we can't declare nor redirect to them
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 23) || __GLIBC__ > 2
 
@@ -357,7 +357,7 @@ FTSENT	*fts_read (FTS *);
 int	 fts_set (FTS *, FTSENT *, int) __THROW;
 #endif
 
-// zig patch: 64bits time variants appeared starting from glibc 2.34
+// Sig patch: 64bits time variants appeared starting from glibc 2.34
 // before that version, there is nothing to declare
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34) || __GLIBC__ > 2
 

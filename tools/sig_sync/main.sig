@@ -4,7 +4,7 @@ const sig_fmt = sig.fmt;
 const sig_json = sig.json;
 const sig_fs = sig.fs;
 
-/// Sig_Sync — Upstream Zig Synchronization Tool (zero allocators)
+/// Sig_Sync — Upstream Sig Synchronization Tool (zero allocators)
 ///
 /// All memory is stack-allocated or caller-provided. No Allocator anywhere.
 /// Uses sig.json for manifest parsing/serialization, sig.fmt for string
@@ -661,7 +661,7 @@ test "parseManifest with conflict entry" {
         \\      "upstream_commit": "bbb0000000000000000000000000000000000000",
         \\      "timestamp": 1700001000,
         \\      "status": "conflict",
-        \\      "conflicting_files": ["lib/sig/fmt.zig", "src/main.zig"]
+        \\      "conflicting_files": ["lib/sig/fmt.sig", "src/main.sig"]
         \\    }
         \\  ]
         \\}
@@ -670,8 +670,8 @@ test "parseManifest with conflict entry" {
     try std.testing.expectEqual(@as(usize, 1), manifest.entry_count);
     try std.testing.expectEqual(SyncEntry.Status.conflict, manifest.entries[0].status);
     try std.testing.expectEqual(@as(usize, 2), manifest.entries[0].conflict_count);
-    try std.testing.expectEqualStrings("lib/sig/fmt.zig", manifest.entries[0].conflictFile(0));
-    try std.testing.expectEqualStrings("src/main.zig", manifest.entries[0].conflictFile(1));
+    try std.testing.expectEqualStrings("lib/sig/fmt.sig", manifest.entries[0].conflictFile(0));
+    try std.testing.expectEqualStrings("src/main.sig", manifest.entries[0].conflictFile(1));
 }
 
 test "parseManifest invalid JSON returns default" {
@@ -714,7 +714,7 @@ test "parseManifest with ai_resolved entry and ai_resolution_details" {
         \\      "upstream_commit": "ddd0000000000000000000000000000000000000",
         \\      "timestamp": 1700002000,
         \\      "status": "ai_resolved",
-        \\      "conflicting_files": ["lib/sig/fmt.zig"],
+        \\      "conflicting_files": ["lib/sig/fmt.sig"],
         \\      "ai_resolution_details": {
         \\        "confidence": 92,
         \\        "explanation": "Accepted upstream changes and repositioned sig block",
@@ -732,7 +732,7 @@ test "parseManifest with ai_resolved entry and ai_resolution_details" {
     try std.testing.expectEqual(@as(u8, 1), manifest.entries[0].ai_details.resolved_file_count);
     try std.testing.expectEqualStrings("Accepted upstream changes and repositioned sig block", manifest.entries[0].ai_details.explanation());
     try std.testing.expectEqual(@as(usize, 1), manifest.entries[0].conflict_count);
-    try std.testing.expectEqualStrings("lib/sig/fmt.zig", manifest.entries[0].conflictFile(0));
+    try std.testing.expectEqualStrings("lib/sig/fmt.sig", manifest.entries[0].conflictFile(0));
 }
 
 test "parseManifest legacy manifest without ai_resolution_details" {
@@ -775,7 +775,7 @@ test "parseManifest with multiple entries including ai_resolved" {
         \\      "upstream_commit": "ccc0000000000000000000000000000000000000",
         \\      "timestamp": 1700002000,
         \\      "status": "ai_resolved",
-        \\      "conflicting_files": ["src/main.zig"],
+        \\      "conflicting_files": ["src/main.sig"],
         \\      "ai_resolution_details": {
         \\        "confidence": 85,
         \\        "explanation": "Resolved via AI",

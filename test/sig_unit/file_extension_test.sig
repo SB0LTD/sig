@@ -3,15 +3,15 @@ const testing = std.testing;
 const sig_integration = @import("sig_diagnostics_integration");
 const sig_diag = @import("sig_diagnostics");
 
-/// Mirrors the Zcu.File.modeFromPath logic from src/Zcu.zig.
+/// Mirrors the Zcu.File.modeFromPath logic from src/Zcu.sig.
 /// Used for unit testing since Zcu is not available as a test import.
 /// [sig] .zon is checked first, so .sig.zon files are correctly parsed as ZON (not as .sig source).
-const AstMode = enum { zig, zon };
+const AstMode = enum { Sig, zon };
 fn modeFromPath(path: []const u8) ?AstMode {
     if (std.mem.endsWith(u8, path, ".zon")) {
         return .zon;
-    } else if (std.mem.endsWith(u8, path, ".zig") or std.mem.endsWith(u8, path, ".sig")) {
-        return .zig;
+    } else if (std.mem.endsWith(u8, path, ".sig") or std.mem.endsWith(u8, path, ".sig")) {
+        return .sig;
     } else {
         return null;
     }
@@ -32,12 +32,12 @@ test "hasSigExtension: returns true for .sig" {
     try testing.expect(sig_integration.hasSigExtension(".sig"));
 }
 
-test "hasSigExtension: returns false for foo.zig" {
-    try testing.expect(!sig_integration.hasSigExtension("foo.zig"));
+test "hasSigExtension: returns false for foo.sig" {
+    try testing.expect(!sig_integration.hasSigExtension("foo.sig"));
 }
 
-test "hasSigExtension: returns false for foo.sig.zig" {
-    try testing.expect(!sig_integration.hasSigExtension("foo.sig.zig"));
+test "hasSigExtension: returns false for foo.sig.sig" {
+    try testing.expect(!sig_integration.hasSigExtension("foo.sig.sig"));
 }
 
 test "hasSigExtension: returns false for foo.signature" {
@@ -56,12 +56,12 @@ test "resolveFileMode: .sig file with strict global mode returns strict" {
     try testing.expectEqual(sig_integration.Mode.strict, sig_integration.resolveFileMode("x.sig", .strict));
 }
 
-test "resolveFileMode: .zig file with default global mode returns default" {
-    try testing.expectEqual(sig_integration.Mode.default, sig_integration.resolveFileMode("x.zig", .default));
+test "resolveFileMode: .sig file with default global mode returns default" {
+    try testing.expectEqual(sig_integration.Mode.default, sig_integration.resolveFileMode("x.sig", .default));
 }
 
-test "resolveFileMode: .zig file with strict global mode returns strict" {
-    try testing.expectEqual(sig_integration.Mode.strict, sig_integration.resolveFileMode("x.zig", .strict));
+test "resolveFileMode: .sig file with strict global mode returns strict" {
+    try testing.expectEqual(sig_integration.Mode.strict, sig_integration.resolveFileMode("x.sig", .strict));
 }
 
 // Unit Tests for formatDiagnostic with .sig annotation
@@ -83,10 +83,10 @@ test "formatDiagnostic: .sig file in strict mode includes sig annotation" {
     try testing.expect(std.mem.indexOf(u8, msg, "error") != null);
 }
 
-test "formatDiagnostic: .zig file in default mode does not include sig annotation" {
+test "formatDiagnostic: .sig file in default mode does not include sig annotation" {
     const gpa = testing.allocator;
     const entry = sig_diag.DiagnosticEntry{
-        .file_path = "src/core.zig",
+        .file_path = "src/core.sig",
         .line = 10,
         .column = 3,
         .function_name = "setup",
@@ -99,10 +99,10 @@ test "formatDiagnostic: .zig file in default mode does not include sig annotatio
     try testing.expect(std.mem.indexOf(u8, msg, "warning") != null);
 }
 
-test "formatDiagnostic: .zig file in strict mode does not include sig annotation" {
+test "formatDiagnostic: .sig file in strict mode does not include sig annotation" {
     const gpa = testing.allocator;
     const entry = sig_diag.DiagnosticEntry{
-        .file_path = "src/core.zig",
+        .file_path = "src/core.sig",
         .line = 10,
         .column = 3,
         .function_name = "setup",
@@ -115,7 +115,7 @@ test "formatDiagnostic: .zig file in strict mode does not include sig annotation
     try testing.expect(std.mem.indexOf(u8, msg, "error") != null);
 }
 
-// Unit Tests for analyzeFile with .sig and .zig file paths
+// Unit Tests for analyzeFile with .sig and .sig file paths
 // Requirements: 1.2, 7.1, 7.2, 7.3
 
 test "analyzeFile: .sig file with default global mode produces errors" {
@@ -127,10 +127,10 @@ test "analyzeFile: .sig file with default global mode produces errors" {
     try testing.expectEqual(@as(usize, 0), result.total_warnings);
 }
 
-test "analyzeFile: .zig file with default global mode produces warnings" {
+test "analyzeFile: .sig file with default global mode produces warnings" {
     const gpa = testing.allocator;
     const source = "fn doWork() void {\n    const x = allocator.alloc(u8, 64);\n    _ = x;\n}\n";
-    var result = try sig_integration.analyzeFile(gpa, "test.zig", source, .default);
+    var result = try sig_integration.analyzeFile(gpa, "test.sig", source, .default);
     defer result.deinit();
     try testing.expect(result.total_warnings > 0);
     try testing.expectEqual(@as(usize, 0), result.total_errors);
@@ -151,8 +151,8 @@ test "modeFromPath: path/to/bar.sig.zon returns .zon" {
     try testing.expectEqual(AstMode.zon, modeFromPath("path/to/bar.sig.zon").?);
 }
 
-test "modeFromPath: build.sig returns .zig (not .zon)" {
-    try testing.expectEqual(AstMode.zig, modeFromPath("build.sig").?);
+test "modeFromPath: build.sig returns .sig (not .zon)" {
+    try testing.expectEqual(AstMode.sig, modeFromPath("build.sig").?);
 }
 
 test "hasSigExtension: build.sig.zon returns false (it is ZON, not Sig source)" {
@@ -162,13 +162,13 @@ test "hasSigExtension: build.sig.zon returns false (it is ZON, not Sig source)" 
 // Unit Tests for build file precedence constants
 // Requirements: 8.1, 8.4
 
-/// Mirrors the build file constants from src/Package.zig and src/Package/Manifest.zig.
+/// Mirrors the build file constants from src/Package.sig and src/Package/Manifest.sig.
 /// These are compiler-internal modules not available as test imports, so we verify
 /// the contract values directly to ensure the constants match the spec.
 const build_sig_basename = "build.sig";
-const build_zig_basename = "build.zig";
+const build_zig_basename = "build.sig";
 const manifest_sig_basename = "build.sig.zon";
-const manifest_zig_basename = "build.zig.zon";
+const manifest_zig_basename = "build.sig.zon";
 
 test "build_sig_basename constant equals 'build.sig'" {
     try testing.expectEqualStrings("build.sig", build_sig_basename);
@@ -186,18 +186,18 @@ test "build.sig.zon is not a .sig file (hasSigExtension)" {
     try testing.expect(!sig_integration.hasSigExtension(manifest_sig_basename));
 }
 
-test "build.sig resolves to .zig mode (not .zon)" {
-    try testing.expectEqual(AstMode.zig, modeFromPath(build_sig_basename).?);
+test "build.sig resolves to .sig mode (not .zon)" {
+    try testing.expectEqual(AstMode.sig, modeFromPath(build_sig_basename).?);
 }
 
 test "build.sig.zon resolves to .zon mode" {
     try testing.expectEqual(AstMode.zon, modeFromPath(manifest_sig_basename).?);
 }
 
-test "build.zig.zon resolves to .zon mode" {
+test "build.sig.zon resolves to .zon mode" {
     try testing.expectEqual(AstMode.zon, modeFromPath(manifest_zig_basename).?);
 }
 
-test "build.zig resolves to .zig mode" {
-    try testing.expectEqual(AstMode.zig, modeFromPath(build_zig_basename).?);
+test "build.sig resolves to .sig mode" {
+    try testing.expectEqual(AstMode.sig, modeFromPath(build_zig_basename).?);
 }

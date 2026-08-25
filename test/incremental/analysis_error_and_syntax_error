@@ -1,37 +1,37 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
     @compileError("uh oh");
 }
-#expect_error=main.zig:2:5: error: uh oh
+#expect_error=main.sig:2:5: error: uh oh
 
 #update=add parse error
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
     @compileError("uh oh");
-#expect_error=main.zig:3:1: error: expected statement, found 'EOF'
+#expect_error=main.sig:3:1: error: expected statement, found 'EOF'
 
 #update=fix parse error
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
     @compileError("uh oh");
 }
-#expect_error=main.zig:2:5: error: uh oh
+#expect_error=main.sig:2:5: error: uh oh
 
 #update=add parse error again
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
     @compileError("uh oh");
-#expect_error=main.zig:3:1: error: expected statement, found 'EOF'
+#expect_error=main.sig:3:1: error: expected statement, found 'EOF'
 
 #update=comment @compileError call
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
     //@compileError("uh oh");
-#expect_error=main.zig:3:1: error: expected statement, found 'EOF'
+#expect_error=main.sig:3:1: error: expected statement, found 'EOF'
 
 #update=fix parse error again
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
     //@compileError("uh oh");
 }

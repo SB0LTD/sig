@@ -4,7 +4,7 @@
 //! Constructs an AST using a fixed-capacity node pool from tokens
 //! produced by the streaming tokenizer. Zero heap allocations.
 //!
-//! Supports complete zig/sig syntax: declarations (fn, var, const,
+//! Supports complete Sig/sig syntax: declarations (fn, var, const,
 //! struct, enum, union), expressions (binary, unary, call, field access,
 //! index), statements (block, if, while, for, return), comptime
 //! expressions, and inline assembly.
@@ -1285,7 +1285,7 @@ pub const Parser = struct {
     // ========================================================================
 
     /// Parse a type expression.
-    /// Types are essentially expressions in zig/sig, so this delegates to
+    /// Types are essentially expressions in Sig/sig, so this delegates to
     /// parseExpr but also handles type-specific syntax like pointers,
     /// optionals, slices, arrays, and error unions.
     fn parseTypeExpr(self: *Parser) u32 {

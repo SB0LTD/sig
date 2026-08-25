@@ -5,5 +5,5 @@
 #ifdef _KERNEL
 #error "<osreldate.h> cannot be used in the kernel, use <sys/param.h>"
 #else
-/* zig patch: the compiler defines __FreeBSD_version */
+/* Sig patch: the compiler defines __FreeBSD_version */
 #endif

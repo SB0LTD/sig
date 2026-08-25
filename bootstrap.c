@@ -147,13 +147,13 @@ int main(int argc, char **argv) {
 
     {
         const char *child_argv[] = {
-            cc, "-o", "zig-wasm2c", "stage1/wasm2c.c", "-O2", "-std=c99", NULL,
+            cc, "-o", "Sig-wasm2c", "stage1/wasm2c.c", "-O2", "-std=c99", NULL,
         };
         print_and_run(child_argv);
     }
     {
         const char *child_argv[] = {
-            "./zig-wasm2c", "stage1/zig1.wasm", "zig1.c", NULL,
+            "./Sig-wasm2c", "stage1/zig1.wasm", "zig1.c", NULL,
         };
         print_and_run(child_argv);
     }
@@ -164,9 +164,9 @@ int main(int argc, char **argv) {
         print_and_run(child_argv);
     }
     {
-        FILE *f = fopen("config.zig", "wb");
+        FILE *f = fopen("config.sig", "wb");
         if (f == NULL)
-            panic("unable to open config.zig for writing");
+            panic("unable to open config.sig for writing");
 
         const char *zig_version = "0.17.0-dev.bootstrap";
 
@@ -190,9 +190,9 @@ int main(int argc, char **argv) {
             "pub const value_interpret_mode = .direct;\n"
         , zig_version);
         if (written < 100)
-            panic("unable to write to config.zig file");
+            panic("unable to write to config.sig file");
         if (fclose(f) != 0)
-            panic("unable to finish writing to config.zig file");
+            panic("unable to finish writing to config.sig file");
     }
 
     {
@@ -202,8 +202,8 @@ int main(int argc, char **argv) {
             "--name", "zig2", "-femit-bin=zig2.c",
             "-target", host_triple,
             "--dep", "build_options",
-            "-Mroot=src/main.zig",
-            "-Mbuild_options=config.zig",
+            "-Mroot=src/main.sig",
+            "-Mbuild_options=config.sig",
             NULL,
         };
         print_and_run(child_argv);
@@ -215,7 +215,7 @@ int main(int argc, char **argv) {
             "-ofmt=c", "-OReleaseSmall",
             "--name", "compiler_rt", "-femit-bin=compiler_rt.c",
             "-target", host_triple,
-            "-Mroot=lib/compiler_rt.zig",
+            "-Mroot=lib/compiler_rt.sig",
             NULL,
         };
         print_and_run(child_argv);

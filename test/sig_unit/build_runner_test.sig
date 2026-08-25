@@ -642,7 +642,7 @@ fn shouldExcludeFile(filename: []const u8) bool {
     const excluded_suffixes = [_][]const u8{
         ".gz",     ".z.0",  ".z.9",    ".zst.3",
         ".zst.19", ".lzma", ".xz",     ".tzif",
-        ".tar",    "test.zig",
+        ".tar",    "test.sig",
     };
 
     for (excluded_suffixes) |suffix| {
@@ -860,8 +860,8 @@ test "Module_Registry: import beyond MAX_IMPORTS_PER_MODULE returns CapacityExce
 
 test "Module_Registry: duplicate module name returns CapacityExceeded" {
     var reg: Module_Registry = .{};
-    _ = try reg.register("sig", "lib/sig/sig.zig");
-    try testing.expectError(error.CapacityExceeded, reg.register("sig", "lib/sig/other.zig"));
+    _ = try reg.register("sig", "lib/sig/sig.sig");
+    try testing.expectError(error.CapacityExceeded, reg.register("sig", "lib/sig/other.sig"));
     try testing.expectEqual(@as(usize, 1), reg.count);
 }
 
@@ -1282,7 +1282,7 @@ test "buildCompileCommand: with imports adds --dep and -M flags" {
     var imp: Import_Entry = .{};
     @memcpy(imp.name[0..3], "sig");
     imp.name_len = 3;
-    @memcpy(imp.path[0..15], "lib/sig/sig.zig");
+    @memcpy(imp.path[0..15], "lib/sig/sig.sig");
     imp.path_len = 15;
 
     const imports = [_]Import_Entry{imp};
@@ -1299,14 +1299,14 @@ test "buildCompileCommand: with imports adds --dep and -M flags" {
 
     try buildCompileCommand(&cmd, opts);
 
-    // Expected: sig build-exe --dep sig -Mroot=src/main.sig -Msig=lib/sig/sig.zig -O Debug --cache-dir .cache --name app
+    // Expected: sig build-exe --dep sig -Mroot=src/main.sig -Msig=lib/sig/sig.sig -O Debug --cache-dir .cache --name app
     try testing.expectEqual(@as(usize, 12), cmd.arg_count);
     try testing.expectEqualSlices(u8, "sig", cmd.getArg(0));
     try testing.expectEqualSlices(u8, "build-exe", cmd.getArg(1));
     try testing.expectEqualSlices(u8, "--dep", cmd.getArg(2));
     try testing.expectEqualSlices(u8, "sig", cmd.getArg(3));
     try testing.expectEqualSlices(u8, "-Mroot=src/main.sig", cmd.getArg(4));
-    try testing.expectEqualSlices(u8, "-Msig=lib/sig/sig.zig", cmd.getArg(5));
+    try testing.expectEqualSlices(u8, "-Msig=lib/sig/sig.sig", cmd.getArg(5));
     try testing.expectEqualSlices(u8, "-O", cmd.getArg(6));
     try testing.expectEqualSlices(u8, "Debug", cmd.getArg(7));
     try testing.expectEqualSlices(u8, "--cache-dir", cmd.getArg(8));
@@ -1327,14 +1327,14 @@ test "shouldExcludeFile: .gz suffix is excluded" {
     try testing.expect(shouldExcludeFile("data.gz"));
 }
 
-test "shouldExcludeFile: test.zig suffix is excluded" {
-    try testing.expect(shouldExcludeFile("my_test.zig"));
+test "shouldExcludeFile: test.sig suffix is excluded" {
+    try testing.expect(shouldExcludeFile("my_test.sig"));
 }
 
 test "shouldExcludeFile: .sig file is not excluded" {
     try testing.expect(!shouldExcludeFile("main.sig"));
 }
 
-test "shouldExcludeFile: regular .zig file is not excluded" {
-    try testing.expect(!shouldExcludeFile("main.zig"));
+test "shouldExcludeFile: regular .sig file is not excluded" {
+    try testing.expect(!shouldExcludeFile("main.sig"));
 }

@@ -34,7 +34,7 @@ jobs:
           # [sig] Codeberg frequently returns HTTP 504 from GitHub Actions runners
           # (large repo + cloud IP rate limiting). Use aggressive retry with shallow
           # fetch to reduce payload, then deepen only if needed.
-          git remote add upstream https://codeberg.org/ziglang/zig.git 2>/dev/null || true
+          git remote add upstream https://codeberg.org/ziglang/Sig.git 2>/dev/null || true
 
           # Configure git for better network resilience
           git config --global http.postBuffer 524288000
@@ -128,8 +128,8 @@ jobs:
 
           # Files we own — on conflict, keep ours
           SIG_OWNED=(
-            README.md CHANGELOG.md build.sig build.zig build_wasm.sig build_wasm.zig
-            stage1/config.zig.in
+            README.md CHANGELOG.md build.sig build.sig build_wasm.sig build_wasm.sig
+            stage1/config.sig.in
             .gitignore bootstrap.ps1 CMakeLists.txt
           )
           # Directories we own — on conflict, keep ours
@@ -199,12 +199,12 @@ jobs:
             mkdir -p "$TMPBOOT/boot"
             zstd -d "$TMPBOOT/bootstrap-sig-x86_64-linux.tar.zst" --stdout | tar -x -C "$TMPBOOT/boot"
 
-            local SIG_BIN=$(find "$TMPBOOT/boot" -type f \( -name "sig" -o -name "zig" \) | head -1)
+            local SIG_BIN=$(find "$TMPBOOT/boot" -type f \( -name "sig" -o -name "sig" \) | head -1)
             [ -z "$SIG_BIN" ] && echo "::warning::No binary in bootstrap" && rm -rf "$TMPBOOT" && return 1
             chmod +x "$SIG_BIN"
             local SIG_PREFIX=$(dirname "$(dirname "$SIG_BIN")")
             local SIG_LIB="$SIG_PREFIX/lib"
-            test -f "$SIG_LIB/std/std.zig" || {
+            test -f "$SIG_LIB/std/std.sig" || {
               echo "::warning::Bootstrap $TAG has no matching standard library"
               rm -rf "$TMPBOOT"
               return 1
@@ -212,16 +212,16 @@ jobs:
 
             # Try a minimal musl libc compilation probe — this catches stale
             # musl sources (e.g. deleted .c files the compiler recipe still references).
-            # We use build-obj with a trivial zig file that links libc, which forces
+            # We use build-obj with a trivial Sig file that links libc, which forces
             # the compiler to build musl from source. No @cImport (needs LLVM).
-            cat > "$TMPBOOT/probe.zig" << 'PROBE'
+            cat > "$TMPBOOT/probe.sig" << 'PROBE'
           extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
           pub fn main() void { _ = getenv("HOME"); }
           PROBE
 
             local RESULT=0
-            if ! "$SIG_BIN" build-exe "$TMPBOOT/probe.zig" \
-                --zig-lib-dir "$SIG_LIB" \
+            if ! "$SIG_BIN" build-exe "$TMPBOOT/probe.sig" \
+                --Sig-lib-dir "$SIG_LIB" \
                 -target x86_64-linux-musl -lc \
                 --name probe \
                 -fno-emit-bin 2>"$TMPBOOT/probe.log"; then
@@ -329,7 +329,7 @@ jobs:
 
             # ── Post-integration: version sync, manifest, README, push
             if [ "$INTEGRATED" = "true" ]; then
-              # Sync Zig compatibility version from CMakeLists.txt into both
+              # Sync Sig compatibility version from CMakeLists.txt into both
               # Sig build frontends. build.sig remains the release authority,
               # and release preflight rejects any divergence between the two.
               ZIG_MAJOR=$(sed -n 's/^set(ZIG_VERSION_MAJOR \([0-9]*\))/\1/p' CMakeLists.txt)
@@ -337,10 +337,10 @@ jobs:
               ZIG_PATCH=$(sed -n 's/^set(ZIG_VERSION_PATCH \([0-9]*\))/\1/p' CMakeLists.txt)
 
               if [ -n "$ZIG_MAJOR" ] && [ -n "$ZIG_MINOR" ] && [ -n "$ZIG_PATCH" ]; then
-                for build_file in build.sig build.zig; do
+                for build_file in build.sig build.sig; do
                   sed -i "s/const zig_version: std.SemanticVersion = .{ .major = [0-9]*, .minor = [0-9]*, .patch = [0-9]* };/const zig_version: std.SemanticVersion = .{ .major = $ZIG_MAJOR, .minor = $ZIG_MINOR, .patch = $ZIG_PATCH };/" "$build_file"
                 done
-                git add build.sig build.zig
+                git add build.sig build.sig
                 git diff --cached --quiet || git commit -m "sig-sync: bump zig_version to $ZIG_MAJOR.$ZIG_MINOR.$ZIG_PATCH"
               fi
 
@@ -358,7 +358,7 @@ jobs:
               if echo "$CHANGED_FILES" | grep -qE '^stage1/'; then
                 NEEDS_ZIG1_REGEN=true
                 echo "::warning::Commit touches stage1/ — zig1.wasm needs regeneration"
-              elif echo "$CHANGED_FILES" | grep -qE '^(lib/std/zig/(Zir|AstGen|Parse|tokenizer)\.zig|src/(Air|Sema|Zcu|InternPool|codegen|Type|Value)\.zig)'; then
+              elif echo "$CHANGED_FILES" | grep -qE '^(lib/std/sig/(Zir|AstGen|Parse|tokenizer)\.sig|src/(Air|Sema|Zcu|InternPool|codegen|Type|Value)\.sig)'; then
                 NEEDS_ZIG1_REGEN=true
                 echo "::warning::Commit touches compiler internals — zig1.wasm needs regeneration"
               fi
@@ -406,11 +406,11 @@ jobs:
           commit = "$COMMIT"
           short = commit[:8]
           date = "$SYNC_DATE"
-          zig = "$ZIG_VER"
+          Sig = "$ZIG_VER"
           with open('README.md', 'r') as f: content = f.read()
-          content = re.sub(r'\| \*\*Latest upstream commit\*\* \|[^|]*\|', f'| **Latest upstream commit** | [\`{short}\`](https://codeberg.org/ziglang/zig/commit/{commit}) |', content)
+          content = re.sub(r'\| \*\*Latest upstream commit\*\* \|[^|]*\|', f'| **Latest upstream commit** | [\`{short}\`](https://codeberg.org/ziglang/Sig/commit/{commit}) |', content)
           content = re.sub(r'\| \*\*Last sync\*\* \|[^|]*\|', f'| **Last sync** | {date} |', content)
-          content = re.sub(r'\| \*\*Base version\*\* \|[^|]*\|', f'| **Base version** | zig {zig}-dev · LLVM 22.1.8 |', content)
+          content = re.sub(r'\| \*\*Base version\*\* \|[^|]*\|', f'| **Base version** | Sig {Sig}-dev · LLVM 22.1.8 |', content)
           with open('README.md', 'w') as f: f.write(content)
           PYEOF
               git add README.md

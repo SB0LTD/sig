@@ -3,13 +3,13 @@
  * This file is kept for reference only (not force-included).
  *
  * PROBLEM:
- * compiler_rt.c includes lib/zig.h which defines zig_export() on MSVC as:
+ * compiler_rt.c includes lib/Sig.h which defines zig_export() on MSVC as:
  *   __pragma(comment(linker, "/alternatename:sqrtf=zig_sqrt_f32"))
- * This aliases internal zig names to standard C library names. The MSVC static
+ * This aliases internal Sig names to standard C library names. The MSVC static
  * CRT (libucrt.lib) already provides these names, causing linker conflicts.
  *
- * SOLUTION (in lib/zig.h + CMakeLists.txt):
- * 1. lib/zig.h checks for ZIG_NO_EXPORT_ALIASES before defining zig_export.
+ * SOLUTION (in lib/Sig.h + CMakeLists.txt):
+ * 1. lib/Sig.h checks for ZIG_NO_EXPORT_ALIASES before defining zig_export.
  *    When set, zig_export expands to just ";" (no-op).
  * 2. CMakeLists.txt compiles compiler_rt.c with /DZIG_NO_EXPORT_ALIASES on Windows.
  *

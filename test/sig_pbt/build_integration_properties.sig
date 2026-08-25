@@ -47,15 +47,15 @@ fn genPathStr(random: std.Random, buf: []u8, max_len: usize) []u8 {
 // ── Replicated logic ────────────────────────────────────────────────────
 
 /// Replicated classifyFileExt result.
-const FileExt = enum { sig, zig, unknown, other };
+const FileExt = enum { sig, Sig, unknown, other };
 
-/// Replicated classifyFileExt logic from src/Compilation.zig.
+/// Replicated classifyFileExt logic from src/Compilation.sig.
 fn classifyFileExt(filename: []const u8) FileExt {
     if (mem.endsWith(u8, filename, ".sig")) {
         if (mem.endsWith(u8, filename, ".sig.zon")) return .unknown;
         return .sig;
-    } else if (mem.endsWith(u8, filename, ".zig")) {
-        return .zig;
+    } else if (mem.endsWith(u8, filename, ".sig")) {
+        return .sig;
     }
     return .other;
 }
@@ -66,9 +66,9 @@ const DelegationPath = enum { sig_runner, zig_runner, override };
 fn delegationDecision(has_build_sig: bool, has_build_zig: bool, has_override: bool) DelegationPath {
     if (has_override) return .override;
     if (has_build_sig) return .sig_runner;
-    if (has_build_zig) return .zig_runner;
+    if (has_build_zig) return .sig_runner;
     // No build file — would be an error in practice, but default to zig_runner
-    return .zig_runner;
+    return .sig_runner;
 }
 
 /// Replicated shouldExcludeFile from the build runner.
@@ -102,7 +102,7 @@ fn shouldExcludeFile(filename: []const u8) bool {
         ".expect-noinput",
         ".golden",
         ".input",
-        "test.zig",
+        "test.sig",
     };
     for (excluded_suffixes) |suffix| {
         if (filename.len >= suffix.len and
@@ -200,13 +200,13 @@ test "Property 2: delegation decision selects correct path for all flag combinat
                 try std.testing.expectEqual(DelegationPath.sig_runner, result);
                 return;
             }
-            // build.zig only (no override, no build.sig) → zig runner
+            // build.sig only (no override, no build.sig) → Sig runner
             if (has_build_zig) {
-                try std.testing.expectEqual(DelegationPath.zig_runner, result);
+                try std.testing.expectEqual(DelegationPath.sig_runner, result);
                 return;
             }
-            // Neither file → zig runner (fallback)
-            try std.testing.expectEqual(DelegationPath.zig_runner, result);
+            // Neither file → Sig runner (fallback)
+            try std.testing.expectEqual(DelegationPath.sig_runner, result);
         }
     };
     harness.property(
@@ -227,8 +227,8 @@ test "Property 3: argv has fixed positions 0-5 and preserves user args at 6+" {
             const compiler = "/usr/bin/sig";
             const lib_dir = "/usr/lib";
             const build_root = "/home/user/project";
-            const local_cache = "/home/user/project/.zig-cache";
-            const global_cache = "/home/user/.cache/zig";
+            const local_cache = "/home/user/project/.sig-cache";
+            const global_cache = "/home/user/.cache/Sig";
 
             // Generate 0-20 random user args
             const num_args = random.uintAtMost(usize, 20);
@@ -292,7 +292,7 @@ test "Property 4: exclusion filter matches expected set for random filenames" {
                 ".gz",     ".z.0",     ".z.9",            ".zst.3",
                 ".zst.19", ".lzma",    ".xz",             ".tzif",
                 ".tar",    ".expect",  ".expect-noinput", ".golden",
-                ".input",  "test.zig",
+                ".input",  "test.sig",
             };
 
             // Pick a random excluded suffix and prepend a random base
@@ -342,17 +342,17 @@ test "Property 5: -M flags contain correct module prefixes and paths" {
             const lib_dir = genPathStr(random, &lib_buf, 100);
 
             // Construct expected -Mname=path flag values
-            // -Msig=<lib_dir>/sig/sig.zig
+            // -Msig=<lib_dir>/sig/sig.sig
             var sig_mod_buf: [256]u8 = undefined;
-            const sig_mod = std.fmt.bufPrint(&sig_mod_buf, "-Msig={s}/sig/sig.zig", .{lib_dir}) catch return;
+            const sig_mod = std.fmt.bufPrint(&sig_mod_buf, "-Msig={s}/sig/sig.sig", .{lib_dir}) catch return;
 
             // -Msig_build=<lib_dir>/../tools/sig_build/main.sig
             var sb_mod_buf: [256]u8 = undefined;
             const sb_mod = std.fmt.bufPrint(&sb_mod_buf, "-Msig_build={s}/../tools/sig_build/main.sig", .{lib_dir}) catch return;
 
-            // -Mstd=<lib_dir>/std/std.zig
+            // -Mstd=<lib_dir>/std/std.sig
             var std_mod_buf: [256]u8 = undefined;
-            const std_mod = std.fmt.bufPrint(&std_mod_buf, "-Mstd={s}/std/std.zig", .{lib_dir}) catch return;
+            const std_mod = std.fmt.bufPrint(&std_mod_buf, "-Mstd={s}/std/std.sig", .{lib_dir}) catch return;
 
             // Verify each -M flag starts with the correct prefix
             try std.testing.expect(mem.startsWith(u8, sig_mod, "-Msig="));
@@ -365,9 +365,9 @@ test "Property 5: -M flags contain correct module prefixes and paths" {
             try std.testing.expect(mem.indexOf(u8, std_mod, lib_dir) != null);
 
             // Verify correct suffixes
-            try std.testing.expect(mem.endsWith(u8, sig_mod, "/sig/sig.zig"));
+            try std.testing.expect(mem.endsWith(u8, sig_mod, "/sig/sig.sig"));
             try std.testing.expect(mem.endsWith(u8, sb_mod, "/tools/sig_build/main.sig"));
-            try std.testing.expect(mem.endsWith(u8, std_mod, "/std/std.zig"));
+            try std.testing.expect(mem.endsWith(u8, std_mod, "/std/std.sig"));
         }
     };
     harness.property(

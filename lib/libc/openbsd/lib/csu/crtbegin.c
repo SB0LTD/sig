@@ -45,7 +45,7 @@
 #include "os-note-elf.h"
 #include "extern.h"
 
-/* zig patch: no ctors/dtors and init/fini */
+/* Sig patch: no ctors/dtors and init/fini */
 
 /*
  * Include support for the __cxa_atexit/__cxa_finalize C++ abi for

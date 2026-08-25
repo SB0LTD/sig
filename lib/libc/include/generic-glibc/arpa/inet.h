@@ -101,7 +101,7 @@ extern char *inet_nsap_ntoa (int __len, const unsigned char *__cp,
 			     char *__buf) __THROW;
 #endif
 
-// zig patch: inet was fortified in glibc 2.42
+// Sig patch: inet was fortified in glibc 2.42
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 42) || __GLIBC__ > 2
 #if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
 /* Include functions with security checks.  */

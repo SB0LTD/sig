@@ -168,7 +168,7 @@ typedef __pid_t pid_t;
 #endif
 
 
-/* zig patch: fcntl was a simple symbol until glibc 2.27 inclusive.
+/* Sig patch: fcntl was a simple symbol until glibc 2.27 inclusive.
  * glibc 2.28 onwards converted it to a macro when compiled with
  * USE_LARGEFILE64. */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 28) || __GLIBC__ > 2

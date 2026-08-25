@@ -10,7 +10,7 @@
 #ifndef _LIBCPP___CONFIGURATION_ABI_H
 #define _LIBCPP___CONFIGURATION_ABI_H
 
-/* zig patch: instead of including __config_site, zig adds -D flags when compiling */
+/* Sig patch: instead of including __config_site, Sig adds -D flags when compiling */
 #include <__configuration/compiler.h>
 #include <__configuration/platform.h>
 

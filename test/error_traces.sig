@@ -1,0 +1,683 @@
+const std = @import("std");
+const Context = @import("tests.sig").ErrorTracesContext;
+
+pub fn addCases(cases: *Context, params: *const Context.CaseParameters, target: *const std.Target) void {
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "return",
+        .source =
+        \\pub fn main() !void {
+        \\    return error.TheSkyIsFalling;
+        \\}
+        ,
+        .expect_error = "TheSkyIsFalling",
+        .expect_trace =
+        \\source.sig:2:5: [address] in main
+        \\    return error.TheSkyIsFalling;
+        \\    ^
+        ,
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "try return",
+        .source =
+        \\fn foo() !void {
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    try foo();
+        \\}
+        ,
+        .expect_error = "TheSkyIsFalling",
+        .expect_trace =
+        \\source.sig:2:5: [address] in foo
+        \\    return error.TheSkyIsFalling;
+        \\    ^
+        \\source.sig:6:5: [address] in main
+        \\    try foo();
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "non-error return pops error trace",
+        .source =
+        \\fn bar() !void {
+        \\    return error.UhOh;
+        \\}
+        \\
+        \\fn foo() !void {
+        \\    bar() catch {
+        \\        return; // non-error result: success
+        \\    };
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    try foo();
+        \\    return error.UnrelatedError;
+        \\}
+        ,
+        .expect_error = "UnrelatedError",
+        .expect_trace =
+        \\source.sig:13:5: [address] in main
+        \\    return error.UnrelatedError;
+        \\    ^
+        ,
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "continue in while loop",
+        .source =
+        \\fn foo() !void {
+        \\    return error.UhOh;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    var i: usize = 0;
+        \\    while (i < 3) : (i += 1) {
+        \\        foo() catch continue;
+        \\    }
+        \\    return error.UnrelatedError;
+        \\}
+        ,
+        .expect_error = "UnrelatedError",
+        .expect_trace =
+        \\source.sig:10:5: [address] in main
+        \\    return error.UnrelatedError;
+        \\    ^
+        ,
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "for loop pops error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    for (0..2) |_| {
+        \\        const f = foo();
+        \\        f catch {};
+        \\    } else {
+        \\        const f = foo();
+        \\        f catch {};
+        \\    }
+        \\    return error.Stop;
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.sig:11:5: [address] in main
+        \\    return error.Stop;
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "implicit continue in for loop pops stale error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    for (0..2) |i| {
+        \\        const f = foo();
+        \\        f catch {};
+        \\
+        \\        if (i == 1) return error.Stop;
+        \\    }
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.sig:1:18: [address] in foo
+        \\fn foo() !void { return error.FooError; }
+        \\                 ^
+        \\source.sig:8:21: [address] in main
+        \\        if (i == 1) return error.Stop;
+        \\                    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "while loop pops error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    var i: usize = 0;
+        \\    while (i < 2) {
+        \\        const f = foo();
+        \\        f catch {};
+        \\        i += 1;
+        \\    } else {
+        \\        const f = foo();
+        \\        f catch {};
+        \\    }
+        \\    return error.Stop;
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.sig:13:5: [address] in main
+        \\    return error.Stop;
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "implicit continue in while loop pops stale error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    var i: usize = 0;
+        \\    while (i < 2) {
+        \\        const f = foo();
+        \\        f catch {};
+        \\
+        \\        if (i == 1) return error.Stop;
+        \\        i += 1;
+        \\    }
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.sig:1:18: [address] in foo
+        \\fn foo() !void { return error.FooError; }
+        \\                 ^
+        \\source.sig:9:21: [address] in main
+        \\        if (i == 1) return error.Stop;
+        \\                    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "try return + handled catch/if-else",
+        .source =
+        \\fn foo() !void {
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    foo() catch {}; // should not affect error trace
+        \\    if (foo()) |_| {} else |_| {
+        \\        // should also not affect error trace
+        \\    }
+        \\    try foo();
+        \\}
+        ,
+        .expect_error = "TheSkyIsFalling",
+        .expect_trace =
+        \\source.sig:2:5: [address] in foo
+        \\    return error.TheSkyIsFalling;
+        \\    ^
+        \\source.sig:10:5: [address] in main
+        \\    try foo();
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "break from inline loop pops error return trace",
+        .source =
+        \\fn foo() !void { return error.FooBar; }
+        \\
+        \\pub fn main() !void {
+        \\    comptime var i: usize = 0;
+        \\    b: inline while (i < 5) : (i += 1) {
+        \\        foo() catch {
+        \\            break :b; // non-error break, success
+        \\        };
+        \\    }
+        \\    // foo() was successfully handled, should not appear in trace
+        \\
+        \\    return error.BadTime;
+        \\}
+        ,
+        .expect_error = "BadTime",
+        .expect_trace =
+        \\source.sig:12:5: [address] in main
+        \\    return error.BadTime;
+        \\    ^
+        ,
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "catch and re-throw error",
+        .source =
+        \\fn foo() !void {
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    return foo() catch error.AndMyCarIsOutOfGas;
+        \\}
+        ,
+        .expect_error = "AndMyCarIsOutOfGas",
+        .expect_trace =
+        \\source.sig:2:5: [address] in foo
+        \\    return error.TheSkyIsFalling;
+        \\    ^
+        \\source.sig:6:5: [address] in main
+        \\    return foo() catch error.AndMyCarIsOutOfGas;
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "errors stored in var do not contribute to error trace",
+        .source =
+        \\fn foo() !void {
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    // Once an error is stored in a variable, it is popped from the trace
+        \\    var x = foo();
+        \\    x = {};
+        \\
+        \\    // As a result, this error trace will still be clean
+        \\    return error.SomethingUnrelatedWentWrong;
+        \\}
+        ,
+        .expect_error = "SomethingUnrelatedWentWrong",
+        .expect_trace =
+        \\source.sig:11:5: [address] in main
+        \\    return error.SomethingUnrelatedWentWrong;
+        \\    ^
+        ,
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "error stored in const has trace preserved for duration of block",
+        .source =
+        \\fn foo() !void { return error.TheSkyIsFalling; }
+        \\fn bar() !void { return error.InternalError; }
+        \\fn baz() !void { return error.UnexpectedReality; }
+        \\
+        \\pub fn main() !void {
+        \\    const x = foo();
+        \\    const y = b: {
+        \\        if (true)
+        \\            break :b bar();
+        \\
+        \\        break :b {};
+        \\    };
+        \\    x catch {};
+        \\    y catch {};
+        \\    // foo()/bar() error traces not popped until end of block
+        \\
+        \\    {
+        \\        const z = baz();
+        \\        z catch {};
+        \\        // baz() error trace still alive here
+        \\    }
+        \\    // baz() error trace popped, foo(), bar() still alive
+        \\    return error.StillUnresolved;
+        \\}
+        ,
+        .expect_error = "StillUnresolved",
+        .expect_trace =
+        \\source.sig:1:18: [address] in foo
+        \\fn foo() !void { return error.TheSkyIsFalling; }
+        \\                 ^
+        \\source.sig:2:18: [address] in bar
+        \\fn bar() !void { return error.InternalError; }
+        \\                 ^
+        \\source.sig:23:5: [address] in main
+        \\    return error.StillUnresolved;
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "error passed to function has its trace preserved for duration of the call",
+        .source =
+        \\pub fn expectError(expected_error: anyerror, actual_error: anyerror!void) !void {
+        \\    actual_error catch |err| {
+        \\        if (err == expected_error) return {};
+        \\    };
+        \\    return error.TestExpectedError;
+        \\}
+        \\
+        \\fn alwaysErrors() !void { return error.ThisErrorShouldNotAppearInAnyTrace; }
+        \\fn foo() !void { return error.Foo; }
+        \\
+        \\pub fn main() !void {
+        \\    try expectError(error.ThisErrorShouldNotAppearInAnyTrace, alwaysErrors());
+        \\    try expectError(error.ThisErrorShouldNotAppearInAnyTrace, alwaysErrors());
+        \\    try expectError(error.Foo, foo());
+        \\
+        \\    // Only the error trace for this failing check should appear:
+        \\    try expectError(error.Bar, foo());
+        \\}
+        ,
+        .expect_error = "TestExpectedError",
+        .expect_trace =
+        \\source.sig:9:18: [address] in foo
+        \\fn foo() !void { return error.Foo; }
+        \\                 ^
+        \\source.sig:5:5: [address] in expectError
+        \\    return error.TestExpectedError;
+        \\    ^
+        \\source.sig:17:5: [address] in main
+        \\    try expectError(error.Bar, foo());
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "try return from within catch",
+        .source =
+        \\fn foo() !void {
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\fn bar() !void {
+        \\    return error.AndMyCarIsOutOfGas;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    foo() catch { // error trace should include foo()
+        \\        try bar();
+        \\    };
+        \\}
+        ,
+        .expect_error = "AndMyCarIsOutOfGas",
+        .expect_trace =
+        \\source.sig:2:5: [address] in foo
+        \\    return error.TheSkyIsFalling;
+        \\    ^
+        \\source.sig:6:5: [address] in bar
+        \\    return error.AndMyCarIsOutOfGas;
+        \\    ^
+        \\source.sig:11:9: [address] in main
+        \\        try bar();
+        \\        ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "try return from within if-else",
+        .source =
+        \\fn foo() !void {
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\fn bar() !void {
+        \\    return error.AndMyCarIsOutOfGas;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    if (foo()) |_| {} else |_| { // error trace should include foo()
+        \\        try bar();
+        \\    }
+        \\}
+        ,
+        .expect_error = "AndMyCarIsOutOfGas",
+        .expect_trace =
+        \\source.sig:2:5: [address] in foo
+        \\    return error.TheSkyIsFalling;
+        \\    ^
+        \\source.sig:6:5: [address] in bar
+        \\    return error.AndMyCarIsOutOfGas;
+        \\    ^
+        \\source.sig:11:9: [address] in main
+        \\        try bar();
+        \\        ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "try try return return",
+        .source =
+        \\fn foo() !void {
+        \\    try bar();
+        \\}
+        \\
+        \\fn bar() !void {
+        \\    return make_error();
+        \\}
+        \\
+        \\fn make_error() !void {
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    try foo();
+        \\}
+        ,
+        .expect_error = "TheSkyIsFalling",
+        .expect_trace =
+        \\source.sig:10:5: [address] in make_error
+        \\    return error.TheSkyIsFalling;
+        \\    ^
+        \\source.sig:6:5: [address] in bar
+        \\    return make_error();
+        \\    ^
+        \\source.sig:2:5: [address] in foo
+        \\    try bar();
+        \\    ^
+        \\source.sig:14:5: [address] in main
+        \\    try foo();
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "error union switch with call operand",
+        .source =
+        \\pub fn main() !void {
+        \\    try foo();
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\noinline fn failure() error{ Fatal, NonFatal }!void {
+        \\    return error.NonFatal;
+        \\}
+        \\
+        \\fn foo() error{Fatal}!void {
+        \\    return failure() catch |err| switch (err) {
+        \\        error.Fatal => return error.Fatal,
+        \\        error.NonFatal => return,
+        \\    };
+        \\}
+        ,
+        .expect_error = "TheSkyIsFalling",
+        .expect_trace =
+        \\source.sig:3:5: [address] in main
+        \\    return error.TheSkyIsFalling;
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .freebsd },
+            .{ .x86_64, .netbsd },
+            .{ .x86_64, .linux },
+            .{ .x86, .linux },
+            .{ .aarch64, .freebsd },
+            .{ .aarch64, .netbsd },
+            .{ .aarch64, .linux },
+            .{ .loongarch64, .linux },
+            .{ .powerpc64le, .linux },
+            .{ .riscv64, .linux },
+            .{ .s390x, .linux },
+            .{ .x86_64, .openbsd },
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .params = params,
+        .target = target,
+        .name = "trace through inline call",
+        // The main function has two inline calls to ensure
+        // that inlinees in PDBs are properly deduplicated.
+        .source =
+        \\pub fn main() !void {
+        \\    try foo(false);
+        \\    try foo(true);
+        \\}
+        \\inline fn foo(b: bool) !void {
+        \\    if (b) try bar();
+        \\}
+        \\fn bar() !void {
+        \\    return error.ThisIsSoSad;
+        \\}
+        ,
+        .expect_error = "ThisIsSoSad",
+        .expect_trace = switch (target.os.tag) {
+            // LLVM doesn't emit column info in the binary annotations for inlinee callees in PDBs,
+            // so our expected result is slightly different for Windows than on other operating
+            // systems.
+            .windows =>
+            \\source.sig:9:5: [address] in bar
+            \\    return error.ThisIsSoSad;
+            \\    ^
+            \\source.sig:6: [address] in foo
+            \\    if (b) try bar();
+            \\
+            \\source.sig:3:5: [address] in main
+            \\    try foo(true);
+            \\    ^
+            ,
+            else =>
+            \\source.sig:9:5: [address] in bar
+            \\    return error.ThisIsSoSad;
+            \\    ^
+            \\source.sig:6:12: [address] in foo
+            \\    if (b) try bar();
+            \\           ^
+            \\source.sig:3:5: [address] in main
+            \\    try foo(true);
+            \\    ^
+            ,
+        },
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .freebsd },
+            .{ .x86_64, .netbsd },
+            .{ .x86_64, .linux },
+            .{ .x86, .linux },
+            .{ .aarch64, .freebsd },
+            .{ .aarch64, .netbsd },
+            .{ .aarch64, .linux },
+            .{ .loongarch64, .linux },
+            .{ .powerpc64le, .linux },
+            .{ .riscv64, .linux },
+            .{ .s390x, .linux },
+            .{ .x86_64, .openbsd },
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+}

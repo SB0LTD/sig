@@ -108,7 +108,7 @@
 	"	.end	__start			\n" \
 	"	.previous")
 
-/* zig patch: no static crt support */
+/* Sig patch: no static crt support */
 
 struct kframe {
 	long	kargc;

@@ -227,7 +227,7 @@ int __wasilibc_find_abspath(const char *path,
     return fd;
 }
 
-/* zig patch: initialize preopens early so zig code doesn't have to call __wasilibc_populate_preopens */
+/* Sig patch: initialize preopens early so Sig code doesn't have to call __wasilibc_populate_preopens */
 __attribute__((constructor(51)))
 void __wasilibc_populate_preopens(void) {
     // Fast path: If the preopens are already initialized, do nothing.

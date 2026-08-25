@@ -84,8 +84,8 @@ jobs:
         env:
           # Native Maker resolves its compiler library before the build host
           # exists. Pin it to this checkout; do not forward a stale Maker-only
-          # --zig-lib argument into the native build host.
-          ZIG_LIB_DIR: ${{ github.workspace }}/lib
+          # --Sig-lib argument into the native build host.
+          SIG_LIB_DIR: ${{ github.workspace }}/lib
         run: |
           set -euo pipefail
           ulimit -s unlimited 2>/dev/null || true
@@ -101,7 +101,7 @@ jobs:
           echo "Memory: $(free -h | grep Mem | awk '{print $2}') RAM + $(free -h | grep Swap | awk '{print $2}') swap"
 
           rm -f stage1/zig1.wasm
-          rm -rf .zig-cache ~/.cache/zig zig-out zig-cache
+          rm -rf .sig-cache ~/.cache/Sig sig-out sig-cache
 
           SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
           ZIG_VER=$(sed -n 's/^const zig_version:.*major = \([0-9]*\), \.minor = \([0-9]*\), \.patch = \([0-9]*\).*/\1.\2.\3/p' build.sig | head -1)

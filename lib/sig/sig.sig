@@ -1,4 +1,4 @@
-//! Sig — Strict Zig standard library.
+//! Sig — Strict Sig standard library.
 //!
 //! A capacity-first, caller-provided-buffer standard library layer
 //! that sits alongside `@import("std")`.

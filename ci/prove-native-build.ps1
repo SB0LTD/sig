@@ -34,7 +34,7 @@ try {
         if ($helpText -notmatch '(?m)^  native-release-proof') { throw 'native proof step was not registered' }
         if ($helpText -notmatch '(?m)^  native-release-test') { throw 'native nested test step was not registered' }
         if ($helpText -notmatch '(?m)^  native-target-proof') { throw 'native target proof step was not registered' }
-        if (Test-Path -LiteralPath 'build.zig') { throw 'native fixture unexpectedly contains build.zig' }
+        if (Test-Path -LiteralPath 'build.sig') { throw 'native fixture unexpectedly contains build.sig' }
         if (Test-Path -LiteralPath 'native-sig-build.proof') { throw 'proof marker existed before step execution' }
         & $sigPath build native-release-proof `
             -Dregression-sentinel=preserved `
@@ -77,7 +77,7 @@ try {
         if ($helpText -notmatch '(?m)^  native-release-test') { throw 'custom nested test step was not registered' }
         if ($helpText -notmatch '(?m)^  native-target-proof') { throw 'custom target proof step was not registered' }
         if (Test-Path -LiteralPath 'build.sig') { throw 'custom fixture unexpectedly contains build.sig' }
-        if (Test-Path -LiteralPath 'build.zig') { throw 'custom fixture unexpectedly contains build.zig' }
+        if (Test-Path -LiteralPath 'build.sig') { throw 'custom fixture unexpectedly contains build.sig' }
     }
     finally {
         Pop-Location

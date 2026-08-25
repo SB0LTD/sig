@@ -689,7 +689,7 @@ fn shouldExcludeFile(filename: []const u8) bool {
     const excluded_suffixes = [_][]const u8{
         ".gz",     ".z.0",  ".z.9",    ".zst.3",
         ".zst.19", ".lzma", ".xz",     ".tzif",
-        ".tar",    "test.zig",
+        ".tar",    "test.sig",
     };
 
     for (excluded_suffixes) |suffix| {
@@ -1716,7 +1716,7 @@ test "Property 19: Install file exclusion rules" {
             const excluded_suffixes = [_][]const u8{
                 ".gz",     ".z.0",  ".z.9",    ".zst.3",
                 ".zst.19", ".lzma", ".xz",     ".tzif",
-                ".tar",    "test.zig",
+                ".tar",    "test.sig",
             };
 
             // Pick a random excluded suffix.

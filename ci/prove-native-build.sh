@@ -2,14 +2,14 @@
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
-    echo "usage: $0 <sig-executable> <zig-lib-directory>" >&2
+    echo "usage: $0 <sig-executable> <Sig-lib-directory>" >&2
     exit 2
 fi
 
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 sig_dir="$(CDPATH= cd -- "$(dirname -- "$1")" && pwd -P)"
 sig="$sig_dir/$(basename -- "$1")"
-zig_lib_dir="$(CDPATH= cd -- "$2" && pwd -P)"
+SIG_LIB_DIR="$(CDPATH= cd -- "$2" && pwd -P)"
 proof_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/sig-native-build-proof.XXXXXX")"
 default_project="$proof_root/default"
 custom_project="$proof_root/custom"
@@ -21,7 +21,7 @@ cp "$script_dir/fixtures/native-build/native_test.sig" "$custom_project/native_t
 cp "$script_dir/fixtures/native-build/target_probe.sig" "$default_project/target_probe.sig"
 cp "$script_dir/fixtures/native-build/target_probe.sig" "$custom_project/target_probe.sig"
 
-export ZIG_LIB_DIR="$zig_lib_dir"
+export SIG_LIB_DIR="$SIG_LIB_DIR"
 prove_cross_target="${PROVE_CROSS_TARGET:-1}"
 
 (
@@ -33,7 +33,7 @@ prove_cross_target="${PROVE_CROSS_TARGET:-1}"
     grep -q '^  native-release-proof' help.txt
     grep -q '^  native-release-test' help.txt
     grep -q '^  native-target-proof' help.txt
-    test ! -e build.zig
+    test ! -e build.sig
     test ! -e native-sig-build.proof
     "$sig" build native-release-proof \
         -Dregression-sentinel=preserved \
@@ -66,7 +66,7 @@ prove_cross_target="${PROVE_CROSS_TARGET:-1}"
     grep -q '^  native-release-test' help.txt
     grep -q '^  native-target-proof' help.txt
     test ! -e build.sig
-    test ! -e build.zig
+    test ! -e build.sig
 )
 
 echo "native build.sig package proof passed: $sig"

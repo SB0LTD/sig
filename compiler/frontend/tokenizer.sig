@@ -602,7 +602,7 @@ pub const Tokenizer = struct {
 
     fn lexMultilineStringLiteral(self: *Tokenizer, start_pos: usize) Token {
         // Consume the leading `\\` and then everything to end of line.
-        // Multiline string literals in zig/sig start with `\\` at the
+        // Multiline string literals in Sig/sig start with `\\` at the
         // beginning of a line (after optional whitespace, already skipped).
         self.advanceN(2); // skip '\\'
         while (self.pos < self.source_len and self.source[self.pos] != '\n') {
@@ -919,7 +919,7 @@ test "tokenizer byte coverage - all printable ASCII produce valid tokens" {
 }
 
 test "tokenizer byte coverage - keywords recognized" {
-    // Property 2: All zig/sig keywords must be recognized as their keyword tag,
+    // Property 2: All Sig/sig keywords must be recognized as their keyword tag,
     // not as a plain .identifier.
     const keywords = [_][]const u8{
         "const", "var",   "fn",     "pub",    "if",

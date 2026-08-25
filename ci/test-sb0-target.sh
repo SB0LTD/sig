@@ -19,7 +19,7 @@ test -f "$ROOT/test/sb0_custom_entry_probe.sig"
 test -f "$ROOT/test/sb0_target_contract.sig"
 
 "$SIG" test "$ROOT/test/sb0_target_contract.sig" \
-  --zig-lib-dir "$ROOT/lib" \
+  --Sig-lib-dir "$ROOT/lib" \
   -j1 \
   --cache-dir "$TMP/unit-cache" \
   --global-cache-dir "$TMP/global-cache"
@@ -33,7 +33,7 @@ test -f "$ROOT/test/sb0_target_contract.sig"
   -fno-stack-protector \
   -fno-unwind-tables \
   -fstrip \
-  --zig-lib-dir "$ROOT/lib" \
+  --Sig-lib-dir "$ROOT/lib" \
   --cache-dir "$TMP/codegen-cache" \
   --global-cache-dir "$TMP/global-cache" \
   -femit-bin="$TMP/sb0-codegen.bin"
@@ -54,7 +54,7 @@ test "$(od -An -tx1 -N4 "$TMP/sb0-codegen.bin" | tr -d ' \n')" != 7f454c46
   -fno-stack-protector \
   -fno-unwind-tables \
   -fstrip \
-  --zig-lib-dir "$ROOT/lib" \
+  --Sig-lib-dir "$ROOT/lib" \
   --cache-dir "$TMP/custom-entry-cache" \
   --global-cache-dir "$TMP/global-cache" \
   -femit-bin="$TMP/sb0-custom-entry.bin"
@@ -74,7 +74,7 @@ expect_failure() {
 
 common=(
   "$SIG" build-exe "$ROOT/test/sb0_codegen_probe.sig"
-  --zig-lib-dir "$ROOT/lib"
+  --Sig-lib-dir "$ROOT/lib"
   --global-cache-dir "$TMP/global-cache"
 )
 

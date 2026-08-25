@@ -7,7 +7,7 @@
 /// Argv layout (from compiler's sigBuildDelegate):
 ///   [0] = runner binary path
 ///   [1] = sig compiler path
-///   [2] = zig lib directory
+///   [2] = Sig lib directory
 ///   [3] = build root directory
 ///   [4] = local cache directory
 ///   [5] = global cache directory
@@ -47,7 +47,7 @@ pub const Parse_Error = error{
     InvalidThreadCount,
     /// --prefix missing its path argument.
     MissingPrefixPath,
-    /// --zig-lib-dir missing its path argument.
+    /// --Sig-lib-dir missing its path argument.
     MissingZigLibDir,
     /// --search-prefix missing its path argument.
     MissingSearchPrefix,
@@ -89,11 +89,11 @@ pub fn parse(args_it: anytype) Parse_Error!Parse_Result {
         arg_count += 1;
     }
 
-    // argv[2]: zig lib directory
+    // argv[2]: Sig lib directory
     if (args_it.next() catch return error.DecodeError) |arg| {
         if (arg.len > PATH_BUF_SIZE) return error.PathTooLong;
-        @memcpy(result.runner_args.zig_lib_dir[0..arg.len], arg);
-        result.runner_args.zig_lib_dir_len = arg.len;
+        @memcpy(result.runner_args.sig_lib_dir[0..arg.len], arg);
+        result.runner_args.sig_lib_dir_len = arg.len;
         arg_count += 1;
     }
 
@@ -139,7 +139,7 @@ pub fn parse(args_it: anytype) Parse_Error!Parse_Result {
 ///   - `-Dkey=value` / `-Dkey` (boolean shorthand)
 ///   - `-jN` / `-j N`
 ///   - `--prefix <path>`
-///   - `--zig-lib-dir <path>`
+///   - `--Sig-lib-dir <path>`
 ///   - `--search-prefix <path>`
 ///   - `--cache-dir <path>`
 ///   - `--verbose`
@@ -189,16 +189,16 @@ fn parseLongOption(args_it: anytype, config: *Cli_Config, arg: []const u8) Parse
         } else {
             return error.MissingPrefixPath;
         }
-    } else if (std.mem.eql(u8, arg, "--zig-lib-dir")) {
-        // Override zig lib directory (user-facing flag for release workflows).
-        // This user-level --zig-lib-dir is distinct from argv[2] which is the
-        // positional zig_lib_dir passed by the compiler. The user-level flag
+    } else if (std.mem.eql(u8, arg, "--Sig-lib-dir")) {
+        // Override Sig lib directory (user-facing flag for release workflows).
+        // This user-level --Sig-lib-dir is distinct from argv[2] which is the
+        // positional SIG_LIB_DIR passed by the compiler. The user-level flag
         // allows release workflows to override it (R17).
-        // Stored in the option map under "zig-lib-dir" — populateContext reads
+        // Stored in the option map under "Sig-lib-dir" — populateContext reads
         // it and overrides the positional value when present.
         if (args_it.next() catch return error.DecodeError) |value| {
             if (value.len > PATH_BUF_SIZE) return error.PathTooLong;
-            config.options.put("zig-lib-dir", value) catch {};
+            config.options.put("Sig-lib-dir", value) catch {};
         } else {
             return error.MissingZigLibDir;
         }
@@ -231,7 +231,7 @@ fn parseLongOption(args_it: anytype, config: *Cli_Config, arg: []const u8) Parse
             config.self_test_compiler_len = value.len;
         }
     } else if (std.mem.eql(u8, arg, "--maxrss")) {
-        // --maxrss: skip the value (zig compat, ignored).
+        // --maxrss: skip the value (Sig compat, ignored).
         _ = args_it.next() catch {};
     } else {
         return error.UnknownOption;
@@ -242,12 +242,12 @@ fn parseLongOption(args_it: anytype, config: *Cli_Config, arg: []const u8) Parse
 ///
 /// This bridges the CLI parse results into the Build_Context that gets
 /// passed to build.sig. Handles:
-///   - Compiler path, zig lib dir from Runner_Args
+///   - Compiler path, Sig lib dir from Runner_Args
 ///   - Build root, cache dir from Runner_Args
 ///   - Install prefix (--prefix override or default: build_root/sig-out)
 ///   - Target triple and optimize level from -D options
 ///   - Option map transfer
-///   - --zig-lib-dir override (from user args, takes precedence over argv[2])
+///   - --Sig-lib-dir override (from user args, takes precedence over argv[2])
 ///
 /// The io parameter is needed for fatal error reporting during path construction.
 pub fn populateContext(ctx: *sig_build.Build_Context, result: *const Parse_Result, io: std.Io) void {
@@ -269,14 +269,14 @@ pub fn populateContext(ctx: *sig_build.Build_Context, result: *const Parse_Resul
     @memcpy(ctx.compiler_path[0..cp.len], cp);
     ctx.compiler_path_len = cp.len;
 
-    // Zig lib dir: user --zig-lib-dir override takes precedence over argv[2]
-    if (sig_build.getOption([]const u8, &config.options, "zig-lib-dir")) |override| {
-        @memcpy(ctx.zig_lib_dir[0..override.len], override);
-        ctx.zig_lib_dir_len = override.len;
+    // Sig lib dir: user --Sig-lib-dir override takes precedence over argv[2]
+    if (sig_build.getOption([]const u8, &config.options, "Sig-lib-dir")) |override| {
+        @memcpy(ctx.sig_lib_dir[0..override.len], override);
+        ctx.sig_lib_dir_len = override.len;
     } else {
-        const ld = runner_args.zig_lib_dir[0..runner_args.zig_lib_dir_len];
-        @memcpy(ctx.zig_lib_dir[0..ld.len], ld);
-        ctx.zig_lib_dir_len = ld.len;
+        const ld = runner_args.sig_lib_dir[0..runner_args.sig_lib_dir_len];
+        @memcpy(ctx.sig_lib_dir[0..ld.len], ld);
+        ctx.sig_lib_dir_len = ld.len;
     }
 
     // Install prefix: --prefix override or build_root/sig-out

@@ -1,30 +1,30 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
-    _ = @import("foo.zig");
+    _ = @import("foo.sig");
     try std.Io.File.stdout().writeStreamingAll(io, "success\n");
 }
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
-#file=foo.zig
+#file=foo.sig
 comptime {
-    _ = @import("bad.zig");
+    _ = @import("bad.sig");
 }
-#expect_error=bad.zig:1:1: error: unable to load 'bad.zig': FileNotFound
-#expect_error=foo.zig:2:17: note: file imported here
+#expect_error=bad.sig:1:1: error: unable to load 'bad.sig': FileNotFound
+#expect_error=foo.sig:2:17: note: file imported here
 
 #update=change bad import
-#file=foo.zig
+#file=foo.sig
 comptime {
-    _ = @import("this_is/not_real.zig");
+    _ = @import("this_is/not_real.sig");
 }
-#expect_error=this_is/not_real.zig:1:1: error: unable to load 'not_real.zig': FileNotFound
-#expect_error=foo.zig:2:17: note: file imported here
+#expect_error=this_is/not_real.sig:1:1: error: unable to load 'not_real.sig': FileNotFound
+#expect_error=foo.sig:2:17: note: file imported here
 
-#update=remove import of 'foo.zig'
-#file=main.zig
+#update=remove import of 'foo.sig'
+#file=main.sig
 pub fn main() !void {
-    //_ = @import("foo.zig");
+    //_ = @import("foo.sig");
     try std.Io.File.stdout().writeStreamingAll(io, "success\n");
 }
 const std = @import("std");

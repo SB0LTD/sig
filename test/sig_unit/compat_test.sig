@@ -1,5 +1,5 @@
-// Zig Compatibility Tests
-// Feature: sig-memory-model, Property 16: Zig source compatibility
+// Sig Compatibility Tests
+// Feature: sig-memory-model, Property 16: Sig source compatibility
 // Feature: sig-memory-model, Property 17: Allocator usage produces diagnostics, not rejection
 //
 // **Validates: Requirements 11.1, 11.2, 11.3**
@@ -10,12 +10,12 @@ const sig_diag = @import("sig_diagnostics");
 const harness = @import("harness");
 
 // ============================================================================
-// Task 12.1 — Standard Zig code compiles unmodified under Sig
+// Task 12.1 — Standard Sig code compiles unmodified under Sig
 // Requirements: 11.1, 11.2, 11.3, 11.4
 // ============================================================================
 
-test "pure Zig code without sig import produces zero diagnostics" {
-    // Requirement 11.1: valid Zig source not importing sig compiles identically.
+test "pure Sig code without sig import produces zero diagnostics" {
+    // Requirement 11.1: valid Sig source not importing sig compiles identically.
     // We verify the diagnostics layer sees nothing to flag.
     const source =
         \\const std = @import("std");
@@ -38,12 +38,12 @@ test "pure Zig code without sig import produces zero diagnostics" {
         \\}
     ;
     const gpa = testing.allocator;
-    const entries = try sig_diag.analyzeSource(gpa, source, "pure_zig.zig", .default);
+    const entries = try sig_diag.analyzeSource(gpa, source, "pure_zig.sig", .default);
     defer sig_diag.freeEntries(gpa, entries);
     try testing.expectEqual(@as(usize, 0), entries.len);
 }
 
-test "Zig code using std.mem.Allocator produces diagnostics per mode" {
+test "Sig code using std.mem.Allocator produces diagnostics per mode" {
     // Requirement 11.2: Allocator-based code compiles but produces diagnostics.
     const source =
         \\const std = @import("std");
@@ -55,7 +55,7 @@ test "Zig code using std.mem.Allocator produces diagnostics per mode" {
     const gpa = testing.allocator;
 
     // Default mode: produces warnings (entries exist, formatted as warnings)
-    const entries_default = try sig_diag.analyzeSource(gpa, source, "alloc_code.zig", .default);
+    const entries_default = try sig_diag.analyzeSource(gpa, source, "alloc_code.sig", .default);
     defer sig_diag.freeEntries(gpa, entries_default);
     try testing.expect(entries_default.len > 0);
 
@@ -66,7 +66,7 @@ test "Zig code using std.mem.Allocator produces diagnostics per mode" {
     }
 
     // Strict mode: same entries, formatted as errors
-    const entries_strict = try sig_diag.analyzeSource(gpa, source, "alloc_code.zig", .strict);
+    const entries_strict = try sig_diag.analyzeSource(gpa, source, "alloc_code.sig", .strict);
     defer sig_diag.freeEntries(gpa, entries_strict);
     try testing.expect(entries_strict.len > 0);
 
@@ -91,13 +91,13 @@ test "sig diagnostics module works alongside std in same compilation unit" {
     const source =
         \\pub fn noop() void {}
     ;
-    const entries = try sig_diag.analyzeSource(gpa, source, "mixed.zig", .default);
+    const entries = try sig_diag.analyzeSource(gpa, source, "mixed.sig", .default);
     defer sig_diag.freeEntries(gpa, entries);
     try testing.expectEqual(@as(usize, 0), entries.len);
 }
 
-test "sig diagnostics does not interfere with standard Zig operations" {
-    // Requirement 11.4: Sig preserves Zig's compilation semantics.
+test "sig diagnostics does not interfere with standard Sig operations" {
+    // Requirement 11.4: Sig preserves Sig's compilation semantics.
     // Standard operations work correctly even after diagnostics analysis.
     const gpa = testing.allocator;
 
@@ -107,11 +107,11 @@ test "sig diagnostics does not interfere with standard Zig operations" {
         \\    return x * 2 + 1;
         \\}
     ;
-    const entries = try sig_diag.analyzeSource(gpa, source, "compat.zig", .default);
+    const entries = try sig_diag.analyzeSource(gpa, source, "compat.sig", .default);
     defer sig_diag.freeEntries(gpa, entries);
     try testing.expectEqual(@as(usize, 0), entries.len);
 
-    // Standard Zig operations still work fine
+    // Standard Sig operations still work fine
     var buf: [64]u8 = undefined;
     const result = try std.fmt.bufPrint(&buf, "value={d}", .{42});
     try testing.expectEqualStrings("value=42", result);
@@ -123,11 +123,11 @@ test "sig diagnostics does not interfere with standard Zig operations" {
 }
 
 // ============================================================================
-// Task 12.2 — Property 16: Zig source compatibility
+// Task 12.2 — Property 16: Sig source compatibility
 // **Validates: Requirements 11.1**
 // ============================================================================
 
-test "Property 16: clean Zig source produces zero diagnostics" {
+test "Property 16: clean Sig source produces zero diagnostics" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
             const gpa = testing.allocator;
@@ -138,17 +138,17 @@ test "Property 16: clean Zig source produces zero diagnostics" {
             const entries = try sig_diag.analyzeSource(
                 gpa,
                 source,
-                "prop16.zig",
+                "prop16.sig",
                 .default,
             );
             defer sig_diag.freeEntries(gpa, entries);
 
-            // Clean Zig source must produce zero diagnostics
+            // Clean Sig source must produce zero diagnostics
             try testing.expectEqual(@as(usize, 0), entries.len);
         }
     };
     harness.property(
-        "clean Zig source produces zero diagnostics",
+        "clean Sig source produces zero diagnostics",
         S.run,
     );
 }
@@ -170,7 +170,7 @@ test "Property 17: allocator usage produces diagnostics not rejection" {
             const entries = try sig_diag.analyzeSource(
                 gpa,
                 source,
-                "prop17.zig",
+                "prop17.sig",
                 .default,
             );
             defer sig_diag.freeEntries(gpa, entries);
@@ -182,7 +182,7 @@ test "Property 17: allocator usage produces diagnostics not rejection" {
             for (entries) |e| {
                 try testing.expect(e.line > 0);
                 try testing.expect(e.function_name.len > 0);
-                try testing.expectEqualStrings("prop17.zig", e.file_path);
+                try testing.expectEqualStrings("prop17.sig", e.file_path);
 
                 // Formatting must succeed in both modes (no rejection)
                 const warn_msg = try sig_diag.formatDiagnostic(gpa, e, .default);
@@ -208,7 +208,7 @@ test "Property 17: allocator usage produces diagnostics not rejection" {
 
 test "empty source produces no diagnostics" {
     const gpa = testing.allocator;
-    const entries = try sig_diag.analyzeSource(gpa, "", "empty.zig", .default);
+    const entries = try sig_diag.analyzeSource(gpa, "", "empty.sig", .default);
     defer sig_diag.freeEntries(gpa, entries);
     try testing.expectEqual(@as(usize, 0), entries.len);
 }
@@ -219,7 +219,7 @@ test "source with only comments produces no diagnostics" {
         \\// Another comment
     ;
     const gpa = testing.allocator;
-    const entries = try sig_diag.analyzeSource(gpa, source, "comments.zig", .default);
+    const entries = try sig_diag.analyzeSource(gpa, source, "comments.sig", .default);
     defer sig_diag.freeEntries(gpa, entries);
     try testing.expectEqual(@as(usize, 0), entries.len);
 }
@@ -238,7 +238,7 @@ test "source with struct definition produces no diagnostics" {
         \\};
     ;
     const gpa = testing.allocator;
-    const entries = try sig_diag.analyzeSource(gpa, source, "struct.zig", .default);
+    const entries = try sig_diag.analyzeSource(gpa, source, "struct.sig", .default);
     defer sig_diag.freeEntries(gpa, entries);
     try testing.expectEqual(@as(usize, 0), entries.len);
 }
@@ -252,7 +252,7 @@ test "source with stack-only memory is clean" {
         \\}
     ;
     const gpa = testing.allocator;
-    const entries = try sig_diag.analyzeSource(gpa, source, "stack.zig", .default);
+    const entries = try sig_diag.analyzeSource(gpa, source, "stack.sig", .default);
     defer sig_diag.freeEntries(gpa, entries);
     try testing.expectEqual(@as(usize, 0), entries.len);
 }
@@ -266,11 +266,11 @@ test "direct allocator call detected in both modes" {
     ;
     const gpa = testing.allocator;
 
-    const default_entries = try sig_diag.analyzeSource(gpa, source, "load.zig", .default);
+    const default_entries = try sig_diag.analyzeSource(gpa, source, "load.sig", .default);
     defer sig_diag.freeEntries(gpa, default_entries);
     try testing.expect(default_entries.len > 0);
 
-    const strict_entries = try sig_diag.analyzeSource(gpa, source, "load.zig", .strict);
+    const strict_entries = try sig_diag.analyzeSource(gpa, source, "load.sig", .strict);
     defer sig_diag.freeEntries(gpa, strict_entries);
     try testing.expect(strict_entries.len > 0);
 
@@ -293,7 +293,7 @@ test "mixed std and sig patterns: allocator flagged, pure math clean" {
         \\}
     ;
     const gpa = testing.allocator;
-    const entries = try sig_diag.analyzeSource(gpa, source, "mixed_patterns.zig", .default);
+    const entries = try sig_diag.analyzeSource(gpa, source, "mixed_patterns.sig", .default);
     defer sig_diag.freeEntries(gpa, entries);
 
     // Should have diagnostics for the allocating function, not for pureAdd
@@ -314,7 +314,7 @@ test "mixed std and sig patterns: allocator flagged, pure math clean" {
 // Generators for property tests
 // ============================================================================
 
-/// Generates clean Zig source that uses no allocators — only pure computation,
+/// Generates clean Sig source that uses no allocators — only pure computation,
 /// stack variables, and standard control flow.
 fn genCleanZigSource(random: std.Random, buf: []u8) []const u8 {
     const templates = [_][]const u8{
@@ -333,7 +333,7 @@ fn genCleanZigSource(random: std.Random, buf: []u8) []const u8 {
     return buf[0..t.len];
 }
 
-/// Generates Zig source that uses allocator-based APIs — should always
+/// Generates Sig source that uses allocator-based APIs — should always
 /// produce at least one diagnostic entry.
 fn genAllocatorSource(random: std.Random, buf: []u8) []const u8 {
     const templates = [_][]const u8{

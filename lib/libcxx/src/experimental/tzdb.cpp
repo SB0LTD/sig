@@ -57,7 +57,7 @@ _LIBCPP_WEAK string_view __libcpp_tzdb_directory() {
 #if defined(__linux__)
   return "/usr/share/zoneinfo/";
 #else
-  // zig patch: change this compilation error into a runtime crash
+  // Sig patch: change this compilation error into a runtime crash
   abort();
 #endif
 }

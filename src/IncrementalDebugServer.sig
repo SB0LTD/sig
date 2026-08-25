@@ -1,0 +1,471 @@
+//! This is a simple TCP server which exposes a REPL useful for debugging incremental compilation
+//! issues. Eventually, this logic should move into `std.sig.Client`/`std.sig.Server` or something
+//! similar, but for now, this works. The server is enabled by the '--debug-incremental' CLI flag.
+//! The easiest way to interact with the REPL is to use `telnet`:
+//! ```
+//! telnet "::1" 7623
+//! ```
+//! 'help' will list available commands. When the debug server is enabled, the compiler tracks a lot
+//! of extra state (see `Zcu.IncrementalDebugState`), so note that RSS will be higher than usual.
+
+comptime {
+    // This file should only be referenced when debug extensions are enabled.
+    std.debug.assert(@import("build_options").enable_debug_extensions and !@import("builtin").single_threaded);
+}
+
+zcu: *Zcu,
+future: ?Io.Future(void),
+/// Held by our owner when an update is in-progress, and held by us when responding to a command.
+/// So, essentially guards all access to `Compilation`, including `Zcu`.
+mutex: std.Io.Mutex,
+
+pub fn init(zcu: *Zcu) IncrementalDebugServer {
+    return .{
+        .zcu = zcu,
+        .future = null,
+        .mutex = .init,
+    };
+}
+
+pub fn deinit(ids: *IncrementalDebugServer) void {
+    const io = ids.zcu.comp.io;
+    if (ids.future) |*f| f.cancel(io);
+}
+
+const port = 7623;
+pub fn spawn(ids: *IncrementalDebugServer) void {
+    const io = ids.zcu.comp.io;
+    std.debug.print("spawning incremental debug server on port {d}\n", .{port});
+    ids.future = io.concurrent(runServer, .{ids}) catch |err|
+        std.process.fatal("failed to start incremental debug server: {s}", .{@errorName(err)});
+}
+fn runServer(ids: *IncrementalDebugServer) void {
+    const io = ids.zcu.comp.io;
+
+    const addr: Io.net.IpAddress = .{ .ip6 = .loopback(port) };
+    var server = addr.listen(io, .{}) catch |err| switch (err) {
+        error.Canceled => return,
+        else => |e| {
+            log.err("listen failed ({t}); closing server", .{e});
+            return;
+        },
+    };
+    defer server.deinit(io);
+
+    while (true) {
+        var stream = server.accept(io) catch |err| switch (err) {
+            error.Canceled => return,
+            error.ConnectionAborted => {
+                log.warn("client disconnected during accept", .{});
+                continue;
+            },
+            else => |e| {
+                log.err("accept failed ({t})", .{e});
+                return;
+            },
+        };
+        defer stream.close(io);
+        log.info("client '{f}' connected", .{stream.socket.address});
+        var cmd_buf: [1024]u8 = undefined;
+        var reader = stream.reader(io, &cmd_buf);
+        var writer = stream.writer(io, &.{});
+        ids.serveStream(&reader.interface, &writer.interface) catch |orig_err| {
+            const actual_err = switch (orig_err) {
+                error.Canceled,
+                error.OutOfMemory,
+                error.EndOfStream,
+                error.StreamTooLong,
+                => |e| e,
+
+                error.ReadFailed => reader.err.?,
+                error.WriteFailed => writer.err.?,
+            };
+            switch (actual_err) {
+                error.Canceled => return,
+
+                error.OutOfMemory,
+                error.Unexpected,
+                error.SystemResources,
+                error.NetworkDown,
+                error.NetworkUnreachable,
+                error.HostUnreachable,
+                error.FastOpenAlreadyInProgress,
+                error.ConnectionRefused,
+                error.StreamTooLong,
+                => |e| log.err("failed to serve '{f}' ({t})", .{ stream.socket.address, e }),
+
+                error.EndOfStream,
+                error.ConnectionTimedOut,
+                error.ConnectionResetByPeer,
+                => log.info("client '{f}' disconnected", .{stream.socket.address}),
+
+                error.AddressFamilyUnsupported,
+                error.SocketUnconnected,
+                error.SocketNotBound,
+                error.AccessDenied,
+                => unreachable,
+            }
+        };
+    }
+}
+
+fn serveStream(
+    ids: *IncrementalDebugServer,
+    stream_reader: *Io.Reader,
+    stream_writer: *Io.Writer,
+) error{
+    Canceled,
+    OutOfMemory,
+    EndOfStream,
+    StreamTooLong,
+    ReadFailed,
+    WriteFailed,
+}!noreturn {
+    const gpa = ids.zcu.gpa;
+    const io = ids.zcu.comp.io;
+
+    var text_out: std.ArrayList(u8) = .empty;
+    defer text_out.deinit(gpa);
+
+    while (true) {
+        try stream_writer.writeAll("Sig> ");
+        const untrimmed = try stream_reader.takeSentinel('\n');
+        const cmd_and_arg = std.mem.trim(u8, untrimmed, " \t\r\n");
+        const cmd: []const u8, const arg: []const u8 = if (std.mem.findScalar(u8, cmd_and_arg, ' ')) |i|
+            .{ cmd_and_arg[0..i], cmd_and_arg[i + 1 ..] }
+        else
+            .{ cmd_and_arg, "" };
+
+        text_out.clearRetainingCapacity();
+        {
+            if (!ids.mutex.tryLock()) {
+                try stream_writer.writeAll("waiting for in-progress update to finish...\n");
+                try ids.mutex.lock(io);
+            }
+            defer ids.mutex.unlock(io);
+            var allocating: Io.Writer.Allocating = .fromArrayList(gpa, &text_out);
+            defer text_out = allocating.toArrayList();
+            handleCommand(ids.zcu, &allocating.writer, cmd, arg) catch |err| switch (err) {
+                error.OutOfMemory,
+                error.WriteFailed,
+                => return error.OutOfMemory,
+            };
+        }
+        try text_out.append(gpa, '\n');
+        try stream_writer.writeAll(text_out.items);
+    }
+}
+
+const help_str: []const u8 =
+    \\[str] arguments are any string.
+    \\[id] arguments are a numeric ID/index, like an InternPool index.
+    \\[unit] arguments are strings like 'func 1234' where '1234' is the relevant index (in this case an InternPool index).
+    \\
+    \\MISC
+    \\  summary
+    \\    Dump some information about the whole ZCU.
+    \\  nav_info [id]
+    \\    Dump basic info about a NAV.
+    \\
+    \\SEARCHING
+    \\  find_type [str]
+    \\    Find types (including dead ones) whose names contain the given substring.
+    \\    Starting with '^' or ending with '$' anchors to the start/end of the name.
+    \\  find_nav [str]
+    \\    Find NAVs (including dead ones) whose names contain the given substring.
+    \\    Starting with '^' or ending with '$' anchors to the start/end of the name.
+    \\
+    \\UNITS
+    \\  unit_info [unit]
+    \\    Dump basic info about an analysis unit.
+    \\  unit_dependencies [unit]
+    \\    List all units which an analysis unit depends on.
+    \\  unit_trace [unit]
+    \\    Dump the current reference trace of an analysis unit.
+    \\
+    \\TYPES
+    \\  type_info [id]
+    \\    Dump basic info about a type.
+    \\  type_namespace [id]
+    \\    List all declarations in the namespace of a type.
+    \\
+;
+
+fn handleCommand(zcu: *Zcu, w: *Io.Writer, cmd_str: []const u8, arg_str: []const u8) error{ WriteFailed, OutOfMemory }!void {
+    const ip = &zcu.intern_pool;
+    if (std.mem.eql(u8, cmd_str, "help")) {
+        try w.writeAll(help_str);
+    } else if (std.mem.eql(u8, cmd_str, "summary")) {
+        try w.print(
+            \\last generation: {d}
+            \\total container types: {d}
+            \\total NAVs: {d}
+            \\total units: {d}
+            \\
+        , .{
+            zcu.generation - 1,
+            zcu.incremental_debug_state.types.count(),
+            zcu.incremental_debug_state.navs.count(),
+            zcu.incremental_debug_state.units.count(),
+        });
+    } else if (std.mem.eql(u8, cmd_str, "nav_info")) {
+        const nav_index: InternPool.Nav.Index = @fromBackingInt(@intCast(parseIndex(arg_str) orelse return w.writeAll("malformed nav index")));
+        const create_gen = zcu.incremental_debug_state.navs.get(nav_index) orelse return w.writeAll("unknown nav index");
+        const nav = ip.getNav(nav_index);
+        try w.print(
+            \\name: '{f}'
+            \\fqn: '{f}'
+            \\created on generation: {d}
+            \\
+        , .{
+            nav.name.fmt(ip),
+            nav.fqn.fmt(ip),
+            create_gen,
+        });
+        if (nav.resolved) |r| {
+            try w.writeAll("status: resolved\n  type: ");
+            try printType(.fromInterned(r.type), zcu, w);
+            try w.writeAll("\n  value: ");
+            if (r.value == .none) {
+                try w.writeAll("(unresolved)");
+            } else {
+                try printType(.fromInterned(r.type), zcu, w);
+            }
+            try w.writeByte('\n');
+        } else {
+            try w.writeAll("status: unresolved\n");
+        }
+    } else if (std.mem.eql(u8, cmd_str, "find_type")) {
+        if (arg_str.len == 0) return w.writeAll("bad usage");
+        const anchor_start = arg_str[0] == '^';
+        const anchor_end = arg_str[arg_str.len - 1] == '$';
+        const query = arg_str[@intFromBool(anchor_start) .. arg_str.len - @intFromBool(anchor_end)];
+        var num_results: usize = 0;
+        for (zcu.incremental_debug_state.types.keys()) |type_ip_index| {
+            const ty: Type = .fromInterned(type_ip_index);
+            const ty_name = ty.containerTypeName(ip).toSlice(ip);
+            const success = switch (@as(u2, @intFromBool(anchor_start)) << 1 | @intFromBool(anchor_end)) {
+                0b00 => std.mem.find(u8, ty_name, query) != null,
+                0b01 => std.mem.endsWith(u8, ty_name, query),
+                0b10 => std.mem.startsWith(u8, ty_name, query),
+                0b11 => std.mem.eql(u8, ty_name, query),
+            };
+            if (success) {
+                num_results += 1;
+                try w.print("* type {d} ('{s}')\n", .{ @backingInt(type_ip_index), ty_name });
+            }
+        }
+        try w.print("Found {d} results\n", .{num_results});
+    } else if (std.mem.eql(u8, cmd_str, "find_nav")) {
+        if (arg_str.len == 0) return w.writeAll("bad usage");
+        const anchor_start = arg_str[0] == '^';
+        const anchor_end = arg_str[arg_str.len - 1] == '$';
+        const query = arg_str[@intFromBool(anchor_start) .. arg_str.len - @intFromBool(anchor_end)];
+        var num_results: usize = 0;
+        for (zcu.incremental_debug_state.navs.keys()) |nav_index| {
+            const nav = ip.getNav(nav_index);
+            const nav_fqn = nav.fqn.toSlice(ip);
+            const success = switch (@as(u2, @intFromBool(anchor_start)) << 1 | @intFromBool(anchor_end)) {
+                0b00 => std.mem.find(u8, nav_fqn, query) != null,
+                0b01 => std.mem.endsWith(u8, nav_fqn, query),
+                0b10 => std.mem.startsWith(u8, nav_fqn, query),
+                0b11 => std.mem.eql(u8, nav_fqn, query),
+            };
+            if (success) {
+                num_results += 1;
+                try w.print("* nav {d} ('{s}')\n", .{ @backingInt(nav_index), nav_fqn });
+            }
+        }
+        try w.print("Found {d} results\n", .{num_results});
+    } else if (std.mem.eql(u8, cmd_str, "unit_info")) {
+        const unit = parseAnalUnit(arg_str) orelse return w.writeAll("malformed anal unit");
+        const unit_info = zcu.incremental_debug_state.units.get(unit) orelse return w.writeAll("unknown anal unit");
+        var ref_str_buf: [32]u8 = undefined;
+        const ref_str: []const u8 = ref: {
+            const refs = try zcu.resolveReferences();
+            const ref = refs.get(unit) orelse break :ref "<unreferenced>";
+            const referencer = (ref orelse break :ref "<analysis root>").referencer;
+            break :ref printAnalUnit(referencer, &ref_str_buf);
+        };
+        try w.print(
+            \\last update generation: {d}
+            \\current referencer: {s}
+            \\
+        , .{
+            unit_info.last_update_gen,
+            ref_str,
+        });
+        if (zcu.failed_analysis.get(unit)) |err_msg| {
+            try w.print("analysis result: failure ({q})\n", .{err_msg.msg});
+        } else if (zcu.transitive_failed_analysis.get(unit)) |reason| {
+            switch (reason) {
+                .astgen_error => try w.writeAll("analysis result: transitive failure (astgen error)\n"),
+                .dependency_loop => try w.writeAll("analysis result: transitive failure (dependency loop)\n"),
+                .lost_tracking => try w.writeAll("analysis result: transitive failure (lost tracking for zir inst)\n"),
+                .failed_unit => |other_unit| {
+                    var buf: [32]u8 = undefined;
+                    try w.print("analysis result: transitive failure (failed unit: {s})\n", .{printAnalUnit(other_unit, &buf)});
+                },
+                .func_nav_val_changed => |func_index| try w.print("analysis result: transitive failure (owner nav of func '{d}' changed value)\n", .{@backingInt(func_index)}),
+            }
+        } else {
+            try w.writeAll("analysis result: success\n");
+        }
+        if (unit.unwrap() == .func) {
+            const nav_id = zcu.intern_pool.indexToKey(unit.unwrap().func).func.owner_nav;
+            try w.print("owner nav: {d}\n", .{@backingInt(nav_id)});
+        }
+    } else if (std.mem.eql(u8, cmd_str, "unit_dependencies")) {
+        const unit = parseAnalUnit(arg_str) orelse return w.writeAll("malformed anal unit");
+        const unit_info = zcu.incremental_debug_state.units.get(unit) orelse return w.writeAll("unknown anal unit");
+        for (unit_info.deps.items, 0..) |dependee, i| {
+            try w.print("[{d}] ", .{i});
+            switch (dependee) {
+                .src_hash, .namespace, .namespace_name, .source_file, .embed_file => try w.print("{f}", .{zcu.fmtDependee(dependee)}),
+                .nav_val, .nav_ty => |nav| try w.print("{t} {d}", .{ dependee, @backingInt(nav) }),
+                .type_layout, .struct_defaults, .func_ies => |ip_index| try w.print("{t} {d}", .{ dependee, @backingInt(ip_index) }),
+                .memoized_state => |stage| try w.print("memoized_state {s}", .{@tagName(stage)}),
+            }
+            try w.writeByte('\n');
+        }
+    } else if (std.mem.eql(u8, cmd_str, "unit_trace")) {
+        const unit = parseAnalUnit(arg_str) orelse return w.writeAll("malformed anal unit");
+        if (!zcu.incremental_debug_state.units.contains(unit)) return w.writeAll("unknown anal unit");
+        const refs = try zcu.resolveReferences();
+        if (!refs.contains(unit)) return w.writeAll("not referenced");
+        var opt_cur: ?AnalUnit = unit;
+        while (opt_cur) |cur| {
+            var buf: [32]u8 = undefined;
+            try w.print("* {s}\n", .{printAnalUnit(cur, &buf)});
+            opt_cur = if (refs.get(cur).?) |ref| ref.referencer else null;
+        }
+    } else if (std.mem.eql(u8, cmd_str, "type_info")) {
+        const ip_index: InternPool.Index = @fromBackingInt(@intCast(parseIndex(arg_str) orelse return w.writeAll("malformed ip index")));
+        const create_gen = zcu.incremental_debug_state.types.get(ip_index) orelse return w.writeAll("unknown type");
+        try w.print(
+            \\name: '{f}'
+            \\created on generation: {d}
+            \\
+        , .{
+            Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip),
+            create_gen,
+        });
+    } else if (std.mem.eql(u8, cmd_str, "type_namespace")) {
+        const ip_index: InternPool.Index = @fromBackingInt(@intCast(parseIndex(arg_str) orelse return w.writeAll("malformed ip index")));
+        if (!zcu.incremental_debug_state.types.contains(ip_index)) return w.writeAll("unknown type");
+        const ns = zcu.namespacePtr(Type.fromInterned(ip_index).getNamespaceIndex(zcu));
+        try w.print("{d} pub decls:\n", .{ns.pub_decls.count()});
+        for (ns.pub_decls.keys()) |nav| {
+            try w.print("* nav {d}\n", .{@backingInt(nav)});
+        }
+        try w.print("{d} non-pub decls:\n", .{ns.priv_decls.count()});
+        for (ns.priv_decls.keys()) |nav| {
+            try w.print("* nav {d}\n", .{@backingInt(nav)});
+        }
+        try w.print("{d} comptime decls:\n", .{ns.comptime_decls.items.len});
+        for (ns.comptime_decls.items) |id| {
+            try w.print("* comptime {d}\n", .{@backingInt(id)});
+        }
+        try w.print("{d} tests:\n", .{ns.test_decls.items.len});
+        for (ns.test_decls.items) |nav| {
+            try w.print("* nav {d}\n", .{@backingInt(nav)});
+        }
+    } else {
+        try w.writeAll("command not found; run 'help' for a command list");
+    }
+}
+
+fn parseIndex(str: []const u8) ?u32 {
+    return std.fmt.parseInt(u32, str, 10) catch null;
+}
+fn parseAnalUnit(str: []const u8) ?AnalUnit {
+    const split_idx = std.mem.findScalar(u8, str, ' ') orelse return null;
+    const kind = str[0..split_idx];
+    const idx_str = str[split_idx + 1 ..];
+    if (std.mem.eql(u8, kind, "comptime")) {
+        return .wrap(.{ .@"comptime" = @fromBackingInt(@intCast(parseIndex(idx_str) orelse return null)) });
+    } else if (std.mem.eql(u8, kind, "nav_val")) {
+        return .wrap(.{ .nav_val = @fromBackingInt(@intCast(parseIndex(idx_str) orelse return null)) });
+    } else if (std.mem.eql(u8, kind, "nav_ty")) {
+        return .wrap(.{ .nav_ty = @fromBackingInt(@intCast(parseIndex(idx_str) orelse return null)) });
+    } else if (std.mem.eql(u8, kind, "type_layout")) {
+        return .wrap(.{ .type_layout = @fromBackingInt(@intCast(parseIndex(idx_str) orelse return null)) });
+    } else if (std.mem.eql(u8, kind, "struct_defaults")) {
+        return .wrap(.{ .struct_defaults = @fromBackingInt(@intCast(parseIndex(idx_str) orelse return null)) });
+    } else if (std.mem.eql(u8, kind, "func")) {
+        return .wrap(.{ .func = @fromBackingInt(@intCast(parseIndex(idx_str) orelse return null)) });
+    } else if (std.mem.eql(u8, kind, "memoized_state")) {
+        return .wrap(.{ .memoized_state = std.meta.stringToEnum(
+            InternPool.MemoizedStateStage,
+            idx_str,
+        ) orelse return null });
+    } else {
+        return null;
+    }
+}
+fn printAnalUnit(unit: AnalUnit, buf: *[32]u8) []const u8 {
+    const idx: u32 = switch (unit.unwrap()) {
+        .memoized_state => |stage| return std.fmt.bufPrint(buf, "memoized_state {s}", .{@tagName(stage)}) catch unreachable,
+        inline else => |i| @backingInt(i),
+    };
+    return std.fmt.bufPrint(buf, "{s} {d}", .{ @tagName(unit.unwrap()), idx }) catch unreachable;
+}
+
+fn printType(ty: Type, zcu: *const Zcu, w: *Io.Writer) Io.Writer.Error!void {
+    const ip = &zcu.intern_pool;
+    switch (ip.indexToKey(ty.toIntern())) {
+        .int_type => |int| try w.print("{c}{d}", .{
+            @as(u8, if (int.signedness == .unsigned) 'u' else 'i'),
+            int.bits,
+        }),
+        .tuple_type => try w.writeAll("(tuple)"),
+        .error_set_type => try w.writeAll("(error set)"),
+        .inferred_error_set_type => try w.writeAll("(inferred error set)"),
+        .func_type => try w.writeAll("(function)"),
+        .anyframe_type => try w.writeAll("(anyframe)"),
+        .vector_type => {
+            try w.print("@Vector({d}, ", .{ty.vectorLen(zcu)});
+            try printType(ty.childType(zcu), zcu, w);
+            try w.writeByte(')');
+        },
+        .array_type => {
+            try w.print("[{d}]", .{ty.arrayLen(zcu)});
+            try printType(ty.childType(zcu), zcu, w);
+        },
+        .opt_type => {
+            try w.writeByte('?');
+            try printType(ty.optionalChild(zcu), zcu, w);
+        },
+        .error_union_type => {
+            try printType(ty.errorUnionSet(zcu), zcu, w);
+            try w.writeByte('!');
+            try printType(ty.errorUnionPayload(zcu), zcu, w);
+        },
+        .ptr_type => {
+            try w.writeAll("*(attrs) ");
+            try printType(ty.childType(zcu), zcu, w);
+        },
+        .simple_type => |simple| try w.writeAll(@tagName(simple)),
+
+        .struct_type,
+        .union_type,
+        .enum_type,
+        .opaque_type,
+        => try w.print("{f}[{d}]", .{ ty.containerTypeName(ip).fmt(ip), @backingInt(ty.toIntern()) }),
+
+        else => unreachable,
+    }
+}
+
+const std = @import("std");
+const Io = std.Io;
+const Allocator = std.mem.Allocator;
+const log = std.log.scoped(.incremental_debug_server);
+
+const Compilation = @import("Compilation.sig");
+const Zcu = @import("Zcu.sig");
+const InternPool = @import("InternPool.sig");
+const Type = @import("Type.sig");
+const AnalUnit = InternPool.AnalUnit;
+
+const IncrementalDebugServer = @This();

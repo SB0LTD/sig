@@ -5,8 +5,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Zig Version
-      description: "The output of `zig version`"
+      label: Sig Version
+      description: "The output of `Sig version`"
       placeholder: "0.11.0-dev.146+2897641fb"
     validations:
       required: true

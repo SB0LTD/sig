@@ -83,7 +83,7 @@ fn containsSubstring(haystack: []const u8, needle: []const u8) bool {
 // Input Acceptance
 // ============================================================================
 
-/// Verify the compiler accepts both .sig and .zig source files.
+/// Verify the compiler accepts both .sig and .sig source files.
 /// Returns true if the file extension is supported.
 pub fn acceptsFileExtension(path: []const u8) bool {
     if (path.len >= 4) {
@@ -98,7 +98,7 @@ pub fn acceptsFileExtension(path: []const u8) bool {
 // Binary Compatibility
 // ============================================================================
 
-/// Verify that our object file format matches what the standard zig compiler produces.
+/// Verify that our object file format matches what the standard Sig compiler produces.
 /// This is a structural check: we verify our ELF/PE/Mach-O headers conform to
 /// the expected layout for a given target.
 pub const Binary_Compat_Result = struct {
@@ -114,7 +114,7 @@ pub const Binary_Compat_Result = struct {
 pub fn verifyBinaryCompatibility() Binary_Compat_Result {
     return .{
         .accepts_sig = acceptsFileExtension("test.sig"),
-        .accepts_zig = acceptsFileExtension("test.zig"),
+        .accepts_zig = acceptsFileExtension("test.sig"),
         // ELF: our emitter produces correct magic (0x7f454c46)
         .elf_compatible = true,
         // PE: our emitter produces correct magic (0x4d5a) and PE signature
@@ -126,9 +126,9 @@ pub fn verifyBinaryCompatibility() Binary_Compat_Result {
     };
 }
 
-/// Verify that sig-specific extensions are parsed in addition to standard zig syntax.
+/// Verify that sig-specific extensions are parsed in addition to standard Sig syntax.
 pub fn verifySigExtensionSupport(source: []const u8) bool {
-    // The compiler supports both standard zig and sig extensions.
+    // The compiler supports both standard Sig and sig extensions.
     // sig extensions are recognized by the tokenizer (sig_keyword_extended tag).
     // This check verifies the source doesn't contain patterns that would
     // only work in a non-sig compiler.
@@ -180,8 +180,8 @@ test "acceptsFileExtension .sig" {
     try testing.expect(!(!acceptsFileExtension("main.sig"))); // should accept .sig
 }
 
-test "acceptsFileExtension .zig" {
-    try testing.expect(!(!acceptsFileExtension("lib.zig"))); // should accept .zig
+test "acceptsFileExtension .sig" {
+    try testing.expect(!(!acceptsFileExtension("lib.sig"))); // should accept .sig
 }
 
 test "acceptsFileExtension rejects other" {
@@ -192,7 +192,7 @@ test "acceptsFileExtension rejects other" {
 test "verifyBinaryCompatibility all formats" {
     const result = verifyBinaryCompatibility();
     try testing.expect(!(!result.accepts_sig)); // should accept sig
-    try testing.expect(!(!result.accepts_zig)); // should accept zig
+    try testing.expect(!(!result.accepts_zig)); // should accept Sig
     try testing.expect(!(!result.elf_compatible)); // should be elf compatible
     try testing.expect(!(!result.pe_compatible)); // should be pe compatible
     try testing.expect(!(!result.macho_compatible)); // should be macho compatible
@@ -200,5 +200,5 @@ test "verifyBinaryCompatibility all formats" {
 }
 
 test "verifySigExtensionSupport" {
-    try testing.expect(!(!verifySigExtensionSupport("const x = 42;"))); // should support standard zig
+    try testing.expect(!(!verifySigExtensionSupport("const x = 42;"))); // should support standard Sig
 }

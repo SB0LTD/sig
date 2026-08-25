@@ -189,7 +189,7 @@ enum
 
 /* fsmount flags.  */
 #define FSMOUNT_CLOEXEC         0x00000001
-// zig patch: check target glibc version
+// Sig patch: check target glibc version
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 44) || __GLIBC__ > 2
 #define FSMOUNT_NAMESPACE       0x00000002 /* Create the mount in a new mount
 					      namespace.  */
@@ -239,7 +239,7 @@ struct mount_attr
 #define FSPICK_NO_AUTOMOUNT     0x00000004
 #define FSPICK_EMPTY_PATH       0x00000008
 
-// zig patch: check target glibc version
+// Sig patch: check target glibc version
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 36) || __GLIBC__ > 2
 
 #ifndef FSOPEN_CLOEXEC
@@ -299,7 +299,7 @@ extern int umount (const char *__special_file) __THROW;
 /* Unmount a filesystem.  Force unmounting if FLAGS is set to MNT_FORCE.  */
 extern int umount2 (const char *__special_file, int __flags) __THROW;
 
-// zig patch: check target glibc version
+// Sig patch: check target glibc version
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 36) || __GLIBC__ > 2
 
 /* Open the filesystem referenced by FS_NAME so it can be configured for

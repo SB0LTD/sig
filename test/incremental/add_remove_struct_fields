@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const S = struct { x: u8 };
 pub fn main(init: std.process.Init) !void {
     var stdout_writer = std.Io.File.stdout().writerStreaming(init.io, &.{});
@@ -22,7 +22,7 @@ const Writer = std.Io.Writer;
 #expect_stdout="1 100\n"
 
 #update=add a field
-#file=main.zig
+#file=main.sig
 const S = struct { x: u8, y: u16 = 200 };
 pub fn main(init: std.process.Init) !void {
     var stdout_writer = std.Io.File.stdout().writerStreaming(init.io, &.{});
@@ -45,7 +45,7 @@ const Writer = std.Io.Writer;
 #expect_stdout="2 100\n"
 
 #update=remove all fields
-#file=main.zig
+#file=main.sig
 const S = struct {};
 pub fn main(init: std.process.Init) !void {
     var stdout_writer = std.Io.File.stdout().writerStreaming(init.io, &.{});
@@ -65,11 +65,11 @@ fn printOneField(w: *Writer) Writer.Error!void {
 }
 const std = @import("std");
 const Writer = std.Io.Writer;
-#expect_error=main.zig:15:24: error: no field named 'x' in struct 'main.S'
-#expect_error=main.zig:1:11: note: struct declared here
+#expect_error=main.sig:15:24: error: no field named 'x' in struct 'main.S'
+#expect_error=main.sig:1:11: note: struct declared here
 
 #update=remove reference to non-existent field
-#file=main.zig
+#file=main.sig
 const S = struct {};
 pub fn main(init: std.process.Init) !void {
     var stdout_writer = std.Io.File.stdout().writerStreaming(init.io, &.{});

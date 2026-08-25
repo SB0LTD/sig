@@ -2,7 +2,7 @@
 
 All notable changes to Sig are documented here.
 
-Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the sig version and the upstream Zig version: `sig-X.Y.Z-zigA.B.C.<sha>`.
+Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the sig version and the upstream Sig version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
 ## [0.3.2] — 2026-08-11 — First-Class SB0 Target
 
@@ -68,10 +68,10 @@ compiler branches into the release train.
 
 ### Fixed
 - Upstream Maker migration routing `sig build` through transitional
-  `build.zig`/`std.Build` instead of the native fixed-capacity `build.sig`
+  `build.sig`/`std.Build` instead of the native fixed-capacity `build.sig`
   runner. Native dispatch is explicit again, supports custom `.sig` build
   files, reports the resolved graph in `--help`, and is package-tested by
-  executing both callback and nested compiler steps with no `build.zig`
+  executing both callback and nested compiler steps with no `build.sig`
   present.
 - An old-base conflict resolution in the Nexus array-repetition merge that
   replaced modern parser recovery and pointer-modifier behavior. The restored
@@ -81,7 +81,7 @@ compiler branches into the release train.
   which could poison manifests and make every child command exit silently.
   Each scheduled step now gets a deterministic fixed-capacity local namespace,
   while the global compiler cache remains explicitly shared for reuse.
-- `print_zir.zig` missing handler for the `array_mul` instruction (introduced
+- `print_zir.sig` missing handler for the `array_mul` instruction (introduced
   alongside `from_backing_int` in the same instruction range).
 - Native build-step names borrowing the process iterator's reusable argument
   buffer. A following `-D` option could corrupt a requested step such as
@@ -90,7 +90,7 @@ compiler branches into the release train.
   root module declaration, which silently emitted a host binary for requested
   cross targets. The package proof now compiles and verifies a wasm target.
 - `zig1.wasm` regeneration still routing through the transitional
-  `build_wasm.zig`. A native zero-allocation `build_wasm.sig` now owns the
+  `build_wasm.sig`. A native zero-allocation `build_wasm.sig` now owns the
   exact wasm32-wasi command, canonical bootstrap options, and output check.
 - The refreshed `zig1.wasm` importing WASI path timestamp operations without a
   matching native host shim. File-descriptor and path timestamp updates now
@@ -122,7 +122,7 @@ compiler branches into the release train.
   terminal non-success conclusion, and require its published four-platform
   manifest plus a fresh consumer probe.
 - `setup-sig` still resolving releases from the former repository, deriving a
-  Sig toolchain version from Zig manifest metadata, accepting unverified
+  Sig toolchain version from Sig manifest metadata, accepting unverified
   downloads, and using an unpinned legacy cache action. Resolution now targets
   immutable SB0LTD release identities, supports Sig semver, verifies aggregate
   release checksums fail-closed, and pins the current Node 24 cache action.
@@ -140,7 +140,7 @@ train and establishes the allocator-free native SB0 compiler foundation.
 - **Four full LLVM toolchains** — x86_64 Linux, aarch64 Linux, aarch64 macOS,
   and x86_64 Windows ship with the same LLVM 22.1.8 target closure.
 - **Sig builds every final Sig** — the production release stage never invokes
-  upstream Zig; Windows is cross-compiled by the proven Linux Sig and then
+  upstream Sig; Windows is cross-compiled by the proven Linux Sig and then
   executed on a Windows runner.
 - **Native SB0 target foundation** — strict, fixed-capacity target modeling,
   parsing, semantic analysis, code generation, linking, and SB0X verification.
@@ -155,7 +155,7 @@ train and establishes the allocator-free native SB0 compiler foundation.
 - Packaged execution, strict `.sig` parsing, and AArch64 object-generation
   probes on Linux, macOS, Windows, and QEMU aarch64 Linux.
 - Native packages launch the build runner against their own matching library
-  tree, catching incomplete archives and stale `ZIG_LIB_DIR` overrides.
+  tree, catching incomplete archives and stale `SIG_LIB_DIR` overrides.
 - One canonical 210-test compiler graph covering every native compiler module;
   the same graph runs in bootstrap and final-release jobs on every host.
 - Fixed-capacity native compiler modules under `compiler/`, including the
@@ -189,8 +189,8 @@ train and establishes the allocator-free native SB0 compiler foundation.
   only after verifying GitHub's recorded SHA-256 digest; v42 and later continue
   to require their release checksum sidecars.
 - `zig1.wasm` regeneration now passes Maker's mandatory first
-  `--zig-lib=<path>` argument instead of the compiler-subcommand-only
-  `--zig-lib-dir` spelling.
+  `--Sig-lib=<path>` argument instead of the compiler-subcommand-only
+  `--Sig-lib-dir` spelling.
 - Native LLVM packaging selects GNU `sha256sum` or BSD/macOS `shasum`
   explicitly and verifies the computed digest, so a completed macOS build
   cannot fail merely because GNU coreutils is absent.
@@ -241,15 +241,15 @@ train and establishes the allocator-free native SB0 compiler foundation.
   omitting the four-byte SB0 entry body from the expected image size.
 - `zig1.wasm` regeneration downloading an unpinned upstream nightly instead of
   using a verified, checksummed Sig bootstrap.
-- `build_wasm.zig` retaining stale Zig 0.16/Sig 0.1.2 identities; regeneration
+- `build_wasm.sig` retaining stale Sig 0.16/Sig 0.1.2 identities; regeneration
   now requires both canonical versions derived from `build.sig`.
-- Release executables reporting only the upstream Zig version. `sig version`
-  now identifies both toolchains, while the `zig` alias retains its compatible
+- Release executables reporting only the upstream Sig version. `sig version`
+  now identifies both toolchains, while the `Sig` alias retains its compatible
   machine-readable semantic-version output.
-- Installed compilers crashing in Maker when a process-level `ZIG_LIB_DIR`
+- Installed compilers crashing in Maker when a process-level `SIG_LIB_DIR`
   selected an older, incompatible library tree; validation now treats that
   version-skew risk as an installation error.
-- Source builds feeding Sig's hyphenated release tags into upstream Zig's
+- Source builds feeding Sig's hyphenated release tags into upstream Sig's
   compatibility-version derivation; `git describe` now selects numeric tags.
 
 ## [0.2.0] — 2026-06-12 — No More Excuses
@@ -257,18 +257,18 @@ train and establishes the allocator-free native SB0 compiler foundation.
 Self-sustained release pipeline. Sig builds sig. Three platforms ship.
 
 ### Highlights
-- **Sig builds sig** — The compiler compiles itself. No cmake, no external zig, no hand-holding.
+- **Sig builds sig** — The compiler compiles itself. No cmake, no external Sig, no hand-holding.
 - **LLVM 22 on Linux** — Full backend with all LLVM targets. One static binary, zero runtime deps.
 - **macOS + Windows ship** — Self-hosted backends for aarch64-macos and x86_64-windows.
 - **Two-stage pipeline** — Stage 1 builds natively with the bootstrap. Stage 2 cross-compiles for other targets.
-- **Upstream zig 0.17.0-dev** — Continuous sync from Codeberg, every commit within minutes.
+- **Upstream Sig 0.17.0-dev** — Continuous sync from Codeberg, every commit within minutes.
 
 ### Changed
 - Release pipeline completely rewritten: two-stage architecture (native → cross)
 - Linux binary now includes full LLVM 22 (all targets, all backends)
 - macOS/Windows binaries use self-hosted backends (no LLVM dependency)
-- Bootstrap upgraded to v28 (LLVM-enabled, handles zig 0.17.0 source)
-- build.sig replaces build.zig as the primary build definition
+- Bootstrap upgraded to v28 (LLVM-enabled, handles Sig 0.17.0 source)
+- build.sig replaces build.sig as the primary build definition
 - Version tagging: `sig-X.Y.Z-zigA.B.C.<sha>` format
 
 ### Added
@@ -286,13 +286,13 @@ Self-sustained release pipeline. Sig builds sig. Three platforms ship.
 
 ## [0.1.2] — 2026-04-16
 
-LLVM 22 port, self-sustained three-stage release pipeline, and upstream zig 0.16.0 sync.
+LLVM 22 port, self-sustained three-stage release pipeline, and upstream Sig 0.16.0 sync.
 
 ### Highlights
 - **LLVM 22.1.3** — Full port from LLVM 21, all C++ interface layers updated
 - **Three-stage CI pipeline** — `build-llvm` → `build-bootstrap` → `release`, fully automated
 - **All 3 platforms** — x86_64-linux, aarch64-macos, x86_64-windows ship from the same pipeline
-- **Upstream sync** — Merged latest zig 0.16.0 from codeberg (including `@cImport` removal, `round_op` rename, incremental compilation fixes)
+- **Upstream sync** — Merged latest Sig 0.16.0 from codeberg (including `@cImport` removal, `round_op` rename, incremental compilation fixes)
 - **Sub-6-minute releases** — Down from 4+ hours by packaging bootstrap binaries directly
 
 ### Changed
@@ -303,27 +303,27 @@ LLVM 22 port, self-sustained three-stage release pipeline, and upstream zig 0.16
   - `zig_clang_cc1_main.cpp`: `createDiagnostics()` and `createFileManager()` signature updates
   - `zig_clang_cc1as_main.cpp`: deprecated Triple APIs → new overloads
 - CMake Find modules updated for LLVM 22 (new libs: `clangOptions`, `clangAnalysisLifetimeSafety`, `clangAnalysisScalable`, `clangFormat`, `clangTooling`, etc.)
-- Merged upstream zig 0.16.0: `@cImport` removed, `round_cast` → `round_op`, incremental compilation fixes
+- Merged upstream Sig 0.16.0: `@cImport` removed, `round_cast` → `round_op`, incremental compilation fixes
 - Release pipeline packages bootstrap binaries directly (no 4-hour recompilation)
-- `dev.zig`: `.core` now includes `version_command`, `env_command`, `help_command`, `targets_command`, `zen_command`
-- `dev.zig`: `.bootstrap` now includes `.legalize` (required by C backend)
+- `dev.sig`: `.core` now includes `version_command`, `env_command`, `help_command`, `targets_command`, `zen_command`
+- `dev.sig`: `.bootstrap` now includes `.legalize` (required by C backend)
 
 ### Added
 - Three-stage release pipeline: `build-llvm.yaml` → `build-bootstrap.yaml` → `release.yaml`
 - Pre-built LLVM 22.1.3 artifacts for all 3 platforms (one-time build, reused across releases)
-- `build_wasm.zig` — Minimal build.zig for zig1.wasm generation via zig build system
+- `build_wasm.sig` — Minimal build.sig for zig1.wasm generation via Sig build system
 - `regen-zig1-wasm.yaml` — Automated zig1.wasm regeneration using `setup-sig` action
 - `tools/setup-sig` — GitHub Action for installing sig in CI workflows
 - `stage1/float_stubs.c` — f16/f80 soft-float stubs for Windows bootstrap linking
 - `environ` and `_environ` added to C backend reserved identifiers (Windows UCRT macro collision)
-- Windows: `#undef environ` in `zig.h`, `_msize` wrapper for const-qualifier mismatch
+- Windows: `#undef environ` in `Sig.h`, `_msize` wrapper for const-qualifier mismatch
 - Windows: `zig_static_assert` suppressed on MSVC (struct padding mismatch with old zig1.wasm)
 - Windows: `/MD` CRT globally for clang-cl compatibility with pre-built LLVM libs
 - `CHANGELOG.md` covering all versions from 0.0.1 through 0.1.2
 
 ### Fixed
-- `process.zig`: `.unknown` variant is `u32`, not enum — removed erroneous `@intFromEnum`
-- `Sema.zig`: `cmp_lte_errors_len` typo, `writeToPackedMemory` type, `resolveValue`/`resolveInst` try removal
+- `process.sig`: `.unknown` variant is `u32`, not enum — removed erroneous `@intFromEnum`
+- `Sema.sig`: `cmp_lte_errors_len` typo, `writeToPackedMemory` type, `resolveValue`/`resolveInst` try removal
 - `wasm2c.c`: improved error message for invalid wasm magic bytes
 - CMakeLists.txt: `-lm` removal on Windows, circular static lib deps, `_CRT_SECURE_NO_WARNINGS`
 - CMakeLists.txt: `MSVC_RUNTIME_LIBRARY` set on all targets for clang-cl
@@ -344,7 +344,7 @@ First release built entirely by the sig build system. No cmake, no `std.Build`.
 
 ### Changed
 - Release pipeline migrated from cmake to sig build system
-- Bootstrap uses previous sig release (no upstream zig dependency for non-LLVM builds)
+- Bootstrap uses previous sig release (no upstream Sig dependency for non-LLVM builds)
 
 ### Fixed
 - Windows stack overflow in bootstrap (128MB stack)
@@ -386,18 +386,18 @@ First published release with binaries.
 
 ### Added
 - Release binaries for x86_64-linux, aarch64-linux, aarch64-macos, x86_64-windows
-- Sig compiler: Zig spoon with `.sig` file extension
-- Strict mode: allocator usage diagnostics (warnings in `.zig`, errors in `.sig`)
+- Sig compiler: Sig spoon with `.sig` file extension
+- Strict mode: allocator usage diagnostics (warnings in `.sig`, errors in `.sig`)
 - Capacity-first standard library APIs (`sig.fmt`, `sig.containers`, `sig.io`)
 - Four explicit capacity errors: `BufferTooSmall`, `CapacityExceeded`, `DepthExceeded`, `QuotaExceeded`
-- Sig_Sync: continuous upstream zig integration
+- Sig_Sync: continuous upstream Sig integration
 - LLVM 21 backend support
 
 ## [0.0.1] — 2026-03-24
 
-Initial commit. Zig compiler fork with sig extensions.
+Initial commit. Sig compiler fork with sig extensions.
 
 ### Added
-- Forked from upstream Zig (codeberg.org/ziglang/zig)
+- Forked from upstream Sig (codeberg.org/ziglang/Sig)
 - Basic project structure
-- License (same as upstream Zig)
+- License (same as upstream Sig)

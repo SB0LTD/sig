@@ -92,7 +92,7 @@ test "README renders default benchmark tables" {
     try testing.expect(std.mem.indexOf(u8, output, "### Containers") != null);
     // Table header row present
     try testing.expect(std.mem.indexOf(u8, output, "Sig") != null);
-    try testing.expect(std.mem.indexOf(u8, output, "Zig") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "sig") != null);
 }
 
 test "README sync status includes commit hash and timestamp" {
@@ -111,7 +111,7 @@ test "README sync status includes commit hash and timestamp" {
     try testing.expect(std.mem.indexOf(u8, output, "1700000000") != null);
     // Short hash link to upstream
     try testing.expect(std.mem.indexOf(u8, output, "deadbee") != null);
-    try testing.expect(std.mem.indexOf(u8, output, "https://github.com/ziglang/zig/commit/") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "https://github.com/ziglang/Sig/commit/") != null);
 }
 
 test "README contains all required sections" {

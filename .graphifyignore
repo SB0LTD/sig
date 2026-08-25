@@ -3,7 +3,7 @@
 
 .build-gen/
 .deploy-ctx/
-.zig-cache/
+.sig-cache/
 bld/
 build/
 crashdumps/

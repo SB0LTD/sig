@@ -7,9 +7,9 @@ const sig_parse = @import("sig_parse");
 
 // ── parseInto ────────────────────────────────────────────────────────────
 
-test "parseInto: 'name=zig\\nversion=1\\n' produces ParsedKv with count=2" {
+test "parseInto: 'name=Sig\\nversion=1\\n' produces ParsedKv with count=2" {
     var buf: [64]u8 = undefined;
-    const result = try sig_parse.parseInto("name=zig\nversion=1\n", &buf);
+    const result = try sig_parse.parseInto("name=Sig\nversion=1\n", &buf);
     try testing.expectEqual(@as(usize, 2), result.count);
 }
 
@@ -21,19 +21,19 @@ test "parseInto: empty input produces count=0" {
 
 test "parseInto: undersized buffer returns BufferTooSmall" {
     var buf: [5]u8 = undefined;
-    try testing.expectError(error.BufferTooSmall, sig_parse.parseInto("name=zig\nversion=1\n", &buf));
+    try testing.expectError(error.BufferTooSmall, sig_parse.parseInto("name=Sig\nversion=1\n", &buf));
 }
 
 // ── ParsedKv.pairs ──────────────────────────────────────────────────────
 
 test "ParsedKv.pairs: extracts correct key-value pairs" {
     var buf: [64]u8 = undefined;
-    const parsed = try sig_parse.parseInto("name=zig\nversion=1\n", &buf);
+    const parsed = try sig_parse.parseInto("name=Sig\nversion=1\n", &buf);
     var pair_buf: [4]sig_parse.KvPair = undefined;
     const pairs = try parsed.pairs(&pair_buf);
     try testing.expectEqual(@as(usize, 2), pairs.len);
     try testing.expectEqualStrings("name", pairs[0].key);
-    try testing.expectEqualStrings("zig", pairs[0].value);
+    try testing.expectEqualStrings("sig", pairs[0].value);
     try testing.expectEqualStrings("version", pairs[1].key);
     try testing.expectEqualStrings("1", pairs[1].value);
 }
@@ -42,13 +42,13 @@ test "ParsedKv.pairs: extracts correct key-value pairs" {
 
 test "prettyPrint: known pairs produce expected output" {
     var buf: [64]u8 = undefined;
-    const parsed = try sig_parse.parseInto("name=zig\nversion=1\n", &buf);
+    const parsed = try sig_parse.parseInto("name=Sig\nversion=1\n", &buf);
     var pair_buf: [4]sig_parse.KvPair = undefined;
     const pairs = try parsed.pairs(&pair_buf);
 
     var pp_buf: [64]u8 = undefined;
     const output = try sig_parse.prettyPrint(pairs, &pp_buf);
-    try testing.expectEqualStrings("name=zig\nversion=1\n", output);
+    try testing.expectEqualStrings("name=Sig\nversion=1\n", output);
 }
 
 // ── StreamingParser ─────────────────────────────────────────────────────
@@ -56,11 +56,11 @@ test "prettyPrint: known pairs produce expected output" {
 test "StreamingParser: feed with valid input produces correct tokens" {
     var parser = sig_parse.StreamingParser(sig_parse.KvPair).init();
     var token_buf: [4]sig_parse.KvPair = undefined;
-    const result = parser.feed("name=zig\nversion=1\n", &token_buf);
+    const result = parser.feed("name=Sig\nversion=1\n", &token_buf);
     const tokens = result.ok;
     try testing.expectEqual(@as(usize, 2), tokens.len);
     try testing.expectEqualStrings("name", tokens[0].key);
-    try testing.expectEqualStrings("zig", tokens[0].value);
+    try testing.expectEqualStrings("sig", tokens[0].value);
     try testing.expectEqualStrings("version", tokens[1].key);
     try testing.expectEqualStrings("1", tokens[1].value);
 }
@@ -96,6 +96,6 @@ test "StreamingParser: finish flushes partial line" {
 // ── measureParse ────────────────────────────────────────────────────────
 
 test "measureParse: returns input length" {
-    const input = "name=zig\nversion=1\n";
+    const input = "name=Sig\nversion=1\n";
     try testing.expectEqual(input.len, sig_parse.measureParse(input));
 }

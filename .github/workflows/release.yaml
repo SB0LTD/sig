@@ -1,4 +1,4 @@
-# Full Sig release train. Sig builds Sig; upstream Zig is never used here.
+# Full Sig release train. Sig builds Sig; upstream Sig is never used here.
 #
 # Release targets:
 #   x86_64-linux-musl, aarch64-linux-musl,
@@ -57,7 +57,7 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       sig_version: ${{ steps.release.outputs.sig_version }}
-      zig_version: ${{ steps.release.outputs.zig_version }}
+      zig_version: ${{ steps.release.outputs.sig_version }}
       prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,11 +79,11 @@ jobs:
           set -euo pipefail
           sig_version="$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)"
           zig_version="$(sed -n 's/^const zig_version:.*major = \([0-9]*\), \.minor = \([0-9]*\), \.patch = \([0-9]*\).*/\1.\2.\3/p' build.sig | head -1)"
-          zig_build_version="$(sed -n 's/^const zig_version:.*major = \([0-9]*\), \.minor = \([0-9]*\), \.patch = \([0-9]*\).*/\1.\2.\3/p' build.zig | head -1)"
+          zig_build_version="$(sed -n 's/^const zig_version:.*major = \([0-9]*\), \.minor = \([0-9]*\), \.patch = \([0-9]*\).*/\1.\2.\3/p' build.sig | head -1)"
           test -n "$sig_version"
           test -n "$zig_version"
           test "$zig_version" = "$zig_build_version"
-          grep -Fqx "const sig_version_string = \"${sig_version}\";" build.zig
+          grep -Fqx "const sig_version_string = \"${sig_version}\";" build.sig
           [[ "$sig_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           if [ -n "${REQUESTED_VERSION:-}" ] && [ "$REQUESTED_VERSION" != "$sig_version" ]; then
             echo "ERROR: requested ${REQUESTED_VERSION} but source declares ${sig_version}" >&2
@@ -93,7 +93,7 @@ jobs:
             echo "ERROR: CHANGELOG.md has no ${sig_version} section" >&2
             exit 1
           }
-          version="${sig_version}-zig${zig_version}.$(git rev-parse --short=7 HEAD)"
+          version="${sig_version}-Sig${zig_version}.$(git rev-parse --short=7 HEAD)"
           tag="sig-${version}"
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "ERROR: release ${tag} already exists; release tags are immutable" >&2
@@ -184,7 +184,7 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
     steps:
       - name: Free disk space
         run: |
@@ -239,7 +239,7 @@ jobs:
             "$LLVM_PREFIX" \
             '${{ matrix.target }}' \
             'stage3-out/bin/${{ matrix.binary }}' \
-            '.zig-cache/release-${{ matrix.platform }}'
+            '.sig-cache/release-${{ matrix.platform }}'
 
       - name: Execute compiler and prove strict/AArch64 compilation
         shell: bash
@@ -258,7 +258,7 @@ jobs:
           grep -q "sig ${SIG_VERSION}" /tmp/version.txt
           $runner "$compiler" ast-check compiler/core/target.sig
           $runner "$compiler" test compiler/test_all.sig \
-            --zig-lib-dir lib \
+            --Sig-lib-dir lib \
             --cache-dir /tmp/sig-tests-local \
             --global-cache-dir /tmp/sig-tests-global \
             --stack 33554432
@@ -267,7 +267,7 @@ jobs:
             -mcpu=baseline \
             -OReleaseFast \
             -fno-stack-check \
-            --zig-lib-dir lib \
+            --Sig-lib-dir lib \
             --cache-dir /tmp/sig-release-local \
             --global-cache-dir /tmp/sig-release-global \
             -femit-bin=/tmp/release-aarch64.o
@@ -301,7 +301,7 @@ jobs:
           archive="${root}.tar.xz"
           mkdir -p "$root/bin" "$root/tools"
           cp 'stage3-out/bin/${{ matrix.binary }}' "$root/bin/sig"
-          ln "$root/bin/sig" "$root/bin/zig"
+          ln "$root/bin/sig" "$root/bin/Sig"
           cp -r lib "$root/lib"
           cp -r tools/sig_build "$root/tools/sig_build"
           tar -cJf "$archive" "$root"
@@ -323,7 +323,7 @@ jobs:
           packaged="/tmp/package-check/$root/bin/sig"
           if [ -n '${{ matrix.qemu }}' ]; then runner='${{ matrix.qemu }}'; else runner=''; fi
           $runner "$packaged" version | grep -q "sig ${SIG_VERSION}"
-          zig_output="$($runner "/tmp/package-check/$root/bin/zig" version)"
+          zig_output="$($runner "/tmp/package-check/$root/bin/Sig" version)"
           [[ "$zig_output" = "$ZIG_VERSION" || "$zig_output" = "$ZIG_VERSION"-* || "$zig_output" = "$ZIG_VERSION"+* ]]
           [[ "$zig_output" != *sig* ]]
           if [ '${{ matrix.platform }}' = x86_64-linux ]; then
@@ -358,7 +358,7 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -405,7 +405,7 @@ jobs:
             "$LLVM_PREFIX" \
             aarch64-macos-none \
             stage3-out/bin/sig \
-            .zig-cache/release-macos
+            .sig-cache/release-macos
 
       - name: Execute compiler and prove strict/AArch64 compilation
         shell: bash
@@ -415,7 +415,7 @@ jobs:
           grep -q "sig ${SIG_VERSION}" /tmp/version.txt
           stage3-out/bin/sig ast-check compiler/core/target.sig
           stage3-out/bin/sig test compiler/test_all.sig \
-            --zig-lib-dir lib \
+            --Sig-lib-dir lib \
             --cache-dir /tmp/sig-tests-local \
             --global-cache-dir /tmp/sig-tests-global \
             --stack 33554432
@@ -424,7 +424,7 @@ jobs:
             -mcpu=baseline \
             -OReleaseFast \
             -fno-stack-check \
-            --zig-lib-dir lib \
+            --Sig-lib-dir lib \
             --cache-dir /tmp/sig-release-local \
             --global-cache-dir /tmp/sig-release-global \
             -femit-bin=/tmp/release-aarch64.o
@@ -439,7 +439,7 @@ jobs:
           archive="${root}.tar.xz"
           mkdir -p "$root/bin" "$root/tools"
           cp stage3-out/bin/sig "$root/bin/sig"
-          ln "$root/bin/sig" "$root/bin/zig"
+          ln "$root/bin/sig" "$root/bin/Sig"
           cp -R lib "$root/lib"
           cp -R tools/sig_build "$root/tools/sig_build"
           tar -cJf "$archive" "$root"
@@ -459,7 +459,7 @@ jobs:
           mkdir /tmp/package-check
           tar -xJf "$archive" -C /tmp/package-check
           /tmp/package-check/$root/bin/sig version | grep -q "sig ${SIG_VERSION}"
-          zig_output="$(/tmp/package-check/$root/bin/zig version)"
+          zig_output="$(/tmp/package-check/$root/bin/Sig version)"
           [[ "$zig_output" = "$ZIG_VERSION" || "$zig_output" = "$ZIG_VERSION"-* || "$zig_output" = "$ZIG_VERSION"+* ]]
           [[ "$zig_output" != *sig* ]]
           bash ci/prove-native-build.sh \
@@ -482,7 +482,7 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
     steps:
       - name: Free disk space
         run: |
@@ -537,7 +537,7 @@ jobs:
             "$LLVM_PREFIX" \
             x86_64-windows-gnu \
             stage3-out/bin/sig.exe \
-            .zig-cache/release-windows
+            .sig-cache/release-windows
 
       - name: Package Windows toolchain
         shell: bash
@@ -547,7 +547,7 @@ jobs:
           archive="${root}.zip"
           mkdir -p "$root/bin" "$root/tools"
           cp stage3-out/bin/sig.exe "$root/bin/sig.exe"
-          ln "$root/bin/sig.exe" "$root/bin/zig.exe"
+          ln "$root/bin/sig.exe" "$root/bin/Sig.exe"
           cp -r lib "$root/lib"
           cp -r tools/sig_build "$root/tools/sig_build"
           7z a -tzip -mx=9 "$archive" "$root"
@@ -567,7 +567,7 @@ jobs:
           sha256sum --check --strict "$archive.sha256"
           rm -rf /tmp/package-check
           7z x -o/tmp/package-check "$archive" >/dev/null
-          cmp "/tmp/package-check/$root/bin/sig.exe" "/tmp/package-check/$root/bin/zig.exe"
+          cmp "/tmp/package-check/$root/bin/sig.exe" "/tmp/package-check/$root/bin/Sig.exe"
           test "$(od -An -tx1 -N2 "/tmp/package-check/$root/bin/sig.exe" | tr -d ' \n')" = 4d5a
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -586,7 +586,7 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -606,20 +606,20 @@ jobs:
           Expand-Archive -LiteralPath $archive -DestinationPath .windows-package
           $root = Resolve-Path ".windows-package\sig-${env:VERSION}-x86_64-windows"
           $sig = Join-Path $root 'bin\sig.exe'
-          $zig = Join-Path $root 'bin\zig.exe'
-          $env:ZIG_LIB_DIR = Join-Path $root 'lib'
-          if ((Get-FileHash $sig).Hash -ne (Get-FileHash $zig).Hash) { throw 'sig.exe and zig.exe differ' }
+          $Sig = Join-Path $root 'bin\Sig.exe'
+          $env:SIG_LIB_DIR = Join-Path $root 'lib'
+          if ((Get-FileHash $sig).Hash -ne (Get-FileHash $Sig).Hash) { throw 'sig.exe and Sig.exe differ' }
           & $sig version | Tee-Object -Variable version
           if ($LASTEXITCODE -ne 0 -or ($version -join "`n") -notmatch "sig $([regex]::Escape($env:SIG_VERSION))") { throw 'Windows compiler version probe failed' }
-          & $zig version | Tee-Object -Variable zigVersion
+          & $Sig version | Tee-Object -Variable zigVersion
           $zigText = ($zigVersion -join "`n")
           $zigBase = [regex]::Escape($env:ZIG_VERSION)
-          if ($LASTEXITCODE -ne 0 -or $zigText -notmatch "^${zigBase}(?:[-+].*)?$" -or $zigText -match 'sig') { throw 'Windows compiler Zig alias version probe failed' }
-          & .\ci\prove-native-build.ps1 -Sig $sig -ZigLibDir $env:ZIG_LIB_DIR
+          if ($LASTEXITCODE -ne 0 -or $zigText -notmatch "^${zigBase}(?:[-+].*)?$" -or $zigText -match 'sig') { throw 'Windows compiler Sig alias version probe failed' }
+          & .\ci\prove-native-build.ps1 -Sig $sig -ZigLibDir $env:SIG_LIB_DIR
           & $sig ast-check compiler\core\target.sig
           if ($LASTEXITCODE -ne 0) { throw 'strict .sig parse failed' }
           & $sig test compiler\test_all.sig `
-            --zig-lib-dir lib `
+            --Sig-lib-dir lib `
             --cache-dir "$env:RUNNER_TEMP\sig-tests-local" `
             --global-cache-dir "$env:RUNNER_TEMP\sig-tests-global" `
             --stack 33554432
@@ -629,7 +629,7 @@ jobs:
             -mcpu=baseline `
             -OReleaseFast `
             -fno-stack-check `
-            --zig-lib-dir lib `
+            --Sig-lib-dir lib `
             --cache-dir "$env:RUNNER_TEMP\sig-local" `
             --global-cache-dir "$env:RUNNER_TEMP\sig-global" `
             "-femit-bin=$env:RUNNER_TEMP\release-aarch64.o"

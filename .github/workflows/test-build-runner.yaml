@@ -49,10 +49,10 @@ jobs:
             tar -x -C /tmp/bootstrap-package
           package=/tmp/bootstrap-package/bootstrap-sig-x86_64-linux
           test -x "$package/bin/sig"
-          test -f "$package/lib/compiler/Maker.zig"
+          test -f "$package/lib/compiler/Maker.sig"
           test -f "$package/tools/sig_build/main.sig"
           echo "SIG=$package/bin/sig" >> "$GITHUB_ENV"
-          echo "PACKAGE_ZIG_LIB_DIR=$package/lib" >> "$GITHUB_ENV"
+          echo "PACKAGE_SIG_LIB_DIR=$package/lib" >> "$GITHUB_ENV"
 
       - name: Prove packaged compatibility and current native runner
         shell: bash
@@ -60,9 +60,9 @@ jobs:
           set -euo pipefail
           "$SIG" version | grep -q '^sig '
           PROVE_CROSS_TARGET=0 \
-            bash ci/prove-native-build.sh "$SIG" "$PACKAGE_ZIG_LIB_DIR"
-          export ZIG_LIB_DIR="$GITHUB_WORKSPACE/lib"
-          bash ci/prove-native-build.sh "$SIG" "$ZIG_LIB_DIR"
+            bash ci/prove-native-build.sh "$SIG" "$PACKAGE_SIG_LIB_DIR"
+          export SIG_LIB_DIR="$GITHUB_WORKSPACE/lib"
+          bash ci/prove-native-build.sh "$SIG" "$SIG_LIB_DIR"
           "$SIG" ast-check compiler/test_all.sig
           "$SIG" build \
             -Dno-lib \

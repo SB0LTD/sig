@@ -3,7 +3,7 @@
 // Layer 0: Core Types & Containers
 //
 // Central comptime constant registry. All buffer sizes in the compiler derive
-// from known compiler invariants (zig token count, scope limits, etc.) plus
+// from known compiler invariants (Sig token count, scope limits, etc.) plus
 // a headroom factor, rounded to the next power of 2. This ensures no wasted
 // space while guaranteeing sufficient capacity for the streaming pipeline.
 //
@@ -38,7 +38,7 @@ pub const Compiler_Capacity_Plan = struct {
 
     // ── Compiler Invariants ──
 
-    /// Zig token enum count
+    /// Sig token enum count
     pub const MAX_TOKEN_TYPES: usize = 256;
     /// Longest legal identifier
     pub const MAX_IDENTIFIER_LEN: usize = 256;

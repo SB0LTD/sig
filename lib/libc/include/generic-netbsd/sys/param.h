@@ -67,7 +67,7 @@
  *	2.99.9		(299000900)
  */
 
-/* zig patch: __NetBSD_Version__ is defined by the compiler */
+/* Sig patch: __NetBSD_Version__ is defined by the compiler */
 
 #define __NetBSD_Prereq__(M,m,p) (((((M) * 100000000) + \
     (m) * 1000000) + (p) * 100) <= __NetBSD_Version__)

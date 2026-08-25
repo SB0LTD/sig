@@ -25,7 +25,7 @@ jobs:
 ### Auto-detect from manifest
 
 When `version` is omitted, the action reads `minimum_sig_version` from
-`build.sig.zon` (or `build.zig.zon`), falling back to the latest stable release.
+`build.sig.zon` (or `build.sig.zon`), falling back to the latest stable release.
 An input such as `0.3.1` resolves to the newest stable immutable `0.3.1`
 release identity, while a complete identity pins one exact release (including
 a prerelease when explicitly requested).

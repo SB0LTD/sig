@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
 
@@ -25,7 +25,7 @@ pub fn main() !void {
 }
 #expect_stdout="0"
 #update=remove foo and change bar wasm function type
-#file=main.zig
+#file=main.sig
 //! This update must preserve `bar` `InternPool.Index` value, while changing its wasm function type.
 //! If `foo` code is preserved in the binary without any changes, wasm type checking will fail.
 const std = @import("std");

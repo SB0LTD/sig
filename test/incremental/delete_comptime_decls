@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 pub fn main() void {}
 comptime {
     var array = [_:0]u8{ 1, 2, 3, 4 };
@@ -22,13 +22,13 @@ comptime {
     const slice = array[3..2];
     _ = slice;
 }
-#expect_error=main.zig:5:32: error: end index 6 out of bounds for slice of length 4 +1 (sentinel)
-#expect_error=main.zig:10:28: error: end index 6 out of bounds for array of length 4 +1 (sentinel)
-#expect_error=main.zig:15:28: error: end index 5 out of bounds for array of length 4
-#expect_error=main.zig:20:25: error: start index 3 is larger than end index 2
+#expect_error=main.sig:5:32: error: end index 6 out of bounds for slice of length 4 +1 (sentinel)
+#expect_error=main.sig:10:28: error: end index 6 out of bounds for array of length 4 +1 (sentinel)
+#expect_error=main.sig:15:28: error: end index 5 out of bounds for array of length 4
+#expect_error=main.sig:20:25: error: start index 3 is larger than end index 2
 
 #update=delete and modify comptime decls
-#file=main.zig
+#file=main.sig
 pub fn main() void {}
 comptime {
     const x: [*c]u8 = null;
@@ -37,4 +37,4 @@ comptime {
     const y = x[0..runtime_len];
     _ = y;
 }
-#expect_error=main.zig:6:16: error: slice of null pointer
+#expect_error=main.sig:6:16: error: slice of null pointer

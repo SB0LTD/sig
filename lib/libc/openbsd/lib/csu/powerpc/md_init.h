@@ -77,4 +77,4 @@ __asm(									\
 "	b ___start							\n" \
 )
 
-/* zig patch: no static crt support */
+/* Sig patch: no static crt support */

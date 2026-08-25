@@ -59,44 +59,44 @@ jobs:
       - name: Install build deps
         run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build python3 zlib1g-dev libzstd-dev
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+      - name: Setup Sig
+        uses: mlugg/setup-Sig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
-          version: ${{ env.ZIG_VERSION }}
+          version: ${{ env.sig_VERSION }}
 
       - name: Clone LLVM
         run: |
           git clone --depth 1 --branch ${{ env.LLVM_TAG }} https://github.com/llvm/llvm-project.git llvm-src
           test "$(git -C llvm-src rev-parse HEAD)" = "${LLVM_SOURCE_COMMIT}"
 
-      - name: Create zig cc wrappers
+      - name: Create Sig cc wrappers
         run: |
-          cat > /tmp/zig-cc << 'EOF'
+          cat > /tmp/Sig-cc << 'EOF'
           #!/bin/bash
-          exec zig cc -target x86_64-linux-musl "$@"
+          exec Sig cc -target x86_64-linux-musl "$@"
           EOF
-          cat > /tmp/zig-cxx << 'EOF'
+          cat > /tmp/Sig-cxx << 'EOF'
           #!/bin/bash
-          exec zig c++ -target x86_64-linux-musl "$@"
+          exec Sig c++ -target x86_64-linux-musl "$@"
           EOF
-          cat > /tmp/zig-ar << 'EOF'
+          cat > /tmp/Sig-ar << 'EOF'
           #!/bin/bash
-          exec zig ar "$@"
+          exec Sig ar "$@"
           EOF
-          cat > /tmp/zig-ranlib << 'EOF'
+          cat > /tmp/Sig-ranlib << 'EOF'
           #!/bin/bash
-          exec zig ranlib "$@"
+          exec Sig ranlib "$@"
           EOF
-          chmod +x /tmp/zig-cc /tmp/zig-cxx /tmp/zig-ar /tmp/zig-ranlib
+          chmod +x /tmp/Sig-cc /tmp/Sig-cxx /tmp/Sig-ar /tmp/Sig-ranlib
 
       - name: Cross-compile zlib
         run: |
           git clone --depth 1 --branch v1.3.1 https://github.com/madler/zlib.git zlib-src
           mkdir zlib-build && cd zlib-build
           for f in ../zlib-src/adler32.c ../zlib-src/compress.c ../zlib-src/crc32.c ../zlib-src/deflate.c ../zlib-src/infback.c ../zlib-src/inffast.c ../zlib-src/inflate.c ../zlib-src/inftrees.c ../zlib-src/trees.c ../zlib-src/uncompr.c ../zlib-src/zutil.c; do
-            zig cc -target x86_64-linux-musl -O2 -fPIC -c "$f"
+            Sig cc -target x86_64-linux-musl -O2 -fPIC -c "$f"
           done
-          zig ar rcs libz.a *.o
+          Sig ar rcs libz.a *.o
           cd ..
           mkdir -p zlib-out/lib zlib-out/include
           cp zlib-build/libz.a zlib-out/lib/
@@ -110,10 +110,10 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$PWD/zstd-out" \
             -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_C_COMPILER=/tmp/zig-cc \
-            -DCMAKE_CXX_COMPILER=/tmp/zig-cxx \
-            -DCMAKE_AR=/tmp/zig-ar \
-            -DCMAKE_RANLIB=/tmp/zig-ranlib \
+            -DCMAKE_C_COMPILER=/tmp/Sig-cc \
+            -DCMAKE_CXX_COMPILER=/tmp/Sig-cxx \
+            -DCMAKE_AR=/tmp/Sig-ar \
+            -DCMAKE_RANLIB=/tmp/Sig-ranlib \
             -DZSTD_BUILD_PROGRAMS=OFF \
             -DZSTD_BUILD_SHARED=OFF \
             -DZSTD_BUILD_STATIC=ON \
@@ -127,10 +127,10 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" \
             -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_C_COMPILER=/tmp/zig-cc \
-            -DCMAKE_CXX_COMPILER=/tmp/zig-cxx \
-            -DCMAKE_AR=/tmp/zig-ar \
-            -DCMAKE_RANLIB=/tmp/zig-ranlib \
+            -DCMAKE_C_COMPILER=/tmp/Sig-cc \
+            -DCMAKE_CXX_COMPILER=/tmp/Sig-cxx \
+            -DCMAKE_AR=/tmp/Sig-ar \
+            -DCMAKE_RANLIB=/tmp/Sig-ranlib \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
@@ -237,8 +237,8 @@ jobs:
       - name: Install deps
         run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build zlib1g-dev libzstd-dev
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+      - name: Setup Sig
+        uses: mlugg/setup-Sig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: "0.14.1"
 
@@ -295,8 +295,8 @@ jobs:
       - name: Install deps
         run: brew install cmake ninja
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+      - name: Setup Sig
+        uses: mlugg/setup-Sig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: "0.14.1"
 
@@ -384,7 +384,7 @@ jobs:
           SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig 2>/dev/null | head -1 || echo "0.17.0-dev")
           mkdir -p .build-gen stage3-out/bin
 
-          cat > .build-gen/build_options.zig << EOF
+          cat > .build-gen/build_options.sig << EOF
           pub const have_llvm: bool = false;
           pub const llvm_has_m68k: bool = false;
           pub const llvm_has_csky: bool = false;
@@ -411,15 +411,15 @@ jobs:
           # Cross-compile sig for Windows from Linux
           "${SIG}" build-exe \
             --dep build_options --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.build-gen/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
+            -Mroot=src/main.sig \
+            -Mbuild_options=.build-gen/build_options.sig \
+            -Maro=lib/compiler/aro/aro.sig \
             --name sig \
             -OReleaseFast \
             -fstrip \
-            --zig-lib-dir lib \
+            --Sig-lib-dir lib \
             -target x86_64-windows \
-            --cache-dir .zig-cache \
+            --cache-dir .sig-cache \
             -femit-bin=stage3-out/bin/sig.exe
 
       - name: "VERIFY: Cross-compiled Windows binary is valid PE"
@@ -445,8 +445,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+      - name: Setup Sig
+        uses: mlugg/setup-Sig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: "0.14.1"
 

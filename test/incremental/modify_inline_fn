@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 pub fn main() !void {
     const str = getStr();
@@ -11,7 +11,7 @@ inline fn getStr() []const u8 {
 const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="foo\n"
 #update=change the string
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 pub fn main() !void {
     const str = getStr();

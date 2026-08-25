@@ -29,7 +29,7 @@
 
 __BEGIN_DECLS
 
-// zig patch: getrandom and getentropy were added in glibc 2.25
+// Sig patch: getrandom and getentropy were added in glibc 2.25
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 25) || __GLIBC__ > 2
 
 /* Write LENGTH bytes of randomness starting at BUFFER.  Return the

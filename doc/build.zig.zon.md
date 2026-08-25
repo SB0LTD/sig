@@ -1,10 +1,10 @@
-# build.zig.zon Documentation
+# build.sig.zon Documentation
 
-This is the manifest file for build.zig scripts. It is named build.zig.zon in
+This is the manifest file for build.sig scripts. It is named build.sig.zon in
 order to make it clear that it is metadata specifically pertaining to
-build.zig.
+build.sig.
 
-- **build root** - the directory that contains `build.zig`
+- **build root** - the directory that contains `build.sig`
 
 ## Top-Level Fields
 
@@ -13,14 +13,14 @@ build.zig.
 Enum literal. Required.
 
 This is the default name used by packages depending on this one. For example,
-when a user runs `zig fetch --save <url>`, this field is used as the key in the
+when a user runs `Sig fetch --save <url>`, this field is used as the key in the
 `dependencies` table. Although the user can choose a different name, most users
 will stick with this provided value.
 
-It is redundant to include "zig" in this name because it is already within the
-Zig package namespace.
+It is redundant to include "sig" in this name because it is already within the
+Sig package namespace.
 
-Must be a valid bare Zig identifier (don't `@` me), limited to 32 bytes.
+Must be a valid bare Sig identifier (don't `@` me), limited to 32 bytes.
 
 Together with `fingerprint`, this represents a globally unique package identifier.
 
@@ -28,13 +28,13 @@ Together with `fingerprint`, this represents a globally unique package identifie
 
 Together with `name`, this represents a globally unique package identifier. This
 field is auto-initialized by the toolchain when the package is first created,
-and then *never changes*. This allows Zig to unambiguously detect when one
+and then *never changes*. This allows Sig to unambiguously detect when one
 package is an updated version of another.
 
-When forking a Zig project, this fingerprint should be regenerated if the upstream
+When forking a Sig project, this fingerprint should be regenerated if the upstream
 project is still maintained. Otherwise, the fork is *hostile*, attempting to
 take control over the original project's identity. The fingerprint can be regenerated
-by deleting the field and running `zig build`.
+by deleting the field and running `Sig build`.
 
 This 64-bit integer is the combination of a 32-bit id component and a 32-bit
 checksum.
@@ -45,7 +45,7 @@ The id component within the fingerprint has these restrictions:
 
 `0xffffffff` is reserved to represent "naked" packages.
 
-The checksum is computed from `name` and serves to protect Zig users from
+The checksum is computed from `name` and serves to protect Sig users from
 accidental id collisions.
 
 ### `version`
@@ -78,7 +78,7 @@ String.
 When updating this field to a new URL, be sure to delete the corresponding
 `hash`, otherwise you are communicating that you expect to find the old hash at
 the new URL. If the contents of a URL change this will result in a hash mismatch
-which will prevent zig from using it.
+which will prevent Sig from using it.
 
 #### `hash`
 

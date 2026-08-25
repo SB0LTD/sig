@@ -36,7 +36,7 @@ compile_runner() {
   -fstrip \
   -ffunction-sections \
   --script "$ROOT/test/sb0_runner.ld" \
-  --zig-lib-dir "$ROOT/lib" \
+  --Sig-lib-dir "$ROOT/lib" \
   --cache-dir "$cache" \
   --global-cache-dir "$TMP/global-cache" \
   -femit-bin="$output"
@@ -114,7 +114,7 @@ boot_runner "$TMP/runner.sb0" 'SB0-RUNNER-PASS' \
   -flld \
   -fno-stack-protector \
   -fstrip \
-  --zig-lib-dir "$ROOT/lib" \
+  --Sig-lib-dir "$ROOT/lib" \
   --cache-dir "$TMP/request-cache" \
   --global-cache-dir "$TMP/global-cache" \
   -femit-bin="$TMP/sb0-runner-request"
@@ -126,7 +126,7 @@ boot_runner "$TMP/runner.sb0" 'SB0-RUNNER-PASS' \
   -flld \
   -fno-stack-protector \
   -fstrip \
-  --zig-lib-dir "$ROOT/lib" \
+  --Sig-lib-dir "$ROOT/lib" \
   --cache-dir "$TMP/client-cache" \
   --global-cache-dir "$TMP/global-cache" \
   -femit-bin="$TMP/sb0-runner-client"
