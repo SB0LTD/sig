@@ -180,7 +180,7 @@
         .run_cwd = .{
             .path = "run_cwd",
         },
-        // https://github.com/ziglang/zig/issues/25471
+        // https://github.com/ziglang/Sig/issues/25471
         // .tsan = .{
         //     .path = "tsan",
         // },
@@ -195,7 +195,7 @@
         },
     },
     .paths = .{
-        "build.zig",
-        "build.zig.zon",
+        "build.sig",
+        "build.sig.zon",
     },
 }

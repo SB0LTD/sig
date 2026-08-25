@@ -40,7 +40,7 @@ fn genMode(random: std.Random) sig_integration.Mode {
 // Property 1: Per-file mode resolution
 // ---------------------------------------------------------------------------
 
-test "Property 1: resolveFileMode returns strict for .sig, global mode for .zig" {
+test "Property 1: resolveFileMode returns strict for .sig, global mode for .sig" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
             var buf: [128]u8 = undefined;
@@ -54,18 +54,18 @@ test "Property 1: resolveFileMode returns strict for .sig, global mode for .zig"
             // Also verify hasSigExtension is true for .sig
             try std.testing.expect(sig_integration.hasSigExtension(sig_path));
 
-            // .zig path → follows global mode
+            // .sig path → follows global mode
             var buf2: [128]u8 = undefined;
-            const zig_path = genFilePath(random, &buf2, ".zig");
+            const zig_path = genFilePath(random, &buf2, ".sig");
             const zig_result = sig_integration.resolveFileMode(zig_path, global_mode);
             try std.testing.expectEqual(global_mode, zig_result);
 
-            // Also verify hasSigExtension is false for .zig
+            // Also verify hasSigExtension is false for .sig
             try std.testing.expect(!sig_integration.hasSigExtension(zig_path));
         }
     };
     harness.property(
-        "resolveFileMode returns strict for .sig, global mode for .zig",
+        "resolveFileMode returns strict for .sig, global mode for .sig",
         S.run,
     );
 }
@@ -150,12 +150,12 @@ test "Property 2: sig file diagnostics are always formatted as errors" {
 }
 
 // ---------------------------------------------------------------------------
-// Feature: sig-file-extension, Property 3: Zig file diagnostics follow global mode
+// Feature: sig-file-extension, Property 3: Sig file diagnostics follow global mode
 //
 // Validates: Requirements 2.6, 7.1, 7.2, 7.4
 // ---------------------------------------------------------------------------
 
-test "Property 3: zig file diagnostics follow global mode" {
+test "Property 3: Sig file diagnostics follow global mode" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
             const gpa = std.testing.allocator;
@@ -163,9 +163,9 @@ test "Property 3: zig file diagnostics follow global mode" {
             const source = genAllocSource(random, &src_buf);
             if (source.len == 0) return;
 
-            // Generate a random .zig file path
+            // Generate a random .sig file path
             var path_buf: [128]u8 = undefined;
-            const zig_path = genFilePath(random, &path_buf, ".zig");
+            const zig_path = genFilePath(random, &path_buf, ".sig");
 
             // --- Default mode: diagnostics should be warnings ---
             {
@@ -209,7 +209,7 @@ test "Property 3: zig file diagnostics follow global mode" {
         }
     };
     harness.property(
-        "zig file diagnostics follow global mode",
+        "Sig file diagnostics follow global mode",
         S.run,
     );
 }
@@ -220,7 +220,7 @@ test "Property 3: zig file diagnostics follow global mode" {
 // Validates: Requirements 4.1, 4.2, 4.3
 // ---------------------------------------------------------------------------
 
-test "Property 4: per-file mode independence — .sig errors and .zig warnings with same global mode" {
+test "Property 4: per-file mode independence — .sig errors and .sig warnings with same global mode" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
             const gpa = std.testing.allocator;
@@ -239,7 +239,7 @@ test "Property 4: per-file mode independence — .sig errors and .zig warnings w
             const sig_path = genFilePath(random, &sig_path_buf, ".sig");
 
             var zig_path_buf: [128]u8 = undefined;
-            const zig_path = genFilePath(random, &zig_path_buf, ".zig");
+            const zig_path = genFilePath(random, &zig_path_buf, ".sig");
 
             // Global mode is default — the key scenario for mixed analysis
             const global_mode = sig_integration.Mode.default;
@@ -267,7 +267,7 @@ test "Property 4: per-file mode independence — .sig errors and .zig warnings w
                 try std.testing.expect(std.mem.indexOf(u8, msg, "warning") == null);
             }
 
-            // --- Analyze the .zig file ---
+            // --- Analyze the .sig file ---
             const zig_effective = sig_integration.resolveFileMode(zig_path, global_mode);
             try std.testing.expectEqual(sig_integration.Mode.default, zig_effective);
 
@@ -281,7 +281,7 @@ test "Property 4: per-file mode independence — .sig errors and .zig warnings w
 
             try std.testing.expect(zig_entries.len > 0);
 
-            // All .zig diagnostics must be warnings (not errors)
+            // All .sig diagnostics must be warnings (not errors)
             for (zig_entries) |entry| {
                 const msg = try sig_diag.formatDiagnostic(gpa, entry, zig_effective);
                 defer gpa.free(msg);
@@ -292,7 +292,7 @@ test "Property 4: per-file mode independence — .sig errors and .zig warnings w
         }
     };
     harness.property(
-        "per-file mode independence — .sig errors and .zig warnings with same global mode",
+        "per-file mode independence — .sig errors and .sig warnings with same global mode",
         S.run,
     );
 }
@@ -303,15 +303,15 @@ test "Property 4: per-file mode independence — .sig errors and .zig warnings w
 // Validates: Requirements 9.1, 9.2, 9.3
 // ---------------------------------------------------------------------------
 
-/// Mirrors the Zcu.File.modeFromPath logic from src/Zcu.zig.
+/// Mirrors the Zcu.File.modeFromPath logic from src/Zcu.sig.
 /// Used for property testing since Zcu is not available as a test import.
 /// [sig] .zon is checked first, so .sig.zon files are correctly parsed as ZON (not as .sig source).
-const AstMode = enum { zig, zon };
+const AstMode = enum { Sig, zon };
 fn modeFromPath(path: []const u8) ?AstMode {
     if (std.mem.endsWith(u8, path, ".zon")) {
         return .zon;
-    } else if (std.mem.endsWith(u8, path, ".zig") or std.mem.endsWith(u8, path, ".sig")) {
-        return .zig;
+    } else if (std.mem.endsWith(u8, path, ".sig") or std.mem.endsWith(u8, path, ".sig")) {
+        return .sig;
     } else {
         return null;
     }
@@ -341,12 +341,12 @@ test "Property 7: .sig.zon files are parsed as ZON, not as .sig source" {
             try std.testing.expectEqual(AstMode.zon, zon_mode.?);
             try std.testing.expect(!sig_integration.hasSigExtension(zon_path));
 
-            // Verify .sig still returns .zig mode (not .zon)
+            // Verify .sig still returns .sig mode (not .zon)
             var buf3: [128]u8 = undefined;
             const sig_path = genFilePath(random, &buf3, ".sig");
             const sig_mode = modeFromPath(sig_path);
             try std.testing.expect(sig_mode != null);
-            try std.testing.expectEqual(AstMode.zig, sig_mode.?);
+            try std.testing.expectEqual(AstMode.sig, sig_mode.?);
             try std.testing.expect(sig_integration.hasSigExtension(sig_path));
         }
     };
@@ -408,10 +408,10 @@ test "Property 5: sig annotation presence and diagnostic completeness" {
                 }
             }
 
-            // --- .zig path: default mode, must NOT have annotation ---
+            // --- .sig path: default mode, must NOT have annotation ---
             {
                 var path_buf2: [128]u8 = undefined;
-                const zig_path = genFilePath(random, &path_buf2, ".zig");
+                const zig_path = genFilePath(random, &path_buf2, ".sig");
 
                 const effective_mode = sig_integration.resolveFileMode(zig_path, .default);
                 const entries = try sig_diag.analyzeSource(gpa, source, zig_path, effective_mode);

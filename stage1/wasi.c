@@ -246,7 +246,7 @@ static void *dupe(const void *data, size_t len) {
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: %s <zig-lib-path> <args...>\n", argv[0]);
+        fprintf(stderr, "usage: %s <Sig-lib-path> <args...>\n", argv[0]);
         return 1;
     }
 
@@ -277,7 +277,7 @@ int main(int argc, char **argv) {
     des[3].host_path = dupe(argv[1], strlen(argv[1]) + 1);
 
     // The stage-1 compiler accepts absolute module paths (CMake's generated
-    // config.zig is one). Expose the host root as a proper WASI preopen so the
+    // config.sig is one). Expose the host root as a proper WASI preopen so the
     // compiler resolves those paths through a directory descriptor instead
     // of stripping the leading slash and accidentally rebasing them on cwd.
     des[4].filetype = wasi_filetype_directory;
@@ -342,7 +342,7 @@ static enum wasi_errno DirEntry_create(uint32_t dir_fd, const char *path, uint32
         // preopen's host mapping. In particular, `/lib/std/...` maps to the
         // source tree supplied as argv[1], not the host machine's `/lib`.
         // Absolute paths outside a guest preopen are direct host paths; CMake
-        // relies on this for generated modules such as build/config.zig.
+        // relies on this for generated modules such as build/config.sig.
         uint32_t preopen_de = UINT32_MAX;
         size_t preopen_guest_path_len = 0;
         for (uint32_t i = 0; i < de_len; i += 1) {

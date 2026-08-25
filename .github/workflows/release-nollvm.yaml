@@ -75,7 +75,7 @@ jobs:
           SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
           mkdir -p .build-gen stage3-out/bin
 
-          cat > .build-gen/build_options.zig << EOF
+          cat > .build-gen/build_options.sig << EOF
           pub const have_llvm: bool = false;
           pub const llvm_has_m68k: bool = false;
           pub const llvm_has_csky: bool = false;
@@ -101,15 +101,15 @@ jobs:
 
           "${SIG}" build-exe \
             --dep build_options --dep aro \
-            -Mroot=src/main.zig \
-            -Mbuild_options=.build-gen/build_options.zig \
-            -Maro=lib/compiler/aro/aro.zig \
+            -Mroot=src/main.sig \
+            -Mbuild_options=.build-gen/build_options.sig \
+            -Maro=lib/compiler/aro/aro.sig \
             --name sig \
             -OReleaseFast \
             -fstrip \
-            --zig-lib-dir lib \
+            --Sig-lib-dir lib \
             -target x86_64-linux-musl \
-            --cache-dir .zig-cache \
+            --cache-dir .sig-cache \
             -femit-bin=stage3-out/bin/sig
 
       - name: Package and publish
@@ -120,9 +120,9 @@ jobs:
           archive=bootstrap-sig-x86_64-linux.tar.zst
           mkdir -p bootstrap-out/bin bootstrap-out/tools
           cp stage3-out/bin/sig bootstrap-out/bin/sig
-          cp stage3-out/bin/sig bootstrap-out/bin/zig
+          cp stage3-out/bin/sig bootstrap-out/bin/Sig
           cp -R lib bootstrap-out/lib
-          cp tools/sig_build/main.zig bootstrap-out/tools/sig_build.zig
+          cp tools/sig_build/main.sig bootstrap-out/tools/sig_build.sig
           tar -cf - -C bootstrap-out . | zstd -19 -T0 -o "$archive"
           sha256sum "$archive" > "$archive.sha256"
           sha256sum --check --strict "$archive.sha256"

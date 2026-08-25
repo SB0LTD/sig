@@ -40,11 +40,11 @@ fn genStatus(random: std.Random) SyncEntry.Status {
 
 /// Pool of file paths for conflict entries.
 const path_pool = [_][]const u8{
-    "lib/sig/fmt.zig",
-    "src/main.zig",
-    "lib/sig/io.zig",
+    "lib/sig/fmt.sig",
+    "src/main.sig",
+    "lib/sig/io.sig",
     "tools/sig_sync/main.sig",
-    "lib/sig/containers.zig",
+    "lib/sig/containers.sig",
 };
 
 /// Explanation fragments for AI resolution details.
@@ -505,7 +505,7 @@ test "Property 35: invalid UTF-8 content fails validation" {
 // For any file path and conflicted content, the built prompt shall contain:
 //   - [sig] marker preservation instructions
 //   - "accept all upstream changes" instruction
-//   - File extension context (.zig or .sig)
+//   - File extension context (.sig or .sig)
 //   - The actual conflicted content
 //   - The file path
 //
@@ -516,12 +516,12 @@ const sig_prompt = @import("sig_prompt");
 
 /// Pool of file paths with mixed extensions for prompt testing.
 const prompt_path_pool = [_][]const u8{
-    "lib/sig/fmt.zig",
+    "lib/sig/fmt.sig",
     "tools/sig_sync/main.sig",
-    "src/Compilation.zig",
-    "lib/sig/containers.zig",
+    "src/Compilation.sig",
+    "lib/sig/containers.sig",
     "tools/sig_conflict_resolver/validator.sig",
-    "build.zig",
+    "build.sig",
     "test/sig_pbt/harness.sig",
 };
 
@@ -620,8 +620,8 @@ test "Property 32: prompt contains file extension context" {
             var buf: [32 * 1024]u8 = undefined;
             const prompt = try sig_prompt.buildPrompt(&buf, file_path, content, &commit_a, &commit_b);
 
-            // Must contain file extension context (.zig or .sig)
-            const has_zig_ctx = containsSubstring(prompt, ".zig");
+            // Must contain file extension context (.sig or .sig)
+            const has_zig_ctx = containsSubstring(prompt, ".sig");
             const has_sig_ctx = containsSubstring(prompt, ".sig");
             try std.testing.expect(has_zig_ctx or has_sig_ctx);
         }

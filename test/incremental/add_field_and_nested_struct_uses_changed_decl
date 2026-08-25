@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 pub fn main() void {
     _ = @as(S, undefined);
 }
@@ -11,7 +11,7 @@ const S = struct {
 };
 #expect_stdout=""
 #update=add field to outer struct, change decl used by inner struct
-#file=main.zig
+#file=main.sig
 pub fn main() void {
     _ = @as(S, undefined);
 }

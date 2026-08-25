@@ -20,6 +20,6 @@ pub export fn _start() callconv(.naked) noreturn {
 
 test "host parser sees the same SB0 contract" {
     const query = try std.Target.Query.parse(.{ .arch_os_abi = "aarch64-sb0" });
-    const target = try std.zig.system.resolveTargetQuery(std.testing.io, query);
+    const target = try std.sig.system.resolveTargetQuery(std.testing.io, query);
     try std.testing.expect(target.isSb0());
 }

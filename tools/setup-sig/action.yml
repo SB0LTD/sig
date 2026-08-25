@@ -26,7 +26,7 @@ inputs:
     required: false
     default: ''
   cache-size-limit:
-    description: 'Maximum Zig global cache size in MiB before clearing (0 to disable)'
+    description: 'Maximum Sig global cache size in MiB before clearing (0 to disable)'
     required: false
     default: '2048'
 
@@ -94,28 +94,28 @@ runs:
       shell: pwsh
       run: echo "${{ runner.tool_cache }}\sig\bin" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
 
-    # --- Cache Zig global cache directory ---
-    - name: Cache Zig global cache
+    # --- Cache Sig global cache directory ---
+    - name: Cache Sig global cache
       if: inputs.use-cache == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
-          ~/.cache/zig
-          ~/Library/Caches/zig
-          ~\AppData\Local\zig
-        key: sig-zig-cache-${{ runner.os }}-${{ runner.arch }}${{ inputs.cache-key && format('-{0}', inputs.cache-key) || '' }}-${{ github.run_id }}
+          ~/.cache/Sig
+          ~/Library/Caches/Sig
+          ~\AppData\Local\Sig
+        key: sig-sig-cache-${{ runner.os }}-${{ runner.arch }}${{ inputs.cache-key && format('-{0}', inputs.cache-key) || '' }}-${{ github.run_id }}
         restore-keys: |
-          sig-zig-cache-${{ runner.os }}-${{ runner.arch }}${{ inputs.cache-key && format('-{0}', inputs.cache-key) || '' }}-
+          sig-sig-cache-${{ runner.os }}-${{ runner.arch }}${{ inputs.cache-key && format('-{0}', inputs.cache-key) || '' }}-
 
     # --- Enforce cache size limit ---
-    - name: Enforce Zig cache size limit (Linux/macOS)
+    - name: Enforce Sig cache size limit (Linux/macOS)
       if: runner.os != 'Windows' && inputs.cache-size-limit != '0'
       shell: bash
       run: |
         "${{ github.action_path }}/scripts/setup.sh" cache-limit \
           "${{ inputs.cache-size-limit }}"
 
-    - name: Enforce Zig cache size limit (Windows)
+    - name: Enforce Sig cache size limit (Windows)
       if: runner.os == 'Windows' && inputs.cache-size-limit != '0'
       shell: pwsh
       run: |

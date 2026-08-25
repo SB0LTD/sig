@@ -12,14 +12,14 @@ const sig = @import("sig");
 
 // ── Replicated classifyFileExt ──────────────────────────────────────────
 
-const FileExt = enum { sig, zig, unknown, other };
+const FileExt = enum { sig, Sig, unknown, other };
 
 fn classifyFileExt(filename: []const u8) FileExt {
     if (mem.endsWith(u8, filename, ".sig")) {
         if (mem.endsWith(u8, filename, ".sig.zon")) return .unknown;
         return .sig;
-    } else if (mem.endsWith(u8, filename, ".zig")) {
-        return .zig;
+    } else if (mem.endsWith(u8, filename, ".sig")) {
+        return .sig;
     }
     return .unknown;
 }
@@ -31,8 +31,8 @@ const DelegationPath = enum { sig_runner, zig_runner, override };
 fn decideDelegation(has_build_sig: bool, has_build_zig: bool, has_override: bool) DelegationPath {
     if (has_override) return .override;
     if (has_build_sig) return .sig_runner;
-    if (has_build_zig) return .zig_runner;
-    return .zig_runner; // fallback
+    if (has_build_zig) return .sig_runner;
+    return .sig_runner; // fallback
 }
 
 // ── Replicated version extraction ───────────────────────────────────────
@@ -60,8 +60,8 @@ test "classifyFileExt: build.sig.zon returns .unknown" {
     try testing.expectEqual(FileExt.unknown, classifyFileExt("build.sig.zon"));
 }
 
-test "classifyFileExt: foo.zig returns .zig" {
-    try testing.expectEqual(FileExt.zig, classifyFileExt("foo.zig"));
+test "classifyFileExt: foo.sig returns .sig" {
+    try testing.expectEqual(FileExt.sig, classifyFileExt("foo.sig"));
 }
 
 test "classifyFileExt: main.sig returns .sig" {
@@ -80,8 +80,8 @@ test "delegation: build.sig present, no override → sig path" {
     try testing.expectEqual(DelegationPath.sig_runner, decideDelegation(true, false, false));
 }
 
-test "delegation: build.zig only, no override → zig path" {
-    try testing.expectEqual(DelegationPath.zig_runner, decideDelegation(false, true, false));
+test "delegation: build.sig only, no override → Sig path" {
+    try testing.expectEqual(DelegationPath.sig_runner, decideDelegation(false, true, false));
 }
 
 test "delegation: override set → override path regardless of build files" {
@@ -92,7 +92,7 @@ test "delegation: override set → override path regardless of build files" {
     try testing.expectEqual(DelegationPath.override, decideDelegation(false, true, true));
 }
 
-test "delegation: both build.sig and build.zig → sig path (build.sig takes precedence)" {
+test "delegation: both build.sig and build.sig → sig path (build.sig takes precedence)" {
     try testing.expectEqual(DelegationPath.sig_runner, decideDelegation(true, true, false));
 }
 
@@ -106,8 +106,8 @@ test "runner argv: indices 0-5 are runner, compiler, lib_dir, build_root, local_
     const compiler = "/usr/bin/sig";
     const lib_dir = "/usr/lib";
     const build_root = "/home/user/project";
-    const local_cache = "/home/user/project/.zig-cache";
-    const global_cache = "/home/user/.cache/zig";
+    const local_cache = "/home/user/project/.sig-cache";
+    const global_cache = "/home/user/.cache/Sig";
 
     const argv = [_][]const u8{ runner, compiler, lib_dir, build_root, local_cache, global_cache, "test-sig", "-j8" };
 

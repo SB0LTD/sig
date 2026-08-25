@@ -7,7 +7,7 @@ endif()
 
 if(NOT CMAKE_INSTALL_PREFIX)
     set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/stage3" CACHE PATH
-      "Directory to install zig to" FORCE)
+      "Directory to install Sig to" FORCE)
 endif()
 
 # CMake recognizes the CMAKE_PREFIX_PATH environment variable for some things,
@@ -33,9 +33,9 @@ if(WIN32)
   add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 endif()
 
-project(zig
+project(Sig
   DESCRIPTION
-    "Zig is a general-purpose programming language and toolchain for maintaining robust, optimal and reusable software"
+    "Sig is a general-purpose programming language and toolchain for maintaining robust, optimal and reusable software"
   HOMEPAGE_URL
     "https://ziglang.org"
   LANGUAGES
@@ -45,11 +45,11 @@ project(zig
 set(ZIG_VERSION_MAJOR 0)
 set(ZIG_VERSION_MINOR 17)
 set(ZIG_VERSION_PATCH 0)
-set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
+set(ZIG_VERSION "" CACHE STRING "Override Sig version string. Default is to find out with git.")
 
 # Sig's language/toolchain version is owned by build.sig. Parse it here so the
 # checked-in zig1.wasm -> CMake bootstrap receives the same build option as the
-# self-hosted build.sig/build.zig paths, with no fourth mutable version string.
+# self-hosted build.sig/build.sig paths, with no fourth mutable version string.
 file(STRINGS "${PROJECT_SOURCE_DIR}/build.sig" SIG_VERSION_LINE
     REGEX "^const sig_version_string = \"[0-9]+\\.[0-9]+\\.[0-9]+\";")
 string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" RESOLVED_SIG_VERSION "${SIG_VERSION_LINE}")
@@ -74,17 +74,17 @@ if("${ZIG_VERSION}" STREQUAL "")
                 # Tagged release version.
                 set(GIT_TAG ${CMAKE_MATCH_1})
                 if(NOT GIT_TAG VERSION_EQUAL RESOLVED_ZIG_VERSION)
-                    message(SEND_ERROR "Zig version (${RESOLVED_ZIG_VERSION}) does not match Git tag (${GIT_TAG}).")
+                    message(SEND_ERROR "Sig version (${RESOLVED_ZIG_VERSION}) does not match Git tag (${GIT_TAG}).")
                 endif()
             elseif(GIT_DESCRIBE MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)-([0-9]+)-g(.+)$")
-                # Untagged pre-release. The Zig version is updated to include the number of commits
+                # Untagged pre-release. The Sig version is updated to include the number of commits
                 # since the last tagged version and the commit hash. The version is formatted in
                 # accordance with the https://semver.org specification.
                 set(GIT_TAG ${CMAKE_MATCH_1})
                 set(GIT_COMMITS_AFTER_TAG ${CMAKE_MATCH_2})
                 set(GIT_COMMIT ${CMAKE_MATCH_3})
                 if(NOT RESOLVED_ZIG_VERSION VERSION_GREATER GIT_TAG)
-                    message(SEND_ERROR "Zig version (${RESOLVED_ZIG_VERSION}) must be greater than tagged ancestor (${GIT_TAG}).")
+                    message(SEND_ERROR "Sig version (${RESOLVED_ZIG_VERSION}) must be greater than tagged ancestor (${GIT_TAG}).")
                 endif()
                 set(RESOLVED_ZIG_VERSION "${RESOLVED_ZIG_VERSION}-dev.${GIT_COMMITS_AFTER_TAG}+${GIT_COMMIT}")
             else()
@@ -95,12 +95,12 @@ if("${ZIG_VERSION}" STREQUAL "")
 else()
     set(RESOLVED_ZIG_VERSION "${ZIG_VERSION}")
 endif()
-message(STATUS "Configuring zig version ${RESOLVED_ZIG_VERSION}")
+message(STATUS "Configuring Sig version ${RESOLVED_ZIG_VERSION}")
 
 set(ZIG_NO_LIB off CACHE BOOL
     "Disable copying lib/ files to install prefix during the build phase")
 
-set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
+set(ZIG_STATIC off CACHE BOOL "Attempt to build a static Sig executable (not compatible with glibc)")
 set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries")
 set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
@@ -115,8 +115,8 @@ endif()
 set(ZIG_TARGET_TRIPLE "native" CACHE STRING "arch-os-abi to output binaries for")
 set(ZIG_TARGET_MCPU "native" CACHE STRING "-mcpu parameter to output binaries for")
 set(ZIG_TARGET_DYNAMIC_LINKER "" CACHE STRING
-  "Override the dynamic linker used by the Zig binary. Default is to auto-detect the dynamic linker.")
-set(ZIG_SINGLE_THREADED off CACHE BOOL "limit the zig compiler to use only 1 thread")
+  "Override the dynamic linker used by the Sig binary. Default is to auto-detect the dynamic linker.")
+set(ZIG_SINGLE_THREADED off CACHE BOOL "limit the Sig compiler to use only 1 thread")
 set(ZIG_AR_WORKAROUND off CACHE BOOL "append 'ar' subcommand to CMAKE_AR")
 
 if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
@@ -131,7 +131,7 @@ if(ZIG_AR_WORKAROUND)
 endif()
 
 
-option(ZIG_PIE "Produce a position independent zig executable" ${CMAKE_POSITION_INDEPENDENT_CODE})
+option(ZIG_PIE "Produce a position independent Sig executable" ${CMAKE_POSITION_INDEPENDENT_CODE})
 include(CheckPIESupported)
 check_pie_supported(
   OUTPUT_VARIABLE ZIG_PIE_SUPPORTED_BY_CMAKE
@@ -144,9 +144,9 @@ endif()
 
 # Detect system libcxx name.
 if ("c++" IN_LIST CMAKE_CXX_IMPLICIT_LINK_LIBRARIES)
-    set(ZIG_SYSTEM_LIBCXX "c++" CACHE STRING "system libcxx name for build.zig")
+    set(ZIG_SYSTEM_LIBCXX "c++" CACHE STRING "system libcxx name for build.sig")
 else()
-    set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
+    set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.sig")
 endif()
 
 find_package(llvm 22)
@@ -212,12 +212,12 @@ endif()
 find_package(Threads)
 
 set(ZIG_CONFIG_H_OUT "${PROJECT_BINARY_DIR}/config.h")
-set(ZIG_CONFIG_ZIG_OUT "${PROJECT_BINARY_DIR}/config.zig")
+set(ZIG_CONFIG_ZIG_OUT "${PROJECT_BINARY_DIR}/config.sig")
 
 set(ZIG_WASM2C_SOURCES
     stage1/wasm2c.c
 )
-# Sync with "zig_cpp_sources" in build.zig
+# Sync with "zig_cpp_sources" in build.sig
 set(ZIG_CPP_SOURCES
     # These are planned to stay even when we are self-hosted.
     src/zig_llvm.cpp
@@ -226,262 +226,262 @@ set(ZIG_CPP_SOURCES
     src/zig_clang_cc1_main.cpp
     src/zig_clang_cc1as_main.cpp
 )
-# Needed because we use cmake, not the zig build system, to build zig2.o.
+# Needed because we use cmake, not the Sig build system, to build zig2.o.
 set(ZIG_STAGE2_SOURCES
     "${ZIG_CONFIG_ZIG_OUT}"
-    lib/compiler_rt.zig
-    lib/std/BitStack.zig
-    lib/std/Build.zig
-    lib/std/Build/Cache.zig
-    lib/std/Build/Cache/DepTokenizer.zig
-    lib/std/Io.zig
-    lib/std/Io/Reader.zig
-    lib/std/Io/Writer.zig
-    lib/std/Progress.zig
-    lib/std/Random.zig
-    lib/std/Target.zig
-    lib/std/Target/Query.zig
-    lib/std/Target/aarch64.zig
-    lib/std/Target/amdgcn.zig
-    lib/std/Target/arm.zig
-    lib/std/Target/avr.zig
-    lib/std/Target/bpf.zig
-    lib/std/Target/hexagon.zig
-    lib/std/Target/loongarch.zig
-    lib/std/Target/mips.zig
-    lib/std/Target/msp430.zig
-    lib/std/Target/nvptx.zig
-    lib/std/Target/powerpc.zig
-    lib/std/Target/riscv.zig
-    lib/std/Target/s390x.zig
-    lib/std/Target/sparc.zig
-    lib/std/Target/wasm.zig
-    lib/std/Target/x86.zig
-    lib/std/Thread.zig
-    lib/std/array_hash_map.zig
-    lib/std/array_list.zig
-    lib/std/ascii.zig
-    lib/std/atomic.zig
-    lib/std/base64.zig
-    lib/std/buf_map.zig
-    lib/std/lang.zig
-    lib/std/lang/assembly.zig
-    lib/std/c.zig
-    lib/std/coff.zig
-    lib/std/crypto.zig
-    lib/std/crypto/blake3.zig
-    lib/std/crypto/siphash.zig
-    lib/std/debug.zig
-    lib/std/dwarf.zig
-    lib/std/dwarf/AT.zig
-    lib/std/dwarf/ATE.zig
-    lib/std/dwarf/FORM.zig
-    lib/std/dwarf/LANG.zig
-    lib/std/dwarf/OP.zig
-    lib/std/dwarf/TAG.zig
-    lib/std/elf.zig
-    lib/std/fmt.zig
-    lib/std/fmt/parse_float.zig
-    lib/std/fs.zig
-    lib/std/fs/path.zig
-    lib/std/hash.zig
-    lib/std/hash/auto_hash.zig
-    lib/std/hash/wyhash.zig
-    lib/std/hash_map.zig
-    lib/std/heap.zig
-    lib/std/heap/ArenaAllocator.zig
-    lib/std/json.zig
-    lib/std/leb128.zig
-    lib/std/log.zig
-    lib/std/macho.zig
-    lib/std/math.zig
-    lib/std/math/big.zig
-    lib/std/math/big/int.zig
-    lib/std/math/float.zig
-    lib/std/math/frexp.zig
-    lib/std/math/isinf.zig
-    lib/std/math/isnan.zig
-    lib/std/math/log.zig
-    lib/std/math/log10.zig
-    lib/std/math/log2.zig
-    lib/std/math/signbit.zig
-    lib/std/math/sqrt.zig
-    lib/std/mem.zig
-    lib/std/mem/Allocator.zig
-    lib/std/meta.zig
-    lib/std/meta/trailer_flags.zig
-    lib/std/multi_array_list.zig
-    lib/std/os.zig
-    lib/std/os/linux.zig
-    lib/std/os/linux.zig
-    lib/std/os/linux/IoUring.zig
-    lib/std/os/linux/io_uring_sqe.zig
-    lib/std/os/linux/x86_64.zig
-    lib/std/os/linux/x86_64.zig
-    lib/std/os/windows.zig
-    lib/std/os/windows/ntstatus.zig
-    lib/std/os/windows/win32error.zig
-    lib/std/pdb.zig
-    lib/std/process.zig
-    lib/std/process/Child.zig
-    lib/std/sort.zig
-    lib/std/start.zig
-    lib/std/static_string_map.zig
-    lib/std/std.zig
-    lib/std/time.zig
-    lib/std/treap.zig
-    lib/std/unicode.zig
-    lib/std/zig.zig
-    lib/std/zig/Ast.zig
-    lib/std/zig/Ast/Render.zig
-    lib/std/zig/AstGen.zig
-    lib/std/zig/AstRlAnnotate.zig
-    lib/std/zig/LibCInstallation.zig
-    lib/std/zig/Parse.zig
-    lib/std/zig/Server.zig
-    lib/std/zig/WindowsSdk.zig
-    lib/std/zig/Zir.zig
-    lib/std/zig/string_literal.zig
-    lib/std/zig/system.zig
-    lib/std/zig/system/NativePaths.zig
-    lib/std/zig/system/x86.zig
-    lib/std/zig/tokenizer.zig
-    lib/std/zig/llvm.zig
-    lib/std/zig/llvm/BitcodeReader.zig
-    lib/std/zig/llvm/Builder.zig
-    lib/std/zig/llvm/bitcode_writer.zig
-    lib/std/zig/llvm/ir.zig
-    src/Air.zig
-    src/Air/Legalize.zig
-    src/Air/Liveness.zig
-    src/Air/Liveness/Verify.zig
-    src/Air/print.zig
-    src/Builtin.zig
-    src/Compilation.zig
-    src/Compilation/Config.zig
-    src/InternPool.zig
-    src/RangeSet.zig
-    src/Sema.zig
-    src/Sema/reinterpret.zig
-    src/Sema/comptime_ptr_access.zig
-    src/Sema/type_resolution.zig
-    src/Type.zig
-    src/Value.zig
-    src/Zcu.zig
-    src/Zcu/PerThread.zig
-    src/codegen.zig
-    src/codegen/aarch64.zig
-    src/codegen/aarch64/abi.zig
-    src/codegen/aarch64/Assemble.zig
-    src/codegen/aarch64/Disassemble.zig
-    src/codegen/aarch64/encoding.zig
+    lib/compiler_rt.sig
+    lib/std/BitStack.sig
+    lib/std/Build.sig
+    lib/std/Build/Cache.sig
+    lib/std/Build/Cache/DepTokenizer.sig
+    lib/std/Io.sig
+    lib/std/Io/Reader.sig
+    lib/std/Io/Writer.sig
+    lib/std/Progress.sig
+    lib/std/Random.sig
+    lib/std/Target.sig
+    lib/std/Target/Query.sig
+    lib/std/Target/aarch64.sig
+    lib/std/Target/amdgcn.sig
+    lib/std/Target/arm.sig
+    lib/std/Target/avr.sig
+    lib/std/Target/bpf.sig
+    lib/std/Target/hexagon.sig
+    lib/std/Target/loongarch.sig
+    lib/std/Target/mips.sig
+    lib/std/Target/msp430.sig
+    lib/std/Target/nvptx.sig
+    lib/std/Target/powerpc.sig
+    lib/std/Target/riscv.sig
+    lib/std/Target/s390x.sig
+    lib/std/Target/sparc.sig
+    lib/std/Target/wasm.sig
+    lib/std/Target/x86.sig
+    lib/std/Thread.sig
+    lib/std/array_hash_map.sig
+    lib/std/array_list.sig
+    lib/std/ascii.sig
+    lib/std/atomic.sig
+    lib/std/base64.sig
+    lib/std/buf_map.sig
+    lib/std/lang.sig
+    lib/std/lang/assembly.sig
+    lib/std/c.sig
+    lib/std/coff.sig
+    lib/std/crypto.sig
+    lib/std/crypto/blake3.sig
+    lib/std/crypto/siphash.sig
+    lib/std/debug.sig
+    lib/std/dwarf.sig
+    lib/std/dwarf/AT.sig
+    lib/std/dwarf/ATE.sig
+    lib/std/dwarf/FORM.sig
+    lib/std/dwarf/LANG.sig
+    lib/std/dwarf/OP.sig
+    lib/std/dwarf/TAG.sig
+    lib/std/elf.sig
+    lib/std/fmt.sig
+    lib/std/fmt/parse_float.sig
+    lib/std/fs.sig
+    lib/std/fs/path.sig
+    lib/std/hash.sig
+    lib/std/hash/auto_hash.sig
+    lib/std/hash/wyhash.sig
+    lib/std/hash_map.sig
+    lib/std/heap.sig
+    lib/std/heap/ArenaAllocator.sig
+    lib/std/json.sig
+    lib/std/leb128.sig
+    lib/std/log.sig
+    lib/std/macho.sig
+    lib/std/math.sig
+    lib/std/math/big.sig
+    lib/std/math/big/int.sig
+    lib/std/math/float.sig
+    lib/std/math/frexp.sig
+    lib/std/math/isinf.sig
+    lib/std/math/isnan.sig
+    lib/std/math/log.sig
+    lib/std/math/log10.sig
+    lib/std/math/log2.sig
+    lib/std/math/signbit.sig
+    lib/std/math/sqrt.sig
+    lib/std/mem.sig
+    lib/std/mem/Allocator.sig
+    lib/std/meta.sig
+    lib/std/meta/trailer_flags.sig
+    lib/std/multi_array_list.sig
+    lib/std/os.sig
+    lib/std/os/linux.sig
+    lib/std/os/linux.sig
+    lib/std/os/linux/IoUring.sig
+    lib/std/os/linux/io_uring_sqe.sig
+    lib/std/os/linux/x86_64.sig
+    lib/std/os/linux/x86_64.sig
+    lib/std/os/windows.sig
+    lib/std/os/windows/ntstatus.sig
+    lib/std/os/windows/win32error.sig
+    lib/std/pdb.sig
+    lib/std/process.sig
+    lib/std/process/Child.sig
+    lib/std/sort.sig
+    lib/std/start.sig
+    lib/std/static_string_map.sig
+    lib/std/std.sig
+    lib/std/time.sig
+    lib/std/treap.sig
+    lib/std/unicode.sig
+    lib/std/Sig.sig
+    lib/std/sig/Ast.sig
+    lib/std/sig/Ast/Render.sig
+    lib/std/sig/AstGen.sig
+    lib/std/sig/AstRlAnnotate.sig
+    lib/std/sig/LibCInstallation.sig
+    lib/std/sig/Parse.sig
+    lib/std/sig/Server.sig
+    lib/std/sig/WindowsSdk.sig
+    lib/std/sig/Zir.sig
+    lib/std/sig/string_literal.sig
+    lib/std/sig/system.sig
+    lib/std/sig/system/NativePaths.sig
+    lib/std/sig/system/x86.sig
+    lib/std/sig/tokenizer.sig
+    lib/std/sig/llvm.sig
+    lib/std/sig/llvm/BitcodeReader.sig
+    lib/std/sig/llvm/Builder.sig
+    lib/std/sig/llvm/bitcode_writer.sig
+    lib/std/sig/llvm/ir.sig
+    src/Air.sig
+    src/Air/Legalize.sig
+    src/Air/Liveness.sig
+    src/Air/Liveness/Verify.sig
+    src/Air/print.sig
+    src/Builtin.sig
+    src/Compilation.sig
+    src/Compilation/Config.sig
+    src/InternPool.sig
+    src/RangeSet.sig
+    src/Sema.sig
+    src/Sema/reinterpret.sig
+    src/Sema/comptime_ptr_access.sig
+    src/Sema/type_resolution.sig
+    src/Type.sig
+    src/Value.sig
+    src/Zcu.sig
+    src/Zcu/PerThread.sig
+    src/codegen.sig
+    src/codegen/aarch64.sig
+    src/codegen/aarch64/abi.sig
+    src/codegen/aarch64/Assemble.sig
+    src/codegen/aarch64/Disassemble.sig
+    src/codegen/aarch64/encoding.sig
     src/codegen/aarch64/instructions.zon
-    src/codegen/aarch64/Mir.zig
-    src/codegen/aarch64/Select.zig
-    src/codegen/c.zig
-    src/codegen/c/type.zig
-    src/codegen/c/type/render_defs.zig
-    src/codegen/llvm.zig
-    src/codegen/llvm/bindings.zig
-    src/codegen/loongarch/abi.zig
-    src/codegen/loongarch/encoding.zig
+    src/codegen/aarch64/Mir.sig
+    src/codegen/aarch64/Select.sig
+    src/codegen/c.sig
+    src/codegen/c/type.sig
+    src/codegen/c/type/render_defs.sig
+    src/codegen/llvm.sig
+    src/codegen/llvm/bindings.sig
+    src/codegen/loongarch/abi.sig
+    src/codegen/loongarch/encoding.sig
     src/codegen/loongarch/decode_tree.zon
     src/codegen/loongarch/inst_formats.zon
-    src/codegen/loongarch/Assemble.zig
-    src/codegen/loongarch/Disassemble.zig
-    src/codegen/loongarch/Mir.zig
-    src/codegen/loongarch/bits.zig
-    src/codegen/loongarch/Select.zig
-    src/codegen/loongarch.zig
-    src/codegen/s390x/abi.zig
-    src/crash_report.zig
-    src/dev.zig
-    src/libs/freebsd.zig
-    src/libs/glibc.zig
-    src/libs/netbsd.zig
-    src/libs/openbsd.zig
-    src/libs/libcxx.zig
-    src/libs/libtsan.zig
-    src/libs/libunwind.zig
-    src/link.zig
-    src/link/C.zig
-    src/link/ConstPool.zig
-    src/link/Coff.zig
-    src/link/Dwarf.zig
-    src/link/Elf.zig
-    src/link/Elf/Archive.zig
-    src/link/Elf/Atom.zig
-    src/link/Elf/AtomList.zig
-    src/link/Elf/LinkerDefined.zig
-    src/link/Elf/Merge.zig
-    src/link/Elf/Object.zig
-    src/link/Elf/SharedObject.zig
-    src/link/Elf/Symbol.zig
-    src/link/Elf/Thunk.zig
-    src/link/Elf/ZigObject.zig
-    src/link/Elf/eh_frame.zig
-    src/link/Elf/file.zig
-    src/link/Elf/gc.zig
-    src/link/Elf/relocatable.zig
-    src/link/Elf/relocation.zig
-    src/link/Elf/synthetic_sections.zig
-    src/link/Elf2.zig
-    src/link/LdScript.zig
-    src/link/Lld.zig
-    src/link/MachO.zig
-    src/link/MachO/Archive.zig
-    src/link/MachO/Atom.zig
-    src/link/MachO/CodeSignature.zig
-    src/link/MachO/DebugSymbols.zig
-    src/link/MachO/Dwarf.zig
-    src/link/MachO/Dylib.zig
-    src/link/MachO/InternalObject.zig
-    src/link/MachO/Object.zig
-    src/link/MachO/Relocation.zig
-    src/link/MachO/Symbol.zig
-    src/link/MachO/UnwindInfo.zig
-    src/link/MachO/ZigObject.zig
-    src/link/MachO/dead_strip.zig
-    src/link/MachO/dyld_info/Rebase.zig
-    src/link/MachO/dyld_info/Trie.zig
-    src/link/MachO/dyld_info/bind.zig
-    src/link/MachO/eh_frame.zig
-    src/link/MachO/fat.zig
-    src/link/MachO/file.zig
-    src/link/MachO/hasher.zig
-    src/link/MachO/load_commands.zig
-    src/link/MachO/relocatable.zig
-    src/link/MachO/synthetic.zig
-    src/link/MachO/Thunk.zig
-    src/link/MachO/uuid.zig
-    src/link/MappedFile.zig
-    src/link/Queue.zig
-    src/link/StringTable.zig
-    src/link/Wasm.zig
-    src/link/Wasm/Archive.zig
-    src/link/Wasm/Flush.zig
-    src/link/Wasm/Object.zig
-    src/link/aarch64.zig
-    src/link/riscv.zig
-    src/link/table_section.zig
-    src/link/tapi.zig
-    src/link/tapi/Tokenizer.zig
-    src/link/tapi/parse.zig
-    src/link/tapi/parse/test.zig
-    src/link/tapi/yaml.zig
-    src/link/tapi/yaml/test.zig
-    src/main.zig
-    src/libs/mingw.zig
-    src/libs/musl.zig
-    src/mutable_value.zig
-    src/print_env.zig
-    src/print_targets.zig
-    src/print_value.zig
-    src/print_zir.zig
-    src/register_manager.zig
-    src/target.zig
-    src/tracy.zig
-    src/libs/wasi_libc.zig
+    src/codegen/loongarch/Assemble.sig
+    src/codegen/loongarch/Disassemble.sig
+    src/codegen/loongarch/Mir.sig
+    src/codegen/loongarch/bits.sig
+    src/codegen/loongarch/Select.sig
+    src/codegen/loongarch.sig
+    src/codegen/s390x/abi.sig
+    src/crash_report.sig
+    src/dev.sig
+    src/libs/freebsd.sig
+    src/libs/glibc.sig
+    src/libs/netbsd.sig
+    src/libs/openbsd.sig
+    src/libs/libcxx.sig
+    src/libs/libtsan.sig
+    src/libs/libunwind.sig
+    src/link.sig
+    src/link/C.sig
+    src/link/ConstPool.sig
+    src/link/Coff.sig
+    src/link/Dwarf.sig
+    src/link/Elf.sig
+    src/link/Elf/Archive.sig
+    src/link/Elf/Atom.sig
+    src/link/Elf/AtomList.sig
+    src/link/Elf/LinkerDefined.sig
+    src/link/Elf/Merge.sig
+    src/link/Elf/Object.sig
+    src/link/Elf/SharedObject.sig
+    src/link/Elf/Symbol.sig
+    src/link/Elf/Thunk.sig
+    src/link/Elf/ZigObject.sig
+    src/link/Elf/eh_frame.sig
+    src/link/Elf/file.sig
+    src/link/Elf/gc.sig
+    src/link/Elf/relocatable.sig
+    src/link/Elf/relocation.sig
+    src/link/Elf/synthetic_sections.sig
+    src/link/Elf2.sig
+    src/link/LdScript.sig
+    src/link/Lld.sig
+    src/link/MachO.sig
+    src/link/MachO/Archive.sig
+    src/link/MachO/Atom.sig
+    src/link/MachO/CodeSignature.sig
+    src/link/MachO/DebugSymbols.sig
+    src/link/MachO/Dwarf.sig
+    src/link/MachO/Dylib.sig
+    src/link/MachO/InternalObject.sig
+    src/link/MachO/Object.sig
+    src/link/MachO/Relocation.sig
+    src/link/MachO/Symbol.sig
+    src/link/MachO/UnwindInfo.sig
+    src/link/MachO/ZigObject.sig
+    src/link/MachO/dead_strip.sig
+    src/link/MachO/dyld_info/Rebase.sig
+    src/link/MachO/dyld_info/Trie.sig
+    src/link/MachO/dyld_info/bind.sig
+    src/link/MachO/eh_frame.sig
+    src/link/MachO/fat.sig
+    src/link/MachO/file.sig
+    src/link/MachO/hasher.sig
+    src/link/MachO/load_commands.sig
+    src/link/MachO/relocatable.sig
+    src/link/MachO/synthetic.sig
+    src/link/MachO/Thunk.sig
+    src/link/MachO/uuid.sig
+    src/link/MappedFile.sig
+    src/link/Queue.sig
+    src/link/StringTable.sig
+    src/link/Wasm.sig
+    src/link/Wasm/Archive.sig
+    src/link/Wasm/Flush.sig
+    src/link/Wasm/Object.sig
+    src/link/aarch64.sig
+    src/link/riscv.sig
+    src/link/table_section.sig
+    src/link/tapi.sig
+    src/link/tapi/Tokenizer.sig
+    src/link/tapi/parse.sig
+    src/link/tapi/parse/test.sig
+    src/link/tapi/yaml.sig
+    src/link/tapi/yaml/test.sig
+    src/main.sig
+    src/libs/mingw.sig
+    src/libs/musl.sig
+    src/mutable_value.sig
+    src/print_env.sig
+    src/print_targets.sig
+    src/print_value.sig
+    src/print_zir.sig
+    src/register_manager.sig
+    src/target.sig
+    src/tracy.sig
+    src/libs/wasi_libc.sig
 )
 
 if(MSVC)
@@ -503,7 +503,7 @@ configure_file (
     "${ZIG_CONFIG_H_OUT}"
 )
 configure_file (
-    stage1/config.zig.in
+    stage1/config.sig.in
     "${ZIG_CONFIG_ZIG_OUT}"
 )
 
@@ -514,7 +514,7 @@ set(ZIGCPP_OUTPUT_DIR "${PROJECT_BINARY_DIR}/zigcpp")
 add_library(zigcpp STATIC ${ZIG_CPP_SOURCES})
 
 # Sync with minimum C++ standard required to build LLVM
-# and with "exe_cflags" in build.zig
+# and with "exe_cflags" in build.sig
 target_compile_features(zigcpp PRIVATE cxx_std_17)
 set_target_properties(zigcpp PROPERTIES POSITION_INDEPENDENT_CODE ${ZIG_PIE})
 
@@ -529,7 +529,7 @@ if(NOT MSVC)
   if(MINGW)
     target_compile_options(zigcpp PRIVATE -Wno-format)
   endif()
-  # Sync content below with "exe_cflags" in build.zig
+  # Sync content below with "exe_cflags" in build.sig
   target_compile_definitions(zigcpp PUBLIC
     __STDC_CONSTANT_MACROS
     __STDC_FORMAT_MACROS
@@ -633,7 +633,7 @@ elseif(ZIG_HOST_TARGET_IS_ANDROID)
   endif()
 endif()
 
-set(ZIG_HOST_TARGET_TRIPLE "${ZIG_HOST_TARGET_ARCH}-${ZIG_HOST_TARGET_OS}${ZIG_HOST_TARGET_ABI}" CACHE STRING "Host zig target triple.")
+set(ZIG_HOST_TARGET_TRIPLE "${ZIG_HOST_TARGET_ARCH}-${ZIG_HOST_TARGET_OS}${ZIG_HOST_TARGET_ABI}" CACHE STRING "Host Sig target triple.")
 
 if(MSVC)
   set(ZIG_WASM2C_COMPILE_FLAGS "")
@@ -649,12 +649,12 @@ if(MSVC)
   # Force-include a header that pre-includes <stdlib.h> then undefs the macros.
   set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} /FI${CMAKE_SOURCE_DIR}/stage1/win_undef_environ.h")
   # Suppress struct size/alignment static assertions on Windows.
-  # The zig C backend doesn't perfectly match MSVC ABI struct padding for all types.
+  # The Sig C backend doesn't perfectly match MSVC ABI struct padding for all types.
   # The code is functionally correct — fields are accessed by name, not absolute offset.
   set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} -DZIG_SUPPRESS_STATIC_ASSERT")
   # [sig] Windows bootstrap: the C-backend generated zig2.c has undefined behavior that
   # causes STATUS_HEAP_CORRUPTION (0xC0000374) on Windows regardless of compiler or
-  # optimization level. This is a known upstream zig C backend limitation.
+  # optimization level. This is a known upstream Sig C backend limitation.
   # With static CRT (/MT) and compiler_rt symbol conflicts resolved, /FORCE:MULTIPLE
   # is no longer needed. Stack increased to 256MB.
   # For production Windows binaries, cross-compile stage3 from Linux (see release.yaml).
@@ -663,7 +663,7 @@ else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os -fno-strict-aliasing")
   set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-sanitize=undefined -fno-stack-protector -fno-strict-aliasing")
-  # Must match the condition in build.zig.
+  # Must match the condition in build.sig.
   if(ZIG_HOST_TARGET_ARCH MATCHES "^(arm|thumb)(eb)?$" OR ZIG_HOST_TARGET_ARCH EQUAL "hexagon" OR ZIG_HOST_TARGET_ARCH MATCHES "^powerpc(64)?(le)?$")
     set(ZIG1_COMPILE_FLAGS "${ZIG1_COMPILE_FLAGS} -ffunction-sections -fdata-sections")
     set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} -ffunction-sections -fdata-sections")
@@ -702,13 +702,13 @@ set(ZIG1_C_SOURCE "${PROJECT_BINARY_DIR}/zig1.c")
 set(ZIG2_C_SOURCE "${PROJECT_BINARY_DIR}/zig2.c")
 set(ZIG_COMPILER_RT_C_SOURCE "${PROJECT_BINARY_DIR}/compiler_rt.c")
 
-add_executable(zig-wasm2c ${ZIG_WASM2C_SOURCES})
-set_target_properties(zig-wasm2c PROPERTIES COMPILE_FLAGS "${ZIG_WASM2C_COMPILE_FLAGS}")
+add_executable(Sig-wasm2c ${ZIG_WASM2C_SOURCES})
+set_target_properties(Sig-wasm2c PROPERTIES COMPILE_FLAGS "${ZIG_WASM2C_COMPILE_FLAGS}")
 
 add_custom_command(
   OUTPUT "${ZIG1_C_SOURCE}"
-  COMMAND zig-wasm2c "${ZIG1_WASM_MODULE}" "${ZIG1_C_SOURCE}"
-  DEPENDS zig-wasm2c "${ZIG1_WASM_MODULE}"
+  COMMAND Sig-wasm2c "${ZIG1_WASM_MODULE}" "${ZIG1_C_SOURCE}"
+  DEPENDS Sig-wasm2c "${ZIG1_WASM_MODULE}"
   COMMENT "Converting ${ZIG1_WASM_MODULE} to ${ZIG1_C_SOURCE}"
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )
@@ -737,7 +737,7 @@ set(BUILD_ZIG2_ARGS
   -femit-bin="${ZIG2_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
   --dep "build_options"
-  "-Mroot=src/main.zig"
+  "-Mroot=src/main.sig"
   "-Mbuild_options=${ZIG_CONFIG_ZIG_OUT}"
 )
 
@@ -755,7 +755,7 @@ set(BUILD_COMPILER_RT_ARGS
   --name compiler_rt
   -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
-  "-Mroot=lib/compiler_rt.zig"
+  "-Mroot=lib/compiler_rt.sig"
 )
 
 add_custom_command(
@@ -770,10 +770,10 @@ add_executable(zig2 ${ZIG2_C_SOURCE} ${ZIG_COMPILER_RT_C_SOURCE})
 if(WIN32)
   target_sources(zig2 PRIVATE stage1/float_stubs.c)
 endif()
-# On MSVC/clang-cl, compiler_rt.c uses zig_export() from zig.h to create
+# On MSVC/clang-cl, compiler_rt.c uses zig_export() from Sig.h to create
 # /alternatename linker directives aliasing internal names (zig_sqrt_f32) to
 # standard C names (sqrtf). These conflict with MSVC CRT symbols.
-# Fix: define ZIG_NO_EXPORT_ALIASES to make zig_export a no-op in zig.h.
+# Fix: define ZIG_NO_EXPORT_ALIASES to make zig_export a no-op in Sig.h.
 # Additionally, some symbols (fabsl) are emitted as direct function definitions
 # by the C backend, not via zig_export — rename those via preprocessor.
 if(MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
@@ -811,7 +811,7 @@ endif()
 
 
 set(ZIG_BUILD_ARGS
-  "--zig-lib=${PROJECT_SOURCE_DIR}/lib"
+  "--Sig-lib=${PROJECT_SOURCE_DIR}/lib"
 
   "-Dversion-string=${RESOLVED_ZIG_VERSION}"
   "-Dtarget=${ZIG_TARGET_TRIPLE}"
@@ -821,12 +821,12 @@ set(ZIG_BUILD_ARGS
   "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
 )
 
-set(ZIG_EXTRA_BUILD_ARGS "" CACHE STRING "Extra zig build args")
+set(ZIG_EXTRA_BUILD_ARGS "" CACHE STRING "Extra Sig build args")
 if(ZIG_EXTRA_BUILD_ARGS)
   list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
 endif()
 
-set(ZIG_RELEASE_SAFE OFF CACHE BOOL "Build Zig as ReleaseSafe (with debug assertions on)")
+set(ZIG_RELEASE_SAFE OFF CACHE BOOL "Build Sig as ReleaseSafe (with debug assertions on)")
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   list(APPEND ZIG_BUILD_ARGS -Doptimize=Debug)
@@ -847,7 +847,7 @@ else()
 endif()
 
 if(ZIG_STATIC AND NOT MSVC)
-  list(APPEND ZIG_BUILD_ARGS -Duse-zig-libcxx)
+  list(APPEND ZIG_BUILD_ARGS -Duse-Sig-libcxx)
 endif()
 
 if(ZIG_NO_LIB)
@@ -868,13 +868,13 @@ endif()
 
 
 add_custom_target(stage3 ALL
-  DEPENDS "${PROJECT_BINARY_DIR}/stage3/bin/zig"
+  DEPENDS "${PROJECT_BINARY_DIR}/stage3/bin/Sig"
 )
 
 set(ZIG2_WORKING_DIR "${PROJECT_SOURCE_DIR}")
 
 add_custom_command(
-  OUTPUT "${PROJECT_BINARY_DIR}/stage3/bin/zig"
+  OUTPUT "${PROJECT_BINARY_DIR}/stage3/bin/Sig"
   COMMAND zig2 build ${ZIG_BUILD_ARGS} --prefix "${PROJECT_BINARY_DIR}/stage3"
   COMMENT "Building stage3"
   WORKING_DIRECTORY "${ZIG2_WORKING_DIR}"

@@ -279,7 +279,7 @@ test "Property 19: prettyPrint does not write outside buffer bounds" {
     const S = struct {
         fn run(_: std.Random) anyerror!void {
             const pairs: []const sig_parse.KvPair = &.{
-                .{ .key = "name", .value = "zig" },
+                .{ .key = "name", .value = "sig" },
             };
             const guard_size = 8;
             var arena: [guard_size + 64 + guard_size]u8 = undefined;
@@ -362,7 +362,7 @@ test "Property 12: replace returns BufferTooSmall on undersized buffer (no alloc
 test "Property 12: parseInto returns BufferTooSmall on undersized buffer (no allocation)" {
     const S = struct {
         fn run(_: std.Random) anyerror!void {
-            const input = "name=zig\nversion=1\n";
+            const input = "name=Sig\nversion=1\n";
             var buf: [5]u8 = undefined;
             const result = sig_parse.parseInto(input, &buf);
             try std.testing.expectError(error.BufferTooSmall, result);

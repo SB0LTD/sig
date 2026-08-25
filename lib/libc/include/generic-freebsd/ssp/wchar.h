@@ -25,7 +25,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-// zig patch: ssp/wchar.h header was added in FreeBSD 15
+// Sig patch: ssp/wchar.h header was added in FreeBSD 15
 #if __FreeBSD_version < 1500500
 	#error "ssp/wchar.h did not exist before FreeBSD 15"
 #endif /* error for FreeBSD before 15 */

@@ -5,9 +5,9 @@ case. Here are examples of different kinds of tests:
 
 ## Compile Error Test
 
-If you want it to be run with `zig test` and match expected error messages:
+If you want it to be run with `Sig test` and match expected error messages:
 
-```zig
+```Sig
 // error
 // is_test=true
 //
@@ -16,21 +16,21 @@ If you want it to be run with `zig test` and match expected error messages:
 
 ## Execution
 
-This will do `zig run` on the code and expect exit code 0.
+This will do `Sig run` on the code and expect exit code 0.
 
-```zig
+```Sig
 // run
 ```
 
 ## Incremental Compilation
 
-Make multiple files that have ".", and then an integer, before the ".zig"
+Make multiple files that have ".", and then an integer, before the ".sig"
 extension, like this:
 
 ```
-hello.0.zig
-hello.1.zig
-hello.2.zig
+hello.0.sig
+hello.1.sig
+hello.2.sig
 ```
 
 Each file can be a different kind of test, such as expecting compile errors,
@@ -48,7 +48,7 @@ path will be prepended as a prefix on the test case name.
 
 ## Limiting which Backends and Targets are Tested
 
-```zig
+```Sig
 // run
 // backend=selfhosted,llvm
 // target=x86_64-linux,x86_64-macos

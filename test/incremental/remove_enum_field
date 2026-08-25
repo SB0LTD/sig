@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const MyEnum = enum(u8) {
     foo = 1,
     bar = 2,
@@ -12,7 +12,7 @@ const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="1\n"
 #update=remove enum field
-#file=main.zig
+#file=main.sig
 const MyEnum = enum(u8) {
     //foo = 1,
     bar = 2,
@@ -23,5 +23,5 @@ pub fn main() !void {
 }
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
-#expect_error=main.zig:7:69: error: enum 'main.MyEnum' has no member named 'foo'
-#expect_error=main.zig:1:16: note: enum declared here
+#expect_error=main.sig:7:69: error: enum 'main.MyEnum' has no member named 'foo'
+#expect_error=main.sig:1:16: note: enum declared here

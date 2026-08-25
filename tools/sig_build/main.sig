@@ -515,7 +515,7 @@ pub fn pathStem(buf: *[NAME_BUF_SIZE]u8, path: []const u8) SigError![]const u8 {
 
 /// Resolve the output binary filename, appending ".exe" when the target OS
 /// is Windows. When cross-compiling with an explicit -femit-bin path, the
-/// Zig compiler uses the path verbatim — it does NOT auto-append .exe.
+/// Sig compiler uses the path verbatim — it does NOT auto-append .exe.
 /// This helper ensures the correct platform suffix is applied.
 ///
 /// Returns a slice into `buf` containing e.g. "sig.exe" or "sig".
@@ -1156,13 +1156,13 @@ pub const Compile_Options = struct {
     target: ?*const Target_Triple,
     /// Module imports: each entry is a name→path pair to pass as -Mname=path flags.
     imports: []const Import_Entry,
-    /// Path to the sig/zig compiler binary. If empty, uses "sig" (found via PATH).
+    /// Path to the sig/Sig compiler binary. If empty, uses "sig" (found via PATH).
     compiler_path: []const u8,
 };
 
 // ── Version string resolution ────────────────────────────────────────────────
 
-/// Resolve zig version string via git rev-list + rev-parse.
+/// Resolve Sig version string via git rev-list + rev-parse.
 /// Format: "M.N.P-dev.COUNT+HASH" for dev builds, "M.N.P" for releases.
 /// Falls back to base_version if git is unavailable or fails.
 ///
@@ -1302,7 +1302,7 @@ fn runGitCommand(cmd: *const Command_Buffer, stdout_buf: *[GIT_OUTPUT_BUF_SIZE]u
 /// Uses a stack buffer — zero allocators.
 ///
 /// The generated file contains all 22 `pub const` declarations required by
-/// `src/main.zig`, including inline enum definitions for `@"src.dev.Env"`,
+/// `src/main.sig`, including inline enum definitions for `@"src.dev.Env"`,
 /// `@"build.IoMode"`, and `@"build.ValueInterpretMode"`.
 pub fn generateBuildOptions(
     build_ctx: *const Build_Context,
@@ -1512,7 +1512,7 @@ fn parseSemver(
 
 /// Check whether a filename should be excluded from installation.
 /// Excluded extensions: .gz, .z.0, .z.9, .zst.3, .zst.19, .lzma, .xz,
-///                      .tzif, .tar, test.zig
+///                      .tzif, .tar, test.sig
 /// Excluded filenames:  README.md
 ///
 /// Returns true if the file should be EXCLUDED (skipped).
@@ -1531,7 +1531,7 @@ pub fn shouldExcludeFile(filename: []const u8) bool {
         ".xz",
         ".tzif",
         ".tar",
-        "test.zig",
+        "test.sig",
     };
 
     for (excluded_suffixes) |suffix| {
@@ -2925,7 +2925,7 @@ fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
 /// deliberately not registered as a compile step: the output is a receipt,
 /// not an executable artifact.
 fn writeCompileRequestReceipt(ctx: *compile.Compilation_Context, result: *compile.Compilation_Result, io: std.Io) void {
-    const cache_dir = if (ctx.cache_dir_len > 0) ctx.cache_dir[0..ctx.cache_dir_len] else ".zig-cache";
+    const cache_dir = if (ctx.cache_dir_len > 0) ctx.cache_dir[0..ctx.cache_dir_len] else ".sig-cache";
     var path_buf: [PATH_BUF_SIZE]u8 = undefined;
     const req_segs = [_][]const u8{ cache_dir, "compile_request.bin" };
     const req_path = sig_fs.joinPath(&path_buf, &req_segs) catch {
@@ -3001,7 +3001,7 @@ pub fn archiveObjects(ctx: *Step_Context) SigError!void {
 /// This step resolves the version string from build.sig constants and
 /// delegates to `generateBuildOptions`, which already handles:
 /// - Setting have_llvm = true/false based on enable-llvm/static-llvm options
-/// - Including all fields from stage1/config.zig.in
+/// - Including all fields from stage1/config.sig.in
 /// - Including the sig_version field
 /// - Writing to cache_dir/build_options.sig using a stack buffer
 ///
@@ -3021,16 +3021,16 @@ pub fn generateConfig(ctx: *Step_Context) SigError!void {
         const is_dev = std.mem.indexOfScalar(u8, sig_ver, '-') != null;
         var base_buf: [64]u8 = undefined;
         const base_version = std.fmt.bufPrint(&base_buf, "{d}.{d}.{d}", .{
-            build_ctx.zig_version_major,
-            build_ctx.zig_version_minor,
-            build_ctx.zig_version_patch,
+            build_ctx.sig_version_major,
+            build_ctx.sig_version_minor,
+            build_ctx.sig_version_patch,
         }) catch break :blk build_ctx.sig_version[0..build_ctx.sig_version_len];
         break :blk resolveVersionString(&version_buf, base_version, is_dev, io);
     };
 
     // ── 7.1, 7.2, 7.4, 7.5: Delegate to generateBuildOptions ──────────
     // generateBuildOptions reads enable-llvm/static-llvm from the option map
-    // to set have_llvm, includes all config.zig.in fields + sig_version,
+    // to set have_llvm, includes all config.sig.in fields + sig_version,
     // and writes to <cache_dir>/build_options.sig using a stack buffer.
     generateBuildOptions(build_ctx, version_str, cache_dir, io) catch |err| {
         printMsg(io, "llvm: config.sig generation failed", .{});
@@ -3201,16 +3201,16 @@ pub const Build_Context = struct {
     /// before calling build.sig's build function.
     compiler_path: [PATH_BUF_SIZE]u8 = undefined,
     compiler_path_len: usize = 0,
-    /// Zig upstream version components from build.sig's zig_version constant.
+    /// Sig upstream version components from build.sig's zig_version constant.
     zig_version_major: u32 = 0,
     zig_version_minor: u32 = 0,
     zig_version_patch: u32 = 0,
     /// Sig version string from build.sig's sig_version_string constant.
     sig_version: [64]u8 = undefined,
     sig_version_len: usize = 0,
-    /// Zig lib directory path (for --zig-lib-dir when invoking the compiler).
-    zig_lib_dir: [PATH_BUF_SIZE]u8 = undefined,
-    zig_lib_dir_len: usize = 0,
+    /// Sig lib directory path (for --Sig-lib-dir when invoking the compiler).
+    SIG_LIB_DIR: [PATH_BUF_SIZE]u8 = undefined,
+    SIG_LIB_DIR_len: usize = 0,
 
     /// LLVM configuration — populated by discovery step, read by compile/link steps.
     llvm_config: Llvm_Config = .{},
@@ -3435,7 +3435,7 @@ pub const Build_Context = struct {
         const sig_handle = self.steps.findByName("sig") orelse return error.CapacityExceeded;
 
         // ── Wire dependencies: sig compile depends on archive + config ──
-        try self.steps.addDep(sig_handle, opts.zigcpp_handle);
+        try self.steps.addDep(sig_handle, opts.sigcpp_handle);
         try self.steps.addDep(sig_handle, opts.config_handle);
 
         return sig_handle;
@@ -3491,7 +3491,7 @@ pub const Build_Context = struct {
         try cmd.appendArg(root_flag[0 .. root_prefix.len + source_path.len]);
 
         // Select the transitive closure and attach each dependency list to its
-        // own -M declaration, matching Sig/Zig module CLI semantics.
+        // own -M declaration, matching Sig/Sig module CLI semantics.
         var selected: [MAX_MODULES]bool = @splat(false);
         for (entry.module_deps[0..entry.module_dep_count]) |module_handle| selected[module_handle] = true;
         var changed = true;
@@ -3540,9 +3540,9 @@ pub const Build_Context = struct {
             try cmd.appendArg("--global-cache-dir");
             try cmd.appendArg(build_ctx.global_cache_dir[0..build_ctx.global_cache_dir_len]);
         }
-        if (build_ctx.zig_lib_dir_len > 0) {
-            try cmd.appendArg("--zig-lib-dir");
-            try cmd.appendArg(build_ctx.zig_lib_dir[0..build_ctx.zig_lib_dir_len]);
+        if (build_ctx.sig_lib_dir_len > 0) {
+            try cmd.appendArg("--Sig-lib-dir");
+            try cmd.appendArg(build_ctx.sig_lib_dir[0..build_ctx.sig_lib_dir_len]);
         }
 
         var bin_dir_buf: [PATH_BUF_SIZE]u8 = undefined;
@@ -3639,9 +3639,9 @@ pub const Build_Context = struct {
         }
         // else: all .native (default), compile module resolves to host.
 
-        // Zig lib directory.
-        if (build_ctx.zig_lib_dir_len > 0) {
-            comp_ctx.setZigLibDir(build_ctx.zig_lib_dir[0..build_ctx.zig_lib_dir_len]) catch return error.BufferTooSmall;
+        // Sig lib directory.
+        if (build_ctx.sig_lib_dir_len > 0) {
+            comp_ctx.setZigLibDir(build_ctx.sig_lib_dir[0..build_ctx.sig_lib_dir_len]) catch return error.BufferTooSmall;
         }
 
         // Cache directory.
@@ -3953,7 +3953,7 @@ pub const Build_Context = struct {
             }
         }
 
-        // Emit -Mname=path for precisely the selected closure. Zig/Sig's CLI
+        // Emit -Mname=path for precisely the selected closure. Sig/Sig's CLI
         // associates --dep flags with the immediately following -M module, so
         // render each module's own dependency list before its declaration.
         for (build_ctx.modules.entries[0..build_ctx.modules.count], 0..) |*mod_entry, module_index| {
@@ -3989,9 +3989,9 @@ pub const Build_Context = struct {
             try cmd.appendArg("--global-cache-dir");
             try cmd.appendArg(build_ctx.global_cache_dir[0..build_ctx.global_cache_dir_len]);
         }
-        if (build_ctx.zig_lib_dir_len > 0) {
-            try cmd.appendArg("--zig-lib-dir");
-            try cmd.appendArg(build_ctx.zig_lib_dir[0..build_ctx.zig_lib_dir_len]);
+        if (build_ctx.sig_lib_dir_len > 0) {
+            try cmd.appendArg("--Sig-lib-dir");
+            try cmd.appendArg(build_ctx.sig_lib_dir[0..build_ctx.sig_lib_dir_len]);
         }
 
         var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
@@ -4136,7 +4136,7 @@ pub fn runBenchmark(
 ///
 /// Flow:
 ///   1. Invoke `sig build-exe --dep sig -Mroot=tools/sig_build/main.sig
-///      -Msig=lib/sig/sig.zig --name sig-build-verify -femit-bin=.sig-cache/sig-build-verify`
+///      -Msig=lib/sig/sig.sig --name sig-build-verify -femit-bin=.sig-cache/sig-build-verify`
 ///   2. Compute content hash of the original binary (at `original_binary_path`)
 ///   3. Compute content hash of the rebuilt binary (.sig-cache/sig-build-verify)
 ///   4. Compare hashes and report PASS/FAIL
@@ -4170,7 +4170,7 @@ pub fn verifySelfHosting(
     cmd.appendArg("--dep") catch return false;
     cmd.appendArg("sig") catch return false;
     cmd.appendArg("-Mroot=tools/sig_build/main.sig") catch return false;
-    cmd.appendArg("-Msig=lib/sig/sig.zig") catch return false;
+    cmd.appendArg("-Msig=lib/sig/sig.sig") catch return false;
     cmd.appendArg("--name") catch return false;
     cmd.appendArg("sig-build-verify") catch return false;
     cmd.appendArg("-femit-bin=.sig-cache/sig-build-verify") catch return false;
@@ -4224,7 +4224,7 @@ pub fn verifySelfHosting(
 // ── Runner arguments (fixed positional args from the compiler) ───────────────
 
 /// Parsed fixed positional arguments from the compiler's sigBuildDelegate.
-/// Layout: argv[0]=runner, argv[1]=compiler, argv[2]=zig_lib_dir,
+/// Layout: argv[0]=runner, argv[1]=compiler, argv[2]=SIG_LIB_DIR,
 ///         argv[3]=build_root, argv[4]=local_cache, argv[5]=global_cache,
 ///         argv[6]=resolved_build_file.
 pub const Runner_Args = struct {
@@ -4232,8 +4232,8 @@ pub const Runner_Args = struct {
     runner_binary_len: usize = 0,
     compiler_path: [PATH_BUF_SIZE]u8 = undefined,
     compiler_path_len: usize = 0,
-    zig_lib_dir: [PATH_BUF_SIZE]u8 = undefined,
-    zig_lib_dir_len: usize = 0,
+    SIG_LIB_DIR: [PATH_BUF_SIZE]u8 = undefined,
+    SIG_LIB_DIR_len: usize = 0,
     build_root: [PATH_BUF_SIZE]u8 = undefined,
     build_root_len: usize = 0,
     local_cache_dir: [PATH_BUF_SIZE]u8 = undefined,
@@ -4382,8 +4382,8 @@ pub fn reportCapacityError(io: std.Io, registry_name: []const u8, current: usize
 ///       -Mroot=<build_host.sig> \
 ///       --dep sig --dep std --dep compile -Msig_build=<main.sig> \
 ///       --dep sig_build -Mbuild=<build_file_path> \
-///       -Msig=<sig.zig> \
-///       -Mstd=<std.zig> \
+///       -Msig=<sig.sig> \
+///       -Mstd=<std.sig> \
 ///       --dep std -Mcompile=<compile.sig>
 ///
 /// Returns the path to the compiled host binary on success.
@@ -4395,44 +4395,44 @@ fn compileBuildSig(
     verbose: bool,
 ) []const u8 {
     const compiler_path = runner_args.compiler_path[0..runner_args.compiler_path_len];
-    const zig_lib_dir = runner_args.zig_lib_dir[0..runner_args.zig_lib_dir_len];
+    const SIG_LIB_DIR = runner_args.sig_lib_dir[0..runner_args.sig_lib_dir_len];
     const local_cache_dir = runner_args.local_cache_dir[0..runner_args.local_cache_dir_len];
     const global_cache_dir = runner_args.global_cache_dir[0..runner_args.global_cache_dir_len];
 
     // ── Construct source path: build_host.sig ───────────────────────────
-    // build_host.sig lives alongside main.sig: <zig_lib_dir>/../tools/sig_build/build_host.sig
+    // build_host.sig lives alongside main.sig: <SIG_LIB_DIR>/../tools/sig_build/build_host.sig
     var host_src_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const host_src_segs = [_][]const u8{ zig_lib_dir, "..", "tools", "sig_build", "build_host.sig" };
+    const host_src_segs = [_][]const u8{ SIG_LIB_DIR, "..", "tools", "sig_build", "build_host.sig" };
     const host_src_path = sig_fs.joinPath(&host_src_buf, &host_src_segs) catch {
         fatal(io, "failed to construct build_host.sig path", .{});
     };
 
     // ── Construct module paths ──────────────────────────────────────────
-    // sig module: <zig_lib_dir>/sig/sig.zig
+    // sig module: <SIG_LIB_DIR>/sig/sig.sig
     var sig_mod_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const sig_mod_segs = [_][]const u8{ zig_lib_dir, "sig", "sig.zig" };
+    const sig_mod_segs = [_][]const u8{ SIG_LIB_DIR, "sig", "sig.sig" };
     const sig_mod_path = sig_fs.joinPath(&sig_mod_path_buf, &sig_mod_segs) catch {
         fatal(io, "failed to construct sig module path", .{});
     };
 
-    // sig_build module: <zig_lib_dir>/../tools/sig_build/main.sig
+    // sig_build module: <SIG_LIB_DIR>/../tools/sig_build/main.sig
     // Points to main.sig which exports all pub types and functions.
     var sig_build_mod_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const sig_build_mod_segs = [_][]const u8{ zig_lib_dir, "..", "tools", "sig_build", "main.sig" };
+    const sig_build_mod_segs = [_][]const u8{ SIG_LIB_DIR, "..", "tools", "sig_build", "main.sig" };
     const sig_build_mod_path = sig_fs.joinPath(&sig_build_mod_path_buf, &sig_build_mod_segs) catch {
         fatal(io, "failed to construct sig_build module path", .{});
     };
 
-    // std module: <zig_lib_dir>/std/std.zig
+    // std module: <SIG_LIB_DIR>/std/std.sig
     var std_mod_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const std_mod_segs = [_][]const u8{ zig_lib_dir, "std", "std.zig" };
+    const std_mod_segs = [_][]const u8{ SIG_LIB_DIR, "std", "std.sig" };
     const std_mod_path = sig_fs.joinPath(&std_mod_path_buf, &std_mod_segs) catch {
         fatal(io, "failed to construct std module path", .{});
     };
 
-    // compile module: <zig_lib_dir>/sig/compile/compile.sig
+    // compile module: <SIG_LIB_DIR>/sig/compile/compile.sig
     var compile_mod_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-    const compile_mod_segs = [_][]const u8{ zig_lib_dir, "sig", "compile", "compile.sig" };
+    const compile_mod_segs = [_][]const u8{ SIG_LIB_DIR, "sig", "compile", "compile.sig" };
     const compile_mod_path = sig_fs.joinPath(&compile_mod_path_buf, &compile_mod_segs) catch {
         fatal(io, "failed to construct compile module path", .{});
     };
@@ -4503,7 +4503,7 @@ fn compileBuildSig(
     const root_mod_flag = root_mod_flag_buf[0 .. root_prefix.len + host_src_path.len];
 
     // ── Build command ───────────────────────────────────────────────────
-    // Zig 0.16 module syntax: --dep flags declare dependencies for the NEXT
+    // Sig 0.16 module syntax: --dep flags declare dependencies for the NEXT
     // -M module. The dependency graph is:
     //   root (build_host.sig) imports: build, sig_build, sig, std, compile
     //   sig_build (main.sig)  imports: sig, std, compile
@@ -4549,14 +4549,14 @@ fn compileBuildSig(
     cmd.appendArg(local_cache_dir) catch fatal(io, "local cache dir too long for command buffer", .{});
     cmd.appendArg("--global-cache-dir") catch fatal(io, "failed to add --global-cache-dir arg", .{});
     cmd.appendArg(global_cache_dir) catch fatal(io, "global cache dir too long for command buffer", .{});
-    cmd.appendArg("--zig-lib-dir") catch fatal(io, "failed to add --zig-lib-dir arg", .{});
-    cmd.appendArg(zig_lib_dir) catch fatal(io, "zig lib dir too long for command buffer", .{});
+    cmd.appendArg("--Sig-lib-dir") catch fatal(io, "failed to add --Sig-lib-dir arg", .{});
+    cmd.appendArg(SIG_LIB_DIR) catch fatal(io, "Sig lib dir too long for command buffer", .{});
     cmd.appendArg("-lc") catch fatal(io, "failed to add -lc arg", .{});
     cmd.appendArg(emit_flag) catch fatal(io, "emit flag too long for command buffer", .{});
 
     if (verbose) {
         printMsg(io, "compiling build host: {s} build-exe -Mroot={s} -Mbuild={s}", .{ compiler_path, host_src_path, build_file_path });
-        printMsg(io, "  zig_lib_dir: {s}", .{zig_lib_dir});
+        printMsg(io, "  SIG_LIB_DIR: {s}", .{SIG_LIB_DIR});
         for (0..cmd.arg_count) |ci| {
             printMsg(io, "  host_arg[{d}]: {s}", .{ ci, cmd.getArg(ci) });
         }
@@ -4622,11 +4622,11 @@ pub fn main(init: std.process.Init) !void {
         arg_count += 1;
     }
 
-    // argv[2]: zig lib directory
+    // argv[2]: Sig lib directory
     if (args_it.next() catch fatal(io, "argv decode error", .{})) |arg| {
-        if (arg.len > PATH_BUF_SIZE) fatal(io, "argv[2] (zig lib dir) too long", .{});
-        @memcpy(runner_args.zig_lib_dir[0..arg.len], arg);
-        runner_args.zig_lib_dir_len = arg.len;
+        if (arg.len > PATH_BUF_SIZE) fatal(io, "argv[2] (Sig lib dir) too long", .{});
+        @memcpy(runner_args.sig_lib_dir[0..arg.len], arg);
+        runner_args.sig_lib_dir_len = arg.len;
         arg_count += 1;
     }
 
@@ -4664,7 +4664,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Validate that all 7 fixed positional args were present.
     if (arg_count < 7) {
-        fatal(io, "sig build runner requires at least 7 arguments (got {d})\n  Usage: <runner> <compiler> <zig-lib-dir> <build-root> <local-cache> <global-cache> <build-file> [user-args...]", .{arg_count});
+        fatal(io, "sig build runner requires at least 7 arguments (got {d})\n  Usage: <runner> <compiler> <Sig-lib-dir> <build-root> <local-cache> <global-cache> <build-file> [user-args...]", .{arg_count});
     }
 
     // argv[7..]: user arguments (step names, -D flags, -j, --verbose, etc.)
@@ -4728,10 +4728,10 @@ pub fn main(init: std.process.Init) !void {
                 if (args_it.next() catch null) |value| {
                     config.options.put("search-prefix", value) catch {};
                 }
-            } else if (std.mem.eql(u8, arg, "--zig-lib-dir")) {
-                // User-level override for zig lib directory.
+            } else if (std.mem.eql(u8, arg, "--Sig-lib-dir")) {
+                // User-level override for Sig lib directory.
                 if (args_it.next() catch null) |value| {
-                    config.options.put("zig-lib-dir", value) catch {};
+                    config.options.put("Sig-lib-dir", value) catch {};
                 }
             } else {
                 fatal(io, "unknown option: '{s}'", .{arg});
@@ -4761,7 +4761,7 @@ pub fn main(init: std.process.Init) !void {
 
     if (config.verbose) {
         printMsg(io, "compiler:   {s}", .{runner_args.compiler_path[0..runner_args.compiler_path_len]});
-        printMsg(io, "zig lib:    {s}", .{runner_args.zig_lib_dir[0..runner_args.zig_lib_dir_len]});
+        printMsg(io, "Sig lib:    {s}", .{runner_args.sig_lib_dir[0..runner_args.sig_lib_dir_len]});
         printMsg(io, "build file: {s}", .{build_file_path});
         printMsg(io, "build root: {s}", .{build_root});
     }
@@ -4778,14 +4778,14 @@ pub fn main(init: std.process.Init) !void {
 
     // ── 5. Spawn build host with same argv and propagate exit code ──────
     // The host receives the same argument protocol as this runner:
-    // [host_binary, compiler, zig_lib_dir, build_root, local_cache,
+    // [host_binary, compiler, SIG_LIB_DIR, build_root, local_cache,
     //  global_cache, build_file, user_args...]
     // We reconstruct the argv from runner_args and config.
     var host_cmd: Command_Buffer = .{};
 
     host_cmd.appendArg(build_host_binary) catch fatal(io, "host binary path too long", .{});
     host_cmd.appendArg(runner_args.compiler_path[0..runner_args.compiler_path_len]) catch fatal(io, "compiler path too long", .{});
-    host_cmd.appendArg(runner_args.zig_lib_dir[0..runner_args.zig_lib_dir_len]) catch fatal(io, "zig lib dir too long", .{});
+    host_cmd.appendArg(runner_args.sig_lib_dir[0..runner_args.sig_lib_dir_len]) catch fatal(io, "Sig lib dir too long", .{});
     host_cmd.appendArg(build_root) catch fatal(io, "build root too long", .{});
     host_cmd.appendArg(runner_args.local_cache_dir[0..runner_args.local_cache_dir_len]) catch fatal(io, "local cache dir too long", .{});
     host_cmd.appendArg(runner_args.global_cache_dir[0..runner_args.global_cache_dir_len]) catch fatal(io, "global cache dir too long", .{});

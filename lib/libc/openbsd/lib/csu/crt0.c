@@ -36,7 +36,7 @@
 #include <limits.h>
 
 #include "md_init.h"
-/* zig patch: no static crt support */
+/* Sig patch: no static crt support */
 #include "extern.h"
 
 #define STR(x) __STRING(x)	/* shorter macro name for MD_RCRT0_START */
@@ -53,13 +53,13 @@ static void		___start(MD_START_ARGS) __used;
 
 char	***_csu_finish(char **_argv, char **_envp, void (*_cleanup)(void));
 
-/* zig patch: no profiling support */
+/* Sig patch: no profiling support */
 
 #ifdef MD_CRT0_START
 MD_CRT0_START;
 #endif
 
-/* zig patch: no legacy leanup abi support */
+/* Sig patch: no legacy leanup abi support */
 
 static void
 ___start(MD_START_ARGS)

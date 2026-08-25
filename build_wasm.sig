@@ -15,9 +15,9 @@ fn buildWasm(step: *sig_build.Step_Context) sig_build.SigError!void {
 
     var version_buf: [32]u8 = undefined;
     const zig_version = std.fmt.bufPrint(&version_buf, "{d}.{d}.{d}", .{
-        ctx.zig_version_major,
-        ctx.zig_version_minor,
-        ctx.zig_version_patch,
+        ctx.sig_version_major,
+        ctx.sig_version_minor,
+        ctx.sig_version_patch,
     }) catch return error.BufferTooSmall;
     const cache_dir = ctx.cache_dir[0..ctx.cache_dir_len];
     try sig_build.generateBuildOptions(ctx, zig_version, cache_dir, io);
@@ -36,10 +36,10 @@ fn buildWasm(step: *sig_build.Step_Context) sig_build.SigError!void {
         return error.BufferTooSmall;
 
     var root_module_buf: [sig_build.PATH_BUF_SIZE]u8 = undefined;
-    const root_module = std.fmt.bufPrint(&root_module_buf, "-Mroot={s}", .{"src/main.zig"}) catch
+    const root_module = std.fmt.bufPrint(&root_module_buf, "-Mroot={s}", .{"src/main.sig"}) catch
         return error.BufferTooSmall;
     var aro_module_buf: [sig_build.PATH_BUF_SIZE]u8 = undefined;
-    const aro_module = std.fmt.bufPrint(&aro_module_buf, "-Maro={s}", .{"lib/compiler/aro/aro.zig"}) catch
+    const aro_module = std.fmt.bufPrint(&aro_module_buf, "-Maro={s}", .{"lib/compiler/aro/aro.sig"}) catch
         return error.BufferTooSmall;
     var options_module_buf: [sig_build.PATH_BUF_SIZE]u8 = undefined;
     const options_module = std.fmt.bufPrint(
@@ -77,9 +77,9 @@ fn buildWasm(step: *sig_build.Step_Context) sig_build.SigError!void {
         try cmd.appendArg("--global-cache-dir");
         try cmd.appendArg(ctx.global_cache_dir[0..ctx.global_cache_dir_len]);
     }
-    if (ctx.zig_lib_dir_len > 0) {
-        try cmd.appendArg("--zig-lib-dir");
-        try cmd.appendArg(ctx.zig_lib_dir[0..ctx.zig_lib_dir_len]);
+    if (ctx.sig_lib_dir_len > 0) {
+        try cmd.appendArg("--Sig-lib-dir");
+        try cmd.appendArg(ctx.sig_lib_dir[0..ctx.sig_lib_dir_len]);
     }
     try cmd.appendArg(emit);
 
@@ -109,8 +109,8 @@ fn buildWasm(step: *sig_build.Step_Context) sig_build.SigError!void {
 pub fn build(ctx: *sig_build.Build_Context) !void {
     const zig_version = ctx.option(
         []const u8,
-        "zig-version",
-        "Zig compatibility version from build.sig",
+        "Sig-version",
+        "Sig compatibility version from build.sig",
     ) orelse return error.BufferTooSmall;
     const sig_version = ctx.option(
         []const u8,
@@ -123,9 +123,9 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         return error.BufferTooSmall;
     }
 
-    ctx.zig_version_major = @intCast(semver.major);
-    ctx.zig_version_minor = @intCast(semver.minor);
-    ctx.zig_version_patch = @intCast(semver.patch);
+    ctx.sig_version_major = @intCast(semver.major);
+    ctx.sig_version_minor = @intCast(semver.minor);
+    ctx.sig_version_patch = @intCast(semver.patch);
     @memcpy(ctx.sig_version[0..sig_version.len], sig_version);
     ctx.sig_version_len = sig_version.len;
     ctx.optimize = .ReleaseSmall;

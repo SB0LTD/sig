@@ -89,7 +89,7 @@ stage3-release\bin\zig.exe build-obj `
   -femit-bin="compiler_rt-x86_64-windows-msvc.c" `
   -target x86_64-windows-msvc `
   -lc `
-  ..\lib\compiler_rt.zig
+  ..\lib\compiler_rt.sig
 CheckLastExitCode
 
 stage3-release\bin\zig.exe test `
@@ -98,7 +98,7 @@ stage3-release\bin\zig.exe test `
   --test-no-exec `
   -target x86_64-windows-msvc `
   -lc `
-  ..\test\behavior.zig
+  ..\test\behavior.sig
 CheckLastExitCode
 
 Import-Module "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"

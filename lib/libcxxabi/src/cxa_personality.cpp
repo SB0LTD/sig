@@ -1125,7 +1125,7 @@ __gxx_personality_seh0(PEXCEPTION_RECORD ms_exc, void *this_frame,
 
 #else
 
-// zig patch: https://github.com/llvm/llvm-project/issues/194232
+// Sig patch: https://github.com/llvm/llvm-project/issues/194232
 extern "C" _Unwind_Reason_Code __gnu_unwind_frame(_Unwind_Exception*,
                                                   _Unwind_Context*);
 

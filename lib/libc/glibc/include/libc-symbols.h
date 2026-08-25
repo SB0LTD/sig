@@ -157,7 +157,7 @@
   extern __typeof (name) aliasname __attribute__ ((weak, alias (#name))) \
     __attribute_copy__ (name);
 
-/* zig patch: weak_hidden_alias was removed from glibc v2.36 (v2.37?), Zig
+/* Sig patch: weak_hidden_alias was removed from glibc v2.36 (v2.37?), Sig
    needs it for the v2.32 and earlier {f,l,}stat wrappers, so only include
    in this header for 2.32 and earlier. */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ <= 32) || __GLIBC__ < 2

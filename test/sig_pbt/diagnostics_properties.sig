@@ -81,14 +81,14 @@ test "Property 13: direct allocation sources produce direct_allocation entries" 
             const entries = try sig_diag.analyzeSource(
                 gpa,
                 source,
-                "prop13.zig",
+                "prop13.sig",
                 .default,
             );
             defer sig_diag.freeEntries(gpa, entries);
             // Must detect at least one entry (Req 8.1)
             try std.testing.expect(entries.len > 0);
             for (entries) |e| {
-                try std.testing.expectEqualStrings("prop13.zig", e.file_path);
+                try std.testing.expectEqualStrings("prop13.sig", e.file_path);
                 try std.testing.expect(e.line > 0);
                 try std.testing.expect(e.function_name.len > 0);
                 if (e.classification == .direct_allocation) {
@@ -113,14 +113,14 @@ test "Property 13: transitive sources produce transitive entries with call_path"
             const entries = try sig_diag.analyzeSource(
                 gpa,
                 source,
-                "prop13t.zig",
+                "prop13t.sig",
                 .default,
             );
             defer sig_diag.freeEntries(gpa, entries);
             try std.testing.expect(entries.len > 0);
             var found_transitive = false;
             for (entries) |e| {
-                try std.testing.expectEqualStrings("prop13t.zig", e.file_path);
+                try std.testing.expectEqualStrings("prop13t.sig", e.file_path);
                 try std.testing.expect(e.line > 0);
                 try std.testing.expect(e.function_name.len > 0);
                 if (e.classification == .transitive_allocation) {
@@ -148,14 +148,14 @@ test "Property 13: unknown behavior sources produce unknown entries" {
             const entries = try sig_diag.analyzeSource(
                 gpa,
                 source,
-                "prop13u.zig",
+                "prop13u.sig",
                 .default,
             );
             defer sig_diag.freeEntries(gpa, entries);
             try std.testing.expect(entries.len > 0);
             var found_unknown = false;
             for (entries) |e| {
-                try std.testing.expectEqualStrings("prop13u.zig", e.file_path);
+                try std.testing.expectEqualStrings("prop13u.sig", e.file_path);
                 try std.testing.expect(e.line > 0);
                 if (e.classification == .unknown_memory_behavior) {
                     found_unknown = true;
@@ -184,7 +184,7 @@ test "Property 14: default mode formats all entries as warnings" {
             const entries = try sig_diag.analyzeSource(
                 gpa,
                 source,
-                "prop14.zig",
+                "prop14.sig",
                 .default,
             );
             defer sig_diag.freeEntries(gpa, entries);
@@ -203,7 +203,7 @@ test "Property 14: default mode formats all entries as warnings" {
                     (std.mem.indexOf(u8, msg, "unknown memory behavior") != null);
                 try std.testing.expect(has_class);
                 try std.testing.expect(
-                    std.mem.indexOf(u8, msg, "prop14.zig") != null,
+                    std.mem.indexOf(u8, msg, "prop14.sig") != null,
                 );
             }
         }
@@ -224,7 +224,7 @@ test "Property 14: strict mode formats all entries as errors" {
             const entries = try sig_diag.analyzeSource(
                 gpa,
                 source,
-                "prop14s.zig",
+                "prop14s.sig",
                 .strict,
             );
             defer sig_diag.freeEntries(gpa, entries);
@@ -240,7 +240,7 @@ test "Property 14: strict mode formats all entries as errors" {
                     (std.mem.indexOf(u8, msg, "unknown memory behavior") != null);
                 try std.testing.expect(has_class);
                 try std.testing.expect(
-                    std.mem.indexOf(u8, msg, "prop14s.zig") != null,
+                    std.mem.indexOf(u8, msg, "prop14s.sig") != null,
                 );
             }
         }
@@ -256,7 +256,7 @@ test "Property 14: same entries produce warning in default, error in strict" {
         fn run(_: std.Random) anyerror!void {
             const gpa = std.testing.allocator;
             const entry = sig_diag.DiagnosticEntry{
-                .file_path = "test.zig",
+                .file_path = "test.sig",
                 .line = 5,
                 .column = 1,
                 .function_name = "foo",
@@ -303,7 +303,7 @@ test "Property 20: non-canonical patterns always produce at least one diagnostic
             const entries = try sig_diag.analyzeSource(
                 gpa,
                 source,
-                "prop20.zig",
+                "prop20.sig",
                 .default,
             );
             defer sig_diag.freeEntries(gpa, entries);

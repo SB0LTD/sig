@@ -29,21 +29,21 @@ test "concat: undersized buffer returns BufferTooSmall" {
 
 // ── replace ──────────────────────────────────────────────────────────────
 
-test "replace: 'hello world' replacing 'world' with 'zig' produces 'hello zig'" {
+test "replace: 'hello world' replacing 'world' with 'Sig' produces 'hello Sig'" {
     var buf: [64]u8 = undefined;
-    const result = try sig_string.replace(&buf, "hello world", "world", "zig");
-    try testing.expectEqualStrings("hello zig", result);
+    const result = try sig_string.replace(&buf, "hello world", "world", "sig");
+    try testing.expectEqualStrings("hello Sig", result);
 }
 
 test "replace: no matches copies haystack verbatim" {
     var buf: [64]u8 = undefined;
-    const result = try sig_string.replace(&buf, "hello world", "xyz", "zig");
+    const result = try sig_string.replace(&buf, "hello world", "xyz", "sig");
     try testing.expectEqualStrings("hello world", result);
 }
 
 test "replace: undersized buffer returns BufferTooSmall" {
     var buf: [3]u8 = undefined;
-    try testing.expectError(error.BufferTooSmall, sig_string.replace(&buf, "hello world", "world", "zig"));
+    try testing.expectError(error.BufferTooSmall, sig_string.replace(&buf, "hello world", "world", "sig"));
 }
 
 // ── SegmentedString ──────────────────────────────────────────────────────

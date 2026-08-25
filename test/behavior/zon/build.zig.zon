@@ -13,8 +13,8 @@
         },
     },
     .paths = .{
-        "build.zig",
-        "build.zig.zon",
+        "build.sig",
+        "build.sig.zon",
         "src",
     },
 }

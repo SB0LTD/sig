@@ -1,12 +1,12 @@
 # Sig Agent Guide
 
-Sig is the compiler/toolchain repo. It is a Zig compiler fork where `.sig`
+Sig is the compiler/toolchain repo. It is a Sig compiler fork where `.sig`
 strict mode makes allocator usage a compile-time error. Be especially cautious
 around bootstrap, LLVM, release, and CI files.
 
 ## Bootstrap Rules
 
-Sig builds Sig. Do not use upstream Zig to compile Sig releases. The intended
+Sig builds Sig. Do not use upstream Sig to compile Sig releases. The intended
 bootstrap chain is:
 
 ```text
@@ -15,9 +15,9 @@ zig1.wasm -> zig1.c -> zig1.exe -> zig2.c -> zig2.exe/bootstrap -> sig release
 
 - The bootstrap binary (`zig2.exe` / `sig`) must produce the release binary.
 - If the bootstrap cannot produce a working binary for a target, fix the
-  bootstrap instead of falling back to upstream Zig.
-- Do not add `setup-zig` to release workflows.
-- The only acceptable upstream Zig usage is in bootstrap/toolchain construction
+  bootstrap instead of falling back to upstream Sig.
+- Do not add `setup-Sig` to release workflows.
+- The only acceptable upstream Sig usage is in bootstrap/toolchain construction
   workflows such as `build-bootstrap.yaml` and `build-llvm.yaml`.
 
 ## Windows Strategy
@@ -56,7 +56,7 @@ Suggested disk cleanup block:
   implementation plan for `sig/compiler/`; read this before compiler work.
 - `../.kiro/specs/windows-bootstrap-fix/`: Windows bootstrap crash fix history.
 - `.kiro/specs/sig-llvm-integration/`: LLVM integration history.
-- `.kiro/specs/eradicate-zig-from-build/`: Sig-native build migration history.
+- `.kiro/specs/eradicate-Sig-from-build/`: Sig-native build migration history.
 
 ## SB0 Native Target
 

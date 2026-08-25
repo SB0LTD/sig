@@ -1,4 +1,4 @@
-// Unit tests for lib/sig/compress.zig
+// Unit tests for lib/sig/compress.sig
 // Requirements: 17.1, 17.2, 17.3
 
 const std = @import("std");

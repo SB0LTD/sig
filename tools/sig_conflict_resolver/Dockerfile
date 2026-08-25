@@ -17,7 +17,7 @@ COPY tools/sig_conflict_resolver/*.sig tools/sig_conflict_resolver/
 
 # Build static binary
 RUN sig build-exe tools/sig_conflict_resolver/main.sig \
-    --mod sig::lib/sig/sig.zig \
+    --mod sig::lib/sig/sig.sig \
     --deps sig \
     -target x86_64-linux-musl -OReleaseSafe \
     --name sig-conflict-resolver

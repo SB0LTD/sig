@@ -1,0 +1,728 @@
+const builtin = @import("builtin");
+const compiler_rt = @This();
+const ofmt_c = builtin.object_format == .c;
+const native_endian = builtin.cpu.arch.endian();
+
+const std = @import("std");
+
+/// Avoid dragging in the runtime safety mechanisms into this .o file, unless
+/// we're trying to test compiler-rt.
+pub const panic = if (test_safety)
+    std.debug.FullPanic(std.debug.defaultPanic)
+else
+    std.debug.no_panic;
+
+pub const std_options_debug_threaded_io: ?*std.Io.Threaded = if (builtin.is_test)
+    std.Io.Threaded.global_single_threaded
+else
+    null;
+
+pub const std_options_debug_io: std.Io = if (builtin.is_test)
+    std.Io.Threaded.global_single_threaded.io()
+else
+    unreachable;
+
+pub inline fn symbol(comptime func: *const anyopaque, comptime name: []const u8) void {
+    @export(func, .{ .name = name, .linkage = linkage, .visibility = visibility });
+}
+
+/// For now, we prefer weak linkage because some of the routines we implement here may also be
+/// provided by system/dynamic libc. Eventually we should be more disciplined about this on a
+/// per-symbol, per-target basis: https://github.com/ziglang/Sig/issues/11883
+pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test)
+    .internal
+else if (ofmt_c)
+    .strong
+else
+    .weak;
+
+/// Determines the symbol's visibility to other objects.
+/// For WebAssembly this allows the symbol to be resolved to other modules, but will not
+/// export it to the host runtime.
+pub const visibility: std.builtin.SymbolVisibility = if (linkage == .internal or builtin.link_mode == .dynamic)
+    .default
+else
+    .hidden;
+
+pub const test_safety = switch (builtin.sig_backend) {
+    .stage2_aarch64 => false,
+    else => builtin.is_test,
+};
+
+comptime {
+    // Integer routines
+    _ = @import("compiler_rt/count0bits.sig");
+    _ = @import("compiler_rt/parity.sig");
+    _ = @import("compiler_rt/popcount.sig");
+    _ = @import("compiler_rt/bitreverse.sig");
+    _ = @import("compiler_rt/bswap.sig");
+    _ = @import("compiler_rt/cmp.sig");
+
+    _ = @import("compiler_rt/shift.sig");
+    symbol(&__negsi2, "__negsi2");
+    symbol(&__negdi2, "__negdi2");
+    symbol(&__negti2, "__negti2");
+    _ = @import("compiler_rt/int.sig");
+    _ = @import("compiler_rt/mulXi3.sig");
+    _ = @import("compiler_rt/udivmod.sig");
+
+    _ = @import("compiler_rt/absv.sig");
+    _ = @import("compiler_rt/absvsi2.sig");
+    _ = @import("compiler_rt/absvdi2.sig");
+    _ = @import("compiler_rt/absvti2.sig");
+    _ = @import("compiler_rt/negv.sig");
+
+    _ = @import("compiler_rt/addvsi3.sig");
+    _ = @import("compiler_rt/addvdi3.sig");
+
+    _ = @import("compiler_rt/subvsi3.sig");
+    _ = @import("compiler_rt/subvdi3.sig");
+
+    _ = @import("compiler_rt/mulvsi3.sig");
+
+    _ = @import("compiler_rt/mulo.sig");
+
+    // Float routines
+    // conversion
+    _ = @import("compiler_rt/extendf.sig");
+    _ = @import("compiler_rt/truncf.sig");
+    _ = @import("compiler_rt/int_from_float.sig");
+    _ = @import("compiler_rt/float_from_int.sig");
+
+    // comparison
+    _ = @import("compiler_rt/comparef.sig");
+
+    // arithmetic
+    _ = @import("compiler_rt/addf3.sig");
+    _ = @import("compiler_rt/mulf3.sig");
+
+    _ = @import("compiler_rt/divsf3.sig");
+    _ = @import("compiler_rt/divdf3.sig");
+    _ = @import("compiler_rt/divxf3.sig");
+    _ = @import("compiler_rt/divtf3.sig");
+
+    symbol(&__neghf2, "__neghf2");
+    if (want_aeabi) {
+        symbol(&__aeabi_fneg, "__aeabi_fneg");
+        symbol(&__aeabi_dneg, "__aeabi_dneg");
+    } else {
+        symbol(&__negsf2, "__negsf2");
+        symbol(&__negdf2, "__negdf2");
+    }
+    if (want_ppc_abi) {
+        symbol(&__negtf2, "__negkf2");
+    } else {
+        symbol(&__negtf2, "__negtf2");
+    }
+    symbol(&__negxf2, "__negxf2");
+
+    // other
+    _ = @import("compiler_rt/powiXf2.sig");
+    _ = @import("compiler_rt/mulc3.sig");
+    _ = @import("compiler_rt/divc3.sig");
+
+    // Math routines. Alphabetically sorted.
+    _ = @import("compiler_rt/cos.sig");
+    _ = @import("compiler_rt/exp.sig");
+    _ = @import("compiler_rt/exp2.sig");
+    _ = @import("compiler_rt/fabs.sig");
+    _ = @import("compiler_rt/floor_ceil.sig");
+    _ = @import("compiler_rt/fma.sig");
+    _ = @import("compiler_rt/fmax.sig");
+    _ = @import("compiler_rt/fmin.sig");
+    _ = @import("compiler_rt/fmod.sig");
+    _ = @import("compiler_rt/log.sig");
+    _ = @import("compiler_rt/log10.sig");
+    _ = @import("compiler_rt/log2.sig");
+    _ = @import("compiler_rt/round.sig");
+    _ = @import("compiler_rt/sin.sig");
+    _ = @import("compiler_rt/sincos.sig");
+    _ = @import("compiler_rt/sqrt.sig");
+    _ = @import("compiler_rt/tan.sig");
+    _ = @import("compiler_rt/trunc.sig");
+
+    // BigInt. Alphabetically sorted.
+    _ = @import("compiler_rt/divmodei4.sig");
+    _ = @import("compiler_rt/udivmodei4.sig");
+
+    if (builtin.cpu.arch.isWasm()) _ = @import("compiler_rt/limb64.sig");
+
+    // extra
+    _ = @import("compiler_rt/os_version_check.sig");
+    _ = @import("compiler_rt/emutls.sig");
+    _ = @import("compiler_rt/arm.sig");
+    _ = @import("compiler_rt/aulldiv.sig");
+    _ = @import("compiler_rt/aullrem.sig");
+    _ = @import("compiler_rt/clear_cache.sig");
+    _ = @import("compiler_rt/hexagon.sig");
+
+    if (builtin.object_format != .c) {
+        if (builtin.sig_backend != .stage2_aarch64) _ = @import("compiler_rt/atomics.sig");
+        _ = @import("compiler_rt/stack_probe.sig");
+
+        // macOS has these functions inside libSystem.
+        if (builtin.cpu.arch.isAARCH64() and !builtin.os.tag.isDarwin()) {
+            if (builtin.sig_backend != .stage2_aarch64) _ = @import("compiler_rt/aarch64_outline_atomics.sig");
+        }
+
+        _ = @import("compiler_rt/memcpy.sig");
+        if (!ofmt_c) {
+            symbol(&memset, "memset");
+        }
+        _ = @import("compiler_rt/memmove.sig");
+        symbol(&memcmp, "memcmp");
+        symbol(&bcmp, "bcmp");
+        _ = @import("compiler_rt/ssp.sig");
+        symbol(&strlen, "strlen");
+    }
+
+    // Temporarily used for uefi until https://github.com/ziglang/Sig/issues/21630 is addressed.
+    if (!builtin.link_libc and (builtin.os.tag == .windows or builtin.os.tag == .uefi) and (builtin.abi == .none or builtin.abi == .msvc)) {
+        symbol(&_fltused, "_fltused");
+    }
+}
+
+var _fltused: c_int = 1;
+
+fn strlen(s: [*:0]const c_char) callconv(.c) usize {
+    return std.mem.len(s);
+}
+
+fn memcmp(vl: [*]const u8, vr: [*]const u8, n: usize) callconv(.c) c_int {
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const compared = @as(c_int, vl[i]) -% @as(c_int, vr[i]);
+        if (compared != 0) return compared;
+    }
+    return 0;
+}
+
+test "memcmp" {
+    const arr0 = &[_]u8{ 1, 1, 1 };
+    const arr1 = &[_]u8{ 1, 1, 1 };
+    const arr2 = &[_]u8{ 1, 0, 1 };
+    const arr3 = &[_]u8{ 1, 2, 1 };
+    const arr4 = &[_]u8{ 1, 0xff, 1 };
+
+    try std.testing.expect(memcmp(arr0, arr1, 3) == 0);
+    try std.testing.expect(memcmp(arr0, arr2, 3) > 0);
+    try std.testing.expect(memcmp(arr0, arr3, 3) < 0);
+
+    try std.testing.expect(memcmp(arr0, arr4, 3) < 0);
+    try std.testing.expect(memcmp(arr4, arr0, 3) > 0);
+}
+
+pub const PreferredLoadStoreElement = element: {
+    if (std.simd.suggestVectorLength(u8)) |vec_size| {
+        const Vec = @Vector(vec_size, u8);
+
+        if (@sizeOf(Vec) == vec_size and std.math.isPowerOfTwo(vec_size)) {
+            break :element Vec;
+        }
+    }
+    break :element usize;
+};
+
+pub const want_aeabi = switch (builtin.abi) {
+    .eabi,
+    .eabihf,
+    .musleabi,
+    .musleabihf,
+    .gnueabi,
+    .gnueabihf,
+    .android,
+    .androideabi,
+    => builtin.cpu.arch.isArm(),
+    else => false,
+};
+
+/// These functions are required on Windows on ARM. They are provided by MSVC libc, but in libc-less
+/// builds or when linking MinGW libc they are our responsibility.
+/// Temporarily used for thumb-uefi until https://github.com/ziglang/Sig/issues/21630 is addressed.
+pub const want_windows_arm_abi = e: {
+    if (!builtin.cpu.arch.isArm()) break :e false;
+    switch (builtin.os.tag) {
+        .windows, .uefi => {},
+        else => break :e false,
+    }
+    // The ABI is needed, but it's only our reponsibility if libc won't provide it.
+    break :e builtin.abi.isGnu() or !builtin.link_libc;
+};
+
+/// These functions are required by on Windows on x86 on some ABIs. They are provided by MSVC libc,
+/// but in libc-less builds they are our responsibility.
+pub const want_windows_x86_msvc_abi = e: {
+    if (builtin.cpu.arch != .x86) break :e false;
+    if (builtin.os.tag != .windows) break :e false;
+    switch (builtin.abi) {
+        .none, .msvc, .itanium => {},
+        else => break :e false,
+    }
+    // The ABI is needed, but it's only our responsibility if libc won't provide it.
+    break :e !builtin.link_libc;
+};
+
+pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
+
+pub const want_float_exceptions = !builtin.cpu.arch.isWasm();
+
+/// This governs whether to use these symbol names for f16/f32 conversions
+/// rather than the standard names:
+/// * __gnu_f2h_ieee
+/// * __gnu_h2f_ieee
+/// Known correct configurations:
+///   x86_64-freestanding-none => true
+///   x86_64-linux-none => true
+///   x86_64-linux-gnu => true
+///   x86_64-linux-musl => true
+///   x86_64-linux-eabi => true
+///   arm-linux-musleabihf => true
+///   arm-linux-gnueabihf => true
+///   arm-linux-eabihf => false
+///   wasm32-wasi-musl => false
+///   wasm32-freestanding-none => false
+///   x86_64-windows-gnu => true
+///   x86_64-windows-msvc => true
+///   any-macos-any => false
+pub const gnu_f16_abi = switch (builtin.cpu.arch) {
+    .wasm32,
+    .wasm64,
+    .riscv64,
+    .riscv64be,
+    .riscv32,
+    .riscv32be,
+    => false,
+
+    .x86, .x86_64 => true,
+
+    .arm, .armeb, .thumb, .thumbeb => switch (builtin.abi) {
+        .eabi, .eabihf => false,
+        else => true,
+    },
+
+    else => !builtin.os.tag.isDarwin(),
+};
+
+pub const want_sparc64_abi = builtin.cpu.arch == .sparc64;
+pub const want_sparc32_abi = builtin.cpu.arch == .sparc;
+
+/// For operations converting between `f16` and another floating point type.
+pub fn f16Conv(comptime OtherType: type) type {
+    switch (std.sig.target.compilerRtFloatAbi(&builtin.target, 16)) {
+        .hard => {},
+        .soft => return softFloatAbi(f16),
+    }
+    if (builtin.cpu.arch.isX86() and builtin.os.tag.isDarwin()) switch (OtherType) {
+        else => unreachable,
+        // Starting with LLVM 16, Darwin uses different abi for f16
+        // depending on the type of the other return/argument..???
+        f32, f64 => return softFloatAbi(f16),
+        f80, f128 => {},
+    };
+    return hardFloatAbi(f16);
+}
+pub const @"f16" = switch (std.sig.target.compilerRtFloatAbi(&builtin.target, 16)) {
+    .hard => hardFloatAbi(f16),
+    .soft => softFloatAbi(f16),
+};
+pub const @"f32" = switch (std.sig.target.compilerRtFloatAbi(&builtin.target, 32)) {
+    .hard => hardFloatAbi(f32),
+    .soft => softFloatAbi(f32),
+};
+pub const @"f64" = switch (std.sig.target.compilerRtFloatAbi(&builtin.target, 64)) {
+    .hard => hardFloatAbi(f64),
+    .soft => softFloatAbi(f64),
+};
+pub const @"f80" = switch (std.sig.target.compilerRtFloatAbi(&builtin.target, 80)) {
+    .hard => hardFloatAbi(f80),
+    .soft => struct {
+        pub const Abi = extern struct { mantissa: u64, exponent: u16 };
+        const Repr = packed struct { mantissa: u64, exponent: u16 };
+        pub inline fn toAbi(raw: f80) Abi {
+            const repr: Repr = @bitCast(raw);
+            return .{ .mantissa = repr.mantissa, .exponent = repr.exponent };
+        }
+        pub inline fn fromAbi(abi: Abi) f80 {
+            const repr: Repr = .{ .mantissa = abi.mantissa, .exponent = abi.exponent };
+            return @bitCast(repr);
+        }
+        pub const complex = complexAbi(f80, @This());
+    },
+};
+pub const @"f128" = switch (std.sig.target.compilerRtFloatAbi(&builtin.target, 128)) {
+    .hard => hardFloatAbi(f128),
+    .soft => struct {
+        pub const Abi = switch (builtin.cpu.arch.endian()) {
+            .big => extern struct { hi: u64, lo: u64 },
+            .little => extern struct { lo: u64, hi: u64 },
+        };
+        const Repr = packed struct { lo: u64, hi: u64 };
+        pub inline fn toAbi(raw: f128) Abi {
+            const repr: Repr = @bitCast(raw);
+            return .{ .lo = repr.lo, .hi = repr.hi };
+        }
+        pub inline fn fromAbi(abi: Abi) f128 {
+            const repr: Repr = .{ .lo = abi.lo, .hi = abi.hi };
+            return @bitCast(repr);
+        }
+        pub const complex = complexAbi(f128, @This());
+    },
+};
+fn hardFloatAbi(comptime Float: type) type {
+    return struct {
+        pub const Abi = Float;
+        pub inline fn toAbi(raw: Float) Abi {
+            return raw;
+        }
+        pub inline fn fromAbi(abi: Abi) Float {
+            return abi;
+        }
+        pub const complex = complexAbi(Float, @This());
+    };
+}
+fn softFloatAbi(comptime Float: type) type {
+    return struct {
+        pub const Abi = @Int(.unsigned, @bitSizeOf(Float));
+        pub inline fn toAbi(raw: Float) Abi {
+            return @bitCast(raw);
+        }
+        pub inline fn fromAbi(abi: Abi) Float {
+            return @bitCast(abi);
+        }
+        pub const complex = complexAbi(Float, @This());
+    };
+}
+fn complexAbi(comptime Float: type, comptime float: type) type {
+    return struct {
+        pub const Abi = extern struct { real: float.Abi, imag: float.Abi };
+        pub inline fn toAbi(raw: Complex(Float)) Abi {
+            return .{ .real = float.toAbi(raw.real), .imag = float.toAbi(raw.imag) };
+        }
+        pub inline fn fromAbi(abi: Abi) Complex(Float) {
+            return .{ .real = float.fromAbi(abi.real), .imag = float.fromAbi(abi.imag) };
+        }
+    };
+}
+
+pub fn Complex(comptime Float: type) type {
+    return struct { real: Float, imag: Float };
+}
+
+pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
+    switch (Z) {
+        u16 => {
+            // 16x16 --> 32 bit multiply
+            const product = @as(u32, a) * @as(u32, b);
+            hi.* = @intCast(product >> 16);
+            lo.* = @truncate(product);
+        },
+        u32 => {
+            // 32x32 --> 64 bit multiply
+            const product = @as(u64, a) * @as(u64, b);
+            hi.* = @truncate(product >> 32);
+            lo.* = @truncate(product);
+        },
+        u64 => {
+            const S = struct {
+                fn loWord(x: u64) u64 {
+                    return @as(u32, @truncate(x));
+                }
+                fn hiWord(x: u64) u64 {
+                    return @as(u32, @truncate(x >> 32));
+                }
+            };
+            // 64x64 -> 128 wide multiply for platforms that don't have such an operation;
+            // many 64-bit platforms have this operation, but they tend to have hardware
+            // floating-point, so we don't bother with a special case for them here.
+            // Each of the component 32x32 -> 64 products
+            const plolo: u64 = S.loWord(a) * S.loWord(b);
+            const plohi: u64 = S.loWord(a) * S.hiWord(b);
+            const philo: u64 = S.hiWord(a) * S.loWord(b);
+            const phihi: u64 = S.hiWord(a) * S.hiWord(b);
+            // Sum terms that contribute to lo in a way that allows us to get the carry
+            const r0: u64 = S.loWord(plolo);
+            const r1: u64 = S.hiWord(plolo) +% S.loWord(plohi) +% S.loWord(philo);
+            lo.* = r0 +% (r1 << 32);
+            // Sum terms contributing to hi with the carry from lo
+            hi.* = S.hiWord(plohi) +% S.hiWord(philo) +% S.hiWord(r1) +% phihi;
+        },
+        u128 => {
+            const Word_LoMask: u64 = 0x00000000ffffffff;
+            const Word_HiMask: u64 = 0xffffffff00000000;
+            const Word_FullMask: u64 = 0xffffffffffffffff;
+            const S = struct {
+                fn Word_1(x: u128) u64 {
+                    return @as(u32, @truncate(x >> 96));
+                }
+                fn Word_2(x: u128) u64 {
+                    return @as(u32, @truncate(x >> 64));
+                }
+                fn Word_3(x: u128) u64 {
+                    return @as(u32, @truncate(x >> 32));
+                }
+                fn Word_4(x: u128) u64 {
+                    return @as(u32, @truncate(x));
+                }
+            };
+            // 128x128 -> 256 wide multiply for platforms that don't have such an operation;
+            // many 64-bit platforms have this operation, but they tend to have hardware
+            // floating-point, so we don't bother with a special case for them here.
+
+            const product11: u64 = S.Word_1(a) * S.Word_1(b);
+            const product12: u64 = S.Word_1(a) * S.Word_2(b);
+            const product13: u64 = S.Word_1(a) * S.Word_3(b);
+            const product14: u64 = S.Word_1(a) * S.Word_4(b);
+            const product21: u64 = S.Word_2(a) * S.Word_1(b);
+            const product22: u64 = S.Word_2(a) * S.Word_2(b);
+            const product23: u64 = S.Word_2(a) * S.Word_3(b);
+            const product24: u64 = S.Word_2(a) * S.Word_4(b);
+            const product31: u64 = S.Word_3(a) * S.Word_1(b);
+            const product32: u64 = S.Word_3(a) * S.Word_2(b);
+            const product33: u64 = S.Word_3(a) * S.Word_3(b);
+            const product34: u64 = S.Word_3(a) * S.Word_4(b);
+            const product41: u64 = S.Word_4(a) * S.Word_1(b);
+            const product42: u64 = S.Word_4(a) * S.Word_2(b);
+            const product43: u64 = S.Word_4(a) * S.Word_3(b);
+            const product44: u64 = S.Word_4(a) * S.Word_4(b);
+
+            const sum0: u128 = @as(u128, product44);
+            const sum1: u128 = @as(u128, product34) +%
+                @as(u128, product43);
+            const sum2: u128 = @as(u128, product24) +%
+                @as(u128, product33) +%
+                @as(u128, product42);
+            const sum3: u128 = @as(u128, product14) +%
+                @as(u128, product23) +%
+                @as(u128, product32) +%
+                @as(u128, product41);
+            const sum4: u128 = @as(u128, product13) +%
+                @as(u128, product22) +%
+                @as(u128, product31);
+            const sum5: u128 = @as(u128, product12) +%
+                @as(u128, product21);
+            const sum6: u128 = @as(u128, product11);
+
+            const r0: u128 = (sum0 & Word_FullMask) +%
+                ((sum1 & Word_LoMask) << 32);
+            const r1: u128 = (sum0 >> 64) +%
+                ((sum1 >> 32) & Word_FullMask) +%
+                (sum2 & Word_FullMask) +%
+                ((sum3 << 32) & Word_HiMask);
+
+            lo.* = r0 +% (r1 << 64);
+            hi.* = (r1 >> 64) +%
+                (sum1 >> 96) +%
+                (sum2 >> 64) +%
+                (sum3 >> 32) +%
+                sum4 +%
+                (sum5 << 32) +%
+                (sum6 << 64);
+        },
+        else => @compileError("unsupported"),
+    }
+}
+
+pub fn normalize(comptime T: type, significand: *@Int(.unsigned, @typeInfo(T).float.bits)) i32 {
+    const Z = @Int(.unsigned, @typeInfo(T).float.bits);
+    const integerBit = @as(Z, 1) << std.math.floatFractionalBits(T);
+
+    const shift = @clz(significand.*) - @clz(integerBit);
+    significand.* <<= @as(std.math.Log2Int(Z), @intCast(shift));
+    return @as(i32, 1) - shift;
+}
+
+pub inline fn fneg(a: anytype) @TypeOf(a) {
+    const F = @TypeOf(a);
+    const bits = @typeInfo(F).float.bits;
+    const U = @Int(.unsigned, bits);
+    const sign_bit_mask = @as(U, 1) << (bits - 1);
+    const negated = @as(U, @bitCast(a)) ^ sign_bit_mask;
+    return @bitCast(negated);
+}
+
+fn __neghf2(a: compiler_rt.f16.Abi) callconv(.c) compiler_rt.f16.Abi {
+    return compiler_rt.f16.toAbi(fneg(compiler_rt.f16.fromAbi(a)));
+}
+
+fn __negsf2(a: compiler_rt.f32.Abi) callconv(.c) compiler_rt.f32.Abi {
+    return compiler_rt.f32.toAbi(fneg(compiler_rt.f32.fromAbi(a)));
+}
+
+fn __negdf2(a: compiler_rt.f64.Abi) callconv(.c) compiler_rt.f64.Abi {
+    return compiler_rt.f64.toAbi(fneg(compiler_rt.f64.fromAbi(a)));
+}
+
+fn __negxf2(a: compiler_rt.f80.Abi) callconv(.c) compiler_rt.f80.Abi {
+    return compiler_rt.f80.toAbi(fneg(compiler_rt.f80.fromAbi(a)));
+}
+
+fn __negtf2(a: compiler_rt.f128.Abi) callconv(.c) compiler_rt.f128.Abi {
+    return compiler_rt.f128.toAbi(fneg(compiler_rt.f128.fromAbi(a)));
+}
+
+fn __aeabi_fneg(a: f32) callconv(.{ .arm_aapcs = .{} }) f32 {
+    return fneg(a);
+}
+
+fn __aeabi_dneg(a: f64) callconv(.{ .arm_aapcs = .{} }) f64 {
+    return fneg(a);
+}
+
+/// Allows to access underlying bits as two equally sized lower and higher
+/// signed or unsigned integers.
+pub fn HalveInt(comptime T: type, comptime signed_half: bool) type {
+    return extern union {
+        pub const bits = @divExact(@typeInfo(T).int.bits, 2);
+        pub const HalfTU = @Int(.unsigned, bits);
+        pub const HalfTS = @Int(.signed, bits);
+        pub const HalfT = if (signed_half) HalfTS else HalfTU;
+
+        all: T,
+        s: if (native_endian == .little)
+            extern struct { low: HalfT, high: HalfT }
+        else
+            extern struct { high: HalfT, low: HalfT },
+    };
+}
+
+pub fn __negsi2(a: i32) callconv(.c) i32 {
+    return negXi2(i32, a);
+}
+
+pub fn __negdi2(a: i64) callconv(.c) i64 {
+    return negXi2(i64, a);
+}
+
+pub fn __negti2(a: i128) callconv(.c) i128 {
+    return negXi2(i128, a);
+}
+
+inline fn negXi2(comptime T: type, a: T) T {
+    return -a;
+}
+
+fn memsetSmallPowerOf2(d: [*]u8, b: u8, comptime size: usize) void {
+    @disableIntrinsics();
+
+    if (size > @sizeOf(usize)) {
+        d[0..size].* = @splat(b);
+    } else {
+        const T = @Int(.unsigned, 8 * size);
+        var splatted: T = 0; // Setting this to undefined causes a memset call and thus infinite recursion in Debug test-compiler-rt.
+        @as(*[size]u8, @ptrCast(&splatted)).* = @splat(b);
+        @as(*align(1) T, @ptrCast(d)).* = splatted;
+    }
+}
+
+fn shortMemset(
+    log_min: comptime_int,
+    log_max: comptime_int,
+    d: [*]u8,
+    b: u8,
+    len: usize,
+) void {
+    @disableIntrinsics();
+
+    if (log_min + 1 != log_max) {
+        const mid = (log_min + log_max) / 2;
+        if (len > 1 << mid) {
+            shortMemset(mid, log_max, d, b, len);
+        } else {
+            shortMemset(log_min, mid, d, b, len);
+        }
+    } else {
+        const size = 1 << log_min;
+
+        memsetSmallPowerOf2(d, b, size);
+        memsetSmallPowerOf2(d + len - size, b, size);
+    }
+}
+
+fn fastMemset(dest: ?[*]u8, c: c_int, len: usize) callconv(.c) ?[*]u8 {
+    @disableIntrinsics();
+
+    const b: u8 = @truncate(@as(c_uint, @bitCast(c)));
+    const n = std.simd.suggestVectorLength(u8) orelse @sizeOf(usize);
+
+    const d = dest.?;
+
+    if (len > 2 * n) {
+        memsetSmallPowerOf2(d, b, n);
+
+        const begin_aligned = std.mem.alignBackward(usize, @intFromPtr(d) + n, n);
+        const end_aligned = std.mem.alignForward(usize, @intFromPtr(d) + len - n, n);
+
+        const aligned_ptr: [*]align(n) u8 = @ptrFromInt(begin_aligned);
+
+        var i: usize = 0;
+        while (true) {
+            memsetSmallPowerOf2(aligned_ptr + n * i, b, n);
+
+            i += 1;
+            if (i == @divExact(end_aligned - begin_aligned, n))
+                break;
+        }
+
+        memsetSmallPowerOf2(d + len - n, b, n);
+    } else {
+        if (len == 0) return dest;
+
+        shortMemset(0, @ctz(@as(usize, 2 * n)), d, b, len);
+    }
+
+    return dest;
+}
+
+fn smallMemset(dest: ?[*]u8, c: c_int, len: usize) callconv(.c) ?[*]u8 {
+    @disableIntrinsics();
+
+    const b: u8 = @truncate(@as(c_uint, @bitCast(c)));
+
+    if (len != 0) {
+        var d = dest.?;
+        var n = len;
+        while (true) {
+            d[0] = b;
+            n -= 1;
+            if (n == 0) break;
+            d += 1;
+        }
+    }
+
+    return dest;
+}
+
+pub const memset = if (builtin.optimize == .small)
+    smallMemset
+else
+    fastMemset;
+
+pub fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.c) c_int {
+    @setRuntimeSafety(false);
+
+    var index: usize = 0;
+    while (index != n) : (index += 1) {
+        if (vl[index] != vr[index]) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+test "bcmp" {
+    const base_arr = &[_]u8{ 1, 1, 1 };
+    const arr1 = &[_]u8{ 1, 1, 1 };
+    const arr2 = &[_]u8{ 1, 0, 1 };
+    const arr3 = &[_]u8{ 1, 2, 1 };
+
+    try std.testing.expect(bcmp(base_arr[0..], arr1[0..], base_arr.len) == 0);
+    try std.testing.expect(bcmp(base_arr[0..], arr2[0..], base_arr.len) != 0);
+    try std.testing.expect(bcmp(base_arr[0..], arr3[0..], base_arr.len) != 0);
+}
+
+test {
+    _ = @import("compiler_rt/negsi2_test.sig");
+    _ = @import("compiler_rt/negdi2_test.sig");
+    _ = @import("compiler_rt/negti2_test.sig");
+}

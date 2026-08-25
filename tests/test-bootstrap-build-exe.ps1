@@ -127,7 +127,7 @@ ninja zig2 -j%NUMBER_OF_PROCESSORS%
     Write-Host "  AFTER FIX:  succeeds"
     Write-Host ""
 
-    # Generate build_options.zig
+    # Generate build_options.sig
     $buildGen = ".build-gen"
     if (-not (Test-Path $buildGen)) { mkdir $buildGen | Out-Null }
     @"
@@ -152,14 +152,14 @@ pub const version: [:0]const u8 = "0.17.0";
 pub const sig_version: [:0]const u8 = "test";
 pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
 pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .full;
-"@ | Set-Content "$buildGen\build_options.zig" -Encoding UTF8
+"@ | Set-Content "$buildGen\build_options.sig" -Encoding UTF8
 
     if (-not (Test-Path "stage3-out\bin")) { mkdir "stage3-out\bin" -Force | Out-Null }
 
     # Run the actual build-exe command — THIS IS THE REPRODUCTION
     $buildExeScript = @"
 call "$vcvars"
-build\zig2.exe build-exe --dep build_options --dep aro -Mroot=src/main.zig -Mbuild_options=.build-gen/build_options.zig -Maro=lib/compiler/aro/aro.zig --name sig -OReleaseSafe --zig-lib-dir lib --cache-dir .zig-cache -femit-bin=stage3-out/bin/sig.exe
+build\zig2.exe build-exe --dep build_options --dep aro -Mroot=src/main.sig -Mbuild_options=.build-gen/build_options.sig -Maro=lib/compiler/aro/aro.sig --name sig -OReleaseSafe --zig-lib-dir lib --cache-dir .sig-cache -femit-bin=stage3-out/bin/sig.exe
 "@
     $buildExeScript | Set-Content "build\_run_buildexe.cmd" -Encoding ASCII
     $proc = Start-Process cmd.exe -ArgumentList "/c build\_run_buildexe.cmd" -NoNewWindow -PassThru -Wait

@@ -1,12 +1,12 @@
 //! Capacity-first streaming compression and decompression.
 //!
 //! All operations use caller-provided buffers. No allocator parameters.
-//! Wraps Zig's `std.compress.flate` with the Sig error model.
+//! Wraps Sig's `std.compress.flate` with the Sig error model.
 //!
 //! Supported formats:
 //! - deflate: raw deflate (compress + decompress)
 //! - gzip: gzip-wrapped deflate (compress + decompress)
-//! - zstd: Zstandard (decompress only — Zig std does not provide zstd compression)
+//! - zstd: Zstandard (decompress only — Sig std does not provide zstd compression)
 
 const std = @import("std");
 const SigError = @import("errors.sig").SigError;
@@ -39,7 +39,7 @@ pub fn Decompressor(comptime format: Format) type {
 
 /// Streaming compressor (deflate and gzip only).
 pub fn Compressor(comptime format: Format) type {
-    if (format == .zstd) @compileError("zstd compression not available in Zig std");
+    if (format == .zstd) @compileError("zstd compression not available in Sig std");
     return struct {
         finished: bool = false,
 
@@ -110,7 +110,7 @@ fn decompressImpl(comptime format: Format, input: []const u8, output: []u8) SigE
 }
 
 fn compressImpl(comptime format: Format, input: []const u8, output: []u8) SigError![]u8 {
-    if (format == .zstd) @compileError("zstd compression not available in Zig std");
+    if (format == .zstd) @compileError("zstd compression not available in Sig std");
 
     const container: std.compress.flate.Container = if (format == .gzip) .gzip else .raw;
     var out_writer: std.Io.Writer = .fixed(output);

@@ -927,7 +927,7 @@ test "property: compiler command includes correct module dependencies" {
             const bo_name = "build_options";
             @memcpy(bo_import.name[0..bo_name.len], bo_name);
             bo_import.name_len = bo_name.len;
-            const bo_path = ".zig-cache/build_options.zig";
+            const bo_path = ".sig-cache/build_options.sig";
             @memcpy(bo_import.path[0..bo_path.len], bo_path);
             bo_import.path_len = bo_path.len;
 
@@ -936,7 +936,7 @@ test "property: compiler command includes correct module dependencies" {
             const aro_name = "aro";
             @memcpy(aro_import.name[0..aro_name.len], aro_name);
             aro_import.name_len = aro_name.len;
-            const aro_path = "lib/compiler/aro/aro.zig";
+            const aro_path = "lib/compiler/aro/aro.sig";
             @memcpy(aro_import.path[0..aro_path.len], aro_path);
             aro_import.path_len = aro_path.len;
 
@@ -945,9 +945,9 @@ test "property: compiler command includes correct module dependencies" {
             // Build the command
             var cmd: Command_Buffer = .{};
             try buildCompileCommand(&cmd, .{
-                .source_path = "src/main.zig",
+                .source_path = "src/main.sig",
                 .output_name = "sig",
-                .cache_dir = ".zig-cache",
+                .cache_dir = ".sig-cache",
                 .optimize = optimize,
                 .target = target,
                 .imports = &imports,

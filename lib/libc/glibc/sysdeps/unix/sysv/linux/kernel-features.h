@@ -263,12 +263,12 @@
 
 /* The mseal system call was introduced across all architectures in Linux 6.10
    (although only supported on 64-bit CPUs).  */
-/* zig patch: don't assume kernel version */
+/* Sig patch: don't assume kernel version */
 #define __ASSUME_MSEAL 0
 
 /* The PIDFD_GET_INFO ioctl was introduced across all architectures in Linux
    6.13.  */
-/* zig patch: don't assume kernel version */
+/* Sig patch: don't assume kernel version */
 #define __ASSUME_PIDFD_GET_INFO 0
 
 #endif /* kernel-features.h */

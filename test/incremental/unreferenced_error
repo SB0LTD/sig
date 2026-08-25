@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 pub fn main() !void {
     try std.Io.File.stdout().writeStreamingAll(io, a);
@@ -9,17 +9,17 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="Hello, World!\n"
 
 #update=introduce compile error
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 pub fn main() !void {
     try std.Io.File.stdout().writeStreamingAll(io, a);
 }
 const a = @compileError("bad a");
 const io = std.Io.Threaded.global_single_threaded.io();
-#expect_error=main.zig:5:11: error: bad a
+#expect_error=main.sig:5:11: error: bad a
 
 #update=remove error reference
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 pub fn main() !void {
     try std.Io.File.stdout().writeStreamingAll(io, b);
@@ -30,7 +30,7 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="Hi there!\n"
 
 #update=introduce and remove reference to error
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 pub fn main() !void {
     try std.Io.File.stdout().writeStreamingAll(io, a);

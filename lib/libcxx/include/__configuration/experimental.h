@@ -9,7 +9,7 @@
 #ifndef _LIBCPP___CONFIGURATION_EXPERIMENTAL_H
 #define _LIBCPP___CONFIGURATION_EXPERIMENTAL_H
 
-/* zig patch: instead of including __config_site, zig adds -D flags when compiling */
+/* Sig patch: instead of including __config_site, Sig adds -D flags when compiling */
 
 #ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
 #  pragma GCC system_header

@@ -15,7 +15,7 @@ extern "c" fn fwrite(ptr: [*]const u8, size: usize, nmemb: usize, stream: *FILE)
 ///
 /// Listens on $PORT. Cloud Scheduler hits every ~30s.
 /// On each request:
-///   1. Fetches Codeberg RSS for ziglang/zig master → latest upstream commit
+///   1. Fetches Codeberg RSS for ziglang/Sig master → latest upstream commit
 ///   2. Fetches tools/sig_sync/manifest.json from sig repo → last integrated commit
 ///   3. If upstream is ahead → fires repository_dispatch to GitHub
 ///   4. Returns 200
@@ -80,7 +80,7 @@ fn handleConnection(conn: fd_t) void {
 
     // 1. Fetch Codeberg RSS → latest upstream commit
     var rss_buf: [65536]u8 = undefined;
-    const rss_len = curlGet("https://codeberg.org/ziglang/zig/rss/branch/master", null, &rss_buf) catch |err| {
+    const rss_len = curlGet("https://codeberg.org/ziglang/Sig/rss/branch/master", null, &rss_buf) catch |err| {
         log("RSS fetch failed: {s}", .{@errorName(err)});
         sendResponse(conn, "502 Bad Gateway", "RSS fetch failed");
         return;

@@ -80,7 +80,7 @@ test "Property 6: shared flags appear first in cc_argv in order" {
             var ctx = Compilation_Context{};
 
             // Set a minimal root source so context is somewhat valid
-            try ctx.setRootSource("/test.zig");
+            try ctx.setRootSource("/test.sig");
 
             // Generate 1..8 shared flags
             const num_shared = random.uintAtMost(usize, 7) + 1;
@@ -124,7 +124,7 @@ test "Property 6: per-file extra flags follow shared flags" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
             var ctx = Compilation_Context{};
-            try ctx.setRootSource("/test.zig");
+            try ctx.setRootSource("/test.sig");
 
             // Generate 1..4 shared flags
             const num_shared = random.uintAtMost(usize, 3) + 1;
@@ -182,7 +182,7 @@ test "Property 6: include directories appear as -I<path> entries" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
             var ctx = Compilation_Context{};
-            try ctx.setRootSource("/test.zig");
+            try ctx.setRootSource("/test.sig");
 
             // Generate 1..4 include directories
             const num_dirs = random.uintAtMost(usize, 3) + 1;
@@ -232,7 +232,7 @@ test "Property 6: preprocessor definitions appear as -D<name>=<value> entries" {
     const S = struct {
         fn run(random: std.Random) anyerror!void {
             var ctx = Compilation_Context{};
-            try ctx.setRootSource("/test.zig");
+            try ctx.setRootSource("/test.sig");
 
             // Generate 1..4 definitions with name and value
             const num_defs = random.uintAtMost(usize, 3) + 1;
@@ -310,7 +310,7 @@ test "Property 6: full combination - all flags concatenated correctly with corre
     const S = struct {
         fn run(random: std.Random) anyerror!void {
             var ctx = Compilation_Context{};
-            try ctx.setRootSource("/test.zig");
+            try ctx.setRootSource("/test.sig");
 
             // Generate random counts (1..4 each to stay within limits)
             const num_shared = random.uintAtMost(usize, 3) + 1;

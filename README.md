@@ -5,18 +5,18 @@
 <h1 align="center">Sig</h1>
 
 <p align="center">
-  <strong>The Zig compiler that knows how much memory it has.</strong>
+  <strong>The Sig compiler that knows how much memory it has.</strong>
 </p>
 
 <p align="center">
   <a href="https://github.com/SB0LTD/sig/releases"><img src="https://img.shields.io/github/v/release/SB0LTD/sig?label=latest&color=f7a41d&style=flat-square" alt="Release"></a>
-  <a href="https://codeberg.org/ziglang/zig"><img src="https://img.shields.io/badge/upstream-zig%200.17.0--dev-blue?style=flat-square" alt="Upstream"></a>
+  <a href="https://codeberg.org/ziglang/Sig"><img src="https://img.shields.io/badge/upstream-Sig%200.17.0--dev-blue?style=flat-square" alt="Upstream"></a>
   <a href="https://github.com/SB0LTD/sig/actions/workflows/sig-sync.yaml"><img src="https://img.shields.io/github/actions/workflow/status/SB0LTD/sig/sig-sync.yaml?label=sync&style=flat-square" alt="Sync Status"></a>
   <a href="https://github.com/SB0LTD/sig/actions/workflows/release.yaml"><img src="https://img.shields.io/github/actions/workflow/status/SB0LTD/sig/release.yaml?label=release&style=flat-square" alt="Release Status"></a>
 </p>
 
 <p align="center">
-  <code>sig</code> is a drop-in replacement for <code>zig</code>. All your code works. Then you rename a file to <code>.sig</code> and the compiler starts caring about where your bytes come from.
+  <code>sig</code> is a drop-in replacement for <code>Sig</code>. All your code works. Then you rename a file to <code>.sig</code> and the compiler starts caring about where your bytes come from.
 </p>
 
 ---
@@ -27,7 +27,7 @@ Patch release adding the consolidated native `aarch64-sb0` target.
 
 ```
 $ sig version
-sig 0.3.2 (zig 0.17.0-dev)
+sig 0.3.2 (Sig 0.17.0-dev)
 ```
 
 `-target aarch64-sb0` now selects the SB0 OS and ABI directly, emits native
@@ -35,8 +35,8 @@ raw bytes, reserves x18 automatically, and has no libc or dynamic-linker
 fallback. SB0K and SB0X remain artifact kinds under this one target rather
 than separate compiler destinations.
 
-The packaged `zig` alias preserves the upstream machine-readable version-only
-output, while `sig version` identifies both the Sig and Zig versions.
+The packaged `Sig` alias preserves the upstream machine-readable version-only
+output, while `sig version` identifies both the Sig and Sig versions.
 
 | Platform | Backend | Download |
 |---|---|---|
@@ -59,7 +59,7 @@ of the runner or its release gate. See
 [compiler/SB0_NATIVE_RUNNER.md](compiler/SB0_NATIVE_RUNNER.md) for the wire
 contract and reproducible QEMU invocation.
 
-The final release is produced by Sig itself. CMake and upstream Zig are absent
+The final release is produced by Sig itself. CMake and upstream Sig are absent
 from the release stage. The checked-in `zig1.wasm` chain is used only to create
 the native bootstrap set; those bootstraps then compile the four final Sig
 executables with immutable LLVM closures.
@@ -70,8 +70,8 @@ executables with immutable LLVM closures.
 
 The `.sig` extension activates strict mode. Same syntax. Same parser. Same compiler. But allocator usage becomes a compile error.
 
-```zig
-// foo.zig — business as usual
+```Sig
+// foo.sig — business as usual
 var list = std.ArrayList(u8).init(allocator);
 try list.appendSlice(data);
 
@@ -89,15 +89,15 @@ Four errors replace silent reallocation:
 | `DepthExceeded` | Recursion hit its limit |
 | `QuotaExceeded` | Resource cap reached |
 
-Standard Zig error unions. `try`, `catch`, `orelse`. Nothing new to learn.
+Standard Sig error unions. `try`, `catch`, `orelse`. Nothing new to learn.
 
 ---
 
 ## The Spoon
 
-Sig is not a fork. It stays synchronized with upstream Zig within minutes of every commit.
+Sig is not a fork. It stays synchronized with upstream Sig within minutes of every commit.
 
-When a new commit lands in `ziglang/zig`, it fires a GitHub dispatch. The sig-sync workflow cherry-picks the commit, resolves conflicts (keeping sig-owned files), validates the bootstrap, and pushes. If the standard library changed in a way that breaks the bootstrap, it triggers a rebuild chain automatically.
+When a new commit lands in `ziglang/Sig`, it fires a GitHub dispatch. The sig-sync workflow cherry-picks the commit, resolves conflicts (keeping sig-owned files), validates the bootstrap, and pushes. If the standard library changed in a way that breaks the bootstrap, it triggers a rebuild chain automatically.
 
 The result: sig never drifts. You get upstream bug fixes, optimizations, and new features without waiting.
 
@@ -105,10 +105,10 @@ The result: sig never drifts. You get upstream bug fixes, optimizations, and new
 
 | | |
 |---|---|
-| **Latest upstream commit** | [`a583d26e`](https://codeberg.org/ziglang/zig/commit/a583d26e7016a6111c2d1f9dbe34aeedf810c63f) |
+| **Latest upstream commit** | [`a583d26e`](https://codeberg.org/ziglang/Sig/commit/a583d26e7016a6111c2d1f9dbe34aeedf810c63f) |
 | **Last sync** | 2026-08-25 |
-| **Upstream** | [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) |
-| **Base version** | zig 0.17.0-dev · LLVM 22.1.8 |
+| **Upstream** | [codeberg.org/ziglang/Sig](https://codeberg.org/ziglang/Sig) |
+| **Base version** | Sig 0.17.0-dev · LLVM 22.1.8 |
 | **Sync frequency** | Every commit (< 1 min latency) |
 
 ---
@@ -128,11 +128,11 @@ sig build -OReleaseFast
 ```
 
 The executable and `lib/` directory are a matched toolchain unit. Normally Sig
-finds the adjacent library automatically. If `ZIG_LIB_DIR` is set globally,
+finds the adjacent library automatically. If `SIG_LIB_DIR` is set globally,
 unset it or point it at the extracted `sig-toolchain/lib`; mixing compiler and
 library versions can make the build runner fail before your build begins.
 
-It's a drop-in replacement. Every `.zig` file compiles unchanged. Rename to `.sig` when you're ready to go strict.
+It's a drop-in replacement. Every `.sig` file compiles unchanged. Rename to `.sig` when you're ready to go strict.
 
 ## How it's built
 
@@ -149,4 +149,4 @@ budget, then cross-compile and validate an AArch64 object.
 
 ## License
 
-Same as upstream Zig — MIT. See [LICENSE](LICENSE).
+Same as upstream Sig — MIT. See [LICENSE](LICENSE).

@@ -23,7 +23,7 @@
 # endif
 #endif
 
-// zig patch: handle both be and le in the same header
+// Sig patch: handle both be and le in the same header
 #ifdef __LITTLE_ENDIAN__
 #define __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI (__LDBL_MANT_DIG__ == 113)
 #else

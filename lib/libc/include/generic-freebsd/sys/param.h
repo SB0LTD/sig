@@ -73,7 +73,7 @@
  * was introduced. This number is propagated to other places needing it that
  * cannot include sys/param.h and should only be updated here.
  */
-/* zig patch: __FreeBSD_version is defined by the compiler */
+/* Sig patch: __FreeBSD_version is defined by the compiler */
 
 /*
  * __FreeBSD_kernel__ indicates that this system uses the kernel of FreeBSD,

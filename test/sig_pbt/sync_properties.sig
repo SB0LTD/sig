@@ -46,11 +46,11 @@ fn genStatus(random: std.Random) SyncEntry.Status {
 }
 
 const path_pool = [_][]const u8{
-    "lib/sig/fmt.zig",
-    "src/main.zig",
-    "lib/sig/io.zig",
-    "tools/sig_sync/main.zig",
-    "lib/sig/containers.zig",
+    "lib/sig/fmt.sig",
+    "src/main.sig",
+    "lib/sig/io.sig",
+    "tools/sig_sync/main.sig",
+    "lib/sig/containers.sig",
 };
 
 fn genSyncEntry(random: std.Random) SyncEntry {

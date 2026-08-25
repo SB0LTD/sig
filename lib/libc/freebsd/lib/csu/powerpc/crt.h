@@ -24,7 +24,7 @@
 #ifndef _CRT_H_
 #define	_CRT_H_
 
-/* zig patch: no HAVE_CTORS/CTORS_CONSTRUCTORS */
+/* Sig patch: no HAVE_CTORS/CTORS_CONSTRUCTORS */
 #define	INIT_CALL_SEQ(func)	"bl " __STRING(func) "; nop"
 
 #endif

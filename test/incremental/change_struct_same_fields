@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const S = extern struct { x: u8, y: u8 };
 pub fn main() !void {
     const val: S = .{ .x = 100, .y = 200 };
@@ -17,7 +17,7 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="100 200\n"
 
 #update=change struct layout
-#file=main.zig
+#file=main.sig
 const S = extern struct { x: u32, y: u32 };
 pub fn main() !void {
     const val: S = .{ .x = 100, .y = 200 };
@@ -35,7 +35,7 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="100 200\n"
 
 #update=change values
-#file=main.zig
+#file=main.sig
 const S = extern struct { x: u32, y: u32 };
 pub fn main() !void {
     const val: S = .{ .x = 1234, .y = 5678 };

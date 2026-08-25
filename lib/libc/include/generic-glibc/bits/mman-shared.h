@@ -49,7 +49,7 @@
 
 __BEGIN_DECLS
 
-// zig patch: check target glibc version
+// Sig patch: check target glibc version
 # if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 27) || __GLIBC__ > 2
 
 /* Create a new memory file descriptor.  NAME is a name for debugging.

@@ -27,7 +27,7 @@ function Get-PlatformTriple {
 function Resolve-VersionFromManifest {
     $manifest = $null
     if (Test-Path 'build.sig.zon') { $manifest = 'build.sig.zon' }
-    elseif (Test-Path 'build.zig.zon') { $manifest = 'build.zig.zon' }
+    elseif (Test-Path 'build.sig.zon') { $manifest = 'build.sig.zon' }
 
     if ($manifest) {
         $content = Get-Content $manifest -Raw

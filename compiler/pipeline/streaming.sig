@@ -82,7 +82,7 @@ pub const File_Entry = struct {
     path_len: u16 = 0,
     source: [*]const u8 = undefined,
     source_len: usize = 0,
-    is_sig: bool = true, // true for .sig, false for .zig
+    is_sig: bool = true, // true for .sig, false for .sig
 };
 
 // ============================================================================

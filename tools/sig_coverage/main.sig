@@ -5,10 +5,10 @@ const sig_io = sig.io;
 
 /// Sig Standard Library Coverage Analyzer
 ///
-/// Reports what percentage of the Zig standard library has a
+/// Reports what percentage of the Sig standard library has a
 /// capacity-first Sig equivalent. Pure Sig — stack buffers, no allocators.
 ///
-/// Run: zig build run-sig-coverage
+/// Run: Sig build run-sig-coverage
 const Coverage = enum { covered, not_needed, not_covered };
 
 const ModuleEntry = struct {
@@ -67,7 +67,7 @@ const module_map = [_]ModuleEntry{
     .{ .std_name = "unicode", .sig_name = "-", .coverage = .not_needed, .note = "lookup tables" },
     .{ .std_name = "valgrind", .sig_name = "-", .coverage = .not_needed, .note = "valgrind client requests" },
     .{ .std_name = "wasm", .sig_name = "-", .coverage = .not_needed, .note = "wasm format" },
-    .{ .std_name = "zig", .sig_name = "-", .coverage = .not_needed, .note = "zig format tooling" },
+    .{ .std_name = "sig", .sig_name = "-", .coverage = .not_needed, .note = "Sig format tooling" },
 
     // ── Not covered (uses allocators, needs sig) ──
     .{ .std_name = "http", .sig_name = "sig.http", .coverage = .covered, .note = "parseUri, buildRequest, parseResponse, get, post, Server" },

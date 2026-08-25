@@ -5696,7 +5696,7 @@ long double __cdecl nanl(char const* input);
 #endif
 
 #define zig_has_f16 1
-#define zig_libc_name_f16(name) __##name##h
+#define sig_libc_name_f16(name) __##name##h
 #define zig_init_special_f16(sign, name, arg, repr) zig_make_special_f16(sign, name, arg, repr)
 #if !defined(ZIG_TARGET_SOFT_COMPILER_RT_F16_ABI) && FLT_MANT_DIG == 11
 typedef float zig_f16;
@@ -5726,7 +5726,7 @@ typedef uint16_t zig_f16;
 #endif
 
 #define zig_has_f32 1
-#define zig_libc_name_f32(name) name##f
+#define sig_libc_name_f32(name) name##f
 #if defined(zig_msvc)
 #define zig_init_special_f32(sign, name, arg, repr) sign zig_make_f32(zig_msvc_flt_##name, )
 #else
@@ -5757,7 +5757,7 @@ typedef uint32_t zig_f32;
 #endif
 
 #define zig_has_f64 1
-#define zig_libc_name_f64(name) name
+#define sig_libc_name_f64(name) name
 
 #if defined(zig_msvc)
 #define zig_init_special_f64(sign, name, arg, repr) sign zig_make_f64(zig_msvc_flt_##name, )
@@ -5792,7 +5792,7 @@ typedef uint64_t zig_f64;
 #endif
 
 #define zig_has_f80 1
-#define zig_libc_name_f80(name) __##name##x
+#define sig_libc_name_f80(name) __##name##x
 #define zig_init_special_f80(sign, name, arg, repr) zig_make_special_f80(sign, name, arg, repr)
 #ifdef ZIG_TARGET_SOFT_COMPILER_RT_F80_ABI
 #undef zig_has_f80
@@ -5840,7 +5840,7 @@ typedef zig_u128 zig_f80;
 #endif
 
 #define zig_has_f128 1
-#define zig_libc_name_f128(name) name##f128
+#define sig_libc_name_f128(name) name##f128
 #define zig_init_special_f128(sign, name, arg, repr) zig_make_special_f128(sign, name, arg, repr)
 #ifdef ZIG_TARGET_SOFT_COMPILER_RT_F128_ABI
 #undef zig_has_f128
@@ -6134,24 +6134,24 @@ zig_float_negate_builtin(128, UINT64_C(1) << 63)
     zig_expand_concat(zig_float_binary_builtin_,  zig_has_f##w)(f##w, sub, -) \
     zig_expand_concat(zig_float_binary_builtin_,  zig_has_f##w)(f##w, mul, *) \
     zig_expand_concat(zig_float_binary_builtin_,  zig_has_f##w)(f##w, div, /) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(sqrt)))(zig_f##w, zig_sqrt_f##w, zig_libc_name_f##w(sqrt), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(sin)))(zig_f##w, zig_sin_f##w, zig_libc_name_f##w(sin), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(cos)))(zig_f##w, zig_cos_f##w, zig_libc_name_f##w(cos), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(tan)))(zig_f##w, zig_tan_f##w, zig_libc_name_f##w(tan), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(exp)))(zig_f##w, zig_exp_f##w, zig_libc_name_f##w(exp), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(exp2)))(zig_f##w, zig_exp2_f##w, zig_libc_name_f##w(exp2), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(log)))(zig_f##w, zig_log_f##w, zig_libc_name_f##w(log), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(log2)))(zig_f##w, zig_log2_f##w, zig_libc_name_f##w(log2), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(log10)))(zig_f##w, zig_log10_f##w, zig_libc_name_f##w(log10), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(fabs)))(zig_f##w, zig_abs_f##w, zig_libc_name_f##w(fabs), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(floor)))(zig_f##w, zig_floor_f##w, zig_libc_name_f##w(floor), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(ceil)))(zig_f##w, zig_ceil_f##w, zig_libc_name_f##w(ceil), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(round)))(zig_f##w, zig_round_f##w, zig_libc_name_f##w(round), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(trunc)))(zig_f##w, zig_trunc_f##w, zig_libc_name_f##w(trunc), (zig_f##w x), (x)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(fmod)))(zig_f##w, zig_fmod_f##w, zig_libc_name_f##w(fmod), (zig_f##w x, zig_f##w y), (x, y)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(fmin)))(zig_f##w, zig_min_f##w, zig_libc_name_f##w(fmin), (zig_f##w x, zig_f##w y), (x, y)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(fmax)))(zig_f##w, zig_max_f##w, zig_libc_name_f##w(fmax), (zig_f##w x, zig_f##w y), (x, y)) \
-    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(fma)))(zig_f##w, zig_fma_f##w, zig_libc_name_f##w(fma), (zig_f##w x, zig_f##w y, zig_f##w z), (x, y, z)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(sqrt)))(zig_f##w, zig_sqrt_f##w, sig_libc_name_f##w(sqrt), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(sin)))(zig_f##w, zig_sin_f##w, sig_libc_name_f##w(sin), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(cos)))(zig_f##w, zig_cos_f##w, sig_libc_name_f##w(cos), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(tan)))(zig_f##w, zig_tan_f##w, sig_libc_name_f##w(tan), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(exp)))(zig_f##w, zig_exp_f##w, sig_libc_name_f##w(exp), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(exp2)))(zig_f##w, zig_exp2_f##w, sig_libc_name_f##w(exp2), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(log)))(zig_f##w, zig_log_f##w, sig_libc_name_f##w(log), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(log2)))(zig_f##w, zig_log2_f##w, sig_libc_name_f##w(log2), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(log10)))(zig_f##w, zig_log10_f##w, sig_libc_name_f##w(log10), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(fabs)))(zig_f##w, zig_abs_f##w, sig_libc_name_f##w(fabs), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(floor)))(zig_f##w, zig_floor_f##w, sig_libc_name_f##w(floor), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(ceil)))(zig_f##w, zig_ceil_f##w, sig_libc_name_f##w(ceil), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(round)))(zig_f##w, zig_round_f##w, sig_libc_name_f##w(round), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(trunc)))(zig_f##w, zig_trunc_f##w, sig_libc_name_f##w(trunc), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(fmod)))(zig_f##w, zig_fmod_f##w, sig_libc_name_f##w(fmod), (zig_f##w x, zig_f##w y), (x, y)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(fmin)))(zig_f##w, zig_min_f##w, sig_libc_name_f##w(fmin), (zig_f##w x, zig_f##w y), (x, y)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(fmax)))(zig_f##w, zig_max_f##w, sig_libc_name_f##w(fmax), (zig_f##w x, zig_f##w y), (x, y)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(sig_libc_name_f##w(fma)))(zig_f##w, zig_fma_f##w, sig_libc_name_f##w(fma), (zig_f##w x, zig_f##w y, zig_f##w z), (x, y, z)) \
 \
     static inline zig_f##w zig_divTrunc_f##w(zig_f##w lhs, zig_f##w rhs) { \
         return zig_trunc_f##w(zig_div_f##w(lhs, rhs)); \

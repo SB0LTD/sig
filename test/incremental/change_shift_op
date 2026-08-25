@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
     try foo(0x1300);
 }
@@ -11,7 +11,7 @@ const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="0x3000\n"
 #update=change to right shift
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
     try foo(0x1300);
 }

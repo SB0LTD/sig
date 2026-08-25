@@ -346,7 +346,7 @@ int	__libc_thr_attr_setdetachstate(pthread_attr_t *, int);
 int	__libc_thr_attr_destroy(pthread_attr_t *);
 __END_DECLS
 
-// zig patch: these aliases were added in NetBSD 11.0
+// Sig patch: these aliases were added in NetBSD 11.0
 #if __NetBSD_Version__ >= 1100000000
 /*
  * If _NETBSD_PTHREAD_CREATE_WEAK is defined, make pthread_create

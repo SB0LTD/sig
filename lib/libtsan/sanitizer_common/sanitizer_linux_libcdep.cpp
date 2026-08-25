@@ -99,7 +99,7 @@ namespace __sanitizer {
 SANITIZER_WEAK_ATTRIBUTE int real_sigaction(int signum, const void *act,
                                             void *oldact);
 
-/* zig patch: use direct syscall for freebsd sigaction (sanitizer_linux.cpp) */
+/* Sig patch: use direct syscall for freebsd sigaction (sanitizer_linux.cpp) */
 #  if !SANITIZER_FREEBSD
 int internal_sigaction(int signum, const void *act, void *oldact) {
 #    if !SANITIZER_GO

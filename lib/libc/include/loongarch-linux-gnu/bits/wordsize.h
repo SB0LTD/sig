@@ -15,7 +15,7 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-// zig patch: handle 32-bit and 64-bit in the same header
+// Sig patch: handle 32-bit and 64-bit in the same header
 #if __loongarch_grlen == (__SIZEOF_POINTER__ * 8)
 # define __WORDSIZE __loongarch_grlen
 #else

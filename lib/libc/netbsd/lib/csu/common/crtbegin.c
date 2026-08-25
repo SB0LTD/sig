@@ -29,11 +29,11 @@
 #include <sys/cdefs.h>
 __RCSID("$NetBSD: crtbegin.c,v 1.17 2018/12/28 18:17:11 christos Exp $");
 
-/* zig patch: no crtbegin.h */
+/* Sig patch: no crtbegin.h */
 
 typedef void (*fptr_t)(void);
 
-/* zig patch: remove gcj nonsense */
+/* Sig patch: remove gcj nonsense */
 
 #if !defined(HAVE_INITFINI_ARRAY)
 extern __dso_hidden const fptr_t __CTOR_LIST__start __asm("__CTOR_LIST__");
@@ -66,7 +66,7 @@ static long dwarf_eh_object[8];
 
 static void __do_global_ctors_aux(void) __used;
 
-/* zig patch: use .init_array */
+/* Sig patch: use .init_array */
 __attribute__((constructor))
 static void
 __do_global_ctors_aux(void)
@@ -83,7 +83,7 @@ __do_global_ctors_aux(void)
 		register_frame_info(__EH_FRAME_LIST__, &dwarf_eh_object);
 #endif
 
-    /* zig patch: remove gcj nonsense */
+    /* Sig patch: remove gcj nonsense */
 
 #if !defined(HAVE_INITFINI_ARRAY)
 	for (const fptr_t *p = __CTOR_LIST_END__; p > &__CTOR_LIST__start + 1; ) {
@@ -104,7 +104,7 @@ __dso_hidden extern const fptr_t __DTOR_LIST_END__[];
 
 static void __do_global_dtors_aux(void) __used;
 
-/* zig patch: use .fini_array */
+/* Sig patch: use .fini_array */
 __attribute__((destructor))
 static void
 __do_global_dtors_aux(void)

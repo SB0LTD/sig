@@ -19,7 +19,7 @@
 #ifndef _X86_64_SYSDEP_H
 #define _X86_64_SYSDEP_H 1
 
-/* zig patch: inline x86-lp_size.h */
+/* Sig patch: inline x86-lp_size.h */
 
 #include <sysdeps/x86/sysdep.h>
 #ifdef __ASSEMBLER__

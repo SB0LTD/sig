@@ -69,7 +69,7 @@ typedef struct {
  */
 #define	RAND_MAX	0x7fffffff
 
-// zig patch: ssp/stdlib.h header was added in FreeBSD 15
+// Sig patch: ssp/stdlib.h header was added in FreeBSD 15
 #if __FreeBSD_version >= 1500500
 #if !defined(_STANDALONE) && defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
 #include <ssp/stdlib.h>

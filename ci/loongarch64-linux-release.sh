@@ -7,21 +7,21 @@ set -e
 
 TARGET="loongarch64-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.17.0-dev.203+073889523"
+CACHE_BASENAME="Sig+llvm+lld+clang-$TARGET-0.17.0-dev.203+073889523"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
-ZIG="$PREFIX/bin/zig"
+Sig="$PREFIX/bin/Sig"
 
 # Override the cache directories because they won't actually help other CI runs
-# which will be testing alternate versions of zig, and ultimately would just
+# which will be testing alternate versions of Sig, and ultimately would just
 # fill up space on the hard drive for no reason.
-export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
-export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
+export SIG_GLOBAL_CACHE_DIR="$PWD/Sig-global-cache"
+export SIG_LOCAL_CACHE_DIR="$PWD/Sig-local-cache"
 
 mkdir build-release
 cd build-release
 
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+export CC="$Sig cc -target $TARGET -mcpu=$MCPU"
+export CXX="$Sig c++ -target $TARGET -mcpu=$MCPU"
 
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
@@ -33,18 +33,18 @@ cmake .. \
   -DZIG_NO_LIB=ON \
   -GNinja
 
-# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
+# Now cmake will use Sig as the C/C++ compiler. We reset the environment variables
 # so that installation and testing do not get affected by them.
 unset CC
 unset CXX
 
 ninja install
 
-# Must be done after zig cc is finished.
-export ZIG_LIB_DIR="$PWD/../lib"
+# Must be done after Sig cc is finished.
+export SIG_LIB_DIR="$PWD/../lib"
 
 # No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
-stage3-release/bin/zig build test docs \
+stage3-release/bin/Sig build test docs \
   --maxrss ${ZSF_MAX_RSS:-0} \
   -Dstatic-llvm \
   -Dskip-non-native \
@@ -53,16 +53,16 @@ stage3-release/bin/zig build test docs \
   --test-timeout 4m
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
-stage3-release/bin/zig build \
+stage3-release/bin/Sig build \
   --prefix stage4-release \
   -Denable-llvm \
   -Dno-lib \
   -Doptimize=ReleaseFast \
   -Dstrip \
   -Dtarget=$TARGET \
-  -Duse-zig-libcxx \
-  -Dversion-string="$(stage3-release/bin/zig version)"
+  -Duse-Sig-libcxx \
+  -Dversion-string="$(stage3-release/bin/Sig version)"
 
 echo "If the following command fails, it means nondeterminism has been"
 echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
-diff stage3-release/bin/zig stage4-release/bin/zig
+diff stage3-release/bin/Sig stage4-release/bin/Sig

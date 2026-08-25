@@ -20,8 +20,8 @@ test "$(od -An -tx1 -N4 stage1/zig1.wasm | tr -d ' \n')" = 0061736d
 
 "${CC:-cc}" -std=c99 -O2 \
   stage1/wasm2c.c \
-  -o "$work_root/zig-wasm2c"
-"$work_root/zig-wasm2c" \
+  -o "$work_root/Sig-wasm2c"
+"$work_root/Sig-wasm2c" \
   stage1/zig1.wasm \
   "$work_root/zig1.c"
 "${CC:-cc}" -std=c99 -Os -fno-strict-aliasing \
@@ -38,7 +38,7 @@ test -n "$zig_version"
 sed \
   -e "s/@RESOLVED_SIG_VERSION@/$sig_version/g" \
   -e "s/@RESOLVED_ZIG_VERSION@/$zig_version/g" \
-  stage1/config.zig.in > "$work_root/config.zig"
+  stage1/config.sig.in > "$work_root/config.sig"
 
 "$work_root/zig1" "$repo_root/lib" \
   build-exe \
@@ -49,8 +49,8 @@ sed \
   "-femit-bin=$work_root/zig2.c" \
   -target x86_64-linux \
   --dep build_options \
-  -Mroot=src/main.zig \
-  "-Mbuild_options=$work_root/config.zig"
+  -Mroot=src/main.sig \
+  "-Mbuild_options=$work_root/config.sig"
 
 test -s "$work_root/zig2.c"
 echo "zig1.wasm host-shim link and execution proof passed"

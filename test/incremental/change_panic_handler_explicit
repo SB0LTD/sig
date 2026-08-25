@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 pub fn main() !u8 {
     var a: u8 = undefined;
     a = 255;
@@ -49,7 +49,7 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="panic message: integer overflow\n"
 
 #update=change the panic handler body
-#file=main.zig
+#file=main.sig
 pub fn main() !u8 {
     var a: u8 = undefined;
     a = 255;
@@ -99,7 +99,7 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="new panic message: integer overflow\n"
 
 #update=change the panic handler function value
-#file=main.zig
+#file=main.sig
 pub fn main() !u8 {
     var a: u8 = undefined;
     a = 255;

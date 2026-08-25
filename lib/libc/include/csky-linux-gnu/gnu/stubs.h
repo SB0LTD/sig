@@ -15,7 +15,7 @@
 #define __stub_chflags
 #define __stub_fchflags
 
-// zig patch: handle both float abis in the same header
+// Sig patch: handle both float abis in the same header
 #ifndef __CSKY_HARD_FLOAT_ABI__
 #define __stub_feclearexcept
 #define __stub_fedisableexcept

@@ -7,7 +7,7 @@ const sig_build = @import("sig_build");
 const std = @import("std");
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
-const sig_version_string = "0.3.2";
+const sig_version_string = "0.3.3";
 
 fn noopStep(ctx: *sig_build.Step_Context) sig_build.SigError!void {
     _ = ctx;
@@ -15,9 +15,9 @@ fn noopStep(ctx: *sig_build.Step_Context) sig_build.SigError!void {
 
 pub fn build(ctx: *sig_build.Build_Context) !void {
     // Wire version constants
-    ctx.zig_version_major = zig_version.major;
-    ctx.zig_version_minor = zig_version.minor;
-    ctx.zig_version_patch = zig_version.patch;
+    ctx.sig_version_major = zig_version.major;
+    ctx.sig_version_minor = zig_version.minor;
+    ctx.sig_version_patch = zig_version.patch;
     @memcpy(ctx.sig_version[0..sig_version_string.len], sig_version_string);
     ctx.sig_version_len = sig_version_string.len;
 
@@ -37,13 +37,13 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
 
     const has_target = ctx.target.arch_len > 0;
 
-    // Generate build_options (always needed — src/main.zig imports it)
+    // Generate build_options (always needed — src/main.sig imports it)
     const config = try ctx.addStep("config:sig", "Generate config.sig", &sig_build.generateConfig);
 
     // Compiler compilation step
     if (!no_bin) {
         _ = try ctx.addCompileStep(.{
-            .source_path = "src/main.zig",
+            .source_path = "src/main.sig",
             .output_name = "sig",
             .cache_dir = ctx.cache_dir[0..ctx.cache_dir_len],
             .optimize = ctx.optimize,
@@ -87,7 +87,7 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         });
 
         _ = try ctx.addLlvmLinkStep(.{
-            .zigcpp_handle = archive,
+            .sigcpp_handle = archive,
             .config_handle = config,
             .lib_dirs = &.{},
             .llvm_libs = &.{},

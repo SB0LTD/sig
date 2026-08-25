@@ -1,4 +1,4 @@
-// This include file is generated via build.zig, and it #defines GENERATED_DEFINE
+// This include file is generated via build.sig, and it #defines GENERATED_DEFINE
 #include "generated.h"
 FOO RCDATA { GENERATED_DEFINE }
 

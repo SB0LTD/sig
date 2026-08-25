@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const Tag = u2;
 const Foo = enum(Tag) {
     a,
@@ -17,7 +17,7 @@ const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="a\n"
 #update=too many enum fields
-#file=main.zig
+#file=main.sig
 const Tag = u2;
 const Foo = enum(Tag) {
     a,
@@ -39,9 +39,9 @@ comptime {
 }
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
-#expect_error=main.zig:7:5: error: enum tag value '4' too large for type 'u2'
+#expect_error=main.sig:7:5: error: enum tag value '4' too large for type 'u2'
 #update=increase tag size
-#file=main.zig
+#file=main.sig
 const Tag = u3;
 const Foo = enum(Tag) {
     a,
@@ -60,7 +60,7 @@ const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="a\n"
 #update=specify tag directly
-#file=main.zig
+#file=main.sig
 const Foo = enum(u3) {
     a,
     b,
@@ -73,10 +73,10 @@ pub fn main() !void {
 }
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
-#expect_error=main.zig:9:5: error: found compile log statement
+#expect_error=main.sig:9:5: error: found compile log statement
 #expect_compile_log=@as(type, u3)
 #update=change directly-specified tag type
-#file=main.zig
+#file=main.sig
 const Foo = enum(u8) {
     a,
     b,
@@ -89,5 +89,5 @@ pub fn main() !void {
 }
 const std = @import("std");
 const io = std.Io.Threaded.global_single_threaded.io();
-#expect_error=main.zig:9:5: error: found compile log statement
+#expect_error=main.sig:9:5: error: found compile log statement
 #expect_compile_log=@as(type, u8)

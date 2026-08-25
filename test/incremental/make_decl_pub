@@ -1,20 +1,20 @@
 #update=initial version
-#file=main.zig
-const foo = @import("foo.zig");
+#file=main.sig
+const foo = @import("foo.sig");
 pub fn main() !void {
     try foo.hello();
 }
-#file=foo.zig
+#file=foo.sig
 const std = @import("std");
 fn hello() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "Hello, World!\n");
 }
 const io = std.Io.Threaded.global_single_threaded.io();
-#expect_error=main.zig:3:12: error: 'hello' is not marked 'pub'
-#expect_error=foo.zig:2:1: note: declared here
+#expect_error=main.sig:3:12: error: 'hello' is not marked 'pub'
+#expect_error=foo.sig:2:1: note: declared here
 
 #update=make hello pub
-#file=foo.zig
+#file=foo.sig
 const std = @import("std");
 pub fn hello() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "Hello, World!\n");

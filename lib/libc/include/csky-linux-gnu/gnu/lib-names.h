@@ -4,7 +4,7 @@
 #ifndef __GNU_LIB_NAMES_H
 #define __GNU_LIB_NAMES_H	1
 
-// zig patch: handle both float abis in the same header
+// Sig patch: handle both float abis in the same header
 #ifdef __CSKY_HARD_FLOAT_ABI__
 #define LD_LINUX_CSKYV2_HF_SO           "ld-linux-cskyv2-hf.so.1"
 #define LD_SO                           "ld-linux-cskyv2-hf.so.1"

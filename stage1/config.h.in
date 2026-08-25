@@ -14,7 +14,7 @@
 #define ZIG_VERSION_PATCH @ZIG_VERSION_PATCH@
 #define ZIG_VERSION_STRING "@ZIG_VERSION@"
 
-// Used by build.zig for communicating build information to self hosted build.
+// Used by build.sig for communicating build information to self hosted build.
 #define ZIG_CLANG_LIBRARIES "@CLANG_LIBRARIES@"
 #define ZIG_CMAKE_BINARY_DIR "@CMAKE_BINARY_DIR@"
 #define ZIG_CMAKE_PREFIX_PATH "@ZIG_CMAKE_PREFIX_PATH@"

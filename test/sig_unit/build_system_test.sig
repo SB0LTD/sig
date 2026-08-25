@@ -12,15 +12,15 @@
 const std = @import("std");
 const testing = std.testing;
 
-// ── Test 1: stem strips .zig extension ──────────────────────────────────
+// ── Test 1: stem strips .sig extension ──────────────────────────────────
 
-test "stem strips .zig extension from fmt.zig" {
-    const stem = std.fs.path.stem("fmt.zig");
+test "stem strips .sig extension from fmt.sig" {
+    const stem = std.fs.path.stem("fmt.sig");
     try testing.expectEqualStrings("fmt", stem);
 }
 
-test "stem strips .zig extension from sig_diagnostics.zig" {
-    const stem = std.fs.path.stem("sig_diagnostics.zig");
+test "stem strips .sig extension from sig_diagnostics.sig" {
+    const stem = std.fs.path.stem("sig_diagnostics.sig");
     try testing.expectEqualStrings("sig_diagnostics", stem);
 }
 
@@ -82,7 +82,7 @@ test "tool step name: sig_readme -> run-sig-readme" {
 // ── Test 4: edge cases — single char and multiple underscores ───────────
 
 test "stem handles single-character filename" {
-    const stem = std.fs.path.stem("a.zig");
+    const stem = std.fs.path.stem("a.sig");
     try testing.expectEqualStrings("a", stem);
 }
 
@@ -92,7 +92,7 @@ test "stem handles single-character .sig filename" {
 }
 
 test "stem handles filename with multiple underscores" {
-    const stem = std.fs.path.stem("my_long_module_name.zig");
+    const stem = std.fs.path.stem("my_long_module_name.sig");
     try testing.expectEqualStrings("my_long_module_name", stem);
 }
 
@@ -204,16 +204,16 @@ test "tool description: sig_conflict_resolver -> Run sig_conflict_resolver tool"
     try testing.expectEqualStrings("Run sig_conflict_resolver tool", desc);
 }
 
-// ── Test 8: .zig module discovery name derivation ───────────────────────
+// ── Test 8: .sig module discovery name derivation ───────────────────────
 
-test "module discovery: sig.zig -> sig" {
-    try testing.expectEqualStrings("sig", std.fs.path.stem("sig.zig"));
+test "module discovery: sig.sig -> sig" {
+    try testing.expectEqualStrings("sig", std.fs.path.stem("sig.sig"));
 }
 
-test "module discovery: containers.zig -> containers" {
-    try testing.expectEqualStrings("containers", std.fs.path.stem("containers.zig"));
+test "module discovery: containers.sig -> containers" {
+    try testing.expectEqualStrings("containers", std.fs.path.stem("containers.sig"));
 }
 
-test "module discovery: sig_diagnostics_integration.zig -> sig_diagnostics_integration" {
-    try testing.expectEqualStrings("sig_diagnostics_integration", std.fs.path.stem("sig_diagnostics_integration.zig"));
+test "module discovery: sig_diagnostics_integration.sig -> sig_diagnostics_integration" {
+    try testing.expectEqualStrings("sig_diagnostics_integration", std.fs.path.stem("sig_diagnostics_integration.sig"));
 }

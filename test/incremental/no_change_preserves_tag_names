@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 var some_enum: enum { first, second } = .first;
 const io = std.Io.Threaded.global_single_threaded.io();
@@ -8,7 +8,7 @@ pub fn main() !void {
 }
 #expect_stdout="first"
 #update=no change
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 var some_enum: enum { first, second } = .first;
 const io = std.Io.Threaded.global_single_threaded.io();

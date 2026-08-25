@@ -399,8 +399,8 @@ test "generateBuildOptions: version string with pre-release and build metadata" 
     try testing.expect(std.mem.indexOf(u8, output, ".build = \"e4e2b7da1\",") != null);
 }
 
-test "generateBuildOptions: output matches real options.zig format" {
-    // Reproduce the exact config from .zig-cache/c/59e99a88.../options.zig
+test "generateBuildOptions: output matches real options.sig format" {
+    // Reproduce the exact config from .sig-cache/c/59e99a88.../options.sig
     var ctx = makeCtx(.Debug);
     try ctx.options.put("debug-extensions", "true");
     try ctx.options.put("log", "true");
@@ -415,7 +415,7 @@ test "generateBuildOptions: output matches real options.zig format" {
     var buf: [BUILD_OPTIONS_BUF_SIZE]u8 = undefined;
     const output = try generateBuildOptionsToBuffer(&ctx, "0.16.0-dev.3083+e4e2b7da1", &buf);
 
-    // Verify key lines match the real cached options.zig
+    // Verify key lines match the real cached options.sig
     try testing.expect(std.mem.indexOf(u8, output, "pub const mem_leak_frames: u32 = 0;") != null);
     try testing.expect(std.mem.indexOf(u8, output, "pub const have_llvm: bool = false;") != null);
     try testing.expect(std.mem.indexOf(u8, output, "pub const debug_gpa: bool = false;") != null);

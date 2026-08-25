@@ -1,5 +1,5 @@
 #update=non-inline version
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
     try foo();
 }
@@ -11,7 +11,7 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="Hello, World!\n"
 
 #update=make function inline
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
     try foo();
 }
@@ -23,7 +23,7 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="Hello, World!\n"
 
 #update=change string
-#file=main.zig
+#file=main.sig
 pub fn main() !void {
     try foo();
 }

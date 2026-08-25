@@ -15906,7 +15906,7 @@ void run_c_tests(void) {
     zig_bool(true);
 
 #ifndef ZIG_NO_COMPLEX
-    // TODO: Resolve https://github.com/ziglang/zig/issues/8465
+    // TODO: Resolve https://github.com/ziglang/Sig/issues/8465
     //{
     //    float complex a = 1.25f + I * 2.6f;
     //    float complex b = 11.3f - I * 1.5f;

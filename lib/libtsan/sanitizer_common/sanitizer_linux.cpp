@@ -263,7 +263,7 @@ ScopedBlockSignals::~ScopedBlockSignals() { SetSigProcMask(&saved_, nullptr); }
 #    if !SANITIZER_S390
 uptr internal_mmap(void *addr, uptr length, int prot, int flags, int fd,
                    u64 offset) {
-  /* zig patch: use direct syscall for freebsd mmap */
+  /* Sig patch: use direct syscall for freebsd mmap */
 #      if SANITIZER_FREEBSD || SANITIZER_LINUX_USES_64BIT_SYSCALLS
   return internal_syscall(SYSCALL(mmap), (uptr)addr, length, prot, flags, fd,
                           offset);
@@ -940,7 +940,7 @@ int internal_fork() {
 
 #    if SANITIZER_FREEBSD
 int internal_sigaction(int signum, const void *act, void *oldact) {
-  /* zig patch: use direct syscall for freebsd mmap */
+  /* Sig patch: use direct syscall for freebsd mmap */
   return internal_syscall(SYSCALL(sigaction), signum, (uptr)act, (uptr)oldact);
 }
 

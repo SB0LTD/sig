@@ -1,6 +1,6 @@
 /* $NetBSD: wchar_limits.h,v 1.1 2014/09/19 17:36:26 matt Exp $ */
 
-// zig patch: https://github.com/llvm/llvm-project/issues/199678
+// Sig patch: https://github.com/llvm/llvm-project/issues/199678
 #ifndef _RISCV_WCHAR_LIMITS_H_
 #define _RISCV_WCHAR_LIMITS_H_
 

@@ -1,7 +1,7 @@
 /*
  * Exercise complicating glibc symbols from C code.  Complicating symbols
  * are ones that have moved between glibc versions, or use floating point
- * parameters, or have otherwise tripped up the Zig glibc compatibility
+ * parameters, or have otherwise tripped up the Sig glibc compatibility
  * code.
  */
 #include <assert.h>

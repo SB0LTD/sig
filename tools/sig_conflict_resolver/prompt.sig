@@ -2,7 +2,7 @@
 //
 // Builds LLM prompts for AI-powered merge conflict resolution.
 // Encodes all Sig conventions so the model understands how Sig
-// modifies files alongside upstream Zig code.
+// modifies files alongside upstream Sig code.
 //
 // Zero allocators. Prompt is built into a caller-provided stack buffer
 // using inline byte copying (no sig module dependencies, same pattern
@@ -21,8 +21,8 @@ pub const PromptError = error{BufferTooSmall};
 /// Comptime string literal encoding all Sig conventions for the LLM.
 pub const SYSTEM_PROMPT =
     \\You are resolving Git merge conflicts in the Sig repository.
-    \\Sig is a memory-model layer on top of Zig. It never modifies upstream
-    \\Zig lines — it only adds code alongside them, marked with [sig] comments.
+    \\Sig is a memory-model layer on top of Sig. It never modifies upstream
+    \\Sig lines — it only adds code alongside them, marked with [sig] comments.
     \\
     \\## Sig Conventions
     \\
@@ -67,7 +67,7 @@ pub const SYSTEM_PROMPT =
     \\
     \\## File Extension Rules
     \\
-    \\- `.zig` files: Standard Zig. Allocator usage produces diagnostics per
+    \\- `.sig` files: Standard Sig. Allocator usage produces diagnostics per
     \\  mode (warnings in default, errors in strict).
     \\- `.sig` files: Strict Sig. Allocator usage is ALWAYS a compile error
     \\  regardless of flags. The file extension itself is the contract.
@@ -124,8 +124,8 @@ pub fn buildPrompt(
 fn extensionContext(file_path: []const u8) []const u8 {
     if (endsWith(file_path, ".sig")) {
         return ".sig (Strict Sig — allocator usage is ALWAYS a compile error)";
-    } else if (endsWith(file_path, ".zig")) {
-        return ".zig (Standard Zig — allocator usage produces diagnostics per mode)";
+    } else if (endsWith(file_path, ".sig")) {
+        return ".sig (Standard Sig — allocator usage produces diagnostics per mode)";
     } else {
         return "unknown (apply general Sig conventions)";
     }

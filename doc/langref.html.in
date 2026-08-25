@@ -174,7 +174,7 @@
         border-top-left-radius: 5px;
         border-top-right-radius: 5px;
       }
-      figcaption.zig-cap {
+      figcaption.sig-cap {
         background: #fcdba5;
       }
       figcaption.c-cap {
@@ -283,7 +283,7 @@
         h1 a, h2 a, h3 a, h4 a, h5 a {
             color: #aaa;
         }
-        figcaption.zig-cap {
+        figcaption.sig-cap {
             background-color: #b27306;
             color: #000;
         }
@@ -372,7 +372,7 @@
 
       {#header_open|Hello World#}
 
-      {#code|hello.zig#}
+      {#code|hello.sig#}
 
       <p>
       Most of the time, it is more appropriate to write to stderr rather than stdout, and
@@ -380,7 +380,7 @@
       Also, formatted printing often comes in handy. For this common case,
       there is a simpler API:
       </p>
-      {#code|hello_again.zig#}
+      {#code|hello_again.sig#}
 
       <p>
       In this case, the {#syntax#}!{#endsyntax#} may be omitted from the return
@@ -393,7 +393,7 @@
       <p>There are three types of comments. Normal comments are ignored, while {#link|Doc Comments#}
       and {#link|Top-Level Doc Comments#} are used by the compiler to generate
       the package documentation.</p>
-      {#code|comments.zig#}
+      {#code|comments.sig#}
 
       <p>There are no multiline comments. Zig has the property that each line
       of code can be tokenized independently.</p>
@@ -404,16 +404,16 @@
       multiple doc comments in a row are merged together to form a multiline
       doc comment.  The doc comment documents whatever immediately follows it.
       </p>
-      {#code|doc_comments.zig#}
+      {#code|doc_comments.sig#}
 
       <p>
       Doc comments are only allowed in certain places; it is a compile error to
       have a doc comment in an unexpected place, such as in the middle of an expression,
       or just before a non-doc comment.
       </p>
-      {#code|invalid_doc-comment.zig#}
+      {#code|invalid_doc-comment.sig#}
 
-      {#code|unattached_doc-comment.zig#}
+      {#code|unattached_doc-comment.sig#}
 
       <p>
       Doc comments can be interleaved with normal comments, which are ignored.
@@ -429,7 +429,7 @@
       It is a compile error if a top-level doc comment is not placed at the start
       of a namespace, before any expressions.
       </p>
-      {#code|tldoc_comments.zig#}
+      {#code|tldoc_comments.sig#}
 
       {#header_close#}
       {#header_close#}
@@ -457,13 +457,13 @@
       linking with external libraries, the {#syntax#}@""{#endsyntax#} syntax
       may be used.
       </p>
-      {#code|identifiers.zig#}
+      {#code|identifiers.sig#}
       {#header_close#}
       {#header_close#}
 
 
       {#header_open|Values#}
-      {#code|values.zig#}
+      {#code|values.sig#}
 
       {#header_open|Primitive Types#}
       <div class="table-wrapper">
@@ -710,7 +710,7 @@
       {#link|Integer Literals#}. All {#link|Escape Sequences#} are valid in both string literals
       and Unicode code point literals.
       </p>
-      {#code|string_literals.zig#}
+      {#code|string_literals.sig#}
 
       {#see_also|Arrays|Source Encoding#}
       {#header_open|Escape Sequences#}
@@ -770,25 +770,25 @@
       However, if the next line begins with {#syntax#}\\{#endsyntax#} then a newline is appended and
       the string literal continues.
       </p>
-      {#code|multiline_string_literals.zig#}
+      {#code|multiline_string_literals.sig#}
 
       {#see_also|@embedFile#}
       {#header_close#}
       {#header_close#}
       {#header_open|Assignment#}
       <p>Use the {#syntax#}const{#endsyntax#} keyword to assign a value to an identifier:</p>
-      {#code|constant_identifier_cannot_change.zig#}
+      {#code|constant_identifier_cannot_change.sig#}
 
       <p>{#syntax#}const{#endsyntax#} applies to all of the bytes that the identifier immediately addresses. {#link|Pointers#} have their own const-ness.</p>
       <p>If you need a variable that you can modify, use the {#syntax#}var{#endsyntax#} keyword:</p>
-      {#code|mutable_var.zig#}
+      {#code|mutable_var.sig#}
 
       <p>Variables must be initialized:</p>
-      {#code|var_must_be_initialized.zig#}
+      {#code|var_must_be_initialized.sig#}
 
       {#header_open|undefined#}
       <p>Use {#syntax#}undefined{#endsyntax#} to leave variables uninitialized:</p>
-      {#code|assign_undefined.zig#}
+      {#code|assign_undefined.sig#}
 
       <p>
       {#syntax#}undefined{#endsyntax#} can be {#link|coerced|Type Coercion#} to any type.
@@ -809,14 +809,14 @@
         A destructuring assignment can separate elements of indexable aggregate types
         ({#link|Tuples#}, {#link|Arrays#}, {#link|Vectors#}):
       </p>
-      {#code|destructuring_to_existing.zig#}
+      {#code|destructuring_to_existing.sig#}
 
       <p>
         A destructuring expression may only appear within a block (i.e. not at {#link|Namespace#} scope).
         The left hand side of the assignment must consist of a comma separated list,
         each element of which may be either an lvalue (for instance, an existing {#syntax#}var{#endsyntax#}) or a variable declaration:
       </p>
-      {#code|destructuring_mixed.zig#}
+      {#code|destructuring_mixed.sig#}
 
       <p>
         A destructure may be prefixed with the {#syntax#}comptime{#endsyntax#} keyword, in which case the entire
@@ -833,10 +833,10 @@
       <p>
         Code written within one or more {#syntax#}test{#endsyntax#} declarations can be used to ensure behavior meets expectations:
       </p>
-      {#code|testing_introduction.zig#}
+      {#code|testing_introduction.sig#}
 
       <p>
-        The <code class="file">testing_introduction.zig</code> code sample tests the {#link|function|Functions#}
+        The <code class="file">testing_introduction.sig</code> code sample tests the {#link|function|Functions#}
         {#syntax#}addOne{#endsyntax#} to ensure that it returns {#syntax#}42{#endsyntax#} given the input
         {#syntax#}41{#endsyntax#}. From this test's perspective, the {#syntax#}addOne{#endsyntax#} function is
         said to be <em>code under test</em>.
@@ -850,7 +850,7 @@
       </p>
       <aside>
         This documentation discusses the features of the default test runner as provided by the Zig Standard Library.
-        Its source code is located in <code class="file">lib/compiler/test_runner.zig</code>.
+        Its source code is located in <code class="file">lib/compiler/test_runner.sig</code>.
       </aside>
       <p>
         The shell output shown above displays two lines after the <kbd>zig test</kbd> command. These lines are
@@ -911,7 +911,7 @@
         When a test returns an error, the test is considered a failure and its {#link|error return trace|Error Return Traces#}
         is output to standard error. The total number of failures will be reported after all tests have run.
       </p>
-      {#code|testing_failure.zig#}
+      {#code|testing_failure.sig#}
 
       {#header_close#}
       {#header_open|Skip Tests#}
@@ -926,7 +926,7 @@
         {#syntax#}error.SkipZigTest{#endsyntax#} and the default test runner will consider the test as being skipped.
         The total number of skipped tests will be reported after all tests have run.
       </p>
-      {#code|testing_skip.zig#}
+      {#code|testing_skip.sig#}
 
       {#header_close#}
 
@@ -936,7 +936,7 @@
         {#syntax#}std.testing.allocator{#endsyntax#}, the default test runner will report any leaks that are
         found from using the testing allocator:
       </p>
-      {#code|testing_detect_leak.zig#}
+      {#code|testing_detect_leak.sig#}
 
       {#see_also|defer|Memory#}
       {#header_close#}
@@ -945,7 +945,7 @@
         Use the {#link|compile variable|Compile Variables#} {#syntax#}@import("builtin").is_test{#endsyntax#}
         to detect a test build:
       </p>
-      {#code|testing_detect_test.zig#}
+      {#code|testing_detect_test.sig#}
 
       {#header_close#}
       {#header_open|Test Output and Logging#}
@@ -959,7 +959,7 @@
         you create tests. In addition to the <code>expect</code> function, this document uses a couple of more functions
         as exemplified here:
       </p>
-      {#code|testing_namespace.zig#}
+      {#code|testing_namespace.sig#}
 
       <p>The Zig Standard Library also contains functions to compare {#link|Slices#}, strings, and more. See the rest of the
         {#syntax#}std.testing{#endsyntax#} namespace in the {#link|Zig Standard Library#} for more available functions.</p>
@@ -998,17 +998,17 @@
       namespace level variables is implicitly {#link|comptime#}. If a namespace
       level variable is {#syntax#}const{#endsyntax#} then its value is
       {#syntax#}comptime{#endsyntax#}-known, otherwise it is runtime-known.</p>
-      {#code|test_namespace_level_variables.zig#}
+      {#code|test_namespace_level_variables.sig#}
       <p>Namespace level variables may be declared inside a {#link|struct#},
       {#link|union#}, {#link|enum#}, or {#link|opaque#}:</p>
-      {#code|test_namespaced_variable.zig#}
+      {#code|test_namespaced_variable.sig#}
 
       {#header_close#}
 
       {#header_open|Locally-Scoped Global Variables#}
       <p>It is also possible to have local variables with global lifetime by
       using {#link|namespaces|Namespace#} inside functions.</p>
-      {#code|test_locally_scoped_global_variable.zig#}
+      {#code|test_locally_scoped_global_variable.sig#}
 
       {#header_close#}
 
@@ -1016,7 +1016,7 @@
       <p>A variable may be specified to be a thread-local variable using the
       {#syntax#}threadlocal{#endsyntax#} keyword,
       which makes each thread work with a separate instance of the variable:</p>
-      {#code|test_thread_local_variables.zig#}
+      {#code|test_thread_local_variables.sig#}
       <p>For {#link|Single Threaded Builds#}, all thread local variables are
       treated as regular {#link|Namespace Level Variables#}.</p>
       <p>
@@ -1039,14 +1039,14 @@
       All variables declared in a {#syntax#}comptime{#endsyntax#} expression are implicitly
       {#syntax#}comptime{#endsyntax#} variables.
       </p>
-      {#code|test_comptime_variables.zig#}
+      {#code|test_comptime_variables.sig#}
 
       {#header_close#}
       {#header_close#}
 
       {#header_open|Integers#}
       {#header_open|Integer Literals#}
-      {#code|integer_literals.zig#}
+      {#code|integer_literals.sig#}
 
       {#header_close#}
       {#header_open|Runtime Integer Values#}
@@ -1058,7 +1058,7 @@
       However, once an integer value is no longer known at compile-time, it must have a
       known size, and is vulnerable to safety-checked {#link|Illegal Behavior#}.
       </p>
-      {#code|runtime_vs_comptime.zig#}
+      {#code|runtime_vs_comptime.sig#}
 
       <p>
       In this function, values {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are known only at runtime,
@@ -1101,25 +1101,25 @@
       Float literals {#link|coerce|Type Coercion#} to any floating point type,
       and to any {#link|integer|Integers#} type when there is no fractional component.
       </p>
-      {#code|float_literals.zig#}
+      {#code|float_literals.sig#}
 
       <p>
       There is no syntax for NaN, infinity, or negative infinity. For these special values,
       one must use the standard library:
       </p>
-      {#code|float_special_values.zig#}
+      {#code|float_special_values.sig#}
 
       {#header_close#}
       {#header_open|Floating Point Operations#}
       <p>By default floating point operations use {#syntax#}.strict{#endsyntax#} mode,
           but you can switch to {#syntax#}.optimized{#endsyntax#} mode on a per-block basis:</p>
-      {#code|float_mode_obj.zig#}
+      {#code|float_mode_obj.sig#}
 
       <p>For this test we have to separate code into two object files -
       otherwise the optimizer figures out all the values at compile-time,
       which operates in strict mode.</p>
-      {#code|float_mode_exe.zig#}
-      {#shell_samp#}$ zig build-exe float_mode_exe.zig float_mode_obj.o -O fast
+      {#code|float_mode_exe.sig#}
+      {#shell_samp#}$ zig build-exe float_mode_exe.sig float_mode_obj.o -O fast
 $ ./float_mode_exe
 optimized = 0.001
 strict = 0.0009765625{#end_shell_samp#}
@@ -1882,7 +1882,7 @@ or
       {#header_close#}
       {#header_close#}
       {#header_open|Arrays#}
-      {#code|test_arrays.zig#}
+      {#code|test_arrays.sig#}
 
       {#see_also|for|Slices#}
 
@@ -1890,7 +1890,7 @@ or
       <p>
       Multidimensional arrays can be created by nesting arrays:
       </p>
-      {#code|test_multidimensional_arrays.zig#}
+      {#code|test_multidimensional_arrays.sig#}
 
       {#header_close#}
 
@@ -1899,7 +1899,7 @@ or
       The syntax {#syntax#}[N:x]T{#endsyntax#} describes an array which has a sentinel element of value {#syntax#}x{#endsyntax#} at the
       index corresponding to the length {#syntax#}N{#endsyntax#}.
       </p>
-      {#code|test_null_terminated_array.zig#}
+      {#code|test_null_terminated_array.sig#}
 
       {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Slices#}
       {#header_close#}
@@ -1908,7 +1908,7 @@ or
       <p>
         Arrays can be destructured:
       </p>
-      {#code|destructuring_arrays.zig#}
+      {#code|destructuring_arrays.sig#}
 
       {#see_also|Destructuring|Destructuring Tuples|Destructuring Vectors#}
       {#header_close#}
@@ -1954,7 +1954,7 @@ or
       although small powers of two (2-64) are most typical. Note that excessively long vector lengths (e.g. 2^20) may
       result in compiler crashes on current versions of Zig.
       </p>
-      {#code|test_vector.zig#}
+      {#code|test_vector.sig#}
 
       <p>
       TODO talk about C ABI interop<br>
@@ -1974,7 +1974,7 @@ or
       <p>
         Vectors can be destructured:
       </p>
-      {#code|destructuring_vectors.zig#}
+      {#code|destructuring_vectors.sig#}
       {#see_also|Destructuring|Destructuring Tuples|Destructuring Arrays#}
       {#header_close#}
 
@@ -2024,12 +2024,12 @@ or
             </li>
         </ul>
         <p>Use {#syntax#}&x{#endsyntax#} to obtain a single-item pointer:</p>
-      {#code|test_single_item_pointer.zig#}
+      {#code|test_single_item_pointer.sig#}
 
       <p>
        Zig supports pointer arithmetic. It's better to assign the pointer to {#syntax#}[*]T{#endsyntax#} and increment that variable. For example, directly incrementing the pointer from a slice will corrupt it.
       </p>
-      {#code|test_pointer_arithmetic.zig#}
+      {#code|test_pointer_arithmetic.sig#}
 
       <p>
         In Zig, we generally prefer {#link|Slices#} rather than {#link|Sentinel-Terminated Pointers#}.
@@ -2040,19 +2040,19 @@ or
         against this kind of Illegal Behavior. This is one reason
         we prefer slices to pointers.
       </p>
-      {#code|test_slice_bounds.zig#}
+      {#code|test_slice_bounds.sig#}
 
       <p>Pointers work at compile-time too, as long as the code does not depend on
       an undefined memory layout:</p>
-      {#code|test_comptime_pointers.zig#}
+      {#code|test_comptime_pointers.sig#}
 
       <p>To convert an integer address into a pointer, use {#syntax#}@ptrFromInt{#endsyntax#}.
       To convert a pointer to an integer, use {#syntax#}@intFromPtr{#endsyntax#}:</p>
-      {#code|test_integer_pointer_conversion.zig#}
+      {#code|test_integer_pointer_conversion.sig#}
 
       <p>Zig is able to preserve memory addresses in comptime code, as long as
       the pointer is never dereferenced:</p>
-      {#code|test_comptime_pointer_conversion.zig#}
+      {#code|test_comptime_pointer_conversion.sig#}
 
       <p>
       {#link|@ptrCast#} converts a pointer's element type to another. This
@@ -2061,7 +2061,7 @@ or
       kinds of type conversions are preferable to
       {#syntax#}@ptrCast{#endsyntax#} if possible.
       </p>
-      {#code|test_pointer_casting.zig#}
+      {#code|test_pointer_casting.sig#}
 
       {#see_also|Optional Pointers|@ptrFromInt|@intFromPtr|C Pointers#}
       {#header_open|volatile#}
@@ -2069,7 +2069,7 @@ or
       should have side effects, such as Memory Mapped Input/Output (MMIO), use {#syntax#}volatile{#endsyntax#}.
       In the following code, loads and stores with {#syntax#}mmio_ptr{#endsyntax#} are guaranteed to all happen
       and in the same order as in source code:</p>
-      {#code|test_volatile.zig#}
+      {#code|test_volatile.sig#}
 
       <p>
       Note that {#syntax#}volatile{#endsyntax#} is unrelated to concurrency and {#link|Atomics#}.
@@ -2094,7 +2094,7 @@ or
       specified, the alignment is assumed to be equal to the alignment of the
       underlying type.
       </p>
-      {#code|test_variable_alignment.zig#}
+      {#code|test_variable_alignment.sig#}
 
       <p>In the same way that a {#syntax#}*i32{#endsyntax#} can be {#link|coerced|Type Coercion#} to a
           {#syntax#}*const i32{#endsyntax#}, a pointer with a larger alignment can be implicitly
@@ -2104,7 +2104,7 @@ or
       You can specify alignment on variables and functions. If you do this, then
       pointers to them get the specified alignment:
       </p>
-      {#code|test_variable_func_alignment.zig#}
+      {#code|test_variable_func_alignment.sig#}
 
       <p>
       If you have a pointer or a slice that has a small alignment, but you know that it actually
@@ -2112,7 +2112,7 @@ or
       pointer into a more aligned pointer. This is a no-op at runtime, but inserts a
       {#link|safety check|Incorrect Pointer Alignment#}:
       </p>
-      {#code|test_incorrect_pointer_alignment.zig#}
+      {#code|test_incorrect_pointer_alignment.sig#}
 
       {#header_close#}
 
@@ -2125,7 +2125,7 @@ or
       did not have the {#syntax#}allowzero{#endsyntax#} attribute, this would be a
       {#link|Pointer Cast Invalid Null#} panic:
       </p>
-      {#code|test_allowzero.zig#}
+      {#code|test_allowzero.sig#}
 
       {#header_close#}
 
@@ -2135,7 +2135,7 @@ or
       has a length determined by a sentinel value. This provides protection
       against buffer overflow and overreads.
       </p>
-      {#code|sentinel-terminated_pointer.zig#}
+      {#code|sentinel-terminated_pointer.sig#}
 
       {#see_also|Sentinel-Terminated Slices|Sentinel-Terminated Arrays#}
       {#header_close#}
@@ -2148,10 +2148,10 @@ or
       compile-time, whereas the slice's length is known at runtime.
       Both can be accessed with the {#syntax#}len{#endsyntax#} field.
       </p>
-      {#code|test_basic_slices.zig#}
+      {#code|test_basic_slices.sig#}
 
       <p>This is one reason we prefer slices to pointers.</p>
-      {#code|test_slices.zig#}
+      {#code|test_slices.sig#}
 
       {#see_also|Pointers|for|Arrays#}
 
@@ -2170,7 +2170,7 @@ or
         {#link|pointer|Pointers#} to an {#link|array|Arrays#}, a generally more
         safe type because the length is compile-time known.</li>
       </ul>
-      {#code|slicing_by_length.zig#}
+      {#code|slicing_by_length.sig#}
       {#header_close#}
 
       {#header_open|Sentinel-Terminated Slices#}
@@ -2180,27 +2180,27 @@ or
       guarantee that there are no sentinel elements before that. Sentinel-terminated slices allow element
       access to the {#syntax#}len{#endsyntax#} index.
       </p>
-      {#code|test_null_terminated_slice.zig#}
+      {#code|test_null_terminated_slice.sig#}
 
       <p>
       Sentinel-terminated slices can also be created using a variation of the slice syntax
       {#syntax#}data[start..end :x]{#endsyntax#}, where {#syntax#}data{#endsyntax#} is a many-item pointer,
       array or slice and {#syntax#}x{#endsyntax#} is the sentinel value.
       </p>
-      {#code|test_null_terminated_slicing.zig#}
+      {#code|test_null_terminated_slicing.sig#}
 
       <p>
       Sentinel-terminated slicing asserts that the element in the sentinel position of the backing data is
       actually the sentinel value. If this is not the case, safety-checked {#link|Illegal Behavior#} results.
       </p>
-      {#code|test_sentinel_mismatch.zig#}
+      {#code|test_sentinel_mismatch.sig#}
 
       {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Arrays#}
       {#header_close#}
       {#header_close#}
 
       {#header_open|struct#}
-      {#code|test_structs.zig#}
+      {#code|test_structs.sig#}
 
 
       {#header_open|Default Field Values#}
@@ -2209,7 +2209,7 @@ or
       value. Such expressions are executed at {#link|comptime#}, and allow the
       field to be omitted in a struct literal expression:
       </p>
-      {#code|struct_default_field_values.zig#}
+      {#code|struct_default_field_values.sig#}
 
       {#header_open|Faulty Default Field Values#}
       <p>
@@ -2219,7 +2219,7 @@ or
       <p>
       For example, here is an inappropriate use of default struct field initialization:
       </p>
-      {#code|bad_default_value.zig#}
+      {#code|bad_default_value.sig#}
 
       <p>
       Above you can see the danger of ignoring this principle. The default
@@ -2230,7 +2230,7 @@ or
       To fix this, remove the default values from all the struct fields, and provide
       a named default value:
       </p>
-      {#code|struct_default_value.zig#}
+      {#code|struct_default_value.sig#}
 
       <p>If a struct value requires a runtime-known value in order to be initialized
       without violating data invariants, then use an initialization method that accepts
@@ -2274,7 +2274,7 @@ or
       in a {#link|@bitCast#} or a {#link|@ptrCast#} to reinterpret memory.
       This even works at {#link|comptime#}:
       </p>
-      {#code|test_packed_structs.zig#}
+      {#code|test_packed_structs.sig#}
 
       <p>
       The backing integer can be inferred or explicitly provided. When
@@ -2282,24 +2282,24 @@ or
       will be enforced at compile time to exactly match the total bit width of
       the fields:
       </p>
-      {#code|test_missized_packed_struct.zig#}
+      {#code|test_missized_packed_struct.sig#}
 
       <p>
       A {#syntax#}packed struct{#endsyntax#} can be converted to and from its backing
       integer using {#link|@backingInt#} and {#link|@fromBackingInt#}:
       </p>
-      {#code|test_packed_struct_backing_int.zig#}
+      {#code|test_packed_struct_backing_int.sig#}
 
       <p>
       Zig allows the address to be taken of a non-byte-aligned field:
       </p>
-      {#code|test_pointer_to_non-byte_aligned_field.zig#}
+      {#code|test_pointer_to_non-byte_aligned_field.sig#}
 
       <p>
       However, the pointer to a non-byte-aligned field has special properties and cannot
       be passed when a normal pointer is expected:
       </p>
-      {#code|test_misaligned_pointer.zig#}
+      {#code|test_misaligned_pointer.sig#}
 
       <p>
       In this case, the function {#syntax#}bar{#endsyntax#} cannot be called because the pointer
@@ -2308,29 +2308,29 @@ or
       <p>
       Pointers to non-ABI-aligned fields share the same address as the other fields within their host integer:
       </p>
-      {#code|test_packed_struct_field_address.zig#}
+      {#code|test_packed_struct_field_address.sig#}
 
       <p>
       This can be observed with {#link|@bitOffsetOf#} and {#link|offsetOf#}:
       </p>
-      {#code|test_bitOffsetOf_offsetOf.zig#}
+      {#code|test_bitOffsetOf_offsetOf.sig#}
 
       <p>
       Packed structs have the same alignment as their backing integer, however, overaligned
       pointers to packed structs can override this:
       </p>
-      {#code|test_overaligned_packed_struct.zig#}
+      {#code|test_overaligned_packed_struct.sig#}
 
       <p>
       It's also possible to set alignment of struct fields:
       </p>
-      {#code|test_aligned_struct_fields.zig#}
+      {#code|test_aligned_struct_fields.sig#}
 
       <p>
       Equating packed structs results in a comparison of the backing integer,
       and only works for the {#syntax#}=={#endsyntax#} and {#syntax#}!={#endsyntax#} {#link|Operators#}.
       </p>
-      {#code|test_packed_struct_equality.zig#}
+      {#code|test_packed_struct_equality.sig#}
 
       <p>
       Field access and assignment can be understood as shorthand for bitshifts
@@ -2339,7 +2339,7 @@ or
       input-output (MMIO). Instead of field access on {#link|volatile#} {#link|Pointers#},
       construct a fully-formed new value first, then write that value to the volatile pointer.
       </p>
-      {#code|packed_struct_mmio.zig#}
+      {#code|packed_struct_mmio.sig#}
       {#header_close#}
 
       {#header_open|Struct Naming#}
@@ -2353,7 +2353,7 @@ or
           <li>If the struct is declared inside another struct, it gets named after both the parent
           struct and the name inferred by the previous rules, separated by a dot.</li>
       </ul>
-      {#code|struct_name.zig#}
+      {#code|struct_name.sig#}
 
       {#header_close#}
 
@@ -2363,13 +2363,13 @@ or
       the struct literal will directly instantiate the {#link|result location|Result Location Semantics#},
       with no copy:
       </p>
-      {#code|test_struct_result.zig#}
+      {#code|test_struct_result.sig#}
 
       <p>
       The struct type can be inferred. Here the {#link|result location|Result Location Semantics#}
       does not include a type, and so Zig infers the type:
       </p>
-      {#code|test_anonymous_struct.zig#}
+      {#code|test_anonymous_struct.sig#}
 
       {#header_close#}
 
@@ -2387,7 +2387,7 @@ or
       Like arrays, tuples have a .len field, can be indexed (provided the index is comptime-known)
       and work with the ++ operator. They can also be iterated over with {#link|inline for#}.
       </p>
-      {#code|test_tuples.zig#}
+      {#code|test_tuples.sig#}
 
       {#header_open|Destructuring Tuples#}
       <p>
@@ -2396,13 +2396,13 @@ or
       <p>
         Tuple destructuring is helpful for returning multiple values from a block:
       </p>
-      {#code|destructuring_block.zig#}
+      {#code|destructuring_block.sig#}
 
       <p>
         Tuple destructuring is helpful for dealing with functions and built-ins that return multiple values
         as a tuple:
       </p>
-      {#code|destructuring_return_value.zig#}
+      {#code|destructuring_return_value.sig#}
 
       {#see_also|Destructuring|Destructuring Arrays|Destructuring Vectors#}
       {#header_close#}
@@ -2410,7 +2410,7 @@ or
       {#see_also|comptime|@fieldParentPtr#}
       {#header_close#}
       {#header_open|enum#}
-      {#code|test_enums.zig#}
+      {#code|test_enums.sig#}
 
       {#see_also|@backingInt|@fromBackingInt|@typeInfo|@tagName|@sizeOf|noreturn#}
 
@@ -2418,13 +2418,13 @@ or
       <p>
       By default, enums are not guaranteed to be compatible with the C ABI:
       </p>
-      {#code|enum_export_error.zig#}
+      {#code|enum_export_error.sig#}
 
       <p>
       For a C-ABI-compatible enum, provide an explicit tag type to
       the enum:
       </p>
-      {#code|enum_export.zig#}
+      {#code|enum_export.sig#}
 
       {#header_close#}
 
@@ -2432,7 +2432,7 @@ or
       <p>
       Enum literals allow specifying the name of an enum field without specifying the enum type:
       </p>
-      {#code|test_enum_literals.zig#}
+      {#code|test_enum_literals.sig#}
 
       {#header_close#}
 
@@ -2448,7 +2448,7 @@ or
       A switch on a non-exhaustive enum can include a {#syntax#}_{#endsyntax#} prong as an alternative to an {#syntax#}else{#endsyntax#} prong.
       With a {#syntax#}_{#endsyntax#} prong the compiler errors if all the known tag names are not handled by the switch.
       </p>
-      {#code|test_switch_non-exhaustive.zig#}
+      {#code|test_switch_non-exhaustive.sig#}
 
       {#header_close#}
       {#header_close#}
@@ -2464,10 +2464,10 @@ or
       {#link|Accessing the non-active field|Wrong Union Field Access#} is
       safety-checked {#link|Illegal Behavior#}:
       </p>
-      {#code|test_wrong_union_access.zig#}
+      {#code|test_wrong_union_access.sig#}
 
       <p>You can activate another field by assigning the entire union:</p>
-      {#code|test_simple_union.zig#}
+      {#code|test_simple_union.sig#}
 
       <p>
       In order to use {#link|switch#} with a union, it must be a {#link|tagged union|Tagged union#}
@@ -2484,31 +2484,31 @@ or
       the tag value can be obtained using an additional capture.
       Tagged unions coerce to their tag type: {#link|Type Coercion: Unions and Enums#}.
       </p>
-      {#code|test_tagged_union.zig#}
+      {#code|test_tagged_union.sig#}
 
       <p>In order to modify the payload of a tagged union in a switch expression,
       place a {#syntax#}*{#endsyntax#} before the variable name to make it a pointer:
       </p>
-      {#code|test_switch_modify_tagged_union.zig#}
+      {#code|test_switch_modify_tagged_union.sig#}
 
       <p>
       Unions can be made to infer the enum tag type.
       Further, unions can have methods just like structs and enums.
       </p>
-      {#code|test_union_method.zig#}
+      {#code|test_union_method.sig#}
 
       <p>
       Unions with inferred enum tag types can also assign ordinal values to their inferred tag.
       This requires the tag to specify an explicit integer type.
       {#link|@backingInt#} can be used to access the ordinal value corresponding to the active field.
       </p>
-      {#code|test_tagged_union_with_tag_values.zig#}
+      {#code|test_tagged_union_with_tag_values.sig#}
 
       <p>
       {#link|@tagName#} can be used to return a {#link|comptime#}
       {#syntax#}[:0]const u8{#endsyntax#} value representing the field name:
       </p>
-      {#code|test_tagName.zig#}
+      {#code|test_tagName.sig#}
 
       {#header_close#}
 
@@ -2529,7 +2529,7 @@ or
       Equating packed unions results in a comparison of the backing integer,
       and only works for the {#syntax#}=={#endsyntax#} and {#syntax#}!={#endsyntax#} {#link|Operators#}.
       </p>
-      {#code|test_packed_union_equality.zig#}
+      {#code|test_packed_union_equality.sig#}
 
       {#see_also|@backingInt|@fromBackingInt#}
       {#header_close#}
@@ -2537,7 +2537,7 @@ or
       {#header_open|Anonymous Union Literals#}
       <p>{#link|Anonymous Struct Literals#} syntax can be used to initialize unions without specifying
       the type:</p>
-      {#code|test_anonymous_union.zig#}
+      {#code|test_anonymous_union.sig#}
 
       {#header_close#}
 
@@ -2553,7 +2553,7 @@ or
       This is typically used for type safety when interacting with C code that does not expose struct details.
       Example:
       </p>
-      {#code|test_opaque.zig#}
+      {#code|test_opaque.sig#}
 
       {#header_close#}
 
@@ -2561,38 +2561,38 @@ or
       <p>
       Blocks are used to limit the scope of variable declarations:
       </p>
-      {#code|test_blocks.zig#}
+      {#code|test_blocks.sig#}
 
       <p>Blocks are expressions. When labeled, {#syntax#}break{#endsyntax#} can be used
       to return a value from the block:
       </p>
-      {#code|test_labeled_break.zig#}
+      {#code|test_labeled_break.sig#}
 
       <p>Here, {#syntax#}blk{#endsyntax#} can be any name.</p>
       {#see_also|Labeled while|Labeled for#}
 
       {#header_open|Shadowing#}
       <p>{#link|Identifiers#} are never allowed to "hide" other identifiers by using the same name:</p>
-      {#code|test_shadowing.zig#}
+      {#code|test_shadowing.sig#}
 
       <p>
       Because of this, when you read Zig code you can always rely on an identifier to consistently mean
       the same thing within the scope it is defined. Note that you can, however, use the same name if
       the scopes are separate:
       </p>
-      {#code|test_scopes.zig#}
+      {#code|test_scopes.sig#}
 
       {#header_close#}
 
       {#header_open|Empty Blocks#}
       <p>An empty block returns the single value of type {#syntax#}void{#endsyntax#}:</p>
-      {#code|test_empty_block.zig#}
+      {#code|test_empty_block.sig#}
 
       {#header_close#}
       {#header_close#}
 
       {#header_open|switch#}
-      {#code|test_switch.zig#}
+      {#code|test_switch.sig#}
 
       <p>
       {#syntax#}switch{#endsyntax#} can be used to capture the field values
@@ -2600,7 +2600,7 @@ or
       done by placing a {#syntax#}*{#endsyntax#} before the capture variable name,
       turning it into a pointer.
       </p>
-      {#code|test_switch_tagged_union.zig#}
+      {#code|test_switch_tagged_union.sig#}
 
       {#see_also|comptime|enum|@compileError|Compile Variables#}
 
@@ -2609,7 +2609,7 @@ or
       When a {#syntax#}switch{#endsyntax#} expression does not have an {#syntax#}else{#endsyntax#} clause,
       it must exhaustively list all the possible values. Failure to do so is a compile error:
       </p>
-      {#code|test_unhandled_enumeration_value.zig#}
+      {#code|test_unhandled_enumeration_value.sig#}
 
       {#header_close#}
 
@@ -2618,7 +2618,7 @@ or
       {#link|Enum Literals#} can be useful to use with {#syntax#}switch{#endsyntax#} to avoid
       repetitively specifying {#link|enum#} or {#link|union#} types:
       </p>
-      {#code|test_exhaustive_switch.zig#}
+      {#code|test_exhaustive_switch.sig#}
 
       {#header_close#}
 
@@ -2626,7 +2626,7 @@ or
       <p>
       When switching on errors, some special cases are allowed to simplify generic programming patterns:
       </p>
-      {#code|test_switch_on_errors.zig#}
+      {#code|test_switch_on_errors.sig#}
       {#header_close#}
 
       {#header_open|Labeled switch#}
@@ -2643,12 +2643,12 @@ or
       continue{#endsyntax#}'s operand replacing the initial switch value.
       </p>
 
-      {#code|test_switch_continue.zig#}
+      {#code|test_switch_continue.sig#}
 
       <p>
       Semantically, this is equivalent to the following loop:
       </p>
-      {#code|test_switch_continue_equivalent.zig#}
+      {#code|test_switch_continue_equivalent.sig#}
 
       <p>
       This can improve clarity of (for example) state machines, where the syntax {#syntax#}continue :sw .next_state{#endsyntax#} is unambiguous, explicit, and immediately understandable.
@@ -2656,7 +2656,7 @@ or
       <p>
       However, the motivating example is a switch on each element of an array, where using a single switch can improve clarity and performance:
       </p>
-      {#code|test_switch_dispatch_loop.zig#}
+      {#code|test_switch_dispatch_loop.sig#}
 
       <p>
       If the operand to {#syntax#}continue{#endsyntax#} is
@@ -2682,23 +2682,23 @@ or
       the prong's body for each possible value it could have, making the
       captured value {#link|comptime#}.
       </p>
-      {#code|test_inline_switch.zig#}
+      {#code|test_inline_switch.sig#}
 
       <p>The {#syntax#}inline{#endsyntax#} keyword may also be combined with ranges:</p>
-      {#code|inline_prong_range.zig#}
+      {#code|inline_prong_range.sig#}
 
       <p>
       {#syntax#}inline else{#endsyntax#} prongs can be used as a type safe
       alternative to {#syntax#}inline for{#endsyntax#} loops:
       </p>
-      {#code|test_inline_else.zig#}
+      {#code|test_inline_else.sig#}
 
       <p>
       When using an inline prong switching on an union an additional capture
       can be used to obtain the union's enum tag value at comptime, even though
       its payload might only be known at runtime.
       </p>
-      {#code|test_inline_switch_union_tag.zig#}
+      {#code|test_inline_switch_union_tag.sig#}
 
       {#see_also|inline while|inline for|Tagged union#}
       {#header_close#}
@@ -2709,23 +2709,23 @@ or
       A while loop is used to repeatedly execute an expression until
       some condition is no longer true.
       </p>
-      {#code|test_while.zig#}
+      {#code|test_while.sig#}
 
       <p>
       Use {#syntax#}break{#endsyntax#} to exit a while loop early.
       </p>
-      {#code|test_while_break.zig#}
+      {#code|test_while_break.sig#}
 
       <p>
       Use {#syntax#}continue{#endsyntax#} to jump back to the beginning of the loop.
       </p>
-      {#code|test_while_continue.zig#}
+      {#code|test_while_continue.sig#}
 
       <p>
       While loops support a continue expression which is executed when the loop
       is continued. The {#syntax#}continue{#endsyntax#} keyword respects this expression.
       </p>
-      {#code|test_while_continue_expression.zig#}
+      {#code|test_while_continue_expression.sig#}
 
       <p>
       While loops are expressions. The result of the expression is the
@@ -2738,12 +2738,12 @@ or
                   When you {#syntax#}break{#endsyntax#} from a while loop, the {#syntax#}else{#endsyntax#} branch is not
       evaluated.
       </p>
-      {#code|test_while_else.zig#}
+      {#code|test_while_else.sig#}
 
       {#header_open|Labeled while#}
       <p>When a {#syntax#}while{#endsyntax#} loop is labeled, it can be referenced from a {#syntax#}break{#endsyntax#}
               or {#syntax#}continue{#endsyntax#} from within a nested loop:</p>
-      {#code|test_while_nested_break.zig#}
+      {#code|test_while_nested_break.sig#}
 
       {#header_close#}
       {#header_open|while with Optionals#}
@@ -2760,7 +2760,7 @@ or
       The {#syntax#}else{#endsyntax#} branch is allowed on optional iteration. In this case, it will
       be executed on the first null value encountered.
       </p>
-      {#code|test_while_null_capture.zig#}
+      {#code|test_while_null_capture.sig#}
 
       {#header_close#}
 
@@ -2775,7 +2775,7 @@ or
       When the {#syntax#}else |x|{#endsyntax#} syntax is present on a {#syntax#}while{#endsyntax#} expression,
       the while condition must have an {#link|Error Union Type#}.
       </p>
-      {#code|test_while_error_capture.zig#}
+      {#code|test_while_error_capture.sig#}
 
       {#header_close#}
 
@@ -2785,7 +2785,7 @@ or
       allows the code to do some things which only work at compile time,
       such as use types as first class values.
       </p>
-      {#code|test_inline_while.zig#}
+      {#code|test_inline_while.sig#}
 
       <p>
       It is recommended to use {#syntax#}inline{#endsyntax#} loops only for one of these reasons:
@@ -2800,12 +2800,12 @@ or
       {#see_also|if|Optionals|Errors|comptime|unreachable#}
       {#header_close#}
       {#header_open|for#}
-      {#code|test_for.zig#}
+      {#code|test_for.sig#}
 
       {#header_open|Labeled for#}
       <p>When a {#syntax#}for{#endsyntax#} loop is labeled, it can be referenced from a {#syntax#}break{#endsyntax#}
               or {#syntax#}continue{#endsyntax#} from within a nested loop:</p>
-      {#code|test_for_nested_break.zig#}
+      {#code|test_for_nested_break.sig#}
 
       {#header_close#}
       {#header_open|inline for#}
@@ -2816,7 +2816,7 @@ or
       The capture value and iterator value of inlined for loops are
       compile-time known.
       </p>
-      {#code|test_inline_for.zig#}
+      {#code|test_inline_for.sig#}
 
       <p>
       It is recommended to use {#syntax#}inline{#endsyntax#} loops only for one of these reasons:
@@ -2831,24 +2831,24 @@ or
       {#see_also|while|comptime|Arrays|Slices#}
       {#header_close#}
       {#header_open|if#}
-      {#code|test_if.zig#}
+      {#code|test_if.sig#}
 
       {#header_open|if with Optionals#}
 
-      {#code|test_if_optionals.zig#}
+      {#code|test_if_optionals.sig#}
 
       {#header_close#}
       {#see_also|Optionals|Errors#}
       {#header_close#}
       {#header_open|defer#}
       <p>Executes an expression unconditionally at scope exit.</p>
-      {#code|test_defer.zig#}
+      {#code|test_defer.sig#}
 
       <p>Defer expressions are evaluated in reverse order.</p>
-      {#code|defer_unwind.zig#}
+      {#code|defer_unwind.sig#}
 
       <p>Inside a defer expression the return statement is not allowed.</p>
-      {#code|test_invalid_defer.zig#}
+      {#code|test_invalid_defer.sig#}
 
       {#see_also|Errors#}
       {#header_close#}
@@ -2862,14 +2862,14 @@ or
       will never be hit to perform optimizations.
       </p>
       {#header_open|Basics#}
-      {#code|test_unreachable.zig#}
+      {#code|test_unreachable.sig#}
 
       <p>In fact, this is how {#syntax#}std.debug.assert{#endsyntax#} is implemented:</p>
-      {#code|test_assertion_failure.zig#}
+      {#code|test_assertion_failure.sig#}
 
       {#header_close#}
       {#header_open|At Compile-Time#}
-      {#code|test_comptime_unreachable.zig#}
+      {#code|test_comptime_unreachable.sig#}
 
       {#see_also|Zig Test|Build Mode|comptime#}
       {#header_close#}
@@ -2888,15 +2888,15 @@ or
       <p>When resolving types together, such as {#syntax#}if{#endsyntax#} clauses or {#syntax#}switch{#endsyntax#} prongs,
               the {#syntax#}noreturn{#endsyntax#} type is compatible with every other type. Consider:
       </p>
-      {#code|test_noreturn.zig#}
+      {#code|test_noreturn.sig#}
 
       <p>Another use case for {#syntax#}noreturn{#endsyntax#} is the {#syntax#}exit{#endsyntax#} function:</p>
-      {#code|test_noreturn_from_exit.zig#}
+      {#code|test_noreturn_from_exit.sig#}
 
       {#header_close#}
 
       {#header_open|Functions#}
-      {#code|test_functions.zig#}
+      {#code|test_functions.sig#}
 
       <p>There is a difference between a function <em>body</em> and a function <em>pointer</em>.
       Function bodies are {#link|comptime#}-only types while function {#link|Pointers#} may be
@@ -2914,7 +2914,7 @@ or
       as parameters, Zig may choose to copy and pass by value, or pass by reference, whichever way
       Zig decides will be faster. This is made possible, in part, by the fact that parameters are immutable.
       </p>
-      {#code|test_pass_by_reference_or_value.zig#}
+      {#code|test_pass_by_reference_or_value.sig#}
 
       <p>
       For extern functions, Zig follows the C ABI for passing structs and unions by value.
@@ -2926,7 +2926,7 @@ or
       In this case the parameter types will be inferred when the function is called.
       Use {#link|@TypeOf#} and {#link|@typeInfo#} to get information about the inferred type.
       </p>
-      {#code|test_fn_type_inference.zig#}
+      {#code|test_fn_type_inference.sig#}
 
 
       {#header_close#}
@@ -2943,7 +2943,7 @@ or
       compile-time known are treated as {#link|Compile Time Parameters#}. This can potentially
       propagate all the way to the return value:
       </p>
-      {#code|inline_call.zig#}
+      {#code|inline_call.sig#}
 
       <p>If {#syntax#}inline{#endsyntax#} is removed, the test fails with the compile error
       instead of passing.</p>
@@ -2960,7 +2960,7 @@ or
       {#header_close#}
 
       {#header_open|Function Reflection#}
-      {#code|test_fn_reflection.zig#}
+      {#code|test_fn_reflection.sig#}
 
       {#header_close#}
       {#header_close#}
@@ -2980,20 +2980,20 @@ or
       <p>
       You can {#link|coerce|Type Coercion#} an error from a subset to a superset:
       </p>
-      {#code|test_coerce_error_subset_to_superset.zig#}
+      {#code|test_coerce_error_subset_to_superset.sig#}
 
       <p>
       But you cannot {#link|coerce|Type Coercion#} an error from a superset to a subset:
       </p>
-      {#code|test_coerce_error_superset_to_subset.zig#}
+      {#code|test_coerce_error_superset_to_subset.sig#}
 
       <p>
       There is a shortcut for declaring an error set with only 1 value, and then getting that value:
       </p>
-      {#code|single_value_error_set_shortcut.zig#}
+      {#code|single_value_error_set_shortcut.sig#}
 
       <p>This is equivalent to:</p>
-      {#code|single_value_error_set.zig#}
+      {#code|single_value_error_set.sig#}
 
       <p>
       This becomes useful when using {#link|Inferred Error Sets#}.
@@ -3024,7 +3024,7 @@ or
       <p>
       Here is a function to parse a string into a 64-bit integer:
       </p>
-      {#code|error_union_parsing_u64.zig#}
+      {#code|error_union_parsing_u64.sig#}
 
       <p>
       Notice the return type is {#syntax#}!u64{#endsyntax#}. This means that the function
@@ -3048,7 +3048,7 @@ or
       </ul>
       {#header_open|catch#}
       <p>If you want to provide a default value, you can use the {#syntax#}catch{#endsyntax#} binary operator:</p>
-      {#code|catch.zig#}
+      {#code|catch.sig#}
 
       <p>
       In this code, {#syntax#}number{#endsyntax#} will be equal to the successfully parsed string, or
@@ -3060,18 +3060,18 @@ or
       {#syntax#}catch{#endsyntax#} after performing some logic, you
       can combine {#syntax#}catch{#endsyntax#} with named {#link|Blocks#}:
       </p>
-      {#code|handle_error_with_catch_block.zig#}
+      {#code|handle_error_with_catch_block.sig#}
 
       {#header_close#}
       {#header_open|try#}
       <p>Let's say you wanted to return the error if you got one, otherwise continue with the
       function logic:</p>
-      {#code|catch_err_return.zig#}
+      {#code|catch_err_return.sig#}
 
       <p>
       There is a shortcut for this. The {#syntax#}try{#endsyntax#} expression:
       </p>
-      {#code|try.zig#}
+      {#code|try.sig#}
 
       <p>
       {#syntax#}try{#endsyntax#} evaluates an error union expression. If it is an error, it returns
@@ -3096,7 +3096,7 @@ or
       You may want to take a different action for every situation. For that, we combine
       the {#link|if#} and {#link|switch#} expression:
       </p>
-      {#syntax_block|zig|handle_all_error_scenarios.zig#}
+      {#syntax_block|zig|handle_all_error_scenarios.sig#}
 fn doAThing(str: []u8) void {
     if (parseU64(str, 10)) |number| {
         doSomethingWithNumber(number);
@@ -3113,7 +3113,7 @@ fn doAThing(str: []u8) void {
       Finally, you may want to handle only some errors. For that, you can capture the unhandled
       errors in the {#syntax#}else{#endsyntax#} case, which now contains a narrower error set:
       </p>
-      {#syntax_block|zig|handle_some_error_scenarios.zig#}
+      {#syntax_block|zig|handle_some_error_scenarios.sig#}
  fn doAnotherThing(str: []u8) error{InvalidChar}!void {
     if (parseU64(str, 10)) |number| {
         doSomethingWithNumber(number);
@@ -3130,7 +3130,7 @@ fn doAThing(str: []u8) void {
       variable, you can capture with {#syntax#}_{#endsyntax#} and avoid the
       {#syntax#}switch{#endsyntax#}.
       </p>
-      {#syntax_block|zig|handle_no_error_scenarios.zig#}
+      {#syntax_block|zig|handle_no_error_scenarios.sig#}
 fn doADifferentThing(str: []u8) void {
     if (parseU64(str, 10)) |number| {
         doSomethingWithNumber(number);
@@ -3149,7 +3149,7 @@ fn doADifferentThing(str: []u8) void {
       <p>
       Example:
       </p>
-      {#syntax_block|zig|errdefer_example.zig#}
+      {#syntax_block|zig|errdefer_example.sig#}
 fn createFoo(param: i32) !Foo {
     const foo = try tryToAllocateFoo();
     // now we have allocated foo. we need to free it if the function fails.
@@ -3193,7 +3193,7 @@ fn createFoo(param: i32) !Foo {
 
       <p>An error union is created with the {#syntax#}!{#endsyntax#} binary operator.
       You can use compile-time reflection to access the child type of an error union:</p>
-      {#code|test_error_union.zig#}
+      {#code|test_error_union.sig#}
 
       {#header_open|Merging Error Sets#}
       <p>
@@ -3208,7 +3208,7 @@ fn createFoo(param: i32) !Foo {
       {#syntax#}LinuxFileOpenError || WindowsFileOpenError{#endsyntax#} for the error set of opening
       files.
       </p>
-      {#code|test_merging_error_sets.zig#}
+      {#code|test_merging_error_sets.sig#}
 
       {#header_close#}
       {#header_open|Inferred Error Sets#}
@@ -3216,7 +3216,7 @@ fn createFoo(param: i32) !Foo {
       Because many functions in Zig return a possible error, Zig supports inferring the error set.
       To infer the error set for a function, prepend the {#syntax#}!{#endsyntax#} operator to the function’s return type, like {#syntax#}!T{#endsyntax#}:
       </p>
-      {#code|test_inferred_error_sets.zig#}
+      {#code|test_inferred_error_sets.sig#}
 
       <p>
       When a function has an inferred error set, that function becomes generic and thus it becomes
@@ -3237,7 +3237,7 @@ fn createFoo(param: i32) !Foo {
       <p>
       Error Return Traces show all the points in the code that an error was returned to the calling function. This makes it practical to use {#link|try#} everywhere and then still be able to know what happened if an error ends up bubbling all the way out of your application.
       </p>
-      {#code|error_return_trace.zig#}
+      {#code|error_return_trace.sig#}
 
       <p>
       Look closely at this example. This is no stack trace.
@@ -3247,7 +3247,7 @@ fn createFoo(param: i32) !Foo {
           but the original error that started this whole thing was {#syntax#}FileNotFound{#endsyntax#}. In the {#syntax#}bar{#endsyntax#} function, the code handles the original error code,
       and then returns another one, from the switch statement. Error Return Traces make this clear, whereas a stack trace would look like this:
       </p>
-      {#code|stack_trace.zig#}
+      {#code|stack_trace.sig#}
 
       <p>
       Here, the stack trace does not explain how the control
@@ -3285,7 +3285,7 @@ fn createFoo(param: i32) !Foo {
       For the case when no errors are returned, the cost is a single memory write operation, only in the first non-failable function in the call graph that calls a failable function, i.e. when a function returning {#syntax#}void{#endsyntax#} calls a function returning {#syntax#}error{#endsyntax#}.
       This is to initialize this struct in the stack memory:
       </p>
-      {#syntax_block|zig|stack_trace_struct.zig#}
+      {#syntax_block|zig|stack_trace_struct.sig#}
 pub const StackTrace = struct {
     index: usize,
     instruction_addresses: [N]usize,
@@ -3303,7 +3303,7 @@ pub const StackTrace = struct {
       <p>
       When generating the code for a function that returns an error, just before the {#syntax#}return{#endsyntax#} statement (only for the {#syntax#}return{#endsyntax#} statements that return errors), Zig generates a call to this function:
       </p>
-      {#syntax_block|zig|zig_return_error_fn.zig#}
+      {#syntax_block|zig|zig_return_error_fn.sig#}
 // marked as "no-inline" in LLVM IR
 fn __zig_return_error(stack_trace: *StackTrace) void {
     stack_trace.instruction_addresses[stack_trace.index] = @returnAddress();
@@ -3330,7 +3330,7 @@ fn __zig_return_error(stack_trace: *StackTrace) void {
       The question mark symbolizes the optional type. You can convert a type to an optional
       type by putting a question mark in front of it, like this:
       </p>
-      {#code|optional_integer.zig#}
+      {#code|optional_integer.sig#}
 
       <p>
       Now the variable {#syntax#}optional_int{#endsyntax#} could be an {#syntax#}i32{#endsyntax#}, or {#syntax#}null{#endsyntax#}.
@@ -3365,7 +3365,7 @@ struct Foo *do_a_thing(void) {
 }
       {#end_syntax_block#}
       <p>Zig code</p>
-      {#syntax_block|zig|call_malloc_from_zig.zig#}
+      {#syntax_block|zig|call_malloc_from_zig.sig#}
 // malloc prototype included for reference
 extern fn malloc(size: usize) ?[*]u8;
 
@@ -3397,7 +3397,7 @@ void do_a_thing(struct Foo *foo) {
       <p>
         In Zig you can accomplish the same thing:
       </p>
-      {#code|checking_null_in_zig.zig#}
+      {#code|checking_null_in_zig.sig#}
 
       <p>
       Once again, the notable thing here is that inside the if block,
@@ -3414,7 +3414,7 @@ void do_a_thing(struct Foo *foo) {
       {#header_open|Optional Type#}
       <p>An optional is created by putting {#syntax#}?{#endsyntax#} in front of a type. You can use compile-time
       reflection to access the child type of an optional:</p>
-      {#code|test_optional_type.zig#}
+      {#code|test_optional_type.sig#}
 
       {#header_close#}
       {#header_open|null#}
@@ -3422,13 +3422,13 @@ void do_a_thing(struct Foo *foo) {
       Just like {#link|undefined#}, {#syntax#}null{#endsyntax#} has its own type, and the only way to use it is to
       cast it to a different type:
       </p>
-      {#code|null.zig#}
+      {#code|null.sig#}
 
       {#header_close#}
       {#header_open|Optional Pointers#}
       <p>An optional pointer is guaranteed to be the same size as a pointer. The {#syntax#}null{#endsyntax#} of
       the optional is guaranteed to be address 0.</p>
-      {#code|test_optional_pointer.zig#}
+      {#code|test_optional_pointer.sig#}
 
       {#header_close#}
 
@@ -3446,7 +3446,7 @@ void do_a_thing(struct Foo *foo) {
       <p>
       Type coercion occurs when one type is expected, but different type is provided:
       </p>
-      {#code|test_type_coercion.zig#}
+      {#code|test_type_coercion.sig#}
 
       <p>
       Type coercions are only allowed when it is completely unambiguous how to get from one type to another,
@@ -3466,12 +3466,12 @@ void do_a_thing(struct Foo *foo) {
       <p>
       These casts are no-ops at runtime since the value representation does not change.
       </p>
-      {#code|test_no_op_casts.zig#}
+      {#code|test_no_op_casts.sig#}
 
       <p>
       In addition, pointers coerce to const optional pointers:
       </p>
-      {#code|test_pointer_coerce_const_optional.zig#}
+      {#code|test_pointer_coerce_const_optional.sig#}
 
       {#header_close#}
       {#header_open|Type Coercion: Integer and Float Widening#}
@@ -3479,7 +3479,7 @@ void do_a_thing(struct Foo *foo) {
       {#link|Integers#} coerce to integer types which can represent every value of the old type, and likewise
       {#link|Floats#} coerce to float types which can represent every value of the old type.
       </p>
-      {#code|test_integer_widening.zig#}
+      {#code|test_integer_widening.sig#}
 
       {#header_close#}
       {#header_open|Type Coercion: Int to Float#}
@@ -3524,8 +3524,8 @@ void do_a_thing(struct Foo *foo) {
         </tbody>
       </table>
       </div>
-      {#code|test_int_to_float_coercion.zig#}
-      {#code|test_failed_int_to_float_coercion.zig#}
+      {#code|test_int_to_float_coercion.sig#}
+      {#code|test_failed_int_to_float_coercion.sig#}
 
       {#header_close#}
       {#header_open|Type Coercion: Float to Int#}
@@ -3537,11 +3537,11 @@ void do_a_thing(struct Foo *foo) {
         <li>Cast {#syntax#}54.0{#endsyntax#} to {#syntax#}comptime_int{#endsyntax#} resulting in {#syntax#}@as(comptime_int, 10){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10){#endsyntax#}</li>
         <li>Cast {#syntax#}5{#endsyntax#} to {#syntax#}comptime_float{#endsyntax#} resulting in {#syntax#}@as(comptime_float, 10.8){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10.8){#endsyntax#}</li>
       </ul>
-      {#code|test_ambiguous_coercion.zig#}
+      {#code|test_ambiguous_coercion.sig#}
 
       {#header_close#}
       {#header_open|Type Coercion: Slices, Arrays and Pointers#}
-      {#code|test_coerce_slices_arrays_and_pointers.zig#}
+      {#code|test_coerce_slices_arrays_and_pointers.sig#}
 
       {#see_also|C Pointers#}
       {#header_close#}
@@ -3549,24 +3549,24 @@ void do_a_thing(struct Foo *foo) {
       <p>
       The payload type of {#link|Optionals#}, as well as {#link|null#}, coerce to the optional type.
       </p>
-      {#code|test_coerce_optionals.zig#}
+      {#code|test_coerce_optionals.sig#}
 
       <p>Optionals work nested inside the {#link|Error Union Type#}, too:</p>
-      {#code|test_coerce_optional_wrapped_error_union.zig#}
+      {#code|test_coerce_optional_wrapped_error_union.sig#}
 
       {#header_close#}
       {#header_open|Type Coercion: Error Unions#}
       <p>The payload type of an {#link|Error Union Type#} as well as the {#link|Error Set Type#}
       coerce to the error union type:
       </p>
-      {#code|test_coerce_to_error_union.zig#}
+      {#code|test_coerce_to_error_union.sig#}
 
       {#header_close#}
       {#header_open|Type Coercion: Compile-Time Known Numbers#}
       <p>When a number is {#link|comptime#}-known to be representable in the destination type,
       it may be coerced:
       </p>
-      {#code|test_coerce_large_to_small.zig#}
+      {#code|test_coerce_large_to_small.sig#}
 
       {#header_close#}
       {#header_open|Type Coercion: Unions and Enums#}
@@ -3574,7 +3574,7 @@ void do_a_thing(struct Foo *foo) {
       when they are {#link|comptime#}-known to be a field of the union that has only one possible value, such as
       {#link|void#}:
       </p>
-      {#code|test_coerce_unions_enums.zig#}
+      {#code|test_coerce_unions_enums.sig#}
 
       {#see_also|union|enum#}
       {#header_close#}
@@ -3584,7 +3584,7 @@ void do_a_thing(struct Foo *foo) {
 
       {#header_open|Type Coercion: Tuples to Arrays#}
       <p>{#link|Tuples#} can be coerced to arrays, if all of the fields have the same type.</p>
-      {#code|test_coerce_tuples_arrays.zig#}
+      {#code|test_coerce_tuples_arrays.sig#}
 
       {#header_close#}
       {#header_close#}
@@ -3628,7 +3628,7 @@ void do_a_thing(struct Foo *foo) {
       This kind of type resolution chooses a type that all peer types can coerce into. Here are
       some examples:
       </p>
-      {#code|test_peer_type_resolution.zig#}
+      {#code|test_peer_type_resolution.sig#}
 
       {#header_close#}
       {#header_close#}
@@ -3648,7 +3648,7 @@ void do_a_thing(struct Foo *foo) {
       require 0 bits to represent. Code that makes use of these types is
       not included in the final generated code:
       </p>
-      {#code|zero_bit_types.zig#}
+      {#code|zero_bit_types.sig#}
 
       <p>When this turns into machine code, there is no code generated in the
       body of {#syntax#}entry{#endsyntax#}, even in {#link|Debug#} mode. For example, on x86_64:</p>
@@ -3666,7 +3666,7 @@ void do_a_thing(struct Foo *foo) {
           {#syntax#}Map(Key, Value){#endsyntax#}, one can pass {#syntax#}void{#endsyntax#} for the {#syntax#}Value{#endsyntax#}
                       type to make it into a {#syntax#}Set{#endsyntax#}:
       </p>
-      {#code|test_void_in_hashmap.zig#}
+      {#code|test_void_in_hashmap.sig#}
 
       <p>Note that this is different from using a dummy value for the hash map value.
       By using {#syntax#}void{#endsyntax#} as the type of the value, the hash map entry type has no value field, and
@@ -3681,10 +3681,10 @@ void do_a_thing(struct Foo *foo) {
       Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example, ignoring
       a non-{#syntax#}void{#endsyntax#} expression is a compile error:
       </p>
-      {#code|test_expression_ignored.zig#}
+      {#code|test_expression_ignored.sig#}
 
       <p>However, if the expression has type {#syntax#}void{#endsyntax#}, there will be no error. Expression results can be explicitly ignored by assigning them to {#syntax#}_{#endsyntax#}. </p>
-      {#code|test_void_ignored.zig#}
+      {#code|test_void_ignored.sig#}
 
       {#header_close#}
       {#header_close#}
@@ -3725,7 +3725,7 @@ void do_a_thing(struct Foo *foo) {
       <p>
       We can break down the result types for each component of a simple expression as follows:
       </p>
-      {#code|result_type_propagation.zig#}
+      {#code|result_type_propagation.sig#}
 
       <p>
       This result type information is useful for the aforementioned cast builtins, as well as to avoid
@@ -3846,7 +3846,7 @@ void do_a_thing(struct Foo *foo) {
       expression depends on the previous value of the aggregate. The easiest way to demonstrate this is by
       attempting to swap fields of a struct or array - the following logic looks sound, but in fact is not:
       </p>
-      {#code|result_location_interfering_with_swap.zig#}
+      {#code|result_location_interfering_with_swap.sig#}
 
       <p>
       The following table details how some common expressions propagate result locations, where
@@ -3946,7 +3946,7 @@ void do_a_thing(struct Foo *foo) {
       <p>
       Compile-time parameters is how Zig implements generics. It is compile-time duck typing.
       </p>
-      {#code|compile-time_duck_typing.zig#}
+      {#code|compile-time_duck_typing.sig#}
 
       <p>
       In Zig, types are first-class citizens. They can be assigned to variables, passed as parameters to functions,
@@ -3963,7 +3963,7 @@ void do_a_thing(struct Foo *foo) {
       <p>
       For example, if we were to introduce another function to the above snippet:
       </p>
-      {#code|test_unresolved_comptime_value.zig#}
+      {#code|test_unresolved_comptime_value.sig#}
 
       <p>
       This is an error because the programmer attempted to pass a value only known at run-time
@@ -3976,14 +3976,14 @@ void do_a_thing(struct Foo *foo) {
       <p>
       For example:
       </p>
-      {#code|test_comptime_mismatched_type.zig#}
+      {#code|test_comptime_mismatched_type.sig#}
 
       <p>
       On the flip side, inside the function definition with the {#syntax#}comptime{#endsyntax#} parameter, the
       value is known at compile-time. This means that we actually could make this work for the bool type
       if we wanted to:
       </p>
-      {#code|test_comptime_max_with_bool.zig#}
+      {#code|test_comptime_max_with_bool.sig#}
 
       <p>
       This works because Zig implicitly inlines {#syntax#}if{#endsyntax#} expressions when the condition
@@ -3994,7 +3994,7 @@ void do_a_thing(struct Foo *foo) {
       This means that the actual function generated for {#syntax#}max{#endsyntax#} in this situation looks like
       this:
       </p>
-      {#code|compiler_generated_function.zig#}
+      {#code|compiler_generated_function.sig#}
 
       <p>
       All the code that dealt with compile-time known values is eliminated and we are left with only
@@ -4018,7 +4018,7 @@ void do_a_thing(struct Foo *foo) {
       <p>
       For example:
       </p>
-      {#code|test_comptime_evaluation.zig#}
+      {#code|test_comptime_evaluation.sig#}
 
       <p>
       This example is a bit contrived, because the compile-time evaluation component is unnecessary;
@@ -4067,7 +4067,7 @@ fn performFn(start_value: i32) i32 {
       use a {#syntax#}comptime{#endsyntax#} expression to guarantee that the expression will be evaluated at compile-time.
       If this cannot be accomplished, the compiler will emit an error. For example:
       </p>
-      {#code|test_comptime_call_extern_function.zig#}
+      {#code|test_comptime_call_extern_function.sig#}
 
       <p>
       It doesn't make sense that a program could call {#syntax#}exit(){#endsyntax#} (or any other external function)
@@ -4093,12 +4093,12 @@ fn performFn(start_value: i32) i32 {
       <p>
       Let's look at an example:
       </p>
-      {#code|test_fibonacci_recursion.zig#}
+      {#code|test_fibonacci_recursion.sig#}
 
       <p>
       Imagine if we had forgotten the base case of the recursive function and tried to run the tests:
       </p>
-      {#code|test_fibonacci_comptime_overflow.zig#}
+      {#code|test_fibonacci_comptime_overflow.sig#}
 
       <p>
       The compiler produces an error which is a stack trace from trying to evaluate the
@@ -4109,7 +4109,7 @@ fn performFn(start_value: i32) i32 {
       {#link|Illegal Behavior#}, which is always a compile error if the compiler knows it happened.
       But what would have happened if we used a signed integer?
       </p>
-      {#code|fibonacci_comptime_infinite_recursion.zig#}
+      {#code|fibonacci_comptime_infinite_recursion.sig#}
 
       <p>
       The compiler is supposed to notice that evaluating this function at
@@ -4129,13 +4129,13 @@ fn performFn(start_value: i32) i32 {
       What if we fix the base case, but put the wrong value in the
       {#syntax#}expect{#endsyntax#} line?
       </p>
-      {#code|test_fibonacci_comptime_unreachable.zig#}
+      {#code|test_fibonacci_comptime_unreachable.sig#}
 
       <p>At {#link|Namespace#} level (outside of any function), all expressions
       are implicitly {#syntax#}comptime{#endsyntax#} expressions. This means
       that we can use functions to initialize complex constant data. For
       example:</p>
-      {#code|test_namespace-level_comptime_expressions.zig#}
+      {#code|test_namespace-level_comptime_expressions.sig#}
 
       <p>
       When we compile this program, Zig generates the constants
@@ -4158,7 +4158,7 @@ fn performFn(start_value: i32) i32 {
       <p>
 			Here is an example of a generic {#syntax#}List{#endsyntax#} data structure.
       </p>
-      {#code|generic_data_structure.zig#}
+      {#code|generic_data_structure.sig#}
 
       <p>
       That's it. It's a function that returns an anonymous {#syntax#}struct{#endsyntax#}.
@@ -4169,7 +4169,7 @@ fn performFn(start_value: i32) i32 {
       <p>
       To explicitly give a type a name, we assign it to a constant.
       </p>
-      {#code|anonymous_struct_name.zig#}
+      {#code|anonymous_struct_name.sig#}
 
       <p>
       In this example, the {#syntax#}Node{#endsyntax#} struct refers to itself.
@@ -4183,14 +4183,14 @@ fn performFn(start_value: i32) i32 {
       <p>
       Putting all of this together, let's see how {#syntax#}print{#endsyntax#} works in Zig.
       </p>
-      {#code|print.zig#}
+      {#code|print.sig#}
 
 
       <p>
       Let's crack open the implementation of this and see how it works:
       </p>
 
-      {#code|poc_print_fn.zig#}
+      {#code|poc_print_fn.sig#}
 
       <p>
       This is a proof of concept implementation; the actual function in the standard library has more
@@ -4217,12 +4217,12 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       {#syntax#}printValue{#endsyntax#} is a function that takes a parameter of any type, and does different things depending
       on the type:
       </p>
-      {#code|poc_printValue_fn.zig#}
+      {#code|poc_printValue_fn.sig#}
 
       <p>
       And now, what happens if we give too many arguments to {#syntax#}print{#endsyntax#}?
       </p>
-      {#code|test_print_too_many_args.zig#}
+      {#code|test_print_too_many_args.sig#}
 
       <p>
       Zig gives programmers the tools needed to protect themselves against their own mistakes.
@@ -4231,7 +4231,7 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       Zig doesn't care whether the format argument is a string literal,
       only that it is a compile-time known value that can be coerced to a {#syntax#}[]const u8{#endsyntax#}:
       </p>
-      {#code|print_comptime-known_format.zig#}
+      {#code|print_comptime-known_format.sig#}
 
       <p>
       This works fine.
@@ -4251,12 +4251,12 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       can use inline assembly. Here is an example of implementing Hello, World on x86_64 Linux
       using inline assembly:
       </p>
-      {#code|inline_assembly.zig#}
+      {#code|inline_assembly.sig#}
 
       <p>
       Dissecting the syntax:
       </p>
-      {#code|Assembly Syntax Explained.zig#}
+      {#code|Assembly Syntax Explained.sig#}
 
       <p>
       For x86 and x86_64 targets, the syntax is AT&amp;T syntax, rather than the more
@@ -4325,7 +4325,7 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       verbatim into one long string and assembled together. There are no template substitution rules regarding
       <code>%</code> as there are in inline assembly expressions.
       </p>
-      {#code|test_global_assembly.zig#}
+      {#code|test_global_assembly.sig#}
 
       {#header_close#}
       {#header_close#}
@@ -4590,13 +4590,13 @@ comptime {
       <p>
       Calls a function, in the same way that invoking an expression with parentheses does:
       </p>
-      {#code|test_call_builtin.zig#}
+      {#code|test_call_builtin.sig#}
 
       <p>
       {#syntax#}@call{#endsyntax#} allows more flexibility than normal function call syntax does. The
       {#syntax#}CallModifier{#endsyntax#} enum is reproduced here:
       </p>
-      {#code|lang.CallModifier struct.zig#}
+      {#code|lang.CallModifier struct.sig#}
 
       {#header_close#}
 
@@ -4625,7 +4625,7 @@ comptime {
       if the current value is the given expected value. It's the equivalent of this code,
       except atomic:
       </p>
-      {#code|not_atomic_cmpxchgStrong.zig#}
+      {#code|not_atomic_cmpxchgStrong.sig#}
 
       <p>
       If you are using cmpxchg in a retry loop, {#link|@cmpxchgWeak#} is the better choice, because it can be implemented
@@ -4700,7 +4700,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       This function can be used to do "printf debugging" on
       compile-time executing code.
       </p>
-      {#code|test_compileLog_builtin.zig#}
+      {#code|test_compileLog_builtin.sig#}
 
       {#header_close#}
 
@@ -4903,14 +4903,14 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#syntax#}options.linkage{#endsyntax#} is {#syntax#}.strong{#endsyntax#}, this is equivalent to
       the {#syntax#}export{#endsyntax#} keyword used on a function:
       </p>
-      {#code|export_builtin.zig#}
+      {#code|export_builtin.sig#}
 
       <p>This is equivalent to:</p>
-      {#code|export_builtin_equivalent_code.zig#}
+      {#code|export_builtin_equivalent_code.sig#}
 
       <p>Note that even when using {#syntax#}export{#endsyntax#}, the {#syntax#}@"foo"{#endsyntax#} syntax for
       {#link|identifiers|Identifiers#} can be used to choose any string for the symbol name:</p>
-      {#code|export_any_symbol_name.zig#}
+      {#code|export_any_symbol_name.sig#}
 
       <p>
       When looking at the resulting object, you can see the symbol is used verbatim:
@@ -4932,7 +4932,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@field(lhs: anytype, comptime field_name: []const u8) (field){#endsyntax#}</pre>
       <p>Performs field access by a compile-time string. Works on both fields and declarations.
       </p>
-      {#code|test_field_builtin.zig#}
+      {#code|test_field_builtin.sig#}
 
 
       {#header_close#}
@@ -5008,7 +5008,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@hasDecl#}
       <pre>{#syntax#}@hasDecl(comptime Namespace: type, comptime name: []const u8) bool{#endsyntax#}</pre>
       <p>Returns whether or not a {#link|Namespace#} has a declaration matching {#syntax#}name{#endsyntax#}.</p>
-      {#code|test_hasDecl_builtin.zig#}
+      {#code|test_hasDecl_builtin.sig#}
 
       <p>Caution: using {#syntax#}@hasDecl{#endsyntax#} to implement
       conditional compilation based on the presence or absence of declarations
@@ -5041,7 +5041,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       added. {#syntax#}target{#endsyntax#} is either a relative path to another file from the file containing
       the {#syntax#}@import{#endsyntax#} call, or it is the name of a {#link|module|Compilation Model#}, with
       the import referring to the root source file of that module. Either way, the file path must end in
-      either <code>.zig</code> (for a Zig source file) or <code>.zon</code> (for a ZON data file).</p>
+      either <code>.sig</code> (for a Zig source file) or <code>.zon</code> (for a ZON data file).</p>
       <p>If {#syntax#}target{#endsyntax#} refers to a Zig source file, then {#syntax#}@import{#endsyntax#} returns
       that file's {#link|corresponding struct type|Source File Structs#}, essentially as if the builtin call was
       replaced by {#syntax#}struct { FILE_CONTENTS }{#endsyntax#}. The return type is {#syntax#}type{#endsyntax#}.</p>
@@ -5054,7 +5054,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <ul>
           <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
           <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information. The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.</li>
-          <li>{#syntax#}@import("root"){#endsyntax#} - Alias for the root module. In typical project structures, this means it refers back to <code>src/main.zig</code>.
+          <li>{#syntax#}@import("root"){#endsyntax#} - Alias for the root module. In typical project structures, this means it refers back to <code>src/main.sig</code>.
           </li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
@@ -5079,7 +5079,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Attempting to convert a number which is out of range of the destination type results in
       safety-checked {#link|Illegal Behavior#}.
       </p>
-      {#code|test_intCast_builtin.zig#}
+      {#code|test_intCast_builtin.sig#}
 
       <p>
       To truncate the significant bits of a number out of range of the destination type, use {#link|@truncate#}.
@@ -5238,7 +5238,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       designers targeting Wasm. So unless you are writing a new allocator from scratch, you should use
       something like {#syntax#}@import("std").heap.WasmPageAllocator{#endsyntax#}.
       </p>
-      {#code|test_wasmMemoryGrow_builtin.zig#}
+      {#code|test_wasmMemoryGrow_builtin.sig#}
 
       {#see_also|@wasmMemorySize#}
       {#header_close#}
@@ -5271,7 +5271,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Invokes the panic handler function. By default the panic handler function
       calls the public {#syntax#}panic{#endsyntax#} function exposed in the root source file, or
       if there is not one specified, the {#syntax#}std.lang.default_panic{#endsyntax#}
-      function from {#syntax#}std/lang.zig{#endsyntax#}.
+      function from {#syntax#}std/lang.sig{#endsyntax#}.
       </p>
       <p>Generally it is better to use {#syntax#}@import("std").debug.panic{#endsyntax#}.
           However, {#syntax#}@panic{#endsyntax#} can be useful for 2 scenarios:
@@ -5401,10 +5401,10 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       Example:
       </p>
-      {#code|test_without_setEvalBranchQuota_builtin.zig#}
+      {#code|test_without_setEvalBranchQuota_builtin.sig#}
 
       <p>Now we use {#syntax#}@setEvalBranchQuota{#endsyntax#}:</p>
-      {#code|test_setEvalBranchQuota_builtin.zig#}
+      {#code|test_setEvalBranchQuota_builtin.sig#}
 
 
       {#see_also|comptime#}
@@ -5443,7 +5443,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       Sets whether runtime safety checks are enabled for the scope that contains the function call.
       </p>
-      {#code|test_setRuntimeSafety_builtin.zig#}
+      {#code|test_setRuntimeSafety_builtin.sig#}
 
       <p>Note: it is <a href="https://github.com/ziglang/zig/issues/978">planned</a> to replace
       {#syntax#}@setRuntimeSafety{#endsyntax#} with <code>@optimizeFor</code></p>
@@ -5529,7 +5529,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#link|pointer|Pointers#}, or {#syntax#}bool{#endsyntax#}. The mask may be any vector length, and its
       length determines the result length.
       </p>
-      {#code|test_shuffle_builtin.zig#}
+      {#code|test_shuffle_builtin.sig#}
 
       {#see_also|Vectors#}
       {#header_close#}
@@ -5560,7 +5560,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#syntax#}element{#endsyntax#}. The return type, including the number of
       elements, is inferred.
       </p>
-      {#code|test_splat_builtin.zig#}
+      {#code|test_splat_builtin.sig#}
       {#see_also|Vectors|Arrays|@shuffle#}
       {#header_close#}
 
@@ -5589,7 +5589,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       types the operation associativity is preserved, unless the float mode is
       set to {#syntax#}.optimized{#endsyntax#}.
       </p>
-      {#code|test_reduce_builtin.zig#}
+      {#code|test_reduce_builtin.sig#}
 
       {#see_also|Vectors|@setFloatMode#}
       {#header_close#}
@@ -5599,7 +5599,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       Returns a {#syntax#}SourceLocation{#endsyntax#} struct representing the function's name and location in the source code. This must be called in a function.
       </p>
-      {#code|test_src_builtin.zig#}
+      {#code|test_src_builtin.sig#}
 
       {#header_close#}
       {#header_open|@sqrt#}
@@ -5747,7 +5747,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>Rounds the given floating point number to the nearest integer. If two
       integers are equally close, rounds away from zero. Uses a dedicated
       hardware instruction when available.</p>
-      {#code|test_round_builtin.zig#}
+      {#code|test_round_builtin.sig#}
       <p>Supports {#link|Floats#} and {#link|Vectors#} of floats.</p>
       <p>When the inferred result type is an {#link|integer|Integers#},
       the integer part is extracted from the rounded result. If that value
@@ -5775,7 +5775,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Returns the innermost struct, enum, or union that this function call is inside.
       This can be useful for an anonymous struct that needs to refer to itself:
       </p>
-      {#code|test_this_builtin.zig#}
+      {#code|test_this_builtin.sig#}
 
       <p>
       When {#syntax#}@This(){#endsyntax#} is used at file scope, it returns a reference to the
@@ -5809,7 +5809,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       Calling {#syntax#}@truncate{#endsyntax#} on a number out of range of the destination type is well defined and working code:
       </p>
-      {#code|test_truncate_builtin.zig#}
+      {#code|test_truncate_builtin.sig#}
 
       <p>
       Use {#link|@intCast#} to convert numbers guaranteed to fit the destination type.
@@ -5965,7 +5965,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       The expressions are evaluated, however they are guaranteed to have no <em>runtime</em> side-effects:
       </p>
-      {#code|test_TypeOf_builtin.zig#}
+      {#code|test_TypeOf_builtin.sig#}
 
       {#header_close#}
 
@@ -6027,9 +6027,9 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
         <li>{#link|ReleaseSmall#}</li>
       </ul>
       <p>
-      To add standard build options to a <code class="file">build.zig</code> file:
+      To add standard build options to a <code class="file">build.sig</code> file:
       </p>
-      {#code|build.zig#}
+      {#code|build.sig#}
 
       <p>
       This causes these options to be available:
@@ -6041,7 +6041,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
         <dt><kbd>-Doptimize=ReleaseSmall</kbd></dt><dd>Size optimizations on and safety off</dd>
       </dl>
       {#header_open|Debug#}
-      {#shell_samp#}$ zig build-exe example.zig{#end_shell_samp#}
+      {#shell_samp#}$ zig build-exe example.sig{#end_shell_samp#}
       <ul>
         <li>Fast compilation speed</li>
         <li>Safety checks enabled</li>
@@ -6051,7 +6051,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </ul>
       {#header_close#}
       {#header_open|ReleaseFast#}
-      {#shell_samp#}$ zig build-exe example.zig -O ReleaseFast{#end_shell_samp#}
+      {#shell_samp#}$ zig build-exe example.sig -O ReleaseFast{#end_shell_samp#}
       <ul>
         <li>Fast runtime performance</li>
         <li>Safety checks disabled</li>
@@ -6061,7 +6061,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </ul>
       {#header_close#}
       {#header_open|ReleaseSafe#}
-      {#shell_samp#}$ zig build-exe example.zig -O ReleaseSafe{#end_shell_samp#}
+      {#shell_samp#}$ zig build-exe example.sig -O ReleaseSafe{#end_shell_samp#}
       <ul>
         <li>Medium runtime performance</li>
         <li>Safety checks enabled</li>
@@ -6071,7 +6071,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </ul>
       {#header_close#}
       {#header_open|ReleaseSmall#}
-      {#shell_samp#}$ zig build-exe example.zig -O ReleaseSmall{#end_shell_samp#}
+      {#shell_samp#}$ zig build-exe example.sig -O ReleaseSmall{#end_shell_samp#}
       <ul>
         <li>Medium runtime performance</li>
         <li>Safety checks disabled</li>
@@ -6124,30 +6124,30 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       When a safety check fails, Zig's default panic handler crashes with a stack trace, like this:
       </p>
-      {#code|test_illegal_behavior.zig#}
+      {#code|test_illegal_behavior.sig#}
 
       {#header_open|Reaching Unreachable Code#}
       <p>At compile-time:</p>
-      {#code|test_comptime_reaching_unreachable.zig#}
+      {#code|test_comptime_reaching_unreachable.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_reaching_unreachable.zig#}
+      {#code|runtime_reaching_unreachable.sig#}
 
       {#header_close#}
       {#header_open|Index out of Bounds#}
       <p>At compile-time:</p>
-      {#code|test_comptime_index_out_of_bounds.zig#}
+      {#code|test_comptime_index_out_of_bounds.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_index_out_of_bounds.zig#}
+      {#code|runtime_index_out_of_bounds.sig#}
 
       {#header_close#}
       {#header_open|Cast Negative Number to Unsigned Integer#}
       <p>At compile-time:</p>
-      {#code|test_comptime_invalid_cast.zig#}
+      {#code|test_comptime_invalid_cast.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_invalid_cast.zig#}
+      {#code|runtime_invalid_cast.sig#}
 
       <p>
       To obtain the maximum value of an unsigned integer, use {#syntax#}std.math.maxInt{#endsyntax#}.
@@ -6155,10 +6155,10 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
       {#header_open|Cast Truncates Data#}
       <p>At compile-time:</p>
-      {#code|test_comptime_invalid_cast_truncate.zig#}
+      {#code|test_comptime_invalid_cast_truncate.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_invalid_cast_truncate.zig#}
+      {#code|runtime_invalid_cast_truncate.sig#}
 
       <p>
       To truncate bits, use {#link|@truncate#}.
@@ -6179,10 +6179,10 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
         <li>{#link|@divExact#} (division)</li>
       </ul>
       <p>Example with addition at compile-time:</p>
-      {#code|test_comptime_overflow.zig#}
+      {#code|test_comptime_overflow.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_overflow.zig#}
+      {#code|runtime_overflow.sig#}
 
       {#header_close#}
       {#header_open|Standard Library Math Functions#}
@@ -6198,7 +6198,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>{#syntax#}@import("std").math.shl{#endsyntax#}</li>
       </ul>
       <p>Example of catching an overflow for addition:</p>
-      {#code|math_add.zig#}
+      {#code|math_add.sig#}
 
       {#header_close#}
       {#header_open|Builtin Overflow Functions#}
@@ -6215,7 +6215,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       Example of {#link|@addWithOverflow#}:
       </p>
-      {#code|addWithOverflow_builtin.zig#}
+      {#code|addWithOverflow_builtin.sig#}
 
       {#header_close#}
       {#header_open|Wrapping Operations#}
@@ -6228,116 +6228,116 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>{#syntax#}-%{#endsyntax#} (wraparound negation)</li>
           <li>{#syntax#}*%{#endsyntax#} (wraparound multiplication)</li>
       </ul>
-      {#code|test_wraparound_semantics.zig#}
+      {#code|test_wraparound_semantics.sig#}
 
       {#header_close#}
       {#header_close#}
       {#header_open|Exact Left Shift Overflow#}
       <p>At compile-time:</p>
-      {#code|test_comptime_shlExact_overflow.zig#}
+      {#code|test_comptime_shlExact_overflow.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_shlExact_overflow.zig#}
+      {#code|runtime_shlExact_overflow.sig#}
 
       {#header_close#}
       {#header_open|Exact Right Shift Overflow#}
       <p>At compile-time:</p>
-      {#code|test_comptime_shrExact_overflow.zig#}
+      {#code|test_comptime_shrExact_overflow.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_shrExact_overflow.zig#}
+      {#code|runtime_shrExact_overflow.sig#}
 
       {#header_close#}
       {#header_open|Division by Zero#}
       <p>At compile-time:</p>
-      {#code|test_comptime_division_by_zero.zig#}
+      {#code|test_comptime_division_by_zero.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_division_by_zero.zig#}
+      {#code|runtime_division_by_zero.sig#}
 
       {#header_close#}
       {#header_open|Remainder Division by Zero#}
       <p>At compile-time:</p>
-      {#code|test_comptime_remainder_division_by_zero.zig#}
+      {#code|test_comptime_remainder_division_by_zero.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_remainder_division_by_zero.zig#}
+      {#code|runtime_remainder_division_by_zero.sig#}
 
       {#header_close#}
       {#header_open|Exact Division Remainder#}
       <p>At compile-time:</p>
-      {#code|test_comptime_divExact_remainder.zig#}
+      {#code|test_comptime_divExact_remainder.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_divExact_remainder.zig#}
+      {#code|runtime_divExact_remainder.sig#}
 
       {#header_close#}
       {#header_open|Attempt to Unwrap Null#}
       <p>At compile-time:</p>
-      {#code|test_comptime_unwrap_null.zig#}
+      {#code|test_comptime_unwrap_null.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_unwrap_null.zig#}
+      {#code|runtime_unwrap_null.sig#}
 
       <p>One way to avoid this crash is to test for null instead of assuming non-null, with
       the {#syntax#}if{#endsyntax#} expression:</p>
-      {#code|testing_null_with_if.zig#}
+      {#code|testing_null_with_if.sig#}
 
       {#see_also|Optionals#}
       {#header_close#}
       {#header_open|Attempt to Unwrap Error#}
       <p>At compile-time:</p>
-      {#code|test_comptime_unwrap_error.zig#}
+      {#code|test_comptime_unwrap_error.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_unwrap_error.zig#}
+      {#code|runtime_unwrap_error.sig#}
 
       <p>One way to avoid this crash is to test for an error instead of assuming a successful result, with
       the {#syntax#}if{#endsyntax#} expression:</p>
-      {#code|testing_error_with_if.zig#}
+      {#code|testing_error_with_if.sig#}
 
       {#see_also|Errors#}
       {#header_close#}
       {#header_open|Invalid Error Code#}
       <p>At compile-time:</p>
-      {#code|test_comptime_invalid_error_code.zig#}
+      {#code|test_comptime_invalid_error_code.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_invalid_error_code.zig#}
+      {#code|runtime_invalid_error_code.sig#}
 
       {#header_close#}
       {#header_open|Invalid Enum Cast#}
       <p>At compile-time:</p>
-      {#code|test_comptime_invalid_enum_cast.zig#}
+      {#code|test_comptime_invalid_enum_cast.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_invalid_enum_cast.zig#}
+      {#code|runtime_invalid_enum_cast.sig#}
 
       {#header_close#}
 
       {#header_open|Invalid Error Set Cast#}
       <p>At compile-time:</p>
-      {#code|test_comptime_invalid_error_set_cast.zig#}
+      {#code|test_comptime_invalid_error_set_cast.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_invalid_error_set_cast.zig#}
+      {#code|runtime_invalid_error_set_cast.sig#}
 
       {#header_close#}
 
       {#header_open|Incorrect Pointer Alignment#}
       <p>At compile-time:</p>
-      {#code|test_comptime_incorrect_pointer_alignment.zig#}
+      {#code|test_comptime_incorrect_pointer_alignment.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_incorrect_pointer_alignment.zig#}
+      {#code|runtime_incorrect_pointer_alignment.sig#}
 
       {#header_close#}
       {#header_open|Wrong Union Field Access#}
       <p>At compile-time:</p>
-      {#code|test_comptime_wrong_union_field_access.zig#}
+      {#code|test_comptime_wrong_union_field_access.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_wrong_union_field_access.zig#}
+      {#code|runtime_wrong_union_field_access.sig#}
 
       <p>
       This safety is not available for {#syntax#}extern{#endsyntax#} or {#syntax#}packed{#endsyntax#} unions.
@@ -6345,13 +6345,13 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       To change the active field of a union, assign the entire union, like this:
       </p>
-      {#code|change_active_union_field.zig#}
+      {#code|change_active_union_field.sig#}
 
       <p>
       To change the active field of a union when a meaningful value for the field is not known,
       use {#link|undefined#}, like this:
       </p>
-      {#code|undefined_active_union_field.zig#}
+      {#code|undefined_active_union_field.sig#}
 
       {#see_also|union|extern union#}
       {#header_close#}
@@ -6362,10 +6362,10 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       integer type's range.
       </p>
       <p>At compile-time:</p>
-      {#code|test_comptime_out_of_bounds_float_to_integer_cast.zig#}
+      {#code|test_comptime_out_of_bounds_float_to_integer_cast.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_out_of_bounds_float_to_integer_cast.zig#}
+      {#code|runtime_out_of_bounds_float_to_integer_cast.sig#}
 
       {#header_close#}
 
@@ -6376,10 +6376,10 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       allow address zero, but normal {#link|Pointers#} do not.
       </p>
       <p>At compile-time:</p>
-      {#code|test_comptime_invalid_null_pointer_cast.zig#}
+      {#code|test_comptime_invalid_null_pointer_cast.sig#}
 
       <p>At runtime:</p>
-      {#code|runtime_invalid_null_pointer_cast.zig#}
+      {#code|runtime_invalid_null_pointer_cast.sig#}
 
       {#header_close#}
 
@@ -6401,7 +6401,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       allocate accept an {#syntax#}Allocator{#endsyntax#} parameter. Likewise, some data structures
       accept an {#syntax#}Allocator{#endsyntax#} parameter in their initialization functions:
       </p>
-      {#code|test_allocator.zig#}
+      {#code|test_allocator.sig#}
 
       <p>
       In the above example, 100 bytes of stack memory are used to initialize a
@@ -6435,7 +6435,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
               cyclical pattern (such as a video game main loop, or a web server request handler),
               such that it would make sense to free everything at once at the end?
               In this case, it is recommended to follow this pattern:
-              {#code|cli_allocation.zig#}
+              {#code|cli_allocation.sig#}
 
               When using this kind of allocator, there is no need to free anything manually. Everything
               gets freed at once with the call to {#syntax#}arena.deinit(){#endsyntax#}.
@@ -6478,10 +6478,10 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>String literals such as {#syntax#}"hello"{#endsyntax#} are in the global constant data section.
       This is why it is an error to pass a string literal to a mutable slice, like this:
       </p>
-      {#code|test_string_literal_to_slice.zig#}
+      {#code|test_string_literal_to_slice.sig#}
 
       <p>However if you make the slice constant, then it works:</p>
-      {#code|test_string_literal_to_const_slice.zig#}
+      {#code|test_string_literal_to_const_slice.sig#}
 
       <p>
       Just like string literals, {#syntax#}const{#endsyntax#} declarations, when the value is known at {#link|comptime#},
@@ -6599,7 +6599,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       which the compiler makes available to every Zig source file. It contains
       compile-time constants such as the current target, endianness, and release mode.
       </p>
-      {#code|compile_variables.zig#}
+      {#code|compile_variables.sig#}
 
       <p>
       Example of what is imported with {#syntax#}@import("builtin"){#endsyntax#}:
@@ -6628,7 +6628,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       property. Like the standard library, it is implicitly made available to all modules (including itself),
       this time under the name "root". So, {#syntax#}@import("root"){#endsyntax#} will always be equivalent to
       {#syntax#}@import{#endsyntax#} of your "main" source file (often, but not necessarily, named
-      <code>main.zig</code>).
+      <code>main.sig</code>).
       </p>
       {#header_open|Source File Structs#}
       <p>
@@ -6636,7 +6636,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       the file's contents are literally surrounded by {#syntax#}struct { ... }{#endsyntax#}. This means that
       as well as declarations, the top level of a file is permitted to contain fields:
       </p>
-      {#code|TopLevelFields.zig#}
+      {#code|TopLevelFields.sig#}
       <p>
       Such files can be instantiated just like any other {#syntax#}struct{#endsyntax#} type. A file's "root
       struct type" can be referred to within that file using {#link|@This#}.
@@ -6661,8 +6661,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>
       The answer to that is the root of the standard library: every Zig compilation begins by analyzing the
-      file <code>lib/std/std.zig</code>. This file contains a {#syntax#}comptime{#endsyntax#} declaration
-      which imports {#syntax#}lib/std/start.zig{#endsyntax#}, and that file in turn uses
+      file <code>lib/std/std.sig</code>. This file contains a {#syntax#}comptime{#endsyntax#} declaration
+      which imports {#syntax#}lib/std/start.sig{#endsyntax#}, and that file in turn uses
       {#syntax#}@import("root"){#endsyntax#} to reference the "root module"; so, the file you provide as your
       main module's root source file is effectively also a root, because the standard library will always
       reference it.
@@ -6673,28 +6673,28 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       strategy for this is to use {#syntax#}@import{#endsyntax#} within a {#syntax#}comptime{#endsyntax#} or
       {#syntax#}test{#endsyntax#} block:
       </p>
-      {#syntax_block|zig|force_file_discovery.zig#}
+      {#syntax_block|zig|force_file_discovery.sig#}
 comptime {
-    // This will ensure that the file 'api.zig' is always discovered (as long as this file is discovered).
-    // It is useful if 'api.zig' contains important exported declarations.
-    _ = @import("api.zig");
+    // This will ensure that the file 'api.sig' is always discovered (as long as this file is discovered).
+    // It is useful if 'api.sig' contains important exported declarations.
+    _ = @import("api.sig");
 
     // We could also have a file which contains declarations we only want to export depending on a comptime
     // condition. In that case, we can use an `if` statement here:
     if (builtin.os.tag == .windows) {
-        _ = @import("windows_api.zig");
+        _ = @import("windows_api.sig");
     }
 }
 
 test {
-    // This will ensure that the file 'tests.zig' is always discovered (as long as this file is discovered),
-    // if this compilation is a test. It is useful if 'tests.zig' contains tests we want to ensure are run.
-    _ = @import("tests.zig");
+    // This will ensure that the file 'tests.sig' is always discovered (as long as this file is discovered),
+    // if this compilation is a test. It is useful if 'tests.sig' contains tests we want to ensure are run.
+    _ = @import("tests.sig");
 
     // We could also have a file which contains tests we only want to run depending on a comptime condition.
     // In that case, we can use an `if` statement here:
     if (builtin.os.tag == .windows) {
-        _ = @import("windows_tests.zig");
+        _ = @import("windows_tests.sig");
     }
 }
 
@@ -6719,16 +6719,16 @@ const builtin = @import("builtin");
       {#syntax#}pub const _start = {};{#endsyntax#}) will disable the default {#syntax#}std.start{#endsyntax#}
       logic, allowing your root source file to export a low-level entry point as needed.
       </p>
-      {#code|entry_point.zig#}
+      {#code|entry_point.sig#}
       <p>
       If the Zig compilation links libc, the {#syntax#}main{#endsyntax#} function can optionally be an
       {#syntax#}export fn{#endsyntax#} which matches the signature of the C <code>main</code> function:
       </p>
-      {#code|libc_export_entry_point.zig#}
+      {#code|libc_export_entry_point.sig#}
       <p>
       {#syntax#}std.start{#endsyntax#} may also use other entry point declarations in certain situations, such
       as {#syntax#}wWinMain{#endsyntax#} or {#syntax#}EfiMain{#endsyntax#}. Refer to the
-      {#syntax#}lib/std/start.zig{#endsyntax#} logic for details of these declarations.
+      {#syntax#}lib/std/start.sig{#endsyntax#} logic for details of these declarations.
       </p>
       {#header_close#}
       {#header_open|Standard Library Options#}
@@ -6738,7 +6738,7 @@ const builtin = @import("builtin");
       {#syntax#}std.Options{#endsyntax#}, and allows the program to customize some standard library
       functionality, such as the {#syntax#}std.log{#endsyntax#} implementation.
       </p>
-      {#code|std_options.zig#}
+      {#code|std_options.sig#}
       {#header_close#}
       {#header_open|Panic Handler#}
       <p>
@@ -6753,7 +6753,7 @@ const builtin = @import("builtin");
       Overriding how the panic handler actually outputs messages, but keeping the formatted safety panics
       which are enabled by default, can be easily achieved with {#syntax#}std.debug.FullPanic{#endsyntax#}:
       </p>
-      {#code|panic_handler.zig#}
+      {#code|panic_handler.sig#}
       {#header_close#}
       {#header_close#}
       {#header_close#}
@@ -6761,7 +6761,7 @@ const builtin = @import("builtin");
       <p>
       The Zig Build System provides a cross-platform, dependency-free way to declare
       the logic required to build a project. With this system, the logic to build
-      a project is written in a build.zig file, using the Zig Build System API to
+      a project is written in a build.sig file, using the Zig Build System API to
       declare and configure build artifacts and other tasks.
       </p>
       <p>
@@ -6787,7 +6787,7 @@ const builtin = @import("builtin");
       <p>
       To use the build system, run <kbd>zig build --help</kbd>
       to see a command-line usage help menu. This will include project-specific
-      options that were declared in the build.zig script.
+      options that were declared in the build.sig script.
       </p>
       <p>
       For the time being, the build system documentation is hosted externally:
@@ -6948,12 +6948,12 @@ pub extern fn do_something(foo: enum_FOO) c_int;{#end_shell_samp#}
 
       {#header_open|C Variadic Functions#}
       <p>Zig supports extern variadic functions.</p>
-      {#code|test_variadic_function.zig#}
+      {#code|test_variadic_function.sig#}
 
       <p>
         Variadic functions can be implemented using {#link|@cVaStart#}, {#link|@cVaEnd#}, {#link|@cVaArg#} and {#link|@cVaCopy#}.
       </p>
-      {#code|test_defining_variadic_function.zig#}
+      {#code|test_defining_variadic_function.sig#}
 
       {#header_close#}
       {#header_open|Exporting a C Library#}
@@ -6962,15 +6962,15 @@ pub extern fn do_something(foo: enum_FOO) c_int;{#end_shell_samp#}
       to call into. The {#syntax#}export{#endsyntax#} keyword in front of functions, variables, and types causes them to
       be part of the library API:
       </p>
-      {#code|mathtest.zig#}
+      {#code|mathtest.sig#}
 
       <p>To make a static library:</p>
-      {#shell_samp#}$ zig build-lib mathtest.zig{#end_shell_samp#}
+      {#shell_samp#}$ zig build-lib mathtest.sig{#end_shell_samp#}
       <p>To make a shared library:</p>
-      {#shell_samp#}$ zig build-lib mathtest.zig -dynamic{#end_shell_samp#}
+      {#shell_samp#}$ zig build-lib mathtest.sig -dynamic{#end_shell_samp#}
       <p>Here is an example with the {#link|Zig Build System#}:</p>
       {#syntax_block|c|test.c#}
-// This header is generated by zig from mathtest.zig
+// This header is generated by zig from mathtest.sig
 #include "mathtest.h"
 #include <stdio.h>
 
@@ -6980,7 +6980,7 @@ int main(int argc, char **argv) {
     return 0;
 }
       {#end_syntax_block#}
-      {#code|build_c.zig#}
+      {#code|build_c.sig#}
 
       {#shell_samp#}$ zig build test
 1379{#end_shell_samp#}
@@ -6990,10 +6990,10 @@ int main(int argc, char **argv) {
       <p>
       You can mix Zig object files with any other object files that respect the C ABI. Example:
       </p>
-      {#code|base64.zig#}
+      {#code|base64.sig#}
 
       {#syntax_block|c|test.c#}
-// This header is generated by zig from base64.zig
+// This header is generated by zig from base64.sig
 #include "base64.h"
 
 #include <string.h>
@@ -7010,7 +7010,7 @@ int main(int argc, char **argv) {
     return 0;
 }
       {#end_syntax_block#}
-      {#code|build_object.zig#}
+      {#code|build_object.sig#}
 
       {#shell_samp#}$ zig build
 $ ./zig-out/bin/test
@@ -7023,7 +7023,7 @@ all your base are belong to us{#end_shell_samp#}
       {#header_open|Freestanding#}
       <p>For host environments like the web browser and nodejs, build as an executable using the freestanding
       OS target. Here's an example of running Zig code compiled to WebAssembly with nodejs.</p>
-      {#code|math.zig#}
+      {#code|math.sig#}
 
       {#syntax_block|javascript|test.js#}
 const fs = require('fs');
@@ -7043,7 +7043,7 @@ The result is 3{#end_shell_samp#}
       {#header_close#}
       {#header_open|WASI#}
       <p>Zig standard library has first-class support for WebAssembly System Interface.</p>
-      {#code|wasi_args.zig#}
+      {#code|wasi_args.sig#}
 
       {#shell_samp#}$ wasmtime wasi_args.wasm 123 hello
 0: wasi_args.wasm
@@ -7051,7 +7051,7 @@ The result is 3{#end_shell_samp#}
 2: hello{#end_shell_samp#}
       <p>A more interesting example would be extracting the list of preopens from the runtime.
       This is now supported in the standard library via {#syntax#}std.fs.wasi.Preopens{#endsyntax#}:</p>
-      {#code|wasi_preopens.zig#}
+      {#code|wasi_preopens.sig#}
 
       {#shell_samp#}$ wasmtime --dir=. wasi_preopens.wasm
 0: stdin
@@ -7119,7 +7119,7 @@ coding style.
       <p>Every declaration is assigned a <strong>fully qualified
       namespace</strong> by the compiler, creating a tree structure. Choose names based
       on the fully-qualified namespace, and avoid redundant name segments.</p>
-      {#code|redundant_fqn.zig#}
+      {#code|redundant_fqn.sig#}
 
       <p>In this example, "json" is repeated in the fully-qualified namespace. The solution
       is to delete <code>Json</code> from <code>JsonValue</code>. In this example we have
@@ -7217,9 +7217,9 @@ coding style.
       </p>
       {#header_close#}
       {#header_open|Examples#}
-      {#syntax_block|zig|style_example.zig#}
-const namespace_name = @import("dir_name/file_name.zig");
-const TypeName = @import("dir_name/TypeName.zig");
+      {#syntax_block|zig|style_example.sig#}
+const namespace_name = @import("dir_name/file_name.sig");
+const TypeName = @import("dir_name/TypeName.sig");
 var global_var: i32 = undefined;
 const const_name = 42;
 const PrimitiveTypeAlias = f32;

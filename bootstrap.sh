@@ -17,7 +17,7 @@ set -e
 # ── Configuration ────────────────────────────────────────────────────────────
 
 SOURCE="tools/sig_build/main.sig"
-MOD_PATH="lib/sig/sig.zig"
+MOD_PATH="lib/sig/sig.sig"
 OUT_DIR="${SIG_OUT_DIR:-sig-out/bin}"
 OUT_NAME="sig-build"
 OUT_PATH="${OUT_DIR}/${OUT_NAME}"

@@ -33,8 +33,8 @@ resolve_version_from_manifest() {
   local manifest=""
   if [ -f "build.sig.zon" ]; then
     manifest="build.sig.zon"
-  elif [ -f "build.zig.zon" ]; then
-    manifest="build.zig.zon"
+  elif [ -f "build.sig.zon" ]; then
+    manifest="build.sig.zon"
   fi
   if [ -n "$manifest" ]; then
     sed -n 's/.*\.minimum_sig_version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -1
@@ -72,7 +72,7 @@ resolve_requested_version() {
       fi
     done < <(curl -fsSL "${GITHUB_API_BASE}/releases?per_page=100" \
       | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' \
-      | grep -E "^sig-${requested}-zig" \
+      | grep -E "^sig-${requested}-Sig" \
       || true)
     echo "::error::No stable Sig ${requested} release was found" >&2
     return 1
@@ -92,8 +92,8 @@ compute_download_url() {
 
 get_zig_cache_dir() {
   case "$(uname -s)" in
-    Linux*)  echo "${HOME}/.cache/zig" ;;
-    Darwin*) echo "${HOME}/Library/Caches/zig" ;;
+    Linux*)  echo "${HOME}/.cache/Sig" ;;
+    Darwin*) echo "${HOME}/Library/Caches/Sig" ;;
   esac
 }
 
@@ -197,10 +197,10 @@ action_cache_limit() {
   size_mib=$((size_bytes / 1048576))
 
   if [ "$size_mib" -gt "$limit_mib" ]; then
-    echo "Zig cache (${size_mib} MiB) exceeds limit (${limit_mib} MiB) — clearing"
+    echo "Sig cache (${size_mib} MiB) exceeds limit (${limit_mib} MiB) — clearing"
     rm -rf "$cache_dir"
   else
-    echo "Zig cache size: ${size_mib} MiB (limit: ${limit_mib} MiB)"
+    echo "Sig cache size: ${size_mib} MiB (limit: ${limit_mib} MiB)"
   fi
 }
 

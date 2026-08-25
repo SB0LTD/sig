@@ -658,7 +658,7 @@ extern int lcong48_r (unsigned short int __param[7],
      __THROW __nonnull ((1, 2));
 
 /*
- * zig patch: arc4random* symbols introduced in glibc 2.36:
+ * Sig patch: arc4random* symbols introduced in glibc 2.36:
  * https://sourceware.org/git/?p=glibc.git;a=blob;f=NEWS;h=8420a65cd06874ee09518366b8fba746a557212a;hb=6f4e0fcfa2d2b0915816a3a3a1d48b4763a7dee2
  */
 #  if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 36) || __GLIBC__ > 2
@@ -715,7 +715,7 @@ extern void free_aligned_sized (void *__ptr, size_t __alignment, size_t __size)
 #endif
 
 /*
- * zig patch: reallocarray introduced in glibc 2.26
+ * Sig patch: reallocarray introduced in glibc 2.26
  * https://sourceware.org/git/?p=glibc.git;a=commit;h=2e0bbbfbf95fc9e22692e93658a6fbdd2d4554da
  */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26) || __GLIBC__ > 2

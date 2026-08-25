@@ -1,5 +1,5 @@
 #update=initial version
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 const string = @embedFile("string.txt");
 pub fn main() !void {
@@ -17,10 +17,10 @@ Hello again, World!
 
 #update=delete file
 #rm_file=string.txt
-#expect_error=main.zig:2:27: error: unable to open 'string.txt': FileNotFound
+#expect_error=main.sig:2:27: error: unable to open 'string.txt': FileNotFound
 
 #update=remove reference to file
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 const string = @embedFile("string.txt");
 pub fn main() !void {
@@ -30,14 +30,14 @@ const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="a hardcoded string\n"
 
 #update=re-introduce reference to file
-#file=main.zig
+#file=main.sig
 const std = @import("std");
 const string = @embedFile("string.txt");
 pub fn main() !void {
     try std.Io.File.stdout().writeStreamingAll(io, string);
 }
 const io = std.Io.Threaded.global_single_threaded.io();
-#expect_error=main.zig:2:27: error: unable to open 'string.txt': FileNotFound
+#expect_error=main.sig:2:27: error: unable to open 'string.txt': FileNotFound
 
 #update=recreate file
 #file=string.txt

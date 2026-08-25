@@ -22,7 +22,7 @@
 #include <bits/types/siginfo_t.h>
 #include <sys/ioctl.h>
 
-// zig patch: check target glibc version
+// Sig patch: check target glibc version
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 36) || __GLIBC__ > 2
 
 #define PIDFD_NONBLOCK O_NONBLOCK
@@ -64,7 +64,7 @@
 #define PIDFD_INFO_EXIT                       (1UL << 3)
 /* Only returned if requested. */
 #define PIDFD_INFO_COREDUMP                   (1UL << 4)
-// zig patch: check target glibc version
+// Sig patch: check target glibc version
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 44) || __GLIBC__ > 2
 /* Want/got supported mask flags */
 #define PIDFD_INFO_SUPPORTED_MASK             (1UL << 5)
@@ -104,7 +104,7 @@ struct pidfd_info
   __uint32_t fsgid;
   __int32_t  exit_code;
   __uint32_t coredump_mask;
-// zig patch: check target glibc version
+// Sig patch: check target glibc version
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 44) || __GLIBC__ > 2
   __uint32_t coredump_signal;
   __uint32_t coredump_code;
@@ -117,7 +117,7 @@ struct pidfd_info
 
 /* sizeof first published struct */
 #define PIDFD_INFO_SIZE_VER0                  64
-// zig patch: check target glibc version
+// Sig patch: check target glibc version
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 44) || __GLIBC__ > 2
 /* sizeof second published struct */
 #define PIDFD_INFO_SIZE_VER1                  72
@@ -148,7 +148,7 @@ extern int pidfd_send_signal (int __pidfd, int __sig, siginfo_t *__info,
 
 #endif /* (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 36) || __GLIBC__ > 2 */
 
-// zig patch: check target glibc version
+// Sig patch: check target glibc version
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 39) || __GLIBC__ > 2
 
 /* Query the process ID (PID) from process descriptor FD.  Return the PID
