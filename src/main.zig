@@ -36,6 +36,7 @@ const Module = @import("Module.zig");
 
 test {
     _ = @import("codegen.zig");
+    _ = @import("link/MappedFile.zig");
 }
 
 const thread_stack_size = 60 << 20;
