@@ -81,11 +81,6 @@ jobs:
           echo "SIG=$BIN" >> "$GITHUB_ENV"
 
       - name: Regenerate zig1.wasm via build system
-        env:
-          # Native Maker resolves its compiler library before the build host
-          # exists. Pin it to this checkout; do not forward a stale Maker-only
-          # --Sig-lib argument into the native build host.
-          SIG_LIB_DIR: ${{ github.workspace }}/lib
         run: |
           set -euo pipefail
           ulimit -s unlimited 2>/dev/null || true
