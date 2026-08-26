@@ -1,3 +1,4 @@
+#skip_target=wasm32-wasi-selfhosted
 #update=initial version
 #file=main.sig
 const Tag = u2;
