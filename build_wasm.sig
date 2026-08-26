@@ -85,10 +85,12 @@ fn buildWasm(step: *sig_build.Step_Context) sig_build.SigError!void {
     try cmd.appendArg(emit);
 
     sig_build.printMsg(io, "wasm: compiling {s}", .{wasm_output});
+    sig_build.printMsg(io, "wasm: cmd[0]={s}", .{compiler});
     var stderr_buf: [sig_build.STDERR_CAPTURE_SIZE]u8 = undefined;
     var stderr_len: usize = 0;
     const exit_code = try sig_build.runCommand(&cmd, &stderr_buf, &stderr_len, io);
     if (exit_code != 0) {
+        sig_build.printMsg(io, "wasm: exit={d} stderr_len={d}", .{exit_code, stderr_len});
         if (stderr_len > 0) sig_build.printMsg(io, "wasm compiler failed:\n{s}", .{stderr_buf[0..stderr_len]});
         return error.BufferTooSmall;
     }
