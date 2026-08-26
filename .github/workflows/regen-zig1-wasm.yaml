@@ -96,7 +96,7 @@ jobs:
           echo "Memory: $(free -h | grep Mem | awk '{print $2}') RAM + $(free -h | grep Swap | awk '{print $2}') swap"
 
           rm -f stage1/zig1.wasm
-          rm -rf .sig-cache ~/.cache/Sig sig-out sig-cache
+          rm -rf .sig-cache ~/.cache/Sig sig-out sig-cache .zig-cache ~/.cache/zig
 
           SIG_VER=$(sed -n 's/^const sig_version_string = "\([^"]*\)".*/\1/p' build.sig | head -1)
           ZIG_VER=$(sed -n 's/^const zig_version:.*major = \([0-9]*\), \.minor = \([0-9]*\), \.patch = \([0-9]*\).*/\1.\2.\3/p' build.sig | head -1)
