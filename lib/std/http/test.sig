@@ -33,7 +33,7 @@ test "content length reader state update" {
 }
 
 test "trailers" {
-    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/Sig/issues/30806
+    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30806
 
     const io = std.testing.io;
     const test_server = try createTestServer(io, struct {
@@ -119,7 +119,7 @@ test "trailers" {
 }
 
 test "HTTP server handles a chunked transfer coding request" {
-    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/Sig/issues/30806
+    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30806
 
     const io = std.testing.io;
     const test_server = try createTestServer(io, struct {
@@ -187,7 +187,7 @@ test "HTTP server handles a chunked transfer coding request" {
 }
 
 test "echo content server" {
-    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/Sig/issues/30806
+    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30806
 
     const io = std.testing.io;
     const test_server = try createTestServer(io, struct {
@@ -277,12 +277,12 @@ test "echo content server" {
 }
 
 test "Server.Request.respondStreaming non-chunked, unknown content-length" {
-    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/Sig/issues/30806
+    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30806
 
     const io = std.testing.io;
 
     if (builtin.cpu.arch == .aarch64 and builtin.os.tag == .windows) {
-        // https://github.com/ziglang/Sig/issues/21457
+        // https://github.com/ziglang/zig/issues/21457
         return error.SkipZigTest;
     }
 
@@ -355,7 +355,7 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
 }
 
 test "receiving arbitrary http headers from the client" {
-    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/Sig/issues/30806
+    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30806
 
     const io = std.testing.io;
 
@@ -420,7 +420,8 @@ test "receiving arbitrary http headers from the client" {
 }
 
 test "general client/server API coverage" {
-    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/Sig/issues/30806
+    if (builtin.os.tag == .netbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/36649
+    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30806
 
     const io = std.testing.io;
 
@@ -910,7 +911,7 @@ test "general client/server API coverage" {
 }
 
 test "Server streams both reading and writing" {
-    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/Sig/issues/30806
+    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30806
 
     const io = std.testing.io;
 
@@ -1175,7 +1176,7 @@ fn createTestServer(io: Io, S: type) !*TestServer {
 }
 
 test "redirect to different connection" {
-    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/Sig/issues/30806
+    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30806
 
     const io = std.testing.io;
     const test_server_new = try createTestServer(io, struct {
@@ -1262,7 +1263,7 @@ test "redirect to different connection" {
 }
 
 test "boot failed connections from the pool" {
-    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/Sig/issues/30806
+    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30806
 
     const io = std.testing.io;
     const gpa = std.testing.allocator;
