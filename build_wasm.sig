@@ -15,9 +15,9 @@ fn buildWasm(step: *sig_build.Step_Context) sig_build.SigError!void {
 
     var version_buf: [32]u8 = undefined;
     const zig_version = std.fmt.bufPrint(&version_buf, "{d}.{d}.{d}", .{
-        ctx.sig_version_major,
-        ctx.sig_version_minor,
-        ctx.sig_version_patch,
+        ctx.zig_version_major,
+        ctx.zig_version_minor,
+        ctx.zig_version_patch,
     }) catch return error.BufferTooSmall;
     const cache_dir = ctx.cache_dir[0..ctx.cache_dir_len];
     try sig_build.generateBuildOptions(ctx, zig_version, cache_dir, io);
@@ -123,9 +123,9 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         return error.BufferTooSmall;
     }
 
-    ctx.sig_version_major = @intCast(semver.major);
-    ctx.sig_version_minor = @intCast(semver.minor);
-    ctx.sig_version_patch = @intCast(semver.patch);
+    ctx.zig_version_major = @intCast(semver.major);
+    ctx.zig_version_minor = @intCast(semver.minor);
+    ctx.zig_version_patch = @intCast(semver.patch);
     @memcpy(ctx.sig_version[0..sig_version.len], sig_version);
     ctx.sig_version_len = sig_version.len;
     ctx.optimize = .ReleaseSmall;

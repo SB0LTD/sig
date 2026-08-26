@@ -15,9 +15,9 @@ fn noopStep(ctx: *sig_build.Step_Context) sig_build.SigError!void {
 
 pub fn build(ctx: *sig_build.Build_Context) !void {
     // Wire version constants
-    ctx.sig_version_major = zig_version.major;
-    ctx.sig_version_minor = zig_version.minor;
-    ctx.sig_version_patch = zig_version.patch;
+    ctx.zig_version_major = zig_version.major;
+    ctx.zig_version_minor = zig_version.minor;
+    ctx.zig_version_patch = zig_version.patch;
     @memcpy(ctx.sig_version[0..sig_version_string.len], sig_version_string);
     ctx.sig_version_len = sig_version_string.len;
 
