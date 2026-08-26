@@ -77,10 +77,8 @@ fn buildWasm(step: *sig_build.Step_Context) sig_build.SigError!void {
         try cmd.appendArg("--global-cache-dir");
         try cmd.appendArg(ctx.global_cache_dir[0..ctx.global_cache_dir_len]);
     }
-    if (ctx.zig_lib_dir_len > 0) {
-        try cmd.appendArg("--zig-lib-dir");
-        try cmd.appendArg(ctx.zig_lib_dir[0..ctx.zig_lib_dir_len]);
-    }
+    // Don't forward zig_lib_dir — the bootstrap compiler uses its own lib
+    // for runtime sub-compilations (compiler_rt, etc). Module paths are explicit.
     try cmd.appendArg(emit);
 
     sig_build.printMsg(io, "wasm: compiling {s}", .{wasm_output});
